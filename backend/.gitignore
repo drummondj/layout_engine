@@ -1,1 +1,16 @@
 build
+lefdef/def/bin/
+lefdef/def/def/def.tab.cpp
+lefdef/def/def/def.tab.h
+lefdef/def/def/y.output
+lefdef/def/defdiff/defdiff
+lefdef/def/defrw/defrw
+lefdef/def/defwrite/defwrite
+lefdef/def/include/
+lefdef/lef/bin/
+lefdef/lef/include/
+lefdef/lef/lef/lef.tab.cpp
+lefdef/lef/lef/lef.tab.h
+lefdef/lef/lefdiff/lefdiff
+lefdef/lef/lefrw/lefrw
+lefdef/lef/lefwrite/lefwrite

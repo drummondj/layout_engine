@@ -1,6 +1,10 @@
 DEF_TABNAME     = def
 DEF_BISON_SRCS  = def.y
 
+# Use YACC_CMD and YACC_FLAGS variables if provided, otherwise set defaults.
+YACC_CMD ?= bison
+YACC_FLAGS ?= -y
+
 FAKE_ALL: all
 
 LIBTARGET =	libdef.a
@@ -82,7 +86,8 @@ LIBSRCS =	\
 			defwWriterCalls.cpp
 
 def.tab.cpp : $(DEF_BISON_SRCS)
-	bison -v -p$(DEF_TABNAME)yy -d $(DEF_BISON_SRCS)
-	mv $(DEF_TABNAME).tab.c $(DEF_TABNAME).tab.cpp ;
+	$(YACC_CMD) $(YACC_FLAGS) -v -p$(DEF_TABNAME)yy -d $(DEF_BISON_SRCS)
+	mv y.tab.h def.tab.h
+	mv y.tab.c $(DEF_TABNAME).tab.cpp ;
 
 include ../template.mk
