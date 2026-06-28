@@ -174,10 +174,6 @@ namespace le
                 first_frame = false;
             }
 
-            // CVPixelBufferLockBaseAddress(pixelBuffer, 0);
-            // void *baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer);
-            // size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
-
             // Map Flutter's shared macOS pixel memory directly into a Skia Surface
             SkImageInfo info = SkImageInfo::Make(width,
                                                  height,
