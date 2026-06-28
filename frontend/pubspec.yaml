@@ -37,6 +37,7 @@ dependencies:
   flat_buffers: ^25.9.23
   hugeicons: ^1.1.7
   animated_visibility: ^0.0.4
+  flutter_bloc: ^9.1.1
 
 dev_dependencies:
   flutter_test:

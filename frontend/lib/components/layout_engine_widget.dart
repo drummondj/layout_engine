@@ -1,9 +1,8 @@
-import 'dart:ffi' hide Size;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:backend_plugin/backend_plugin.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:frontend/components/toolbar.dart';
+import 'package:frontend/state/home_page_cubit.dart';
 
 class LayoutEngineWidget extends StatefulWidget {
   const LayoutEngineWidget({super.key});
@@ -14,8 +13,8 @@ class LayoutEngineWidget extends StatefulWidget {
 
 class _LayoutEngineWidgetState extends State<LayoutEngineWidget>
     with WidgetsBindingObserver {
-  Pointer<Void>? _layoutEngineId;
-  int? _textureId;
+  late HomePageCubit cubit;
+
   Size _lastRequestedSize = Size.zero;
   bool _resizeScheduled = false;
   final FocusNode _canvasFocusNode = FocusNode();
@@ -23,28 +22,11 @@ class _LayoutEngineWidgetState extends State<LayoutEngineWidget>
   @override
   void initState() {
     super.initState();
-    _initLayoutEngine();
+    cubit = context.read();
+
     WidgetsBinding.instance.addObserver(this);
     _canvasFocusNode.skipTraversal = true;
-  }
-
-  Future<void> _initLayoutEngine() async {
-    final id = await BackendPlugin.initLayoutEngine();
-    await BackendPlugin.generateTestData(id);
-
-    // Now that the engine is ready, create the texture
-    const initialWidth = 400.0;
-    const initialHeight = 400.0;
-    final textureId = await BackendPlugin.createTexture(
-      id,
-      width: initialWidth.toInt(),
-      height: initialHeight.toInt(),
-    );
-    setState(() {
-      _textureId = textureId;
-      _layoutEngineId = id;
-    });
-    _scheduleResize();
+    cubit.initialize().then((_) => _scheduleResize());
   }
 
   @override
@@ -58,7 +40,7 @@ class _LayoutEngineWidgetState extends State<LayoutEngineWidget>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _resizeScheduled = false;
-      if (!mounted || _textureId == null) return;
+      if (!mounted) return;
 
       final renderBox = context.findRenderObject() as RenderBox?;
       if (renderBox == null || !renderBox.hasSize) return;
@@ -73,133 +55,96 @@ class _LayoutEngineWidgetState extends State<LayoutEngineWidget>
 
       if (target != _lastRequestedSize) {
         _lastRequestedSize = target;
-        BackendPlugin.resizeTexture(
-          _textureId!,
-          target.width.toInt(),
-          target.height.toInt(),
-        );
+        cubit.requestResize(target.width.toInt(), target.height.toInt());
       }
     });
-  }
-
-  void _zoom(double by) {
-    if (_layoutEngineId != null) {
-      BackendPlugin.zoom(_layoutEngineId!, by);
-    }
-  }
-
-  void _zoomFit() {
-    if (_layoutEngineId != null) {
-      BackendPlugin.zoomFit(_layoutEngineId!);
-    }
-  }
-
-  void _pan(Offset by) {
-    if (_layoutEngineId != null) {
-      BackendPlugin.pan(_layoutEngineId!, by.dx, by.dy);
-    }
-  }
-
-  void _panUp() {
-    _pan(Offset(0, 10));
-  }
-
-  void _panDown() {
-    _pan(Offset(0, -10));
-  }
-
-  void _panLeft() {
-    _pan(Offset(-10, 0));
-  }
-
-  void _panRight() {
-    _pan(Offset(10, 0));
   }
 
   void _onToolbarTap(ToolbarDesintation destination) {
     switch (destination) {
       case ToolbarDesintation.zoomIn:
-        _zoom(1.1);
+        cubit.zoom(1.1);
       case ToolbarDesintation.zoomOut:
-        _zoom(0.9);
+        cubit.zoom(0.9);
       case ToolbarDesintation.zoomFit:
-        _zoomFit();
+        cubit.zoomFit();
     }
   }
 
   @override
   void dispose() {
-    if (_layoutEngineId != null) {
-      BackendPlugin.destroyLayoutEngine(_layoutEngineId!);
-    }
-    if (_textureId != null) {
-      BackendPlugin.disposeTexture(_textureId!);
-    }
+    cubit.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_layoutEngineId == null) {
-      return const CircularProgressIndicator();
-    }
-    return Stack(
-      children: [
-        if (_textureId != null)
-          LayoutBuilder(
-            builder: (context, constraints) {
-              return SizedBox.expand(
-                child: _textureId == null
-                    ? const SizedBox.shrink()
-                    : Focus(
-                        focusNode: _canvasFocusNode,
-                        autofocus: true, // Grab focus immediately
-                        onKeyEvent: (FocusNode node, KeyEvent event) {
-                          if (event is KeyDownEvent ||
-                              event is KeyRepeatEvent) {
-                            if (event.logicalKey
-                                case LogicalKeyboardKey.arrowUp) {
-                              _panUp();
-                              return KeyEventResult.handled;
-                            } else if (event.logicalKey
-                                case LogicalKeyboardKey.arrowDown) {
-                              _panDown();
-                              return KeyEventResult.handled;
-                            } else if (event.logicalKey
-                                case LogicalKeyboardKey.arrowLeft) {
-                              _panLeft();
-                              return KeyEventResult.handled;
-                            } else if (event.logicalKey
-                                case LogicalKeyboardKey.arrowRight) {
-                              _panRight();
-                              return KeyEventResult.handled;
-                            }
-                            if (event.character case "f") {
-                              _zoomFit();
-                              return KeyEventResult.handled;
-                            } else if (event.character case "Z") {
-                              _zoom(0.9);
-                              return KeyEventResult.handled;
-                            } else if (event.character case "z") {
-                              _zoom(1.1);
-                              return KeyEventResult.handled;
-                            }
-                          }
-                          return KeyEventResult.ignored;
-                        },
-                        child: Texture(
-                          textureId: _textureId!,
-                          filterQuality: FilterQuality.high,
-                        ),
-                      ),
-              );
-            },
-          )
-        else
-          Center(child: CircularProgressIndicator()),
-        Toolbar(onTap: _onToolbarTap),
-      ],
+    return BlocBuilder<HomePageCubit, HomePageState>(
+      builder: (context, state) {
+        switch (state.status) {
+          case HomePageStatus.loading:
+            return const CircularProgressIndicator();
+          case HomePageStatus.loaded:
+            return Stack(
+              children: [
+                if (state.textureId != null)
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SizedBox.expand(
+                        child: state.textureId == null
+                            ? const SizedBox.shrink()
+                            : Focus(
+                                focusNode: _canvasFocusNode,
+                                autofocus: true, // Grab focus immediately
+                                onKeyEvent: (FocusNode node, KeyEvent event) {
+                                  if (event is KeyDownEvent ||
+                                      event is KeyRepeatEvent) {
+                                    if (event.logicalKey
+                                        case LogicalKeyboardKey.arrowUp) {
+                                      cubit.panUp();
+                                      return KeyEventResult.handled;
+                                    } else if (event.logicalKey
+                                        case LogicalKeyboardKey.arrowDown) {
+                                      cubit.panDown();
+                                      return KeyEventResult.handled;
+                                    } else if (event.logicalKey
+                                        case LogicalKeyboardKey.arrowLeft) {
+                                      cubit.panLeft();
+                                      return KeyEventResult.handled;
+                                    } else if (event.logicalKey
+                                        case LogicalKeyboardKey.arrowRight) {
+                                      cubit.panRight();
+                                      return KeyEventResult.handled;
+                                    }
+                                    if (event.character case "f") {
+                                      cubit.zoomFit();
+                                      return KeyEventResult.handled;
+                                    } else if (event.character case "Z") {
+                                      cubit.zoom(0.9);
+                                      return KeyEventResult.handled;
+                                    } else if (event.character case "z") {
+                                      cubit.zoom(1.1);
+                                      return KeyEventResult.handled;
+                                    }
+                                  }
+                                  return KeyEventResult.ignored;
+                                },
+                                child: Texture(
+                                  textureId: state.textureId!,
+                                  filterQuality: FilterQuality.high,
+                                ),
+                              ),
+                      );
+                    },
+                  )
+                else
+                  Center(child: CircularProgressIndicator()),
+                Toolbar(onTap: _onToolbarTap),
+              ],
+            );
+        }
+      },
     );
   }
 }

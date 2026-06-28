@@ -51,12 +51,14 @@ class _ToolbarState extends State<Toolbar> {
                       hidden = !hidden;
                     });
                   },
-                  icon: HugeIcon(
-                    icon: hidden
-                        ? HugeIcons.strokeRoundedCircleArrowRight01
-                        : HugeIcons.strokeRoundedCircleArrowLeft01,
-                    size: widget.iconSize,
-                    color: widget.iconColor,
+                  icon: AnimatedRotation(
+                    turns: hidden ? 0.5 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: HugeIcon(
+                      icon: HugeIcons.strokeRoundedCircleArrowUp01,
+                      size: widget.iconSize,
+                      color: widget.iconColor,
+                    ),
                   ),
                   iconSize: widget.iconSize,
                   color: widget.iconColor,
