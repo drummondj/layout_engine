@@ -1,0 +1,6 @@
+[submodule "backend/external/OpenROAD"]
+	path = backend/external/OpenROAD
+	url = https://github.com/The-OpenROAD-Project/OpenROAD.git
+[submodule "backend/external/spdlog"]
+	path = backend/external/spdlog
+	url = https://github.com/gabime/spdlog.git

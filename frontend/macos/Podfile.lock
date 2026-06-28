@@ -1,0 +1,22 @@
+PODS:
+  - backend_plugin (0.0.1):
+    - FlutterMacOS
+  - FlutterMacOS (1.0.0)
+
+DEPENDENCIES:
+  - backend_plugin (from `Flutter/ephemeral/.symlinks/plugins/backend_plugin/macos`)
+  - FlutterMacOS (from `Flutter/ephemeral`)
+
+EXTERNAL SOURCES:
+  backend_plugin:
+    :path: Flutter/ephemeral/.symlinks/plugins/backend_plugin/macos
+  FlutterMacOS:
+    :path: Flutter/ephemeral
+
+SPEC CHECKSUMS:
+  backend_plugin: 2a310cae1596e0f4fc05ec6c93d7ec36719e0446
+  FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
+
+PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
+
+COCOAPODS: 1.16.2

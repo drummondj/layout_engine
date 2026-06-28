@@ -1,0 +1,21 @@
+#!/bin/bash -e
+
+cd ../backend/build
+rm -rf *
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make
+
+cd ../../backend_plugin
+dart run ffigen
+
+cd ../frontend
+flutter clean
+flutter pub get
+cd macos
+pod deintegrate
+pod install
+cd ..
+
+flatc --dart --gen-object-api -o lib ../backend/database/database.fbs
+
+flutter run -d macos

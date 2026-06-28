@@ -1,0 +1,126 @@
+namespace le.database;
+
+//--------------------------------------------------------------------------------------------------
+// Database objects
+//--------------------------------------------------------------------------------------------------
+
+table Database {
+    libraries: [Library];
+    designs: [Design];
+    views: [View];
+}
+
+table Library {
+    id: uint32 (key);
+    name: string;
+}
+
+table Design {
+    id: uint32 (key);
+    name: string;
+    library_id: uint32;
+}
+
+enum ViewType :byte {
+    Abstract,
+    Layout,
+    Schematic,
+}
+
+table View {
+    id: uint32 (key);
+    name: string;
+    type: ViewType;
+    design_id: uint32;
+    instances: [Instance];
+}
+
+table Instance {
+    id: uint32 (key);
+    name: string;
+    parent_design_id: uint32; 
+    parent_view_id: uint32;
+}
+
+//--------------------------------------------------------------------------------------------------
+// Canvas related layers and shapes
+//--------------------------------------------------------------------------------------------------
+
+table Layer {
+    name: string (key);
+    visible: bool;
+    selectable: bool;
+    outline_color: string;
+    outline_width: uint32;
+    fill_color: string;
+    zindex: uint32;
+    // TBD: fill_pattern and outline_pattern
+}
+
+table Layers {
+    layers: [Layer];
+}
+
+table Point {
+    x: int32;
+    y: int32;
+}
+
+table Polyline {
+    points: [Point];
+}
+
+table Rect {
+    ll: Point;
+    ur: Point;
+}
+
+table Path {
+    polyline: Polyline;
+    width: int32;
+}
+
+table Polygon {
+    polyline: Polyline;
+}
+
+table Text {
+    label: string;
+    location: Point;
+}
+
+table Shape {
+    object_id: uint32;
+    label: string;
+    layer_name: string;
+    rects: [Rect];
+    paths: [Path];
+    polygons: [Polygon];
+    texts: [Text];
+}
+
+//--------------------------------------------------------------------------------------------------
+// UI payloads - used for sending data for widgets in the flutter UI
+//--------------------------------------------------------------------------------------------------
+table BrowserPayload { 
+    libraries: [LibraryInfo];
+} 
+
+table LibraryInfo {
+    id: uint32;
+    name: string;
+    designs: [DesignInfo];
+}
+
+table DesignInfo {
+    id: uint32;
+    name: string;
+    views: [ViewInfo];
+}
+
+table ViewInfo {
+    id: uint32;
+    name: string;
+}
+
+root_type Database;

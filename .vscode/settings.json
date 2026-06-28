@@ -1,0 +1,7 @@
+{
+    "cmake.sourceDirectory": "/Users/john/Projects/synthosilicon/layout_engine/backend",
+    "C_Cpp.errorSquiggles": "enabled",
+    "C_Cpp.codeAnalysis.clangTidy.checks.disabled": [
+        "clang-diagnostic-error"
+    ]
+}
