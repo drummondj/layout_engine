@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:animated_visibility/animated_visibility.dart';
 import 'package:hugeicons/hugeicons.dart';
 
 enum ToolbarDesintation { zoomIn, zoomOut, zoomFit }
@@ -37,79 +38,91 @@ class _ToolbarState extends State<Toolbar> {
           ),
           boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 10)],
         ),
-        child: Column(
-          mainAxisSize: .min,
-          children: [
-            Tooltip(
-              message: hidden ? "Show menu" : "Hide menu",
-              child: IconButton(
-                onPressed: () {
-                  setState(() {
-                    hidden = !hidden;
-                  });
-                },
-                icon: HugeIcon(
-                  icon: hidden
-                      ? HugeIcons.strokeRoundedCircleArrowRight01
-                      : HugeIcons.strokeRoundedCircleArrowLeft01,
-                  size: widget.iconSize,
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Column(
+            mainAxisSize: .min,
+            children: [
+              Tooltip(
+                message: hidden ? "Show menu" : "Hide menu",
+                child: IconButton(
+                  onPressed: () {
+                    setState(() {
+                      hidden = !hidden;
+                    });
+                  },
+                  icon: HugeIcon(
+                    icon: hidden
+                        ? HugeIcons.strokeRoundedCircleArrowRight01
+                        : HugeIcons.strokeRoundedCircleArrowLeft01,
+                    size: widget.iconSize,
+                    color: widget.iconColor,
+                  ),
+                  iconSize: widget.iconSize,
                   color: widget.iconColor,
                 ),
-                iconSize: widget.iconSize,
-                color: widget.iconColor,
               ),
-            ),
-            if (!hidden) ...[
-              SizedBox(width: 40, child: Divider()),
-              Padding(
-                padding: const EdgeInsets.all(8.0),
+              AnimatedVisibility(
+                visible: !hidden,
+                enter: slideInVertically(initialOffsetY: -1) + fadeIn(),
+                exit: slideOutVertically(targetOffsetY: -1) + fadeOut(),
+                enterDuration: Duration(milliseconds: 200),
+                exitDuration: Duration(milliseconds: 200),
                 child: Column(
-                  mainAxisSize: .min,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Tooltip(
-                      message: "Zoom In (z)",
-                      child: IconButton(
-                        onPressed: () => widget.onTap(.zoomIn),
-                        icon: HugeIcon(
-                          icon: HugeIcons.strokeRoundedSearchAdd,
-                          size: widget.iconSize,
-                          color: widget.iconColor,
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Tooltip(
+                          message: "Zoom In (z)",
+                          child: IconButton(
+                            onPressed: () =>
+                                widget.onTap(ToolbarDesintation.zoomIn),
+                            icon: HugeIcon(
+                              icon: HugeIcons.strokeRoundedSearchAdd,
+                              size: widget.iconSize,
+                              color: widget.iconColor,
+                            ),
+                            iconSize: widget.iconSize,
+                            color: widget.iconColor,
+                          ),
                         ),
-                        iconSize: widget.iconSize,
-                        color: widget.iconColor,
-                      ),
-                    ),
-                    Tooltip(
-                      message: "Zoom Out (Shift+z)",
-                      child: IconButton(
-                        onPressed: () => widget.onTap(.zoomOut),
-                        icon: HugeIcon(
-                          icon: HugeIcons.strokeRoundedSearchMinus,
-                          size: widget.iconSize,
-                          color: widget.iconColor,
+                        Tooltip(
+                          message: "Zoom Out (Shift+z)",
+                          child: IconButton(
+                            onPressed: () =>
+                                widget.onTap(ToolbarDesintation.zoomOut),
+                            icon: HugeIcon(
+                              icon: HugeIcons.strokeRoundedSearchMinus,
+                              size: widget.iconSize,
+                              color: widget.iconColor,
+                            ),
+                            iconSize: widget.iconSize,
+                            color: widget.iconColor,
+                          ),
                         ),
-                        iconSize: widget.iconSize,
-                        color: widget.iconColor,
-                      ),
-                    ),
-                    Tooltip(
-                      message: "Fit (f)",
-                      child: IconButton(
-                        onPressed: () => widget.onTap(.zoomFit),
-                        icon: HugeIcon(
-                          icon: HugeIcons.strokeRoundedFitToScreen,
-                          size: widget.iconSize,
-                          color: widget.iconColor,
+                        Tooltip(
+                          message: "Fit (f)",
+                          child: IconButton(
+                            onPressed: () =>
+                                widget.onTap(ToolbarDesintation.zoomFit),
+                            icon: HugeIcon(
+                              icon: HugeIcons.strokeRoundedFitToScreen,
+                              size: widget.iconSize,
+                              color: widget.iconColor,
+                            ),
+                            iconSize: widget.iconSize,
+                            color: widget.iconColor,
+                          ),
                         ),
-                        iconSize: widget.iconSize,
-                        color: widget.iconColor,
-                      ),
+                      ],
                     ),
                   ],
                 ),
               ),
             ],
-          ],
+          ),
         ),
       ),
     );
