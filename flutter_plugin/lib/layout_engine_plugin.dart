@@ -448,7 +448,7 @@ class LeEditor implements LeEditorBase {
   /// left unchanged on failure.
   bool setCurrentDesign(int index) {
     _checkNotDisposed();
-    return _bindings.le_set_current_design(_handle, index) == 0;
+    return _bindings.le_set_current_design_abstract(_handle, index) == 0;
   }
 
   /// Number of Libraries currently loaded - one per `read_lef` Tcl command
@@ -521,7 +521,7 @@ class LeEditor implements LeEditorBase {
     try {
       idPtr.ref.index = designId.index;
       idPtr.ref.generation = designId.generation;
-      return _bindings.le_set_current_design_by_id(_handle, idPtr.ref) == 0;
+      return _bindings.le_set_current_design_abstract_by_id(_handle, idPtr.ref) == 0;
     } finally {
       pkg_ffi.calloc.free(idPtr);
     }
@@ -1234,6 +1234,11 @@ class LeEditor implements LeEditorBase {
           _handle,
           portId,
           _invalidObstructionId,
+          _invalidPhysicalPortSegmentId,
+          _invalidBlockageId,
+          _invalidRouteId,
+          _invalidLayoutId,
+          _invalidAbstractId,
           ffi.nullptr,
         );
         return [
@@ -1248,6 +1253,11 @@ class LeEditor implements LeEditorBase {
           _handle,
           _invalidTerminalPortId,
           obstructionId,
+          _invalidPhysicalPortSegmentId,
+          _invalidBlockageId,
+          _invalidRouteId,
+          _invalidLayoutId,
+          _invalidAbstractId,
           ffi.nullptr,
         );
         return [
@@ -1304,6 +1314,32 @@ class LeEditor implements LeEditorBase {
       ffi.Struct.create<LeTerminalPortId>()
         ..index = 0xFFFFFFFF
         ..generation = 0;
+
+  // Shape gained five more possible parents this session (Layout's own
+  // DEF-sourced PhysicalPortSegment/Blockage/Route/diearea, and
+  // Abstract's own boundary) - le_get_shapes' own "exactly one of these"
+  // contract needs an explicit invalid id for whichever don't apply,
+  // same as _invalidTerminalPortId/_invalidObstructionId above.
+  LePhysicalPortSegmentId get _invalidPhysicalPortSegmentId =>
+      ffi.Struct.create<LePhysicalPortSegmentId>()
+        ..index = 0xFFFFFFFF
+        ..generation = 0;
+
+  LeBlockageId get _invalidBlockageId => ffi.Struct.create<LeBlockageId>()
+    ..index = 0xFFFFFFFF
+    ..generation = 0;
+
+  LeRouteId get _invalidRouteId => ffi.Struct.create<LeRouteId>()
+    ..index = 0xFFFFFFFF
+    ..generation = 0;
+
+  LeLayoutId get _invalidLayoutId => ffi.Struct.create<LeLayoutId>()
+    ..index = 0xFFFFFFFF
+    ..generation = 0;
+
+  LeAbstractId get _invalidAbstractId => ffi.Struct.create<LeAbstractId>()
+    ..index = 0xFFFFFFFF
+    ..generation = 0;
 
   /// Runs the full pipeline+render chain for the currently selected Design
   /// and viewport, returning the resulting frame copied into Dart-owned

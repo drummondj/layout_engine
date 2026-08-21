@@ -551,7 +551,7 @@ check "get_terminals default scope back in TESTCELL's view only sees TESTCELL's 
 # (api.cpp), Terminal's own hand-written friendly-id resolver, used to
 # read handle->scene.current_abstract() - a separate GUI-rendering
 # "current view" only ever moved as a side effect of selecting a Design
-# (le_set_current_design/le_set_current_design_by_id) - instead of
+# (le_set_current_design_abstract/le_set_current_design_abstract_by_id) - instead of
 # handle->current_abstract_id, the same field current_abstract itself
 # sets when given an id, and get_terminals' own default scope already
 # derives from. open_design happens to touch both together (it selects

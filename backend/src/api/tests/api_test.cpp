@@ -351,15 +351,15 @@ TEST_F(ApiFixture, DesignNameOutOfRangeReturnsNull)
 TEST_F(ApiFixture, SetCurrentDesignOutOfRangeReturnsNonzero)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    EXPECT_NE(le_set_current_design(handle, 1), 0);
-    EXPECT_NE(le_set_current_design(handle, -1), 0);
-    EXPECT_NE(le_set_current_design(nullptr, 0), 0);
+    EXPECT_NE(le_set_current_design_abstract(handle, 1), 0);
+    EXPECT_NE(le_set_current_design_abstract(handle, -1), 0);
+    EXPECT_NE(le_set_current_design_abstract(nullptr, 0), 0);
 }
 
 TEST_F(ApiFixture, SetCurrentDesignValidIndexSucceeds)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    EXPECT_EQ(le_set_current_design(handle, 0), 0);
+    EXPECT_EQ(le_set_current_design_abstract(handle, 0), 0);
 }
 
 TEST_F(ApiFixture, RenderPixelBufferWithNullHandleReturnsAllZero)
@@ -394,7 +394,7 @@ TEST_F(ApiFixture, RenderPixelBufferWithZeroSizedViewportDoesNotCrash)
 TEST_F(ApiFixture, RenderPixelBufferProducesTheRequestedDimensions)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 200, 200);
 
@@ -416,7 +416,7 @@ TEST_F(ApiFixture, SubPixelShapeRendersAsASinglePixelDotAndIsNotSelectable)
     // dot must not be clickable - see TinyShapeDot's own comment for why
     // Pipeline::hit_test_point/hit_test_rect never see it.
     ASSERT_EQ(le_read_lef(handle, fixture_path("tiny_shape.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
 
@@ -461,7 +461,7 @@ TEST_F(ApiFixture, FitSceneWithNoDesignSelectedFallsBackToDefaultScaleAndPan)
 TEST_F(ApiFixture, FitSceneFillsTheViewportWithThePinVisible)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 200, 200);
     le_fit_scene(handle, 10);
@@ -548,16 +548,16 @@ TEST_F(ApiFixture, LibraryDesignAtReturnsTheDesignAndItsAbstractId)
 
 TEST_F(ApiFixture, SetCurrentDesignByIdWithNullHandleOrUnknownIdReturnsNonzero)
 {
-    EXPECT_NE(le_set_current_design_by_id(nullptr, LeDesignId{0, 0}), 0);
+    EXPECT_NE(le_set_current_design_abstract_by_id(nullptr, LeDesignId{0, 0}), 0);
 
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    EXPECT_NE(le_set_current_design_by_id(handle, LeDesignId{UINT32_MAX, 0}), 0);
-    EXPECT_NE(le_set_current_design_by_id(handle, LeDesignId{99, 0}), 0);
+    EXPECT_NE(le_set_current_design_abstract_by_id(handle, LeDesignId{UINT32_MAX, 0}), 0);
+    EXPECT_NE(le_set_current_design_abstract_by_id(handle, LeDesignId{99, 0}), 0);
 }
 
 TEST_F(ApiFixture, SetCurrentDesignByIdAlsoSetsTheGeneratedCurrentAbstract)
 {
-    // le_set_current_design_by_id is the shared entry point both a
+    // le_set_current_design_abstract_by_id is the shared entry point both a
     // Dart-driven GUI (LeProvider.openDesign) and a TCL script
     // (open_design) select a Design through - both should mean the same
     // thing: get_terminals/get_shapes/etc.'s own default -of-omitted
@@ -569,7 +569,7 @@ TEST_F(ApiFixture, SetCurrentDesignByIdAlsoSetsTheGeneratedCurrentAbstract)
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
     EXPECT_EQ(le_current_abstract(handle).index, UINT32_MAX); // nothing selected yet
 
-    ASSERT_EQ(le_set_current_design_by_id(handle, design.id), 0);
+    ASSERT_EQ(le_set_current_design_abstract_by_id(handle, design.id), 0);
 
     const LeAbstractId current = le_current_abstract(handle);
     EXPECT_EQ(current.index, design.abstract_id.index);
@@ -583,7 +583,7 @@ TEST_F(ApiFixture, SetCurrentDesignAlsoSetsTheGeneratedCurrentAbstract)
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
 
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     const LeAbstractId current = le_current_abstract(handle);
     EXPECT_EQ(current.index, design.abstract_id.index);
@@ -595,7 +595,7 @@ TEST_F(ApiFixture, SetCurrentDesignByIdSelectsTheSameDesignAsSetCurrentDesign)
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
 
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
-    ASSERT_EQ(le_set_current_design_by_id(handle, design.id), 0);
+    ASSERT_EQ(le_set_current_design_abstract_by_id(handle, design.id), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // pan (0,0), scale 0.01 - see other zoom-setup tests
@@ -604,7 +604,7 @@ TEST_F(ApiFixture, SetCurrentDesignByIdSelectsTheSameDesignAsSetCurrentDesign)
     ASSERT_NE(buffer.data, nullptr);
     // PIN A is on M1 (ROUTING), so its fill is a tiled diagonal-stripe
     // pattern - scan the pin's own region rather than trusting one pixel.
-    EXPECT_TRUE(region_has_opaque_pixel(buffer, 21, 21, 79, 79)); // pin rect visible, same as le_set_current_design(handle, 0) would give
+    EXPECT_TRUE(region_has_opaque_pixel(buffer, 21, 21, 79, 79)); // pin rect visible, same as le_set_current_design_abstract(handle, 0) would give
 }
 
 TEST_F(ApiFixture, LayerCountAndAtAreZeroOrInvalidForNullHandleOrNoViewLayerSetYet)
@@ -969,7 +969,7 @@ TEST_F(ApiFixture, SetPurposeSelectableWithNullHandleDoesNotCrash)
 TEST_F(ApiFixture, HidingALayerByNameRemovesItFromTheRenderedBuffer)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // pan (0,0), scale 0.01 - see other zoom-setup tests
@@ -988,7 +988,7 @@ TEST_F(ApiFixture, HidingALayerByNameRemovesItFromTheRenderedBuffer)
 TEST_F(ApiFixture, HidingATerminalPurposeRemovesItFromTheRenderedBuffer)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // pan (0,0), scale 0.01 - see other zoom-setup tests
@@ -1177,7 +1177,7 @@ TEST_F(ApiFixture, ZoomWithNullHandleDoesNotCrash)
 TEST_F(ApiFixture, ZoomWithDegenerateFactorLeavesScaleAndPanUnchanged)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // -> scale 0.01, pan (0, 0)
@@ -1195,7 +1195,7 @@ TEST_F(ApiFixture, ZoomWithDegenerateFactorLeavesScaleAndPanUnchanged)
 TEST_F(ApiFixture, ZoomKeepsTheAnchorPixelFixedOnScreen)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // -> scale 0.01, pan (0, 0)
@@ -1225,7 +1225,7 @@ TEST_F(ApiFixture, PanWithNullHandleDoesNotCrash)
 TEST_F(ApiFixture, PanShiftsContentOutOfView)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // -> scale 0.01, pan (0, 0)
@@ -1247,7 +1247,7 @@ TEST_F(ApiFixture, PanShiftsContentOutOfView)
 TEST_F(ApiFixture, KeyDownZoomZoomsInAnchoredAtTheCurrentMousePosition)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // -> scale 0.01, pan (0, 0); PIN A at device (20,20)-(80,80)
@@ -1270,7 +1270,7 @@ TEST_F(ApiFixture, KeyDownZoomZoomsInAnchoredAtTheCurrentMousePosition)
 TEST_F(ApiFixture, KeyDownZoomWithShiftHeldZoomsOutInstead)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // -> scale 0.01, pan (0, 0); PIN A at device (20,20)-(80,80)
@@ -1298,7 +1298,7 @@ TEST_F(ApiFixture, KeyDownZoomWithShiftHeldZoomsOutInstead)
 TEST_F(ApiFixture, KeyDownZoomWithoutAMousePositionSetDoesNotCrash)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
 
     le_key_down(handle, LE_KEY_ZOOM); // no le_set_mouse_position call first - anchors at the default (0,0)
@@ -1310,7 +1310,7 @@ TEST_F(ApiFixture, KeyDownZoomWithoutAMousePositionSetDoesNotCrash)
 TEST_F(ApiFixture, ZoomDragFitsTheDraggedRectToTheViewport)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
 
     // Scene starts at pan (0,0)/scale 1.0. Drag from pixel (0,100) [dbu
@@ -1334,7 +1334,7 @@ TEST_F(ApiFixture, ZoomDragFitsTheDraggedRectToTheViewport)
 TEST_F(ApiFixture, ClickSizedZoomDragDoesNotChangeTheView)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // -> scale 0.01, pan (0, 0); PIN A at device (20,20)-(80,80)
@@ -1351,7 +1351,7 @@ TEST_F(ApiFixture, ClickSizedZoomDragDoesNotChangeTheView)
 TEST_F(ApiFixture, ZoomDragWithoutAMouseUpLeavesTheSceneStillDragging)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
 
     le_zoom_drag_down(handle, 10, 10);
@@ -1363,7 +1363,7 @@ TEST_F(ApiFixture, ZoomDragWithoutAMouseUpLeavesTheSceneStillDragging)
 TEST_F(ApiFixture, SelectDragRectangleIsBlueZoomDragRectangleIsGreen)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
 
     // Default pan (0,0)/scale 1.0 puts the visible dbu range at
@@ -1402,7 +1402,7 @@ TEST_F(ApiFixture, ZoomDragDownWithNullHandleDoesNotCrash)
 TEST_F(ApiFixture, KeyDownFitFitsTheViewportToContent)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 200, 200);
     le_key_down(handle, LE_KEY_FIT);
@@ -1417,7 +1417,7 @@ TEST_F(ApiFixture, KeyDownFitFitsTheViewportToContent)
 TEST_F(ApiFixture, KeyDownPanLeftShiftsContentOutOfView)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // -> scale 0.01, pan (0, 0)
@@ -1439,7 +1439,7 @@ TEST_F(ApiFixture, KeyDownPanLeftShiftsContentOutOfView)
 TEST_F(ApiFixture, KeyDownPanDirectionsAreEachOthersOpposite)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
@@ -1461,7 +1461,7 @@ TEST_F(ApiFixture, KeyDownPanDirectionsAreEachOthersOpposite)
 TEST_F(ApiFixture, KeyDownPanWithCtrlOrShiftHeldIsANoOp)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
@@ -1555,7 +1555,7 @@ TEST_F(ApiFixture, KeyDownRulerModeWithCtrlOrShiftHeldIsANoOp)
 TEST_F(ApiFixture, RenderPixelBufferDrawsThePinRectAtItsExpectedLocation)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     // MACRO SIZE is 10x10 microns, PIN A's RECT is (2,2)-(8,8) microns.
     // DATABASE MICRONS 1000 -> 1 micron = 1000 dbu. Scale chosen so the
@@ -1586,7 +1586,7 @@ TEST_F(ApiFixture, RenderPixelBufferDrawsThePinRectAtItsExpectedLocation)
 TEST_F(ApiFixture, MouseMoveOverASelectableShapeShowsAYellowHoverOutline)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     // Same pan/scale as RenderPixelBufferDrawsThePinRectAtItsExpectedLocation -
     // PIN A's rect ends up at device pixel (20,20)-(80,80).
@@ -1606,7 +1606,7 @@ TEST_F(ApiFixture, MouseMoveOverAShapeInRulerModeDoesNotShowAHoverOutline)
     // it was left on unconditionally, so it kept highlighting shapes
     // under the cursor while placing ruler points too.
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
@@ -1622,7 +1622,7 @@ TEST_F(ApiFixture, MouseMoveOverAShapeInRulerModeDoesNotShowAHoverOutline)
 TEST_F(ApiFixture, SwitchingToRulerModeClearsAnAlreadyShownHoverOutline)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
@@ -1637,7 +1637,7 @@ TEST_F(ApiFixture, SwitchingToRulerModeClearsAnAlreadyShownHoverOutline)
 TEST_F(ApiFixture, MouseMoveAwayFromAnyShapeClearsTheHoverOutline)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
@@ -1653,7 +1653,7 @@ TEST_F(ApiFixture, MouseMoveAwayFromAnyShapeClearsTheHoverOutline)
 TEST_F(ApiFixture, ClearMousePositionAlsoClearsTheHoverOutline)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
@@ -1669,7 +1669,7 @@ TEST_F(ApiFixture, ClearMousePositionAlsoClearsTheHoverOutline)
 TEST_F(ApiFixture, MouseMoveOverAnUnselectableLayerNeverShowsAHoverOutline)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
@@ -1739,7 +1739,7 @@ namespace
     void load_two_shapes_at_known_scale(LeHandle *handle)
     {
         ASSERT_EQ(le_read_lef(handle, fixture_path("two_shapes.lef").c_str()), 0);
-        ASSERT_EQ(le_set_current_design(handle, 0), 0);
+        ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
         le_set_viewport_size(handle, 200, 200);
         le_zoom(handle, 0.01 - 1.0, 0, 200);
@@ -1787,7 +1787,7 @@ TEST_F(ApiFixture, SelectAllIsCappedAt10000AndWarns)
 {
     const std::string path = generate_concurrency_stress_lef(10050);
     ASSERT_EQ(le_read_lef(handle, path.c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     ASSERT_EQ(le_message_count(handle), 0);
 
@@ -2383,7 +2383,7 @@ TEST_F(ApiFixture, SwitchingToADifferentDesignClearsTheSelection)
     le_mouse_up(handle, 25, 175);
     ASSERT_EQ(le_selection_count(handle), 1);
 
-    ASSERT_EQ(le_set_current_design(handle, 1), 0); // switch to TESTCELL
+    ASSERT_EQ(le_set_current_design_abstract(handle, 1), 0); // switch to TESTCELL
     EXPECT_EQ(le_selection_count(handle), 0);
 }
 
@@ -2401,7 +2401,7 @@ TEST_F(ApiFixture, SwitchingToADifferentDesignClearsRulers)
     le_mouse_up(handle, 25, 175);
     ASSERT_EQ(le_ruler_count(handle), 1);
 
-    ASSERT_EQ(le_set_current_design(handle, 1), 0); // switch to TESTCELL
+    ASSERT_EQ(le_set_current_design_abstract(handle, 1), 0); // switch to TESTCELL
     EXPECT_EQ(le_ruler_count(handle), 0);
 }
 
@@ -2439,7 +2439,7 @@ namespace
     void load_pin_and_obstruction_at_known_scale(LeHandle *handle)
     {
         ASSERT_EQ(le_read_lef(handle, fixture_path("pin_and_obstruction.lef").c_str()), 0);
-        ASSERT_EQ(le_set_current_design(handle, 0), 0);
+        ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
         le_set_viewport_size(handle, 200, 200);
         le_zoom(handle, 0.01 - 1.0, 0, 200);
@@ -2583,7 +2583,7 @@ TEST_F(ApiFixture, SelectedTerminalRectTrimsTrailingZerosInWholeGroupsOfThree)
     // strip further into the significant "340" group and not leave a
     // partial group like "0.34".
     ASSERT_EQ(le_read_lef(handle, fixture_path("fractional_pin.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 0.01 - 1.0, 0, 100);
 
@@ -2607,7 +2607,7 @@ TEST_F(ApiFixture, SelectedTerminalRectKeepsFullPrecisionWhenNotAMultipleOfAThou
     // genuinely needs all 6 decimal digits, so the trim loop's first
     // check ("500" isn't "000") must fail immediately and leave it alone.
     ASSERT_EQ(le_read_lef(handle, fixture_path("full_precision_pin.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 0.01 - 1.0, 0, 100);
 
@@ -2826,7 +2826,7 @@ TEST_F(ApiFixture, ConcurrentRenderAndMousePositionCallsOnTheSameHandleDoNotCras
     // own mutex; this drives both call paths concurrently, repeatedly,
     // and must complete without crashing, deadlocking, or hanging.
     ASSERT_EQ(le_read_lef(handle, generate_concurrency_stress_lef(3000).c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 200, 200);
 
     constexpr int kIterations = 50;
@@ -3028,8 +3028,8 @@ TEST_F(ApiFixture, BuildingALibraryDesignAbstractFromScratchAndSelectingItWithLe
     // generated by-name lookup pair, see Field.unique_per_parent's own
     // docstring) used to read handle->scene.current_abstract() - a
     // separate GUI-rendering "current view" only ever moved as a side
-    // effect of selecting a Design (le_set_current_design/
-    // le_set_current_design_by_id) - instead of
+    // effect of selecting a Design (le_set_current_design_abstract/
+    // le_set_current_design_abstract_by_id) - instead of
     // handle->current_abstract_id, the same field le_set_current_abstract
     // itself sets and le_get_terminals' own default scope already
     // derives from. A script with no LEF-loaded Design to select at all
@@ -3629,7 +3629,7 @@ TEST_F(ApiFixture, MoveTranslatesSelectedShapeGeometryAndIsUndoable)
     // load_two_shapes_at_known_scale sets up, so the exact rect can be
     // read back and compared by value below.
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId obstruction_id = create_obstruction_with_rect(handle, abstract_id, "M4", kRect0);
     const LeShapeId shape_id = le_obstruction_shape_at(handle, obstruction_id, 0);
@@ -3787,7 +3787,7 @@ TEST_F(ApiFixture, ClickSelectsAndMovesOnlyOneRectOfATwoRectShapeNotBothOrTheWro
     // select and move only that raw piece, at its real stored index, not
     // the whole Shape or the wrong sibling.
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
 
     const LeObstructionId obstruction_id = le_create_obstruction(handle, abstract_id);
@@ -3838,7 +3838,7 @@ TEST_F(ApiFixture, DragSelectEnclosingTwoPiecesOfTheSameShapeSelectsBothAsSepara
     // two rects that happen to belong to the same Shape must select both
     // as independent entries, not dedup down to one whole-shape entry.
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_set_current_design(handle, 0), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
 
     const LeObstructionId obstruction_id = le_create_obstruction(handle, abstract_id);

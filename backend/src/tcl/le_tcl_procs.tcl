@@ -556,7 +556,7 @@ register_command_help set_viewport_size \
 # docstring) is scoped to its Abstract, since a script's "give me the
 # terminals" means "in the view I have open", not "across every open
 # Library/Design". Also moves Scene::current_abstract() (GUI rendering)
-# the same way, via the shared le_set_current_design_by_id both this and
+# the same way, via the shared le_set_current_design_abstract_by_id both this and
 # the GUI's own design-selection path (LeProvider.openDesign) call into -
 # selecting a Design means the same thing regardless of which side asked
 # (see that function's own comment in api.cpp). `-view` is accepted but
@@ -571,7 +571,7 @@ proc open_design {name args} {
     # "-help" to $name, leaving $args empty - the same class of bug
     # found (and fixed the same way) in every generated update_<type>.
     if {$name eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "open_design <name> \[-view abstract\] \[-help\] - Selects <name>'s Design as this session's current view"
+        return "open_design <name> \[-view abstract|layout\] \[-help\] - Selects <name>'s Design as this session's current view"
     }
     array set opts {-view abstract}
     foreach {flag value} $args {
@@ -580,20 +580,26 @@ proc open_design {name args} {
         }
         set opts($flag) $value
     }
-    if {$opts(-view) ne "abstract"} {
-        error "open_design: -view $opts(-view) is not supported - only \"abstract\" is currently meaningful"
+    if {$opts(-view) ne "abstract" && $opts(-view) ne "layout"} {
+        error "open_design: -view $opts(-view) is not supported - only \"abstract\" or \"layout\" are meaningful"
     }
     set design_id [design_by_name $name]
     if {$design_id == $::kInvalidId} {
         error "open_design: no such design \"$name\""
     }
-    if {[set_current_design_cmd $design_id] != 0} {
-        error "open_design: failed to select design \"$name\""
+    # Only one view is ever "open" at a time (mutually exclusive) -
+    # set_current_design_abstract_cmd (Abstract) and set_current_design_layout_cmd
+    # (Layout) each deactivate the other's own current-instance tracker
+    # as a side effect - see their own api.cpp comments.
+    if {$opts(-view) eq "abstract"} {
+        if {[set_current_design_abstract_cmd $design_id] != 0} {
+            error "open_design: failed to select design \"$name\""
+        }
+    } else {
+        if {[set_current_design_layout_cmd $design_id] != 0} {
+            error "open_design: failed to select design \"$name\""
+        }
     }
-    # set_current_design_cmd (le_set_current_design_by_id) already moves
-    # the generated current_abstract along with it - no separate
-    # get_abstracts/set_current_abstract step needed here anymore (see
-    # that function's own comment in api.cpp).
     #
     # design:<name>, not the raw design_id, for consistency with UPDATES.md
     # item 19.1's own friendly-id convention - the caller already has
@@ -601,11 +607,11 @@ proc open_design {name args} {
     return "design:$name"
 }
 register_command_help open_design \
-    "open_design <name> \[-view abstract\] \[-help\] - Selects <name>'s Design as this session's current view" \
-    "Selects a Design by name as this session's current view - every subsequent get_<type> call's default (-of omitted) scope derives from it." \
+    "open_design <name> \[-view abstract|layout\] \[-help\] - Selects <name>'s Design as this session's current view" \
+    "Selects a Design by name as this session's current view - every subsequent get_<type> call's default (-of omitted) scope derives from it. Only one view is ever open at a time: -view abstract (the default) and -view layout are mutually exclusive, each deactivating the other." \
     {
         {<name> {type str required 1 description {Name of the Design to open}}}
-        {-view {type str required 0 description {Only "abstract" is currently meaningful}}}
+        {-view {type str required 0 description {"abstract" (default) or "layout" - mutually exclusive, selecting one deactivates the other}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 

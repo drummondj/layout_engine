@@ -76,6 +76,29 @@ class LayoutEnginePluginBindings {
   late final _le_read_lef = _le_read_lefPtr
       .asFunction<int Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)>();
 
+  /// @brief Reads a DEF file into this handle's Root via DEFReader,
+  /// same shape as le_read_lef (messages appended, 0 on success).
+  /// Unlike le_read_lef, doesn't touch layer visibility defaults or
+  /// rebuild ViewLayerSet - DEF doesn't introduce new physical Layers
+  /// of its own (Step 2's own layer-generation work, not yet done, is
+  /// what a Row/Track/Blockage/BOUNDARY-purpose rendering pass would
+  /// need instead). Does still resolve/create the shared Technology
+  /// (DEFReader::technology_id_) the same reuse-or-create way
+  /// le_read_lef's own LEFReader does, since NONDEFAULTRULES needs one
+  /// even when no LEF has been read into this handle yet.
+  int le_read_def(ffi.Pointer<LeHandle> handle, ffi.Pointer<ffi.Char> path) {
+    return _le_read_def(handle, path);
+  }
+
+  late final _le_read_defPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+        >
+      >('le_read_def');
+  late final _le_read_def = _le_read_defPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)>();
+
   /// @brief Total number of error/warning/info messages produced by
   /// this handle's backend operations so far (currently just
   /// le_read_lef() - file-open/parse errors, parser warnings, parser
@@ -154,16 +177,17 @@ class LayoutEnginePluginBindings {
   /// renders (its Abstract view). Returns 0 on success, nonzero if
   /// handle is null or index is out of range - the current selection is
   /// left unchanged on failure.
-  int le_set_current_design(ffi.Pointer<LeHandle> handle, int index) {
-    return _le_set_current_design(handle, index);
+  int le_set_current_design_abstract(ffi.Pointer<LeHandle> handle, int index) {
+    return _le_set_current_design_abstract(handle, index);
   }
 
-  late final _le_set_current_designPtr =
+  late final _le_set_current_design_abstractPtr =
       _lookup<
         ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, ffi.Int32)>
-      >('le_set_current_design');
-  late final _le_set_current_design = _le_set_current_designPtr
-      .asFunction<int Function(ffi.Pointer<LeHandle>, int)>();
+      >('le_set_current_design_abstract');
+  late final _le_set_current_design_abstract =
+      _le_set_current_design_abstractPtr
+          .asFunction<int Function(ffi.Pointer<LeHandle>, int)>();
 
   /// @brief Number of Libraries currently loaded - one per le_read_lef()
   /// call so far (see its own comment: each derives a fresh Library from
@@ -235,26 +259,68 @@ class LayoutEnginePluginBindings {
   /// @brief Select a Design by its stable LeDesignId (e.g. one read from
   /// le_library_design_at()'s LeDesignInfo::id) as the one
   /// le_render_pixel_buffer() renders, same effect as
-  /// le_set_current_design() but addressed by identity instead of a
+  /// le_set_current_design_abstract() but addressed by identity instead of a
   /// position in the flat le_design_count() list - the natural fit for a
   /// browser widget's row click, which already has the Design's
   /// LeDesignId on hand and shouldn't need to re-derive a flat index for
   /// it. Returns 0 on success, nonzero if handle is null or design_id
   /// doesn't name a Design currently loaded on this handle - the current
   /// selection is left unchanged on failure.
-  int le_set_current_design_by_id(
+  int le_set_current_design_abstract_by_id(
     ffi.Pointer<LeHandle> handle,
     LeDesignId design_id,
   ) {
-    return _le_set_current_design_by_id(handle, design_id);
+    return _le_set_current_design_abstract_by_id(handle, design_id);
   }
 
-  late final _le_set_current_design_by_idPtr =
+  late final _le_set_current_design_abstract_by_idPtr =
       _lookup<
         ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeDesignId)>
-      >('le_set_current_design_by_id');
-  late final _le_set_current_design_by_id = _le_set_current_design_by_idPtr
-      .asFunction<int Function(ffi.Pointer<LeHandle>, LeDesignId)>();
+      >('le_set_current_design_abstract_by_id');
+  late final _le_set_current_design_abstract_by_id =
+      _le_set_current_design_abstract_by_idPtr
+          .asFunction<int Function(ffi.Pointer<LeHandle>, LeDesignId)>();
+
+  /// @brief Select the Design at `index`'s Layout view instead of its
+  /// Abstract view - the two are mutually exclusive, only one view is
+  /// "open" at a time (matches a real GUI showing one editor, not
+  /// both). Clears current_abstract_id (and Scene's own
+  /// current_abstract, so le_render_pixel_buffer() stops rendering the
+  /// old Abstract) the same way le_set_current_design_abstract/_by_id clear
+  /// current_layout_id. Returns 0 on success, nonzero if handle is
+  /// null or index is out of range - the current selection is left
+  /// unchanged on failure. Layout rendering itself doesn't exist yet
+  /// (PROJECT_MIGRATION.md's own Step 3) - this only moves the
+  /// TCL-facing current-instance tracker get_rows/get_placements/
+  /// get_blockages/etc.'s own default scope derives from.
+  int le_set_current_design_layout(ffi.Pointer<LeHandle> handle, int index) {
+    return _le_set_current_design_layout(handle, index);
+  }
+
+  late final _le_set_current_design_layoutPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, ffi.Int32)>
+      >('le_set_current_design_layout');
+  late final _le_set_current_design_layout = _le_set_current_design_layoutPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, int)>();
+
+  /// @brief Same as le_set_current_design_layout, but addressed by
+  /// LeDesignId - same relationship to it as le_set_current_design_abstract_by_id
+  /// has to le_set_current_design_abstract.
+  int le_set_current_design_layout_by_id(
+    ffi.Pointer<LeHandle> handle,
+    LeDesignId design_id,
+  ) {
+    return _le_set_current_design_layout_by_id(handle, design_id);
+  }
+
+  late final _le_set_current_design_layout_by_idPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeDesignId)>
+      >('le_set_current_design_layout_by_id');
+  late final _le_set_current_design_layout_by_id =
+      _le_set_current_design_layout_by_idPtr
+          .asFunction<int Function(ffi.Pointer<LeHandle>, LeDesignId)>();
 
   /// @brief Number of layer-widget rows currently available - mirrors
   /// ViewLayerSet::rows() directly (see LeLayerRow's own comment: this
@@ -694,7 +760,10 @@ class LayoutEnginePluginBindings {
   /// with a non-empty selection; a no-op otherwise (including if
   /// handle is null). The next two le_mouse_up() clicks in Edit mode
   /// set the move's anchor point, then commit the move - see
-  /// le_mouse_up's own doc comment.
+  /// le_mouse_up's own doc comment. Calling this again while already
+  /// armed (including the re-arm a successful commit itself performs -
+  /// see le_mouse_up) is harmless - it just re-snapshots the ghost
+  /// preview from the current selection/geometry.
   void le_arm_move(ffi.Pointer<LeHandle> handle) {
     return _le_arm_move(handle);
   }
@@ -1089,43 +1158,59 @@ class LayoutEnginePluginBindings {
   /// combined bbox instead (same fixed padding, one Shape's own bbox
   /// per selection entry - see api.cpp's fit_selected_unlocked),
   /// leaving the view unchanged if nothing is selected rather than
-  /// falling back to the whole-content fit.
+  /// falling back to the whole-content fit. LE_KEY_SHIFT has no
+  /// meaning for Fit - held at all (with or without Ctrl) is a
+  /// no-op, not "same as unmodified".
   /// - LE_KEY_PAN_LEFT/RIGHT/UP/DOWN: le_pan() by a fixed
-  /// viewport-fraction step in the corresponding direction.
+  /// viewport-fraction step in the corresponding direction. Bare
+  /// only - a no-op while either LE_KEY_CTRL or LE_KEY_SHIFT is held.
   /// - LE_KEY_SELECT_ALL (UPDATES.md 9.1): only while LE_KEY_CTRL is
-  /// currently held *and* the current mode is LE_MODE_SELECT
-  /// (UPDATES.md item 21 - Select-mode selection shortcuts are
-  /// disabled in Edit/Ruler mode; switch back to Select mode to
-  /// change the selection there) - clears the current selection,
-  /// then selects every currently selectable shape in the current
-  /// Abstract regardless of viewport (not just what's on screen), up
-  /// to a fixed cap of 10,000 objects. If the design has more
-  /// selectable shapes than that, the selection stops at the cap and
-  /// a "WARNING: Selection capped..." entry is appended to the
-  /// le_message_count()/le_message_at() queue (UPDATES.md item 3) -
-  /// there's no separate "was it capped" return value, this is the
-  /// same mechanism any other backend-originated message uses.
+  /// currently held, LE_KEY_SHIFT is *not*, and the current mode is
+  /// LE_MODE_SELECT (UPDATES.md item 21 - Select-mode selection
+  /// shortcuts are disabled in Edit/Ruler mode; switch back to
+  /// Select mode to change the selection there) - clears the current
+  /// selection, then selects every piece of every currently
+  /// selectable shape in the current Abstract regardless of viewport
+  /// (not just what's on screen), up to a fixed cap of 10,000
+  /// objects (pieces, not whole shapes - UPDATES.md item 21). If the
+  /// design has more selectable pieces than that, the selection
+  /// stops at the cap and a "WARNING: Selection capped..." entry is
+  /// appended to the le_message_count()/le_message_at() queue
+  /// (UPDATES.md item 3) - there's no separate "was it capped"
+  /// return value, this is the same mechanism any other
+  /// backend-originated message uses.
   /// - LE_KEY_1..LE_KEY_9 (UPDATES.md 9.4/9.7): toggles a ROUTING
   /// layer's visibility - the 1st..9th if LE_KEY_CTRL is not
   /// currently held, the 11th..19th if it is (a no-op if there's no
-  /// ROUTING layer at that position) - then, either way, - only via
-  /// this keyboard path, never from a direct
+  /// ROUTING layer at that position); LE_KEY_SHIFT held at all (with
+  /// or without Ctrl) is a no-op instead - then, either way, - only
+  /// via this keyboard path, never from a direct
   /// le_set_layer_name_visible() call - re-checks every pair of
   /// adjacent ROUTING layers: if both are now visible, every CUT
   /// layer between them (LEF has no distinct "VIA" layer type - vias
   /// are TYPE CUT layers - see this header's own LeKeyCode comment)
   /// becomes visible too; if not, those CUT layers become invisible.
   /// - LE_KEY_0 (UPDATES.md 9.7): toggles the 10th ROUTING layer's
-  /// visibility, unconditional on LE_KEY_CTRL - same VIA-pairing
-  /// re-check as LE_KEY_1..LE_KEY_9 above.
+  /// visibility - bare only (a no-op while either LE_KEY_CTRL or
+  /// LE_KEY_SHIFT is held; there's no digit slot left over for Ctrl
+  /// to double up on the way LE_KEY_1..LE_KEY_9 do) - same
+  /// VIA-pairing re-check as LE_KEY_1..LE_KEY_9 above.
   /// - LE_KEY_DESELECT_ALL (UPDATES.md 9.5): only while LE_KEY_CTRL is
-  /// currently held *and* the current mode is LE_MODE_SELECT (same
-  /// mode-gating as LE_KEY_SELECT_ALL above, UPDATES.md item 21) -
-  /// clears the current selection. A no-op (not an error) if the
-  /// selection was already empty.
+  /// currently held, LE_KEY_SHIFT is not, and the current mode is
+  /// LE_MODE_SELECT (same mode-gating as LE_KEY_SELECT_ALL above,
+  /// UPDATES.md item 21) - clears the current selection. A no-op
+  /// (not an error) if the selection was already empty.
   /// - LE_KEY_MOVE (UPDATES.md item 21): only while LE_KEY_CTRL is
-  /// currently held - equivalent to le_arm_move(); a no-op outside
-  /// Edit mode or with an empty selection, same as that function.
+  /// currently held and LE_KEY_SHIFT is not - equivalent to
+  /// le_arm_move(); a no-op outside Edit mode or with an empty
+  /// selection, same as that function.
+  /// - LE_KEY_SELECT_MODE/LE_KEY_EDIT_MODE/LE_KEY_RULER_MODE
+  /// (UPDATES.md item 11/13): bare only - a no-op while either
+  /// LE_KEY_CTRL or LE_KEY_SHIFT is held, so e.g. a Ctrl-S keystroke
+  /// meant for something else doesn't also switch modes.
+  /// - LE_KEY_FINISH_RULER: unconditional regardless of any modifier -
+  /// see its own LeKeyCode doc comment for why Escape is the one
+  /// bare-ish key that's deliberately exempt from modifier-gating.
   ///
   /// A no-op if handle is null.
   void le_key_down(ffi.Pointer<LeHandle> handle, int key_code) {
@@ -1247,7 +1332,7 @@ class LayoutEnginePluginBindings {
   ///
   /// - **Click** (down/up pixel distance below a small threshold): hit-
   /// tests the single point. Without shift held, replaces the
-  /// current selection with the hit shape, or clears it if nothing
+  /// current selection with the hit piece, or clears it if nothing
   /// was hit; with shift held, adds the hit to the current selection
   /// (a no-op if nothing was hit).
   /// - **Drag-select** (distance above the threshold): hit-tests every
@@ -1255,6 +1340,18 @@ class LayoutEnginePluginBindings {
   /// rectangle between the down and up points. Without shift held,
   /// replaces the current selection with the results; with shift
   /// held, adds them to it.
+  ///
+  /// Selection is piece-granular (UPDATES.md item 21): a Shape that
+  /// bundles several rects/polygons/paths together (e.g. several RECT
+  /// statements under one LEF PORT/OBS LAYER line) selects only the
+  /// one piece actually clicked, or the individual pieces actually
+  /// enclosed by a drag - not every piece the Shape happens to own.
+  /// Two different pieces of the same Shape can be independently
+  /// selected (e.g. shift-clicking each in turn) as two separate
+  /// entries. The Property Viewer still resolves to the *owning Shape*
+  /// regardless of which piece is selected (le_selected_object_ref) -
+  /// only the selection outline and Move (le_arm_move) act on the
+  /// specific piece.
   ///
   /// **In Edit mode with Move armed** (UPDATES.md item 21, see
   /// le_arm_move) - a click (not a drag; a drag's up-event is treated
@@ -1265,13 +1362,17 @@ class LayoutEnginePluginBindings {
   /// offset from the anchor to this click's own (grid-snapped)
   /// position - orthogonally constrained to whichever axis moved
   /// further unless LE_KEY_SHIFT is held (free-form) - applies it to
-  /// every moving shape's geometry, records the whole set as one
-  /// undoable transaction (le_undo/le_redo), and clears the armed/
-  /// anchored move state. Selection is untouched either way - Move
-  /// never changes *which* shapes are selected, only their geometry.
-  /// In Edit mode with Move *not* armed, this is a no-op (selection
-  /// changes are Select-mode-only - see LE_KEY_SELECT_ALL's own
-  /// comment).
+  /// every moving shape's geometry and records the whole set as one
+  /// undoable transaction (le_undo/le_redo). Move then stays armed,
+  /// re-snapshotted from the shapes' new positions and with the
+  /// anchor cleared, ready for an immediate follow-up move on the same
+  /// selection - only le_cancel_move (the Escape key) or leaving Edit
+  /// mode actually disarms it, so moving several shapes one after
+  /// another doesn't need Ctrl-M/the Move button re-pressed between
+  /// each one. Selection is untouched either way - Move never changes
+  /// *which* shapes are selected, only their geometry. In Edit mode
+  /// with Move *not* armed, this is a no-op (selection changes are
+  /// Select-mode-only - see LE_KEY_SELECT_ALL's own comment).
   ///
   /// **Started by le_zoom_drag_down()** (UPDATES.md 9.3): a click-sized
   /// release (same threshold as above) is a no-op - fitting to a
@@ -1475,7 +1576,7 @@ class LayoutEnginePluginBindings {
   /// recompute, and a mouse-position-only change is itself cheap (see
   /// Renderer::compose_with_overlays), not proportional to design size.
   /// Returns an all-zero/null LePixelBuffer if handle is null. No
-  /// Design selected (le_set_current_design was never called) degrades
+  /// Design selected (le_set_current_design_abstract was never called) degrades
   /// gracefully to an empty (but correctly-sized, non-null) buffer
   /// rather than crashing - Root/Pipeline's own lookups already degrade
   /// gracefully for an unset AbstractId (see pipeline.hpp).
@@ -1496,7 +1597,7 @@ class LayoutEnginePluginBindings {
   /// current-view scoping le_get_terminals' own default scope already
   /// uses; deliberately *not* handle->scene.current_abstract(), a
   /// separate GUI-rendering "current view" only ever moved as a side
-  /// effect of selecting a Design, e.g. le_set_current_design_by_id -
+  /// effect of selecting a Design, e.g. le_set_current_design_abstract_by_id -
   /// a script that builds an Abstract from scratch and calls
   /// le_set_current_abstract directly, with no Design to select, needs
   /// this to still work). A linear scan over
@@ -1549,6 +1650,240 @@ class LayoutEnginePluginBindings {
   late final _le_terminal_name = _le_terminal_namePtr
       .asFunction<
         ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LeTerminalId)
+      >();
+
+  /// @brief Row/Placement/PhysicalPort/Route/Region/LayoutVia friendly-id lookup
+  /// pair, one per class - same reasoning as le_terminal_by_name/
+  /// le_terminal_name above: each of these classes' own `name` field is
+  /// unique_per_parent (scoped to its own Layout, not global - e.g. two
+  /// different sub-block Layouts can each have a Placement named "U1"),
+  /// so the generated by-name lookup pair is skipped for them the same
+  /// way it is for Terminal (see Field.unique_per_parent's own
+  /// docstring) - each `le_X_by_name` here does a linear scan over its
+  /// class's own `Root::get_layout_X`, scoped to
+  /// `handle->current_layout_id` (the Layout-view analog of
+  /// `handle->current_abstract_id`), and each `le_X_name` is a direct
+  /// field accessor for the resolve/format shim pair in
+  /// le_tcl_shim.cpp. Returns an invalid id (by_name) or nullptr (name)
+  /// under the same null/not-found conditions as le_terminal_by_name/
+  /// le_terminal_name.
+  LeRowId le_row_by_name(
+    ffi.Pointer<LeHandle> handle,
+    ffi.Pointer<ffi.Char> name,
+  ) {
+    return _le_row_by_name(handle, name);
+  }
+
+  late final _le_row_by_namePtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeRowId Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+        >
+      >('le_row_by_name');
+  late final _le_row_by_name = _le_row_by_namePtr
+      .asFunction<
+        LeRowId Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+      >();
+
+  ffi.Pointer<ffi.Char> le_row_name(ffi.Pointer<LeHandle> handle, LeRowId id) {
+    return _le_row_name(handle, id);
+  }
+
+  late final _le_row_namePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LeRowId)
+        >
+      >('le_row_name');
+  late final _le_row_name = _le_row_namePtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LeRowId)
+      >();
+
+  LePlacementId le_placement_by_name(
+    ffi.Pointer<LeHandle> handle,
+    ffi.Pointer<ffi.Char> name,
+  ) {
+    return _le_placement_by_name(handle, name);
+  }
+
+  late final _le_placement_by_namePtr =
+      _lookup<
+        ffi.NativeFunction<
+          LePlacementId Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+        >
+      >('le_placement_by_name');
+  late final _le_placement_by_name = _le_placement_by_namePtr
+      .asFunction<
+        LePlacementId Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+      >();
+
+  ffi.Pointer<ffi.Char> le_placement_name(
+    ffi.Pointer<LeHandle> handle,
+    LePlacementId id,
+  ) {
+    return _le_placement_name(handle, id);
+  }
+
+  late final _le_placement_namePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LePlacementId)
+        >
+      >('le_placement_name');
+  late final _le_placement_name = _le_placement_namePtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LePlacementId)
+      >();
+
+  LePhysicalPortId le_physical_port_by_name(
+    ffi.Pointer<LeHandle> handle,
+    ffi.Pointer<ffi.Char> name,
+  ) {
+    return _le_physical_port_by_name(handle, name);
+  }
+
+  late final _le_physical_port_by_namePtr =
+      _lookup<
+        ffi.NativeFunction<
+          LePhysicalPortId Function(
+            ffi.Pointer<LeHandle>,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_physical_port_by_name');
+  late final _le_physical_port_by_name = _le_physical_port_by_namePtr
+      .asFunction<
+        LePhysicalPortId Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+      >();
+
+  ffi.Pointer<ffi.Char> le_physical_port_name(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortId id,
+  ) {
+    return _le_physical_port_name(handle, id);
+  }
+
+  late final _le_physical_port_namePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(
+            ffi.Pointer<LeHandle>,
+            LePhysicalPortId,
+          )
+        >
+      >('le_physical_port_name');
+  late final _le_physical_port_name = _le_physical_port_namePtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LePhysicalPortId)
+      >();
+
+  LeRouteId le_route_by_name(
+    ffi.Pointer<LeHandle> handle,
+    ffi.Pointer<ffi.Char> name,
+  ) {
+    return _le_route_by_name(handle, name);
+  }
+
+  late final _le_route_by_namePtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeRouteId Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+        >
+      >('le_route_by_name');
+  late final _le_route_by_name = _le_route_by_namePtr
+      .asFunction<
+        LeRouteId Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+      >();
+
+  ffi.Pointer<ffi.Char> le_route_name(
+    ffi.Pointer<LeHandle> handle,
+    LeRouteId id,
+  ) {
+    return _le_route_name(handle, id);
+  }
+
+  late final _le_route_namePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LeRouteId)
+        >
+      >('le_route_name');
+  late final _le_route_name = _le_route_namePtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LeRouteId)
+      >();
+
+  LeRegionId le_region_by_name(
+    ffi.Pointer<LeHandle> handle,
+    ffi.Pointer<ffi.Char> name,
+  ) {
+    return _le_region_by_name(handle, name);
+  }
+
+  late final _le_region_by_namePtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeRegionId Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+        >
+      >('le_region_by_name');
+  late final _le_region_by_name = _le_region_by_namePtr
+      .asFunction<
+        LeRegionId Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+      >();
+
+  ffi.Pointer<ffi.Char> le_region_name(
+    ffi.Pointer<LeHandle> handle,
+    LeRegionId id,
+  ) {
+    return _le_region_name(handle, id);
+  }
+
+  late final _le_region_namePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LeRegionId)
+        >
+      >('le_region_name');
+  late final _le_region_name = _le_region_namePtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LeRegionId)
+      >();
+
+  LeLayoutViaId le_layout_via_by_name(
+    ffi.Pointer<LeHandle> handle,
+    ffi.Pointer<ffi.Char> name,
+  ) {
+    return _le_layout_via_by_name(handle, name);
+  }
+
+  late final _le_layout_via_by_namePtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeLayoutViaId Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+        >
+      >('le_layout_via_by_name');
+  late final _le_layout_via_by_name = _le_layout_via_by_namePtr
+      .asFunction<
+        LeLayoutViaId Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+      >();
+
+  ffi.Pointer<ffi.Char> le_layout_via_name(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutViaId id,
+  ) {
+    return _le_layout_via_name(handle, id);
+  }
+
+  late final _le_layout_via_namePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LeLayoutViaId)
+        >
+      >('le_layout_via_name');
+  late final _le_layout_via_name = _le_layout_via_namePtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LeLayoutViaId)
       >();
 
   /// @brief Number of property rows for the Terminal at `id` - same
@@ -1868,29 +2203,6 @@ class LayoutEnginePluginBindings {
         )
       >();
 
-  /// @brief Delete the Terminal at `id`, cascading to every
-  /// TerminalPort it owns first - unlike Root::delete_terminal's own
-  /// no-cascade default (see its doc comment), a orphaned port here
-  /// would be permanently unreachable garbage (TerminalPorts are only
-  /// ever enumerated through their parent Terminal's own port list, no
-  /// top-level "every TerminalPort" API exists), not just a stale
-  /// reference that degrades gracefully elsewhere - a deliberate,
-  /// domain-specific exception at this API layer, not a generic Root
-  /// behavior. Returns 0 on success, nonzero if handle is null or id
-  /// doesn't name a Terminal on this handle.
-  int le_delete_terminal(ffi.Pointer<LeHandle> handle, LeTerminalId id) {
-    return _le_delete_terminal(handle, id);
-  }
-
-  late final _le_delete_terminalPtr =
-      _lookup<
-        ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<LeHandle>, LeTerminalId)
-        >
-      >('le_delete_terminal');
-  late final _le_delete_terminal = _le_delete_terminalPtr
-      .asFunction<int Function(ffi.Pointer<LeHandle>, LeTerminalId)>();
-
   /// @brief Search every Terminal on this handle for
   /// `filter_expression` (UPDATES.md item 15's `-filter {...}`, e.g.
   /// ".name =~ IN*" - see backend/src/database/filter.hpp for the full
@@ -1947,8 +2259,8 @@ class LayoutEnginePluginBindings {
   /// le_get_abstracts) - pass an invalid id (e.g. a
   /// default-constructed LeAbstractId) to use the default scope
   /// instead: the currently selected Design's Abstract (item 17's
-  /// "current view" - le_set_current_design/
-  /// le_set_current_design_by_id), or none if no Design is
+  /// "current view" - le_set_current_design_abstract/
+  /// le_set_current_design_abstract_by_id), or none if no Design is
   /// selected.
   /// - `name_expression` glob-matches Terminal::name (Tcl `string
   /// match` semantics, e.g. "IN*") - pass null or "" to skip this
@@ -2081,30 +2393,6 @@ class LayoutEnginePluginBindings {
               ffi.Pointer<ffi.Char>,
             )
           >();
-
-  /// @brief Delete the TerminalPort at `id`, cascading to every Shape
-  /// it owns first - same reasoning as le_delete_terminal's own cascade
-  /// to TerminalPorts (see its doc comment): a Shape is pooled
-  /// (TCL_EXPLORATION.md Phase 3) and only ever reachable through its
-  /// parent's shape list, so leaving it behind would be permanently
-  /// unreachable garbage, not just a dangling reference. Returns 0 on
-  /// success, nonzero if handle is null or id doesn't name a
-  /// TerminalPort on this handle.
-  int le_delete_terminal_port(
-    ffi.Pointer<LeHandle> handle,
-    LeTerminalPortId id,
-  ) {
-    return _le_delete_terminal_port(handle, id);
-  }
-
-  late final _le_delete_terminal_portPtr =
-      _lookup<
-        ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<LeHandle>, LeTerminalPortId)
-        >
-      >('le_delete_terminal_port');
-  late final _le_delete_terminal_port = _le_delete_terminal_portPtr
-      .asFunction<int Function(ffi.Pointer<LeHandle>, LeTerminalPortId)>();
 
   /// @brief Search every TerminalPort on this handle for
   /// `filter_expression` - see le_search_terminal's own comment for the
@@ -2258,23 +2546,6 @@ class LayoutEnginePluginBindings {
         )
       >();
 
-  /// @brief Delete the Obstruction at `id`, cascading to every Shape it
-  /// owns first - same reasoning as le_delete_terminal_port. Returns 0
-  /// on success, nonzero if handle is null or id doesn't name an
-  /// Obstruction on this handle.
-  int le_delete_obstruction(ffi.Pointer<LeHandle> handle, LeObstructionId id) {
-    return _le_delete_obstruction(handle, id);
-  }
-
-  late final _le_delete_obstructionPtr =
-      _lookup<
-        ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<LeHandle>, LeObstructionId)
-        >
-      >('le_delete_obstruction');
-  late final _le_delete_obstruction = _le_delete_obstructionPtr
-      .asFunction<int Function(ffi.Pointer<LeHandle>, LeObstructionId)>();
-
   /// @brief Search every Obstruction on this handle for
   /// `filter_expression` - see le_search_terminal's own comment for the
   /// full contract. Returns the match count, or -1 on a parse error.
@@ -2342,56 +2613,6 @@ class LayoutEnginePluginBindings {
   late final _le_get_obstructions = _le_get_obstructionsPtr
       .asFunction<
         int Function(ffi.Pointer<LeHandle>, LeAbstractId, ffi.Pointer<ffi.Char>)
-      >();
-
-  /// @brief Search Shapes (UPDATES.md item 19.1) - `of_terminal_port`/
-  /// `of_obstruction` each independently scope to one TerminalPort's or
-  /// one Obstruction's own Shapes (a Shape has exactly one real parent,
-  /// never both - see ShapeData's own comment - but both parameters are
-  /// accepted so a caller doesn't need to know which kind it has;
-  /// pass an invalid id for whichever doesn't apply). If **both** are
-  /// invalid, the default scope is every Shape reachable from the
-  /// current view: every Shape under the currently selected Design's
-  /// Abstract's Terminals' Ports, unioned with every Shape under that
-  /// Abstract's own Obstructions (the same current-view concept
-  /// le_get_terminal_ports already uses, extended one hop further).
-  /// Shape has no name field, only `layer_name` (a property, not an
-  /// identity), so there is no `name_expression` parameter - only
-  /// `filter_expression`, see le_get_libraries' own comment. Returns
-  /// the match count, or -1 on a filter parse/validation error.
-  int le_get_shapes(
-    ffi.Pointer<LeHandle> handle,
-    LeTerminalPortId of_terminal_port,
-    LeObstructionId of_obstruction,
-    ffi.Pointer<ffi.Char> filter_expression,
-  ) {
-    return _le_get_shapes(
-      handle,
-      of_terminal_port,
-      of_obstruction,
-      filter_expression,
-    );
-  }
-
-  late final _le_get_shapesPtr =
-      _lookup<
-        ffi.NativeFunction<
-          ffi.Int32 Function(
-            ffi.Pointer<LeHandle>,
-            LeTerminalPortId,
-            LeObstructionId,
-            ffi.Pointer<ffi.Char>,
-          )
-        >
-      >('le_get_shapes');
-  late final _le_get_shapes = _le_get_shapesPtr
-      .asFunction<
-        int Function(
-          ffi.Pointer<LeHandle>,
-          LeTerminalPortId,
-          LeObstructionId,
-          ffi.Pointer<ffi.Char>,
-        )
       >();
 
   /// @brief The LeShapeId at `index` from the most recent le_get_shapes
@@ -2591,22 +2812,6 @@ class LayoutEnginePluginBindings {
       .asFunction<
         ffi.Pointer<ffi.Char> Function(ffi.Pointer<LeHandle>, LeShapeId)
       >();
-
-  /// @brief Delete the Shape at `id`. Its parent (TerminalPort or
-  /// Obstruction) is untouched - le_terminal_port_shape_count/
-  /// le_obstruction_shape_count on it simply reports one fewer
-  /// afterward. Returns 0 on success, nonzero if handle is null or id
-  /// doesn't name a Shape on this handle.
-  int le_delete_shape(ffi.Pointer<LeHandle> handle, LeShapeId id) {
-    return _le_delete_shape(handle, id);
-  }
-
-  late final _le_delete_shapePtr =
-      _lookup<
-        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeShapeId)>
-      >('le_delete_shape');
-  late final _le_delete_shape = _le_delete_shapePtr
-      .asFunction<int Function(ffi.Pointer<LeHandle>, LeShapeId)>();
 
   /// @brief Number of rects on the Shape at `id` - indexes
   /// `le_shape_rect_at`'s own `index` parameter, 0..this-1. Returns 0
@@ -5118,6 +5323,680 @@ class LayoutEnginePluginBindings {
         )
       >();
 
+  int le_layout_property_count(ffi.Pointer<LeHandle> handle, LeLayoutId id) {
+    return _le_layout_property_count(handle, id);
+  }
+
+  late final _le_layout_property_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeLayoutId)
+        >
+      >('le_layout_property_count');
+  late final _le_layout_property_count = _le_layout_property_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutId)>();
+
+  LeProperty le_layout_property_at(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+    int index,
+  ) {
+    return _le_layout_property_at(handle, id, index);
+  }
+
+  late final _le_layout_property_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(ffi.Pointer<LeHandle>, LeLayoutId, ffi.Int32)
+        >
+      >('le_layout_property_at');
+  late final _le_layout_property_at = _le_layout_property_atPtr
+      .asFunction<
+        LeProperty Function(ffi.Pointer<LeHandle>, LeLayoutId, int)
+      >();
+
+  LeProperty le_layout_property_path(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+    ffi.Pointer<ffi.Char> path,
+  ) {
+    return _le_layout_property_path(handle, id, path);
+  }
+
+  late final _le_layout_property_pathPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_layout_property_path');
+  late final _le_layout_property_path = _le_layout_property_pathPtr
+      .asFunction<
+        LeProperty Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  int le_row_property_count(ffi.Pointer<LeHandle> handle, LeRowId id) {
+    return _le_row_property_count(handle, id);
+  }
+
+  late final _le_row_property_countPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<LeHandle>, LeRowId)>
+      >('le_row_property_count');
+  late final _le_row_property_count = _le_row_property_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeRowId)>();
+
+  LeProperty le_row_property_at(
+    ffi.Pointer<LeHandle> handle,
+    LeRowId id,
+    int index,
+  ) {
+    return _le_row_property_at(handle, id, index);
+  }
+
+  late final _le_row_property_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(ffi.Pointer<LeHandle>, LeRowId, ffi.Int32)
+        >
+      >('le_row_property_at');
+  late final _le_row_property_at = _le_row_property_atPtr
+      .asFunction<LeProperty Function(ffi.Pointer<LeHandle>, LeRowId, int)>();
+
+  LeProperty le_row_property_path(
+    ffi.Pointer<LeHandle> handle,
+    LeRowId id,
+    ffi.Pointer<ffi.Char> path,
+  ) {
+    return _le_row_property_path(handle, id, path);
+  }
+
+  late final _le_row_property_pathPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LeRowId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_row_property_path');
+  late final _le_row_property_path = _le_row_property_pathPtr
+      .asFunction<
+        LeProperty Function(
+          ffi.Pointer<LeHandle>,
+          LeRowId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  int le_track_property_count(ffi.Pointer<LeHandle> handle, LeTrackId id) {
+    return _le_track_property_count(handle, id);
+  }
+
+  late final _le_track_property_countPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<LeHandle>, LeTrackId)>
+      >('le_track_property_count');
+  late final _le_track_property_count = _le_track_property_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeTrackId)>();
+
+  LeProperty le_track_property_at(
+    ffi.Pointer<LeHandle> handle,
+    LeTrackId id,
+    int index,
+  ) {
+    return _le_track_property_at(handle, id, index);
+  }
+
+  late final _le_track_property_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(ffi.Pointer<LeHandle>, LeTrackId, ffi.Int32)
+        >
+      >('le_track_property_at');
+  late final _le_track_property_at = _le_track_property_atPtr
+      .asFunction<LeProperty Function(ffi.Pointer<LeHandle>, LeTrackId, int)>();
+
+  LeProperty le_track_property_path(
+    ffi.Pointer<LeHandle> handle,
+    LeTrackId id,
+    ffi.Pointer<ffi.Char> path,
+  ) {
+    return _le_track_property_path(handle, id, path);
+  }
+
+  late final _le_track_property_pathPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LeTrackId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_track_property_path');
+  late final _le_track_property_path = _le_track_property_pathPtr
+      .asFunction<
+        LeProperty Function(
+          ffi.Pointer<LeHandle>,
+          LeTrackId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  int le_g_cell_grid_property_count(
+    ffi.Pointer<LeHandle> handle,
+    LeGCellGridId id,
+  ) {
+    return _le_g_cell_grid_property_count(handle, id);
+  }
+
+  late final _le_g_cell_grid_property_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeGCellGridId)
+        >
+      >('le_g_cell_grid_property_count');
+  late final _le_g_cell_grid_property_count = _le_g_cell_grid_property_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeGCellGridId)>();
+
+  LeProperty le_g_cell_grid_property_at(
+    ffi.Pointer<LeHandle> handle,
+    LeGCellGridId id,
+    int index,
+  ) {
+    return _le_g_cell_grid_property_at(handle, id, index);
+  }
+
+  late final _le_g_cell_grid_property_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(ffi.Pointer<LeHandle>, LeGCellGridId, ffi.Int32)
+        >
+      >('le_g_cell_grid_property_at');
+  late final _le_g_cell_grid_property_at = _le_g_cell_grid_property_atPtr
+      .asFunction<
+        LeProperty Function(ffi.Pointer<LeHandle>, LeGCellGridId, int)
+      >();
+
+  LeProperty le_g_cell_grid_property_path(
+    ffi.Pointer<LeHandle> handle,
+    LeGCellGridId id,
+    ffi.Pointer<ffi.Char> path,
+  ) {
+    return _le_g_cell_grid_property_path(handle, id, path);
+  }
+
+  late final _le_g_cell_grid_property_pathPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LeGCellGridId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_g_cell_grid_property_path');
+  late final _le_g_cell_grid_property_path = _le_g_cell_grid_property_pathPtr
+      .asFunction<
+        LeProperty Function(
+          ffi.Pointer<LeHandle>,
+          LeGCellGridId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  int le_placement_property_count(
+    ffi.Pointer<LeHandle> handle,
+    LePlacementId id,
+  ) {
+    return _le_placement_property_count(handle, id);
+  }
+
+  late final _le_placement_property_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LePlacementId)
+        >
+      >('le_placement_property_count');
+  late final _le_placement_property_count = _le_placement_property_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LePlacementId)>();
+
+  LeProperty le_placement_property_at(
+    ffi.Pointer<LeHandle> handle,
+    LePlacementId id,
+    int index,
+  ) {
+    return _le_placement_property_at(handle, id, index);
+  }
+
+  late final _le_placement_property_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(ffi.Pointer<LeHandle>, LePlacementId, ffi.Int32)
+        >
+      >('le_placement_property_at');
+  late final _le_placement_property_at = _le_placement_property_atPtr
+      .asFunction<
+        LeProperty Function(ffi.Pointer<LeHandle>, LePlacementId, int)
+      >();
+
+  LeProperty le_placement_property_path(
+    ffi.Pointer<LeHandle> handle,
+    LePlacementId id,
+    ffi.Pointer<ffi.Char> path,
+  ) {
+    return _le_placement_property_path(handle, id, path);
+  }
+
+  late final _le_placement_property_pathPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LePlacementId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_placement_property_path');
+  late final _le_placement_property_path = _le_placement_property_pathPtr
+      .asFunction<
+        LeProperty Function(
+          ffi.Pointer<LeHandle>,
+          LePlacementId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  int le_physical_port_segment_property_count(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortSegmentId id,
+  ) {
+    return _le_physical_port_segment_property_count(handle, id);
+  }
+
+  late final _le_physical_port_segment_property_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LePhysicalPortSegmentId)
+        >
+      >('le_physical_port_segment_property_count');
+  late final _le_physical_port_segment_property_count =
+      _le_physical_port_segment_property_countPtr
+          .asFunction<
+            int Function(ffi.Pointer<LeHandle>, LePhysicalPortSegmentId)
+          >();
+
+  LeProperty le_physical_port_segment_property_at(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortSegmentId id,
+    int index,
+  ) {
+    return _le_physical_port_segment_property_at(handle, id, index);
+  }
+
+  late final _le_physical_port_segment_property_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LePhysicalPortSegmentId,
+            ffi.Int32,
+          )
+        >
+      >('le_physical_port_segment_property_at');
+  late final _le_physical_port_segment_property_at =
+      _le_physical_port_segment_property_atPtr
+          .asFunction<
+            LeProperty Function(
+              ffi.Pointer<LeHandle>,
+              LePhysicalPortSegmentId,
+              int,
+            )
+          >();
+
+  LeProperty le_physical_port_segment_property_path(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortSegmentId id,
+    ffi.Pointer<ffi.Char> path,
+  ) {
+    return _le_physical_port_segment_property_path(handle, id, path);
+  }
+
+  late final _le_physical_port_segment_property_pathPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LePhysicalPortSegmentId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_physical_port_segment_property_path');
+  late final _le_physical_port_segment_property_path =
+      _le_physical_port_segment_property_pathPtr
+          .asFunction<
+            LeProperty Function(
+              ffi.Pointer<LeHandle>,
+              LePhysicalPortSegmentId,
+              ffi.Pointer<ffi.Char>,
+            )
+          >();
+
+  int le_physical_port_property_count(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortId id,
+  ) {
+    return _le_physical_port_property_count(handle, id);
+  }
+
+  late final _le_physical_port_property_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LePhysicalPortId)
+        >
+      >('le_physical_port_property_count');
+  late final _le_physical_port_property_count =
+      _le_physical_port_property_countPtr
+          .asFunction<int Function(ffi.Pointer<LeHandle>, LePhysicalPortId)>();
+
+  LeProperty le_physical_port_property_at(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortId id,
+    int index,
+  ) {
+    return _le_physical_port_property_at(handle, id, index);
+  }
+
+  late final _le_physical_port_property_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LePhysicalPortId,
+            ffi.Int32,
+          )
+        >
+      >('le_physical_port_property_at');
+  late final _le_physical_port_property_at = _le_physical_port_property_atPtr
+      .asFunction<
+        LeProperty Function(ffi.Pointer<LeHandle>, LePhysicalPortId, int)
+      >();
+
+  LeProperty le_physical_port_property_path(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortId id,
+    ffi.Pointer<ffi.Char> path,
+  ) {
+    return _le_physical_port_property_path(handle, id, path);
+  }
+
+  late final _le_physical_port_property_pathPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LePhysicalPortId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_physical_port_property_path');
+  late final _le_physical_port_property_path =
+      _le_physical_port_property_pathPtr
+          .asFunction<
+            LeProperty Function(
+              ffi.Pointer<LeHandle>,
+              LePhysicalPortId,
+              ffi.Pointer<ffi.Char>,
+            )
+          >();
+
+  int le_blockage_property_count(
+    ffi.Pointer<LeHandle> handle,
+    LeBlockageId id,
+  ) {
+    return _le_blockage_property_count(handle, id);
+  }
+
+  late final _le_blockage_property_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeBlockageId)
+        >
+      >('le_blockage_property_count');
+  late final _le_blockage_property_count = _le_blockage_property_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeBlockageId)>();
+
+  LeProperty le_blockage_property_at(
+    ffi.Pointer<LeHandle> handle,
+    LeBlockageId id,
+    int index,
+  ) {
+    return _le_blockage_property_at(handle, id, index);
+  }
+
+  late final _le_blockage_property_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(ffi.Pointer<LeHandle>, LeBlockageId, ffi.Int32)
+        >
+      >('le_blockage_property_at');
+  late final _le_blockage_property_at = _le_blockage_property_atPtr
+      .asFunction<
+        LeProperty Function(ffi.Pointer<LeHandle>, LeBlockageId, int)
+      >();
+
+  LeProperty le_blockage_property_path(
+    ffi.Pointer<LeHandle> handle,
+    LeBlockageId id,
+    ffi.Pointer<ffi.Char> path,
+  ) {
+    return _le_blockage_property_path(handle, id, path);
+  }
+
+  late final _le_blockage_property_pathPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LeBlockageId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_blockage_property_path');
+  late final _le_blockage_property_path = _le_blockage_property_pathPtr
+      .asFunction<
+        LeProperty Function(
+          ffi.Pointer<LeHandle>,
+          LeBlockageId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  int le_layout_via_property_count(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutViaId id,
+  ) {
+    return _le_layout_via_property_count(handle, id);
+  }
+
+  late final _le_layout_via_property_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeLayoutViaId)
+        >
+      >('le_layout_via_property_count');
+  late final _le_layout_via_property_count = _le_layout_via_property_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutViaId)>();
+
+  LeProperty le_layout_via_property_at(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutViaId id,
+    int index,
+  ) {
+    return _le_layout_via_property_at(handle, id, index);
+  }
+
+  late final _le_layout_via_property_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(ffi.Pointer<LeHandle>, LeLayoutViaId, ffi.Int32)
+        >
+      >('le_layout_via_property_at');
+  late final _le_layout_via_property_at = _le_layout_via_property_atPtr
+      .asFunction<
+        LeProperty Function(ffi.Pointer<LeHandle>, LeLayoutViaId, int)
+      >();
+
+  LeProperty le_layout_via_property_path(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutViaId id,
+    ffi.Pointer<ffi.Char> path,
+  ) {
+    return _le_layout_via_property_path(handle, id, path);
+  }
+
+  late final _le_layout_via_property_pathPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutViaId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_layout_via_property_path');
+  late final _le_layout_via_property_path = _le_layout_via_property_pathPtr
+      .asFunction<
+        LeProperty Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutViaId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  int le_route_property_count(ffi.Pointer<LeHandle> handle, LeRouteId id) {
+    return _le_route_property_count(handle, id);
+  }
+
+  late final _le_route_property_countPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<LeHandle>, LeRouteId)>
+      >('le_route_property_count');
+  late final _le_route_property_count = _le_route_property_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeRouteId)>();
+
+  LeProperty le_route_property_at(
+    ffi.Pointer<LeHandle> handle,
+    LeRouteId id,
+    int index,
+  ) {
+    return _le_route_property_at(handle, id, index);
+  }
+
+  late final _le_route_property_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(ffi.Pointer<LeHandle>, LeRouteId, ffi.Int32)
+        >
+      >('le_route_property_at');
+  late final _le_route_property_at = _le_route_property_atPtr
+      .asFunction<LeProperty Function(ffi.Pointer<LeHandle>, LeRouteId, int)>();
+
+  LeProperty le_route_property_path(
+    ffi.Pointer<LeHandle> handle,
+    LeRouteId id,
+    ffi.Pointer<ffi.Char> path,
+  ) {
+    return _le_route_property_path(handle, id, path);
+  }
+
+  late final _le_route_property_pathPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LeRouteId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_route_property_path');
+  late final _le_route_property_path = _le_route_property_pathPtr
+      .asFunction<
+        LeProperty Function(
+          ffi.Pointer<LeHandle>,
+          LeRouteId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  int le_region_property_count(ffi.Pointer<LeHandle> handle, LeRegionId id) {
+    return _le_region_property_count(handle, id);
+  }
+
+  late final _le_region_property_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeRegionId)
+        >
+      >('le_region_property_count');
+  late final _le_region_property_count = _le_region_property_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeRegionId)>();
+
+  LeProperty le_region_property_at(
+    ffi.Pointer<LeHandle> handle,
+    LeRegionId id,
+    int index,
+  ) {
+    return _le_region_property_at(handle, id, index);
+  }
+
+  late final _le_region_property_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(ffi.Pointer<LeHandle>, LeRegionId, ffi.Int32)
+        >
+      >('le_region_property_at');
+  late final _le_region_property_at = _le_region_property_atPtr
+      .asFunction<
+        LeProperty Function(ffi.Pointer<LeHandle>, LeRegionId, int)
+      >();
+
+  LeProperty le_region_property_path(
+    ffi.Pointer<LeHandle> handle,
+    LeRegionId id,
+    ffi.Pointer<ffi.Char> path,
+  ) {
+    return _le_region_property_path(handle, id, path);
+  }
+
+  late final _le_region_property_pathPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeProperty Function(
+            ffi.Pointer<LeHandle>,
+            LeRegionId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_region_property_path');
+  late final _le_region_property_path = _le_region_property_pathPtr
+      .asFunction<
+        LeProperty Function(
+          ffi.Pointer<LeHandle>,
+          LeRegionId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
   /// --- is_child list field enumeration (count/at) - to_properties() never
   /// includes these (structural, not struct fields), so a script needs a
   /// dedicated way to reach e.g. Technology's own Layers - same shape as
@@ -6329,6 +7208,482 @@ class LayoutEnginePluginBindings {
         LeInstanceId Function(ffi.Pointer<LeHandle>, LeSchematicId, int)
       >();
 
+  int le_layout_rows_count(ffi.Pointer<LeHandle> handle, LeLayoutId id) {
+    return _le_layout_rows_count(handle, id);
+  }
+
+  late final _le_layout_rows_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeLayoutId)
+        >
+      >('le_layout_rows_count');
+  late final _le_layout_rows_count = _le_layout_rows_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutId)>();
+
+  LeRowId le_layout_rows_at(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+    int index,
+  ) {
+    return _le_layout_rows_at(handle, id, index);
+  }
+
+  late final _le_layout_rows_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeRowId Function(ffi.Pointer<LeHandle>, LeLayoutId, ffi.Int32)
+        >
+      >('le_layout_rows_at');
+  late final _le_layout_rows_at = _le_layout_rows_atPtr
+      .asFunction<LeRowId Function(ffi.Pointer<LeHandle>, LeLayoutId, int)>();
+
+  int le_layout_tracks_count(ffi.Pointer<LeHandle> handle, LeLayoutId id) {
+    return _le_layout_tracks_count(handle, id);
+  }
+
+  late final _le_layout_tracks_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeLayoutId)
+        >
+      >('le_layout_tracks_count');
+  late final _le_layout_tracks_count = _le_layout_tracks_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutId)>();
+
+  LeTrackId le_layout_tracks_at(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+    int index,
+  ) {
+    return _le_layout_tracks_at(handle, id, index);
+  }
+
+  late final _le_layout_tracks_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeTrackId Function(ffi.Pointer<LeHandle>, LeLayoutId, ffi.Int32)
+        >
+      >('le_layout_tracks_at');
+  late final _le_layout_tracks_at = _le_layout_tracks_atPtr
+      .asFunction<LeTrackId Function(ffi.Pointer<LeHandle>, LeLayoutId, int)>();
+
+  int le_layout_gcell_grids_count(ffi.Pointer<LeHandle> handle, LeLayoutId id) {
+    return _le_layout_gcell_grids_count(handle, id);
+  }
+
+  late final _le_layout_gcell_grids_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeLayoutId)
+        >
+      >('le_layout_gcell_grids_count');
+  late final _le_layout_gcell_grids_count = _le_layout_gcell_grids_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutId)>();
+
+  LeGCellGridId le_layout_gcell_grids_at(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+    int index,
+  ) {
+    return _le_layout_gcell_grids_at(handle, id, index);
+  }
+
+  late final _le_layout_gcell_grids_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeGCellGridId Function(ffi.Pointer<LeHandle>, LeLayoutId, ffi.Int32)
+        >
+      >('le_layout_gcell_grids_at');
+  late final _le_layout_gcell_grids_at = _le_layout_gcell_grids_atPtr
+      .asFunction<
+        LeGCellGridId Function(ffi.Pointer<LeHandle>, LeLayoutId, int)
+      >();
+
+  int le_layout_placements_count(ffi.Pointer<LeHandle> handle, LeLayoutId id) {
+    return _le_layout_placements_count(handle, id);
+  }
+
+  late final _le_layout_placements_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeLayoutId)
+        >
+      >('le_layout_placements_count');
+  late final _le_layout_placements_count = _le_layout_placements_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutId)>();
+
+  LePlacementId le_layout_placements_at(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+    int index,
+  ) {
+    return _le_layout_placements_at(handle, id, index);
+  }
+
+  late final _le_layout_placements_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LePlacementId Function(ffi.Pointer<LeHandle>, LeLayoutId, ffi.Int32)
+        >
+      >('le_layout_placements_at');
+  late final _le_layout_placements_at = _le_layout_placements_atPtr
+      .asFunction<
+        LePlacementId Function(ffi.Pointer<LeHandle>, LeLayoutId, int)
+      >();
+
+  int le_layout_physical_ports_count(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+  ) {
+    return _le_layout_physical_ports_count(handle, id);
+  }
+
+  late final _le_layout_physical_ports_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeLayoutId)
+        >
+      >('le_layout_physical_ports_count');
+  late final _le_layout_physical_ports_count =
+      _le_layout_physical_ports_countPtr
+          .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutId)>();
+
+  LePhysicalPortId le_layout_physical_ports_at(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+    int index,
+  ) {
+    return _le_layout_physical_ports_at(handle, id, index);
+  }
+
+  late final _le_layout_physical_ports_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LePhysicalPortId Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Int32,
+          )
+        >
+      >('le_layout_physical_ports_at');
+  late final _le_layout_physical_ports_at = _le_layout_physical_ports_atPtr
+      .asFunction<
+        LePhysicalPortId Function(ffi.Pointer<LeHandle>, LeLayoutId, int)
+      >();
+
+  int le_layout_blockages_count(ffi.Pointer<LeHandle> handle, LeLayoutId id) {
+    return _le_layout_blockages_count(handle, id);
+  }
+
+  late final _le_layout_blockages_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeLayoutId)
+        >
+      >('le_layout_blockages_count');
+  late final _le_layout_blockages_count = _le_layout_blockages_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutId)>();
+
+  LeBlockageId le_layout_blockages_at(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+    int index,
+  ) {
+    return _le_layout_blockages_at(handle, id, index);
+  }
+
+  late final _le_layout_blockages_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeBlockageId Function(ffi.Pointer<LeHandle>, LeLayoutId, ffi.Int32)
+        >
+      >('le_layout_blockages_at');
+  late final _le_layout_blockages_at = _le_layout_blockages_atPtr
+      .asFunction<
+        LeBlockageId Function(ffi.Pointer<LeHandle>, LeLayoutId, int)
+      >();
+
+  int le_layout_vias_count(ffi.Pointer<LeHandle> handle, LeLayoutId id) {
+    return _le_layout_vias_count(handle, id);
+  }
+
+  late final _le_layout_vias_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeLayoutId)
+        >
+      >('le_layout_vias_count');
+  late final _le_layout_vias_count = _le_layout_vias_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutId)>();
+
+  LeLayoutViaId le_layout_vias_at(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+    int index,
+  ) {
+    return _le_layout_vias_at(handle, id, index);
+  }
+
+  late final _le_layout_vias_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeLayoutViaId Function(ffi.Pointer<LeHandle>, LeLayoutId, ffi.Int32)
+        >
+      >('le_layout_vias_at');
+  late final _le_layout_vias_at = _le_layout_vias_atPtr
+      .asFunction<
+        LeLayoutViaId Function(ffi.Pointer<LeHandle>, LeLayoutId, int)
+      >();
+
+  int le_layout_routes_count(ffi.Pointer<LeHandle> handle, LeLayoutId id) {
+    return _le_layout_routes_count(handle, id);
+  }
+
+  late final _le_layout_routes_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeLayoutId)
+        >
+      >('le_layout_routes_count');
+  late final _le_layout_routes_count = _le_layout_routes_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutId)>();
+
+  LeRouteId le_layout_routes_at(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+    int index,
+  ) {
+    return _le_layout_routes_at(handle, id, index);
+  }
+
+  late final _le_layout_routes_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeRouteId Function(ffi.Pointer<LeHandle>, LeLayoutId, ffi.Int32)
+        >
+      >('le_layout_routes_at');
+  late final _le_layout_routes_at = _le_layout_routes_atPtr
+      .asFunction<LeRouteId Function(ffi.Pointer<LeHandle>, LeLayoutId, int)>();
+
+  int le_layout_regions_count(ffi.Pointer<LeHandle> handle, LeLayoutId id) {
+    return _le_layout_regions_count(handle, id);
+  }
+
+  late final _le_layout_regions_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeLayoutId)
+        >
+      >('le_layout_regions_count');
+  late final _le_layout_regions_count = _le_layout_regions_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutId)>();
+
+  LeRegionId le_layout_regions_at(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+    int index,
+  ) {
+    return _le_layout_regions_at(handle, id, index);
+  }
+
+  late final _le_layout_regions_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeRegionId Function(ffi.Pointer<LeHandle>, LeLayoutId, ffi.Int32)
+        >
+      >('le_layout_regions_at');
+  late final _le_layout_regions_at = _le_layout_regions_atPtr
+      .asFunction<
+        LeRegionId Function(ffi.Pointer<LeHandle>, LeLayoutId, int)
+      >();
+
+  int le_physical_port_segment_shapes_count(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortSegmentId id,
+  ) {
+    return _le_physical_port_segment_shapes_count(handle, id);
+  }
+
+  late final _le_physical_port_segment_shapes_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LePhysicalPortSegmentId)
+        >
+      >('le_physical_port_segment_shapes_count');
+  late final _le_physical_port_segment_shapes_count =
+      _le_physical_port_segment_shapes_countPtr
+          .asFunction<
+            int Function(ffi.Pointer<LeHandle>, LePhysicalPortSegmentId)
+          >();
+
+  LeShapeId le_physical_port_segment_shapes_at(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortSegmentId id,
+    int index,
+  ) {
+    return _le_physical_port_segment_shapes_at(handle, id, index);
+  }
+
+  late final _le_physical_port_segment_shapes_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeShapeId Function(
+            ffi.Pointer<LeHandle>,
+            LePhysicalPortSegmentId,
+            ffi.Int32,
+          )
+        >
+      >('le_physical_port_segment_shapes_at');
+  late final _le_physical_port_segment_shapes_at =
+      _le_physical_port_segment_shapes_atPtr
+          .asFunction<
+            LeShapeId Function(
+              ffi.Pointer<LeHandle>,
+              LePhysicalPortSegmentId,
+              int,
+            )
+          >();
+
+  int le_physical_port_segments_count(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortId id,
+  ) {
+    return _le_physical_port_segments_count(handle, id);
+  }
+
+  late final _le_physical_port_segments_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LePhysicalPortId)
+        >
+      >('le_physical_port_segments_count');
+  late final _le_physical_port_segments_count =
+      _le_physical_port_segments_countPtr
+          .asFunction<int Function(ffi.Pointer<LeHandle>, LePhysicalPortId)>();
+
+  LePhysicalPortSegmentId le_physical_port_segments_at(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortId id,
+    int index,
+  ) {
+    return _le_physical_port_segments_at(handle, id, index);
+  }
+
+  late final _le_physical_port_segments_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LePhysicalPortSegmentId Function(
+            ffi.Pointer<LeHandle>,
+            LePhysicalPortId,
+            ffi.Int32,
+          )
+        >
+      >('le_physical_port_segments_at');
+  late final _le_physical_port_segments_at = _le_physical_port_segments_atPtr
+      .asFunction<
+        LePhysicalPortSegmentId Function(
+          ffi.Pointer<LeHandle>,
+          LePhysicalPortId,
+          int,
+        )
+      >();
+
+  int le_blockage_shapes_count(ffi.Pointer<LeHandle> handle, LeBlockageId id) {
+    return _le_blockage_shapes_count(handle, id);
+  }
+
+  late final _le_blockage_shapes_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeBlockageId)
+        >
+      >('le_blockage_shapes_count');
+  late final _le_blockage_shapes_count = _le_blockage_shapes_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeBlockageId)>();
+
+  LeShapeId le_blockage_shapes_at(
+    ffi.Pointer<LeHandle> handle,
+    LeBlockageId id,
+    int index,
+  ) {
+    return _le_blockage_shapes_at(handle, id, index);
+  }
+
+  late final _le_blockage_shapes_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeShapeId Function(ffi.Pointer<LeHandle>, LeBlockageId, ffi.Int32)
+        >
+      >('le_blockage_shapes_at');
+  late final _le_blockage_shapes_at = _le_blockage_shapes_atPtr
+      .asFunction<
+        LeShapeId Function(ffi.Pointer<LeHandle>, LeBlockageId, int)
+      >();
+
+  int le_layout_via_layers_count(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutViaId id,
+  ) {
+    return _le_layout_via_layers_count(handle, id);
+  }
+
+  late final _le_layout_via_layers_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<LeHandle>, LeLayoutViaId)
+        >
+      >('le_layout_via_layers_count');
+  late final _le_layout_via_layers_count = _le_layout_via_layers_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutViaId)>();
+
+  LeViaLayerId le_layout_via_layers_at(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutViaId id,
+    int index,
+  ) {
+    return _le_layout_via_layers_at(handle, id, index);
+  }
+
+  late final _le_layout_via_layers_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeViaLayerId Function(ffi.Pointer<LeHandle>, LeLayoutViaId, ffi.Int32)
+        >
+      >('le_layout_via_layers_at');
+  late final _le_layout_via_layers_at = _le_layout_via_layers_atPtr
+      .asFunction<
+        LeViaLayerId Function(ffi.Pointer<LeHandle>, LeLayoutViaId, int)
+      >();
+
+  int le_route_shapes_count(ffi.Pointer<LeHandle> handle, LeRouteId id) {
+    return _le_route_shapes_count(handle, id);
+  }
+
+  late final _le_route_shapes_countPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<LeHandle>, LeRouteId)>
+      >('le_route_shapes_count');
+  late final _le_route_shapes_count = _le_route_shapes_countPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeRouteId)>();
+
+  LeShapeId le_route_shapes_at(
+    ffi.Pointer<LeHandle> handle,
+    LeRouteId id,
+    int index,
+  ) {
+    return _le_route_shapes_at(handle, id, index);
+  }
+
+  late final _le_route_shapes_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeShapeId Function(ffi.Pointer<LeHandle>, LeRouteId, ffi.Int32)
+        >
+      >('le_route_shapes_at');
+  late final _le_route_shapes_at = _le_route_shapes_atPtr
+      .asFunction<LeShapeId Function(ffi.Pointer<LeHandle>, LeRouteId, int)>();
+
   /// @brief The current Technology (invalid id, index == UINT32_MAX, if unset).
   LeTechnologyId le_current_technology(ffi.Pointer<LeHandle> handle) {
     return _le_current_technology(handle);
@@ -6415,6 +7770,32 @@ class LayoutEnginePluginBindings {
       >('le_set_current_schematic');
   late final _le_set_current_schematic = _le_set_current_schematicPtr
       .asFunction<int Function(ffi.Pointer<LeHandle>, LeSchematicId)>();
+
+  /// @brief The current Layout (invalid id, index == UINT32_MAX, if unset).
+  LeLayoutId le_current_layout(ffi.Pointer<LeHandle> handle) {
+    return _le_current_layout(handle);
+  }
+
+  late final _le_current_layoutPtr =
+      _lookup<ffi.NativeFunction<LeLayoutId Function(ffi.Pointer<LeHandle>)>>(
+        'le_current_layout',
+      );
+  late final _le_current_layout = _le_current_layoutPtr
+      .asFunction<LeLayoutId Function(ffi.Pointer<LeHandle>)>();
+
+  /// @brief Sets the current Layout. Returns 0 on success, nonzero if
+  /// handle is null or id doesn't name a Layout on this handle (the
+  /// current value is left unchanged on failure).
+  int le_set_current_layout(ffi.Pointer<LeHandle> handle, LeLayoutId id) {
+    return _le_set_current_layout(handle, id);
+  }
+
+  late final _le_set_current_layoutPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeLayoutId)>
+      >('le_set_current_layout');
+  late final _le_set_current_layout = _le_set_current_layoutPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutId)>();
 
   /// --- get_<type> search (name-glob + -of + -filter) - see
   /// codegen/codegen/tcl_scope.py's own module docstring for how the
@@ -7228,12 +8609,14 @@ class LayoutEnginePluginBindings {
     ffi.Pointer<LeHandle> handle,
     LeViaId of_via,
     LeNonDefaultRuleViaId of_non_default_rule_via,
+    LeLayoutViaId of_layout_via,
     ffi.Pointer<ffi.Char> filter_expression,
   ) {
     return _le_get_via_layers(
       handle,
       of_via,
       of_non_default_rule_via,
+      of_layout_via,
       filter_expression,
     );
   }
@@ -7245,6 +8628,7 @@ class LayoutEnginePluginBindings {
             ffi.Pointer<LeHandle>,
             LeViaId,
             LeNonDefaultRuleViaId,
+            LeLayoutViaId,
             ffi.Pointer<ffi.Char>,
           )
         >
@@ -7255,6 +8639,7 @@ class LayoutEnginePluginBindings {
           ffi.Pointer<LeHandle>,
           LeViaId,
           LeNonDefaultRuleViaId,
+          LeLayoutViaId,
           ffi.Pointer<ffi.Char>,
         )
       >();
@@ -7278,9 +8663,15 @@ class LayoutEnginePluginBindings {
   int le_get_via_rule_references(
     ffi.Pointer<LeHandle> handle,
     LeViaId of_via,
+    LeLayoutViaId of_layout_via,
     ffi.Pointer<ffi.Char> filter_expression,
   ) {
-    return _le_get_via_rule_references(handle, of_via, filter_expression);
+    return _le_get_via_rule_references(
+      handle,
+      of_via,
+      of_layout_via,
+      filter_expression,
+    );
   }
 
   late final _le_get_via_rule_referencesPtr =
@@ -7289,13 +8680,19 @@ class LayoutEnginePluginBindings {
           ffi.Int32 Function(
             ffi.Pointer<LeHandle>,
             LeViaId,
+            LeLayoutViaId,
             ffi.Pointer<ffi.Char>,
           )
         >
       >('le_get_via_rule_references');
   late final _le_get_via_rule_references = _le_get_via_rule_referencesPtr
       .asFunction<
-        int Function(ffi.Pointer<LeHandle>, LeViaId, ffi.Pointer<ffi.Char>)
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeViaId,
+          LeLayoutViaId,
+          ffi.Pointer<ffi.Char>,
+        )
       >();
 
   LeViaRuleReferenceId le_search_result_via_rule_reference_at(
@@ -7453,6 +8850,61 @@ class LayoutEnginePluginBindings {
       >('le_search_result_via_rule_at');
   late final _le_search_result_via_rule_at = _le_search_result_via_rule_atPtr
       .asFunction<LeViaRuleId Function(ffi.Pointer<LeHandle>, int)>();
+
+  int le_get_shapes(
+    ffi.Pointer<LeHandle> handle,
+    LeTerminalPortId of_terminal_port,
+    LeObstructionId of_obstruction,
+    LePhysicalPortSegmentId of_physical_port_segment,
+    LeBlockageId of_blockage,
+    LeRouteId of_route,
+    LeLayoutId of_layout,
+    LeAbstractId of_abstract,
+    ffi.Pointer<ffi.Char> filter_expression,
+  ) {
+    return _le_get_shapes(
+      handle,
+      of_terminal_port,
+      of_obstruction,
+      of_physical_port_segment,
+      of_blockage,
+      of_route,
+      of_layout,
+      of_abstract,
+      filter_expression,
+    );
+  }
+
+  late final _le_get_shapesPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<LeHandle>,
+            LeTerminalPortId,
+            LeObstructionId,
+            LePhysicalPortSegmentId,
+            LeBlockageId,
+            LeRouteId,
+            LeLayoutId,
+            LeAbstractId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_get_shapes');
+  late final _le_get_shapes = _le_get_shapesPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeTerminalPortId,
+          LeObstructionId,
+          LePhysicalPortSegmentId,
+          LeBlockageId,
+          LeRouteId,
+          LeLayoutId,
+          LeAbstractId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
 
   int le_get_libraries(
     ffi.Pointer<LeHandle> handle,
@@ -7634,6 +9086,7 @@ class LayoutEnginePluginBindings {
     LeViaId of_via,
     LeNonDefaultRuleViaId of_non_default_rule_via,
     LeAbstractId of_abstract,
+    LeLayoutViaId of_layout_via,
     ffi.Pointer<ffi.Char> filter_expression,
   ) {
     return _le_get_foreigns(
@@ -7641,6 +9094,7 @@ class LayoutEnginePluginBindings {
       of_via,
       of_non_default_rule_via,
       of_abstract,
+      of_layout_via,
       filter_expression,
     );
   }
@@ -7653,6 +9107,7 @@ class LayoutEnginePluginBindings {
             LeViaId,
             LeNonDefaultRuleViaId,
             LeAbstractId,
+            LeLayoutViaId,
             ffi.Pointer<ffi.Char>,
           )
         >
@@ -7664,6 +9119,7 @@ class LayoutEnginePluginBindings {
           LeViaId,
           LeNonDefaultRuleViaId,
           LeAbstractId,
+          LeLayoutViaId,
           ffi.Pointer<ffi.Char>,
         )
       >();
@@ -7807,6 +9263,501 @@ class LayoutEnginePluginBindings {
       >('le_search_result_instance_at');
   late final _le_search_result_instance_at = _le_search_result_instance_atPtr
       .asFunction<LeInstanceId Function(ffi.Pointer<LeHandle>, int)>();
+
+  int le_get_layouts(
+    ffi.Pointer<LeHandle> handle,
+    LeDesignId of_design,
+    ffi.Pointer<ffi.Char> filter_expression,
+  ) {
+    return _le_get_layouts(handle, of_design, filter_expression);
+  }
+
+  late final _le_get_layoutsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<LeHandle>,
+            LeDesignId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_get_layouts');
+  late final _le_get_layouts = _le_get_layoutsPtr
+      .asFunction<
+        int Function(ffi.Pointer<LeHandle>, LeDesignId, ffi.Pointer<ffi.Char>)
+      >();
+
+  LeLayoutId le_search_result_layout_at(
+    ffi.Pointer<LeHandle> handle,
+    int index,
+  ) {
+    return _le_search_result_layout_at(handle, index);
+  }
+
+  late final _le_search_result_layout_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeLayoutId Function(ffi.Pointer<LeHandle>, ffi.Int32)
+        >
+      >('le_search_result_layout_at');
+  late final _le_search_result_layout_at = _le_search_result_layout_atPtr
+      .asFunction<LeLayoutId Function(ffi.Pointer<LeHandle>, int)>();
+
+  int le_get_rows(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId of_layout,
+    ffi.Pointer<ffi.Char> name_expression,
+    ffi.Pointer<ffi.Char> filter_expression,
+  ) {
+    return _le_get_rows(handle, of_layout, name_expression, filter_expression);
+  }
+
+  late final _le_get_rowsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_get_rows');
+  late final _le_get_rows = _le_get_rowsPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  LeRowId le_search_result_row_at(ffi.Pointer<LeHandle> handle, int index) {
+    return _le_search_result_row_at(handle, index);
+  }
+
+  late final _le_search_result_row_atPtr =
+      _lookup<
+        ffi.NativeFunction<LeRowId Function(ffi.Pointer<LeHandle>, ffi.Int32)>
+      >('le_search_result_row_at');
+  late final _le_search_result_row_at = _le_search_result_row_atPtr
+      .asFunction<LeRowId Function(ffi.Pointer<LeHandle>, int)>();
+
+  int le_get_tracks(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId of_layout,
+    ffi.Pointer<ffi.Char> filter_expression,
+  ) {
+    return _le_get_tracks(handle, of_layout, filter_expression);
+  }
+
+  late final _le_get_tracksPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_get_tracks');
+  late final _le_get_tracks = _le_get_tracksPtr
+      .asFunction<
+        int Function(ffi.Pointer<LeHandle>, LeLayoutId, ffi.Pointer<ffi.Char>)
+      >();
+
+  LeTrackId le_search_result_track_at(ffi.Pointer<LeHandle> handle, int index) {
+    return _le_search_result_track_at(handle, index);
+  }
+
+  late final _le_search_result_track_atPtr =
+      _lookup<
+        ffi.NativeFunction<LeTrackId Function(ffi.Pointer<LeHandle>, ffi.Int32)>
+      >('le_search_result_track_at');
+  late final _le_search_result_track_at = _le_search_result_track_atPtr
+      .asFunction<LeTrackId Function(ffi.Pointer<LeHandle>, int)>();
+
+  int le_get_g_cell_grids(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId of_layout,
+    ffi.Pointer<ffi.Char> filter_expression,
+  ) {
+    return _le_get_g_cell_grids(handle, of_layout, filter_expression);
+  }
+
+  late final _le_get_g_cell_gridsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_get_g_cell_grids');
+  late final _le_get_g_cell_grids = _le_get_g_cell_gridsPtr
+      .asFunction<
+        int Function(ffi.Pointer<LeHandle>, LeLayoutId, ffi.Pointer<ffi.Char>)
+      >();
+
+  LeGCellGridId le_search_result_g_cell_grid_at(
+    ffi.Pointer<LeHandle> handle,
+    int index,
+  ) {
+    return _le_search_result_g_cell_grid_at(handle, index);
+  }
+
+  late final _le_search_result_g_cell_grid_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeGCellGridId Function(ffi.Pointer<LeHandle>, ffi.Int32)
+        >
+      >('le_search_result_g_cell_grid_at');
+  late final _le_search_result_g_cell_grid_at =
+      _le_search_result_g_cell_grid_atPtr
+          .asFunction<LeGCellGridId Function(ffi.Pointer<LeHandle>, int)>();
+
+  int le_get_placements(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId of_layout,
+    ffi.Pointer<ffi.Char> name_expression,
+    ffi.Pointer<ffi.Char> filter_expression,
+  ) {
+    return _le_get_placements(
+      handle,
+      of_layout,
+      name_expression,
+      filter_expression,
+    );
+  }
+
+  late final _le_get_placementsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_get_placements');
+  late final _le_get_placements = _le_get_placementsPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  LePlacementId le_search_result_placement_at(
+    ffi.Pointer<LeHandle> handle,
+    int index,
+  ) {
+    return _le_search_result_placement_at(handle, index);
+  }
+
+  late final _le_search_result_placement_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LePlacementId Function(ffi.Pointer<LeHandle>, ffi.Int32)
+        >
+      >('le_search_result_placement_at');
+  late final _le_search_result_placement_at = _le_search_result_placement_atPtr
+      .asFunction<LePlacementId Function(ffi.Pointer<LeHandle>, int)>();
+
+  int le_get_physical_port_segments(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortId of_physical_port,
+    ffi.Pointer<ffi.Char> filter_expression,
+  ) {
+    return _le_get_physical_port_segments(
+      handle,
+      of_physical_port,
+      filter_expression,
+    );
+  }
+
+  late final _le_get_physical_port_segmentsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<LeHandle>,
+            LePhysicalPortId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_get_physical_port_segments');
+  late final _le_get_physical_port_segments = _le_get_physical_port_segmentsPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LePhysicalPortId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  LePhysicalPortSegmentId le_search_result_physical_port_segment_at(
+    ffi.Pointer<LeHandle> handle,
+    int index,
+  ) {
+    return _le_search_result_physical_port_segment_at(handle, index);
+  }
+
+  late final _le_search_result_physical_port_segment_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LePhysicalPortSegmentId Function(ffi.Pointer<LeHandle>, ffi.Int32)
+        >
+      >('le_search_result_physical_port_segment_at');
+  late final _le_search_result_physical_port_segment_at =
+      _le_search_result_physical_port_segment_atPtr
+          .asFunction<
+            LePhysicalPortSegmentId Function(ffi.Pointer<LeHandle>, int)
+          >();
+
+  int le_get_physical_ports(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId of_layout,
+    ffi.Pointer<ffi.Char> name_expression,
+    ffi.Pointer<ffi.Char> filter_expression,
+  ) {
+    return _le_get_physical_ports(
+      handle,
+      of_layout,
+      name_expression,
+      filter_expression,
+    );
+  }
+
+  late final _le_get_physical_portsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_get_physical_ports');
+  late final _le_get_physical_ports = _le_get_physical_portsPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  LePhysicalPortId le_search_result_physical_port_at(
+    ffi.Pointer<LeHandle> handle,
+    int index,
+  ) {
+    return _le_search_result_physical_port_at(handle, index);
+  }
+
+  late final _le_search_result_physical_port_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LePhysicalPortId Function(ffi.Pointer<LeHandle>, ffi.Int32)
+        >
+      >('le_search_result_physical_port_at');
+  late final _le_search_result_physical_port_at =
+      _le_search_result_physical_port_atPtr
+          .asFunction<LePhysicalPortId Function(ffi.Pointer<LeHandle>, int)>();
+
+  int le_get_blockages(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId of_layout,
+    ffi.Pointer<ffi.Char> filter_expression,
+  ) {
+    return _le_get_blockages(handle, of_layout, filter_expression);
+  }
+
+  late final _le_get_blockagesPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_get_blockages');
+  late final _le_get_blockages = _le_get_blockagesPtr
+      .asFunction<
+        int Function(ffi.Pointer<LeHandle>, LeLayoutId, ffi.Pointer<ffi.Char>)
+      >();
+
+  LeBlockageId le_search_result_blockage_at(
+    ffi.Pointer<LeHandle> handle,
+    int index,
+  ) {
+    return _le_search_result_blockage_at(handle, index);
+  }
+
+  late final _le_search_result_blockage_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeBlockageId Function(ffi.Pointer<LeHandle>, ffi.Int32)
+        >
+      >('le_search_result_blockage_at');
+  late final _le_search_result_blockage_at = _le_search_result_blockage_atPtr
+      .asFunction<LeBlockageId Function(ffi.Pointer<LeHandle>, int)>();
+
+  int le_get_layout_vias(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId of_layout,
+    ffi.Pointer<ffi.Char> name_expression,
+    ffi.Pointer<ffi.Char> filter_expression,
+  ) {
+    return _le_get_layout_vias(
+      handle,
+      of_layout,
+      name_expression,
+      filter_expression,
+    );
+  }
+
+  late final _le_get_layout_viasPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_get_layout_vias');
+  late final _le_get_layout_vias = _le_get_layout_viasPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  LeLayoutViaId le_search_result_layout_via_at(
+    ffi.Pointer<LeHandle> handle,
+    int index,
+  ) {
+    return _le_search_result_layout_via_at(handle, index);
+  }
+
+  late final _le_search_result_layout_via_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeLayoutViaId Function(ffi.Pointer<LeHandle>, ffi.Int32)
+        >
+      >('le_search_result_layout_via_at');
+  late final _le_search_result_layout_via_at =
+      _le_search_result_layout_via_atPtr
+          .asFunction<LeLayoutViaId Function(ffi.Pointer<LeHandle>, int)>();
+
+  int le_get_routes(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId of_layout,
+    ffi.Pointer<ffi.Char> name_expression,
+    ffi.Pointer<ffi.Char> filter_expression,
+  ) {
+    return _le_get_routes(
+      handle,
+      of_layout,
+      name_expression,
+      filter_expression,
+    );
+  }
+
+  late final _le_get_routesPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_get_routes');
+  late final _le_get_routes = _le_get_routesPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  LeRouteId le_search_result_route_at(ffi.Pointer<LeHandle> handle, int index) {
+    return _le_search_result_route_at(handle, index);
+  }
+
+  late final _le_search_result_route_atPtr =
+      _lookup<
+        ffi.NativeFunction<LeRouteId Function(ffi.Pointer<LeHandle>, ffi.Int32)>
+      >('le_search_result_route_at');
+  late final _le_search_result_route_at = _le_search_result_route_atPtr
+      .asFunction<LeRouteId Function(ffi.Pointer<LeHandle>, int)>();
+
+  int le_get_regions(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId of_layout,
+    ffi.Pointer<ffi.Char> name_expression,
+    ffi.Pointer<ffi.Char> filter_expression,
+  ) {
+    return _le_get_regions(
+      handle,
+      of_layout,
+      name_expression,
+      filter_expression,
+    );
+  }
+
+  late final _le_get_regionsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_get_regions');
+  late final _le_get_regions = _le_get_regionsPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  LeRegionId le_search_result_region_at(
+    ffi.Pointer<LeHandle> handle,
+    int index,
+  ) {
+    return _le_search_result_region_at(handle, index);
+  }
+
+  late final _le_search_result_region_atPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeRegionId Function(ffi.Pointer<LeHandle>, ffi.Int32)
+        >
+      >('le_search_result_region_at');
+  late final _le_search_result_region_at = _le_search_result_region_atPtr
+      .asFunction<LeRegionId Function(ffi.Pointer<LeHandle>, int)>();
 
   /// --- create_<type> - one flag per scalar field (str/int/double/dbu/bool/
   /// enum), required iff Field.create_required(); a flattenable embedded
@@ -9412,12 +11363,14 @@ class LayoutEnginePluginBindings {
     ffi.Pointer<LeHandle> handle,
     LeViaId via_id,
     LeNonDefaultRuleViaId non_default_rule_via_id,
+    LeLayoutViaId layout_via_id,
     ffi.Pointer<ffi.Char> layer_name,
   ) {
     return _le_create_via_layer(
       handle,
       via_id,
       non_default_rule_via_id,
+      layout_via_id,
       layer_name,
     );
   }
@@ -9429,6 +11382,7 @@ class LayoutEnginePluginBindings {
             ffi.Pointer<LeHandle>,
             LeViaId,
             LeNonDefaultRuleViaId,
+            LeLayoutViaId,
             ffi.Pointer<ffi.Char>,
           )
         >
@@ -9439,6 +11393,7 @@ class LayoutEnginePluginBindings {
           ffi.Pointer<LeHandle>,
           LeViaId,
           LeNonDefaultRuleViaId,
+          LeLayoutViaId,
           ffi.Pointer<ffi.Char>,
         )
       >();
@@ -9446,6 +11401,7 @@ class LayoutEnginePluginBindings {
   LeViaRuleReferenceId le_create_via_rule_reference(
     ffi.Pointer<LeHandle> handle,
     LeViaId via_id,
+    LeLayoutViaId layout_via_id,
     ffi.Pointer<ffi.Char> via_rule_name,
     int has_cut_size,
     double cut_size_x_um,
@@ -9466,6 +11422,7 @@ class LayoutEnginePluginBindings {
     return _le_create_via_rule_reference(
       handle,
       via_id,
+      layout_via_id,
       via_rule_name,
       has_cut_size,
       cut_size_x_um,
@@ -9491,6 +11448,7 @@ class LayoutEnginePluginBindings {
           LeViaRuleReferenceId Function(
             ffi.Pointer<LeHandle>,
             LeViaId,
+            LeLayoutViaId,
             ffi.Pointer<ffi.Char>,
             ffi.Int32,
             ffi.Double,
@@ -9515,6 +11473,7 @@ class LayoutEnginePluginBindings {
         LeViaRuleReferenceId Function(
           ffi.Pointer<LeHandle>,
           LeViaId,
+          LeLayoutViaId,
           ffi.Pointer<ffi.Char>,
           int,
           double,
@@ -9747,6 +11706,11 @@ class LayoutEnginePluginBindings {
     ffi.Pointer<LeHandle> handle,
     LeTerminalPortId terminal_port_id,
     LeObstructionId obstruction_id,
+    LePhysicalPortSegmentId physical_port_segment_id,
+    LeBlockageId blockage_id,
+    LeRouteId route_id,
+    LeLayoutId layout_id,
+    LeAbstractId abstract_id,
     ffi.Pointer<ffi.Char> layer_name,
     int has_paths,
     ffi.Pointer<ffi.Double> paths_flat_um,
@@ -9767,6 +11731,11 @@ class LayoutEnginePluginBindings {
       handle,
       terminal_port_id,
       obstruction_id,
+      physical_port_segment_id,
+      blockage_id,
+      route_id,
+      layout_id,
+      abstract_id,
       layer_name,
       has_paths,
       paths_flat_um,
@@ -9792,6 +11761,11 @@ class LayoutEnginePluginBindings {
             ffi.Pointer<LeHandle>,
             LeTerminalPortId,
             LeObstructionId,
+            LePhysicalPortSegmentId,
+            LeBlockageId,
+            LeRouteId,
+            LeLayoutId,
+            LeAbstractId,
             ffi.Pointer<ffi.Char>,
             ffi.Int32,
             ffi.Pointer<ffi.Double>,
@@ -9816,6 +11790,11 @@ class LayoutEnginePluginBindings {
           ffi.Pointer<LeHandle>,
           LeTerminalPortId,
           LeObstructionId,
+          LePhysicalPortSegmentId,
+          LeBlockageId,
+          LeRouteId,
+          LeLayoutId,
+          LeAbstractId,
           ffi.Pointer<ffi.Char>,
           int,
           ffi.Pointer<ffi.Double>,
@@ -10030,6 +12009,7 @@ class LayoutEnginePluginBindings {
     LeViaId via_id,
     LeNonDefaultRuleViaId non_default_rule_via_id,
     LeAbstractId abstract_id,
+    LeLayoutViaId layout_via_id,
     ffi.Pointer<ffi.Char> name,
     int has_origin,
     double origin_x_um,
@@ -10041,6 +12021,7 @@ class LayoutEnginePluginBindings {
       via_id,
       non_default_rule_via_id,
       abstract_id,
+      layout_via_id,
       name,
       has_origin,
       origin_x_um,
@@ -10057,6 +12038,7 @@ class LayoutEnginePluginBindings {
             LeViaId,
             LeNonDefaultRuleViaId,
             LeAbstractId,
+            LeLayoutViaId,
             ffi.Pointer<ffi.Char>,
             ffi.Int32,
             ffi.Double,
@@ -10072,6 +12054,7 @@ class LayoutEnginePluginBindings {
           LeViaId,
           LeNonDefaultRuleViaId,
           LeAbstractId,
+          LeLayoutViaId,
           ffi.Pointer<ffi.Char>,
           int,
           double,
@@ -10311,6 +12294,573 @@ class LayoutEnginePluginBindings {
           int,
           double,
           double,
+        )
+      >();
+
+  LeLayoutId le_create_layout(
+    ffi.Pointer<LeHandle> handle,
+    LeDesignId design_id,
+  ) {
+    return _le_create_layout(handle, design_id);
+  }
+
+  late final _le_create_layoutPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeLayoutId Function(ffi.Pointer<LeHandle>, LeDesignId)
+        >
+      >('le_create_layout');
+  late final _le_create_layout = _le_create_layoutPtr
+      .asFunction<LeLayoutId Function(ffi.Pointer<LeHandle>, LeDesignId)>();
+
+  LeRowId le_create_row(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> name,
+    ffi.Pointer<ffi.Char> site_name,
+    int has_origin,
+    double origin_x_um,
+    double origin_y_um,
+    ffi.Pointer<ffi.Char> orientation,
+    int has_num_x,
+    int num_x,
+    int has_num_y,
+    int num_y,
+    int has_step_x,
+    double step_x_um,
+    int has_step_y,
+    double step_y_um,
+  ) {
+    return _le_create_row(
+      handle,
+      layout_id,
+      name,
+      site_name,
+      has_origin,
+      origin_x_um,
+      origin_y_um,
+      orientation,
+      has_num_x,
+      num_x,
+      has_num_y,
+      num_y,
+      has_step_x,
+      step_x_um,
+      has_step_y,
+      step_y_um,
+    );
+  }
+
+  late final _le_create_rowPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeRowId Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Double,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Double,
+          )
+        >
+      >('le_create_row');
+  late final _le_create_row = _le_create_rowPtr
+      .asFunction<
+        LeRowId Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          double,
+          double,
+          ffi.Pointer<ffi.Char>,
+          int,
+          int,
+          int,
+          int,
+          int,
+          double,
+          int,
+          double,
+        )
+      >();
+
+  LeTrackId le_create_track(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId layout_id,
+    int is_x,
+    double start_um,
+    int count,
+    double step_um,
+    int has_mask,
+    int mask,
+    int same_mask,
+  ) {
+    return _le_create_track(
+      handle,
+      layout_id,
+      is_x,
+      start_um,
+      count,
+      step_um,
+      has_mask,
+      mask,
+      same_mask,
+    );
+  }
+
+  late final _le_create_trackPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeTrackId Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+          )
+        >
+      >('le_create_track');
+  late final _le_create_track = _le_create_trackPtr
+      .asFunction<
+        LeTrackId Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          int,
+          double,
+          int,
+          double,
+          int,
+          int,
+          int,
+        )
+      >();
+
+  LeGCellGridId le_create_g_cell_grid(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId layout_id,
+    int is_x,
+    double start_um,
+    int count,
+    double step_um,
+  ) {
+    return _le_create_g_cell_grid(
+      handle,
+      layout_id,
+      is_x,
+      start_um,
+      count,
+      step_um,
+    );
+  }
+
+  late final _le_create_g_cell_gridPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeGCellGridId Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Double,
+          )
+        >
+      >('le_create_g_cell_grid');
+  late final _le_create_g_cell_grid = _le_create_g_cell_gridPtr
+      .asFunction<
+        LeGCellGridId Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          int,
+          double,
+          int,
+          double,
+        )
+      >();
+
+  LePlacementId le_create_placement(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> name,
+    ffi.Pointer<ffi.Char> reference_name,
+    ffi.Pointer<ffi.Char> placement_status,
+    int has_location,
+    double location_x_um,
+    double location_y_um,
+    ffi.Pointer<ffi.Char> orientation,
+    int has_weight,
+    double weight,
+    ffi.Pointer<ffi.Char> source,
+  ) {
+    return _le_create_placement(
+      handle,
+      layout_id,
+      name,
+      reference_name,
+      placement_status,
+      has_location,
+      location_x_um,
+      location_y_um,
+      orientation,
+      has_weight,
+      weight,
+      source,
+    );
+  }
+
+  late final _le_create_placementPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LePlacementId Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Double,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_create_placement');
+  late final _le_create_placement = _le_create_placementPtr
+      .asFunction<
+        LePlacementId Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          double,
+          double,
+          ffi.Pointer<ffi.Char>,
+          int,
+          double,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  LePhysicalPortSegmentId le_create_physical_port_segment(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortId physical_port_id,
+    ffi.Pointer<ffi.Char> placement_status,
+    int has_location,
+    double location_x_um,
+    double location_y_um,
+    ffi.Pointer<ffi.Char> orientation,
+  ) {
+    return _le_create_physical_port_segment(
+      handle,
+      physical_port_id,
+      placement_status,
+      has_location,
+      location_x_um,
+      location_y_um,
+      orientation,
+    );
+  }
+
+  late final _le_create_physical_port_segmentPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LePhysicalPortSegmentId Function(
+            ffi.Pointer<LeHandle>,
+            LePhysicalPortId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Double,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_create_physical_port_segment');
+  late final _le_create_physical_port_segment =
+      _le_create_physical_port_segmentPtr
+          .asFunction<
+            LePhysicalPortSegmentId Function(
+              ffi.Pointer<LeHandle>,
+              LePhysicalPortId,
+              ffi.Pointer<ffi.Char>,
+              int,
+              double,
+              double,
+              ffi.Pointer<ffi.Char>,
+            )
+          >();
+
+  LePhysicalPortId le_create_physical_port(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> name,
+    ffi.Pointer<ffi.Char> net_name,
+    ffi.Pointer<ffi.Char> direction,
+    ffi.Pointer<ffi.Char> use,
+    ffi.Pointer<ffi.Char> placement_status,
+    int has_location,
+    double location_x_um,
+    double location_y_um,
+    ffi.Pointer<ffi.Char> orientation,
+  ) {
+    return _le_create_physical_port(
+      handle,
+      layout_id,
+      name,
+      net_name,
+      direction,
+      use,
+      placement_status,
+      has_location,
+      location_x_um,
+      location_y_um,
+      orientation,
+    );
+  }
+
+  late final _le_create_physical_portPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LePhysicalPortId Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Double,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_create_physical_port');
+  late final _le_create_physical_port = _le_create_physical_portPtr
+      .asFunction<
+        LePhysicalPortId Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          double,
+          double,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  LeBlockageId le_create_blockage(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> kind,
+    ffi.Pointer<ffi.Char> layer_name,
+    int has_spacing,
+    double spacing_um,
+    int has_design_rule_width,
+    double design_rule_width_um,
+    int is_soft,
+    int has_placement_max_density,
+    double placement_max_density,
+  ) {
+    return _le_create_blockage(
+      handle,
+      layout_id,
+      kind,
+      layer_name,
+      has_spacing,
+      spacing_um,
+      has_design_rule_width,
+      design_rule_width_um,
+      is_soft,
+      has_placement_max_density,
+      placement_max_density,
+    );
+  }
+
+  late final _le_create_blockagePtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeBlockageId Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Double,
+          )
+        >
+      >('le_create_blockage');
+  late final _le_create_blockage = _le_create_blockagePtr
+      .asFunction<
+        LeBlockageId Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          double,
+          int,
+          double,
+          int,
+          int,
+          double,
+        )
+      >();
+
+  LeLayoutViaId le_create_layout_via(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> name,
+  ) {
+    return _le_create_layout_via(handle, layout_id, name);
+  }
+
+  late final _le_create_layout_viaPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeLayoutViaId Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_create_layout_via');
+  late final _le_create_layout_via = _le_create_layout_viaPtr
+      .asFunction<
+        LeLayoutViaId Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  LeRouteId le_create_route(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> name,
+    int is_special,
+    int has_width,
+    double width_um,
+    int has_voltage,
+    double voltage,
+    ffi.Pointer<ffi.Char> use,
+  ) {
+    return _le_create_route(
+      handle,
+      layout_id,
+      name,
+      is_special,
+      has_width,
+      width_um,
+      has_voltage,
+      voltage,
+      use,
+    );
+  }
+
+  late final _le_create_routePtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeRouteId Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_create_route');
+  late final _le_create_route = _le_create_routePtr
+      .asFunction<
+        LeRouteId Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          int,
+          int,
+          double,
+          int,
+          double,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  LeRegionId le_create_region(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> name,
+    ffi.Pointer<ffi.Char> region_type,
+    int has_rects,
+    ffi.Pointer<ffi.Double> rects_flat_um,
+    int rects_flat_count,
+  ) {
+    return _le_create_region(
+      handle,
+      layout_id,
+      name,
+      region_type,
+      has_rects,
+      rects_flat_um,
+      rects_flat_count,
+    );
+  }
+
+  late final _le_create_regionPtr =
+      _lookup<
+        ffi.NativeFunction<
+          LeRegionId Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Pointer<ffi.Double>,
+            ffi.Int32,
+          )
+        >
+      >('le_create_region');
+  late final _le_create_region = _le_create_regionPtr
+      .asFunction<
+        LeRegionId Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          ffi.Pointer<ffi.Double>,
+          int,
         )
       >();
 
@@ -12185,8 +14735,6 @@ class LayoutEnginePluginBindings {
   int le_update_via_rule_reference(
     ffi.Pointer<LeHandle> handle,
     LeViaRuleReferenceId id,
-    int has_via,
-    LeViaId via_id,
     ffi.Pointer<ffi.Char> via_rule_name,
     int has_cut_size,
     double cut_size_x_um,
@@ -12207,8 +14755,6 @@ class LayoutEnginePluginBindings {
     return _le_update_via_rule_reference(
       handle,
       id,
-      has_via,
-      via_id,
       via_rule_name,
       has_cut_size,
       cut_size_x_um,
@@ -12234,8 +14780,6 @@ class LayoutEnginePluginBindings {
           ffi.Int Function(
             ffi.Pointer<LeHandle>,
             LeViaRuleReferenceId,
-            ffi.Int32,
-            LeViaId,
             ffi.Pointer<ffi.Char>,
             ffi.Int32,
             ffi.Double,
@@ -12260,8 +14804,6 @@ class LayoutEnginePluginBindings {
         int Function(
           ffi.Pointer<LeHandle>,
           LeViaRuleReferenceId,
-          int,
-          LeViaId,
           ffi.Pointer<ffi.Char>,
           int,
           double,
@@ -13180,6 +15722,1362 @@ class LayoutEnginePluginBindings {
         )
       >();
 
+  int le_update_layout(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutId id,
+    int has_design,
+    LeDesignId design_id,
+  ) {
+    return _le_update_layout(handle, id, has_design, design_id);
+  }
+
+  late final _le_update_layoutPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutId,
+            ffi.Int32,
+            LeDesignId,
+          )
+        >
+      >('le_update_layout');
+  late final _le_update_layout = _le_update_layoutPtr
+      .asFunction<
+        int Function(ffi.Pointer<LeHandle>, LeLayoutId, int, LeDesignId)
+      >();
+
+  int le_update_row(
+    ffi.Pointer<LeHandle> handle,
+    LeRowId id,
+    int has_layout,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> name,
+    ffi.Pointer<ffi.Char> site_name,
+    int has_origin,
+    double origin_x_um,
+    double origin_y_um,
+    ffi.Pointer<ffi.Char> orientation,
+    int has_num_x,
+    int num_x,
+    int has_num_y,
+    int num_y,
+    int has_step_x,
+    double step_x_um,
+    int has_step_y,
+    double step_y_um,
+  ) {
+    return _le_update_row(
+      handle,
+      id,
+      has_layout,
+      layout_id,
+      name,
+      site_name,
+      has_origin,
+      origin_x_um,
+      origin_y_um,
+      orientation,
+      has_num_x,
+      num_x,
+      has_num_y,
+      num_y,
+      has_step_x,
+      step_x_um,
+      has_step_y,
+      step_y_um,
+    );
+  }
+
+  late final _le_update_rowPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<LeHandle>,
+            LeRowId,
+            ffi.Int32,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Double,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Double,
+          )
+        >
+      >('le_update_row');
+  late final _le_update_row = _le_update_rowPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeRowId,
+          int,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          double,
+          double,
+          ffi.Pointer<ffi.Char>,
+          int,
+          int,
+          int,
+          int,
+          int,
+          double,
+          int,
+          double,
+        )
+      >();
+
+  int le_update_track(
+    ffi.Pointer<LeHandle> handle,
+    LeTrackId id,
+    int has_layout,
+    LeLayoutId layout_id,
+    int has_is_x,
+    int is_x,
+    int has_start,
+    double start_um,
+    int has_count,
+    int count,
+    int has_step,
+    double step_um,
+    int has_mask,
+    int mask,
+    int has_same_mask,
+    int same_mask,
+  ) {
+    return _le_update_track(
+      handle,
+      id,
+      has_layout,
+      layout_id,
+      has_is_x,
+      is_x,
+      has_start,
+      start_um,
+      has_count,
+      count,
+      has_step,
+      step_um,
+      has_mask,
+      mask,
+      has_same_mask,
+      same_mask,
+    );
+  }
+
+  late final _le_update_trackPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<LeHandle>,
+            LeTrackId,
+            ffi.Int32,
+            LeLayoutId,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+          )
+        >
+      >('le_update_track');
+  late final _le_update_track = _le_update_trackPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeTrackId,
+          int,
+          LeLayoutId,
+          int,
+          int,
+          int,
+          double,
+          int,
+          int,
+          int,
+          double,
+          int,
+          int,
+          int,
+          int,
+        )
+      >();
+
+  int le_update_g_cell_grid(
+    ffi.Pointer<LeHandle> handle,
+    LeGCellGridId id,
+    int has_layout,
+    LeLayoutId layout_id,
+    int has_is_x,
+    int is_x,
+    int has_start,
+    double start_um,
+    int has_count,
+    int count,
+    int has_step,
+    double step_um,
+  ) {
+    return _le_update_g_cell_grid(
+      handle,
+      id,
+      has_layout,
+      layout_id,
+      has_is_x,
+      is_x,
+      has_start,
+      start_um,
+      has_count,
+      count,
+      has_step,
+      step_um,
+    );
+  }
+
+  late final _le_update_g_cell_gridPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<LeHandle>,
+            LeGCellGridId,
+            ffi.Int32,
+            LeLayoutId,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Double,
+          )
+        >
+      >('le_update_g_cell_grid');
+  late final _le_update_g_cell_grid = _le_update_g_cell_gridPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeGCellGridId,
+          int,
+          LeLayoutId,
+          int,
+          int,
+          int,
+          double,
+          int,
+          int,
+          int,
+          double,
+        )
+      >();
+
+  int le_update_placement(
+    ffi.Pointer<LeHandle> handle,
+    LePlacementId id,
+    int has_layout,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> name,
+    ffi.Pointer<ffi.Char> reference_name,
+    ffi.Pointer<ffi.Char> placement_status,
+    int has_location,
+    double location_x_um,
+    double location_y_um,
+    ffi.Pointer<ffi.Char> orientation,
+    int has_weight,
+    double weight,
+    ffi.Pointer<ffi.Char> source,
+  ) {
+    return _le_update_placement(
+      handle,
+      id,
+      has_layout,
+      layout_id,
+      name,
+      reference_name,
+      placement_status,
+      has_location,
+      location_x_um,
+      location_y_um,
+      orientation,
+      has_weight,
+      weight,
+      source,
+    );
+  }
+
+  late final _le_update_placementPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<LeHandle>,
+            LePlacementId,
+            ffi.Int32,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Double,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_update_placement');
+  late final _le_update_placement = _le_update_placementPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LePlacementId,
+          int,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          double,
+          double,
+          ffi.Pointer<ffi.Char>,
+          int,
+          double,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  int le_update_physical_port_segment(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortSegmentId id,
+    int has_physical_port,
+    LePhysicalPortId physical_port_id,
+    ffi.Pointer<ffi.Char> placement_status,
+    int has_location,
+    double location_x_um,
+    double location_y_um,
+    ffi.Pointer<ffi.Char> orientation,
+  ) {
+    return _le_update_physical_port_segment(
+      handle,
+      id,
+      has_physical_port,
+      physical_port_id,
+      placement_status,
+      has_location,
+      location_x_um,
+      location_y_um,
+      orientation,
+    );
+  }
+
+  late final _le_update_physical_port_segmentPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<LeHandle>,
+            LePhysicalPortSegmentId,
+            ffi.Int32,
+            LePhysicalPortId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Double,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_update_physical_port_segment');
+  late final _le_update_physical_port_segment =
+      _le_update_physical_port_segmentPtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<LeHandle>,
+              LePhysicalPortSegmentId,
+              int,
+              LePhysicalPortId,
+              ffi.Pointer<ffi.Char>,
+              int,
+              double,
+              double,
+              ffi.Pointer<ffi.Char>,
+            )
+          >();
+
+  int le_update_physical_port(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortId id,
+    int has_layout,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> name,
+    ffi.Pointer<ffi.Char> net_name,
+    ffi.Pointer<ffi.Char> direction,
+    ffi.Pointer<ffi.Char> use,
+    ffi.Pointer<ffi.Char> placement_status,
+    int has_location,
+    double location_x_um,
+    double location_y_um,
+    ffi.Pointer<ffi.Char> orientation,
+  ) {
+    return _le_update_physical_port(
+      handle,
+      id,
+      has_layout,
+      layout_id,
+      name,
+      net_name,
+      direction,
+      use,
+      placement_status,
+      has_location,
+      location_x_um,
+      location_y_um,
+      orientation,
+    );
+  }
+
+  late final _le_update_physical_portPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<LeHandle>,
+            LePhysicalPortId,
+            ffi.Int32,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Double,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_update_physical_port');
+  late final _le_update_physical_port = _le_update_physical_portPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LePhysicalPortId,
+          int,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          double,
+          double,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  int le_update_blockage(
+    ffi.Pointer<LeHandle> handle,
+    LeBlockageId id,
+    int has_layout,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> kind,
+    ffi.Pointer<ffi.Char> layer_name,
+    int has_spacing,
+    double spacing_um,
+    int has_design_rule_width,
+    double design_rule_width_um,
+    int has_is_soft,
+    int is_soft,
+    int has_placement_max_density,
+    double placement_max_density,
+  ) {
+    return _le_update_blockage(
+      handle,
+      id,
+      has_layout,
+      layout_id,
+      kind,
+      layer_name,
+      has_spacing,
+      spacing_um,
+      has_design_rule_width,
+      design_rule_width_um,
+      has_is_soft,
+      is_soft,
+      has_placement_max_density,
+      placement_max_density,
+    );
+  }
+
+  late final _le_update_blockagePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<LeHandle>,
+            LeBlockageId,
+            ffi.Int32,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Double,
+          )
+        >
+      >('le_update_blockage');
+  late final _le_update_blockage = _le_update_blockagePtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeBlockageId,
+          int,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          double,
+          int,
+          double,
+          int,
+          int,
+          int,
+          double,
+        )
+      >();
+
+  int le_update_layout_via(
+    ffi.Pointer<LeHandle> handle,
+    LeLayoutViaId id,
+    int has_layout,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> name,
+  ) {
+    return _le_update_layout_via(handle, id, has_layout, layout_id, name);
+  }
+
+  late final _le_update_layout_viaPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<LeHandle>,
+            LeLayoutViaId,
+            ffi.Int32,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_update_layout_via');
+  late final _le_update_layout_via = _le_update_layout_viaPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeLayoutViaId,
+          int,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  int le_update_route(
+    ffi.Pointer<LeHandle> handle,
+    LeRouteId id,
+    int has_layout,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> name,
+    int has_is_special,
+    int is_special,
+    int has_width,
+    double width_um,
+    int has_voltage,
+    double voltage,
+    ffi.Pointer<ffi.Char> use,
+  ) {
+    return _le_update_route(
+      handle,
+      id,
+      has_layout,
+      layout_id,
+      name,
+      has_is_special,
+      is_special,
+      has_width,
+      width_um,
+      has_voltage,
+      voltage,
+      use,
+    );
+  }
+
+  late final _le_update_routePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<LeHandle>,
+            LeRouteId,
+            ffi.Int32,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Double,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('le_update_route');
+  late final _le_update_route = _le_update_routePtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeRouteId,
+          int,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          int,
+          int,
+          int,
+          double,
+          int,
+          double,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  int le_update_region(
+    ffi.Pointer<LeHandle> handle,
+    LeRegionId id,
+    int has_layout,
+    LeLayoutId layout_id,
+    ffi.Pointer<ffi.Char> name,
+    ffi.Pointer<ffi.Char> region_type,
+    int has_rects,
+    ffi.Pointer<ffi.Double> rects_flat_um,
+    int rects_flat_count,
+  ) {
+    return _le_update_region(
+      handle,
+      id,
+      has_layout,
+      layout_id,
+      name,
+      region_type,
+      has_rects,
+      rects_flat_um,
+      rects_flat_count,
+    );
+  }
+
+  late final _le_update_regionPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<LeHandle>,
+            LeRegionId,
+            ffi.Int32,
+            LeLayoutId,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Pointer<ffi.Double>,
+            ffi.Int32,
+          )
+        >
+      >('le_update_region');
+  late final _le_update_region = _le_update_regionPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<LeHandle>,
+          LeRegionId,
+          int,
+          LeLayoutId,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          ffi.Pointer<ffi.Double>,
+          int,
+        )
+      >();
+
+  /// --- delete_<type> - cascades to every owned pool-backed child reachable
+  /// through Klass.tcl_child_list_fields(), however many schema-graph levels
+  /// deep that goes for this particular class (see Klass.delete_api_body()'s
+  /// own docstring for the full recursive-at-codegen-time mechanism and the
+  /// undo/redo ordering it depends on) - a class with no such fields (most
+  /// of the ~35) gets a trivial, non-cascading delete instead. Returns 0 on
+  /// success, nonzero if handle is null or id doesn't name a live object of
+  /// this class on this handle. ---
+  int le_delete_technology(ffi.Pointer<LeHandle> handle, LeTechnologyId id) {
+    return _le_delete_technology(handle, id);
+  }
+
+  late final _le_delete_technologyPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeTechnologyId)
+        >
+      >('le_delete_technology');
+  late final _le_delete_technology = _le_delete_technologyPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeTechnologyId)>();
+
+  int le_delete_property_definition(
+    ffi.Pointer<LeHandle> handle,
+    LePropertyDefinitionId id,
+  ) {
+    return _le_delete_property_definition(handle, id);
+  }
+
+  late final _le_delete_property_definitionPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LePropertyDefinitionId)
+        >
+      >('le_delete_property_definition');
+  late final _le_delete_property_definition = _le_delete_property_definitionPtr
+      .asFunction<
+        int Function(ffi.Pointer<LeHandle>, LePropertyDefinitionId)
+      >();
+
+  int le_delete_layer(ffi.Pointer<LeHandle> handle, LeLayerId id) {
+    return _le_delete_layer(handle, id);
+  }
+
+  late final _le_delete_layerPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeLayerId)>
+      >('le_delete_layer');
+  late final _le_delete_layer = _le_delete_layerPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayerId)>();
+
+  int le_delete_antenna_model(
+    ffi.Pointer<LeHandle> handle,
+    LeAntennaModelId id,
+  ) {
+    return _le_delete_antenna_model(handle, id);
+  }
+
+  late final _le_delete_antenna_modelPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeAntennaModelId)
+        >
+      >('le_delete_antenna_model');
+  late final _le_delete_antenna_model = _le_delete_antenna_modelPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeAntennaModelId)>();
+
+  int le_delete_array_spacing(
+    ffi.Pointer<LeHandle> handle,
+    LeArraySpacingId id,
+  ) {
+    return _le_delete_array_spacing(handle, id);
+  }
+
+  late final _le_delete_array_spacingPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeArraySpacingId)
+        >
+      >('le_delete_array_spacing');
+  late final _le_delete_array_spacing = _le_delete_array_spacingPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeArraySpacingId)>();
+
+  int le_delete_two_widths_spacing_entry(
+    ffi.Pointer<LeHandle> handle,
+    LeTwoWidthsSpacingEntryId id,
+  ) {
+    return _le_delete_two_widths_spacing_entry(handle, id);
+  }
+
+  late final _le_delete_two_widths_spacing_entryPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeTwoWidthsSpacingEntryId)
+        >
+      >('le_delete_two_widths_spacing_entry');
+  late final _le_delete_two_widths_spacing_entry =
+      _le_delete_two_widths_spacing_entryPtr
+          .asFunction<
+            int Function(ffi.Pointer<LeHandle>, LeTwoWidthsSpacingEntryId)
+          >();
+
+  int le_delete_prefer_enclosure_entry(
+    ffi.Pointer<LeHandle> handle,
+    LePreferEnclosureEntryId id,
+  ) {
+    return _le_delete_prefer_enclosure_entry(handle, id);
+  }
+
+  late final _le_delete_prefer_enclosure_entryPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LePreferEnclosureEntryId)
+        >
+      >('le_delete_prefer_enclosure_entry');
+  late final _le_delete_prefer_enclosure_entry =
+      _le_delete_prefer_enclosure_entryPtr
+          .asFunction<
+            int Function(ffi.Pointer<LeHandle>, LePreferEnclosureEntryId)
+          >();
+
+  int le_delete_enclosure_entry(
+    ffi.Pointer<LeHandle> handle,
+    LeEnclosureEntryId id,
+  ) {
+    return _le_delete_enclosure_entry(handle, id);
+  }
+
+  late final _le_delete_enclosure_entryPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeEnclosureEntryId)
+        >
+      >('le_delete_enclosure_entry');
+  late final _le_delete_enclosure_entry = _le_delete_enclosure_entryPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeEnclosureEntryId)>();
+
+  int le_delete_layer_density_entry(
+    ffi.Pointer<LeHandle> handle,
+    LeLayerDensityEntryId id,
+  ) {
+    return _le_delete_layer_density_entry(handle, id);
+  }
+
+  late final _le_delete_layer_density_entryPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeLayerDensityEntryId)
+        >
+      >('le_delete_layer_density_entry');
+  late final _le_delete_layer_density_entry = _le_delete_layer_density_entryPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayerDensityEntryId)>();
+
+  int le_delete_macro_site_placement(
+    ffi.Pointer<LeHandle> handle,
+    LeMacroSitePlacementId id,
+  ) {
+    return _le_delete_macro_site_placement(handle, id);
+  }
+
+  late final _le_delete_macro_site_placementPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeMacroSitePlacementId)
+        >
+      >('le_delete_macro_site_placement');
+  late final _le_delete_macro_site_placement =
+      _le_delete_macro_site_placementPtr
+          .asFunction<
+            int Function(ffi.Pointer<LeHandle>, LeMacroSitePlacementId)
+          >();
+
+  int le_delete_site(ffi.Pointer<LeHandle> handle, LeSiteId id) {
+    return _le_delete_site(handle, id);
+  }
+
+  late final _le_delete_sitePtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeSiteId)>
+      >('le_delete_site');
+  late final _le_delete_site = _le_delete_sitePtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeSiteId)>();
+
+  int le_delete_non_default_rule_layer(
+    ffi.Pointer<LeHandle> handle,
+    LeNonDefaultRuleLayerId id,
+  ) {
+    return _le_delete_non_default_rule_layer(handle, id);
+  }
+
+  late final _le_delete_non_default_rule_layerPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeNonDefaultRuleLayerId)
+        >
+      >('le_delete_non_default_rule_layer');
+  late final _le_delete_non_default_rule_layer =
+      _le_delete_non_default_rule_layerPtr
+          .asFunction<
+            int Function(ffi.Pointer<LeHandle>, LeNonDefaultRuleLayerId)
+          >();
+
+  int le_delete_non_default_rule_via(
+    ffi.Pointer<LeHandle> handle,
+    LeNonDefaultRuleViaId id,
+  ) {
+    return _le_delete_non_default_rule_via(handle, id);
+  }
+
+  late final _le_delete_non_default_rule_viaPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeNonDefaultRuleViaId)
+        >
+      >('le_delete_non_default_rule_via');
+  late final _le_delete_non_default_rule_via =
+      _le_delete_non_default_rule_viaPtr
+          .asFunction<
+            int Function(ffi.Pointer<LeHandle>, LeNonDefaultRuleViaId)
+          >();
+
+  int le_delete_non_default_rule(
+    ffi.Pointer<LeHandle> handle,
+    LeNonDefaultRuleId id,
+  ) {
+    return _le_delete_non_default_rule(handle, id);
+  }
+
+  late final _le_delete_non_default_rulePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeNonDefaultRuleId)
+        >
+      >('le_delete_non_default_rule');
+  late final _le_delete_non_default_rule = _le_delete_non_default_rulePtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeNonDefaultRuleId)>();
+
+  int le_delete_minimum_cut(ffi.Pointer<LeHandle> handle, LeMinimumCutId id) {
+    return _le_delete_minimum_cut(handle, id);
+  }
+
+  late final _le_delete_minimum_cutPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeMinimumCutId)
+        >
+      >('le_delete_minimum_cut');
+  late final _le_delete_minimum_cut = _le_delete_minimum_cutPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeMinimumCutId)>();
+
+  int le_delete_min_step(ffi.Pointer<LeHandle> handle, LeMinStepId id) {
+    return _le_delete_min_step(handle, id);
+  }
+
+  late final _le_delete_min_stepPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeMinStepId)>
+      >('le_delete_min_step');
+  late final _le_delete_min_step = _le_delete_min_stepPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeMinStepId)>();
+
+  int le_delete_influence_spacing_entry(
+    ffi.Pointer<LeHandle> handle,
+    LeInfluenceSpacingEntryId id,
+  ) {
+    return _le_delete_influence_spacing_entry(handle, id);
+  }
+
+  late final _le_delete_influence_spacing_entryPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeInfluenceSpacingEntryId)
+        >
+      >('le_delete_influence_spacing_entry');
+  late final _le_delete_influence_spacing_entry =
+      _le_delete_influence_spacing_entryPtr
+          .asFunction<
+            int Function(ffi.Pointer<LeHandle>, LeInfluenceSpacingEntryId)
+          >();
+
+  int le_delete_spacing_rule(ffi.Pointer<LeHandle> handle, LeSpacingRuleId id) {
+    return _le_delete_spacing_rule(handle, id);
+  }
+
+  late final _le_delete_spacing_rulePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeSpacingRuleId)
+        >
+      >('le_delete_spacing_rule');
+  late final _le_delete_spacing_rule = _le_delete_spacing_rulePtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeSpacingRuleId)>();
+
+  int le_delete_via_layer(ffi.Pointer<LeHandle> handle, LeViaLayerId id) {
+    return _le_delete_via_layer(handle, id);
+  }
+
+  late final _le_delete_via_layerPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeViaLayerId)
+        >
+      >('le_delete_via_layer');
+  late final _le_delete_via_layer = _le_delete_via_layerPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeViaLayerId)>();
+
+  int le_delete_via_rule_reference(
+    ffi.Pointer<LeHandle> handle,
+    LeViaRuleReferenceId id,
+  ) {
+    return _le_delete_via_rule_reference(handle, id);
+  }
+
+  late final _le_delete_via_rule_referencePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeViaRuleReferenceId)
+        >
+      >('le_delete_via_rule_reference');
+  late final _le_delete_via_rule_reference = _le_delete_via_rule_referencePtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeViaRuleReferenceId)>();
+
+  int le_delete_via_rule_layer(
+    ffi.Pointer<LeHandle> handle,
+    LeViaRuleLayerId id,
+  ) {
+    return _le_delete_via_rule_layer(handle, id);
+  }
+
+  late final _le_delete_via_rule_layerPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeViaRuleLayerId)
+        >
+      >('le_delete_via_rule_layer');
+  late final _le_delete_via_rule_layer = _le_delete_via_rule_layerPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeViaRuleLayerId)>();
+
+  int le_delete_via(ffi.Pointer<LeHandle> handle, LeViaId id) {
+    return _le_delete_via(handle, id);
+  }
+
+  late final _le_delete_viaPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeViaId)>
+      >('le_delete_via');
+  late final _le_delete_via = _le_delete_viaPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeViaId)>();
+
+  int le_delete_via_rule(ffi.Pointer<LeHandle> handle, LeViaRuleId id) {
+    return _le_delete_via_rule(handle, id);
+  }
+
+  late final _le_delete_via_rulePtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeViaRuleId)>
+      >('le_delete_via_rule');
+  late final _le_delete_via_rule = _le_delete_via_rulePtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeViaRuleId)>();
+
+  int le_delete_shape(ffi.Pointer<LeHandle> handle, LeShapeId id) {
+    return _le_delete_shape(handle, id);
+  }
+
+  late final _le_delete_shapePtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeShapeId)>
+      >('le_delete_shape');
+  late final _le_delete_shape = _le_delete_shapePtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeShapeId)>();
+
+  int le_delete_library(ffi.Pointer<LeHandle> handle, LeLibraryId id) {
+    return _le_delete_library(handle, id);
+  }
+
+  late final _le_delete_libraryPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeLibraryId)>
+      >('le_delete_library');
+  late final _le_delete_library = _le_delete_libraryPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLibraryId)>();
+
+  int le_delete_design(ffi.Pointer<LeHandle> handle, LeDesignId id) {
+    return _le_delete_design(handle, id);
+  }
+
+  late final _le_delete_designPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeDesignId)>
+      >('le_delete_design');
+  late final _le_delete_design = _le_delete_designPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeDesignId)>();
+
+  int le_delete_abstract(ffi.Pointer<LeHandle> handle, LeAbstractId id) {
+    return _le_delete_abstract(handle, id);
+  }
+
+  late final _le_delete_abstractPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeAbstractId)
+        >
+      >('le_delete_abstract');
+  late final _le_delete_abstract = _le_delete_abstractPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeAbstractId)>();
+
+  int le_delete_macro_density_layer(
+    ffi.Pointer<LeHandle> handle,
+    LeMacroDensityLayerId id,
+  ) {
+    return _le_delete_macro_density_layer(handle, id);
+  }
+
+  late final _le_delete_macro_density_layerPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeMacroDensityLayerId)
+        >
+      >('le_delete_macro_density_layer');
+  late final _le_delete_macro_density_layer = _le_delete_macro_density_layerPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeMacroDensityLayerId)>();
+
+  int le_delete_foreign(ffi.Pointer<LeHandle> handle, LeForeignId id) {
+    return _le_delete_foreign(handle, id);
+  }
+
+  late final _le_delete_foreignPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeForeignId)>
+      >('le_delete_foreign');
+  late final _le_delete_foreign = _le_delete_foreignPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeForeignId)>();
+
+  int le_delete_terminal(ffi.Pointer<LeHandle> handle, LeTerminalId id) {
+    return _le_delete_terminal(handle, id);
+  }
+
+  late final _le_delete_terminalPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeTerminalId)
+        >
+      >('le_delete_terminal');
+  late final _le_delete_terminal = _le_delete_terminalPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeTerminalId)>();
+
+  int le_delete_pin_antenna_model(
+    ffi.Pointer<LeHandle> handle,
+    LePinAntennaModelId id,
+  ) {
+    return _le_delete_pin_antenna_model(handle, id);
+  }
+
+  late final _le_delete_pin_antenna_modelPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LePinAntennaModelId)
+        >
+      >('le_delete_pin_antenna_model');
+  late final _le_delete_pin_antenna_model = _le_delete_pin_antenna_modelPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LePinAntennaModelId)>();
+
+  int le_delete_terminal_port(
+    ffi.Pointer<LeHandle> handle,
+    LeTerminalPortId id,
+  ) {
+    return _le_delete_terminal_port(handle, id);
+  }
+
+  late final _le_delete_terminal_portPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeTerminalPortId)
+        >
+      >('le_delete_terminal_port');
+  late final _le_delete_terminal_port = _le_delete_terminal_portPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeTerminalPortId)>();
+
+  int le_delete_obstruction(ffi.Pointer<LeHandle> handle, LeObstructionId id) {
+    return _le_delete_obstruction(handle, id);
+  }
+
+  late final _le_delete_obstructionPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeObstructionId)
+        >
+      >('le_delete_obstruction');
+  late final _le_delete_obstruction = _le_delete_obstructionPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeObstructionId)>();
+
+  int le_delete_schematic(ffi.Pointer<LeHandle> handle, LeSchematicId id) {
+    return _le_delete_schematic(handle, id);
+  }
+
+  late final _le_delete_schematicPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeSchematicId)
+        >
+      >('le_delete_schematic');
+  late final _le_delete_schematic = _le_delete_schematicPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeSchematicId)>();
+
+  int le_delete_instance(ffi.Pointer<LeHandle> handle, LeInstanceId id) {
+    return _le_delete_instance(handle, id);
+  }
+
+  late final _le_delete_instancePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeInstanceId)
+        >
+      >('le_delete_instance');
+  late final _le_delete_instance = _le_delete_instancePtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeInstanceId)>();
+
+  int le_delete_layout(ffi.Pointer<LeHandle> handle, LeLayoutId id) {
+    return _le_delete_layout(handle, id);
+  }
+
+  late final _le_delete_layoutPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeLayoutId)>
+      >('le_delete_layout');
+  late final _le_delete_layout = _le_delete_layoutPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutId)>();
+
+  int le_delete_row(ffi.Pointer<LeHandle> handle, LeRowId id) {
+    return _le_delete_row(handle, id);
+  }
+
+  late final _le_delete_rowPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeRowId)>
+      >('le_delete_row');
+  late final _le_delete_row = _le_delete_rowPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeRowId)>();
+
+  int le_delete_track(ffi.Pointer<LeHandle> handle, LeTrackId id) {
+    return _le_delete_track(handle, id);
+  }
+
+  late final _le_delete_trackPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeTrackId)>
+      >('le_delete_track');
+  late final _le_delete_track = _le_delete_trackPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeTrackId)>();
+
+  int le_delete_g_cell_grid(ffi.Pointer<LeHandle> handle, LeGCellGridId id) {
+    return _le_delete_g_cell_grid(handle, id);
+  }
+
+  late final _le_delete_g_cell_gridPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeGCellGridId)
+        >
+      >('le_delete_g_cell_grid');
+  late final _le_delete_g_cell_grid = _le_delete_g_cell_gridPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeGCellGridId)>();
+
+  int le_delete_placement(ffi.Pointer<LeHandle> handle, LePlacementId id) {
+    return _le_delete_placement(handle, id);
+  }
+
+  late final _le_delete_placementPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LePlacementId)
+        >
+      >('le_delete_placement');
+  late final _le_delete_placement = _le_delete_placementPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LePlacementId)>();
+
+  int le_delete_physical_port_segment(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortSegmentId id,
+  ) {
+    return _le_delete_physical_port_segment(handle, id);
+  }
+
+  late final _le_delete_physical_port_segmentPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LePhysicalPortSegmentId)
+        >
+      >('le_delete_physical_port_segment');
+  late final _le_delete_physical_port_segment =
+      _le_delete_physical_port_segmentPtr
+          .asFunction<
+            int Function(ffi.Pointer<LeHandle>, LePhysicalPortSegmentId)
+          >();
+
+  int le_delete_physical_port(
+    ffi.Pointer<LeHandle> handle,
+    LePhysicalPortId id,
+  ) {
+    return _le_delete_physical_port(handle, id);
+  }
+
+  late final _le_delete_physical_portPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LePhysicalPortId)
+        >
+      >('le_delete_physical_port');
+  late final _le_delete_physical_port = _le_delete_physical_portPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LePhysicalPortId)>();
+
+  int le_delete_blockage(ffi.Pointer<LeHandle> handle, LeBlockageId id) {
+    return _le_delete_blockage(handle, id);
+  }
+
+  late final _le_delete_blockagePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeBlockageId)
+        >
+      >('le_delete_blockage');
+  late final _le_delete_blockage = _le_delete_blockagePtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeBlockageId)>();
+
+  int le_delete_layout_via(ffi.Pointer<LeHandle> handle, LeLayoutViaId id) {
+    return _le_delete_layout_via(handle, id);
+  }
+
+  late final _le_delete_layout_viaPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<LeHandle>, LeLayoutViaId)
+        >
+      >('le_delete_layout_via');
+  late final _le_delete_layout_via = _le_delete_layout_viaPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeLayoutViaId)>();
+
+  int le_delete_route(ffi.Pointer<LeHandle> handle, LeRouteId id) {
+    return _le_delete_route(handle, id);
+  }
+
+  late final _le_delete_routePtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeRouteId)>
+      >('le_delete_route');
+  late final _le_delete_route = _le_delete_routePtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeRouteId)>();
+
+  int le_delete_region(ffi.Pointer<LeHandle> handle, LeRegionId id) {
+    return _le_delete_region(handle, id);
+  }
+
+  late final _le_delete_regionPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int Function(ffi.Pointer<LeHandle>, LeRegionId)>
+      >('le_delete_region');
+  late final _le_delete_region = _le_delete_regionPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>, LeRegionId)>();
+
   /// @brief The singleton Technology's friendly id (see
   /// le_tcl_shim.hpp's own "IDs" comment for the friendly-id
   /// convention this feeds) - Technology is a single shared per-
@@ -13848,6 +17746,138 @@ final class LeInstanceId extends ffi.Struct {
   external int generation;
 }
 
+/// @brief Mirrors the database's LayoutId handle - a stable identity,
+/// safe to hold onto and pass back into a later call without re-deriving
+/// it. `index == UINT32_MAX` marks it invalid - never construct one by
+/// hand, only copy one returned by this API.
+final class LeLayoutId extends ffi.Struct {
+  @ffi.Uint32()
+  external int index;
+
+  @ffi.Uint32()
+  external int generation;
+}
+
+/// @brief Mirrors the database's RowId handle - a stable identity,
+/// safe to hold onto and pass back into a later call without re-deriving
+/// it. `index == UINT32_MAX` marks it invalid - never construct one by
+/// hand, only copy one returned by this API.
+final class LeRowId extends ffi.Struct {
+  @ffi.Uint32()
+  external int index;
+
+  @ffi.Uint32()
+  external int generation;
+}
+
+/// @brief Mirrors the database's TrackId handle - a stable identity,
+/// safe to hold onto and pass back into a later call without re-deriving
+/// it. `index == UINT32_MAX` marks it invalid - never construct one by
+/// hand, only copy one returned by this API.
+final class LeTrackId extends ffi.Struct {
+  @ffi.Uint32()
+  external int index;
+
+  @ffi.Uint32()
+  external int generation;
+}
+
+/// @brief Mirrors the database's GCellGridId handle - a stable identity,
+/// safe to hold onto and pass back into a later call without re-deriving
+/// it. `index == UINT32_MAX` marks it invalid - never construct one by
+/// hand, only copy one returned by this API.
+final class LeGCellGridId extends ffi.Struct {
+  @ffi.Uint32()
+  external int index;
+
+  @ffi.Uint32()
+  external int generation;
+}
+
+/// @brief Mirrors the database's PlacementId handle - a stable identity,
+/// safe to hold onto and pass back into a later call without re-deriving
+/// it. `index == UINT32_MAX` marks it invalid - never construct one by
+/// hand, only copy one returned by this API.
+final class LePlacementId extends ffi.Struct {
+  @ffi.Uint32()
+  external int index;
+
+  @ffi.Uint32()
+  external int generation;
+}
+
+/// @brief Mirrors the database's PhysicalPortSegmentId handle - a stable identity,
+/// safe to hold onto and pass back into a later call without re-deriving
+/// it. `index == UINT32_MAX` marks it invalid - never construct one by
+/// hand, only copy one returned by this API.
+final class LePhysicalPortSegmentId extends ffi.Struct {
+  @ffi.Uint32()
+  external int index;
+
+  @ffi.Uint32()
+  external int generation;
+}
+
+/// @brief Mirrors the database's PhysicalPortId handle - a stable identity,
+/// safe to hold onto and pass back into a later call without re-deriving
+/// it. `index == UINT32_MAX` marks it invalid - never construct one by
+/// hand, only copy one returned by this API.
+final class LePhysicalPortId extends ffi.Struct {
+  @ffi.Uint32()
+  external int index;
+
+  @ffi.Uint32()
+  external int generation;
+}
+
+/// @brief Mirrors the database's BlockageId handle - a stable identity,
+/// safe to hold onto and pass back into a later call without re-deriving
+/// it. `index == UINT32_MAX` marks it invalid - never construct one by
+/// hand, only copy one returned by this API.
+final class LeBlockageId extends ffi.Struct {
+  @ffi.Uint32()
+  external int index;
+
+  @ffi.Uint32()
+  external int generation;
+}
+
+/// @brief Mirrors the database's LayoutViaId handle - a stable identity,
+/// safe to hold onto and pass back into a later call without re-deriving
+/// it. `index == UINT32_MAX` marks it invalid - never construct one by
+/// hand, only copy one returned by this API.
+final class LeLayoutViaId extends ffi.Struct {
+  @ffi.Uint32()
+  external int index;
+
+  @ffi.Uint32()
+  external int generation;
+}
+
+/// @brief Mirrors the database's RouteId handle - a stable identity,
+/// safe to hold onto and pass back into a later call without re-deriving
+/// it. `index == UINT32_MAX` marks it invalid - never construct one by
+/// hand, only copy one returned by this API.
+final class LeRouteId extends ffi.Struct {
+  @ffi.Uint32()
+  external int index;
+
+  @ffi.Uint32()
+  external int generation;
+}
+
+/// @brief Mirrors the database's RegionId handle - a stable identity,
+/// safe to hold onto and pass back into a later call without re-deriving
+/// it. `index == UINT32_MAX` marks it invalid - never construct one by
+/// hand, only copy one returned by this API.
+final class LeRegionId extends ffi.Struct {
+  @ffi.Uint32()
+  external int index;
+
+  @ffi.Uint32()
+  external int generation;
+}
+
 /// @brief Raw RGBA8888 pixel buffer, mirroring render::PixelBuffer but
 /// using explicit fixed-width types (not `int`/`size_t`, whose width
 /// isn't guaranteed identical across toolchains) for a stable FFI ABI.
@@ -14068,29 +18098,35 @@ enum LeKeyCode {
   /// nine). Same VIA-pairing behavior as LE_KEY_1..LE_KEY_9.
   LE_KEY_0(20),
 
-  /// Switch to Select mode (UPDATES.md item 11) - not Ctrl-gated,
-  /// an "action" code like LE_KEY_ZOOM/LE_KEY_FIT: le_key_down()
-  /// calls Scene::set_mode(Scene::Mode::SELECT) immediately, every
-  /// call (including key-repeat - idempotent, so no special
-  /// one-shot handling is needed). See le_get_mode/le_set_mode for
-  /// the non-keyboard (Flutter UI event) path to the same state.
+  /// Switch to Select mode (UPDATES.md item 11) - an "action" code
+  /// like LE_KEY_ZOOM/LE_KEY_FIT: le_key_down() calls
+  /// Scene::set_mode(Scene::Mode::SELECT) immediately, every call
+  /// (including key-repeat - idempotent, so no special one-shot
+  /// handling is needed). Bare-only - fires only while neither
+  /// LE_KEY_CTRL nor LE_KEY_SHIFT is currently held, so e.g. a
+  /// Ctrl-S keystroke intended for something else doesn't also
+  /// switch modes as a side effect. See le_get_mode/le_set_mode for
+  /// the non-keyboard (Flutter UI event) path to the same state,
+  /// which is not modifier-gated (there's no physical key to
+  /// collide with there).
   LE_KEY_SELECT_MODE(21),
 
   /// Switch to Edit mode (UPDATES.md item 11) - same shape as
-  /// LE_KEY_SELECT_MODE, calling Scene::set_mode(Scene::Mode::EDIT).
-  /// While in Edit mode, le_mouse_up no longer changes the current
-  /// selection - see its own doc comment.
+  /// LE_KEY_SELECT_MODE, including the bare-only modifier gating,
+  /// calling Scene::set_mode(Scene::Mode::EDIT). While in Edit
+  /// mode, le_mouse_up no longer changes the current selection -
+  /// see its own doc comment.
   LE_KEY_EDIT_MODE(22),
 
-  /// Switch to Ruler mode (UPDATES.md item 13) - same idempotent
-  /// action-code shape as LE_KEY_SELECT_MODE/LE_KEY_EDIT_MODE, but
-  /// calls Scene::reset_ruler_mode() rather than a plain
-  /// set_mode(): every call - including when already in Ruler
-  /// mode, and including key-repeat - finishes whatever ruler was
-  /// in progress, so re-pressing 'r' doubles as an explicit
-  /// "abandon the current ruler" shortcut. While in Ruler mode,
-  /// le_mouse_up's clicks place ruler points instead of changing
-  /// the selection - see le_finish_ruler/le_clear_rulers.
+  /// Switch to Ruler mode (UPDATES.md item 13) - same idempotent,
+  /// bare-only action-code shape as LE_KEY_SELECT_MODE/
+  /// LE_KEY_EDIT_MODE, but calls Scene::reset_ruler_mode() rather
+  /// than a plain set_mode(): every call - including when already
+  /// in Ruler mode, and including key-repeat - finishes whatever
+  /// ruler was in progress, so re-pressing 'r' doubles as an
+  /// explicit "abandon the current ruler" shortcut. While in Ruler
+  /// mode, le_mouse_up's clicks place ruler points instead of
+  /// changing the selection - see le_finish_ruler/le_clear_rulers.
   LE_KEY_RULER_MODE(23),
 
   /// Finishes the active ruler, if any (UPDATES.md item 13, see
@@ -14104,10 +18140,18 @@ enum LeKeyCode {
   /// an in-progress (not yet committed) Move, if any (UPDATES.md
   /// item 21, le_cancel_move) - same "always safe to fire" reasoning,
   /// Scene::end_move() is a no-op once there's nothing to cancel.
+  /// Deliberately *not* modifier-gated, unlike every bare-only key
+  /// above - Escape is a pure cancel/finish gesture, and a real
+  /// ruler-drawing sequence routinely ends with LE_KEY_SHIFT (the
+  /// free-form toggle) still physically held right up to the Esc
+  /// press, so suppressing it while a modifier happens to be down
+  /// would make "finish the ruler" unreliable in exactly the
+  /// workflow that uses Shift the most.
   LE_KEY_FINISH_RULER(24),
 
   /// Arms Move (UPDATES.md item 21, Ctrl-M) - see le_arm_move's own
-  /// doc comment. Ctrl-gated at the le_key_down call site, same as
+  /// doc comment. Fires only while Ctrl is held and Shift is not,
+  /// at the le_key_down call site, same shape as
   /// LE_KEY_SELECT_ALL/LE_KEY_DESELECT_ALL, even though the Move
   /// toolbox button calls le_arm_move() directly and bypasses this
   /// gate. No separate LE_KEY_UNDO/LE_KEY_REDO code exists -

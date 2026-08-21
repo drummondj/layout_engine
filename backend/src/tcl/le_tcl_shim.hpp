@@ -30,7 +30,7 @@
 // later moved every CRUD-flag parent id onto this same token convention
 // too, so it's now the uniform rule, not an exception) ---
 // AbstractId/DesignId's own session-selection uses (design_abstract_id,
-// design_by_name, set_current_design_cmd - none of these are
+// design_by_name, set_current_design_abstract_cmd - none of these are
 // create_<type>/update_<type> CRUD flags) are still a plain {uint32_t
 // index, generation} struct in api.hpp, packed
 // into one int64_t (generation in the high 32 bits, index in the low 32
@@ -114,6 +114,7 @@
 // across this boundary isn't worth the extra accessors it would take.
 
 int read_lef(const char *path);
+int read_def(const char *path);
 int design_count();
 const char *design_name(int index);
 int message_count();
@@ -163,7 +164,15 @@ const char *technology_id();
 /// subsequent get_terminals/get_obstructions/get_terminal_ports call is
 /// scoped to its Abstract. Returns 0 on success, nonzero if design_id
 /// doesn't name a Design on this session.
-int set_current_design_cmd(long long design_id);
+int set_current_design_abstract_cmd(long long design_id);
+
+/// @brief Same as set_current_design_abstract_cmd, but selects the Design's
+/// Layout view instead of its Abstract view - the two are mutually
+/// exclusive (only one view is "open" at a time - see
+/// le_set_current_design_layout's own api.hpp comment). Every subsequent
+/// get_rows/get_placements/get_blockages/... call is scoped to this
+/// Layout instead.
+int set_current_design_layout_cmd(long long design_id);
 
 /// @brief Sentinel for "no such id" for AbstractId/DesignId in their
 /// CRUD-flag/session-selection role - see this header's own "IDs"

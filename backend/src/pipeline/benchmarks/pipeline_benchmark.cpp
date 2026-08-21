@@ -676,7 +676,7 @@ static void BM_RefreshSelectedObjects_ManySelectedPieces(benchmark::State &state
 
     LeHandle *handle = le_create();
     le_read_lef(handle, path.c_str());
-    le_set_current_design(handle, 0);
+    le_set_current_design_abstract(handle, 0);
     le_set_viewport_size(handle, 2000, 2000);
     le_fit_scene(handle, 10);
 

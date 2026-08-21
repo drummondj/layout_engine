@@ -152,6 +152,18 @@ extern "C"
     /// code (nonzero otherwise, including if handle or path is null).
     int le_read_lef(LeHandle *handle, const char *path);
 
+    /// @brief Reads a DEF file into this handle's Root via DEFReader,
+    /// same shape as le_read_lef (messages appended, 0 on success).
+    /// Unlike le_read_lef, doesn't touch layer visibility defaults or
+    /// rebuild ViewLayerSet - DEF doesn't introduce new physical Layers
+    /// of its own (Step 2's own layer-generation work, not yet done, is
+    /// what a Row/Track/Blockage/BOUNDARY-purpose rendering pass would
+    /// need instead). Does still resolve/create the shared Technology
+    /// (DEFReader::technology_id_) the same reuse-or-create way
+    /// le_read_lef's own LEFReader does, since NONDEFAULTRULES needs one
+    /// even when no LEF has been read into this handle yet.
+    int le_read_def(LeHandle *handle, const char *path);
+
     /// @brief Total number of error/warning/info messages produced by
     /// this handle's backend operations so far (currently just
     /// le_read_lef() - file-open/parse errors, parser warnings, parser
@@ -187,7 +199,7 @@ extern "C"
     /// renders (its Abstract view). Returns 0 on success, nonzero if
     /// handle is null or index is out of range - the current selection is
     /// left unchanged on failure.
-    int le_set_current_design(LeHandle *handle, int32_t index);
+    int le_set_current_design_abstract(LeHandle *handle, int32_t index);
 
     /// @brief Number of Libraries currently loaded - one per le_read_lef()
     /// call so far (see its own comment: each derives a fresh Library from
@@ -215,14 +227,33 @@ extern "C"
     /// @brief Select a Design by its stable LeDesignId (e.g. one read from
     /// le_library_design_at()'s LeDesignInfo::id) as the one
     /// le_render_pixel_buffer() renders, same effect as
-    /// le_set_current_design() but addressed by identity instead of a
+    /// le_set_current_design_abstract() but addressed by identity instead of a
     /// position in the flat le_design_count() list - the natural fit for a
     /// browser widget's row click, which already has the Design's
     /// LeDesignId on hand and shouldn't need to re-derive a flat index for
     /// it. Returns 0 on success, nonzero if handle is null or design_id
     /// doesn't name a Design currently loaded on this handle - the current
     /// selection is left unchanged on failure.
-    int le_set_current_design_by_id(LeHandle *handle, LeDesignId design_id);
+    int le_set_current_design_abstract_by_id(LeHandle *handle, LeDesignId design_id);
+
+    /// @brief Select the Design at `index`'s Layout view instead of its
+    /// Abstract view - the two are mutually exclusive, only one view is
+    /// "open" at a time (matches a real GUI showing one editor, not
+    /// both). Clears current_abstract_id (and Scene's own
+    /// current_abstract, so le_render_pixel_buffer() stops rendering the
+    /// old Abstract) the same way le_set_current_design_abstract/_by_id clear
+    /// current_layout_id. Returns 0 on success, nonzero if handle is
+    /// null or index is out of range - the current selection is left
+    /// unchanged on failure. Layout rendering itself doesn't exist yet
+    /// (PROJECT_MIGRATION.md's own Step 3) - this only moves the
+    /// TCL-facing current-instance tracker get_rows/get_placements/
+    /// get_blockages/etc.'s own default scope derives from.
+    int le_set_current_design_layout(LeHandle *handle, int32_t index);
+
+    /// @brief Same as le_set_current_design_layout, but addressed by
+    /// LeDesignId - same relationship to it as le_set_current_design_abstract_by_id
+    /// has to le_set_current_design_abstract.
+    int le_set_current_design_layout_by_id(LeHandle *handle, LeDesignId design_id);
 
     /// @brief Number of layer-widget rows currently available - mirrors
     /// ViewLayerSet::rows() directly (see LeLayerRow's own comment: this
@@ -1057,7 +1088,7 @@ extern "C"
     /// recompute, and a mouse-position-only change is itself cheap (see
     /// Renderer::compose_with_overlays), not proportional to design size.
     /// Returns an all-zero/null LePixelBuffer if handle is null. No
-    /// Design selected (le_set_current_design was never called) degrades
+    /// Design selected (le_set_current_design_abstract was never called) degrades
     /// gracefully to an empty (but correctly-sized, non-null) buffer
     /// rather than crashing - Root/Pipeline's own lookups already degrade
     /// gracefully for an unset AbstractId (see pipeline.hpp).
@@ -1094,7 +1125,7 @@ extern "C"
     /// current-view scoping le_get_terminals' own default scope already
     /// uses; deliberately *not* handle->scene.current_abstract(), a
     /// separate GUI-rendering "current view" only ever moved as a side
-    /// effect of selecting a Design, e.g. le_set_current_design_by_id -
+    /// effect of selecting a Design, e.g. le_set_current_design_abstract_by_id -
     /// a script that builds an Abstract from scratch and calls
     /// le_set_current_abstract directly, with no Design to select, needs
     /// this to still work). A linear scan over
@@ -1281,8 +1312,8 @@ extern "C"
     ///     le_get_abstracts) - pass an invalid id (e.g. a
     ///     default-constructed LeAbstractId) to use the default scope
     ///     instead: the currently selected Design's Abstract (item 17's
-    ///     "current view" - le_set_current_design/
-    ///     le_set_current_design_by_id), or none if no Design is
+    ///     "current view" - le_set_current_design_abstract/
+    ///     le_set_current_design_abstract_by_id), or none if no Design is
     ///     selected.
     ///   - `name_expression` glob-matches Terminal::name (Tcl `string
     ///     match` semantics, e.g. "IN*") - pass null or "" to skip this

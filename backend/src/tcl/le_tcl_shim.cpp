@@ -352,6 +352,11 @@ int read_lef(const char *path)
     return le_read_lef(session(), path);
 }
 
+int read_def(const char *path)
+{
+    return le_read_def(session(), path);
+}
+
 int design_count()
 {
     return le_design_count(session());
@@ -405,9 +410,14 @@ const char *technology_id()
     return return_string(format_technology_id(id));
 }
 
-int set_current_design_cmd(long long design_id)
+int set_current_design_abstract_cmd(long long design_id)
 {
-    return le_set_current_design_by_id(session(), unpack<LeDesignId>(design_id));
+    return le_set_current_design_abstract_by_id(session(), unpack<LeDesignId>(design_id));
+}
+
+int set_current_design_layout_cmd(long long design_id)
+{
+    return le_set_current_design_layout_by_id(session(), unpack<LeDesignId>(design_id));
 }
 
 void set_session_handle(long long handle_address)

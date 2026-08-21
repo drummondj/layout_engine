@@ -76,6 +76,7 @@
 
 
 int read_lef(const char *path);
+int read_def(const char *path);
 int design_count();
 const char *design_name(int index);
 int message_count();
@@ -87,7 +88,8 @@ int viewport_height();
 long long design_abstract_id(int design_index);
 long long design_by_name(const char *name);
 const char *technology_id();
-int set_current_design_cmd(long long design_id);
+int set_current_design_abstract_cmd(long long design_id);
+int set_current_design_layout_cmd(long long design_id);
 void set_session_handle(long long handle_address);
 
 // --- Terminal/TerminalPort/Obstruction CRUD is fully generated now

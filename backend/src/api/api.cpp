@@ -4,6 +4,7 @@
 #include "../editing/editing.hpp"
 #include "../geometry/geometry.hpp"
 #include "../io/lef_reader.hpp"
+#include "../io/def_reader.hpp"
 #include "../pipeline/pipeline.hpp"
 #include "../render/render.hpp"
 #include "../scene/scene.hpp"
@@ -208,7 +209,7 @@ namespace
     {
         static const std::unordered_map<std::string, FilterFieldTable> tables =
 #include "generated_tcl/filter_tables.inc"
-        return tables;
+            return tables;
     }
 
     // Walks one Comparison's path (the last segment must be a leaf field of
@@ -573,7 +574,7 @@ namespace
             le::ShapeData after = before;
             le::Geometry::transform_piece_in_place(after, selected.piece_kind, selected.piece_index, *delta);
             handle->root.update_shape(selected.shape_id, after.layer_name, after.paths, after.polygons, after.rects,
-                                       after.spacing, after.design_rule_width, after.except_pg_net);
+                                      after.spacing, after.design_rule_width, after.except_pg_net);
             handle->root.bump_mutation_version();
 
             if (le::editing::Transaction *txn = handle->command_history.current())
@@ -987,6 +988,42 @@ extern "C"
         return 0;
     }
 
+    int le_read_def(LeHandle *handle, const char *path)
+    {
+        if (!handle)
+            return 1;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        if (!path)
+        {
+            handle->messages.push_back("ERROR: le_read_def: path is null");
+            return 1;
+        }
+
+        const std::filesystem::path def_path(path);
+        le::DEFReader reader;
+        const int result = reader.read_def(def_path.string(), handle->root, def_path.stem().string());
+        for (const auto &msg : reader.messages())
+            handle->messages.push_back(msg);
+        if (result != 0)
+            return result;
+
+        // NONDEFAULTRULES may have resolved/created the shared Technology
+        // (DEFReader::technology_id_, same reuse-or-create pattern
+        // le_read_lef's own LEFReader uses) even if no LEF has been read
+        // into this handle yet - mirror le_read_lef's own
+        // current_technology_id selection so the generated TCL
+        // current-instance mechanism still works. Layer-visibility
+        // defaults and ViewLayerSet aren't touched here - DEF doesn't
+        // introduce new physical Layers of its own (see this function's
+        // own api.hpp comment).
+        const auto technology_ids = handle->root.get_technology_ids();
+        if (!technology_ids.empty())
+            handle->current_technology_id = technology_ids.front();
+
+        return 0;
+    }
+
     int32_t le_message_count(LeHandle *handle)
     {
         if (!handle)
@@ -1027,7 +1064,7 @@ extern "C"
         return design ? design->name.c_str() : nullptr;
     }
 
-    int le_set_current_design(LeHandle *handle, int32_t index)
+    int le_set_current_design_abstract(LeHandle *handle, int32_t index)
     {
         if (!handle || index < 0)
             return 1;
@@ -1037,18 +1074,24 @@ extern "C"
         if (static_cast<size_t>(index) >= design_ids.size())
             return 1;
 
-        // Moves both "current view" trackers together - Scene's own
-        // (drives GUI rendering) and the generated has_current_access
-        // one (handle->current_abstract_id, what get_terminals/
-        // get_shapes/etc.'s own default -of-omitted scope and
-        // resolve_terminal_id derive from - see current_abstract_id's
+        // Moves the Abstract-view "current view" trackers together -
+        // Scene's own (drives GUI rendering) and the generated
+        // has_current_access one (handle->current_abstract_id, what
+        // get_terminals/get_shapes/etc.'s own default -of-omitted scope
+        // and resolve_terminal_id derive from - see current_abstract_id's
         // own declaration comment). Selecting a Design from either FFI
         // caller (a Dart-driven GUI) or a TCL script (open_design,
-        // itself calling le_set_current_design_by_id below - the same
+        // itself calling le_set_current_design_abstract_by_id below - the same
         // shared entry point) should mean the same thing to both.
-        const le::AbstractId abstract_id = handle->root.get_design_abstract(design_ids[static_cast<size_t>(index)]);
+        // Clears current_layout_id: only one view is "open" at a time
+        // (see le_set_current_design_layout's own comment) - selecting
+        // the Abstract view deactivates the Layout one, same as the
+        // reverse.
+        const le::DesignId design_id = design_ids[static_cast<size_t>(index)];
+        const le::AbstractId abstract_id = handle->root.get_design_abstract(design_id);
         handle->scene.set_current_abstract(abstract_id);
         handle->current_abstract_id = abstract_id;
+        handle->current_layout_id = le::LayoutId{};
         return 0;
     }
 
@@ -1132,7 +1175,7 @@ extern "C"
         return to_c(technology_ids.front());
     }
 
-    int le_set_current_design_by_id(LeHandle *handle, LeDesignId design_id)
+    int le_set_current_design_abstract_by_id(LeHandle *handle, LeDesignId design_id)
     {
         if (!handle)
             return 1;
@@ -1142,11 +1185,55 @@ extern "C"
         if (!handle->root.get_design(id))
             return 1;
 
-        // See le_set_current_design's own comment above - both "current
-        // view" trackers move together.
+        // See le_set_current_design_abstract's own comment above - the
+        // Abstract-view trackers move together, current_layout_id clears.
         const le::AbstractId abstract_id = handle->root.get_design_abstract(id);
         handle->scene.set_current_abstract(abstract_id);
         handle->current_abstract_id = abstract_id;
+        handle->current_layout_id = le::LayoutId{};
+        return 0;
+    }
+
+    int le_set_current_design_layout(LeHandle *handle, int32_t index)
+    {
+        if (!handle || index < 0)
+            return 1;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        const auto design_ids = handle->root.get_design_ids();
+        if (static_cast<size_t>(index) >= design_ids.size())
+            return 1;
+
+        // Mirror image of le_set_current_design_abstract: activates the Layout
+        // view's own current-instance tracker (what get_rows/
+        // get_placements/get_blockages/etc.'s own default -of-omitted
+        // scope derives from) and deactivates the Abstract one - only
+        // one view is "open" at a time, matching a real GUI showing one
+        // editor. Scene's own current_abstract clears too, so
+        // le_render_pixel_buffer() stops rendering the old Abstract
+        // (Layout rendering itself doesn't exist yet - PROJECT_MIGRATION.md's
+        // own Step 3).
+        const le::DesignId design_id = design_ids[static_cast<size_t>(index)];
+        handle->current_layout_id = handle->root.get_design_layout(design_id);
+        handle->current_abstract_id = le::AbstractId{};
+        handle->scene.set_current_abstract(le::AbstractId{});
+        return 0;
+    }
+
+    int le_set_current_design_layout_by_id(LeHandle *handle, LeDesignId design_id)
+    {
+        if (!handle)
+            return 1;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        const le::DesignId id = from_c(design_id);
+        if (!handle->root.get_design(id))
+            return 1;
+
+        // See le_set_current_design_layout's own comment above.
+        handle->current_layout_id = handle->root.get_design_layout(id);
+        handle->current_abstract_id = le::AbstractId{};
+        handle->scene.set_current_abstract(le::AbstractId{});
         return 0;
     }
 
@@ -2000,8 +2087,8 @@ extern "C"
         // handle->current_abstract_id (le_set_current_abstract/
         // le_current_abstract's own generated field), not
         // handle->scene.current_abstract() - the latter is a genuinely
-        // separate "GUI current view" tracker. le_set_current_design/
-        // le_set_current_design_by_id move both together (selecting a
+        // separate "GUI current view" tracker. le_set_current_design_abstract/
+        // le_set_current_design_abstract_by_id move both together (selecting a
         // Design should mean the same thing whether it came from a
         // Dart-driven GUI or a TCL script's open_design), but they can
         // still diverge: a script that builds an Abstract from scratch
