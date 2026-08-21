@@ -141,7 +141,8 @@ TEST(Geometry, TransformTranslatesPath)
 
 TEST(Geometry, TransformTranslatesEveryRectPolygonAndPathInAShapeAndLeavesOtherFieldsUntouched)
 {
-    ShapeData shape{.layer_name = "M1"};
+    const LayerId m1{1, 1};
+    ShapeData shape{.layer = m1};
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {10, 0}, {10, 10}}});
     shape.paths.push_back(Path{.polygon = Polygon{.points = {{0, 0}, {10, 0}}}, .width = 4});
@@ -149,7 +150,7 @@ TEST(Geometry, TransformTranslatesEveryRectPolygonAndPathInAShapeAndLeavesOtherF
 
     ShapeData moved = Geometry::transform(shape, Point{5, -5});
 
-    EXPECT_EQ(moved.layer_name, "M1");
+    EXPECT_EQ(moved.layer, m1);
     EXPECT_EQ(moved.spacing, 7);
     expect_point_eq(moved.rects[0].ll, Point{5, -5});
     expect_point_eq(moved.polygons[0].points[0], Point{5, -5});
@@ -511,8 +512,9 @@ TEST(Geometry, FindHitPieceReturnsOnlyTheOneRectHitNotEveryRectInTheShape)
     // just the one piece under the cursor, not the whole group (a real
     // reported bug: hovering one rect highlighted every rect on the same
     // Terminal).
+    const LayerId m1{1, 1};
     Shape shape;
-    shape.layer_name = "M1";
+    shape.layer = m1;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
     shape.rects.push_back(Rect{.ll = {100, 100}, .ur = {110, 110}});
 
@@ -520,7 +522,7 @@ TEST(Geometry, FindHitPieceReturnsOnlyTheOneRectHitNotEveryRectInTheShape)
     ASSERT_TRUE(piece.has_value());
     EXPECT_EQ(piece->kind, PieceKind::RECT);
     EXPECT_EQ(piece->index, 0u);
-    EXPECT_EQ(piece->outline.layer_name, "M1");
+    EXPECT_EQ(piece->outline.layer, m1);
     ASSERT_EQ(piece->outline.rects.size(), 1u);
     EXPECT_EQ(piece->outline.rects.front().ll.x, 0);
     EXPECT_TRUE(piece->outline.polygons.empty());
@@ -585,8 +587,9 @@ TEST(Geometry, FullyEnclosedPiecesReturnsOnlyTheIndividuallyEnclosedPieces)
     // A bundled multi-piece Shape where some pieces fit inside the
     // container and others don't - the per-piece analog of
     // fully_enclosed, which only ever answers for the whole bundle.
+    const LayerId m1{1, 1};
     Shape shape{
-        .layer_name = "M1",
+        .layer = m1,
         .polygons = {
             Polygon{.points = {{15, 15}, {18, 15}, {18, 18}, {15, 18}}}, // inside
         },
@@ -606,7 +609,7 @@ TEST(Geometry, FullyEnclosedPiecesReturnsOnlyTheIndividuallyEnclosedPieces)
     EXPECT_EQ(pieces[1].kind, PieceKind::POLYGON);
     EXPECT_EQ(pieces[1].index, 0u);
     EXPECT_EQ(pieces[1].outline.polygons.size(), 1u);
-    EXPECT_EQ(pieces[0].outline.layer_name, "M1"); // layer_name carried onto each single-piece Shape
+    EXPECT_EQ(pieces[0].outline.layer, m1); // layer_name carried onto each single-piece Shape
 }
 
 TEST(Geometry, FullyEnclosedPiecesIsEmptyWhenNoPieceFits)
@@ -619,8 +622,9 @@ TEST(Geometry, FullyEnclosedPiecesIsEmptyWhenNoPieceFits)
 
 TEST(Geometry, ExtractPieceReturnsOnlyTheOneIndexedRectNotItsSiblings)
 {
+    const LayerId m1{1, 1};
     Shape shape{
-        .layer_name = "M1",
+        .layer = m1,
         .rects = {
             Rect{.ll = {0, 0}, .ur = {10, 10}},
             Rect{.ll = {100, 100}, .ur = {110, 110}},
@@ -628,7 +632,7 @@ TEST(Geometry, ExtractPieceReturnsOnlyTheOneIndexedRectNotItsSiblings)
     };
 
     const Shape piece = Geometry::extract_piece(shape, PieceKind::RECT, 1);
-    EXPECT_EQ(piece.layer_name, "M1");
+    EXPECT_EQ(piece.layer, m1);
     ASSERT_EQ(piece.rects.size(), 1u);
     EXPECT_EQ(piece.rects.front().ll.x, 100);
     EXPECT_TRUE(piece.polygons.empty());
@@ -637,10 +641,11 @@ TEST(Geometry, ExtractPieceReturnsOnlyTheOneIndexedRectNotItsSiblings)
 
 TEST(Geometry, ExtractPieceOfAnOutOfRangeIndexReturnsAnEmptyPiece)
 {
-    Shape shape{.layer_name = "M1", .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    const LayerId m1{1, 1};
+    Shape shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
 
     const Shape piece = Geometry::extract_piece(shape, PieceKind::RECT, 5);
-    EXPECT_EQ(piece.layer_name, "M1");
+    EXPECT_EQ(piece.layer, m1);
     EXPECT_TRUE(piece.rects.empty());
 }
 
@@ -655,8 +660,9 @@ TEST(Geometry, PieceInRangeMatchesWhatExtractPieceWouldReturn)
 
 TEST(Geometry, TransformPieceInPlaceMovesOnlyTheAddressedPieceLeavingSiblingsUntouched)
 {
+    const LayerId m1{1, 1};
     Shape shape{
-        .layer_name = "M1",
+        .layer = m1,
         .polygons = {Polygon{.points = {{0, 0}, {10, 0}, {10, 10}}}},
         .rects = {
             Rect{.ll = {0, 0}, .ur = {10, 10}},

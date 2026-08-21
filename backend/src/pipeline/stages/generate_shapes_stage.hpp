@@ -4,7 +4,6 @@
 #include "../../database/database.hpp"
 #include "../../geometry/geometry.hpp"
 #include "../../view_style/view_style.hpp"
-#include <string>
 #include <tuple>
 #include <unordered_map>
 #include <vector>
@@ -44,16 +43,18 @@ namespace le
     public:
         /// @brief Collect every Shape from the Abstract's Terminals' Ports,
         /// its Obstructions, and its boundary polygon, each resolved to its
-        /// ViewLayerId, in dbu-space. BOUNDARY shapes skip the lookup
-        /// entirely; they're always view_layers.boundary_view_layer(). A
-        /// shape whose layer_name doesn't resolve to a known Layer (e.g. an
-        /// undeclared/typo'd name) keeps an invalid ViewLayerId rather than
-        /// being dropped - there's no visibility toggle to check it
-        /// against yet. An unknown AbstractId (nothing created yet, or a
-        /// stale/erased one) yields an empty result rather than an error -
-        /// Root's own lookups already degrade gracefully for that.
+        /// ViewLayerId, in dbu-space - a plain view_layers.find(shape.layer,
+        /// purpose) lookup, since Shape.layer is already a resolved LayerId
+        /// by the time any reader creates it (readers error rather than
+        /// create a Shape with an unresolved layer - see its own schema.py
+        /// comment). BOUNDARY shapes skip this lookup entirely; they're
+        /// always view_layers.boundary_view_layer() directly, same as
+        /// before Shape.layer existed. An unknown AbstractId (nothing
+        /// created yet, or a stale/erased one) yields an empty result
+        /// rather than an error - Root's own lookups already degrade
+        /// gracefully for that.
         ///
-        /// Each Terminal gets one text label *per distinct layer_name* it
+        /// Each Terminal gets one text label *per distinct layer* it
         /// has geometry on - its name, placed via Geometry::get_label_location
         /// and sized via Geometry::local_width_at on the union of that
         /// layer's geometry across all the Terminal's Ports (not per-Port;
@@ -95,7 +96,7 @@ namespace le
 
                 auto resolve = [&](const Shape &shape, ViewLayerPurpose purpose)
                 {
-                    return view_layers.find(root.get_layer_by_name(shape.layer_name), purpose);
+                    return view_layers.find(shape.layer, purpose);
                 };
 
                 // UPDATES.md 12 Phase 1's ITERATE rework - LEFReader stores
@@ -195,7 +196,7 @@ namespace le
                         Shape combined;
                         size_t first_shape_index = 0;
                     };
-                    std::unordered_map<std::string, LabelAccumulator> by_layer;
+                    std::unordered_map<LayerId, LabelAccumulator> by_layer;
 
                     for (auto port_id : root.get_terminal_ports(terminal_id))
                     {
@@ -205,7 +206,7 @@ namespace le
                             if (!raw_shape)
                                 continue;
                             const Shape shape = expand_iterates(*raw_shape);
-                            auto [it, inserted] = by_layer.try_emplace(shape.layer_name);
+                            auto [it, inserted] = by_layer.try_emplace(shape.layer);
                             if (inserted)
                                 it->second.first_shape_index = shapes.size();
 
@@ -223,7 +224,7 @@ namespace le
 
                     if (const TerminalData *terminal = root.get_terminal(terminal_id))
                     {
-                        for (const auto &[layer_name, acc] : by_layer)
+                        for (const auto &[layer_id, acc] : by_layer)
                         {
                             const Point location = Geometry::get_label_location(acc.combined);
                             shapes[acc.first_shape_index].shape.texts.push_back(Text{

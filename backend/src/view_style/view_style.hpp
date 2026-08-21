@@ -115,6 +115,22 @@ namespace le
             {
                 const LayerData *layer = root.get_layer(layer_id);
 
+                // The programmatic BOUNDARY layer (Shape.layer's own
+                // schema.py comment) is a real Technology Layer now, so it
+                // shows up in this loop like any other - but it gets its
+                // own single BOUNDARY-purpose row, not the usual TERMINAL/
+                // OBSTRUCTION pair, and its LayerId (not an invalid one)
+                // backs boundary_id_/boundary_view_layer() directly.
+                if (layer->type == "BOUNDARY")
+                {
+                    set.boundary_id_ = set.add("BOUNDARY", "BOUNDARY", ViewLayerPurpose::BOUNDARY, layer_id, boundary_style());
+                    set.rows_.push_back(ViewLayerRow{
+                        .name = "BOUNDARY",
+                        .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::BOUNDARY, .id = set.boundary_id_}},
+                    });
+                    continue;
+                }
+
                 Color color;
                 if (layer->type == "ROUTING")
                 {
@@ -161,11 +177,19 @@ namespace le
                 });
             }
 
-            set.boundary_id_ = set.add("BOUNDARY", "BOUNDARY", ViewLayerPurpose::BOUNDARY, LayerId{}, boundary_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "BOUNDARY",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::BOUNDARY, .id = set.boundary_id_}},
-            });
+            // Fallback for a Technology with no BOUNDARY layer yet (no
+            // Abstract/Layout has ever needed one - get_or_create_boundary_layer
+            // creates it lazily, on first use) - still gives callers a
+            // valid boundary_view_layer() to draw the boundary shape a
+            // freshly-created Abstract will get moments later.
+            if (!set.boundary_id_.valid())
+            {
+                set.boundary_id_ = set.add("BOUNDARY", "BOUNDARY", ViewLayerPurpose::BOUNDARY, LayerId{}, boundary_style());
+                set.rows_.push_back(ViewLayerRow{
+                    .name = "BOUNDARY",
+                    .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::BOUNDARY, .id = set.boundary_id_}},
+                });
+            }
 
             return set;
         }

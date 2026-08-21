@@ -1,5 +1,6 @@
 #include <fmt/format.h>
 #include "def_reader.hpp"
+#include "lef_reader.hpp"
 #include "../geometry/geometry.hpp"
 #include <cmath>
 #include <cstring>
@@ -93,32 +94,46 @@ namespace
     // matching layer_name into one Shape per distinct layer, not walk an
     // itemType() stream like LEFReader::shapes_from_parser does.
     template <typename PinLike>
-    std::vector<le::Shape> shapes_from_pin_like(PinLike *pin)
+    std::vector<le::Shape> shapes_from_pin_like(le::Root &root, PinLike *pin)
     {
         std::vector<le::Shape> shapes;
-        auto find_or_create = [&](const std::string &layer_name) -> le::Shape &
+        // Returns nullptr (logging once) for a layer name that doesn't
+        // resolve to a Technology Layer - the geometry on it is dropped,
+        // same "log and skip" convention every other unresolvable
+        // reference in this reader follows.
+        auto find_or_create = [&](const std::string &layer_name) -> le::Shape *
         {
             for (le::Shape &shape : shapes)
-                if (shape.layer_name == layer_name)
-                    return shape;
-            shapes.push_back(le::Shape{.layer_name = layer_name});
-            return shapes.back();
+                if (root.get_layer(shape.layer) && root.get_layer(shape.layer)->name == layer_name)
+                    return &shape;
+            const le::LayerId layer_id = root.get_layer_by_name(layer_name);
+            if (!layer_id.valid())
+            {
+                log_error("PIN geometry on unknown LAYER '{}' - ignored.", layer_name);
+                return nullptr;
+            }
+            shapes.push_back(le::Shape{.layer = layer_id});
+            return &shapes.back();
         };
 
         for (int i = 0; i < pin->numLayer(); i++)
         {
             int xl = 0, yl = 0, xh = 0, yh = 0;
             pin->bounds(i, &xl, &yl, &xh, &yh);
-            find_or_create(pin->layer(i)).rects.push_back(le::Rect{.ll = {.x = xl, .y = yl}, .ur = {.x = xh, .y = yh}});
+            if (le::Shape *shape = find_or_create(pin->layer(i)))
+                shape->rects.push_back(le::Rect{.ll = {.x = xl, .y = yl}, .ur = {.x = xh, .y = yh}});
         }
         for (int i = 0; i < pin->numPolygons(); i++)
         {
+            le::Shape *shape = find_or_create(pin->polygonName(i));
+            if (!shape)
+                continue;
             const defiPoints points = pin->getPolygon(i);
             le::Polygon polygon;
             polygon.points.reserve(static_cast<size_t>(points.numPoints));
             for (int j = 0; j < points.numPoints; j++)
                 polygon.points.push_back(le::Point{.x = points.x[j], .y = points.y[j]});
-            find_or_create(pin->polygonName(i)).polygons.push_back(std::move(polygon));
+            shape->polygons.push_back(std::move(polygon));
         }
         return shapes;
     }
@@ -147,15 +162,26 @@ namespace
     // rectangular path segment, rare), DEFIPATH_TAPER/TAPERRULE/SHAPE/
     // STYLE (manufacturing/rendering-hint metadata with no schema field
     // for it yet) - skipped, not erroring.
-    void append_shapes_from_path(std::vector<le::Shape> &shapes, defiPath *path)
+    void append_shapes_from_path(le::Root &root, std::vector<le::Shape> &shapes, defiPath *path)
     {
-        auto find_or_create = [&](const std::string &layer_name) -> le::Shape &
+        // Returns nullptr (logging once) for a layer name that doesn't
+        // resolve to a Technology Layer - every element of this path
+        // segment is then dropped via the existing `current_shape`
+        // null-guards below, same as before the first LAYER element is
+        // ever seen.
+        auto find_or_create = [&](const std::string &layer_name) -> le::Shape *
         {
             for (le::Shape &shape : shapes)
-                if (shape.layer_name == layer_name)
-                    return shape;
-            shapes.push_back(le::Shape{.layer_name = layer_name});
-            return shapes.back();
+                if (root.get_layer(shape.layer) && root.get_layer(shape.layer)->name == layer_name)
+                    return &shape;
+            const le::LayerId layer_id = root.get_layer_by_name(layer_name);
+            if (!layer_id.valid())
+            {
+                log_error("Routed path on unknown LAYER '{}' - ignored.", layer_name);
+                return nullptr;
+            }
+            shapes.push_back(le::Shape{.layer = layer_id});
+            return &shapes.back();
         };
 
         le::Shape *current_shape = nullptr;
@@ -223,7 +249,7 @@ namespace
             {
             case DEFIPATH_LAYER:
                 flush_path();
-                current_shape = &find_or_create(path->getLayer());
+                current_shape = find_or_create(path->getLayer());
                 break;
             case DEFIPATH_WIDTH:
                 current_width = path->getWidth();
@@ -382,7 +408,7 @@ namespace le
         }
         reader->root_->create_shape(ShapeData{
             .layout = reader->layout_id_,
-            .layer_name = "BOUNDARY",
+            .layer = LEFReader::get_or_create_boundary_layer(*reader->root_, reader->technology_id_),
             .polygons = {polygon_from_die_area(box)},
         });
         return 0;
@@ -479,26 +505,33 @@ namespace le
             return 0;
         }
 
+        // defiComponent's own naming is confusing: id() is the instance
+        // name, name() is the referenced macro name (set together by
+        // IdAndName() from the base "- compId macroName" grammar - def.y's
+        // comp_id_and_name rule) - macroName() is a separate, unrelated
+        // field only ever populated by a "+ GENERATE genName [pattern]"
+        // attribute (setGenerate()), never by the base parse. Confirmed
+        // empirically against complete.5.8.def: macroName() was empty for
+        // every component, GENERATE or not.
+        //
+        // reference_design must resolve to an already-read Design (e.g.
+        // its LEF read earlier into this same Root) - unlike the former
+        // reference_name string this replaces, there's no fallback "store
+        // the name, resolve later" path, so the real Technology/Library
+        // LEF(s) must be read before the DEF that references them (the
+        // normal real-world flow anyway - a router/placer always has the
+        // cell library loaded first).
+        const DesignId reference_design = reader->root_->get_design_by_name(component->name());
+        if (!reference_design.valid())
+        {
+            log_error("COMPONENT {} references unknown macro/design '{}' - ignored.", component->id(), component->name());
+            return 0;
+        }
+
         PlacementData data{
             .layout = reader->layout_id_,
             .name = component->id(),
-            // defiComponent's own naming is confusing: id() is the
-            // instance name, name() is the referenced macro name (set
-            // together by IdAndName() from the base "- compId macroName"
-            // grammar - def.y's comp_id_and_name rule) - macroName() is a
-            // separate, unrelated field only ever populated by a
-            // "+ GENERATE genName [pattern]" attribute (setGenerate()),
-            // never by the base parse. Confirmed empirically against
-            // complete.5.8.def: macroName() was empty for every component,
-            // GENERATE or not.
-            .reference_name = component->name(),
-            // Resolved eagerly if the referenced Design already exists
-            // (e.g. its LEF was read earlier into this same Root) - left
-            // invalid otherwise, same "linked later" convention as
-            // Instance.reference_design (Schematic). No error either way:
-            // a DEF COMPONENTS section routinely references macros from a
-            // LEF file read as a separate step.
-            .reference_design = reader->root_->get_design_by_name(component->name()),
+            .reference_design = reference_design,
             .placement_status = placement_status_from_component(component),
         };
         // isUnplaced() is true only for an explicit UNPLACED keyword - a
@@ -584,7 +617,7 @@ namespace le
                 if (!fill_pin_like_placement(port, pin->pinName(), segment_data.location, segment_data.orientation))
                     return 0;
                 const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(std::move(segment_data));
-                for (Shape &shape : shapes_from_pin_like(port))
+                for (Shape &shape : shapes_from_pin_like(*reader->root_, port))
                 {
                     shape.physical_port_segment = segment_id;
                     reader->root_->create_shape(std::move(shape));
@@ -594,7 +627,7 @@ namespace le
         else
         {
             const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(PhysicalPortSegmentData{.physical_port = physical_port_id});
-            for (Shape &shape : shapes_from_pin_like(pin))
+            for (Shape &shape : shapes_from_pin_like(*reader->root_, pin))
             {
                 shape.physical_port_segment = segment_id;
                 reader->root_->create_shape(std::move(shape));
@@ -655,8 +688,31 @@ namespace le
             // A Blockage is scoped to at most one layer (or none, for a
             // PLACEMENT blockage), unlike a PIN's own per-rect layer
             // array - so unlike shapes_from_pin_like, this needs only one
-            // Shape, not one grouped per distinct layer name.
-            Shape shape{.layer_name = blockage->hasLayer() ? blockage->layerName() : "", .blockage = blockage_id};
+            // Shape, not one grouped per distinct layer name. A PLACEMENT
+            // blockage's own region isn't tied to any routing layer at
+            // all, so it reuses the same programmatic BOUNDARY layer
+            // Abstract.boundary/Layout.diearea do (get_or_create_boundary_layer)
+            // rather than needing Shape.layer to be optional/unresolved; a
+            // ROUTING blockage on an unresolvable layer name drops its
+            // geometry entirely instead (log and skip, same convention as
+            // every other unresolvable reference in this reader) rather
+            // than silently reassigning real routing-layer geometry onto
+            // the unrelated BOUNDARY layer.
+            LayerId shape_layer_id;
+            if (blockage->hasLayer())
+            {
+                shape_layer_id = reader->root_->get_layer_by_name(blockage->layerName());
+                if (!shape_layer_id.valid())
+                {
+                    log_error("BLOCKAGES geometry on unknown LAYER '{}' - ignored.", blockage->layerName());
+                    return 0;
+                }
+            }
+            else
+            {
+                shape_layer_id = LEFReader::get_or_create_boundary_layer(*reader->root_, reader->technology_id_);
+            }
+            Shape shape{.layer = shape_layer_id, .blockage = blockage_id};
             for (int i = 0; i < blockage->numRectangles(); i++)
                 shape.rects.push_back(Rect{.ll = {.x = blockage->xl(i), .y = blockage->yl(i)}, .ur = {.x = blockage->xh(i), .y = blockage->yh(i)}});
             for (int i = 0; i < blockage->numPolygons(); i++)
@@ -801,7 +857,7 @@ namespace le
         {
             defiWire *wire = net->wire(i);
             for (int j = 0; j < wire->numPaths(); j++)
-                append_shapes_from_path(shapes, wire->path(j));
+                append_shapes_from_path(*reader->root_, shapes, wire->path(j));
         }
         for (Shape &shape : shapes)
         {

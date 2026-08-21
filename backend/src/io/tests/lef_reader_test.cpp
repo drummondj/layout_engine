@@ -56,8 +56,11 @@ TEST_F(LEFReaderCompleteFixture, ParsesSuccessfullyAndReadsUnits)
 
 TEST_F(LEFReaderCompleteFixture, CreatesAllLayersWithTypeAndDirection)
 {
-    // 25 uppercase `LAYER ...` blocks plus one lowercase `layer OVERLAP`.
-    EXPECT_EQ(root.get_layer_ids().size(), 26u);
+    // 25 uppercase `LAYER ...` blocks plus one lowercase `layer OVERLAP`,
+    // plus the programmatic BOUNDARY layer every Technology now gets
+    // (Shape.layer's own schema.py comment) - created once, lazily, the
+    // first time any Abstract's boundary Shape needs it.
+    EXPECT_EQ(root.get_layer_ids().size(), 27u);
 
     LayerId m1_id = root.get_layer_by_name("M1");
     ASSERT_TRUE(m1_id.valid());
@@ -206,7 +209,7 @@ TEST_F(LEFReaderCompleteFixture, ConvertsMacroSizeAndOriginToDbu)
     // single rect polygon built from origin (default {0,0}) + size.
     const Shape *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id));
     ASSERT_NE(boundary_shape, nullptr);
-    EXPECT_EQ(boundary_shape->layer_name, "BOUNDARY");
+    EXPECT_EQ(root.get_layer(boundary_shape->layer)->name, "BOUNDARY");
     ASSERT_EQ(boundary_shape->polygons.size(), 1u);
     const Polygon &boundary = boundary_shape->polygons.front();
     ASSERT_EQ(boundary.points.size(), 5u);
@@ -234,7 +237,7 @@ TEST_F(LEFReaderCompleteFixture, CreatesPinsWithPortShapes)
 
     ASSERT_EQ(pin_a_shapes.size(), 1u);
     const Shape &shape = *root.get_shape(pin_a_shapes.front());
-    EXPECT_EQ(shape.layer_name, "M1");
+    EXPECT_EQ(root.get_layer(shape.layer)->name, "M1");
     ASSERT_EQ(shape.paths.size(), 1u);
     EXPECT_EQ(shape.paths.front().width, 0u); // no WIDTH statement precedes this PATH
 }
@@ -255,7 +258,7 @@ TEST_F(LEFReaderCompleteFixture, ObstructionCollectsRectsAndPathsButIgnoresVias)
 
     ASSERT_EQ(obstruction_shapes.size(), 1u);
     const Shape &shape = *root.get_shape(obstruction_shapes.front());
-    EXPECT_EQ(shape.layer_name, "M1");
+    EXPECT_EQ(root.get_layer(shape.layer)->name, "M1");
     EXPECT_EQ(shape.rects.size(), 2u); // 1 + 1 final, VIAs excluded, ITERATE stored separately
     EXPECT_EQ(shape.paths.size(), 2u); // 2 singles, VIAs excluded, ITERATE stored separately
     EXPECT_EQ(shape.polygons.size(), 0u);
@@ -1191,7 +1194,7 @@ TEST_F(LEFAntennaFixture, ReadsPinScalarFieldsDirectionEnumPortClassViaAndSiteAr
     const std::vector<ShapeId> &port_a_shapes = root.get_terminal_port_shapes(pin_a_port_ids[0]);
     ASSERT_EQ(port_a_shapes.size(), 1u);
     const Shape &shape_a = *root.get_shape(port_a_shapes[0]);
-    EXPECT_EQ(shape_a.layer_name, "M1");
+    EXPECT_EQ(root.get_layer(shape_a.layer)->name, "M1");
     EXPECT_EQ(shape_a.spacing, 50);
     ASSERT_EQ(shape_a.vias.size(), 1u);
     EXPECT_EQ(shape_a.vias[0].via_name, "MYVIA");
@@ -1210,7 +1213,7 @@ TEST_F(LEFAntennaFixture, ReadsPinScalarFieldsDirectionEnumPortClassViaAndSiteAr
     const std::vector<ShapeId> &obs_shapes = root.get_obstruction_shapes(obs_id);
     ASSERT_EQ(obs_shapes.size(), 1u);
     const Shape &obs_shape = *root.get_shape(obs_shapes[0]);
-    EXPECT_EQ(obs_shape.layer_name, "V1");
+    EXPECT_EQ(root.get_layer(obs_shape.layer)->name, "V1");
     EXPECT_TRUE(obs_shape.except_pg_net);
 }
 

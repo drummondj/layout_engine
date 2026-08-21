@@ -100,13 +100,15 @@ TEST(FilterExpression, SingleHopResolvesExistentialListField)
     LibraryId library_id = root.create_library(LibraryData{.name = "LIB"});
     DesignId design_id = root.create_design(DesignData{.library = library_id, .name = "CELL"});
     AbstractId abstract_id = root.create_abstract(AbstractData{.design = design_id});
+    TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+    LayerId m4 = root.create_layer(LayerData{.technology = technology_id, .name = "M4", .type = "ROUTING"});
 
     ObstructionId obstruction_id = root.create_obstruction(ObstructionData{.abstract = abstract_id});
-    root.create_shape(ShapeData{.obstruction = obstruction_id, .layer_name = "M4"});
+    root.create_shape(ShapeData{.obstruction = obstruction_id, .layer = m4});
     const ObstructionData *data = root.get_obstruction(obstruction_id);
 
-    EXPECT_TRUE(matches(".shapes.layer_name == M4", root, obstruction_id, *data));
-    EXPECT_FALSE(matches(".shapes.layer_name == M9", root, obstruction_id, *data));
+    EXPECT_TRUE(matches(".shapes.layer.name == M4", root, obstruction_id, *data));
+    EXPECT_FALSE(matches(".shapes.layer.name == M9", root, obstruction_id, *data));
 }
 
 TEST(FilterExpression, TwoHopChainResolvesAcrossTwoParentLinks)
@@ -130,11 +132,13 @@ TEST(FilterExpression, MatchesUpdatesMdItem15SExampleShape)
     AbstractId abstract_id = root.create_abstract(AbstractData{.design = design_id});
     TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id, .name = "IN0"});
     TerminalPortId port_id = root.create_terminal_port(TerminalPortData{.terminal = terminal_id});
-    root.create_shape(ShapeData{.terminal_port = port_id, .layer_name = "M4"});
+    TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+    LayerId m4 = root.create_layer(LayerData{.technology = technology_id, .name = "M4", .type = "ROUTING"});
+    root.create_shape(ShapeData{.terminal_port = port_id, .layer = m4});
     const TerminalPortData *data = root.get_terminal_port(port_id);
 
-    EXPECT_TRUE(matches(".terminal.name =~ IN* && .shapes.layer_name == M4", root, port_id, *data));
-    EXPECT_FALSE(matches(".terminal.name =~ OUT* && .shapes.layer_name == M4", root, port_id, *data));
+    EXPECT_TRUE(matches(".terminal.name =~ IN* && .shapes.layer.name == M4", root, port_id, *data));
+    EXPECT_FALSE(matches(".terminal.name =~ OUT* && .shapes.layer.name == M4", root, port_id, *data));
 }
 
 TEST(FilterExpression, SearchIntegratesWithRootSearchX)

@@ -1084,8 +1084,9 @@ TEST(Scene, ArmMoveSnapshotsSelectionAndGeometry)
     ShapeId shape_id{3, 0};
     scene.select(shape_id, PieceKind::POLYGON, 2);
 
+    const LayerId m1{1, 1};
     Shape geometry;
-    geometry.layer_name = "M1";
+    geometry.layer = m1;
     const uint64_t before = scene.mouse_version();
 
     scene.arm_move({geometry});
@@ -1095,7 +1096,7 @@ TEST(Scene, ArmMoveSnapshotsSelectionAndGeometry)
     EXPECT_EQ(scene.move().moving_pieces[0].piece_kind, PieceKind::POLYGON);
     EXPECT_EQ(scene.move().moving_pieces[0].piece_index, 2u);
     ASSERT_EQ(scene.move().moving_geometry.size(), 1u);
-    EXPECT_EQ(scene.move().moving_geometry[0].layer_name, "M1");
+    EXPECT_EQ(scene.move().moving_geometry[0].layer, m1);
     EXPECT_GT(scene.mouse_version(), before);
 }
 
@@ -1110,8 +1111,10 @@ TEST(Scene, RefreshMoveGeometryReplacesTheGhostSnapshotWithoutTouchingAnchorOrAr
     // anchor/armed, since an undo/redo can happen mid-gesture too.
     Scene scene;
     scene.select(ShapeId{1, 0});
+    const LayerId m1{1, 1};
+    const LayerId m2{2, 1};
     Shape original;
-    original.layer_name = "M1";
+    original.layer = m1;
     scene.arm_move({original});
     scene.set_pan(Point{0, 0});
     scene.set_scale(1.0);
@@ -1122,13 +1125,13 @@ TEST(Scene, RefreshMoveGeometryReplacesTheGhostSnapshotWithoutTouchingAnchorOrAr
     const uint64_t before = scene.mouse_version();
 
     Shape refreshed;
-    refreshed.layer_name = "M2";
+    refreshed.layer = m2;
     scene.refresh_move_geometry({refreshed});
 
     EXPECT_TRUE(scene.move().armed); // untouched
     ASSERT_TRUE(scene.move().anchor.has_value()); // untouched - not cleared like arm_move would
     ASSERT_EQ(scene.move().moving_geometry.size(), 1u);
-    EXPECT_EQ(scene.move().moving_geometry[0].layer_name, "M2");
+    EXPECT_EQ(scene.move().moving_geometry[0].layer, m2);
     EXPECT_GT(scene.mouse_version(), before);
 }
 

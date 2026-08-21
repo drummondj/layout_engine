@@ -48,6 +48,16 @@ namespace le
         // unit-testing reason as the *_from_parser conversions above.
         static size_t safe_iteration_count(double x_count, double y_count);
 
+        // The programmatic BOUNDARY layer used by Abstract.boundary/
+        // Layout.diearea shapes - a genuine Technology Layer (so Shape.layer
+        // never needs to be optional/unresolved), just never written back
+        // out by LEFWriter (type=="BOUNDARY" is skipped there). Created once
+        // per Technology, lazily, the first time either reader needs it -
+        // public (and static, no parser/instance state) so DEFReader can
+        // call it too for Layout.diearea, the same way *_from_parser above
+        // is public for direct unit testing.
+        static LayerId get_or_create_boundary_layer(Root &root, TechnologyId technology_id);
+
     private:
         // Callbacks
         static int lefrLayerCbkFn(lefrCallbackType_e typ, lefiLayer *lef_layer, void *user_data);

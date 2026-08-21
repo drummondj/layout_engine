@@ -811,7 +811,7 @@ BENCHMARK(BM_PathToPolygonsSingleCall)->Unit(benchmark::kNanosecond);
 // calls this once per (Terminal, distinct layer_name) pair.
 static void BM_GetLabelLocationSingleRect(benchmark::State &state)
 {
-    const Shape shape{.layer_name = "M1", .rects = {Rect{.ll = {0, 0}, .ur = {50'000, 20'000}}}};
+    const Shape shape{.rects = {Rect{.ll = {0, 0}, .ur = {50'000, 20'000}}}};
 
     for (auto _ : state)
     {
@@ -826,7 +826,6 @@ static void BM_GetLabelLocationLShapedPolygon(benchmark::State &state)
 {
     // Same shape (scaled up to dbu) as Geometry.LabelLocationOnAWidePolygonFracturesVerticallyAndPicksTheLargestSlab.
     const Shape shape{
-        .layer_name = "M1",
         .polygons = {Polygon{.points = {
                          Point{0, 0}, Point{100'000, 0}, Point{100'000, 60'000},
                          Point{80'000, 60'000}, Point{80'000, 20'000}, Point{0, 20'000}}}},

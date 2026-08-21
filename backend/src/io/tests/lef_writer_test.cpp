@@ -28,9 +28,13 @@ namespace
         return (std::filesystem::temp_directory_path() / name).string();
     }
 
-    void expect_shapes_equal(const Shape &original, const Shape &written)
+    void expect_shapes_equal(const Root &original_root, const Shape &original, const Root &written_root, const Shape &written)
     {
-        EXPECT_EQ(original.layer_name, written.layer_name);
+        const LayerData *original_layer = original_root.get_layer(original.layer);
+        const LayerData *written_layer = written_root.get_layer(written.layer);
+        ASSERT_TRUE(original_layer);
+        ASSERT_TRUE(written_layer);
+        EXPECT_EQ(original_layer->name, written_layer->name);
 
         ASSERT_EQ(original.rects.size(), written.rects.size());
         for (size_t i = 0; i < original.rects.size(); i++)
@@ -1075,7 +1079,7 @@ TEST_F(LEFWriterRoundtripFixture, RoundTripsPinDirectionAndPortGeometryIncluding
 
     ASSERT_EQ(original_port_shapes.size(), written_port_shapes.size());
     for (size_t i = 0; i < original_port_shapes.size(); i++)
-        expect_shapes_equal(*original_root.get_shape(original_port_shapes[i]), *written_root.get_shape(written_port_shapes[i]));
+        expect_shapes_equal(original_root, *original_root.get_shape(original_port_shapes[i]), written_root, *written_root.get_shape(written_port_shapes[i]));
 }
 
 TEST_F(LEFWriterRoundtripFixture, RoundTripsObstructionRectIterateAndPathIterateAsRawStatementsNotExpanded)
@@ -1095,7 +1099,7 @@ TEST_F(LEFWriterRoundtripFixture, RoundTripsObstructionRectIterateAndPathIterate
 
     ASSERT_EQ(original_shapes.size(), written_shapes.size());
     for (size_t i = 0; i < original_shapes.size(); i++)
-        expect_shapes_equal(*original_root.get_shape(original_shapes[i]), *written_root.get_shape(written_shapes[i]));
+        expect_shapes_equal(original_root, *original_root.get_shape(original_shapes[i]), written_root, *written_root.get_shape(written_shapes[i]));
 
     // Belt-and-suspenders on the specific claim in this test's name: both
     // the original read and the round-tripped re-read see the ITERATE as
@@ -1125,7 +1129,13 @@ TEST_F(LEFWriterRoundtripFixture, LayerWriteModeNoneWritesNoLayers)
     reread_root.create_technology(TechnologyData{.database_units_microns = 1000.0});
     LEFReader reread;
     ASSERT_EQ(reread.read_lef(out_path, reread_root, "test_lib"), 0);
-    EXPECT_TRUE(reread_root.is_layer_empty());
+    // No real (written) physical layer exists - the one exception is the
+    // programmatic BOUNDARY layer every Technology now gets the first
+    // time any Abstract's boundary Shape needs it (Shape.layer's own
+    // schema.py comment), which isn't a real LEF construct and is never
+    // written back out by LEFWriter either way.
+    for (const LayerId id : reread_root.get_layer_ids())
+        EXPECT_EQ(reread_root.get_layer(id)->type, "BOUNDARY");
     EXPECT_TRUE(reread_root.get_design_by_name("WRITERTEST").valid());
 }
 

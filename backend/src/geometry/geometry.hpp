@@ -278,7 +278,7 @@ namespace le
         }
 
         // Translates every rect/polygon/path in `data` by `offset` -
-        // every other field (layer_name, spacing, ...) is copied
+        // every other field (layer, spacing, ...) is copied
         // unchanged. The whole-Shape convenience Move's commit path uses
         // to build its "after" geometry in one call.
         static ShapeData transform(const ShapeData &data, const Point &offset)
@@ -571,7 +571,7 @@ namespace le
 
         /// @brief Like `contains`, but returns the single rect/polygon/path
         /// piece that contains `point` - both a copy of its geometry (as
-        /// its own one-piece Shape, same `layer_name`) and `kind`/`index`
+        /// its own one-piece Shape, same `layer`) and `kind`/`index`
         /// identifying exactly where it lives in `shape`'s own rects/
         /// polygons/paths vector (see HitPiece) - `shape` can bundle
         /// several rects/polygons/paths together (e.g. several RECT
@@ -600,7 +600,7 @@ namespace le
             for (size_t i = 0; i < shape.rects.size(); ++i)
             {
                 if (point_in_rect(point, shape.rects[i]))
-                    return HitPiece{.kind = PieceKind::RECT, .index = i, .outline = Shape{.layer_name = shape.layer_name, .rects = {shape.rects[i]}}};
+                    return HitPiece{.kind = PieceKind::RECT, .index = i, .outline = Shape{.layer = shape.layer, .rects = {shape.rects[i]}}};
             }
 
             for (size_t i = 0; i < shape.polygons.size(); ++i)
@@ -609,7 +609,7 @@ namespace le
                     continue;
 
                 if (bg::within(point, to_boost_polygon(shape.polygons[i])))
-                    return HitPiece{.kind = PieceKind::POLYGON, .index = i, .outline = Shape{.layer_name = shape.layer_name, .polygons = {shape.polygons[i]}}};
+                    return HitPiece{.kind = PieceKind::POLYGON, .index = i, .outline = Shape{.layer = shape.layer, .polygons = {shape.polygons[i]}}};
             }
 
             for (size_t i = 0; i < shape.paths.size(); ++i)
@@ -620,7 +620,7 @@ namespace le
                 for (const auto &part : path_to_polygons(shape.paths[i]))
                 {
                     if (bg::within(point, to_boost_polygon(part)))
-                        return HitPiece{.kind = PieceKind::PATH, .index = i, .outline = Shape{.layer_name = shape.layer_name, .paths = {shape.paths[i]}}};
+                        return HitPiece{.kind = PieceKind::PATH, .index = i, .outline = Shape{.layer = shape.layer, .paths = {shape.paths[i]}}};
                 }
             }
 
@@ -639,7 +639,7 @@ namespace le
 
         /// @brief Extracts just the one rect/polygon/path piece at
         /// `index` within `kind`'s own vector of `shape`, as its own
-        /// one-piece Shape (same `layer_name`, same convention
+        /// one-piece Shape (same `layer`, same convention
         /// find_hit_piece's own `outline` uses) - for rendering/moving a
         /// single selected piece of a Shape that may bundle several
         /// together, without pulling in its siblings. Returns an empty
@@ -650,7 +650,7 @@ namespace le
         /// different piece.
         static Shape extract_piece(const Shape &shape, PieceKind kind, size_t index)
         {
-            Shape piece{.layer_name = shape.layer_name};
+            Shape piece{.layer = shape.layer};
             switch (kind)
             {
             case PieceKind::RECT:
@@ -759,15 +759,15 @@ namespace le
 
             for (size_t i = 0; i < shape.rects.size(); ++i)
                 if (bbox_enclosed(shape.rects[i]))
-                    result.push_back(HitPiece{.kind = PieceKind::RECT, .index = i, .outline = Shape{.layer_name = shape.layer_name, .rects = {shape.rects[i]}}});
+                    result.push_back(HitPiece{.kind = PieceKind::RECT, .index = i, .outline = Shape{.layer = shape.layer, .rects = {shape.rects[i]}}});
 
             for (size_t i = 0; i < shape.polygons.size(); ++i)
                 if (bbox_enclosed(bbox_of(shape.polygons[i])))
-                    result.push_back(HitPiece{.kind = PieceKind::POLYGON, .index = i, .outline = Shape{.layer_name = shape.layer_name, .polygons = {shape.polygons[i]}}});
+                    result.push_back(HitPiece{.kind = PieceKind::POLYGON, .index = i, .outline = Shape{.layer = shape.layer, .polygons = {shape.polygons[i]}}});
 
             for (size_t i = 0; i < shape.paths.size(); ++i)
                 if (bbox_enclosed(bbox_of(shape.paths[i])))
-                    result.push_back(HitPiece{.kind = PieceKind::PATH, .index = i, .outline = Shape{.layer_name = shape.layer_name, .paths = {shape.paths[i]}}});
+                    result.push_back(HitPiece{.kind = PieceKind::PATH, .index = i, .outline = Shape{.layer = shape.layer, .paths = {shape.paths[i]}}});
 
             return result;
         }

@@ -148,7 +148,7 @@ check "complete_command flag completion returns to the outer scope once its brac
 # see this file's own header comment) ---
 
 check_true "complete_command completes a single-level property path" \
-    [expr {".layer_name" in [complete_command {get_properties shape:0 .lay}]}]
+    [expr {".layer" in [complete_command {get_properties shape:0 .lay}]}]
 check_true "complete_command completes a chained-hop property path" \
     [expr {".terminal_port.terminal" in [complete_command {get_properties shape:0 .terminal_port.te}]}]
 check "complete_command dot-path completion outside get_properties/report_properties" \

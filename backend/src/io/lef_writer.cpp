@@ -423,6 +423,12 @@ namespace le
             const LayerData *layer = root.get_layer(layer_id);
             if (!layer)
                 continue;
+            // The programmatic BOUNDARY layer (Shape.layer's own schema.py
+            // comment) - a real Layer so Shape.layer never needs to be
+            // optional, but not a real LEF construct, so never written
+            // back out here.
+            if (layer->type == "BOUNDARY")
+                continue;
 
             // Moved to pooled classes (Phase 2) - materialized into plain
             // local vectors once here (both the ROUTING and CUT branches
@@ -1605,10 +1611,13 @@ namespace le
         return 0;
     }
 
-    int LEFWriter::write_shape_geometry(const Shape &shape, double dbu_per_micron, bool is_pin_port)
+    int LEFWriter::write_shape_geometry(const Root &root, const Shape &shape, double dbu_per_micron, bool is_pin_port)
     {
         auto to_um = [&](int64_t v)
         { return to_microns(v, dbu_per_micron); };
+
+        const LayerData *layer = root.get_layer(shape.layer);
+        const std::string layer_name = layer ? layer->name : std::string{};
 
         // LAYER/DESIGNRULEWIDTH/EXCEPTPGNET are mutually exclusive per
         // lef.y's own grammar - one combined statement opens this LAYER
@@ -1631,7 +1640,7 @@ namespace le
             // and callers should avoid mixing SPACING-layers before an
             // EXCEPTPGNET-layer in the same OBS, matching how
             // complete.5.8.lef's own OBS blocks never mix the two.
-            status = lefwMacroExceptPGNet(shape.layer_name.c_str());
+            status = lefwMacroExceptPGNet(layer_name.c_str());
         }
         else if (shape.design_rule_width)
         {
@@ -1645,8 +1654,8 @@ namespace le
             // the file - not something to work around here (out of scope:
             // would require patching vendored source).
             status = is_pin_port
-                         ? lefwMacroPinPortDesignRuleWidth(shape.layer_name.c_str(), to_um(*shape.design_rule_width))
-                         : lefwMacroObsDesignRuleWidth(shape.layer_name.c_str(), to_um(*shape.design_rule_width));
+                         ? lefwMacroPinPortDesignRuleWidth(layer_name.c_str(), to_um(*shape.design_rule_width))
+                         : lefwMacroObsDesignRuleWidth(layer_name.c_str(), to_um(*shape.design_rule_width));
         }
         else
         {
@@ -1655,7 +1664,7 @@ namespace le
             // either, only "no SPACING clause at all" (spacing unset, the
             // value_or(0) case) and any nonzero value.
             const int64_t spacing_dbu = shape.spacing.value_or(0);
-            status = is_pin_port ? lefwMacroPinPortLayer(shape.layer_name.c_str(), to_um(spacing_dbu)) : lefwMacroObsLayer(shape.layer_name.c_str(), to_um(spacing_dbu));
+            status = is_pin_port ? lefwMacroPinPortLayer(layer_name.c_str(), to_um(spacing_dbu)) : lefwMacroObsLayer(layer_name.c_str(), to_um(spacing_dbu));
         }
         if (status)
             return status;
@@ -1940,7 +1949,7 @@ namespace le
                 const Shape *shape = root.get_shape(shape_id);
                 if (!shape)
                     continue;
-                status = write_shape_geometry(*shape, dbu_per_micron, true);
+                status = write_shape_geometry(root, *shape, dbu_per_micron, true);
                 if (status)
                     return status;
             }
@@ -1968,7 +1977,7 @@ namespace le
             const Shape *shape = root.get_shape(shape_id);
             if (!shape)
                 continue;
-            status = write_shape_geometry(*shape, dbu_per_micron, false);
+            status = write_shape_geometry(root, *shape, dbu_per_micron, false);
             if (status)
                 return status;
         }

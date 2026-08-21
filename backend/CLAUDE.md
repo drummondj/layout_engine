@@ -183,7 +183,38 @@ none of these are duplicated here.
   own reuse-or-create) for this one construct, and `defrUnitsCbkFn`
   writes `database_units_microns` from DEF's own `UNITS DISTANCE
   MICRONS` the same way LEF's own units callback does.
-  Tested against `src/lefdef/def/TEST/complete.5.8.def` (`def_reader_test.cpp`).
+  `Shape.layer` (both readers) and `Placement.reference_design` (`DEFReader`
+  only) are resolved references, not stored names/strings — every reader
+  callsite resolves the LEF/DEF-declared name against the shared
+  `Technology`/`Library` (`get_layer_by_name`/`get_design_by_name`) at
+  creation time and logs an error + skips creating that Shape/Placement
+  if it doesn't resolve, rather than storing an unresolved name that could
+  later go stale (e.g. if the referenced Layer/Design is renamed). This
+  requires the real Technology (tech LEF) to always be read before a DEF
+  that references its layers, and the referenced macro/cell Designs to
+  already exist before the DEF that instantiates them — the normal real-
+  world read order anyway. The one deliberate exception: the programmatic
+  BOUNDARY layer (`Abstract.boundary`/`Layout.diearea`, and a DEF
+  PLACEMENT blockage's own region, none of which are real LEF/DEF layers)
+  is a real Technology `Layer` too (`type="BOUNDARY"`), created once
+  lazily via `LEFReader::get_or_create_boundary_layer` (public so
+  `DEFReader` can call it too) — so `Shape.layer` never needs to be
+  optional/unresolved, and `LEFWriter` simply skips writing this one
+  `Layer` back out. See `codegen/codegen/schema.py`'s `Field.
+  is_plain_reference_field()`/`Klass.get_reference_create_fields()` for
+  the small, separate codegen mechanism this relies on to give a plain
+  (non-parent) reference field like this its own resolved-by-token
+  `create_<type>`/`update_<type>` flag, deliberately kept apart from
+  `get_parent_fields()` (which several structural concerns - `is_child`
+  enumeration, delete cascade, `tcl_scope`'s current-instance-anchor
+  algorithm - depend on and must not see a field like this as a parent/
+  ownership relationship).
+  Tested against `src/lefdef/def/TEST/complete.5.8.def` (`def_reader_test.cpp`)
+  — that fixture has no companion LEF of its own (a grammar-coverage
+  fixture, not a real design), so `DEFReaderCompleteFixture`'s own
+  `SetUp()` pre-populates the Technology/Library with exactly the layer
+  names/macro names it references, playing the role a real LEF read
+  would otherwise.
 - `src/api/` — `api.hpp`/`api.cpp`, the C API surface a Flutter plugin's
   Dart FFI binds to: an opaque `LeHandle` (`le_create`/`le_destroy`)
   wrapping one `Root`/`ViewLayerSet`/`Scene`/`Pipeline`/`Renderer` per
@@ -435,6 +466,33 @@ the `<Klass>Data{...}` initializer) is built as one Python string in
 `Klass.create_api_body()` (`codegen/codegen/schema.py`), not deeply nested
 Jinja — the per-field-type/optionality branching reads far more clearly as
 real Python control flow.
+
+A *plain* (non-parent, non-child, required) reference-to-pooled-klass
+field — `Shape.layer`, `Placement.reference_design` — gets the same
+token-resolved treatment as a parent field (one `Le<Type>Id`/token flag,
+`resolve_<type>_id()` in the shim), but via a small, deliberately separate
+mechanism (`Field.is_plain_reference_field()`/`Klass.
+get_reference_create_fields()`), not a broadening of `get_parent_fields()`
+itself — several other structural concerns (`is_child` enumeration, the
+delete cascade, `tcl_scope`'s current-instance-anchor algorithm) depend on
+`get_parent_fields()`/`has_parent()` meaning a real ownership relationship,
+which a field like this isn't. Required-only for now (no field needs
+`is_optional=True` support here yet — such a field would silently stay
+excluded, the same gap this mechanism exists to close for the required
+case). Unlike a parent field, it needs no `Root`-level index bookkeeping
+at all — `Root::create_<klass>`/`update_<klass>` just carry it as an
+ordinary `std::optional<T>`-shaped field alongside every other create
+field. A generated property table still shows it via the *reference*
+branch of `wrap_with_to_property()`/`wrap_with_to_display_property()`
+(`to_string(id)` — a bare `Id{index=.., generation=..}` debug string, not
+a friendly name, since `to_properties()` has no `Root` to resolve one
+from) — a real, known display gap shared with `Instance.reference_design`
+(same shape, never surfaced since nothing populates `Instance` yet); a
+caller wanting the resolved name uses a hand-written accessor
+(`le_shape_layer_name`) or a filter/`get_properties` *hop* through the
+field instead (`.layer.name`, walking to the referenced object's own
+plain `name` property, unaffected by this gap since hops resolve through
+the target's own fields).
 
 `update_<type>` mirrors `create_<type>`'s own flag set field-for-field
 (`Klass.update_api_body()`/`update_root_body()`), but every flag's own

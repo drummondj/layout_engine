@@ -25,7 +25,7 @@ namespace
 
     bool apply_shape_snapshot(Root &r, ShapeId id, const ShapeData &d)
     {
-        return r.update_shape(id, d.layer_name, d.paths, d.polygons, d.rects, d.spacing, d.design_rule_width, d.except_pg_net);
+        return r.update_shape(id, d.layer, d.paths, d.polygons, d.rects, d.spacing, d.design_rule_width, d.except_pg_net);
     }
 }
 
@@ -57,7 +57,9 @@ TEST(Editing, CreateCommandUndoRedoRoundTrip)
 TEST(Editing, UpdateCommandUndoRedoRoundTrip)
 {
     Root root;
-    ShapeData before{.layer_name = "M1"};
+    TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+    LayerId m1 = root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING"});
+    ShapeData before{.layer = m1};
     before.rects.push_back(Rect{.ll = Point{.x = 0, .y = 0}, .ur = Point{.x = 10, .y = 10}});
     const ShapeId id = root.create_shape(before);
 

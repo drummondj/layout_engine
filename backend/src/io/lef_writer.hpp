@@ -144,7 +144,7 @@ namespace le
         static int write_macro(const Root &root, AbstractId abstract_id, double dbu_per_micron);
         static int write_terminal(const Root &root, TerminalId terminal_id, double dbu_per_micron);
         static int write_obstruction(const Root &root, ObstructionId obstruction_id, double dbu_per_micron);
-        static int write_shape_geometry(const Shape &shape, double dbu_per_micron, bool is_pin_port);
+        static int write_shape_geometry(const Root &root, const Shape &shape, double dbu_per_micron, bool is_pin_port);
 
         std::vector<std::string> messages_;
     };

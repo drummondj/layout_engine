@@ -213,19 +213,31 @@ namespace le
     /// render pipeline can reference one persisted Shape
     /// (generate_shapes_stage.hpp) instead of synthesizing one on every
     /// render.
+    LayerId LEFReader::get_or_create_boundary_layer(Root &root, TechnologyId technology_id)
+    {
+        LayerId existing = root.get_layer_by_name("BOUNDARY");
+        if (existing.valid())
+            return existing;
+        return root.create_layer(LayerData{.technology = technology_id, .name = "BOUNDARY", .type = "BOUNDARY"});
+    }
+
     void LEFReader::post_process(LEFReader *reader)
     {
         // Look for OVERLAP obstructions
         std::vector<const Shape *> overlap_shapes;
+        const LayerId overlap_layer_id = reader->root_->get_layer_by_name("OVERLAP");
 
-        for (auto const &obstruction_id : reader->root_->get_abstract_obstructions(reader->abstract_id_))
+        if (overlap_layer_id.valid())
         {
-            for (auto const &shape_id : reader->root_->get_obstruction_shapes(obstruction_id))
+            for (auto const &obstruction_id : reader->root_->get_abstract_obstructions(reader->abstract_id_))
             {
-                auto const *shape = reader->root_->get_shape(shape_id);
-                if (shape && shape->layer_name == "OVERLAP")
+                for (auto const &shape_id : reader->root_->get_obstruction_shapes(obstruction_id))
                 {
-                    overlap_shapes.push_back(shape);
+                    auto const *shape = reader->root_->get_shape(shape_id);
+                    if (shape && shape->layer == overlap_layer_id)
+                    {
+                        overlap_shapes.push_back(shape);
+                    }
                 }
             }
         }
@@ -265,7 +277,7 @@ namespace le
 
         reader->root_->create_shape(ShapeData{
             .abstract = reader->abstract_id_,
-            .layer_name = "BOUNDARY",
+            .layer = get_or_create_boundary_layer(*reader->root_, reader->technology_id_),
             .polygons = std::move(boundary_polygons),
         });
     }
@@ -1963,7 +1975,15 @@ namespace le
                     geo_count = 0;
                 }
 
-                shape = Shape{.layer_name = geometries->getLayer(j)};
+                const std::string layer_name = geometries->getLayer(j);
+                const LayerId layer_id = reader->root_->get_layer_by_name(layer_name);
+                if (!layer_id.valid())
+                {
+                    log_error("LAYER '{}' does not exist in the Technology - geometry on it is ignored.", layer_name);
+                    shape.reset();
+                    break;
+                }
+                shape = Shape{.layer = layer_id};
                 break;
             }
             case lefiGeomEnum::lefiGeomWidthE:

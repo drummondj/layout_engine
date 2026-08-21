@@ -342,14 +342,20 @@ TEST(FilterMetadata, MatchTechnologyHopIteratesChildLayersExistentially)
     EXPECT_FALSE(match_hop(root, tech_id, *data, "layers", name_equals("M3")));
 }
 
-TEST(FilterMetadata, GetShapeFieldReturnsLayerNameLeafNotListFields)
+TEST(FilterMetadata, GetShapeFieldReturnsExceptPgNetLeafNotListFields)
 {
+    // Shape.layer used to be this test's own plain scalar (str) field, but
+    // is now a reference-to-Layer field - get_filterable_scalar_fields()
+    // deliberately excludes any reference-to-non-enum-klass field (only
+    // reachable via a hop, e.g. ".layer.name"), so it can no longer stand
+    // in for "a plain scalar leaf" here - except_pg_net (bool) does the
+    // same job.
     Shape shape;
-    shape.layer_name = "M4";
+    shape.except_pg_net = true;
 
-    auto value = get_field(shape, "layer_name");
+    auto value = get_field(shape, "except_pg_net");
     ASSERT_TRUE(value.has_value());
-    EXPECT_EQ(value->string_value, "M4");
+    EXPECT_EQ(value->int_value, 1);
     EXPECT_FALSE(get_field(shape, "rects").has_value());
 }
 
@@ -367,13 +373,13 @@ auto rect_ur_y_equals(int64_t expected)
         } });
 }
 
-auto layer_name_equals(std::string_view expected)
+auto layer_equals(LayerId expected)
 {
     return dual_arity([expected](const auto &target) -> bool
                        {
-        if constexpr (requires { target.layer_name; })
+        if constexpr (requires { target.layer; })
         {
-            return target.layer_name == expected;
+            return target.layer == expected;
         }
         else
         {
@@ -404,7 +410,6 @@ TEST(FilterMetadata, MatchShapeHopIteratesEmbeddedRects)
     // below for a genuinely non-pooled example of the other form.
     Root root;
     Shape shape;
-    shape.layer_name = "M4";
     shape.rects.push_back(Rect{.ll = Point{.x = 0, .y = 0}, .ur = Point{.x = 100, .y = 200}});
     ShapeId shape_id = root.create_shape(shape);
     const ShapeData *data = root.get_shape(shape_id);
@@ -434,9 +439,12 @@ TEST(FilterMetadata, MatchObstructionHopCoversParentWalkAndEmbeddedListExistenti
     LibraryId library_id = root.create_library(LibraryData{.name = "LIB"});
     DesignId design_id = root.create_design(DesignData{.library = library_id, .name = "CELL"});
     AbstractId abstract_id = root.create_abstract(AbstractData{.design = design_id});
+    TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+    LayerId m4 = root.create_layer(LayerData{.technology = technology_id, .name = "M4", .type = "ROUTING"});
+    LayerId m9 = root.create_layer(LayerData{.technology = technology_id, .name = "M9", .type = "ROUTING"});
 
     ObstructionId obstruction_id = root.create_obstruction(ObstructionData{.abstract = abstract_id});
-    root.create_shape(ShapeData{.obstruction = obstruction_id, .layer_name = "M4"});
+    root.create_shape(ShapeData{.obstruction = obstruction_id, .layer = m4});
     const ObstructionData *data = root.get_obstruction(obstruction_id);
     ASSERT_NE(data, nullptr);
 
@@ -444,9 +452,9 @@ TEST(FilterMetadata, MatchObstructionHopCoversParentWalkAndEmbeddedListExistenti
     EXPECT_TRUE(match_hop(root, obstruction_id, *data, "abstract", design_id_equals(design_id)));
 
     // Child-list hop (Obstruction.shapes -> Shape, now pooled - TCL_EXPLORATION.md Phase 3).
-    EXPECT_TRUE(match_hop(root, obstruction_id, *data, "shapes", layer_name_equals("M4")));
-    EXPECT_FALSE(match_hop(root, obstruction_id, *data, "shapes", layer_name_equals("M9")));
-    EXPECT_FALSE(match_hop(root, obstruction_id, *data, "does_not_exist", layer_name_equals("M4")));
+    EXPECT_TRUE(match_hop(root, obstruction_id, *data, "shapes", layer_equals(m4)));
+    EXPECT_FALSE(match_hop(root, obstruction_id, *data, "shapes", layer_equals(m9)));
+    EXPECT_FALSE(match_hop(root, obstruction_id, *data, "does_not_exist", layer_equals(m4)));
 }
 
 TEST(FilterMetadata, MatchHopChainsTwoLevelsDeepUsingTheIdPassedToTheFirstHopsMatcher)

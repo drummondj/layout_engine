@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.36.0",
+    version="0.37.0",
     classes=[
         Klass(
             name="Technology",
@@ -1400,7 +1400,7 @@ schema = Schema(
         ),
         Klass(
             name="Shape",
-            description="A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes - a programmatically-added BOUNDARY layer/purpose (not a real LEF/DEF Layer) is used for layer_name in both cases, see src/view_style's own ViewLayerSet::boundary_view_layer().",
+            description="A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes.",
             has_pool=True,
             fields=[
                 Field(
@@ -1446,10 +1446,9 @@ schema = Schema(
                     parent="boundary",
                 ),
                 Field(
-                    name="layer_name",
-                    description="The name of the layer",
-                    type="str",
-                    example="M1",
+                    name="layer",
+                    description="The layer this shape is on, resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). BOUNDARY - the programmatically-added layer/purpose used for Layout.diearea/Abstract.boundary and for a DEF PLACEMENT blockage's own region (neither is tied to a real LEF/DEF routing layer) - is itself a real Layer (type=\"BOUNDARY\"), created once per Technology and never written back out by LEFWriter, so this field needs no optional/unresolved case at all - see src/view_style's own ViewLayerSet::boundary_view_layer().",
+                    type="Layer",
                 ),
                 Field(
                     name="paths",
@@ -2247,7 +2246,7 @@ schema = Schema(
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="rows"),
                 Field(name="name", description="The name of the row", type="str", example="ROW_0", index=True, unique_per_parent=True),
-                Field(name="site_name", description="The name of the site this row is built from, as read (DEF ROW macro name) - a plain name reference, same convention as Abstract.site/Shape.layer_name, not resolved to a SiteId", type="str", example="CORE"),
+                Field(name="site_name", description="The name of the site this row is built from, as read (DEF ROW macro name) - a plain name reference, same convention as Abstract.site, not resolved to a SiteId", type="str", example="CORE"),
                 Field(name="origin", description="The row's origin, in database units - always set for a real Row (is_optional=True only so create_row's -origin flag can be genuinely omittable at creation, per this schema's compound-field convention, see Abstract.size's own note)", type="Point", is_optional=True),
                 Field(name="orientation", description="The row's orientation", type="Orientation"),
                 Field(name="num_x", description="Number of site repeats in X (DEF ROW DO n)", type="int", example=100, is_optional=True),
@@ -2265,7 +2264,7 @@ schema = Schema(
                 Field(name="start", description="Starting coordinate, in database units (DEF TRACKS DO start)", type="dbu"),
                 Field(name="count", description="Number of tracks (DEF TRACKS DO ... n)", type="int", example=100),
                 Field(name="step", description="Spacing between tracks, in database units (DEF TRACKS STEP)", type="dbu"),
-                Field(name="layer_names", description="Layers this track pattern applies to, as read - plain name references, same convention as Shape.layer_name", type="str", example="M1", is_list=True),
+                Field(name="layer_names", description="Layers this track pattern applies to, as read - plain name references, same convention as Abstract.site", type="str", example="M1", is_list=True),
                 Field(name="mask", description="MASK color (DEF 5.8) - unset if omitted", type="int", example=0, is_optional=True),
                 Field(name="same_mask", description="Whether SAMEMASK was specified (DEF 5.8)", type="bool", example=False),
             ],
@@ -2287,8 +2286,7 @@ schema = Schema(
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="placements"),
                 Field(name="name", description="The name of the instance - unique within its parent Layout (see unique_per_parent)", type="str", example="U1", index=True, unique_per_parent=True),
-                Field(name="reference_name", description="The name of the reference macro/design, as read", type="str", example="BUFX1"),
-                Field(name="reference_design", description="The ID of the reference design after linking", type="Design"),
+                Field(name="reference_design", description="The reference Design, resolved from the referenced macro/design name at creation time - readers error rather than create a Placement with an unresolved reference", type="Design"),
                 Field(name="placement_status", description="Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED)", type="PlacementStatus"),
                 Field(name="location", description="The location of the lower-left corner of this instance, in database units - unset if UNPLACED", type="Point", is_optional=True),
                 Field(name="orientation", description="Placement orientation - unset if UNPLACED", type="Orientation", is_optional=True),

@@ -593,6 +593,18 @@ class Klass:
         """
         return [f for f in self.fields if f.is_create_field()]
 
+    def get_reference_create_fields(self) -> List["Field"]:
+        """
+        Every plain (non-parent, non-child, required) reference-to-
+        pooled-klass field on this class (Field.is_plain_reference_field()) -
+        e.g. Shape.layer, Placement.reference_design. Each gets its own
+        create_<type>/update_<type> `-<field> <token>` flag, resolved via
+        resolve_<type>_id() - see is_plain_reference_field()'s own
+        docstring for why this is a separate mechanism from
+        get_parent_fields(), not a broadening of it.
+        """
+        return [f for f in self.fields if f.is_plain_reference_field()]
+
     def get_unique_per_parent_fields(self) -> List["Field"]:
         """
         Every field on this class with unique_per_parent=True - used by
@@ -636,6 +648,7 @@ class Klass:
         Field.create_needs_has_flag()).
         """
         parts = [f"Le{pf.type}Id {pf.name}_id" for pf in self.get_parent_fields()]
+        parts += [f"Le{rf.type}Id {rf.name}_id" for rf in self.get_reference_create_fields()]
         parts += self._create_field_param_parts("create")
         return ", ".join(parts)
 
@@ -654,6 +667,7 @@ class Klass:
         are being replaced, not extended).
         """
         parts = [f"const char *{pf.name}_id" for pf in self.get_parent_fields()]
+        parts += [f"const char *{rf.name}_id" for rf in self.get_reference_create_fields()]
         parts += self._create_field_param_parts("create")
         return ", ".join(parts)
 
@@ -667,6 +681,7 @@ class Klass:
         slots, empty-to-nullptr for an optional str/enum field).
         """
         parts = [f"resolve_{pf._parent_klass.to_snake_case()}_id({pf.name}_id)" for pf in self.get_parent_fields()]
+        parts += [f"resolve_{rf._type_klass.to_snake_case()}_id({rf.name}_id)" for rf in self.get_reference_create_fields()]
         parts += self._create_field_forward_parts("create")
         return ", ".join(parts)
 
@@ -720,6 +735,7 @@ class Klass:
         snake = self.to_snake_case()
         parent_fields = self.get_parent_fields()
         create_fields = self.get_create_fields()
+        reference_fields = self.get_reference_create_fields()
         enum_fields = [f for f in create_fields if f.is_enum_type()]
         dbu_fields = [f for f in create_fields if f.cmd_uses_dbu()]
         unique_fields = self.get_unique_per_parent_fields()
@@ -763,6 +779,19 @@ class Klass:
                 add("    return invalid;")
                 add("}")
 
+        if reference_fields:
+            add()
+            for rf in reference_fields:
+                add(f"const le::{rf.type}Id {rf.name} = from_c({rf.name}_id);")
+                add(f"if (!handle->root.get_{rf._type_klass.to_snake_case()}({rf.name}))")
+                add("{")
+                add(
+                    f'    handle->messages.push_back(fmt::format("ERROR: le_create_{snake}: unknown '
+                    f'{rf.name} - no such {rf.type} exists"));'
+                )
+                add("    return invalid;")
+                add("}")
+
         if enum_fields:
             add()
             for f in enum_fields:
@@ -798,10 +827,21 @@ class Klass:
 
         add()
         add(f"const le::{self.name}Data new_data{{")
-        for pf in parent_fields:
-            add(f"    .{pf.name} = {pf.name},")
-        for f in create_fields:
-            add(f"    .{f.name} = {f.create_struct_init_expr()},")
+        # Designated initializers must appear in declaration order
+        # (self.fields, not the separate parent_fields/reference_fields/
+        # create_fields groupings above - those are grouped by role for
+        # the validation logic further up, but a plain reference field
+        # like Shape.layer/Placement.reference_design can be declared
+        # anywhere relative to its class's other create fields, so this
+        # single pass over self.fields is what keeps the emitted literal
+        # in the one order C++ actually requires).
+        for f in self.fields:
+            if f in parent_fields:
+                add(f"    .{f.name} = {f.name},")
+            elif f in reference_fields:
+                add(f"    .{f.name} = {f.name},")
+            elif f in create_fields:
+                add(f"    .{f.name} = {f.create_struct_init_expr()},")
         add("};")
         add(f"const le::{self.name}Id created = handle->root.create_{snake}(new_data);")
 
@@ -840,6 +880,7 @@ class Klass:
         in create_shim_params() order.
         """
         parts = [f"-{pf.name} {{}}" for pf in self.get_parent_fields()]
+        parts += [f"-{rf.name} {{}}" for rf in self.get_reference_create_fields()]
         parts += [f"-{f.name} {{}}" for f in self.get_create_fields()]
         return " ".join(parts)
 
@@ -855,6 +896,7 @@ class Klass:
         parts = []
         if len(self.get_parent_fields()) == 1:
             parts.append(f"-{self.get_parent_fields()[0].name}")
+        parts += [f"-{rf.name}" for rf in self.get_reference_create_fields()]
         parts += [f"-{f.name}" for f in self.get_create_fields() if f.create_required()]
         return " ".join(parts)
 
@@ -905,6 +947,7 @@ class Klass:
         create field's own Field.cmd_tcl_call_args("create").
         """
         parts = [f"$opts(-{pf.name})" for pf in self.get_parent_fields()]
+        parts += [f"$opts(-{rf.name})" for rf in self.get_reference_create_fields()]
         for f in self.get_create_fields():
             parts.extend(f.cmd_tcl_call_args("create"))
         return " ".join(parts)
@@ -955,6 +998,9 @@ class Klass:
             pf = parent_fields[0]
             parts.append(f"int32_t has_{pf.name}")
             parts.append(f"Le{pf.type}Id {pf.name}_id")
+        for rf in self.get_reference_create_fields():
+            parts.append(f"int32_t has_{rf.name}")
+            parts.append(f"Le{rf.type}Id {rf.name}_id")
         parts += self._create_field_param_parts("update")
         return ", ".join(parts)
 
@@ -974,6 +1020,9 @@ class Klass:
             pf = parent_fields[0]
             parts.append(f"int32_t has_{pf.name}")
             parts.append(f"const char *{pf.name}_id")
+        for rf in self.get_reference_create_fields():
+            parts.append(f"int32_t has_{rf.name}")
+            parts.append(f"const char *{rf.name}_id")
         parts += self._create_field_param_parts("update")
         return ", ".join(parts)
 
@@ -1001,6 +1050,9 @@ class Klass:
             pf = parent_fields[0]
             parts.append(f"has_{pf.name}")
             parts.append(f"resolve_{pf._parent_klass.to_snake_case()}_id({pf.name}_id)")
+        for rf in self.get_reference_create_fields():
+            parts.append(f"has_{rf.name}")
+            parts.append(f"resolve_{rf._type_klass.to_snake_case()}_id({rf.name}_id)")
         parts += self._create_field_forward_parts("update")
         return ", ".join(parts)
 
@@ -1013,6 +1065,7 @@ class Klass:
         """
         parent_fields = self.get_parent_fields()
         parts = [f"-{parent_fields[0].name} {{}}"] if len(parent_fields) == 1 else []
+        parts += [f"-{rf.name} {{}}" for rf in self.get_reference_create_fields()]
         parts += [f"-{f.name} {{}}" for f in self.get_create_fields()]
         return " ".join(parts)
 
@@ -1031,6 +1084,10 @@ class Klass:
         parent_fields = self.get_parent_fields()
         if len(parent_fields) == 1:
             opt = f"$opts(-{parent_fields[0].name})"
+            parts.append(f"[expr {{{opt} ne {{}} ? 1 : 0}}]")
+            parts.append(opt)
+        for rf in self.get_reference_create_fields():
+            opt = f"$opts(-{rf.name})"
             parts.append(f"[expr {{{opt} ne {{}} ? 1 : 0}}]")
             parts.append(opt)
         for f in self.get_create_fields():
@@ -1072,6 +1129,8 @@ class Klass:
         for pf in parent_fields:
             frag = f"-{pf.name} <token>"
             parts.append(frag if single_parent else f"\\[{frag}\\]")
+        for rf in self.get_reference_create_fields():
+            parts.append(f"-{rf.name} <token>")
         for f in self.get_create_fields():
             frag = f"-{f.name} <{f.tcl_help_type_label()}>"
             parts.append(frag if f.create_required() else f"\\[{frag}\\]")
@@ -1109,6 +1168,10 @@ class Klass:
             parts.append(
                 f"{{-{pf.name} {{type token required {required} description {{{tcl_brace_escape(desc)}}}}}}}"
             )
+        for rf in self.get_reference_create_fields():
+            parts.append(
+                f"{{-{rf.name} {{type token required 1 description {{{tcl_brace_escape(rf.description)}}}}}}}"
+            )
         for f in self.get_create_fields():
             required = 1 if f.create_required() else 0
             parts.append(
@@ -1132,6 +1195,8 @@ class Klass:
         parts = [f"update_{self.to_snake_case()}", "<id>"]
         if len(parent_fields) == 1:
             parts.append(f"\\[-{parent_fields[0].name} <token>\\]")
+        for rf in self.get_reference_create_fields():
+            parts.append(f"\\[-{rf.name} <token>\\]")
         for f in self.get_create_fields():
             parts.append(f"\\[-{f.name} <{f.tcl_help_type_label()}>\\]")
         parts.append("\\[-help\\]")
@@ -1152,6 +1217,10 @@ class Klass:
             pf = parent_fields[0]
             desc = f"Reassign this object's parent {pf.type} (token)"
             parts.append(f"{{-{pf.name} {{type token required 0 description {{{tcl_brace_escape(desc)}}}}}}}")
+        for rf in self.get_reference_create_fields():
+            parts.append(
+                f"{{-{rf.name} {{type token required 0 description {{{tcl_brace_escape(rf.description)}}}}}}}"
+            )
         for f in self.get_create_fields():
             parts.append(
                 f"{{-{f.name} {{type {f.tcl_help_type_label()} required 0 "
@@ -1255,6 +1324,7 @@ class Klass:
         snake = self.to_snake_case()
         parent_fields = self.get_parent_fields()
         create_fields = self.get_create_fields()
+        reference_fields = self.get_reference_create_fields()
         enum_fields = [f for f in create_fields if f.is_enum_type()]
         dbu_fields = [f for f in create_fields if f.cmd_uses_dbu()]
         unique_fields = self.get_unique_per_parent_fields()
@@ -1293,6 +1363,23 @@ class Klass:
             add("    }")
             add("}")
 
+        if reference_fields:
+            add()
+            for rf in reference_fields:
+                add(f"le::{rf.type}Id {rf.name} = le::{rf.type}Id{{}};")
+                add(f"if (has_{rf.name})")
+                add("{")
+                add(f"    {rf.name} = from_c({rf.name}_id);")
+                add(f"    if (!handle->root.get_{rf._type_klass.to_snake_case()}({rf.name}))")
+                add("    {")
+                add(
+                    f'        handle->messages.push_back(fmt::format("ERROR: le_update_{snake}: unknown '
+                    f'{rf.name} - no such {rf.type} exists"));'
+                )
+                add("        return 1;")
+                add("    }")
+                add("}")
+
         if enum_fields:
             add()
             for f in enum_fields:
@@ -1328,6 +1415,8 @@ class Klass:
         call_args = ["typed_id"]
         if single_parent is not None:
             call_args.append(single_parent.name)
+        for rf in reference_fields:
+            call_args.append(f"has_{rf.name} ? std::optional<le::{rf.type}Id>({rf.name}) : std::nullopt")
         for f in create_fields:
             call_args.append(f.update_root_arg_expr())
         add(f"const bool ok = handle->root.update_{snake}({', '.join(call_args)});")
@@ -1392,6 +1481,8 @@ class Klass:
         call_args = ["id"]
         if single_parent is not None:
             call_args.append(f"data.{single_parent.name}")
+        for rf in self.get_reference_create_fields():
+            call_args.append(f"std::optional<{rf.type}Id>(data.{rf.name})")
         for f in create_fields:
             call_args.append(f"std::optional<{f.root_value_cpp_type(qualified=False)}>(data.{f.name})")
 
@@ -1422,6 +1513,8 @@ class Klass:
         if len(parent_fields) == 1:
             pf = parent_fields[0]
             parts.append(f"{pf.type}Id {pf.name}")
+        for rf in self.get_reference_create_fields():
+            parts.append(f"std::optional<{rf.type}Id> {rf.name}")
         for f in self.get_create_fields():
             parts.append(f"std::optional<{f.root_value_cpp_type(qualified=False)}> {f.name}")
         return ", ".join(parts)
@@ -1523,6 +1616,9 @@ class Klass:
                 uf = unique_fields[0]
                 add(f"    index_.{snake}_by_{uf.name}[{pf.name}][existing->{uf.name}] = id;")
             add("}")
+
+        for rf in self.get_reference_create_fields():
+            add(f"if ({rf.name}) existing->{rf.name} = *{rf.name};")
 
         for f in create_fields:
             if f.unique_per_parent:
@@ -2241,6 +2337,39 @@ class Field:
             raise ValueError("Schema is not linked")
 
         return self.type in [klass.name for klass in self._klass._schema.classes]
+
+    def is_plain_reference_field(self) -> bool:
+        """
+        Whether this is a required, scalar reference to another pooled
+        (has_pool=True), non-enum Klass that is neither a parent
+        relationship (has_parent()) nor a child relationship (is_child) -
+        e.g. Shape.layer, Placement.reference_design. Klass.
+        get_reference_create_fields() collects these; each gets its own
+        create_<type>/update_<type> `-<field> <token>` flag, resolved via
+        resolve_<type>_id() exactly like a single-parent field's own
+        token (see Klass.create_api_body()/update_api_body()'s own
+        reference-field sections) - a small, deliberately separate
+        mechanism from get_parent_fields()/has_parent(), which several
+        other structural concerns (is_child enumeration, delete cascade,
+        tcl_scope's current-instance-anchor algorithm) depend on and must
+        not see one of these fields as a parent/ownership relationship.
+
+        Deliberately required-only for now - is_optional=True isn't
+        supported here (no field needs it yet), so such a field would be
+        silently excluded from create_<type>/update_<type> entirely, the
+        same gap this method exists to close for the required case.
+        """
+        return (
+            self.is_reference()
+            and not self.is_list
+            and not self.is_child
+            and not self.has_parent()
+            and self._type_klass is not None
+            and not self._type_klass.is_enum
+            and self._type_klass.has_pool
+            and not self.is_optional
+            and not self.create_excluded
+        )
 
     def is_enum_type(self) -> bool:
         """

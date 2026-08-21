@@ -247,7 +247,7 @@ check "get_properties chained path through a hop" IN0 [get_properties $port .ter
 check "get_properties chained path, many names -> flat list" {IN0 INPUT} \
     [get_properties $port {.terminal.name .terminal.direction}]
 check "get_properties chained list-hop path before any shape exists -> empty" {} \
-    [get_properties $port .shapes.layer_name]
+    [get_properties $port .shapes.layer.name]
 
 if {[catch {get_properties $port .bogus_hop.name}]} {
     puts "ok: get_properties with an unknown hop in a chained path raised an error"
@@ -256,14 +256,14 @@ if {[catch {get_properties $port .bogus_hop.name}]} {
     exit 1
 }
 
-set shape [create_shape -terminal_port $port -layer_name M1]
+set shape [create_shape -terminal_port $port -layer layer:M1]
 check_true "create_shape (-terminal_port) returned a valid friendly id" [expr {$shape ne {}}]
 
 check "get_properties chained list-hop path after a shape exists" M1 \
-    [get_properties $port .shapes.layer_name]
+    [get_properties $port .shapes.layer.name]
 
 check "shape_layer_name" M1 [shape_layer_name $shape]
-check "update_shape -layer_name returns the (unchanged, non-name-based) friendly id" $shape [update_shape $shape -layer_name M1]
+check "update_shape -layer_name returns the (unchanged, non-name-based) friendly id" $shape [update_shape $shape -layer layer:M1]
 
 # Shape has multiple parent fields (terminal_port/obstruction) -
 # update_shape gets no parent-reassignment flag at all (decision 5 -
@@ -297,7 +297,7 @@ check "shape_paths point count" 3 [llength [dict get [lindex $paths 0] points]]
 
 check "terminal_port_shapes lists the created shape" $shape [terminal_port_shapes $port]
 
-set port_matches [get_terminal_ports -filter {.terminal.name =~ IN* && .shapes.layer_name == M1}]
+set port_matches [get_terminal_ports -filter {.terminal.name =~ IN* && .shapes.layer.name == M1}]
 check "get_terminal_ports -filter relational + list-hop match" $port $port_matches
 
 check "get_shapes -of \$port finds only the created shape" $shape [get_shapes -of $port]
@@ -310,7 +310,7 @@ check "get_shapes -of \$port finds only the created shape" $shape [get_shapes -o
 # which is only terminal_port/obstruction shapes, not abstract/layout ones.
 check "get_shapes default scope finds every Shape in the current view" {shape:0 shape:2} [get_shapes]
 
-check "get_properties on a shape token" M1 [dict get [get_properties $shape] layer_name]
+check "get_properties on a shape token" M1 [get_properties $shape .layer.name]
 
 # --- get_properties on non-pooled object-list fields (rects/polygons/
 # paths/...) returns the full list with all coordinates, not a bare
@@ -379,7 +379,7 @@ check "get_properties single-segment .paths" \
     {{{{0 0} {10 10} {20 0}} 0.500}} [get_properties $shape .paths]
 check "get_properties many single-segment object-list names together" \
     [list {{{2 2} {8 8}}} {{{0 0} {5 0} {5 5} {0 5}}} {{{{0 0} {10 10} {20 0}} 0.500}} M1] \
-    [get_properties $shape {.rects .polygons .paths .layer_name}]
+    [get_properties $shape {.rects .polygons .paths .layer.name}]
 
 check "remove_shape_rect return code" 0 [remove_shape_rect $shape 0]
 check "shape_rects after remove" {} [shape_rects $shape]
@@ -392,16 +392,16 @@ check_true "create_obstruction returned a valid friendly id" [expr {$obstruction
 # -rects (and -polygons/-paths) work directly on create_shape too, not
 # just update_shape - a rect provided at creation time, not added
 # afterward.
-set obstruction_shape [create_shape -obstruction $obstruction -layer_name M1 -rects {{0 0 1 1}}]
+set obstruction_shape [create_shape -obstruction $obstruction -layer layer:M1 -rects {{0 0 1 1}}]
 check_true "create_shape (-obstruction, with -rects) returned a valid friendly id" [expr {$obstruction_shape ne {}}]
 check "create_shape -rects took effect immediately" {0 0 1 1} [lindex [shape_rects $obstruction_shape] 0]
 check "obstruction_shapes lists the created shape" $obstruction_shape [obstruction_shapes $obstruction]
 
-set obstruction_matches [get_obstructions -filter {.shapes.layer_name == M1}]
+set obstruction_matches [get_obstructions -filter {.shapes.layer.name == M1}]
 check "get_obstructions -filter list-hop match" $obstruction $obstruction_matches
 
 check "delete_obstruction return code" 0 [delete_obstruction $obstruction]
-check "get_obstructions after delete" {} [get_obstructions -filter {.shapes.layer_name == M1}]
+check "get_obstructions after delete" {} [get_obstructions -filter {.shapes.layer.name == M1}]
 
 # --- update_abstract - compound (embedded-struct) create/update flags
 # (-size/-origin/-bbox/-symmetry), exploded into one C slot per scalar
@@ -580,7 +580,7 @@ check_true "create_terminal (from-scratch flow) returned a valid friendly id" [e
 set scratch_port [create_terminal_port -terminal $scratch_in]
 check_true "create_terminal_port successfully resolved the just-created Terminal by name" [expr {$scratch_port ne {}}]
 
-set scratch_shape [create_shape -terminal_port $scratch_port -layer_name M1 -rects {{0 0 10 10}}]
+set scratch_shape [create_shape -terminal_port $scratch_port -layer layer:M1 -rects {{0 0 10 10}}]
 check_true "create_shape on the from-scratch TerminalPort returned a valid friendly id" [expr {$scratch_shape ne {}}]
 check "the from-scratch shape's rect round-trips" {0 0 10 10} [lindex [shape_rects $scratch_shape] 0]
 
@@ -605,15 +605,24 @@ check "get_terminals no longer sees it after undo" {} [get_terminals UNDOTEST]
 check "redo re-creates it" 1 [redo]
 check_true "get_terminals sees it again after redo" [expr {[get_terminals UNDOTEST] ne {}}]
 
-# update_shape round trip - scratch_shape's layer_name is M1 (set above).
-le_repl_eval "update_shape $scratch_shape -layer_name M2"
-check "update_shape via le_repl_eval renamed the layer" M2 [dict get [get_properties $scratch_shape] layer_name]
+# update_shape round trip - scratch_shape's layer is M1 (set above). M2
+# is created here (not read from either fixture LEF) purely as a second,
+# distinct layer to rename onto - outside le_repl_eval's own recording so
+# this create isn't itself swept into the same undo/redo transaction as
+# the rename below (a Layer created *inside* a recording transaction
+# would become its own undo/redo step, and Pool::create() always
+# allocates a fresh generation on redo - never reproducing the original
+# id - so the rename's own recorded "after" LayerId would go stale the
+# moment that Layer-create step is undone and redone alongside it).
+create_layer -name M2 -type ROUTING -direction NONE
+le_repl_eval "update_shape $scratch_shape -layer layer:M2"
+check "update_shape via le_repl_eval renamed the layer" M2 [get_properties $scratch_shape .layer.name]
 
 check "undo restores the shape's original layer name" 1 [undo]
-check "layer name is back to M1 after undo" M1 [dict get [get_properties $scratch_shape] layer_name]
+check "layer name is back to M1 after undo" M1 [get_properties $scratch_shape .layer.name]
 
 check "redo re-applies the rename" 1 [redo]
-check "layer name is M2 again after redo" M2 [dict get [get_properties $scratch_shape] layer_name]
+check "layer name is M2 again after redo" M2 [get_properties $scratch_shape .layer.name]
 
 # A deliberately-errored command is not added to command_history.
 set history_before [command_history]

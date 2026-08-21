@@ -111,7 +111,7 @@ namespace
 
 TEST_F(RenderFixture, TransformToPixelsAppliesPanAndScale)
 {
-    add_obstruction_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 20}, .ur = {30, 40}}}});
+    add_obstruction_shape(Shape{.layer = m1, .rects = {Rect{.ll = {10, 20}, .ur = {30, 40}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -136,7 +136,7 @@ TEST_F(RenderFixture, TransformToPixelsAppliesPanAndScale)
 TEST_F(RenderFixture, TransformToPixelsHandlesPolygonsPathsAndTexts)
 {
     add_obstruction_shape(Shape{
-        .layer_name = "M1",
+        .layer = m1,
         .paths = {Path{.polygon = Polygon{.points = {{0, 0}, {10, 0}}}, .width = 4}},
         .polygons = {Polygon{.points = {{0, 0}, {10, 0}, {10, 10}, {0, 10}}}},
         .texts = {Text{.label = "note", .location = {5, 5}, .size = 20}},
@@ -205,7 +205,7 @@ TEST_F(RenderFixture, TransformToPixelsFloorsTinyTextSizeToAMinimumPixelSize)
     // would otherwise be. 1 dbu * scale 1.0 * ratio would be well under 1px
     // unclamped; assert it's floored to something actually legible instead.
     add_obstruction_shape(Shape{
-        .layer_name = "M1",
+        .layer = m1,
         .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}},
         .texts = {Text{.label = "tiny", .location = {5, 5}, .size = 1}},
     });
@@ -227,7 +227,7 @@ TEST_F(RenderFixture, TransformToPixelsFloorsTinyTextSizeToAMinimumPixelSize)
 
 TEST_F(RenderFixture, TransformToPixelsReusesCacheUntilViewportVersionChanges)
 {
-    add_obstruction_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+    add_obstruction_shape(Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -248,7 +248,7 @@ TEST_F(RenderFixture, TransformToPixelsReusesCacheUntilViewportVersionChanges)
 TEST_F(RenderFixture, TransformTinyShapesToPixelsAppliesPanAndScale)
 {
     // Sub-pixel dot at dbu (25,25) - 0x0 bbox.
-    add_terminal_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {25, 25}, .ur = {25, 25}}}});
+    add_terminal_shape(Shape{.layer = m1, .rects = {Rect{.ll = {25, 25}, .ur = {25, 25}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -268,7 +268,7 @@ TEST_F(RenderFixture, TransformTinyShapesToPixelsAppliesPanAndScale)
 
 TEST_F(RenderFixture, TransformTinyShapesToPixelsReusesCacheUntilViewportVersionChanges)
 {
-    add_terminal_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {5, 5}, .ur = {5, 5}}}});
+    add_terminal_shape(Shape{.layer = m1, .rects = {Rect{.ll = {5, 5}, .ur = {5, 5}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -288,7 +288,7 @@ TEST_F(RenderFixture, TransformTinyShapesToPixelsReusesCacheUntilViewportVersion
 
 TEST_F(RenderFixture, BuildTinyShapesPictureDrawsASingleOpaquePixelAtEachDotLocation)
 {
-    add_terminal_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {40, 40}, .ur = {40, 40}}}});
+    add_terminal_shape(Shape{.layer = m1, .rects = {Rect{.ll = {40, 40}, .ur = {40, 40}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -310,7 +310,7 @@ TEST_F(RenderFixture, BuildTinyShapesPictureDrawsASingleOpaquePixelAtEachDotLoca
 
 TEST_F(RenderFixture, BuildTinyShapesPictureIsEmptyWhenThereAreNoTinyShapes)
 {
-    add_terminal_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}}); // normal-sized, not tiny
+    add_terminal_shape(Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}}); // normal-sized, not tiny
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -329,7 +329,7 @@ TEST_F(RenderFixture, BuildTinyShapesPictureIsEmptyWhenThereAreNoTinyShapes)
 
 TEST_F(RenderFixture, BuildTinyShapesPictureRespectsLayerVisibility)
 {
-    add_terminal_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {40, 40}, .ur = {40, 40}}}});
+    add_terminal_shape(Shape{.layer = m1, .rects = {Rect{.ll = {40, 40}, .ur = {40, 40}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -350,7 +350,7 @@ TEST_F(RenderFixture, BuildTinyShapesPictureRespectsLayerVisibility)
 
 TEST_F(RenderFixture, BuildPictureFillsInteriorPixelWithLayerStyleColor)
 {
-    add_terminal_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+    add_terminal_shape(Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -375,8 +375,8 @@ TEST_F(RenderFixture, BuildPictureFillsInteriorPixelWithLayerStyleColor)
 
 TEST_F(RenderFixture, BuildPictureDrawsEachLayerGroupWithItsOwnStyle)
 {
-    add_obstruction_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
-    add_terminal_shape(Shape{.layer_name = "M2", .rects = {Rect{.ll = {50, 10}, .ur = {70, 30}}}}); // non-overlapping
+    add_obstruction_shape(Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+    add_terminal_shape(Shape{.layer = m2, .rects = {Rect{.ll = {50, 10}, .ur = {70, 30}}}}); // non-overlapping
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -416,7 +416,7 @@ TEST_F(RenderFixture, BuildPictureDrawsAPatternFilledOutlinedPathWithACenterline
     // its layer's fill pattern. Fixed to fill/outline a PATH's buffered
     // outline the same way a real POLYGON already renders (real pattern
     // fill, thin boundary), plus a centerline so it still reads as a wire.
-    add_obstruction_shape(Shape{.layer_name = "M1", .paths = {Path{.polygon = Polygon{.points = {{10, 20}, {30, 20}}}, .width = 4}}});
+    add_obstruction_shape(Shape{.layer = m1, .paths = {Path{.polygon = Polygon{.points = {{10, 20}, {30, 20}}}, .width = 4}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -473,7 +473,7 @@ TEST_F(RenderFixture, BuildPictureFillsAShortWidePathWithAPatternNotASolidBlock)
     // stroke shared the same base color - the border showed straight
     // through every transparent gap in the pattern. Width=length=20,
     // matching stress_data.hpp's own synthetic path shape exactly.
-    add_obstruction_shape(Shape{.layer_name = "M1", .paths = {Path{.polygon = Polygon{.points = {{10, 20}, {30, 20}}}, .width = 20}}});
+    add_obstruction_shape(Shape{.layer = m1, .paths = {Path{.polygon = Polygon{.points = {{10, 20}, {30, 20}}}, .width = 20}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -501,7 +501,7 @@ TEST_F(RenderFixture, BuildPictureFillsAShortWidePathWithAPatternNotASolidBlock)
 TEST_F(RenderFixture, BuildPictureDrawsTerminalLabelAsOpaqueTextOverTranslucentFill)
 {
     TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id, .name = "A1"});
-    add_port_shape(terminal_id, Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+    add_port_shape(terminal_id, Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -533,7 +533,7 @@ TEST_F(RenderFixture, BuildPictureDrawsTerminalLabelAsOpaqueTextOverTranslucentF
 TEST_F(RenderFixture, BuildPictureDrawsACrossAtEachLabelsOwnAnchorPoint)
 {
     TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id, .name = "A1"});
-    add_port_shape(terminal_id, Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+    add_port_shape(terminal_id, Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -566,7 +566,7 @@ TEST_F(RenderFixture, BuildPictureDrawsACrossAtEachLabelsOwnAnchorPoint)
 
 TEST_F(RenderFixture, BuildPictureSkipsShapesWithUnresolvedViewLayer)
 {
-    add_obstruction_shape(Shape{.layer_name = "DOES_NOT_EXIST", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+    add_obstruction_shape(Shape{.layer = LayerId{}, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -586,9 +586,9 @@ TEST_F(RenderFixture, BuildPictureSkipsShapesWithUnresolvedViewLayer)
 TEST_F(RenderFixture, ComposeWithOverlaysOutlinesOnlyTheSelectedPieceNotTheWholeObject)
 {
     const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
-    const Shape first_piece{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}};
+    const Shape first_piece{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}};
     const ShapeId first_shape_id = add_port_shape(terminal_id, first_piece);
-    add_port_shape(terminal_id, Shape{.layer_name = "M1", .rects = {Rect{.ll = {60, 60}, .ur = {80, 80}}}});
+    add_port_shape(terminal_id, Shape{.layer = m1, .rects = {Rect{.ll = {60, 60}, .ur = {80, 80}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -626,7 +626,7 @@ TEST_F(RenderFixture, ComposeWithOverlaysOutlinesOneSelectedPieceOfATwoRectShape
     // which still has both rects at their original indices.
     const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
     const Shape two_rect_piece{
-        .layer_name = "M1",
+        .layer = m1,
         .rects = {
             Rect{.ll = {10, 10}, .ur = {30, 30}},
             Rect{.ll = {60, 60}, .ur = {80, 80}},
@@ -666,7 +666,7 @@ TEST_F(RenderFixture, ComposeWithOverlaysOutlinesAPolygonSelectedPiece)
     // draw_selected_piece_outline's polygon branch, otherwise untested -
     // every other piece-outline test above uses a rect-only piece.
     const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
-    const Shape polygon_piece{.layer_name = "M1", .polygons = {Polygon{.points = {{10, 10}, {30, 10}, {30, 30}, {10, 30}}}}};
+    const Shape polygon_piece{.layer = m1, .polygons = {Polygon{.points = {{10, 10}, {30, 10}, {30, 30}, {10, 30}}}}};
     const ShapeId shape_id = add_port_shape(terminal_id, polygon_piece);
 
     Scene scene;
@@ -751,7 +751,7 @@ TEST_F(RenderFixture, ComposeWithOverlaysShowsAShapeAddedAfterACrudMutationWithN
 
     // Mirrors api.cpp's own CRUD functions exactly: mutate, then bump the
     // counter - see e.g. le_create_shape/le_update_shape.
-    add_obstruction_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {40, 40}, .ur = {60, 60}}}});
+    add_obstruction_shape(Shape{.layer = m1, .rects = {Rect{.ll = {40, 40}, .ur = {60, 60}}}});
     root.bump_mutation_version();
 
     const PixelBuffer &after = render_frame();
@@ -767,7 +767,7 @@ TEST_F(RenderFixture, ComposeWithOverlaysOutlinesAPathSelectedPieceHollow)
     // so the outline is hollow (edges white, interior not), matching
     // rect/polygon selection instead of reading as a filled blob.
     const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
-    const Shape path_piece{.layer_name = "M1", .paths = {Path{.polygon = Polygon{.points = {{10, 20}, {30, 20}}}, .width = 4}}};
+    const Shape path_piece{.layer = m1, .paths = {Path{.polygon = Polygon{.points = {{10, 20}, {30, 20}}}, .width = 4}}};
     const ShapeId shape_id = add_port_shape(terminal_id, path_piece);
 
     Scene scene;
@@ -810,7 +810,7 @@ TEST_F(RenderFixture, ComposeWithOverlaysOutlinesAShortWidePathHollowNotFilled)
     // footprint. Center must now read as hollow, just like the more
     // typical long/thin case above.
     const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
-    const Shape path_piece{.layer_name = "M1", .paths = {Path{.polygon = Polygon{.points = {{10, 20}, {30, 20}}}, .width = 20}}};
+    const Shape path_piece{.layer = m1, .paths = {Path{.polygon = Polygon{.points = {{10, 20}, {30, 20}}}, .width = 20}}};
     const ShapeId shape_id = add_port_shape(terminal_id, path_piece);
 
     Scene scene;
@@ -849,7 +849,7 @@ TEST_F(RenderFixture, BuildPictureAndRasterizeAreNotInvalidatedBySelectionChange
     // rasterize_frame's (kept in sync by hand) includes selection_version
     // any more - a selection change should cost nothing here.
     const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
-    const ShapeId shape_id = add_port_shape(terminal_id, Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+    const ShapeId shape_id = add_port_shape(terminal_id, Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -882,7 +882,7 @@ TEST_F(RenderFixture, BuildPictureReusesCacheUntilVisibilityVersionChanges)
     // once transform_to_pixels has actually been re-run to notice it (the
     // real calling convention every caller already follows - see
     // ComposeWithOverlaysStage's own doc comment for the full trace).
-    add_obstruction_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+    add_obstruction_shape(Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -1208,7 +1208,7 @@ TEST_F(RenderFixture, BuildOverlayPictureHasNoHoverOutlineWhenNothingIsHovered)
 TEST_F(RenderFixture, BuildOverlayPictureDrawsMoveGhostWhileArmedAndAnchored)
 {
     const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
-    const Shape piece{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}};
+    const Shape piece{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}};
     const ShapeId shape_id = add_port_shape(terminal_id, piece);
 
     Scene scene;
@@ -1250,7 +1250,7 @@ TEST_F(RenderFixture, BuildOverlayPictureGhostFollowsARefreshedMoveGeometry)
     // refresh_armed_move_geometry_unlocked, called from le_undo/le_redo
     // and the Ctrl-Z/Ctrl-Shift-Z key handler).
     const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
-    const Shape stale_piece{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}};
+    const Shape stale_piece{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}};
     const ShapeId shape_id = add_port_shape(terminal_id, stale_piece);
 
     Scene scene;
@@ -1269,7 +1269,7 @@ TEST_F(RenderFixture, BuildOverlayPictureGhostFollowsARefreshedMoveGeometry)
 
     // A reverted (undo-equivalent) geometry, at a different position -
     // refreshing to it must move the ghost to match.
-    const Shape reverted_piece{.layer_name = "M1", .rects = {Rect{.ll = {50, 10}, .ur = {70, 30}}}};
+    const Shape reverted_piece{.layer = m1, .rects = {Rect{.ll = {50, 10}, .ur = {70, 30}}}};
     scene.refresh_move_geometry({reverted_piece});
 
     const auto &overlay_picture = renderer.build_overlay_picture(scene, std::nullopt);
@@ -1283,7 +1283,7 @@ TEST_F(RenderFixture, BuildOverlayPictureGhostFollowsARefreshedMoveGeometry)
 TEST_F(RenderFixture, BuildOverlayPictureOmitsMoveGhostBeforeAnAnchorIsSet)
 {
     const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
-    const Shape piece{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}};
+    const Shape piece{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}};
     const ShapeId shape_id = add_port_shape(terminal_id, piece);
 
     Scene scene;
@@ -1302,7 +1302,7 @@ TEST_F(RenderFixture, BuildOverlayPictureOmitsMoveGhostBeforeAnAnchorIsSet)
 TEST_F(RenderFixture, BuildOverlayPictureOmitsMoveGhostOutsideEditMode)
 {
     const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
-    const Shape piece{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}};
+    const Shape piece{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}};
     const ShapeId shape_id = add_port_shape(terminal_id, piece);
 
     Scene scene;
@@ -1662,7 +1662,7 @@ TEST_F(RenderFixture, BuildSelectionOverlayPictureDoesNotRecomputeWhenOnlyMouseM
     // picture now; this is the test that would have failed before that
     // split.
     const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
-    const Shape path_piece{.layer_name = "M1", .paths = {Path{.polygon = Polygon{.points = {{10, 20}, {30, 20}}}, .width = 4}}};
+    const Shape path_piece{.layer = m1, .paths = {Path{.polygon = Polygon{.points = {{10, 20}, {30, 20}}}, .width = 4}}};
     const ShapeId shape_id = add_port_shape(terminal_id, path_piece);
 
     Scene scene;
@@ -1711,9 +1711,9 @@ TEST_F(RenderFixture, ComposeWithOverlaysDoesNotReRasterizeTheSelectionOverlayWh
     // been 1 (it's the replay, not the rasterization, that used to
     // repeat) - it exists to guard call-count-only tests like the one
     // above from missing this exact class of regression again.
-    add_obstruction_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+    add_obstruction_shape(Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
     const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
-    const Shape path_piece{.layer_name = "M1", .paths = {Path{.polygon = Polygon{.points = {{40, 40}, {60, 40}}}, .width = 4}}};
+    const Shape path_piece{.layer = m1, .paths = {Path{.polygon = Polygon{.points = {{40, 40}, {60, 40}}}, .width = 4}}};
     const ShapeId shape_id = add_port_shape(terminal_id, path_piece);
 
     Scene scene;
@@ -1756,7 +1756,7 @@ TEST_F(RenderFixture, ComposeWithOverlaysDoesNotReRasterizeDesignWhenOnlyMouseMo
     // compose_with_overlays's doc comment): a mouse-move must not force a
     // full re-rasterize of a potentially design-sized picture on every
     // pointer event, only the cheap composite step.
-    add_obstruction_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+    add_obstruction_shape(Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -1803,7 +1803,7 @@ TEST_F(RenderFixture, ComposeWithOverlaysRecomputesWhenOnlyTheTinyShapesPictureC
     // reacts to the tiny-shapes upstream specifically - design_picture,
     // overlay_picture, and selection_overlay_picture are held to the exact
     // same object references across both compose calls to isolate it.
-    add_terminal_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {40, 40}, .ur = {40, 40}}}}); // zero-area -> tiny
+    add_terminal_shape(Shape{.layer = m1, .rects = {Rect{.ll = {40, 40}, .ur = {40, 40}}}}); // zero-area -> tiny
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -1849,7 +1849,7 @@ TEST_F(RenderFixture, ComposeWithOverlaysReflectsASelectionChangeEvenWhenCompose
     // (warming the cache) then again after selecting returned the
     // pre-selection composited bytes unchanged, even with a correctly
     // updated design_picture passed in both times.
-    const Shape piece{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}};
+    const Shape piece{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}};
     const ShapeId shape_id = add_obstruction_shape(piece);
 
     Scene scene;
@@ -1888,8 +1888,8 @@ TEST_F(RenderFixture, RasterizeFlipsYSoHigherDbuYEndsUpNearerTheTopOfTheBuffer)
     // index 1) sits at high dbu y - physically "above" M1 in the design.
     // If rasterize() didn't flip, M2 (the "up" shape) would end up nearer
     // the bottom of the buffer instead.
-    add_obstruction_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
-    add_obstruction_shape(Shape{.layer_name = "M2", .rects = {Rect{.ll = {10, 70}, .ur = {30, 90}}}});
+    add_obstruction_shape(Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+    add_obstruction_shape(Shape{.layer = m2, .rects = {Rect{.ll = {10, 70}, .ur = {30, 90}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -2033,7 +2033,7 @@ TEST_F(RenderFixture, RasterizeReusesCacheUntilViewportVersionChanges)
     // to notice it (the real calling convention every caller already
     // follows - see ComposeWithOverlaysStage's own doc comment for the
     // full trace).
-    add_obstruction_shape(Shape{.layer_name = "M1", .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+    add_obstruction_shape(Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);

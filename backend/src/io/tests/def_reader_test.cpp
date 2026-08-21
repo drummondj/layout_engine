@@ -16,6 +16,25 @@ namespace le
     protected:
         void SetUp() override
         {
+            // complete.5.8.def references real layer/macro names
+            // (TRACKS/VIAS/PINS/BLOCKAGES/NETS/SPECIALNETS LAYER M1/M2/M3/
+            // METAL1/V1; COMPONENTS macro A/B/CHK3A) but - being the
+            // vendored parser's own grammar-coverage fixture, not a real
+            // design - has no companion LEF of its own. Shape.layer/
+            // Placement.reference_design both require an already-resolved
+            // reference now (readers error and skip rather than create an
+            // unresolved one - see their own schema.py comments), matching
+            // the real-world requirement that a tech/cell LEF is always
+            // read before the DEF that references it - so this fixture
+            // pre-populates exactly what complete.5.8.def needs, the same
+            // role a real LEF read would otherwise play.
+            const TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            for (const char *name : {"M1", "M2", "M3", "METAL1", "V1"})
+                root.create_layer(LayerData{.technology = technology_id, .name = name, .type = "ROUTING"});
+            const LibraryId library_id = root.create_library(LibraryData{.name = "test_lib"});
+            for (const char *name : {"A", "B", "CHK3A"})
+                root.create_design(DesignData{.library = library_id, .name = name});
+
             result = reader.read_def(complete_fixture_path(), root, "test_lib");
         }
 
@@ -43,7 +62,7 @@ namespace le
         const LayoutId layout_id = root.get_design_layout(design_id);
         const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id));
         ASSERT_NE(diearea, nullptr);
-        EXPECT_EQ(diearea->layer_name, "BOUNDARY");
+        EXPECT_EQ(root.get_layer(diearea->layer)->name, "BOUNDARY");
         ASSERT_EQ(diearea->polygons.size(), 1u);
         // DIEAREA ( -190000 -120000 ) ( -190000 350000 ) ( 190000 350000 )
         //         ( 190000 190000 ) ( 190360 190000 ) ( 190360 -120000 ) ;
@@ -175,11 +194,8 @@ namespace le
 
         const PlacementData *i1 = find_by_name("I1");
         ASSERT_NE(i1, nullptr);
-        EXPECT_EQ(i1->reference_name, "B");
-        // No LEF was read in this fixture, so the referenced macro/design
-        // is never linked - reference_design stays invalid, same "linked
-        // later" convention as Instance.reference_design.
-        EXPECT_FALSE(i1->reference_design.valid());
+        ASSERT_TRUE(i1->reference_design.valid());
+        EXPECT_EQ(root.get_design(i1->reference_design)->name, "B");
         EXPECT_EQ(i1->placement_status, PlacementStatus::PLACED);
         ASSERT_TRUE(i1->location.has_value());
         EXPECT_EQ(i1->location->x, 100);
@@ -193,7 +209,8 @@ namespace le
 
         const PlacementData *i2 = find_by_name("I2");
         ASSERT_NE(i2, nullptr);
-        EXPECT_EQ(i2->reference_name, "A");
+        ASSERT_TRUE(i2->reference_design.valid());
+        EXPECT_EQ(root.get_design(i2->reference_design)->name, "A");
         ASSERT_TRUE(i2->orientation.has_value());
         EXPECT_EQ(*i2->orientation, Orientation::S);
         ASSERT_TRUE(i2->source.has_value());
@@ -278,7 +295,7 @@ namespace le
         ASSERT_EQ(segment0_shape_ids.size(), 1u);
         const Shape *segment0_shape = root.get_shape(segment0_shape_ids[0]);
         ASSERT_NE(segment0_shape, nullptr);
-        EXPECT_EQ(segment0_shape->layer_name, "M2");
+        EXPECT_EQ(root.get_layer(segment0_shape->layer)->name, "M2");
         ASSERT_EQ(segment0_shape->rects.size(), 1u);
         EXPECT_EQ(segment0_shape->rects[0].ll.x, 0);
         EXPECT_EQ(segment0_shape->rects[0].ll.y, 0);
@@ -320,7 +337,7 @@ namespace le
         ASSERT_EQ(p1_shape_ids.size(), 1u);
         const Shape *p1_shape = root.get_shape(p1_shape_ids[0]);
         ASSERT_NE(p1_shape, nullptr);
-        EXPECT_EQ(p1_shape->layer_name, "M2");
+        EXPECT_EQ(root.get_layer(p1_shape->layer)->name, "M2");
         ASSERT_EQ(p1_shape->polygons.size(), 1u);
         EXPECT_EQ(p1_shape->polygons[0].points.size(), 6u);
 
@@ -617,7 +634,7 @@ namespace le
         EXPECT_TRUE(dummy->is_special);
         const std::vector<const Shape *> dummy_shapes = shapes_of(dummy_id);
         ASSERT_EQ(dummy_shapes.size(), 1u);
-        EXPECT_EQ(dummy_shapes[0]->layer_name, "M1");
+        EXPECT_EQ(root.get_layer(dummy_shapes[0]->layer)->name, "M1");
         ASSERT_EQ(dummy_shapes[0]->paths.size(), 1u);
         EXPECT_EQ(dummy_shapes[0]->paths[0].width, 100);
         ASSERT_EQ(dummy_shapes[0]->paths[0].polygon.points.size(), 2u);
@@ -632,7 +649,7 @@ namespace le
         EXPECT_FALSE(root.get_route(n6_id)->is_special);
         const std::vector<const Shape *> n6_shapes = shapes_of(n6_id);
         ASSERT_EQ(n6_shapes.size(), 1u);
-        EXPECT_EQ(n6_shapes[0]->layer_name, "M1");
+        EXPECT_EQ(root.get_layer(n6_shapes[0]->layer)->name, "M1");
         ASSERT_EQ(n6_shapes[0]->paths.size(), 3u);
         for (const Path &path : n6_shapes[0]->paths)
         {
