@@ -116,7 +116,7 @@ namespace
         return le_terminal_by_name(session(), std::string(sv.substr(kTerminalPrefix.size())).c_str());
     }
 
-    // Row/Component/Pin/Net/Region/LayoutVia - same unique_per_parent
+    // Row/Placement/PhysicalPort/Route/Region/LayoutVia - same unique_per_parent
     // shape as Terminal above (each name is scoped to its own Layout,
     // not global), so each gets the same hand-written prefix/format/
     // resolve triple, scoped through le_X_by_name/le_X_name
@@ -145,73 +145,73 @@ namespace
         return le_row_by_name(session(), std::string(sv.substr(kRowPrefix.size())).c_str());
     }
 
-    constexpr std::string_view kComponentPrefix = "component:";
+    constexpr std::string_view kPlacementPrefix = "placement:";
 
-    std::string format_component_id(const char *name)
+    std::string format_placement_id(const char *name)
     {
-        return std::string(kComponentPrefix) + (name ? name : "");
+        return std::string(kPlacementPrefix) + (name ? name : "");
     }
 
-    std::string format_component_id(LeComponentId id)
+    std::string format_placement_id(LePlacementId id)
     {
-        return format_component_id(le_component_name(session(), id));
+        return format_placement_id(le_placement_name(session(), id));
     }
 
-    LeComponentId resolve_component_id(const char *s)
+    LePlacementId resolve_placement_id(const char *s)
     {
-        const LeComponentId invalid{.index = UINT32_MAX, .generation = 0};
+        const LePlacementId invalid{.index = UINT32_MAX, .generation = 0};
         if (!s)
             return invalid;
         std::string_view sv(s);
-        if (sv.substr(0, kComponentPrefix.size()) != kComponentPrefix)
+        if (sv.substr(0, kPlacementPrefix.size()) != kPlacementPrefix)
             return invalid;
-        return le_component_by_name(session(), std::string(sv.substr(kComponentPrefix.size())).c_str());
+        return le_placement_by_name(session(), std::string(sv.substr(kPlacementPrefix.size())).c_str());
     }
 
-    constexpr std::string_view kPinPrefix = "pin:";
+    constexpr std::string_view kPhysicalPortPrefix = "physical_port:";
 
-    std::string format_pin_id(const char *name)
+    std::string format_physical_port_id(const char *name)
     {
-        return std::string(kPinPrefix) + (name ? name : "");
+        return std::string(kPhysicalPortPrefix) + (name ? name : "");
     }
 
-    std::string format_pin_id(LePinId id)
+    std::string format_physical_port_id(LePhysicalPortId id)
     {
-        return format_pin_id(le_pin_name(session(), id));
+        return format_physical_port_id(le_physical_port_name(session(), id));
     }
 
-    LePinId resolve_pin_id(const char *s)
+    LePhysicalPortId resolve_physical_port_id(const char *s)
     {
-        const LePinId invalid{.index = UINT32_MAX, .generation = 0};
+        const LePhysicalPortId invalid{.index = UINT32_MAX, .generation = 0};
         if (!s)
             return invalid;
         std::string_view sv(s);
-        if (sv.substr(0, kPinPrefix.size()) != kPinPrefix)
+        if (sv.substr(0, kPhysicalPortPrefix.size()) != kPhysicalPortPrefix)
             return invalid;
-        return le_pin_by_name(session(), std::string(sv.substr(kPinPrefix.size())).c_str());
+        return le_physical_port_by_name(session(), std::string(sv.substr(kPhysicalPortPrefix.size())).c_str());
     }
 
-    constexpr std::string_view kNetPrefix = "net:";
+    constexpr std::string_view kRoutePrefix = "route:";
 
-    std::string format_net_id(const char *name)
+    std::string format_route_id(const char *name)
     {
-        return std::string(kNetPrefix) + (name ? name : "");
+        return std::string(kRoutePrefix) + (name ? name : "");
     }
 
-    std::string format_net_id(LeNetId id)
+    std::string format_route_id(LeRouteId id)
     {
-        return format_net_id(le_net_name(session(), id));
+        return format_route_id(le_route_name(session(), id));
     }
 
-    LeNetId resolve_net_id(const char *s)
+    LeRouteId resolve_route_id(const char *s)
     {
-        const LeNetId invalid{.index = UINT32_MAX, .generation = 0};
+        const LeRouteId invalid{.index = UINT32_MAX, .generation = 0};
         if (!s)
             return invalid;
         std::string_view sv(s);
-        if (sv.substr(0, kNetPrefix.size()) != kNetPrefix)
+        if (sv.substr(0, kRoutePrefix.size()) != kRoutePrefix)
             return invalid;
-        return le_net_by_name(session(), std::string(sv.substr(kNetPrefix.size())).c_str());
+        return le_route_by_name(session(), std::string(sv.substr(kRoutePrefix.size())).c_str());
     }
 
     constexpr std::string_view kRegionPrefix = "region:";

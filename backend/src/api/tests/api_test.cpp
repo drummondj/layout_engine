@@ -3136,14 +3136,14 @@ namespace
     LeTerminalPortId create_terminal_port_with_rect(LeHandle *handle, LeTerminalId terminal_id, const char *layer_name, const double rect_um[4])
     {
         const LeTerminalPortId port_id = le_create_terminal_port(handle, terminal_id, nullptr);
-        le_create_shape(handle, port_id, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, layer_name, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
+        le_create_shape(handle, port_id, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, layer_name, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
         return port_id;
     }
 
     LeObstructionId create_obstruction_with_rect(LeHandle *handle, LeAbstractId abstract_id, const char *layer_name, const double rect_um[4])
     {
         const LeObstructionId obstruction_id = le_create_obstruction(handle, abstract_id);
-        le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, layer_name, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
+        le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, layer_name, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
         return obstruction_id;
     }
 }
@@ -3300,13 +3300,13 @@ TEST_F(ApiFixture, CreateShapeWithNullHandleOrLayerNameOrUnknownParentReturnsInv
     const LeTerminalPortId port_id = le_create_terminal_port(handle, terminal_id, nullptr);
     const LeObstructionId obstruction_id = le_create_obstruction(handle, abstract_id);
 
-    EXPECT_EQ(le_create_shape(nullptr, port_id, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
-    EXPECT_EQ(le_create_shape(handle, port_id, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
-    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(nullptr, port_id, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, port_id, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
 
-    EXPECT_EQ(le_create_shape(nullptr, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
-    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
-    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(nullptr, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
 }
 
 TEST_F(ApiFixture, TerminalPortShapeCountAndAtEnumerateAndReadBackWhatWasCreated)
@@ -3389,14 +3389,14 @@ TEST_F(ApiFixture, CreateShapeWithRectsThenUpdateReplacesThemAndRemoveShapeRectW
     // Rect is always exactly 4 numbers - see Field.list_compound_kind()'s
     // own "flat" docstring), just the coordinates back to back.
     constexpr double rects[] = {0.1, 0.1, 0.3, 0.4, 1.0, 1.0, 2.0, 2.0};
-    const LeShapeId shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 1, rects, 8, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 1, rects, 8, 0, 0.0, 0, 0.0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
     ASSERT_EQ(le_shape_rect_count(handle, shape_id), 2);
     EXPECT_DOUBLE_EQ(le_shape_rect_at(handle, shape_id, 1).ur_x_um, 2.0);
 
     // Malformed -rects encoding (not a multiple of 4) is rejected.
     constexpr double malformed[] = {0.1, 0.1, 0.3};
-    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M5", 0, nullptr, 0, 0, nullptr, 0, 1, malformed, 3, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M5", 0, nullptr, 0, 0, nullptr, 0, 1, malformed, 3, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
 
     // update_shape's own -rects flag replaces the whole list, not appends.
     constexpr double replacement[] = {5.0, 5.0, 6.0, 6.0};
@@ -3421,7 +3421,7 @@ TEST_F(ApiFixture, CreateShapeWithPolygonThenRemoveShapePolygonWorks)
     // each polygon's own point count varies, so it's prefixed per record,
     // unlike -rects' fixed 4-per-record shape above.
     constexpr double triangle[] = {1, 3, 0.0, 0.0, 1.0, 0.0, 0.5, 1.0};
-    const LeShapeId shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 1, triangle, 8, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 1, triangle, 8, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
     ASSERT_EQ(le_shape_polygon_count(handle, shape_id), 1);
     ASSERT_EQ(le_shape_polygon_point_count(handle, shape_id, 0), 3);
@@ -3432,11 +3432,11 @@ TEST_F(ApiFixture, CreateShapeWithPolygonThenRemoveShapePolygonWorks)
 
     // Malformed: point_count claims 3 but only 2 points of data follow.
     constexpr double truncated[] = {1, 3, 0.0, 0.0, 1.0, 0.0};
-    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M5", 0, nullptr, 0, 1, truncated, 6, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M5", 0, nullptr, 0, 1, truncated, 6, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
 
     // Malformed: point_count below the minimum of 2.
     constexpr double too_few[] = {1, 1, 0.0, 0.0};
-    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M6", 0, nullptr, 0, 1, too_few, 4, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M6", 0, nullptr, 0, 1, too_few, 4, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
 
     EXPECT_NE(le_remove_shape_polygon(handle, shape_id, 5), 0);
     EXPECT_EQ(le_remove_shape_polygon(handle, shape_id, 0), 0);
@@ -3455,7 +3455,7 @@ TEST_F(ApiFixture, CreateShapeWithPathThenRemoveShapePathWorks)
     // Path = {polygon: Polygon, width: dbu} has one scalar sibling
     // alongside its own point-list field.
     constexpr double centerline[] = {1, 0.1, 2, 0.0, 0.0, 1.0, 0.0};
-    const LeShapeId shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 1, centerline, 7, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 1, centerline, 7, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
     ASSERT_EQ(le_shape_path_count(handle, shape_id), 1);
     EXPECT_DOUBLE_EQ(le_shape_path_width_um(handle, shape_id, 0), 0.1);
@@ -3467,7 +3467,7 @@ TEST_F(ApiFixture, CreateShapeWithPathThenRemoveShapePathWorks)
 
     // Malformed: point_count claims 2 but only 1 point of data follows.
     constexpr double truncated[] = {1, 0.1, 2, 0.0, 0.0};
-    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M5", 1, truncated, 5, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M5", 1, truncated, 5, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
 
     EXPECT_NE(le_remove_shape_path(handle, shape_id, 5), 0);
     EXPECT_EQ(le_remove_shape_path(handle, shape_id, 0), 0);
@@ -3792,7 +3792,7 @@ TEST_F(ApiFixture, ClickSelectsAndMovesOnlyOneRectOfATwoRectShapeNotBothOrTheWro
 
     const LeObstructionId obstruction_id = le_create_obstruction(handle, abstract_id);
     const double rects_um[8] = {0.1, 0.1, 0.3, 0.4, 0.5, 0.1, 0.7, 0.4};
-    const LeShapeId shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 1, rects_um, 8, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 1, rects_um, 8, 0, 0.0, 0, 0.0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
     ASSERT_EQ(le_shape_rect_count(handle, shape_id), 2);
 
@@ -3843,7 +3843,7 @@ TEST_F(ApiFixture, DragSelectEnclosingTwoPiecesOfTheSameShapeSelectsBothAsSepara
 
     const LeObstructionId obstruction_id = le_create_obstruction(handle, abstract_id);
     const double rects_um[8] = {0.1, 0.1, 0.3, 0.4, 0.5, 0.1, 0.7, 0.4};
-    const LeShapeId shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePinPortId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeNetId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 1, rects_um, 8, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, obstruction_id, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, "M4", 0, nullptr, 0, 0, nullptr, 0, 1, rects_um, 8, 0, 0.0, 0, 0.0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
 
     le_set_viewport_size(handle, 200, 200);

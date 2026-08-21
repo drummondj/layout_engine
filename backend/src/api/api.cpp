@@ -2062,82 +2062,82 @@ extern "C"
         return row ? row->name.c_str() : nullptr;
     }
 
-    LeComponentId le_component_by_name(LeHandle *handle, const char *name)
+    LePlacementId le_placement_by_name(LeHandle *handle, const char *name)
     {
-        const LeComponentId invalid{.index = UINT32_MAX, .generation = 0};
+        const LePlacementId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        for (const le::ComponentId id : handle->root.get_layout_components(handle->current_layout_id))
+        for (const le::PlacementId id : handle->root.get_layout_placements(handle->current_layout_id))
         {
-            const le::ComponentData *component = handle->root.get_component(id);
-            if (component && component->name == name)
+            const le::PlacementData *placement = handle->root.get_placement(id);
+            if (placement && placement->name == name)
                 return to_c(id);
         }
         return invalid;
     }
 
-    const char *le_component_name(LeHandle *handle, LeComponentId id)
+    const char *le_placement_name(LeHandle *handle, LePlacementId id)
     {
         if (!handle)
             return nullptr;
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        const le::ComponentData *component = handle->root.get_component(from_c(id));
-        return component ? component->name.c_str() : nullptr;
+        const le::PlacementData *placement = handle->root.get_placement(from_c(id));
+        return placement ? placement->name.c_str() : nullptr;
     }
 
-    LePinId le_pin_by_name(LeHandle *handle, const char *name)
+    LePhysicalPortId le_physical_port_by_name(LeHandle *handle, const char *name)
     {
-        const LePinId invalid{.index = UINT32_MAX, .generation = 0};
+        const LePhysicalPortId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        for (const le::PinId id : handle->root.get_layout_pins(handle->current_layout_id))
+        for (const le::PhysicalPortId id : handle->root.get_layout_physical_ports(handle->current_layout_id))
         {
-            const le::PinData *pin = handle->root.get_pin(id);
-            if (pin && pin->name == name)
+            const le::PhysicalPortData *physical_port = handle->root.get_physical_port(id);
+            if (physical_port && physical_port->name == name)
                 return to_c(id);
         }
         return invalid;
     }
 
-    const char *le_pin_name(LeHandle *handle, LePinId id)
+    const char *le_physical_port_name(LeHandle *handle, LePhysicalPortId id)
     {
         if (!handle)
             return nullptr;
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        const le::PinData *pin = handle->root.get_pin(from_c(id));
-        return pin ? pin->name.c_str() : nullptr;
+        const le::PhysicalPortData *physical_port = handle->root.get_physical_port(from_c(id));
+        return physical_port ? physical_port->name.c_str() : nullptr;
     }
 
-    LeNetId le_net_by_name(LeHandle *handle, const char *name)
+    LeRouteId le_route_by_name(LeHandle *handle, const char *name)
     {
-        const LeNetId invalid{.index = UINT32_MAX, .generation = 0};
+        const LeRouteId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        for (const le::NetId id : handle->root.get_layout_nets(handle->current_layout_id))
+        for (const le::RouteId id : handle->root.get_layout_routes(handle->current_layout_id))
         {
-            const le::NetData *net = handle->root.get_net(id);
-            if (net && net->name == name)
+            const le::RouteData *route = handle->root.get_route(id);
+            if (route && route->name == name)
                 return to_c(id);
         }
         return invalid;
     }
 
-    const char *le_net_name(LeHandle *handle, LeNetId id)
+    const char *le_route_name(LeHandle *handle, LeRouteId id)
     {
         if (!handle)
             return nullptr;
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        const le::NetData *net = handle->root.get_net(from_c(id));
-        return net ? net->name.c_str() : nullptr;
+        const le::RouteData *route = handle->root.get_route(from_c(id));
+        return route ? route->name.c_str() : nullptr;
     }
 
     LeRegionId le_region_by_name(LeHandle *handle, const char *name)

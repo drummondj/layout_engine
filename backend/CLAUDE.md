@@ -147,16 +147,29 @@ none of these are duplicated here.
     including real pixel-byte assertions, not just "didn't crash". Depends
     on a machine-specific Skia checkout, not committed to this repo — see
     Open gaps below.
-- `src/io/` — format readers. Currently `lef_reader.{hpp,cpp}`, which drives
-  the vendored `lefr*` LEF-parser C callbacks and populates `Root` via the
-  generated create/get API. Tested against `src/lefdef/lef/TEST/complete.5.8.lef`
-  (the vendored parser's own regression fixture) plus small hand-written
-  `.lef` files under `src/io/tests/fixtures/` for cases that fixture
-  doesn't hit. `LEFReader` only supports a subset of LEF; extend the tests
-  as more constructs get support. `orientation_from_parser`/
-  `routing_direction_from_parser`/`signal_direction_from_parser` are
-  `public` (unlike the rest of `LEFReader`) so they can be unit-tested
-  directly — pure, no parser/instance state.
+- `src/io/` — format readers/writers. `lef_reader.{hpp,cpp}`/
+  `lef_writer.{hpp,cpp}` drive the vendored `lefr*`/`lefw*` LEF-parser C
+  API and populate/walk `Root` via the generated create/get API. Tested
+  against `src/lefdef/lef/TEST/complete.5.8.lef` (the vendored parser's
+  own regression fixture) plus small hand-written `.lef` files under
+  `src/io/tests/fixtures/` for cases that fixture doesn't hit. `LEFReader`
+  only supports a subset of LEF; extend the tests as more constructs get
+  support. `orientation_from_parser`/`routing_direction_from_parser`/
+  `signal_direction_from_parser` are `public` (unlike the rest of
+  `LEFReader`) so they can be unit-tested directly — pure, no
+  parser/instance state.
+  `def_reader.{hpp,cpp}` mirrors `LEFReader`'s own shape for the vendored
+  `defr*` DEF-parser C API, populating the new `Layout`/`Row`/`Track`/
+  `GCellGrid` klasses (`schema.py`) — currently DESIGN/VERSION/UNITS/
+  DIEAREA/ROW/TRACKS/GCELLGRID only; COMPONENTS/PINS/BLOCKAGES/VIAS/NETS/
+  REGIONS/NONDEFAULTRULES are later rounds. Unlike LEF (fully micron-based,
+  every coordinate needing `microns_to_dbu()`), DEF's own coordinate/
+  dimension values are already expressed directly in database units in
+  the file itself (confirmed against `complete.5.8.def`'s own fixture data)
+  — `DEFReader` casts them directly to `int64_t`/`int`, no
+  `database_units_microns`-based conversion needed anywhere so far.
+  Tested against `src/lefdef/def/TEST/complete.5.8.def` (`def_reader_test.cpp`).
+  No `DEFWriter` yet.
 - `src/api/` — `api.hpp`/`api.cpp`, the C API surface a Flutter plugin's
   Dart FFI binds to: an opaque `LeHandle` (`le_create`/`le_destroy`)
   wrapping one `Root`/`ViewLayerSet`/`Scene`/`Pipeline`/`Renderer` per
@@ -222,10 +235,11 @@ none of these are duplicated here.
   `src/tcl/tests/smoke_test.tcl`/`crud_test.tcl`/`shell_test.tcl` (run via
   `tclsh8.6`, not the generic `tclsh` — see the `build-test` skill).
 - `src/lefdef/` — vendored LEF/DEF 6.0.62-p004 C parser source (Si2 distribution).
-  Built by its own `Makefile` via `ExternalProject_Add` in the top-level
-  `CMakeLists.txt`; only `lef/` is wired into the build so far (`def/` is
-  vendored but unbuilt until a DEF reader exists). Never hand-edit — it's
-  third-party source, license in `src/lefdef/{lef,def}/LICENSE.TXT`.
+  Both `lef/` and `def/` are built by their own `Makefile`s via separate
+  `ExternalProject_Add` steps (`lef_lib`/`def_lib`) in the top-level
+  `CMakeLists.txt`, each producing a static archive (`liblef.a`/`libdef.a`)
+  linked into `io`. Never hand-edit — it's third-party source, license in
+  `src/lefdef/{lef,def}/LICENSE.TXT`.
 - Each module's tests live alongside it in a `tests/` subdirectory (e.g.
   `src/database/tests/database_test.cpp`), hand-written GTest.
 
@@ -454,9 +468,9 @@ because the mechanism can't reach them; this has no bearing on
 
 ## Open gaps (tracked in README's Plan checklist)
 
-- `src/lefdef/def` is vendored but not yet wired into `CMakeLists.txt` — add
-  an `ExternalProject_Add(def_lib ...)` (mirroring `lef_lib`) when a DEF
-  reader module is added.
+- `DEFReader` only covers DESIGN/VERSION/UNITS/DIEAREA/ROW/TRACKS/
+  GCELLGRID so far — COMPONENTS/PINS/BLOCKAGES/VIAS/NETS/REGIONS/
+  NONDEFAULTRULES and a `DEFWriter` are still to come.
 - Skia isn't vendored/built by this project — `src/render/`'s
   `CMakeLists.txt` `skia` target points `SKIA_DIR` at a pre-built checkout
   (default `/Volumes/Docking/Projects/synthosilicon/skia/skia`, override with

@@ -46,8 +46,7 @@ include(FetchContent)
 
 # --- Vendored LEF parser (src/lefdef/lef) ---
 # Built via its own Makefile; produces liblef.a and generates lefdef/lef/include/*.h.
-# The DEF parser (src/lefdef/def) is vendored alongside it but not built yet -
-# wire it up here once a DEF reader module needs it.
+# The DEF parser (src/lefdef/def) is vendored alongside it - see def_lib below.
 ExternalProject_Add(
     lef_lib
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef
@@ -87,6 +86,30 @@ add_library(lef_static STATIC IMPORTED)
 set_target_properties(lef_static PROPERTIES
     IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/lib/liblef.a")
 add_dependencies(lef_static lef_lib)
+
+# --- Vendored DEF parser (src/lefdef/def) ---
+# Mirrors lef_lib above exactly - same vendored Si2 distribution shape
+# (def/def/Makefile's own LIBTARGET = libdef.a, installed to
+# def/lib/libdef.a + def/include/*.hpp, same -j1/cleared-MAKEFLAGS/-fPIC
+# gotcha, same BUILD_ORDER-driven defdiff byproduct at def/bin/defdiff
+# for round-trip fidelity testing, same reason for IMPORTED wrapping
+# over a raw archive path).
+ExternalProject_Add(
+    def_lib
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ${CMAKE_COMMAND} -E env --unset=MAKEFLAGS --unset=MFLAGS CXXFLAGS=-fPIC CFLAGS=-fPIC make -j1
+    INSTALL_COMMAND ""
+    BUILD_IN_SOURCE 1
+    BYPRODUCTS
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/lib/libdef.a"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/bin/defdiff"
+)
+
+add_library(def_static STATIC IMPORTED)
+set_target_properties(def_static PROPERTIES
+    IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/lib/libdef.a")
+add_dependencies(def_static def_lib)
 
 # --- Third-party dependencies ---
 # spdlog/fmt fall back to FetchContent (same pattern as googletest/
@@ -263,11 +286,13 @@ if(NOT APPLE)
 endif()
 
 # --- io: LEF/DEF file readers ---
-add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp)
-add_dependencies(io lef_lib)
+add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp)
+add_dependencies(io lef_lib def_lib)
 target_include_directories(io
     PUBLIC src/io
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/include
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/include
 )
 target_link_libraries(io
     # spdlog PUBLIC (not PRIVATE): lef_reader.hpp - io's own PUBLIC header -
@@ -280,7 +305,7 @@ target_link_libraries(io
     # directory until this was PUBLIC. fmt stays PRIVATE - only io's own
     # .cpp files use it directly.
     PUBLIC database geometry spdlog::spdlog
-    PRIVATE fmt::fmt lef_static
+    PRIVATE fmt::fmt lef_static def_static
 )
 le_enable_coverage_instrumentation(io)
 
@@ -539,6 +564,7 @@ add_executable(backend_tests
     src/io/tests/lef_reader_test.cpp
     src/io/tests/lef_reader_utils_test.cpp
     src/io/tests/lef_writer_test.cpp
+    src/io/tests/def_reader_test.cpp
     src/api/tests/api_test.cpp
 )
 target_link_libraries(backend_tests PRIVATE database geometry view_style scene editing pipeline render io api fmt::fmt GTest::gtest_main)
@@ -547,8 +573,10 @@ target_compile_definitions(backend_tests PRIVATE
     IO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures"
     API_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures"
     LEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/bin/lefdiff"
+    DEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/TEST"
+    DEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/bin/defdiff"
 )
-add_dependencies(backend_tests lef_lib)
+add_dependencies(backend_tests lef_lib def_lib)
 le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
 

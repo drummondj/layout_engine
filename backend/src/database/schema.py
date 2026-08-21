@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.32.0",
+    version="0.34.0",
     classes=[
         Klass(
             name="Technology",
@@ -1400,7 +1400,7 @@ schema = Schema(
         ),
         Klass(
             name="Shape",
-            description="A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PinPort/Blockage/Net/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes - a programmatically-added BOUNDARY layer/purpose (not a real LEF/DEF Layer) is used for layer_name in both cases, see src/view_style's own ViewLayerSet::boundary_view_layer().",
+            description="A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes - a programmatically-added BOUNDARY layer/purpose (not a real LEF/DEF Layer) is used for layer_name in both cases, see src/view_style's own ViewLayerSet::boundary_view_layer().",
             has_pool=True,
             fields=[
                 Field(
@@ -1416,9 +1416,9 @@ schema = Schema(
                     parent="shapes",
                 ),
                 Field(
-                    name="pin_port",
-                    description="Owning PinPort, if this Shape belongs to one (unset/invalid otherwise)",
-                    type="PinPort",
+                    name="physical_port_segment",
+                    description="Owning PhysicalPortSegment, if this Shape belongs to one (unset/invalid otherwise)",
+                    type="PhysicalPortSegment",
                     parent="shapes",
                 ),
                 Field(
@@ -1428,9 +1428,9 @@ schema = Schema(
                     parent="shapes",
                 ),
                 Field(
-                    name="net",
-                    description="Owning Net, if this Shape belongs to one (unset/invalid otherwise)",
-                    type="Net",
+                    name="route",
+                    description="Owning Route, if this Shape belongs to one (unset/invalid otherwise)",
+                    type="Route",
                     parent="shapes",
                 ),
                 Field(
@@ -2231,11 +2231,11 @@ schema = Schema(
                 Field(name="rows", description="Placement rows (DEF ROW)", type="Row", is_list=True, is_child=True),
                 Field(name="tracks", description="Routing track patterns (DEF TRACKS)", type="Track", is_list=True, is_child=True),
                 Field(name="gcell_grids", description="Global-routing gcell grid lines (DEF GCELLGRID)", type="GCellGrid", is_list=True, is_child=True),
-                Field(name="components", description="Placed instances (DEF COMPONENTS)", type="Component", is_list=True, is_child=True),
-                Field(name="pins", description="Chip-boundary I/O pins (DEF PINS)", type="Pin", is_list=True, is_child=True),
+                Field(name="placements", description="Placed instances (DEF COMPONENTS)", type="Placement", is_list=True, is_child=True),
+                Field(name="physical_ports", description="Chip-boundary I/O pins (DEF PINS)", type="PhysicalPort", is_list=True, is_child=True),
                 Field(name="blockages", description="Routing and placement blockages (DEF BLOCKAGES)", type="Blockage", is_list=True, is_child=True),
                 Field(name="vias", description="Design-scoped named vias (DEF VIAS)", type="LayoutVia", is_list=True, is_child=True),
-                Field(name="nets", description="Regular and special nets - routing geometry only, no connectivity (DEF NETS/SPECIALNETS)", type="Net", is_list=True, is_child=True),
+                Field(name="routes", description="Regular and special net routing geometry - no connectivity, see Route's own comment (DEF NETS/SPECIALNETS)", type="Route", is_list=True, is_child=True),
                 Field(name="regions", description="Placement regions (DEF REGIONS)", type="Region", is_list=True, is_child=True),
             ],
         ),
@@ -2280,10 +2280,10 @@ schema = Schema(
             ],
         ),
         Klass(
-            name="Component",
-            description="A placed physical instance (DEF COMPONENTS) - the physical counterpart to Instance, kept as a separate klass to keep physical placement apart from logical connectivity (Instance/Schematic, not yet populated - no SystemVerilog reader exists)",
+            name="Placement",
+            description="A placed physical instance (DEF COMPONENTS) - the physical counterpart to Instance, kept as a separate klass to keep physical placement apart from logical connectivity (Instance/Schematic, not yet populated - no SystemVerilog reader exists). Named Placement (not Component, DEF's own section name) to mirror Net/Route's own logical-vs-physical naming split - see SCHEMA.md.",
             fields=[
-                Field(name="layout", description="Parent layout", type="Layout", parent="components"),
+                Field(name="layout", description="Parent layout", type="Layout", parent="placements"),
                 Field(name="name", description="The name of the instance - unique within its parent Layout (see unique_per_parent)", type="str", example="U1", index=True, unique_per_parent=True),
                 Field(name="reference_name", description="The name of the reference macro/design, as read", type="str", example="BUFX1"),
                 Field(name="reference_design", description="The ID of the reference design after linking", type="Design"),
@@ -2295,26 +2295,26 @@ schema = Schema(
             ],
         ),
         Klass(
-            name="PinPort",
-            description="Physical connection for a Pin (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort",
+            name="PhysicalPortSegment",
+            description="One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort's own relationship to Terminal, just named to avoid stuttering (PhysicalPort + Port)",
             fields=[
-                Field(name="pin", description="Parent pin", type="Pin", parent="ports"),
-                Field(name="shapes", description="The pin port shapes", type="Shape", is_list=True, is_child=True),
+                Field(name="physical_port", description="Parent physical port", type="PhysicalPort", parent="segments"),
+                Field(name="shapes", description="This segment's shapes", type="Shape", is_list=True, is_child=True),
             ],
         ),
         Klass(
-            name="Pin",
-            description="A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a netlist port. Net connectivity is deferred to when SystemVerilog/Schematic linking lands - net_name is stored as read, not resolved to a Net.",
+            name="PhysicalPort",
+            description="A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's future logical Port, named PhysicalPort (not Pin, DEF's own section name) since SCHEMA.md reserves Pin for a different concept (a logical pin on a Schematic Instance, i.e. a Verilog instance pin). Net connectivity is deferred to when SystemVerilog/Schematic linking lands - net_name is stored as read, not resolved to a (future) Net.",
             fields=[
-                Field(name="layout", description="Parent layout", type="Layout", parent="pins"),
+                Field(name="layout", description="Parent layout", type="Layout", parent="physical_ports"),
                 Field(name="name", description="The name of the pin - unique within its parent Layout (see unique_per_parent)", type="str", example="clk", index=True, unique_per_parent=True),
-                Field(name="net_name", description="The name of the net this pin connects to, as read - not resolved to a Net (DEF PINS NET)", type="str", example="clk", is_optional=True),
+                Field(name="net_name", description="The name of the net this pin connects to, as read - not resolved to a (future) Net (DEF PINS NET)", type="str", example="clk", is_optional=True),
                 Field(name="direction", description="The direction of the pin - unset if omitted", type="SignalDirection", is_optional=True),
                 Field(name="use", description="SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF PINS USE)", type="str", example="SIGNAL", is_optional=True),
                 Field(name="placement_status", description="Placement status - unset if never placed", type="PlacementStatus", is_optional=True),
                 Field(name="location", description="The pin's location, in database units - unset if unplaced", type="Point", is_optional=True),
                 Field(name="orientation", description="Placement orientation - unset if unplaced", type="Orientation", is_optional=True),
-                Field(name="ports", description="Physical ports (5.7+ multi-port pins)", type="PinPort", is_list=True, is_child=True),
+                Field(name="segments", description="Physically separate parts (5.7+ multi-port pins)", type="PhysicalPortSegment", is_list=True, is_child=True),
             ],
         ),
         Klass(
@@ -2324,7 +2324,7 @@ schema = Schema(
                 Field(name="layout", description="Parent layout", type="Layout", parent="blockages"),
                 Field(name="kind", description="Whether this is a routing-layer or placement blockage", type="BlockageKind"),
                 Field(name="layer_name", description="The name of the blocked routing layer, as read - set only for a ROUTING blockage", type="str", example="M1", is_optional=True),
-                Field(name="component", description="Scope this blockage to underneath one component - invalid id if unscoped", type="Component"),
+                Field(name="placement", description="Scope this blockage to underneath one placed instance - invalid id if unscoped", type="Placement"),
                 Field(name="spacing", description="Minimum spacing override, in database units (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width", type="dbu", is_optional=True),
                 Field(name="design_rule_width", description="Effective width for design rule checks, in database units (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing", type="dbu", is_optional=True),
                 Field(name="is_soft", description="PLACEMENT ... SOFT - PLACEMENT only", type="bool", example=False),
@@ -2344,11 +2344,11 @@ schema = Schema(
             ],
         ),
         Klass(
-            name="Net",
-            description="A regular or special net (DEF NETS/SPECIALNETS) - routing geometry only. Net *connectivity* (which component pins a net connects) is deferred to when SystemVerilog/Schematic linking lands.",
+            name="Route",
+            description="The routing geometry of a regular or special net (DEF NETS/SPECIALNETS) - named Route rather than Net to reserve the Net name for the future Schematic/SystemVerilog netlist connectivity klass. Net *connectivity* (which component pins a net connects) is deferred to when that linking lands - this klass only holds physical routed geometry.",
             fields=[
-                Field(name="layout", description="Parent layout", type="Layout", parent="nets"),
-                Field(name="name", description="The name of the net - unique within its parent Layout (see unique_per_parent)", type="str", example="clk", index=True, unique_per_parent=True),
+                Field(name="layout", description="Parent layout", type="Layout", parent="routes"),
+                Field(name="name", description="The name of the net this routes, as read - unique within its parent Layout (see unique_per_parent); not resolved to a (future) Net, same deferred-connectivity convention as Pin.net_name", type="str", example="clk", index=True, unique_per_parent=True),
                 Field(name="is_special", description="Whether this came from SPECIALNETS rather than NETS", type="bool", example=False),
                 Field(name="width", description="Routing width override, in database units (DEF SPECIALNETS WIDTH) - SPECIALNETS only, unset if omitted", type="dbu", is_optional=True),
                 Field(name="voltage", description="Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only, unset if omitted", type="double", is_optional=True),
