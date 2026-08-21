@@ -654,6 +654,70 @@ namespace le
         EXPECT_TRUE(found_via);
     }
 
+    TEST_F(DEFReaderCompleteFixture, CreatesEveryNonDefaultRuleWithCorrectFields)
+    {
+        // Scoped to the shared Technology (reused/created the same way
+        // LEFReader does), not the Layout - find both rules by name
+        // directly via Root's own by-name lookup (NonDefaultRule.name is
+        // a plain index=True field, not unique_per_parent).
+        const NonDefaultRuleId default_id = root.get_non_default_rule_by_name("DEFAULT");
+        ASSERT_TRUE(default_id.valid());
+        const NonDefaultRuleId rule2_id = root.get_non_default_rule_by_name("RULE2");
+        ASSERT_TRUE(rule2_id.valid());
+
+        const NonDefaultRuleData *default_rule = root.get_non_default_rule(default_id);
+        ASSERT_NE(default_rule, nullptr);
+        EXPECT_FALSE(default_rule->hard_spacing);
+        const NonDefaultRuleData *rule2 = root.get_non_default_rule(rule2_id);
+        ASSERT_NE(rule2, nullptr);
+        EXPECT_TRUE(rule2->hard_spacing);
+
+        // Both rules have the same layers/vias/viarules/mincuts - check
+        // DEFAULT in full. WIDTH/DIAGWIDTH/SPACING/WIREEXT are written in
+        // microns (10.1/8.01/2.2/1.1) - layerWidthVal()/etc. (the "Val"
+        // accessors, as opposed to the obsolete plain double ones)
+        // already convert to database units using the file's own UNITS
+        // DISTANCE MICRONS 1000, same convention confirmed for ROW/
+        // TRACKS/GCELLGRID earlier.
+        ASSERT_EQ(default_rule->use_via_names.size(), 2u);
+        EXPECT_EQ(default_rule->use_via_names[0], "M1_M2");
+        EXPECT_EQ(default_rule->use_via_names[1], "M2_M3");
+        ASSERT_EQ(default_rule->use_via_rule_names.size(), 1u);
+        EXPECT_EQ(default_rule->use_via_rule_names[0], "VIAGEN12");
+        ASSERT_EQ(default_rule->min_cuts.size(), 1u);
+        EXPECT_EQ(default_rule->min_cuts[0].cut_layer_name, "V1");
+        EXPECT_EQ(default_rule->min_cuts[0].num_cuts, 2);
+
+        const std::vector<NonDefaultRuleLayerId> layer_ids = root.get_non_default_rule_layers(default_id);
+        ASSERT_EQ(layer_ids.size(), 3u);
+
+        auto find_layer = [&](const std::string &name) -> const NonDefaultRuleLayerData *
+        {
+            for (const NonDefaultRuleLayerId id : layer_ids)
+                if (const NonDefaultRuleLayerData *layer = root.get_non_default_rule_layer(id); layer && layer->layer_name == name)
+                    return layer;
+            return nullptr;
+        };
+
+        const NonDefaultRuleLayerData *metal1 = find_layer("METAL1");
+        ASSERT_NE(metal1, nullptr);
+        ASSERT_TRUE(metal1->width.has_value());
+        EXPECT_EQ(*metal1->width, 10100);
+        ASSERT_TRUE(metal1->diag_width.has_value());
+        EXPECT_EQ(*metal1->diag_width, 8010);
+        ASSERT_TRUE(metal1->spacing.has_value());
+        EXPECT_EQ(*metal1->spacing, 2200);
+        ASSERT_TRUE(metal1->wire_extension.has_value());
+        EXPECT_EQ(*metal1->wire_extension, 1100);
+
+        const NonDefaultRuleLayerData *m2 = find_layer("M2");
+        ASSERT_NE(m2, nullptr);
+        ASSERT_TRUE(m2->width.has_value());
+        EXPECT_EQ(*m2->width, 10100);
+        EXPECT_FALSE(m2->diag_width.has_value());
+        EXPECT_FALSE(m2->wire_extension.has_value());
+    }
+
     TEST(DEFReaderErrors, FileNotFoundReturnsOne)
     {
         Root root;

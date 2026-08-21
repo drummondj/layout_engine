@@ -1,6 +1,7 @@
 #include <fmt/format.h>
 #include "def_reader.hpp"
 #include "../geometry/geometry.hpp"
+#include <cmath>
 #include <cstring>
 #include <utility>
 
@@ -339,22 +340,35 @@ namespace le
         return 0;
     }
 
-    int DEFReader::defrUnitsCbkFn(defrCallbackType_e /*typ*/, double /*units*/, void * /*user_data*/)
+    int DEFReader::defrUnitsCbkFn(defrCallbackType_e /*typ*/, double units, void *user_data)
     {
-        // DEF coordinate/dimension values (ROW/TRACKS/GCELLGRID/DIEAREA/
-        // COMPONENTS placement, etc.) are already expressed directly in
-        // database units in the file itself (confirmed against this
-        // project's own complete.5.8.def fixture: UNITS DISTANCE MICRONS
-        // 1000, yet ROW/TRACKS coordinates are plain integers like 1000/
-        // 8400, not 1.0/8.4) - unlike LEF, which is fully micron-based and
-        // needs database_units_microns for every microns_to_dbu()
-        // conversion. Nothing read so far in this DEFReader pass needs
-        // this value at all; kept as a no-op callback (rather than left
-        // unregistered) so a future construct that does need it (e.g. a
-        // SPECIALNETS field expressed in microns, if one turns out to be)
-        // has an obvious place to add real UNITS-vs-Technology validation,
-        // mirroring LEFReader's own SecondReadWithDifferentUnitsIsIgnored
-        // guard.
+        // Most DEF coordinate/dimension values (ROW/TRACKS/GCELLGRID/
+        // DIEAREA/COMPONENTS placement, etc.) are already expressed
+        // directly in database units in the file itself (confirmed
+        // against this project's own complete.5.8.def fixture: UNITS
+        // DISTANCE MICRONS 1000, yet ROW/TRACKS coordinates are plain
+        // integers like 1000/8400, not 1.0/8.4). NONDEFAULTRULES LAYER
+        // WIDTH/SPACING/WIREEXT/DIAGWIDTH are the one construct so far
+        // that's the exception - written in real microns (e.g. "WIDTH
+        // 10.1"), needing this same UNITS-derived factor LEF uses
+        // everywhere - defiNonDefault's own "Val"-suffixed accessors
+        // (layerWidthVal() etc.) turned out to just truncate the raw
+        // micron double to an int, *not* convert using UNITS (found by
+        // testing against real fixture values: 10.1 came back as 10, not
+        // 10100) - real conversion needs the plain (non-Val) micron
+        // accessor multiplied by this factor instead, same as LEF.
+        auto reader = static_cast<DEFReader *>(user_data);
+        TechnologyData *technology = reader->root_->get_technology(reader->technology_id_);
+        if (!technology)
+            return 0;
+        if (technology->database_units_microns == 0)
+        {
+            technology->database_units_microns = units;
+        }
+        else if (technology->database_units_microns != units)
+        {
+            log_error("DEF UNITS DISTANCE MICRONS {} does not equal current technology units {} - ignoring new definition.", units, technology->database_units_microns);
+        }
         return 0;
     }
 
@@ -807,6 +821,79 @@ namespace le
         return read_net(net, user_data, true);
     }
 
+    int DEFReader::defrNonDefaultCbkFn(defrCallbackType_e /*typ*/, defiNonDefault *rule, void *user_data)
+    {
+        auto reader = static_cast<DEFReader *>(user_data);
+
+        if (reader->root_->get_non_default_rule_by_name(rule->name()).valid())
+        {
+            log_error("NONDEFAULTRULE {} already exists (e.g. from an earlier LEF read) - ignored.", rule->name());
+            return 0;
+        }
+
+        NonDefaultRuleData data{
+            .technology = reader->technology_id_,
+            .name = rule->name(),
+            .hard_spacing = static_cast<bool>(rule->hasHardspacing()),
+        };
+
+        // LAYER WIDTH/SPACING/WIREEXT/DIAGWIDTH are written in real
+        // microns (e.g. "WIDTH 10.1") - layerWidthVal() et al (the
+        // "Val"-suffixed accessors) just truncate that double to an int,
+        // they don't convert using UNITS (found empirically: 10.1 came
+        // back as 10, not 10100 at UNITS DISTANCE MICRONS 1000) - real
+        // conversion needs the plain micron accessor multiplied by the
+        // shared Technology's own database_units_microns, same as every
+        // LEF microns_to_dbu() conversion.
+        const TechnologyData *technology = reader->root_->get_technology(reader->technology_id_);
+        const double dbu_per_micron = (technology && technology->database_units_microns != 0) ? technology->database_units_microns : 1.0;
+        auto microns_to_dbu = [dbu_per_micron](double microns) -> int64_t
+        {
+            return static_cast<int64_t>(std::llround(microns * dbu_per_micron));
+        };
+
+        // Unlike LEF's own inline NONDEFAULTRULE VIA (a full embedded via
+        // definition, NonDefaultRuleVia), DEF's own addVia()/addViaRule()
+        // are plain name references - the same shape as
+        // use_via_names/use_via_rule_names (LEF 5.6 USEVIA/USEVIARULE),
+        // so no NonDefaultRuleVia pending-then-attach step is needed here
+        // at all.
+        data.use_via_names.reserve(static_cast<size_t>(rule->numVias()));
+        for (int i = 0; i < rule->numVias(); i++)
+            data.use_via_names.push_back(rule->viaName(i));
+        data.use_via_rule_names.reserve(static_cast<size_t>(rule->numViaRules()));
+        for (int i = 0; i < rule->numViaRules(); i++)
+            data.use_via_rule_names.push_back(rule->viaRuleName(i));
+        data.min_cuts.reserve(static_cast<size_t>(rule->numMinCuts()));
+        for (int i = 0; i < rule->numMinCuts(); i++)
+            data.min_cuts.push_back(MinCutOverride{.cut_layer_name = rule->cutLayerName(i), .num_cuts = rule->numCuts(i)});
+
+        std::vector<NonDefaultRuleLayerData> pending_layers;
+        pending_layers.reserve(static_cast<size_t>(rule->numLayers()));
+        for (int i = 0; i < rule->numLayers(); i++)
+        {
+            // WIDTH has no has*() guard in defiNonDefault's own API -
+            // DEF's NONDEFAULTRULES LAYER grammar requires it
+            // unconditionally, unlike SPACING/WIREEXT/DIAGWIDTH.
+            NonDefaultRuleLayerData layer{.layer_name = rule->layerName(i), .width = microns_to_dbu(rule->layerWidth(i))};
+            if (rule->hasLayerSpacing(i))
+                layer.spacing = microns_to_dbu(rule->layerSpacing(i));
+            if (rule->hasLayerWireExt(i))
+                layer.wire_extension = microns_to_dbu(rule->layerWireExt(i));
+            if (rule->hasLayerDiagWidth(i))
+                layer.diag_width = microns_to_dbu(rule->layerDiagWidth(i));
+            pending_layers.push_back(std::move(layer));
+        }
+
+        const NonDefaultRuleId rule_id = reader->root_->create_non_default_rule(std::move(data));
+        for (NonDefaultRuleLayerData &layer : pending_layers)
+        {
+            layer.non_default_rule = rule_id;
+            reader->root_->create_non_default_rule_layer(std::move(layer));
+        }
+        return 0;
+    }
+
     int DEFReader::read_def(std::string filename, Root &root, std::string library_name)
     {
         defrInit();
@@ -827,6 +914,7 @@ namespace le
         defrSetRegionCbk(defrRegionCbkFn);
         defrSetNetCbk(defrNetCbkFn);
         defrSetSNetCbk(defrSNetCbkFn);
+        defrSetNonDefaultCbk(defrNonDefaultCbkFn);
         defrSetLogFunction(&DEFReader::defrLogFn);
         defrSetWarningLogFunction(&DEFReader::defrLogFn);
 
@@ -835,6 +923,7 @@ namespace le
         library_id_ = LibraryId{};
         design_id_ = DesignId{};
         layout_id_ = LayoutId{};
+        technology_id_ = root.is_technology_empty() ? root.create_technology(TechnologyData{}) : root.get_technology_ids().front();
 
         std::unique_ptr<FILE, int (*)(FILE *)> file(fopen(filename.c_str(), "r"), &fclose);
         if (!file)

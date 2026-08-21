@@ -159,17 +159,31 @@ none of these are duplicated here.
   `LEFReader`) so they can be unit-tested directly — pure, no
   parser/instance state.
   `def_reader.{hpp,cpp}` mirrors `LEFReader`'s own shape for the vendored
-  `defr*` DEF-parser C API, populating the new `Layout`/`Row`/`Track`/
-  `GCellGrid` klasses (`schema.py`) — currently DESIGN/VERSION/UNITS/
-  DIEAREA/ROW/TRACKS/GCELLGRID only; COMPONENTS/PINS/BLOCKAGES/VIAS/NETS/
-  REGIONS/NONDEFAULTRULES are later rounds. Unlike LEF (fully micron-based,
-  every coordinate needing `microns_to_dbu()`), DEF's own coordinate/
-  dimension values are already expressed directly in database units in
-  the file itself (confirmed against `complete.5.8.def`'s own fixture data)
-  — `DEFReader` casts them directly to `int64_t`/`int`, no
-  `database_units_microns`-based conversion needed anywhere so far.
+  `defr*` DEF-parser C API, populating `Layout`/`Row`/`Track`/`GCellGrid`/
+  `Placement`/`PhysicalPort`/`PhysicalPortSegment`/`Blockage`/`LayoutVia`/
+  `Region`/`Route`/`NonDefaultRule` (`schema.py`) — the full Step 1 reader
+  scope (DESIGN/VERSION/UNITS/DIEAREA/ROW/TRACKS/GCELLGRID/COMPONENTS/
+  PINS/BLOCKAGES/VIAS/REGIONS/NETS/SPECIALNETS/NONDEFAULTRULES). NETS/
+  SPECIALNETS cover routing *geometry* only, not connectivity — see
+  `Route`'s own `schema.py` comment. No `DEFWriter` yet.
+  Most DEF coordinate/dimension values (ROW/TRACKS/GCELLGRID/DIEAREA/
+  COMPONENTS placement, routed-path points, etc.) are already expressed
+  directly in database units in the file itself, unlike LEF (fully
+  micron-based, every value needing `microns_to_dbu()`) — confirmed
+  against `complete.5.8.def`'s own fixture data, `DEFReader` casts these
+  directly to `int64_t`/`int`. The one confirmed exception is
+  NONDEFAULTRULES LAYER WIDTH/SPACING/WIREEXT/DIAGWIDTH, written in real
+  microns — `defiNonDefault`'s own `layerWidthVal()`-style accessors
+  looked like the DBU-converted form but actually just truncate the raw
+  micron double to an int (found by testing against real fixture values:
+  `10.1` came back as `10`, not `10100`) — real conversion needs the
+  plain micron accessor times the shared `Technology`'s own
+  `database_units_microns`, same as every LEF conversion; `DEFReader`
+  only resolves/creates that shared `Technology` (mirroring `LEFReader`'s
+  own reuse-or-create) for this one construct, and `defrUnitsCbkFn`
+  writes `database_units_microns` from DEF's own `UNITS DISTANCE
+  MICRONS` the same way LEF's own units callback does.
   Tested against `src/lefdef/def/TEST/complete.5.8.def` (`def_reader_test.cpp`).
-  No `DEFWriter` yet.
 - `src/api/` — `api.hpp`/`api.cpp`, the C API surface a Flutter plugin's
   Dart FFI binds to: an opaque `LeHandle` (`le_create`/`le_destroy`)
   wrapping one `Root`/`ViewLayerSet`/`Scene`/`Pipeline`/`Renderer` per
@@ -468,9 +482,11 @@ because the mechanism can't reach them; this has no bearing on
 
 ## Open gaps (tracked in README's Plan checklist)
 
-- `DEFReader` only covers DESIGN/VERSION/UNITS/DIEAREA/ROW/TRACKS/
-  GCELLGRID so far — COMPONENTS/PINS/BLOCKAGES/VIAS/NETS/REGIONS/
-  NONDEFAULTRULES and a `DEFWriter` are still to come.
+- `DEFReader` covers the full Step 1 reader scope now (see its own
+  `src/io/` bullet above) — a `DEFWriter` is still to come. NETS/
+  SPECIALNETS connectivity (as opposed to routing geometry), per-layer
+  WIDTH overrides, direct net-level RECT/POLYGON/VIA forms, SHIELD nets,
+  and STYLE/SHAPE/TAPERRULE metadata remain deferred within that scope.
 - Skia isn't vendored/built by this project — `src/render/`'s
   `CMakeLists.txt` `skia` target points `SKIA_DIR` at a pre-built checkout
   (default `/Volumes/Docking/Projects/synthosilicon/skia/skia`, override with
