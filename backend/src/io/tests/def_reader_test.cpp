@@ -456,6 +456,92 @@ namespace le
         EXPECT_FALSE(eleventh->placement.valid());
     }
 
+    TEST_F(DEFReaderCompleteFixture, CreatesEveryLayoutViaWithCorrectFields)
+    {
+        const DesignId design_id = root.get_design_by_name("design");
+        const LayoutId layout_id = root.get_design_layout(design_id);
+        const std::vector<LayoutViaId> via_ids = root.get_layout_vias(layout_id);
+        ASSERT_EQ(via_ids.size(), 11u);
+
+        auto find_id_by_name = [&](const std::string &name) -> LayoutViaId
+        {
+            for (const LayoutViaId id : via_ids)
+            {
+                const LayoutViaData *via = root.get_layout_via(id);
+                if (via && via->name == name)
+                    return id;
+            }
+            return LayoutViaId{};
+        };
+        auto find_layer = [&](LayoutViaId id, const std::string &layer_name) -> const ViaLayerData *
+        {
+            for (const ViaLayerId layer_id : root.get_layout_via_layers(id))
+                if (const ViaLayerData *layer = root.get_via_layer(layer_id); layer && layer->layer_name == layer_name)
+                    return layer;
+            return nullptr;
+        };
+
+        // VIAGEN12_0: 4 RECT statements on V1 alone, grouped into one
+        // ViaLayer (not 4 separate ones) - same grouping idiom as
+        // shapes_from_pin_like.
+        const LayoutViaId viagen0_id = find_id_by_name("VIAGEN12_0");
+        ASSERT_TRUE(viagen0_id.valid());
+        ASSERT_EQ(root.get_layout_via_layers(viagen0_id).size(), 3u);
+        const ViaLayerData *viagen0_v1 = find_layer(viagen0_id, "V1");
+        ASSERT_NE(viagen0_v1, nullptr);
+        EXPECT_EQ(viagen0_v1->rects.size(), 4u);
+        const ViaLayerData *viagen0_metal1 = find_layer(viagen0_id, "METAL1");
+        ASSERT_NE(viagen0_metal1, nullptr);
+        ASSERT_EQ(viagen0_metal1->rects.size(), 1u);
+        EXPECT_EQ(viagen0_metal1->rects[0].ll.x, -4400);
+        EXPECT_EQ(viagen0_metal1->rects[0].ur.y, 3800);
+
+        // VIAGEN12_4: VIARULE-generated, no RECT layers of its own.
+        const LayoutViaId viagen4_id = find_id_by_name("VIAGEN12_4");
+        ASSERT_TRUE(viagen4_id.valid());
+        EXPECT_EQ(root.get_layout_via_layers(viagen4_id).size(), 0u);
+        const ViaRuleReferenceId via_rule_id = root.get_layout_via_via_rule(viagen4_id);
+        ASSERT_TRUE(via_rule_id.valid());
+        const ViaRuleReferenceData *via_rule = root.get_via_rule_reference(via_rule_id);
+        ASSERT_NE(via_rule, nullptr);
+        EXPECT_EQ(via_rule->via_rule_name, "VIAGEN12");
+        ASSERT_TRUE(via_rule->cut_size.has_value());
+        EXPECT_EQ(via_rule->cut_size->x, 1600);
+        EXPECT_EQ(via_rule->cut_size->y, 1600);
+        EXPECT_EQ(via_rule->bot_layer_name, "M1");
+        EXPECT_EQ(via_rule->cut_layer_name, "V1");
+        EXPECT_EQ(via_rule->top_layer_name, "M2");
+        ASSERT_TRUE(via_rule->cut_spacing.has_value());
+        EXPECT_EQ(via_rule->cut_spacing->x, 5600);
+        EXPECT_EQ(via_rule->cut_spacing->y, 6100);
+        ASSERT_TRUE(via_rule->bot_enclosure.has_value());
+        EXPECT_EQ(via_rule->bot_enclosure->x, 100);
+        ASSERT_TRUE(via_rule->top_enclosure.has_value());
+        EXPECT_EQ(via_rule->top_enclosure->x, 150);
+
+        // VIAGEN12_1: one POLYGON layer plus two RECT layers.
+        const LayoutViaId viagen1_id = find_id_by_name("VIAGEN12_1");
+        ASSERT_TRUE(viagen1_id.valid());
+        const ViaLayerData *viagen1_metal1 = find_layer(viagen1_id, "METAL1");
+        ASSERT_NE(viagen1_metal1, nullptr);
+        ASSERT_EQ(viagen1_metal1->polygons.size(), 1u);
+        EXPECT_EQ(viagen1_metal1->polygons[0].points.size(), 6u);
+        EXPECT_EQ(viagen1_metal1->rects.size(), 0u);
+        ASSERT_NE(find_layer(viagen1_id, "M2"), nullptr);
+        ASSERT_NE(find_layer(viagen1_id, "V1"), nullptr);
+
+        // CUSTOMVIA: POLYGON only, no via_rule.
+        const LayoutViaId custom_id = find_id_by_name("CUSTOMVIA");
+        ASSERT_TRUE(custom_id.valid());
+        ASSERT_EQ(root.get_layout_via_layers(custom_id).size(), 1u);
+        EXPECT_FALSE(root.get_layout_via_via_rule(custom_id).valid());
+
+        // myvia1: 3 RECT layers, no via_rule.
+        const LayoutViaId myvia1_id = find_id_by_name("myvia1");
+        ASSERT_TRUE(myvia1_id.valid());
+        ASSERT_EQ(root.get_layout_via_layers(myvia1_id).size(), 3u);
+    }
+
     TEST(DEFReaderErrors, FileNotFoundReturnsOne)
     {
         Root root;

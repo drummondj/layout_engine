@@ -503,6 +503,78 @@ namespace le
         return 0;
     }
 
+    int DEFReader::defrViaCbkFn(defrCallbackType_e /*typ*/, defiVia *via, void *user_data)
+    {
+        auto reader = static_cast<DEFReader *>(user_data);
+        if (!reader->layout_id_.valid())
+        {
+            log_error("VIA {} statement seen before DESIGN - ignored.", via->name());
+            return 0;
+        }
+
+        const LayoutViaId layout_via_id = reader->root_->create_layout_via(LayoutViaData{
+            .layout = reader->layout_id_,
+            .name = via->name(),
+        });
+
+        // Group rects/polygons by layer name, same idiom as
+        // shapes_from_pin_like - a DEF-level VIA's own per-layer geometry
+        // is otherwise structurally identical to a LEF VIA's (ViaLayer
+        // already models both, see its own schema.py comment).
+        std::vector<ViaLayerData> via_layers;
+        auto find_or_create = [&](const std::string &layer_name) -> ViaLayerData &
+        {
+            for (ViaLayerData &via_layer : via_layers)
+                if (via_layer.layer_name == layer_name)
+                    return via_layer;
+            via_layers.push_back(ViaLayerData{.layout_via = layout_via_id, .layer_name = layer_name});
+            return via_layers.back();
+        };
+
+        for (int i = 0; i < via->numLayers(); i++)
+        {
+            char *layer_name = nullptr;
+            int xl = 0, yl = 0, xh = 0, yh = 0;
+            via->layer(i, &layer_name, &xl, &yl, &xh, &yh);
+            find_or_create(layer_name).rects.push_back(Rect{.ll = {.x = xl, .y = yl}, .ur = {.x = xh, .y = yh}});
+        }
+        for (int i = 0; i < via->numPolygons(); i++)
+        {
+            const defiPoints points = via->getPolygon(i);
+            Polygon polygon;
+            polygon.points.reserve(static_cast<size_t>(points.numPoints));
+            for (int j = 0; j < points.numPoints; j++)
+                polygon.points.push_back(Point{.x = points.x[j], .y = points.y[j]});
+            find_or_create(via->polygonName(i)).polygons.push_back(std::move(polygon));
+        }
+        for (ViaLayerData &via_layer : via_layers)
+            reader->root_->create_via_layer(std::move(via_layer));
+
+        if (via->hasViaRule())
+        {
+            char *via_rule_name = nullptr;
+            char *bot_layer = nullptr;
+            char *cut_layer = nullptr;
+            char *top_layer = nullptr;
+            int x_size = 0, y_size = 0, x_cut_spacing = 0, y_cut_spacing = 0;
+            int x_bot_enc = 0, y_bot_enc = 0, x_top_enc = 0, y_top_enc = 0;
+            via->viaRule(&via_rule_name, &x_size, &y_size, &bot_layer, &cut_layer, &top_layer,
+                         &x_cut_spacing, &y_cut_spacing, &x_bot_enc, &y_bot_enc, &x_top_enc, &y_top_enc);
+            reader->root_->create_via_rule_reference(ViaRuleReferenceData{
+                .layout_via = layout_via_id,
+                .via_rule_name = via_rule_name,
+                .cut_size = Point{.x = x_size, .y = y_size},
+                .bot_layer_name = bot_layer,
+                .cut_layer_name = cut_layer,
+                .top_layer_name = top_layer,
+                .cut_spacing = Point{.x = x_cut_spacing, .y = y_cut_spacing},
+                .bot_enclosure = Point{.x = x_bot_enc, .y = y_bot_enc},
+                .top_enclosure = Point{.x = x_top_enc, .y = y_top_enc},
+            });
+        }
+        return 0;
+    }
+
     int DEFReader::read_def(std::string filename, Root &root, std::string library_name)
     {
         defrInit();
@@ -519,6 +591,7 @@ namespace le
         defrSetComponentCbk(defrComponentCbkFn);
         defrSetPinCbk(defrPinCbkFn);
         defrSetBlockageCbk(defrBlockageCbkFn);
+        defrSetViaCbk(defrViaCbkFn);
         defrSetLogFunction(&DEFReader::defrLogFn);
         defrSetWarningLogFunction(&DEFReader::defrLogFn);
 
