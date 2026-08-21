@@ -121,6 +121,162 @@ namespace
         }
         return shapes;
     }
+
+    // Same combined-mask convention as LEFReader::combine_via_mask
+    // (lef_reader.cpp) - kept as its own copy since that one is scoped to
+    // its own anonymous namespace, not shared/exported.
+    int combine_via_mask(int top, int cut, int bottom)
+    {
+        return top * 100 + cut * 10 + bottom;
+    }
+
+    // Walks one defiPath's ordered element stream (LAYER/WIDTH/POINT/
+    // FLUSHPOINT/VIA/VIAROTATION/VIAMASK/VIADATA, ...) into Shape entries
+    // grouped by layer name (find_or_create, same idiom as
+    // shapes_from_pin_like/the VIAS callback above) - appended into the
+    // caller's own `shapes` accumulator, since a Net's several wires/
+    // paths (ROUTED, NEW, ...) all contribute to the same flat set of
+    // per-layer Shapes. VIAROTATION/VIAMASK are their own separate
+    // stream elements *after* a VIA element (confirmed against
+    // defiPath.cpp: getViaRotationStr()/getViaTopMask() etc. read
+    // key_[*pointer_], returning nothing unless positioned exactly at an
+    // 'O'/'C' element) - not attached to the VIA element itself, hence
+    // the pending_via accumulator finalized whenever a *different*
+    // element type is seen. Not yet handled: DEFIPATH_RECT (a
+    // rectangular path segment, rare), DEFIPATH_TAPER/TAPERRULE/SHAPE/
+    // STYLE (manufacturing/rendering-hint metadata with no schema field
+    // for it yet) - skipped, not erroring.
+    void append_shapes_from_path(std::vector<le::Shape> &shapes, defiPath *path)
+    {
+        auto find_or_create = [&](const std::string &layer_name) -> le::Shape &
+        {
+            for (le::Shape &shape : shapes)
+                if (shape.layer_name == layer_name)
+                    return shape;
+            shapes.push_back(le::Shape{.layer_name = layer_name});
+            return shapes.back();
+        };
+
+        le::Shape *current_shape = nullptr;
+        int64_t current_width = 0;
+        std::vector<le::Point> current_points;
+        le::Point last_point{};
+
+        struct PendingVia
+        {
+            std::string via_name;
+            le::Point origin;
+            std::optional<le::Orientation> orientation;
+            std::optional<int> mask;
+            bool is_array = false;
+            int num_x = 0, num_y = 0;
+            int64_t space_x = 0, space_y = 0;
+        };
+        std::optional<PendingVia> pending_via;
+
+        auto finalize_via = [&]()
+        {
+            if (pending_via && current_shape)
+            {
+                if (pending_via->is_array)
+                {
+                    current_shape->via_iterates.push_back(le::ShapeViaIterate{
+                        .via_name = pending_via->via_name,
+                        .origin = pending_via->origin,
+                        .orientation = pending_via->orientation,
+                        .num_x = pending_via->num_x,
+                        .num_y = pending_via->num_y,
+                        .space_x = pending_via->space_x,
+                        .space_y = pending_via->space_y,
+                        .mask = pending_via->mask,
+                    });
+                }
+                else
+                {
+                    current_shape->vias.push_back(le::ShapeVia{
+                        .via_name = pending_via->via_name,
+                        .origin = pending_via->origin,
+                        .orientation = pending_via->orientation,
+                        .mask = pending_via->mask,
+                    });
+                }
+            }
+            pending_via.reset();
+        };
+
+        auto flush_path = [&]()
+        {
+            if (current_shape && current_points.size() >= 2)
+                current_shape->paths.push_back(le::Path{.polygon = le::Polygon{.points = current_points}, .width = current_width});
+            current_points.clear();
+        };
+
+        path->initTraverse();
+        int type;
+        while ((type = path->next()) != DEFIPATH_DONE)
+        {
+            if (type != DEFIPATH_VIAROTATION && type != DEFIPATH_VIAMASK && type != DEFIPATH_VIADATA)
+                finalize_via();
+
+            switch (type)
+            {
+            case DEFIPATH_LAYER:
+                flush_path();
+                current_shape = &find_or_create(path->getLayer());
+                break;
+            case DEFIPATH_WIDTH:
+                current_width = path->getWidth();
+                break;
+            case DEFIPATH_POINT:
+            {
+                int x = 0, y = 0;
+                path->getPoint(&x, &y);
+                last_point = le::Point{.x = x, .y = y};
+                current_points.push_back(last_point);
+                break;
+            }
+            case DEFIPATH_FLUSHPOINT:
+            {
+                int x = 0, y = 0, ext = 0;
+                path->getFlushPoint(&x, &y, &ext);
+                last_point = le::Point{.x = x, .y = y};
+                current_points.push_back(last_point);
+                break;
+            }
+            case DEFIPATH_VIA:
+                pending_via = PendingVia{.via_name = path->getVia(), .origin = last_point};
+                break;
+            case DEFIPATH_VIAROTATION:
+                if (pending_via)
+                    pending_via->orientation = le::orientation_from_string(path->getViaRotationStr());
+                break;
+            case DEFIPATH_VIAMASK:
+                if (pending_via)
+                {
+                    const int mask = combine_via_mask(path->getViaTopMask(), path->getViaCutMask(), path->getViaBottomMask());
+                    if (mask != 0)
+                        pending_via->mask = mask;
+                }
+                break;
+            case DEFIPATH_VIADATA:
+                if (pending_via)
+                {
+                    int num_x = 0, num_y = 0, space_x = 0, space_y = 0;
+                    path->getViaData(&num_x, &num_y, &space_x, &space_y);
+                    pending_via->is_array = true;
+                    pending_via->num_x = num_x;
+                    pending_via->num_y = num_y;
+                    pending_via->space_x = space_x;
+                    pending_via->space_y = space_y;
+                }
+                break;
+            default:
+                break;
+            }
+        }
+        flush_path();
+        finalize_via();
+    }
 }
 
 namespace le
@@ -598,6 +754,59 @@ namespace le
         return 0;
     }
 
+    int DEFReader::read_net(defiNet *net, void *user_data, bool is_special)
+    {
+        auto reader = static_cast<DEFReader *>(user_data);
+        if (!reader->layout_id_.valid())
+        {
+            log_error("NET {} statement seen before DESIGN - ignored.", net->name());
+            return 0;
+        }
+
+        RouteData data{
+            .layout = reader->layout_id_,
+            .name = net->name(),
+            .is_special = is_special,
+        };
+        if (net->hasUse())
+            data.use = net->use();
+        if (is_special && net->hasVoltage())
+            data.voltage = net->voltage();
+        // Per-layer WIDTH overrides (DEF SPECIALNETS WIDTH layerName
+        // dist, can appear more than once per net) aren't modeled -
+        // Route.width would need to become a per-layer child klass (same
+        // shape as NonDefaultRuleLayer) to represent correctly; deferred,
+        // not a geometry-correctness concern the way PhysicalPortSegment's
+        // own placement was - each routed path's actual width already
+        // comes through per-Path via append_shapes_from_path below.
+
+        const RouteId route_id = reader->root_->create_route(std::move(data));
+
+        std::vector<Shape> shapes;
+        for (int i = 0; i < net->numWires(); i++)
+        {
+            defiWire *wire = net->wire(i);
+            for (int j = 0; j < wire->numPaths(); j++)
+                append_shapes_from_path(shapes, wire->path(j));
+        }
+        for (Shape &shape : shapes)
+        {
+            shape.route = route_id;
+            reader->root_->create_shape(std::move(shape));
+        }
+        return 0;
+    }
+
+    int DEFReader::defrNetCbkFn(defrCallbackType_e /*typ*/, defiNet *net, void *user_data)
+    {
+        return read_net(net, user_data, false);
+    }
+
+    int DEFReader::defrSNetCbkFn(defrCallbackType_e /*typ*/, defiNet *net, void *user_data)
+    {
+        return read_net(net, user_data, true);
+    }
+
     int DEFReader::read_def(std::string filename, Root &root, std::string library_name)
     {
         defrInit();
@@ -616,6 +825,8 @@ namespace le
         defrSetBlockageCbk(defrBlockageCbkFn);
         defrSetViaCbk(defrViaCbkFn);
         defrSetRegionCbk(defrRegionCbkFn);
+        defrSetNetCbk(defrNetCbkFn);
+        defrSetSNetCbk(defrSNetCbkFn);
         defrSetLogFunction(&DEFReader::defrLogFn);
         defrSetWarningLogFunction(&DEFReader::defrLogFn);
 

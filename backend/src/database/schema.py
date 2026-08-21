@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.35.0",
+    version="0.36.0",
     classes=[
         Klass(
             name="Technology",
@@ -1554,21 +1554,23 @@ schema = Schema(
         ),
         Klass(
             name="ShapeVia",
-            description="One VIA placement within a Shape's LAYER occurrence (LEF PORT/OBS VIA)",
+            description="One VIA placement within a Shape's LAYER occurrence (LEF PORT/OBS VIA, or a DEF NETS/SPECIALNETS routed path's own simple, non-arrayed VIA placement)",
             has_pool=False,
             fields=[
                 Field(name="via_name", description="The name of the via", type="str", example="VIA12"),
                 Field(name="origin", description="In database units", type="Point"),
+                Field(name="orientation", description="DEF routed-path VIA placements can carry an explicit orientation (e.g. \"M1_M2 FN\") - unset if omitted (always unset for LEF, which has no such syntax here)", type="Orientation", is_optional=True),
                 Field(name="mask", description="MASK color (5.8) - a combined up-to-3-digit number (top*100 + cut*10 + bottom), matching both how the vendored reader reports it (three separate topMaskNum/cutMaskNum/bottomMaskNum digits, recombined - see lef_reader.cpp's combine_via_mask) and the single combined value the vendored writer accepts back", type="int", example=0, is_optional=True),
             ],
         ),
         Klass(
             name="ShapeViaIterate",
-            description="One raw VIA ITERATE statement within a Shape's LAYER occurrence, stored as-is (same convention as RectIterate/PathIterate/PolygonIterate) - unlike those, Pipeline::generate_shapes does not yet expand this one into concrete placements, since nothing currently renders VIA geometry",
+            description="One raw VIA ITERATE statement within a Shape's LAYER occurrence, stored as-is (same convention as RectIterate/PathIterate/PolygonIterate) - unlike those, Pipeline::generate_shapes does not yet expand this one into concrete placements, since nothing currently renders VIA geometry. Also covers a DEF NETS/SPECIALNETS routed path's own arrayed VIA placement (\"VIA DO n BY m STEP x y\") - structurally the same shape as LEF's VIA ITERATE.",
             has_pool=False,
             fields=[
                 Field(name="via_name", description="The name of the via", type="str", example="VIA12"),
                 Field(name="origin", description="In database units", type="Point"),
+                Field(name="orientation", description="Same as ShapeVia.orientation - unset if omitted", type="Orientation", is_optional=True),
                 Field(name="num_x", description="LEF DO n", type="int", example=2),
                 Field(name="num_y", description="LEF BY m", type="int", example=2),
                 Field(name="space_x", description="LEF STEP x, in database units", type="dbu"),

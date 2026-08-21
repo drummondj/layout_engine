@@ -582,6 +582,78 @@ namespace le
         EXPECT_EQ(region2->rects[0].ur.y, 1000);
     }
 
+    TEST_F(DEFReaderCompleteFixture, CreatesRoutesWithRoutedGeometry)
+    {
+        const DesignId design_id = root.get_design_by_name("design");
+        const LayoutId layout_id = root.get_design_layout(design_id);
+        const std::vector<RouteId> route_ids = root.get_layout_routes(layout_id);
+
+        auto find_id_by_name_and_kind = [&](const std::string &name, bool is_special) -> RouteId
+        {
+            for (const RouteId id : route_ids)
+            {
+                const RouteData *route = root.get_route(id);
+                if (route && route->name == name && route->is_special == is_special)
+                    return id;
+            }
+            return RouteId{};
+        };
+        auto shapes_of = [&](RouteId id) -> std::vector<const Shape *>
+        {
+            std::vector<const Shape *> result;
+            for (const ShapeId shape_id : root.get_route_shapes(id))
+                if (const Shape *shape = root.get_shape(shape_id))
+                    result.push_back(shape);
+            return result;
+        };
+
+        // DUMMY (SPECIALNETS): a single "+ ROUTED M1 100 + SHAPE FILLWIRE
+        // ( 0 0 ) ( 100 0 ) ;" - one Shape on M1, one 2-point Path, width
+        // 100. SHAPE FILLWIRE itself isn't modeled (no schema field).
+        const RouteId dummy_id = find_id_by_name_and_kind("DUMMY", true);
+        ASSERT_TRUE(dummy_id.valid());
+        const RouteData *dummy = root.get_route(dummy_id);
+        ASSERT_NE(dummy, nullptr);
+        EXPECT_TRUE(dummy->is_special);
+        const std::vector<const Shape *> dummy_shapes = shapes_of(dummy_id);
+        ASSERT_EQ(dummy_shapes.size(), 1u);
+        EXPECT_EQ(dummy_shapes[0]->layer_name, "M1");
+        ASSERT_EQ(dummy_shapes[0]->paths.size(), 1u);
+        EXPECT_EQ(dummy_shapes[0]->paths[0].width, 100);
+        ASSERT_EQ(dummy_shapes[0]->paths[0].polygon.points.size(), 2u);
+        EXPECT_EQ(dummy_shapes[0]->paths[0].polygon.points[0].x, 0);
+        EXPECT_EQ(dummy_shapes[0]->paths[0].polygon.points[1].x, 100);
+
+        // N6 (NETS): 3 separate top-level ROUTED statements, all on M1 -
+        // grouped into one Shape (find_or_create by layer name), each its
+        // own Path (3 total), no explicit WIDTH given -> defaults to 0.
+        const RouteId n6_id = find_id_by_name_and_kind("N6", false);
+        ASSERT_TRUE(n6_id.valid());
+        EXPECT_FALSE(root.get_route(n6_id)->is_special);
+        const std::vector<const Shape *> n6_shapes = shapes_of(n6_id);
+        ASSERT_EQ(n6_shapes.size(), 1u);
+        EXPECT_EQ(n6_shapes[0]->layer_name, "M1");
+        ASSERT_EQ(n6_shapes[0]->paths.size(), 3u);
+        for (const Path &path : n6_shapes[0]->paths)
+        {
+            EXPECT_EQ(path.width, 0);
+            EXPECT_EQ(path.polygon.points.size(), 2u);
+        }
+
+        // N4 (NETS): USE GROUND, + a routed path with a VIA (VIAGEN12) in
+        // the middle - confirms VIA attachment at the last point seen.
+        const RouteId n4_id = find_id_by_name_and_kind("N4", false);
+        ASSERT_TRUE(n4_id.valid());
+        ASSERT_TRUE(root.get_route(n4_id)->use.has_value());
+        EXPECT_EQ(*root.get_route(n4_id)->use, "GROUND");
+        const std::vector<const Shape *> n4_shapes = shapes_of(n4_id);
+        bool found_via = false;
+        for (const Shape *shape : n4_shapes)
+            if (!shape->vias.empty())
+                found_via = true;
+        EXPECT_TRUE(found_via);
+    }
+
     TEST(DEFReaderErrors, FileNotFoundReturnsOne)
     {
         Root root;

@@ -9,8 +9,10 @@
 namespace le
 {
     // First-pass DEFReader (migration Step 1): DESIGN/VERSION/UNITS/DIEAREA/
-    // ROW/TRACKS/GCELLGRID/COMPONENTS/PINS/BLOCKAGES/VIAS/REGIONS only -
-    // NETS/NONDEFAULTRULES are added in later rounds (see
+    // ROW/TRACKS/GCELLGRID/COMPONENTS/PINS/BLOCKAGES/VIAS/REGIONS/NETS/
+    // SPECIALNETS only (routing geometry, not connectivity - see Route's
+    // own schema.py comment) - NONDEFAULTRULES is added in a later round
+    // (see
     // PROJECT_MIGRATION.md and this project's own plan history). Mirrors
     // LEFReader's own shape (callback-registration-then-defrRead driver,
     // instance-held parser-scratch state, thread_local message-bridging for
@@ -39,6 +41,12 @@ namespace le
         static int defrBlockageCbkFn(defrCallbackType_e typ, defiBlockage *blockage, void *user_data);
         static int defrViaCbkFn(defrCallbackType_e typ, defiVia *via, void *user_data);
         static int defrRegionCbkFn(defrCallbackType_e typ, defiRegion *region, void *user_data);
+        static int defrNetCbkFn(defrCallbackType_e typ, defiNet *net, void *user_data);
+        static int defrSNetCbkFn(defrCallbackType_e typ, defiNet *net, void *user_data);
+        // Shared by both - a NET and a SPECIALNET arrive as the same
+        // defiNet type (defrNetCbkFnType), only distinguished by which
+        // callback fired.
+        static int read_net(defiNet *net, void *user_data, bool is_special);
 
         // Registered for both defrSetLogFunction and
         // defrSetWarningLogFunction - see LEFReader::lefrLogFn's own
