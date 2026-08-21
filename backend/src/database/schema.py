@@ -1400,7 +1400,7 @@ schema = Schema(
         ),
         Klass(
             name="Shape",
-            description="A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PinPort/Blockage/Net (mutually exclusive - at most one of these parent fields is ever set on a given Shape)",
+            description="A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PinPort/Blockage/Net/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes - a programmatically-added BOUNDARY layer/purpose (not a real LEF/DEF Layer) is used for layer_name in both cases, see src/view_style's own ViewLayerSet::boundary_view_layer().",
             has_pool=True,
             fields=[
                 Field(
@@ -1432,6 +1432,18 @@ schema = Schema(
                     description="Owning Net, if this Shape belongs to one (unset/invalid otherwise)",
                     type="Net",
                     parent="shapes",
+                ),
+                Field(
+                    name="layout",
+                    description="Owning Layout, if this Shape is that Layout's own diearea (unset/invalid otherwise) - singular, not a list (a Layout has at most one diearea Shape)",
+                    type="Layout",
+                    parent="diearea",
+                ),
+                Field(
+                    name="abstract",
+                    description="Owning Abstract, if this Shape is that Abstract's own boundary (unset/invalid otherwise) - singular, not a list (an Abstract has at most one boundary Shape, itself potentially holding several polygons - see Abstract.boundary's own comment)",
+                    type="Abstract",
+                    parent="boundary",
                 ),
                 Field(
                     name="layer_name",
@@ -1728,10 +1740,10 @@ schema = Schema(
                 ),
                 Field(
                     name="boundary",
-                    description="The boundary of the abstract. If the block is rectilinear, then this matches the OVERLAP layer, otherwise it is the same as bbox.",
-                    type="Polygon",
-                    is_list=True,
-                    create_excluded=True,  # structurally list_compound-eligible but deferred - this round scoped to Shape.rects/polygons/paths only
+                    description="The boundary of the abstract, as a Shape on the programmatic BOUNDARY layer (its own polygons list can hold several disjoint polygons). If the block is rectilinear, this matches the OVERLAP layer; otherwise it's the same as bbox. Previously a bare List[Polygon] field, create_excluded since that shape had no working create/update path (see Layout.diearea's own comment on why) - a real Shape reuses proven machinery, and lets the render pipeline reference one persisted Shape (generate_shapes_stage.hpp) instead of synthesizing one on every render.",
+                    type="Shape",
+                    is_child=True,
+                    is_optional=True,
                 ),
                 Field(
                     name="symmetry",
@@ -2215,7 +2227,7 @@ schema = Schema(
             has_current_access=True,
             fields=[
                 Field(name="design", description="Parent design", type="Design", parent="layout"),
-                Field(name="diearea_points", description="The chip/block boundary (DEF DIEAREA), as an ordered list of points - not necessarily a plain 2-point rectangle (DEF 5.6+ allows more), same list-of-Point shape as Polygon.points but modeled as a direct list field here (a single non-list Polygon field has no precedent elsewhere in this schema, unlike Shape.rects/List[Rect]'s already-proven flat list-compound shape)", type="Point", is_list=True),
+                Field(name="diearea", description="The chip/block boundary (DEF DIEAREA), as a Shape on the programmatic BOUNDARY layer (not necessarily a plain 2-point rectangle - DEF 5.6+ allows more) - reuses Shape's own already-proven rects/polygons create/update machinery rather than a bespoke single-Polygon field (which has no precedent elsewhere in this schema and no working create/update path)", type="Shape", is_child=True, is_optional=True),
                 Field(name="rows", description="Placement rows (DEF ROW)", type="Row", is_list=True, is_child=True),
                 Field(name="tracks", description="Routing track patterns (DEF TRACKS)", type="Track", is_list=True, is_child=True),
                 Field(name="gcell_grids", description="Global-routing gcell grid lines (DEF GCELLGRID)", type="GCellGrid", is_list=True, is_child=True),

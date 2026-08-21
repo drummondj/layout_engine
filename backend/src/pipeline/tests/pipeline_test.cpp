@@ -141,7 +141,7 @@ TEST_F(PipelineFixture, GenerateShapesResolvesViewLayerByOrigin)
 
 TEST_F(PipelineFixture, GenerateShapesIncludesAbstractBoundaryResolvedToBoundaryViewLayer)
 {
-    root.get_abstract(abstract_id)->boundary = {Polygon{.points = {{0, 0}, {0, 100}, {100, 100}, {100, 0}, {0, 0}}}};
+    root.create_shape(ShapeData{.abstract = abstract_id, .layer_name = "BOUNDARY", .polygons = {Polygon{.points = {{0, 0}, {0, 100}, {100, 100}, {100, 0}, {0, 0}}}}});
 
     const auto &shapes = pipeline.generate_shapes(root, abstract_id, view_layers);
     ASSERT_EQ(shapes.size(), 1u);
@@ -937,7 +937,7 @@ TEST_F(PipelineFixture, HitTestPointReturnsNulloptOnAMiss)
 
 TEST_F(PipelineFixture, HitTestPointNeverHitsTheBoundaryShape)
 {
-    root.get_abstract(abstract_id)->boundary = {Polygon{.points = {{0, 0}, {0, 1000}, {1000, 1000}, {1000, 0}, {0, 0}}}};
+    root.create_shape(ShapeData{.abstract = abstract_id, .layer_name = "BOUNDARY", .polygons = {Polygon{.points = {{0, 0}, {0, 1000}, {1000, 1000}, {1000, 0}, {0, 0}}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -1023,7 +1023,7 @@ TEST_F(PipelineFixture, HitTestRectSkipsAnUnselectableLayer)
 
 TEST_F(PipelineFixture, HitTestRectNeverReturnsTheBoundaryShape)
 {
-    root.get_abstract(abstract_id)->boundary = {Polygon{.points = {{0, 0}, {0, 1000}, {1000, 1000}, {1000, 0}, {0, 0}}}};
+    root.create_shape(ShapeData{.abstract = abstract_id, .layer_name = "BOUNDARY", .polygons = {Polygon{.points = {{0, 0}, {0, 1000}, {1000, 1000}, {1000, 0}, {0, 0}}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);

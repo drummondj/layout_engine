@@ -247,10 +247,10 @@ namespace le
                     }
                 }
 
-                if (const AbstractData *abstract = root.get_abstract(abstract_id); abstract && !abstract->boundary.empty())
+                if (const Shape *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id)))
                 {
                     shapes.push_back(RenderedShape{
-                        .shape = Shape{.layer_name = "BOUNDARY", .polygons = abstract->boundary},
+                        .shape = *boundary_shape,
                         .view_layer = view_layers.boundary_view_layer(),
                     });
                 }

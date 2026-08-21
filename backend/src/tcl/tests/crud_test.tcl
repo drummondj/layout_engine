@@ -303,8 +303,12 @@ check "get_terminal_ports -filter relational + list-hop match" $port $port_match
 check "get_shapes -of \$port finds only the created shape" $shape [get_shapes -of $port]
 # The default (no -of) scope also picks up the fixture's own LEF-authored
 # PIN A, which has its own Port+Shape (shape:0, created while reading
-# testcell.lef) - not just the one this test just created (shape:1).
-check "get_shapes default scope finds every Shape in the current view" {shape:0 shape:1} [get_shapes]
+# testcell.lef) - not just the one this test just created (shape:2). Note
+# shape:1 is skipped here: it's the Abstract's own boundary Shape, created
+# by post_process() at the end of reading this same MACRO (see
+# lef_reader.cpp) - correctly excluded from get_shapes' own default scope,
+# which is only terminal_port/obstruction shapes, not abstract/layout ones.
+check "get_shapes default scope finds every Shape in the current view" {shape:0 shape:2} [get_shapes]
 
 check "get_properties on a shape token" M1 [dict get [get_properties $shape] layer_name]
 
@@ -404,9 +408,9 @@ check "get_obstructions after delete" {} [get_obstructions -filter {.shapes.laye
 # leaf rather than a coordinate-list typemap (see Klass.cmd_tcl_preamble's
 # own docstring, codegen/codegen/schema.py). update_abstract_boundary
 # (the one hand-written update_* command) is gone - Abstract.boundary is
-# a list field, out of create_<type>/update_<type>'s flag-per-field
-# scope, same as Shape's rects/polygons/paths - boundary-setting is
-# unsupported via TCL until a future round adds list-field support. ---
+# now a real child Shape (create_shape -abstract <token>, same as any
+# other Shape owner), not a bare polygon list, so it needs no bespoke
+# update command at all. ---
 
 set updated_abstract [update_abstract $abstract_token -size {2.0 3.0} -origin {0.5 0.5} -bbox {0 0 10 10} -symmetry {X R90}]
 check "update_abstract returns the (unchanged, non-name-based) friendly id" $abstract_token $updated_abstract

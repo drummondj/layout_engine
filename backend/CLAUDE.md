@@ -213,10 +213,12 @@ none of these are duplicated here.
   `remove_shape_rect`/`_polygon`/`_path` (remove one entry by index) are
   the sole remaining hand-written CRUD-ish leftover, since removing one
   geometry entry by index isn't per-class flag-driven CRUD in the same
-  sense `delete_<type>` is. `Abstract.boundary` (a list field structurally
-  eligible the same way, but out of this round's scope) has no update
-  path yet — see `Field.create_excluded` in `codegen/codegen/schema.py`
-  for the deliberately-deferred fields. Fully covered by
+  sense `delete_<type>` is. `Abstract.boundary`/`Layout.diearea` are each
+  a real child `Shape` (not a bare polygon list) — reusing `Shape`'s own
+  proven create/update machinery instead of adding bespoke single/list-
+  Polygon-field support, since no other field in the schema has that
+  shape — see `Field.create_excluded` in `codegen/codegen/schema.py`
+  for fields still deliberately deferred. Fully covered by
   `src/tcl/tests/smoke_test.tcl`/`crud_test.tcl`/`shell_test.tcl` (run via
   `tclsh8.6`, not the generic `tclsh` — see the `build-test` skill).
 - `src/lefdef/` — vendored LEF/DEF 6.0.62-p004 C parser source (Si2 distribution).
@@ -352,7 +354,7 @@ fixed-arity record like `Rect`), "points" (a variable-length list of
 points, like `Polygon`), "points_plus_scalars" (one point-list field
 plus sibling scalars, like `Path`'s `polygon`/`width`) — and
 `Field.create_excluded` for fields that structurally qualify but are
-deliberately deferred, e.g. `Abstract.boundary`, `Layer.min_sizes`).
+deliberately deferred, e.g. `Layer.min_sizes`).
 `is_child` fields stay out of scope entirely (an `add_X`/`set_X`
 relationship concern, not a value one). A flag is required iff
 `Field.create_required()` (mirrors
@@ -444,9 +446,9 @@ its immediate parent's already-recreated live id back out of a shared
 level up (see `Transaction::id_cell_for`, `src/editing/transaction.hpp`).
 A class with no `tcl_child_list_fields()` at all (most of the ~35) gets a
 trivial, non-cascading delete instead — snapshot, erase, record, nothing
-else. `Field.create_excluded` fields (`Abstract.boundary`,
-`Layer.min_sizes`, ...) stay a separate, not-yet-enabled effort for
-`create_<type>`/`update_<type>` — deferred by explicit opt-out, not
+else. `Field.create_excluded` fields (`Layer.min_sizes`, ...) stay a
+separate, not-yet-enabled effort for `create_<type>`/`update_<type>` —
+deferred by explicit opt-out, not
 because the mechanism can't reach them; this has no bearing on
 `delete_<type>`, which doesn't touch individual fields at all.
 

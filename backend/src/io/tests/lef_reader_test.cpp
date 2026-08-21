@@ -204,8 +204,11 @@ TEST_F(LEFReaderCompleteFixture, ConvertsMacroSizeAndOriginToDbu)
 
     // No OVERLAP obstruction on this macro, so the boundary falls back to a
     // single rect polygon built from origin (default {0,0}) + size.
-    ASSERT_EQ(abstract->boundary.size(), 1u);
-    const Polygon &boundary = abstract->boundary.front();
+    const Shape *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id));
+    ASSERT_NE(boundary_shape, nullptr);
+    EXPECT_EQ(boundary_shape->layer_name, "BOUNDARY");
+    ASSERT_EQ(boundary_shape->polygons.size(), 1u);
+    const Polygon &boundary = boundary_shape->polygons.front();
     ASSERT_EQ(boundary.points.size(), 5u);
     EXPECT_EQ(boundary.points[0].x, 0);
     EXPECT_EQ(boundary.points[0].y, 0);
@@ -342,13 +345,14 @@ TEST(LEFReaderOverlapBoundary, BoundaryComesFromOverlapObsNotMacroSize)
     DesignId design_id = root.get_design_by_name("OVERLAPTEST");
     ASSERT_TRUE(design_id.valid());
     AbstractId abstract_id = root.get_design_abstract(design_id);
-    const AbstractData *abstract = root.get_abstract(abstract_id);
 
     // SIZE 10 BY 10 at DATABASE MICRONS 1000 would give a (0,0)-(10000,10000)
     // fallback boundary; OBS has an OVERLAP RECT 1 1 9 9 (-> (1000,1000)-
     // (9000,9000) dbu) plus an M1 RECT 0 0 2 2 that must NOT be included.
-    ASSERT_EQ(abstract->boundary.size(), 1u);
-    const Polygon &boundary = abstract->boundary.front();
+    const Shape *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id));
+    ASSERT_NE(boundary_shape, nullptr);
+    ASSERT_EQ(boundary_shape->polygons.size(), 1u);
+    const Polygon &boundary = boundary_shape->polygons.front();
     ASSERT_GE(boundary.points.size(), 4u);
 
     int64_t min_x = boundary.points.front().x, max_x = min_x;

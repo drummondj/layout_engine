@@ -202,7 +202,17 @@ namespace le
         return 0;
     }
 
-    /// @brief Build boundary from OVERLAP or SIZE and ORIGIN
+    /// @brief Build boundary from OVERLAP or SIZE and ORIGIN, stored as a
+    /// real child Shape (Abstract.boundary, an is_child field tracked
+    /// entirely through Root's own parent->child index rather than a
+    /// member of AbstractData - so unlike every other field this function
+    /// touches, this one needs no assignment back into
+    /// reader->abstract_data_ at all, and lefrMacroCbkFn's own later
+    /// `*stored = reader->abstract_data_` can't clobber it either way) on
+    /// the programmatic BOUNDARY layer - not a bare polygon list, so the
+    /// render pipeline can reference one persisted Shape
+    /// (generate_shapes_stage.hpp) instead of synthesizing one on every
+    /// render.
     void LEFReader::post_process(LEFReader *reader)
     {
         // Look for OVERLAP obstructions
@@ -221,6 +231,7 @@ namespace le
         }
 
         bool did_use_overlap = false;
+        std::vector<Polygon> boundary_polygons;
 
         if (overlap_shapes.size() > 0)
         {
@@ -229,7 +240,7 @@ namespace le
 
             if (boundary)
             {
-                reader->abstract_data_.boundary = *boundary;
+                boundary_polygons = *boundary;
                 did_use_overlap = true;
             }
         }
@@ -246,11 +257,17 @@ namespace le
             bbox.ll.y = origin.y;
             bbox.ur.x = origin.x + size.x;
             bbox.ur.y = origin.y + size.y;
-            reader->abstract_data_.boundary.push_back(Geometry::rect_to_polygon(bbox));
+            boundary_polygons.push_back(Geometry::rect_to_polygon(bbox));
         }
 
-        for (auto const &polygon : reader->abstract_data_.boundary)
+        for (auto const &polygon : boundary_polygons)
             spdlog::debug("boundary polygon {}", fmt::streamed(polygon));
+
+        reader->root_->create_shape(ShapeData{
+            .abstract = reader->abstract_id_,
+            .layer_name = "BOUNDARY",
+            .polygons = std::move(boundary_polygons),
+        });
     }
 
     int LEFReader::lefrLayerCbkFn(lefrCallbackType_e typ, lefiLayer *lef_layer, void *user_data)
@@ -1544,7 +1561,7 @@ namespace le
             }
         }
         auto stored = reader->root_->get_abstract(reader->abstract_id_);
-        spdlog::debug("stored boundary size = {}", stored ? stored->boundary.size() : -1);
+        spdlog::debug("stored boundary shape valid = {}", reader->root_->get_abstract_boundary(reader->abstract_id_).valid());
         spdlog::debug("stored site = {}", stored ? stored->site.value_or("NONE") : "NONE");
 
         return 0;
