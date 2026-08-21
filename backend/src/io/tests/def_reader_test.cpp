@@ -151,6 +151,76 @@ namespace le
         EXPECT_EQ(y_grid->step, 400);
     }
 
+    TEST_F(DEFReaderCompleteFixture, CreatesEveryPlacementWithCorrectFields)
+    {
+        const DesignId design_id = root.get_design_by_name("design");
+        const LayoutId layout_id = root.get_design_layout(design_id);
+        const std::vector<PlacementId> placement_ids = root.get_layout_placements(layout_id);
+        // COMPONENTS declares a stale count of 13, but the fixture actually
+        // has 43 real "- ..." entries (mostly bracket/escaping edge cases
+        // for name parsing) - the vendored parser doesn't enforce the
+        // declared count.
+        ASSERT_EQ(placement_ids.size(), 43u);
+
+        auto find_by_name = [&](const std::string &name) -> const PlacementData *
+        {
+            for (const PlacementId id : placement_ids)
+            {
+                const PlacementData *placement = root.get_placement(id);
+                if (placement && placement->name == name)
+                    return placement;
+            }
+            return nullptr;
+        };
+
+        const PlacementData *i1 = find_by_name("I1");
+        ASSERT_NE(i1, nullptr);
+        EXPECT_EQ(i1->reference_name, "B");
+        // No LEF was read in this fixture, so the referenced macro/design
+        // is never linked - reference_design stays invalid, same "linked
+        // later" convention as Instance.reference_design.
+        EXPECT_FALSE(i1->reference_design.valid());
+        EXPECT_EQ(i1->placement_status, PlacementStatus::PLACED);
+        ASSERT_TRUE(i1->location.has_value());
+        EXPECT_EQ(i1->location->x, 100);
+        EXPECT_EQ(i1->location->y, 100);
+        ASSERT_TRUE(i1->orientation.has_value());
+        EXPECT_EQ(*i1->orientation, Orientation::N);
+        ASSERT_TRUE(i1->weight.has_value());
+        EXPECT_EQ(*i1->weight, 100.0);
+        ASSERT_TRUE(i1->source.has_value());
+        EXPECT_EQ(*i1->source, "NETLIST");
+
+        const PlacementData *i2 = find_by_name("I2");
+        ASSERT_NE(i2, nullptr);
+        EXPECT_EQ(i2->reference_name, "A");
+        ASSERT_TRUE(i2->orientation.has_value());
+        EXPECT_EQ(*i2->orientation, Orientation::S);
+        ASSERT_TRUE(i2->source.has_value());
+        EXPECT_EQ(*i2->source, "DIST");
+
+        const PlacementData *i9 = find_by_name("I9");
+        ASSERT_NE(i9, nullptr);
+        EXPECT_EQ(i9->placement_status, PlacementStatus::FIXED);
+
+        const PlacementData *i10 = find_by_name("I10");
+        ASSERT_NE(i10, nullptr);
+        EXPECT_EQ(i10->placement_status, PlacementStatus::COVER);
+
+        const PlacementData *i11 = find_by_name("I11");
+        ASSERT_NE(i11, nullptr);
+        EXPECT_EQ(i11->placement_status, PlacementStatus::UNPLACED);
+        EXPECT_FALSE(i11->location.has_value());
+        EXPECT_FALSE(i11->orientation.has_value());
+
+        // Bracket/escaping edge cases in instance names parse without
+        // crashing or truncating - a handful of representative ones.
+        EXPECT_NE(find_by_name("I12[0]"), nullptr);
+        EXPECT_NE(find_by_name("I13[0][10]"), nullptr);
+        EXPECT_NE(find_by_name("I14\\[1\\]"), nullptr);
+        EXPECT_NE(find_by_name("vectormodule[1]/scalarname"), nullptr);
+    }
+
     TEST(DEFReaderErrors, FileNotFoundReturnsOne)
     {
         Root root;

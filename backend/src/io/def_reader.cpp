@@ -18,6 +18,25 @@ namespace
         spdlog::error("{}", msg);
         g_pending_def_messages.push_back("ERROR: " + msg);
     }
+
+    // defiComponent has no single placementStatus-to-enum accessor of its
+    // own - just the boolean is*() family (isUnplaced/isPlaced/isFixed/
+    // isCover/isSoftfixed) - so this maps those the same way this project
+    // prefers named/safe accessors over trusting a raw placementStatus()
+    // int code directly (same reasoning as using orientStr() over a raw
+    // orient() int elsewhere in this file).
+    le::PlacementStatus placement_status_from_component(defiComponent *component)
+    {
+        if (component->isFixed())
+            return le::PlacementStatus::FIXED;
+        if (component->isCover())
+            return le::PlacementStatus::COVER;
+        if (component->isSoftfixed())
+            return le::PlacementStatus::SOFTFIXED;
+        if (component->isPlaced())
+            return le::PlacementStatus::PLACED;
+        return le::PlacementStatus::UNPLACED;
+    }
 }
 
 namespace le
@@ -197,6 +216,66 @@ namespace le
         return 0;
     }
 
+    int DEFReader::defrComponentCbkFn(defrCallbackType_e /*typ*/, defiComponent *component, void *user_data)
+    {
+        auto reader = static_cast<DEFReader *>(user_data);
+        if (!reader->layout_id_.valid())
+        {
+            log_error("COMPONENT {} statement seen before DESIGN - ignored.", component->id());
+            return 0;
+        }
+
+        PlacementData data{
+            .layout = reader->layout_id_,
+            .name = component->id(),
+            // defiComponent's own naming is confusing: id() is the
+            // instance name, name() is the referenced macro name (set
+            // together by IdAndName() from the base "- compId macroName"
+            // grammar - def.y's comp_id_and_name rule) - macroName() is a
+            // separate, unrelated field only ever populated by a
+            // "+ GENERATE genName [pattern]" attribute (setGenerate()),
+            // never by the base parse. Confirmed empirically against
+            // complete.5.8.def: macroName() was empty for every component,
+            // GENERATE or not.
+            .reference_name = component->name(),
+            // Resolved eagerly if the referenced Design already exists
+            // (e.g. its LEF was read earlier into this same Root) - left
+            // invalid otherwise, same "linked later" convention as
+            // Instance.reference_design (Schematic). No error either way:
+            // a DEF COMPONENTS section routinely references macros from a
+            // LEF file read as a separate step.
+            .reference_design = reader->root_->get_design_by_name(component->name()),
+            .placement_status = placement_status_from_component(component),
+        };
+        // isUnplaced() is true only for an explicit UNPLACED keyword - a
+        // component with no placement statement at all (bare `- name
+        // macro ;`, common before a placer has run) is neither placed nor
+        // "unplaced" by this accessor's own definition, so only read
+        // location/orientation when one of the genuinely-placed flags is
+        // true (found the hard way: !isUnplaced() silently dropped every
+        // no-placement-statement component below, since their empty
+        // placementOrientStr() then failed orientation_from_string and hit
+        // the early return before create_placement ever ran).
+        if (component->isPlaced() || component->isFixed() || component->isCover() || component->isSoftfixed())
+        {
+            data.location = Point{.x = component->placementX(), .y = component->placementY()};
+            const std::optional<Orientation> orientation = orientation_from_string(component->placementOrientStr());
+            if (!orientation)
+            {
+                log_error("COMPONENT {} has an unrecognized orientation '{}' - ignored.", component->id(), component->placementOrientStr());
+                return 0;
+            }
+            data.orientation = *orientation;
+        }
+        if (component->hasWeight())
+            data.weight = static_cast<double>(component->weight());
+        if (component->hasSource())
+            data.source = component->source();
+
+        reader->root_->create_placement(std::move(data));
+        return 0;
+    }
+
     int DEFReader::read_def(std::string filename, Root &root, std::string library_name)
     {
         defrInit();
@@ -210,6 +289,7 @@ namespace le
         defrSetRowCbk(defrRowCbkFn);
         defrSetTrackCbk(defrTrackCbkFn);
         defrSetGcellGridCbk(defrGcellGridCbkFn);
+        defrSetComponentCbk(defrComponentCbkFn);
         defrSetLogFunction(&DEFReader::defrLogFn);
         defrSetWarningLogFunction(&DEFReader::defrLogFn);
 
