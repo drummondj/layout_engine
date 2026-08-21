@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.34.0",
+    version="0.35.0",
     classes=[
         Klass(
             name="Technology",
@@ -2296,9 +2296,12 @@ schema = Schema(
         ),
         Klass(
             name="PhysicalPortSegment",
-            description="One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort's own relationship to Terminal, just named to avoid stuttering (PhysicalPort + Port)",
+            description="One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort's own relationship to Terminal, just named to avoid stuttering (PhysicalPort + Port). Unlike TerminalPort, carries its own placement_status/location/orientation - DEF lets each PORT of a multi-port pin be placed independently (setPortPlacement, distinct from the pin's own top-level setPlacement), and its own LAYER/POLYGON coordinates are relative to that placement, not the parent PhysicalPort's - confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3 different placements: FIXED/COVER/PLACED at 3 different locations). Unset for the synthetic single segment a pre-5.7 simple (no-PORT-wrapper) pin gets - that case's placement lives on the parent PhysicalPort instead.",
             fields=[
                 Field(name="physical_port", description="Parent physical port", type="PhysicalPort", parent="segments"),
+                Field(name="placement_status", description="This segment's own placement status - unset for the synthetic segment of a simple (non-multi-port) pin, whose placement lives on the parent PhysicalPort instead", type="PlacementStatus", is_optional=True),
+                Field(name="location", description="This segment's own location, in database units - unset if unplaced", type="Point", is_optional=True),
+                Field(name="orientation", description="This segment's own orientation - unset if unplaced", type="Orientation", is_optional=True),
                 Field(name="shapes", description="This segment's shapes", type="Shape", is_list=True, is_child=True),
             ],
         ),

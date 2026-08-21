@@ -221,6 +221,147 @@ namespace le
         EXPECT_NE(find_by_name("vectormodule[1]/scalarname"), nullptr);
     }
 
+    TEST_F(DEFReaderCompleteFixture, CreatesEveryPhysicalPortWithCorrectFields)
+    {
+        const DesignId design_id = root.get_design_by_name("design");
+        const LayoutId layout_id = root.get_design_layout(design_id);
+        const std::vector<PhysicalPortId> port_ids = root.get_layout_physical_ports(layout_id);
+        // PINS declares a stale count of 11 (same kind of mismatch as
+        // COMPONENTS' own stale "13") - the fixture actually has 19 real
+        // "- ..." entries.
+        ASSERT_EQ(port_ids.size(), 19u);
+
+        auto find_id_by_name = [&](const std::string &name) -> PhysicalPortId
+        {
+            for (const PhysicalPortId id : port_ids)
+            {
+                const PhysicalPortData *port = root.get_physical_port(id);
+                if (port && port->name == name)
+                    return id;
+            }
+            return PhysicalPortId{};
+        };
+
+        // P0: 5.7+ multi-port pin - 3 PORTs, each independently placed
+        // (FIXED/COVER/PLACED at 3 different locations) with its own
+        // single-layer rect. Note: each PORT also has a "+ VIA ..." entry
+        // this round doesn't model yet (via placements standalone within
+        // a PORT, not nested under a "+ LAYER" the way Shape.vias
+        // represents a VIA within a LEF PIN/OBS geometry stream - a
+        // different shape needing its own schema support later).
+        const PhysicalPortId p0_id = find_id_by_name("P0");
+        ASSERT_TRUE(p0_id.valid());
+        const PhysicalPortData *p0 = root.get_physical_port(p0_id);
+        ASSERT_NE(p0, nullptr);
+        ASSERT_TRUE(p0->net_name.has_value());
+        EXPECT_EQ(*p0->net_name, "N0");
+        ASSERT_TRUE(p0->direction.has_value());
+        EXPECT_EQ(*p0->direction, SignalDirection::INPUT);
+        ASSERT_TRUE(p0->use.has_value());
+        EXPECT_EQ(*p0->use, "SIGNAL");
+        // No top-level placement statement - it's all per-PORT.
+        EXPECT_FALSE(p0->location.has_value());
+
+        const std::vector<PhysicalPortSegmentId> p0_segments = root.get_physical_port_segments(p0_id);
+        ASSERT_EQ(p0_segments.size(), 3u);
+
+        const PhysicalPortSegmentData *segment0 = root.get_physical_port_segment(p0_segments[0]);
+        ASSERT_NE(segment0, nullptr);
+        ASSERT_TRUE(segment0->placement_status.has_value());
+        EXPECT_EQ(*segment0->placement_status, PlacementStatus::FIXED);
+        ASSERT_TRUE(segment0->location.has_value());
+        EXPECT_EQ(segment0->location->x, 45);
+        EXPECT_EQ(segment0->location->y, -2160);
+        ASSERT_TRUE(segment0->orientation.has_value());
+        EXPECT_EQ(*segment0->orientation, Orientation::N);
+        const std::vector<ShapeId> segment0_shape_ids = root.get_physical_port_segment_shapes(p0_segments[0]);
+        ASSERT_EQ(segment0_shape_ids.size(), 1u);
+        const Shape *segment0_shape = root.get_shape(segment0_shape_ids[0]);
+        ASSERT_NE(segment0_shape, nullptr);
+        EXPECT_EQ(segment0_shape->layer_name, "M2");
+        ASSERT_EQ(segment0_shape->rects.size(), 1u);
+        EXPECT_EQ(segment0_shape->rects[0].ll.x, 0);
+        EXPECT_EQ(segment0_shape->rects[0].ll.y, 0);
+        EXPECT_EQ(segment0_shape->rects[0].ur.x, 30);
+        EXPECT_EQ(segment0_shape->rects[0].ur.y, 135);
+
+        const PhysicalPortSegmentData *segment1 = root.get_physical_port_segment(p0_segments[1]);
+        ASSERT_NE(segment1, nullptr);
+        ASSERT_TRUE(segment1->placement_status.has_value());
+        EXPECT_EQ(*segment1->placement_status, PlacementStatus::COVER);
+
+        const PhysicalPortSegmentData *segment2 = root.get_physical_port_segment(p0_segments[2]);
+        ASSERT_NE(segment2, nullptr);
+        ASSERT_TRUE(segment2->placement_status.has_value());
+        EXPECT_EQ(*segment2->placement_status, PlacementStatus::PLACED);
+
+        // P1: simple (no PORT wrapper) pin with POLYGON geometry directly
+        // attached and its own top-level placement.
+        const PhysicalPortId p1_id = find_id_by_name("P1");
+        ASSERT_TRUE(p1_id.valid());
+        const PhysicalPortData *p1 = root.get_physical_port(p1_id);
+        ASSERT_NE(p1, nullptr);
+        ASSERT_TRUE(p1->direction.has_value());
+        EXPECT_EQ(*p1->direction, SignalDirection::OUTPUT);
+        ASSERT_TRUE(p1->use.has_value());
+        EXPECT_EQ(*p1->use, "POWER");
+        ASSERT_TRUE(p1->placement_status.has_value());
+        EXPECT_EQ(*p1->placement_status, PlacementStatus::PLACED);
+        ASSERT_TRUE(p1->location.has_value());
+        EXPECT_EQ(p1->location->x, 45);
+        EXPECT_EQ(p1->location->y, -2160);
+
+        const std::vector<PhysicalPortSegmentId> p1_segments = root.get_physical_port_segments(p1_id);
+        ASSERT_EQ(p1_segments.size(), 1u);
+        // The synthetic segment for a simple pin has no placement of its
+        // own - it lives on the parent PhysicalPort instead.
+        EXPECT_FALSE(root.get_physical_port_segment(p1_segments[0])->placement_status.has_value());
+        const std::vector<ShapeId> p1_shape_ids = root.get_physical_port_segment_shapes(p1_segments[0]);
+        ASSERT_EQ(p1_shape_ids.size(), 1u);
+        const Shape *p1_shape = root.get_shape(p1_shape_ids[0]);
+        ASSERT_NE(p1_shape, nullptr);
+        EXPECT_EQ(p1_shape->layer_name, "M2");
+        ASSERT_EQ(p1_shape->polygons.size(), 1u);
+        EXPECT_EQ(p1_shape->polygons[0].points.size(), 6u);
+
+        // P2/P2.extra1: DIRECTION INOUT, USE GROUND, simple LAYER rect,
+        // COVER placement - and a name with a literal "." in it (a real
+        // DEF-legal identifier character), confirming name parsing
+        // doesn't misinterpret it as a hierarchy separator.
+        const PhysicalPortData *p2 = root.get_physical_port(find_id_by_name("P2"));
+        ASSERT_NE(p2, nullptr);
+        ASSERT_TRUE(p2->direction.has_value());
+        EXPECT_EQ(*p2->direction, SignalDirection::INOUT);
+        ASSERT_TRUE(p2->placement_status.has_value());
+        EXPECT_EQ(*p2->placement_status, PlacementStatus::COVER);
+        EXPECT_TRUE(find_id_by_name("P2.extra1").valid());
+
+        // P3: DIRECTION FEEDTHRU, USE CLOCK, no geometry and no placement
+        // statement at all - placement_status defaults to UNPLACED
+        // (mirrors Placement's own no-statement-at-all handling), and the
+        // one synthetic segment simply has no shapes.
+        const PhysicalPortId p3_id = find_id_by_name("P3");
+        ASSERT_TRUE(p3_id.valid());
+        const PhysicalPortData *p3 = root.get_physical_port(p3_id);
+        ASSERT_NE(p3, nullptr);
+        ASSERT_TRUE(p3->direction.has_value());
+        EXPECT_EQ(*p3->direction, SignalDirection::FEEDTHRU);
+        ASSERT_TRUE(p3->use.has_value());
+        EXPECT_EQ(*p3->use, "CLOCK");
+        ASSERT_TRUE(p3->placement_status.has_value());
+        EXPECT_EQ(*p3->placement_status, PlacementStatus::UNPLACED);
+        EXPECT_FALSE(p3->location.has_value());
+        const std::vector<PhysicalPortSegmentId> p3_segments = root.get_physical_port_segments(p3_id);
+        ASSERT_EQ(p3_segments.size(), 1u);
+        EXPECT_EQ(root.get_physical_port_segment_shapes(p3_segments[0]).size(), 0u);
+
+        // Bracket/angle-bracket edge cases in pin names parse without
+        // crashing or truncating.
+        EXPECT_TRUE(find_id_by_name("ARRAYPIN[0][10]").valid());
+        EXPECT_TRUE(find_id_by_name("OUTBUS<1>").valid());
+        EXPECT_TRUE(find_id_by_name("vectorpin[0]").valid());
+    }
+
     TEST(DEFReaderErrors, FileNotFoundReturnsOne)
     {
         Root root;

@@ -13,6 +13,7 @@ LEF/DEF and Verilog both use different terminology for various aspects of a data
 | Net               | Logical connects Pins in a Schematic                     | Verilog wire         |
 | **Physical View** |                                                          |                      |
 | Layout            | Physical place and route data                            | DEF DESIGN           |
+| PhysicalPort      | Physical top-level port of a Layout                      | DEF PIN              |
 | Placement         | Physical placement of an Instance                        | DEF COMPONENT        |
 | Route             | Physical routing of a Net                                | DEF NET/SPECIALNET   |
 | Abstract          | Footprint of cell defined from LEF                       | LEF MACRO            |

@@ -37,6 +37,90 @@ namespace
             return le::PlacementStatus::PLACED;
         return le::PlacementStatus::UNPLACED;
     }
+
+    // Shared by defiPin and defiPinPort (5.7+ multi-port pins, each
+    // independently placed via its own setPortPlacement - see
+    // PhysicalPortSegment's own schema.py comment) - neither has
+    // isSoftfixed() (DEF PIN/PORT placement doesn't support SOFTFIXED,
+    // only COMPONENTS does), otherwise the same reasoning as
+    // placement_status_from_component above.
+    template <typename PinLike>
+    le::PlacementStatus placement_status_from_pin_like(PinLike *pin)
+    {
+        if (pin->isFixed())
+            return le::PlacementStatus::FIXED;
+        if (pin->isCover())
+            return le::PlacementStatus::COVER;
+        if (pin->isPlaced())
+            return le::PlacementStatus::PLACED;
+        return le::PlacementStatus::UNPLACED;
+    }
+
+    // Fills location/orientation from a defiPin/defiPinPort's own
+    // placement, if any (isPlaced()/isFixed()/isCover() - see
+    // placement_status_from_pin_like's own comment on why not
+    // isUnplaced()/hasPlacement(), which don't distinguish "no placement
+    // statement at all" from "explicitly UNPLACED" the same safe way).
+    // Returns false (with an error already logged) only if a real
+    // placement was present but its orientation string didn't parse;
+    // true otherwise, including "no placement at all" (location/
+    // orientation simply left unset).
+    template <typename PinLike>
+    bool fill_pin_like_placement(PinLike *pin, const char *pin_name, std::optional<le::Point> &location, std::optional<le::Orientation> &orientation)
+    {
+        if (!pin->isPlaced() && !pin->isFixed() && !pin->isCover())
+            return true;
+        location = le::Point{.x = pin->placementX(), .y = pin->placementY()};
+        const std::optional<le::Orientation> parsed = le::orientation_from_string(pin->orientStr());
+        if (!parsed)
+        {
+            log_error("PIN {} has an unrecognized orientation '{}' - ignored.", pin_name, pin->orientStr());
+            return false;
+        }
+        orientation = parsed;
+        return true;
+    }
+
+    // Shared by defiPin and defiPinPort (5.7+ multi-port pins) - both
+    // expose the identical numLayer()/layer()/bounds() and numPolygons()/
+    // polygonName()/getPolygon() accessor shape (no common base class,
+    // hence the template rather than a shared interface type), and DEF's
+    // own PIN geometry model is simpler than LEF's: each layer-rect is
+    // already its own indexed (layer, rect) pair, and each polygon already
+    // carries its own layer name, rather than LEF's single interleaved
+    // "LAYER, then geometry" stream - so this only needs to group by
+    // matching layer_name into one Shape per distinct layer, not walk an
+    // itemType() stream like LEFReader::shapes_from_parser does.
+    template <typename PinLike>
+    std::vector<le::Shape> shapes_from_pin_like(PinLike *pin)
+    {
+        std::vector<le::Shape> shapes;
+        auto find_or_create = [&](const std::string &layer_name) -> le::Shape &
+        {
+            for (le::Shape &shape : shapes)
+                if (shape.layer_name == layer_name)
+                    return shape;
+            shapes.push_back(le::Shape{.layer_name = layer_name});
+            return shapes.back();
+        };
+
+        for (int i = 0; i < pin->numLayer(); i++)
+        {
+            int xl = 0, yl = 0, xh = 0, yh = 0;
+            pin->bounds(i, &xl, &yl, &xh, &yh);
+            find_or_create(pin->layer(i)).rects.push_back(le::Rect{.ll = {.x = xl, .y = yl}, .ur = {.x = xh, .y = yh}});
+        }
+        for (int i = 0; i < pin->numPolygons(); i++)
+        {
+            const defiPoints points = pin->getPolygon(i);
+            le::Polygon polygon;
+            polygon.points.reserve(static_cast<size_t>(points.numPoints));
+            for (int j = 0; j < points.numPoints; j++)
+                polygon.points.push_back(le::Point{.x = points.x[j], .y = points.y[j]});
+            find_or_create(pin->polygonName(i)).polygons.push_back(std::move(polygon));
+        }
+        return shapes;
+    }
 }
 
 namespace le
@@ -276,6 +360,79 @@ namespace le
         return 0;
     }
 
+    int DEFReader::defrPinCbkFn(defrCallbackType_e /*typ*/, defiPin *pin, void *user_data)
+    {
+        auto reader = static_cast<DEFReader *>(user_data);
+        if (!reader->layout_id_.valid())
+        {
+            log_error("PIN {} statement seen before DESIGN - ignored.", pin->pinName());
+            return 0;
+        }
+
+        PhysicalPortData data{
+            .layout = reader->layout_id_,
+            .name = pin->pinName(),
+        };
+        if (pin->netName() && pin->netName()[0])
+            data.net_name = pin->netName();
+        if (pin->hasDirection())
+        {
+            const std::optional<SignalDirection> direction = signal_direction_from_string(pin->direction());
+            if (!direction)
+            {
+                log_error("PIN {} has an unrecognized direction '{}' - ignored.", pin->pinName(), pin->direction());
+                return 0;
+            }
+            data.direction = *direction;
+        }
+        if (pin->hasUse())
+            data.use = pin->use();
+        data.placement_status = placement_status_from_pin_like(pin);
+        if (!fill_pin_like_placement(pin, pin->pinName(), data.location, data.orientation))
+            return 0;
+
+        const PhysicalPortId physical_port_id = reader->root_->create_physical_port(std::move(data));
+
+        // 5.7+ multi-port pins (hasPort()) each get their own
+        // PhysicalPortSegment, with its own independent placement (see
+        // PhysicalPortSegment's own schema.py comment - each PORT's
+        // LAYER/POLYGON coordinates are relative to that PORT's own
+        // placement, not the parent PhysicalPort's); a pre-5.7 simple pin
+        // has no PORT wrapper in the DEF syntax at all, so gets exactly
+        // one synthetic segment (placement left unset - it lives on the
+        // parent PhysicalPort instead) to hold its directly-attached
+        // geometry - same reasoning as TerminalPort always existing under
+        // a LEF Terminal, just without a syntactic counterpart to require
+        // it here.
+        if (pin->hasPort())
+        {
+            for (int i = 0; i < pin->numPorts(); i++)
+            {
+                defiPinPort *port = pin->pinPort(i);
+                PhysicalPortSegmentData segment_data{.physical_port = physical_port_id};
+                segment_data.placement_status = placement_status_from_pin_like(port);
+                if (!fill_pin_like_placement(port, pin->pinName(), segment_data.location, segment_data.orientation))
+                    return 0;
+                const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(std::move(segment_data));
+                for (Shape &shape : shapes_from_pin_like(port))
+                {
+                    shape.physical_port_segment = segment_id;
+                    reader->root_->create_shape(std::move(shape));
+                }
+            }
+        }
+        else
+        {
+            const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(PhysicalPortSegmentData{.physical_port = physical_port_id});
+            for (Shape &shape : shapes_from_pin_like(pin))
+            {
+                shape.physical_port_segment = segment_id;
+                reader->root_->create_shape(std::move(shape));
+            }
+        }
+        return 0;
+    }
+
     int DEFReader::read_def(std::string filename, Root &root, std::string library_name)
     {
         defrInit();
@@ -290,6 +447,7 @@ namespace le
         defrSetTrackCbk(defrTrackCbkFn);
         defrSetGcellGridCbk(defrGcellGridCbkFn);
         defrSetComponentCbk(defrComponentCbkFn);
+        defrSetPinCbk(defrPinCbkFn);
         defrSetLogFunction(&DEFReader::defrLogFn);
         defrSetWarningLogFunction(&DEFReader::defrLogFn);
 
