@@ -1,0 +1,564 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CMG documentation &mdash; CMG  documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=5929fcd5"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="#" class="icon icon-home">
+            CMG
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <!-- Local TOC -->
+              <div class="local-toc"><ul>
+<li><a class="reference internal" href="#">CMG documentation</a><ul>
+<li><a class="reference internal" href="#cmg.schema.Field"><code class="docutils literal notranslate"><span class="pre">Field</span></code></a><ul>
+<li><a class="reference internal" href="#cmg.schema.Field.get_cpp_type"><code class="docutils literal notranslate"><span class="pre">Field.get_cpp_type()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Field.get_example"><code class="docutils literal notranslate"><span class="pre">Field.get_example()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Field.has_default"><code class="docutils literal notranslate"><span class="pre">Field.has_default()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Field.has_parent"><code class="docutils literal notranslate"><span class="pre">Field.has_parent()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Field.is_reference"><code class="docutils literal notranslate"><span class="pre">Field.is_reference()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Field.to_camel_case"><code class="docutils literal notranslate"><span class="pre">Field.to_camel_case()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#cmg.schema.Klass"><code class="docutils literal notranslate"><span class="pre">Klass</span></code></a><ul>
+<li><a class="reference internal" href="#cmg.schema.Klass.get_create_arguments"><code class="docutils literal notranslate"><span class="pre">Klass.get_create_arguments()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.get_create_ptr_type"><code class="docutils literal notranslate"><span class="pre">Klass.get_create_ptr_type()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.get_example_arguments"><code class="docutils literal notranslate"><span class="pre">Klass.get_example_arguments()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.get_example_update_arguments"><code class="docutils literal notranslate"><span class="pre">Klass.get_example_update_arguments()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.get_forward_declarations"><code class="docutils literal notranslate"><span class="pre">Klass.get_forward_declarations()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.get_forward_includes"><code class="docutils literal notranslate"><span class="pre">Klass.get_forward_includes()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.get_include_define"><code class="docutils literal notranslate"><span class="pre">Klass.get_include_define()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.get_ordered_fields"><code class="docutils literal notranslate"><span class="pre">Klass.get_ordered_fields()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.get_parent_field"><code class="docutils literal notranslate"><span class="pre">Klass.get_parent_field()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.get_parent_fields"><code class="docutils literal notranslate"><span class="pre">Klass.get_parent_fields()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.get_updatable_fields"><code class="docutils literal notranslate"><span class="pre">Klass.get_updatable_fields()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.get_var_name"><code class="docutils literal notranslate"><span class="pre">Klass.get_var_name()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.has_parent"><code class="docutils literal notranslate"><span class="pre">Klass.has_parent()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.init_fields"><code class="docutils literal notranslate"><span class="pre">Klass.init_fields()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.is_root"><code class="docutils literal notranslate"><span class="pre">Klass.is_root()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.link"><code class="docutils literal notranslate"><span class="pre">Klass.link()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Klass.to_snake_case"><code class="docutils literal notranslate"><span class="pre">Klass.to_snake_case()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#cmg.schema.Schema"><code class="docutils literal notranslate"><span class="pre">Schema</span></code></a><ul>
+<li><a class="reference internal" href="#cmg.schema.Schema.get_cmakelists_src"><code class="docutils literal notranslate"><span class="pre">Schema.get_cmakelists_src()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Schema.get_field"><code class="docutils literal notranslate"><span class="pre">Schema.get_field()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Schema.get_klass"><code class="docutils literal notranslate"><span class="pre">Schema.get_klass()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Schema.get_lcov_src"><code class="docutils literal notranslate"><span class="pre">Schema.get_lcov_src()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Schema.get_root_klass"><code class="docutils literal notranslate"><span class="pre">Schema.get_root_klass()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Schema.get_supplementary_klasses"><code class="docutils literal notranslate"><span class="pre">Schema.get_supplementary_klasses()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Schema.get_test_includes"><code class="docutils literal notranslate"><span class="pre">Schema.get_test_includes()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Schema.link"><code class="docutils literal notranslate"><span class="pre">Schema.link()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.Schema.set_output_dir"><code class="docutils literal notranslate"><span class="pre">Schema.set_output_dir()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#cmg.schema.to_camel_case"><code class="docutils literal notranslate"><span class="pre">to_camel_case()</span></code></a></li>
+<li><a class="reference internal" href="#cmg.schema.to_snake_case"><code class="docutils literal notranslate"><span class="pre">to_snake_case()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#indices-and-tables">Indices and tables</a></li>
+</ul>
+</div>
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="#">CMG</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="#" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">CMG documentation</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="cmg-documentation">
+<h1>CMG documentation<a class="headerlink" href="#cmg-documentation" title="Link to this heading"></a></h1>
+<p>C++ model generation API documentation.</p>
+<p id="module-cmg.schema">A schema used to define the structure of the data in a model.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="cmg.schema.Field">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cmg.schema.</span></span><span class="sig-name descname"><span class="pre">Field</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">example</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_child</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_list</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_optional</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#cmg.schema.Field" title="Link to this definition"></a></dt>
+<dd><p>A field used to define the structure of the data in a model.</p>
+<dl>
+<dt>Attributes:</dt><dd><p>name (str): The name of the field.</p>
+<p>description (str): The description of the field.</p>
+<p>type (str): The type of the field.</p>
+<p>example (Any): The example value of the field.</p>
+<p>default (Optional[Any]): The default value of the field.</p>
+<p>parent (Optional[str]): The parent of the field.</p>
+<p>is_child (bool): Whether the field is a child.</p>
+<p>is_list (bool): Whether the field is a list.</p>
+<p>is_optional (bool): Whether the field is optional.</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Field.get_cpp_type">
+<span class="sig-name descname"><span class="pre">get_cpp_type</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nolist</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cast</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#cmg.schema.Field.get_cpp_type" title="Link to this definition"></a></dt>
+<dd><p>Get the C++ type for the field.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>nolist (bool): Whether to exclude list types.
+cast (bool): Whether to cast the type.</p>
+</dd>
+<dt>Returns:</dt><dd><p>str: The C++ type.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Field.get_example">
+<span class="sig-name descname"><span class="pre">get_example</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="headerlink" href="#cmg.schema.Field.get_example" title="Link to this definition"></a></dt>
+<dd><p>Get the example value for the field.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>Any: The example value.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Field.has_default">
+<span class="sig-name descname"><span class="pre">has_default</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#cmg.schema.Field.has_default" title="Link to this definition"></a></dt>
+<dd><p>Check if the field has a default value.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>bool: True if the field has a default value, False otherwise.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Field.has_parent">
+<span class="sig-name descname"><span class="pre">has_parent</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#cmg.schema.Field.has_parent" title="Link to this definition"></a></dt>
+<dd><p>Check if the field has a parent.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>bool: True if the field has a parent, False otherwise.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Field.is_reference">
+<span class="sig-name descname"><span class="pre">is_reference</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#cmg.schema.Field.is_reference" title="Link to this definition"></a></dt>
+<dd><p>Check if the field is a reference.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>bool: True if the field is a reference, False otherwise.</p>
+</dd>
+<dt>Raises:</dt><dd><p>ValueError: If the class or schema is not linked.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Field.to_camel_case">
+<span class="sig-name descname"><span class="pre">to_camel_case</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">upper_first</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></span><a class="headerlink" href="#cmg.schema.Field.to_camel_case" title="Link to this definition"></a></dt>
+<dd><p>Convert the field name to camelCase.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>upper_first (bool): Whether to capitalize the first letter.</p>
+</dd>
+<dt>Returns:</dt><dd><p>str: The field name in camelCase.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cmg.schema.Klass">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cmg.schema.</span></span><span class="sig-name descname"><span class="pre">Klass</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name:</span> <span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description:</span> <span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fields:</span> <span class="pre">~typing.List[~cmg.schema.Field]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#cmg.schema.Klass" title="Link to this definition"></a></dt>
+<dd><p>A class used to define the structure of the data in a model.</p>
+<dl>
+<dt>Attributes:</dt><dd><p>name (str): The name of the class.</p>
+<p>description (str): The description of the class.</p>
+<p>fields (List[Field]): The fields in the class.</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.get_create_arguments">
+<span class="sig-name descname"><span class="pre">get_create_arguments</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#cmg.schema.Klass.get_create_arguments" title="Link to this definition"></a></dt>
+<dd><p>Get the create arguments for the class.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>str: The create arguments.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.get_create_ptr_type">
+<span class="sig-name descname"><span class="pre">get_create_ptr_type</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#cmg.schema.Klass.get_create_ptr_type" title="Link to this definition"></a></dt>
+<dd><p>Get the create pointer type for the class.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>str: The create pointer type.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.get_example_arguments">
+<span class="sig-name descname"><span class="pre">get_example_arguments</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#cmg.schema.Klass.get_example_arguments" title="Link to this definition"></a></dt>
+<dd><p>Get the example arguments for the class.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>str: The example arguments.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.get_example_update_arguments">
+<span class="sig-name descname"><span class="pre">get_example_update_arguments</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#cmg.schema.Klass.get_example_update_arguments" title="Link to this definition"></a></dt>
+<dd><p>Get the example update arguments for the class.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>str: The example update arguments.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.get_forward_declarations">
+<span class="sig-name descname"><span class="pre">get_forward_declarations</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#cmg.schema.Klass.get_forward_declarations" title="Link to this definition"></a></dt>
+<dd><p>Get the forward declarations for the class.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>List[str]: The forward declarations.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.get_forward_includes">
+<span class="sig-name descname"><span class="pre">get_forward_includes</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#cmg.schema.Klass.get_forward_includes" title="Link to this definition"></a></dt>
+<dd><p>Get the forward includes for the class.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>List[str]: The forward includes.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.get_include_define">
+<span class="sig-name descname"><span class="pre">get_include_define</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#cmg.schema.Klass.get_include_define" title="Link to this definition"></a></dt>
+<dd><p>Get the include define for the class.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>str: The include define.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.get_ordered_fields">
+<span class="sig-name descname"><span class="pre">get_ordered_fields</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#cmg.schema.Klass.get_ordered_fields" title="Link to this definition"></a></dt>
+<dd><p>Get the ordered fields for the class.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>List[Field]: The ordered fields.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.get_parent_field">
+<span class="sig-name descname"><span class="pre">get_parent_field</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="source/cmg.html#cmg.schema.Field" title="cmg.schema.Field"><span class="pre">Field</span></a></span></span><a class="headerlink" href="#cmg.schema.Klass.get_parent_field" title="Link to this definition"></a></dt>
+<dd><p>Get the parent field for the class.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>Field: The parent field.</p>
+</dd>
+<dt>Raises:</dt><dd><p>ValueError: If no parent field is found.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.get_parent_fields">
+<span class="sig-name descname"><span class="pre">get_parent_fields</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="source/cmg.html#cmg.schema.Field" title="cmg.schema.Field"><span class="pre">Field</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#cmg.schema.Klass.get_parent_fields" title="Link to this definition"></a></dt>
+<dd><p>Get the parent fields for the class.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>List[Field]: The parent fields.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.get_updatable_fields">
+<span class="sig-name descname"><span class="pre">get_updatable_fields</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#cmg.schema.Klass.get_updatable_fields" title="Link to this definition"></a></dt>
+<dd><p>Get the updatable fields for the class.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>List[Field]: The updatable fields.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.get_var_name">
+<span class="sig-name descname"><span class="pre">get_var_name</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#cmg.schema.Klass.get_var_name" title="Link to this definition"></a></dt>
+<dd><p>Get the variable name for the class.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>str: The variable name.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.has_parent">
+<span class="sig-name descname"><span class="pre">has_parent</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#cmg.schema.Klass.has_parent" title="Link to this definition"></a></dt>
+<dd><p>Check if the class has a parent.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>bool: True if the class has a parent, False otherwise.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.init_fields">
+<span class="sig-name descname"><span class="pre">init_fields</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">parents</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="source/cmg.html#cmg.schema.Field" title="cmg.schema.Field"><span class="pre">Field</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#cmg.schema.Klass.init_fields" title="Link to this definition"></a></dt>
+<dd><p>Initialize the fields for the class.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>parents (bool): Whether to include parent fields.</p>
+</dd>
+<dt>Returns:</dt><dd><p>List[Field]: The initialized fields.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.is_root">
+<span class="sig-name descname"><span class="pre">is_root</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#cmg.schema.Klass.is_root" title="Link to this definition"></a></dt>
+<dd><p>Check if the class is the root klass.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>bool: True if the class is the root klass, False otherwise.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.link">
+<span class="sig-name descname"><span class="pre">link</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#cmg.schema.Klass.link" title="Link to this definition"></a></dt>
+<dd><p>Link the class to its fields and schema.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Klass.to_snake_case">
+<span class="sig-name descname"><span class="pre">to_snake_case</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#cmg.schema.Klass.to_snake_case" title="Link to this definition"></a></dt>
+<dd><p>Convert the class name to snake_case.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>str: The class name in snake_case.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cmg.schema.Schema">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cmg.schema.</span></span><span class="sig-name descname"><span class="pre">Schema</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name:</span> <span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description:</span> <span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">namespace:</span> <span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version:</span> <span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">classes:</span> <span class="pre">~typing.List[~cmg.schema.Klass]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#cmg.schema.Schema" title="Link to this definition"></a></dt>
+<dd><p>A schema used to define the structure of the data in a model.</p>
+<dl>
+<dt>Attributes:</dt><dd><p>name (str): The name of the schema.</p>
+<p>description (str): The description of the schema.</p>
+<p>namespace (str): The namespace of the schema.</p>
+<p>classes (List[Klass]): The classes in the schema.</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Schema.get_cmakelists_src">
+<span class="sig-name descname"><span class="pre">get_cmakelists_src</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#cmg.schema.Schema.get_cmakelists_src" title="Link to this definition"></a></dt>
+<dd><p>Get the source files for the CMakeLists.txt file.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>str: The source files.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Schema.get_field">
+<span class="sig-name descname"><span class="pre">get_field</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">klass_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">field_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="source/cmg.html#cmg.schema.Field" title="cmg.schema.Field"><span class="pre">Field</span></a></span></span><a class="headerlink" href="#cmg.schema.Schema.get_field" title="Link to this definition"></a></dt>
+<dd><p>Get a field by klass and field name.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>klass_name (str): The name of the klass.
+field_name (str): The name of the field.</p>
+</dd>
+<dt>Returns:</dt><dd><p>Field: The field.</p>
+</dd>
+<dt>Raises:</dt><dd><p>ValueError: If the field is not found.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Schema.get_klass">
+<span class="sig-name descname"><span class="pre">get_klass</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="source/cmg.html#cmg.schema.Klass" title="cmg.schema.Klass"><span class="pre">Klass</span></a></span></span><a class="headerlink" href="#cmg.schema.Schema.get_klass" title="Link to this definition"></a></dt>
+<dd><p>Get a klass by name.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>name (str): The name of the klass.</p>
+</dd>
+<dt>Returns:</dt><dd><p>Klass: The klass.</p>
+</dd>
+<dt>Raises:</dt><dd><p>ValueError: If the klass is not found.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Schema.get_lcov_src">
+<span class="sig-name descname"><span class="pre">get_lcov_src</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#cmg.schema.Schema.get_lcov_src" title="Link to this definition"></a></dt>
+<dd><p>Get the source files for the lcov command.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>str: The source files.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Schema.get_root_klass">
+<span class="sig-name descname"><span class="pre">get_root_klass</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="source/cmg.html#cmg.schema.Klass" title="cmg.schema.Klass"><span class="pre">Klass</span></a></span></span><a class="headerlink" href="#cmg.schema.Schema.get_root_klass" title="Link to this definition"></a></dt>
+<dd><p>Get the root klass for the schema.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>Klass: The root klass.</p>
+</dd>
+<dt>Raises:</dt><dd><p>ValueError: If no root klass is found.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Schema.get_supplementary_klasses">
+<span class="sig-name descname"><span class="pre">get_supplementary_klasses</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#cmg.schema.Schema.get_supplementary_klasses" title="Link to this definition"></a></dt>
+<dd><p>Get the supplementary sources for the schema.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>List[str]: The supplementary sources.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Schema.get_test_includes">
+<span class="sig-name descname"><span class="pre">get_test_includes</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#cmg.schema.Schema.get_test_includes" title="Link to this definition"></a></dt>
+<dd><p>Get the include statements for the test file.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>List[str]: A list of include statements for each class in the test file.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Schema.link">
+<span class="sig-name descname"><span class="pre">link</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#cmg.schema.Schema.link" title="Link to this definition"></a></dt>
+<dd><p>Link the schema to its classes and fields.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cmg.schema.Schema.set_output_dir">
+<span class="sig-name descname"><span class="pre">set_output_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#cmg.schema.Schema.set_output_dir" title="Link to this definition"></a></dt>
+<dd><p>Set the output directory for the schema.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>output_dir (str): The output directory.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cmg.schema.to_camel_case">
+<span class="sig-prename descclassname"><span class="pre">cmg.schema.</span></span><span class="sig-name descname"><span class="pre">to_camel_case</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">upper_first</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></span><a class="headerlink" href="#cmg.schema.to_camel_case" title="Link to this definition"></a></dt>
+<dd><p>Convert a snake_case string to camelCase.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>name (str): The name to convert.
+upper_first (bool): Whether to capitalize the first letter.</p>
+</dd>
+<dt>Returns:</dt><dd><p>str: The name in camelCase.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cmg.schema.to_snake_case">
+<span class="sig-prename descclassname"><span class="pre">cmg.schema.</span></span><span class="sig-name descname"><span class="pre">to_snake_case</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#cmg.schema.to_snake_case" title="Link to this definition"></a></dt>
+<dd><p>Convert a camelCase or PascalCase string to snake_case.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>name (str): The name to convert.</p>
+</dd>
+<dt>Returns:</dt><dd><p>str: The name in snake_case.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<div class="toctree-wrapper compound">
+</div>
+</section>
+<section id="indices-and-tables">
+<h1>Indices and tables<a class="headerlink" href="#indices-and-tables" title="Link to this heading"></a></h1>
+<ul class="simple">
+<li><p><a class="reference internal" href="genindex.html"><span class="std std-ref">Index</span></a></p></li>
+<li><p><a class="reference internal" href="py-modindex.html"><span class="std std-ref">Module Index</span></a></p></li>
+<li><p><a class="reference internal" href="search.html"><span class="std std-ref">Search Page</span></a></p></li>
+</ul>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, John Drummond.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

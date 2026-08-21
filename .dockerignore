@@ -1,0 +1,44 @@
+# Keeps the docker-compose build context small - source is bind-mounted at
+# runtime anyway (see docker-compose.yml), so none of this ever needs to
+# reach the Docker daemon at build time. Mirrors the various .gitignore
+# files' build-artifact entries.
+#
+# build-linux/build_release-linux (Dockerfile.linux-ci's and
+# Dockerfile.linux-release's own build directory names, used specifically
+# so they don't collide with macOS-native build/build_release on a
+# bind-mounted checkout) matter here too, and for a stronger reason than
+# the plain build/build_release entries below: Dockerfile.linux-release
+# actually COPYs the build context in (Dockerfile.linux-ci only bind-
+# mounts, never COPYs) - a stale backend/build-linux/CMakeCache.txt left
+# on the host by an earlier `docker compose run backend` (Ubuntu-based,
+# CMAKE_CXX_COMPILER=/usr/bin/c++) getting copied into a fresh Rocky-8-
+# based release build fails immediately (that compiler path doesn't exist
+# there) - confirmed by hitting exactly this failure before adding this
+# entry.
+.git
+**/build
+**/build_release
+**/build-linux
+**/build_release-linux
+**/.dart_tool
+**/.pub-cache
+**/generated
+**/generated_tcl
+**/__pycache__
+backend/src/lefdef/**/lib
+backend/src/lefdef/**/include
+backend/src/lefdef/**/bin
+# lef_lib's own BUILD_IN_SOURCE Makefile scatters these directly into
+# src/lefdef/lef's subdirectories (backend/.gitignore has the same
+# entries) - a stale one left on the host by an earlier native/Docker
+# build (e.g. an arm64 Linux .o from a Docker run on this Apple Silicon
+# Mac) getting copied into a fresh x86_64 release container fails the
+# link with a "wrong format"/relocation error - confirmed by hitting
+# exactly this failure before adding these entries.
+backend/src/lefdef/**/*.o
+backend/src/lefdef/**/*.a
+backend/src/lefdef/**/lef.tab.cpp
+backend/src/lefdef/**/lef.tab.h
+backend/src/lefdef/**/lef.output
+frontend/.flutter-plugins-dependencies
+flutter_plugin/.flutter-plugins-dependencies

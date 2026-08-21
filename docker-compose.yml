@@ -1,0 +1,66 @@
+# Linux build/test for this repo's three components. See
+# Dockerfile.linux-ci for the underlying image stages, and each
+# component's own CLAUDE.md/build-test skill for the macOS-native
+# equivalent of what each service's CMD runs.
+#
+# Usage:
+#   docker compose build backend            # image only, no run
+#   docker compose run --rm backend         # build + ctest
+#   docker compose run --rm flutter-plugin  # first real Linux plugin compile
+#   docker compose run --rm frontend        # flutter analyze/test/build linux
+#   docker compose up --build                # all three, in dependency order
+#   docker compose up frontend-gui           # run the built app, view via VNC
+#                                             # (macOS: open vnc://localhost:5900)
+#
+# The repo is bind-mounted read-write at /workspace, so build artifacts
+# (backend/build, backend/build_release, flutter_plugin/build, .dart_tool,
+# etc.) land in the real working tree, same as a native build would -
+# expect a `git status` to show them as untracked, same as today.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.linux-ci
+      target: backend
+    volumes:
+      - .:/workspace
+
+  flutter-plugin:
+    build:
+      context: .
+      dockerfile: Dockerfile.linux-ci
+      target: flutter-plugin
+    volumes:
+      - .:/workspace
+      - flutter-pub-cache:/root/.pub-cache
+    depends_on:
+      - backend
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.linux-ci
+      target: frontend
+    volumes:
+      - .:/workspace
+      - flutter-pub-cache:/root/.pub-cache
+    depends_on:
+      - flutter-plugin
+
+  frontend-gui:
+    build:
+      context: .
+      dockerfile: Dockerfile.linux-ci
+      target: frontend-gui
+    volumes:
+      - .:/workspace
+      - flutter-pub-cache:/root/.pub-cache
+    ports:
+      - "5900:5900"
+    # Runs the already-built bundle directly (see frontend-gui's own CMD) -
+    # doesn't repeat frontend's own pub get/analyze/test/build, so build
+    # that first (`docker compose run --rm frontend`) if build/linux/
+    # doesn't exist yet or is stale.
+
+volumes:
+  flutter-pub-cache:

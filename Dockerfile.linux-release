@@ -1,0 +1,244 @@
+# Portable "any Linux x86" release build - see .github/workflows/release.yml
+# for how this Dockerfile is invoked.
+#
+# Deliberately a SEPARATE file from Dockerfile.linux-ci, not a stage added
+# to it: that file's own header states its contract (source bind-mounted
+# at *run* time, for interactive dev/CI use) - this is a one-shot release
+# build that COPYs source in, on a different base OS/package manager (dnf
+# vs apt), specifically an OLD glibc baseline (Rocky Linux 8, glibc 2.28)
+# so the resulting binary is forward-compatible with newer-glibc systems
+# too (glibc's own symbol versioning is one-directional - a binary built
+# against an old glibc runs fine on a newer one, not the reverse).
+#
+# Not tied to any of this repo's other Linux build paths' machine-specific
+# constraints (Dockerfile.linux-ci's Ubuntu base, or
+# backend/scripts/rocky8-bootstrap.sh's no-root/no-Docker constraint) -
+# this container has full root and full outbound network access, so
+# packages install normally via dnf and the two source-built tools below
+# fetch straight from their real upstream hosts (no need for the
+# GitHub-mirror workaround explored, then reverted, for the locked-down
+# machine's own bootstrap script).
+#
+# Bonus: since this uses the same base OS as the user's own locked-down
+# Rocky 8 work machine (see BUILD.md), the resulting binary is
+# glibc/ABI-matched to it too - plausibly runnable there directly without
+# needing the full rootless bootstrap+build, once GTK3/Tcl-Tk are
+# confirmed present.
+
+# ---- base: gcc-toolset-13 (RHEL8's stock GCC 8.5 can't do C++20/23) plus
+# every -devel package needed to build/test backend, flutter_plugin, and
+# frontend - dnf install, not rootless RPM extraction, since this
+# container has real root. Package names confirmed real via
+# backend/scripts/rocky8-bootstrap.sh's own real run logs against a real
+# Rocky 8 machine this session (tcl-devel/tk-devel/gtk3-devel/mesa-*/
+# zlib-devel/libpng-devel/libjpeg-turbo-devel/freetype-devel all showed as
+# already-installed there; the gcc-toolset-13-* packages downloaded
+# successfully). ----
+FROM rockylinux:8 AS base
+RUN dnf install -y dnf-plugins-core \
+ && (dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb || true) \
+ && dnf install -y \
+    gcc-toolset-13-gcc-c++ gcc-toolset-13-libstdc++-devel gcc-toolset-13-binutils make \
+    tcl-devel tk-devel \
+    gtk3-devel mesa-libGL-devel mesa-libEGL-devel mesa-dri-drivers mesa-libgbm xz-devel \
+    zlib-devel libpng-devel libjpeg-turbo-devel freetype-devel pcre2-devel \
+    clang \
+    # ^ Flutter's own `flutter build linux` step (frontend stage below)
+    # hardcodes CXX=clang++/CC=clang for its native plugin build regardless
+    # of this image's own CXX/CC env vars (gcc-toolset-13, used for the
+    # backend/Skia builds above, which don't go through Flutter's own
+    # tooling at all) - confirmed by hitting "Could not find compiler set
+    # in environment variable CXX: clang++" without this. Matches
+    # Dockerfile.linux-ci's own Ubuntu recipe, which uses clang throughout
+    # for the same reason.
+    git curl tar gzip unzip which python3 python3.12 python3.12-pip pkgconfig \
+    autoconf automake libtool gettext-devel texinfo m4 \
+ && dnf clean all
+ENV PATH="/opt/rh/gcc-toolset-13/root/usr/bin:${PATH}"
+ENV CC="/opt/rh/gcc-toolset-13/root/usr/bin/gcc"
+ENV CXX="/opt/rh/gcc-toolset-13/root/usr/bin/g++"
+ENV LD_LIBRARY_PATH="/opt/rh/gcc-toolset-13/root/usr/lib64"
+
+# ---- tools: CMake/Ninja (upstream relocatable releases - RHEL8's own
+# cmake/ninja-build packages can't be trusted to satisfy
+# backend/CMakeLists.txt's >=3.20 requirement, same reasoning as
+# rocky8-bootstrap.sh's stage_cmake/stage_ninja), plus bison+SWIG built
+# from source (RHEL8's stock bison is 3.0.4; SWIG 4.2.1's grammar
+# declares '%require "3.5"' - a real, already-confirmed build failure this
+# project hit on the rootless Rocky 8 path). Installed to /usr/local,
+# already on PATH as root - no custom prefix wiring needed, unlike
+# rocky8-bootstrap.sh's no-root case. ----
+FROM base AS tools
+RUN curl -fL -o /tmp/cmake.tar.gz \
+      https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.tar.gz \
+ && mkdir -p /opt/cmake && tar -xzf /tmp/cmake.tar.gz -C /opt/cmake --strip-components=1 \
+ && rm /tmp/cmake.tar.gz
+RUN curl -fL -o /tmp/ninja.zip \
+      https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip \
+ && mkdir -p /opt/ninja && (cd /opt/ninja && unzip -o /tmp/ninja.zip) \
+ && chmod +x /opt/ninja/ninja && rm /tmp/ninja.zip
+ENV PATH="/opt/cmake/bin:/opt/ninja:${PATH}"
+RUN curl -fL -o /tmp/bison.tar.gz \
+      https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.gz \
+ && mkdir -p /tmp/bison && tar -xzf /tmp/bison.tar.gz -C /tmp/bison --strip-components=1 \
+ && cd /tmp/bison && ./configure --prefix=/usr/local && make -j"$(nproc)" && make install \
+ && rm -rf /tmp/bison /tmp/bison.tar.gz
+RUN curl -fL -o /tmp/swig.tar.gz \
+      https://github.com/swig/swig/archive/refs/tags/v4.2.1.tar.gz \
+ && mkdir -p /tmp/swig && tar -xzf /tmp/swig.tar.gz -C /tmp/swig --strip-components=1 \
+ && cd /tmp/swig && ./autogen.sh && ./configure --prefix=/usr/local \
+ && make -j"$(nproc)" && make install \
+ && rm -rf /tmp/swig /tmp/swig.tar.gz
+
+# ---- boost: header-only (Boost.Geometry only, see backend/CMakeLists.txt) -
+# same upstream tarball/version as rocky8-bootstrap.sh's stage_boost, not
+# RHEL8's own boost-devel package, so both Rocky-8-based build paths stay
+# on one consistent Boost version. ----
+FROM tools AS boost
+RUN curl -fL -o /tmp/boost.tar.gz \
+      https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz \
+ && mkdir -p /opt/boost && tar -xzf /tmp/boost.tar.gz -C /opt/boost --strip-components=1 \
+ && rm /tmp/boost.tar.gz
+ENV BOOST_ROOT=/opt/boost
+
+# ---- skia: raster-only static Skia build, same pinned commit as this
+# project's other two Linux build paths (Dockerfile.linux-ci,
+# rocky8-bootstrap.sh) - keep in sync by hand if that commit is ever
+# bumped. GN args mirror rocky8-bootstrap.sh's stage_skia exactly (system
+# zlib/libpng/libjpeg-turbo/freetype, vendored harfbuzz/icu/libwebp/expat -
+# RHEL8's own versions of the latter four are too old relative to this
+# Skia commit to trust as system libs), not Dockerfile.linux-ci's Ubuntu
+# recipe (system harfbuzz/icu/libwebp/expat, since Ubuntu 24.04's are
+# recent enough) - same base OS as the rootless path here, so the same
+# split applies. Uses gcc-toolset-13 (CC/CXX from the base stage), not
+# clang - avoids pulling in EPEL/LLVM for no benefit, matching
+# rocky8-bootstrap.sh's own choice. ----
+FROM boost AS skia
+WORKDIR /skia
+RUN git clone https://skia.googlesource.com/skia.git . \
+ && git checkout 9f330f1704305686dafa9eeef11de77caa5314b1 \
+ && python3 tools/git-sync-deps \
+ && python3 bin/fetch-gn
+RUN bin/gn gen out/Linux --args=" \
+    is_official_build=true \
+    is_component_build=false \
+    is_debug=false \
+    target_cpu=\"x64\" \
+    cc=\"${CC}\" \
+    cxx=\"${CXX}\" \
+    skia_enable_gpu=false \
+    skia_use_gl=false \
+    skia_use_vulkan=false \
+    skia_use_egl=false \
+    skia_enable_fontmgr_custom_directory=true \
+    skia_enable_fontmgr_custom_embedded=false \
+    skia_enable_fontmgr_custom_empty=false \
+    skia_use_fontconfig=false \
+    skia_use_freetype=true \
+    skia_use_system_freetype2=true \
+    skia_use_system_harfbuzz=false \
+    skia_use_system_libjpeg_turbo=true \
+    skia_use_system_libpng=true \
+    skia_use_system_libwebp=false \
+    skia_use_system_zlib=true \
+    skia_use_system_icu=false \
+    skia_use_system_expat=false \
+    " \
+ && ninja -C out/Linux -j "$(nproc)" skia
+ENV SKIA_DIR=/skia
+ENV LE_SKIA_VENDORS_THIRD_PARTY=ON
+
+# ---- source: the whole repo, copied in fresh (not bind-mounted - this is
+# a one-shot CI build, not an interactive dev container). Kept as its own
+# stage so every layer before it (the expensive toolchain/Skia stages
+# above) stays cached across workflow runs regardless of what source
+# changed - see .github/workflows/release.yml's GHA cache config. ----
+FROM skia AS source
+WORKDIR /workspace
+COPY . .
+
+# ---- codegen: src/database/generated/ (and src/api/generated_tcl/,
+# src/tcl/generated/) are .gitignore'd build artifacts, produced on
+# demand by this repo's own `codegen` fork (repo root, also COPY'd in by
+# the source stage) from src/database/schema.py - see the regen-database/
+# regen-tcl skills. Dockerfile.linux-ci/rocky8-bootstrap.sh never needed
+# this step because they operate on an already-bootstrapped host checkout
+# where these were generated once, ages ago, and left on disk; a COPY'd-in
+# fresh checkout has no such history, so backend/render.cpp's #include
+# "generated/property.hpp" fails outright without this - confirmed by
+# hitting exactly that failure before adding this stage. codegen's own
+# pyproject.toml requires Python >=3.11 (RHEL8's stock `python3` is 3.6) -
+# poetry-core is a standard PEP 517 backend, so a plain `pip install .`
+# works without needing the poetry CLI itself. ----
+FROM source AS codegen
+WORKDIR /workspace/codegen
+RUN python3.12 -m pip install --no-cache-dir .
+RUN cmg --schema /workspace/backend/src/database/schema.py \
+        --output /workspace/backend/src/database/generated \
+ && cmg --schema /workspace/backend/src/database/schema.py \
+        --output /workspace/backend/src \
+        --target tcl
+
+# ---- backend: build + test. ctest gates the whole release - a failing
+# test here fails this `docker build`, so nothing downstream ever runs.
+# Debug tree for ctest, Release tree for what the app actually links -
+# same two-tree split as every other build path in this repo, see
+# backend/CLAUDE.md's Build section. ----
+FROM codegen AS backend
+WORKDIR /workspace/backend
+# -DLE_SKIA_VENDORS_THIRD_PARTY=ON must be passed explicitly here, not
+# just left as the ENV var set in the skia stage above - CMake's
+# option(LE_SKIA_VENDORS_THIRD_PARTY ... OFF) (backend/CMakeLists.txt)
+# never reads $ENV{LE_SKIA_VENDORS_THIRD_PARTY}, so the env var alone is a
+# no-op at configure time (confirmed by hitting exactly this: `-lwebp`/
+# `-lwebpdemux` link errors from CMake still defaulting it OFF and trying
+# to link system webp, which Skia bundled instead of linking here).
+#
+# BACKEND_BUILD_JOBS (not a bare `-j`/nproc): same reasoning as
+# Dockerfile.linux-ci's own identically-named ENV - a handful of
+# translation units (pipeline_benchmark.cpp pulling in googlebenchmark +
+# Skia headers, geometry_test.cpp's Boost.Geometry instantiations) are
+# memory-heavy enough per-cc1plus that full nproc-wide parallelism
+# OOM-kills the compiler on a memory-constrained builder - confirmed by
+# hitting exactly that ("g++: fatal error: Killed signal terminated
+# program cc1plus") under full parallelism on this Mac's Docker Desktop
+# VM. Override via --build-arg BACKEND_BUILD_JOBS=N on a machine/runner
+# with more memory available.
+ARG BACKEND_BUILD_JOBS=2
+RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug -DSKIA_DIR=${SKIA_DIR} -DLE_SKIA_VENDORS_THIRD_PARTY=ON \
+ && cmake --build build-linux -j ${BACKEND_BUILD_JOBS} \
+ && ctest --test-dir build-linux --output-on-failure \
+ && cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release -DSKIA_DIR=${SKIA_DIR} -DLE_SKIA_VENDORS_THIRD_PARTY=ON \
+ && cmake --build build_release-linux --target api render io -j ${BACKEND_BUILD_JOBS}
+
+# ---- flutter-plugin: adds the Flutter SDK - Dart-level checks only,
+# matching Dockerfile.linux-ci's own reasoning (apply_standard_settings
+# only exists inside a real consuming app's build, so there's no
+# standalone native build of this plugin's own linux/ folder - the real
+# link/texture verification happens in the frontend stage below). Same
+# Flutter version as Dockerfile.linux-ci (`flutter --version` on the dev
+# machine) - keep these in sync by hand. ----
+FROM backend AS flutter-plugin
+RUN git clone --branch 3.44.9 --depth 1 https://github.com/flutter/flutter.git /flutter
+ENV PATH="/flutter/bin:${PATH}"
+RUN flutter config --enable-linux-desktop --no-analytics && flutter precache --linux
+WORKDIR /workspace/flutter_plugin
+# No `&& flutter test` - this package has no test/ directory (all its real
+# coverage is exercised via frontend/test/'s FakeLeEditor injection
+# instead) - confirmed by hitting "Test directory "test" not found" as a
+# hard error, not a no-op, when this line included it.
+RUN flutter pub get && dart analyze
+
+# ---- frontend: the actual Flutter app - pub get/analyze/test, then a
+# real `flutter build linux`, gated the same way as flutter-plugin above. ----
+FROM flutter-plugin AS frontend
+WORKDIR /workspace/frontend
+RUN flutter pub get && flutter analyze && flutter test && flutter build linux
+
+# ---- export: the release asset's actual content, nothing else - `docker
+# buildx build --target export --output type=local,dest=./dist` (see
+# .github/workflows/release.yml) exports this stage's root filesystem
+# directly, so keeping it to just the bundle means ./dist *is* the bundle,
+# no docker create/cp step needed. ----
+FROM scratch AS export
+COPY --from=frontend /workspace/frontend/build/linux/x64/release/bundle /

@@ -1,0 +1,193 @@
+# Linux build/test environment for this repo's three components
+# (backend, flutter_plugin, frontend). See docker-compose.yml for how each
+# stage below is exposed as a runnable service, and each component's own
+# CLAUDE.md for the equivalent macOS recipe this mirrors.
+#
+# Source code is NOT copied into these images - docker-compose.yml bind-
+# mounts the repo at /workspace at *run* time, so editing source doesn't
+# invalidate any image layer below. Only the OS/toolchain/Skia/Flutter-SDK
+# setup happens at build time, since that's the expensive, rarely-changing
+# part.
+
+# ---- base: system packages needed by every later stage ----
+FROM ubuntu:24.04 AS base
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential clang cmake ninja-build git python3 pkg-config \
+    ca-certificates curl unzip xz-utils bison flex \
+    libboost-dev libspdlog-dev libfmt-dev \
+    tcl8.6-dev tk8.6-dev swig \
+    libharfbuzz-dev libicu-dev libjpeg-dev libpng-dev zlib1g-dev libwebp-dev \
+    libfontconfig1-dev libfreetype6-dev fontconfig fonts-dejavu-core \
+ && fc-cache -f \
+ && rm -rf /var/lib/apt/lists/*
+
+# ---- skia: a raster-only static Skia build for Linux, matching this
+# project's macOS checkout (see backend/CMakeLists.txt's `skia` target and
+# backend/CLAUDE.md's "Open gaps") - no GPU backend, since only CPU raster
+# surface APIs are used anywhere in this project. Pinned to the exact
+# commit the macOS dev checkout is on (`git -C
+# /Volumes/Docking/Projects/synthosilicon/skia/skia log -1`) for parity,
+# not a floating branch. This is the single expensive, rarely-changing
+# layer - it does not depend on anything in this repo, so it's cached
+# across every backend/plugin/frontend source change. ----
+FROM base AS skia
+WORKDIR /skia
+RUN git clone https://skia.googlesource.com/skia.git . \
+ && git checkout 9f330f1704305686dafa9eeef11de77caa5314b1 \
+ && python3 tools/git-sync-deps \
+ && python3 bin/fetch-gn
+# ninja parallelism capped (not `nproc`) - Skia's official-build C++
+# compiles are memory-heavy per translation unit; uncap via
+# --build-arg SKIA_NINJA_JOBS=N on a machine with more RAM available to
+# the Docker VM than this one's default (~8GB).
+ARG SKIA_NINJA_JOBS=4
+# TARGETARCH is auto-populated by buildx (amd64/arm64) - must match the
+# actual build host, not be hardcoded, or GN configures a cross-compile
+# with no cross toolchain/sysroot set up and the ninja step fails.
+ARG TARGETARCH
+RUN GN_CPU=$( [ "${TARGETARCH}" = "arm64" ] && echo arm64 || echo x64 ) && \
+    bin/gn gen out/Linux --args=" \
+    is_official_build=true \
+    is_component_build=false \
+    is_debug=false \
+    target_cpu=\"${GN_CPU}\" \
+    cc=\"clang\" \
+    cxx=\"clang++\" \
+    skia_enable_gpu=false \
+    skia_use_gl=false \
+    skia_use_vulkan=false \
+    skia_use_egl=false \
+    skia_enable_fontmgr_custom_directory=true \
+    skia_enable_fontmgr_custom_embedded=false \
+    skia_enable_fontmgr_custom_empty=false \
+    skia_use_fontconfig=false \
+    skia_use_freetype=true \
+    skia_use_system_freetype2=true \
+    skia_use_system_harfbuzz=true \
+    skia_use_system_libjpeg_turbo=true \
+    skia_use_system_libpng=true \
+    skia_use_system_libwebp=true \
+    skia_use_system_zlib=true \
+    skia_use_system_icu=true \
+    skia_use_system_expat=true \
+    extra_cflags=[\"-I/usr/include/harfbuzz\"] \
+    " \
+ && ninja -C out/Linux -j "${SKIA_NINJA_JOBS}" skia
+
+# ---- backend: build/test environment for the C++ core. Source is bind-
+# mounted at /workspace by docker-compose; this stage only provides the
+# toolchain + prebuilt Skia. ----
+FROM skia AS backend
+ENV SKIA_DIR=/skia
+# Build-job parallelism capped (not bare `-j`/nproc) for the same reason as
+# SKIA_NINJA_JOBS above: several translation units here (geometry_test.cpp's
+# Boost.Geometry instantiations, pipeline_benchmark.cpp pulling in
+# googlebenchmark + Skia headers) are memory-heavy enough per-cc1plus that
+# nproc-wide parallelism (10 jobs on this VM's 10 CPUs) OOM-kills the
+# compiler on the ~8GB-default Docker VM. ENV (not ARG) because this is read
+# inside CMD, which runs at container-start time, not image-build time -
+# override via `docker compose run -e BACKEND_BUILD_JOBS=N backend` on a
+# machine with more RAM available to the Docker VM. Also inherited by the
+# flutter-plugin stage below (FROM backend) for its own build/linux -j.
+ENV BACKEND_BUILD_JOBS=2
+WORKDIR /workspace/backend
+# Separate build-linux/build_release-linux trees, not the plain build/
+# build_release the macOS-native workflow uses - the repo is bind-mounted
+# from the host (see docker-compose.yml), and a CMakeCache.txt generated
+# under /workspace/backend can't be reused from
+# /Volumes/.../backend (absolute paths baked in) or vice versa.
+#
+# lef_lib (src/lefdef/lef) is the one exception to that separation: its
+# vendored Makefile is BUILD_IN_SOURCE, writing liblef.a/*.o/generated
+# headers directly under src/lefdef/lef/ itself - NOT under build-linux/,
+# so it's shared with whatever a macOS-native `cmake --build build` last
+# left there on the bind-mounted host checkout. That Makefile's own
+# dependency tracking is timestamp-based ("Nothing to be done for
+# 'installlib'"), so it happily treats someone else's platform's .o/.a
+# files as already up to date instead of rebuilding - macOS's `ar`
+# archives (Mach-O members, `__.SYMDEF`) and Linux's (ELF members) are
+# link-incompatible, and the resulting "undefined reference to
+# LefDefParser::..." errors give no hint that the real problem is object
+# format, not a missing/misordered library. Force-clean it before every
+# container build so this tree is never trusted across platforms; the
+# same hazard applies in reverse (a native macOS build run after this
+# container leaves ELF .o's lying around) - clean-rebuild lef_lib on
+# whichever side you touch second. Also clear ExternalProject_Add's own
+# stamp directory (build-linux/lef_lib-prefix) - it persists across runs
+# on this bind-mounted tree same as the rest of build-linux/, and its
+# stamp says "already built" regardless of whether the artifacts above
+# were just deleted, so without this the build step is silently skipped
+# and io/render fail on a missing src/lefdef/lef/include/*.hpp instead.
+CMD ["bash", "-c", "\
+    find src/lefdef/lef \\( -name '*.o' -o -name '*.a' -o -name 'lef.tab.cpp' -o -name 'lef.tab.h' -o -name 'lef.output' \\) -delete && \
+    rm -rf src/lefdef/lef/lib src/lefdef/lef/include src/lefdef/lef/bin && \
+    rm -rf build-linux/lef_lib-prefix build_release-linux/lef_lib-prefix && \
+    cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug -DSKIA_DIR=${SKIA_DIR} && \
+    cmake --build build-linux -j ${BACKEND_BUILD_JOBS} && \
+    ctest --test-dir build-linux --output-on-failure && \
+    cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release -DSKIA_DIR=${SKIA_DIR} && \
+    cmake --build build_release-linux --target api render io -j ${BACKEND_BUILD_JOBS} \
+"]
+
+# ---- flutter-plugin: adds the Flutter SDK + GTK3 (needed to compile the
+# Linux embedder plugin) on top of the backend toolchain. Dart-level checks
+# only (pub get/analyze/test) - there's no such thing as a standalone
+# native build of this plugin's own linux/ folder: apply_standard_settings
+# (linux/CMakeLists.txt) is a function Flutter's tooling only injects when
+# a plugin is configured as a subdirectory of a real app's own
+# `flutter build linux` (confirmed by trying it directly here first - fails
+# with "Unknown CMake command apply_standard_settings"). The real native
+# link/texture verification happens in the frontend stage below, which
+# builds the actual consuming app - see flutter_plugin's own build-test
+# skill, step 3. ----
+FROM backend AS flutter-plugin
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgtk-3-dev liblzma-dev \
+ && rm -rf /var/lib/apt/lists/*
+# Pinned to this dev machine's Flutter version (`flutter --version`) so the
+# Docker and native environments don't silently drift apart.
+RUN git clone --branch 3.44.9 --depth 1 https://github.com/flutter/flutter.git /flutter
+ENV PATH="/flutter/bin:${PATH}"
+RUN flutter config --enable-linux-desktop --no-analytics && flutter precache --linux
+WORKDIR /workspace/flutter_plugin
+CMD ["bash", "-c", "\
+    flutter pub get && \
+    dart analyze && \
+    flutter test \
+"]
+
+# ---- frontend: the actual Flutter app - pub get/analyze/test, then a
+# real `flutter build linux` once the plugin above links. ----
+FROM flutter-plugin AS frontend
+WORKDIR /workspace/frontend
+CMD ["bash", "-c", "\
+    flutter pub get && \
+    flutter analyze && \
+    flutter test && \
+    flutter build linux \
+"]
+
+# ---- frontend-gui: runs the built app for real, visible via VNC - not a
+# CI stage. XQuartz (macOS host X server) can't be used directly: its GLX
+# implementation fails Flutter Linux's own OpenGL context creation
+# ("No matching fbConfigs or visuals found") regardless of
+# LIBGL_ALWAYS_SOFTWARE, so the compositor never initializes and the app
+# spins forever failing every fl_compositor_* call - confirmed by trying
+# it. Xvfb (a virtual X server *inside* this container) plus Mesa's own
+# llvmpipe software rasterizer sidesteps XQuartz's GLX entirely - x11vnc
+# then exposes that virtual display over the network so any VNC client
+# (macOS Screen Sharing: `open vnc://localhost:5900`) can view/interact
+# with it. ----
+FROM frontend AS frontend-gui
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xvfb x11vnc \
+ && rm -rf /var/lib/apt/lists/*
+CMD ["bash", "-c", "\
+    Xvfb :99 -screen 0 1280x800x24 & \
+    sleep 1 && \
+    x11vnc -display :99 -forever -shared -nopw -quiet -rfbport 5900 & \
+    export DISPLAY=:99 LIBGL_ALWAYS_SOFTWARE=1 && \
+    cd build/linux/*/release/bundle && \
+    ./layout_engine \
+"]

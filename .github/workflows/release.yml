@@ -1,0 +1,81 @@
+name: Linux release build
+
+# Builds a portable Linux x86_64 release against an old glibc baseline
+# (Rocky Linux 8, glibc 2.28) so the result runs on newer distros too -
+# glibc's own compatibility is one-directional (old-glibc binaries run
+# fine on newer systems, not the reverse). See Dockerfile.linux-release's
+# own header comment for the full rationale.
+#
+# Not a replacement for Dockerfile.linux-ci (the dev/PR CI path, untouched
+# by this workflow) or backend/scripts/rocky8-bootstrap.sh (for developing
+# on a locked-down machine with no root/Docker) - this workflow assumes
+# neither constraint, since GitHub-hosted runners have full root and full
+# outbound network access.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Exports the `export` stage's filesystem (just the app bundle - see
+      # Dockerfile.linux-release's own final stage) directly to ./dist, no
+      # docker create/cp needed. cache-from/to type=gha keeps the
+      # expensive Skia build stage cached between runs as long as its own
+      # Dockerfile layer doesn't change.
+      - name: Build release bundle
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.linux-release
+          target: export
+          outputs: type=local,dest=./dist
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Package release asset
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="${GITHUB_REF_NAME}-$(git rev-parse --short HEAD)"
+          fi
+          asset="layout_engine-linux-x86_64-${version}.tar.gz"
+          tar czf "${asset}" -C dist .
+          echo "ASSET_PATH=${asset}" >> "$GITHUB_ENV"
+
+      # Only on an actual tag push - workflow_dispatch runs (used to
+      # iterate on CI-only failures without creating throwaway
+      # releases/tags, see BUILD.md/the plan this workflow came from) fall
+      # through to the plain artifact upload below instead.
+      - name: Create/update GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ASSET_PATH }}
+          body: |
+            Portable Linux x86_64 build (glibc 2.28+, built against Rocky Linux 8).
+
+            **Runtime requirements**: a desktop Linux system with GTK3, X11,
+            Mesa GL/EGL, and Tcl/Tk installed - these can't be bundled into
+            the release (GTK's own ecosystem assumes dynamic linking
+            throughout). Any reasonably current desktop distro already has
+            them.
+
+      - name: Upload build artifact
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET_PATH }}
+          path: ${{ env.ASSET_PATH }}

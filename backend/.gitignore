@@ -1,0 +1,43 @@
+build/
+# Release build - flutter_plugin/macos/layout_engine_plugin.podspec links
+# this directly (see its own comment); a persistent, always-rebuilt tree
+# now, not a throwaway benchmarking artifact.
+build_release/
+
+# Linux equivalents of the above, built inside a container via
+# docker-compose.yml/Dockerfile.linux-ci - kept separate from build/
+# build_release since those hold macOS-native CMakeCache.txt state
+# (absolute host paths) that can't be shared with the bind-mounted
+# container's own path layout.
+build-linux/
+build_release-linux/
+
+# lefdef produces these during `make`; not source, don't commit them.
+# Every subdirectory (lef/, clef/, clefzlib/, lefdiff/, lefrw/, lefwrite/,
+# and the def/ equivalents) compiles its own .o files and some their own
+# .a, so these are blanket patterns rather than enumerated per-directory.
+src/lefdef/**/*.o
+src/lefdef/**/*.a
+src/lefdef/**/lef.tab.cpp
+src/lefdef/**/lef.tab.h
+src/lefdef/**/lef.output
+src/lefdef/**/def.tab.cpp
+src/lefdef/**/def.tab.h
+src/lefdef/**/def.output
+src/lefdef/**/include/
+src/lefdef/**/lib/
+src/lefdef/**/bin/*
+!src/lefdef/**/bin/lefdefdiff
+src/lefdef/**/lefdiff/lefdiff
+src/lefdef/**/lefrw/lefrw
+src/lefdef/**/lefwrite/lefwrite
+src/lefdef/**/defdiff/defdiff
+src/lefdef/**/defrw/defrw
+src/lefdef/**/defwrite/defwrite
+
+**/.DS_Store
+__pycache__/
+lefRWarning.log
+*.profraw
+.cache
+roundtrip

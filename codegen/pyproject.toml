@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "codegen"
+version = "0.1.0"
+description = "Code generation for C++23 and TCL"
+authors = ["John Dru <john@muopia.com>"]
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/johndru-astrophysics/cmg"
+documentation = "https://johndru-astrophysics.github.io/cmg"
+packages = [
+    { include = "codegen" },
+]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+jinja2 = "^3.1.4"
+click = "^8.4.2"
+
+
+[tool.poetry.group.dev.dependencies]
+coverage = "^7.6.10"
+pyinstaller = "^6.21.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+cmg = "codegen.cli:cli"
