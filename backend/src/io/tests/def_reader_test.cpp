@@ -362,6 +362,100 @@ namespace le
         EXPECT_TRUE(find_id_by_name("vectorpin[0]").valid());
     }
 
+    TEST_F(DEFReaderCompleteFixture, CreatesEveryBlockageWithCorrectFields)
+    {
+        const DesignId design_id = root.get_design_by_name("design");
+        const LayoutId layout_id = root.get_design_layout(design_id);
+        const std::vector<BlockageId> blockage_ids = root.get_layout_blockages(layout_id);
+        // BLOCKAGES declares a stale count of 8 (same stale-count pattern
+        // as COMPONENTS/PINS) - the fixture actually has 11 real entries
+        // (6 LAYER, 5 PLACEMENT), in file order.
+        ASSERT_EQ(blockage_ids.size(), 11u);
+
+        auto shapes_of = [&](BlockageId id) -> std::vector<const Shape *>
+        {
+            std::vector<const Shape *> result;
+            for (const ShapeId shape_id : root.get_blockage_shapes(id))
+                if (const Shape *shape = root.get_shape(shape_id))
+                    result.push_back(shape);
+            return result;
+        };
+
+        // 1st: LAYER METAL1, single RECT, no component/spacing/width.
+        const BlockageData *first = root.get_blockage(blockage_ids[0]);
+        ASSERT_NE(first, nullptr);
+        EXPECT_EQ(first->kind, BlockageKind::ROUTING);
+        ASSERT_TRUE(first->layer_name.has_value());
+        EXPECT_EQ(*first->layer_name, "METAL1");
+        EXPECT_FALSE(first->placement.valid());
+        EXPECT_FALSE(first->spacing.has_value());
+        EXPECT_FALSE(first->design_rule_width.has_value());
+        EXPECT_FALSE(first->is_soft);
+        const std::vector<const Shape *> first_shapes = shapes_of(blockage_ids[0]);
+        ASSERT_EQ(first_shapes.size(), 1u);
+        ASSERT_EQ(first_shapes[0]->rects.size(), 1u);
+        EXPECT_EQ(first_shapes[0]->rects[0].ll.x, 60);
+        EXPECT_EQ(first_shapes[0]->rects[0].ur.y, 90);
+
+        // 2nd: LAYER M2 + COMPONENT I1, POLYGON geometry (6 points).
+        const BlockageData *second = root.get_blockage(blockage_ids[1]);
+        ASSERT_NE(second, nullptr);
+        ASSERT_TRUE(second->layer_name.has_value());
+        EXPECT_EQ(*second->layer_name, "M2");
+        ASSERT_TRUE(second->placement.valid());
+        const PlacementData *second_placement = root.get_placement(second->placement);
+        ASSERT_NE(second_placement, nullptr);
+        EXPECT_EQ(second_placement->name, "I1");
+        const std::vector<const Shape *> second_shapes = shapes_of(blockage_ids[1]);
+        ASSERT_EQ(second_shapes.size(), 1u);
+        ASSERT_EQ(second_shapes[0]->polygons.size(), 1u);
+        EXPECT_EQ(second_shapes[0]->polygons[0].points.size(), 6u);
+
+        // 5th: LAYER M1 + SPACING 3.
+        const BlockageData *fifth = root.get_blockage(blockage_ids[4]);
+        ASSERT_NE(fifth, nullptr);
+        ASSERT_TRUE(fifth->spacing.has_value());
+        EXPECT_EQ(*fifth->spacing, 3);
+        EXPECT_FALSE(fifth->design_rule_width.has_value());
+
+        // 6th: LAYER M1 + DESIGNRULEWIDTH 45.
+        const BlockageData *sixth = root.get_blockage(blockage_ids[5]);
+        ASSERT_NE(sixth, nullptr);
+        ASSERT_TRUE(sixth->design_rule_width.has_value());
+        EXPECT_EQ(*sixth->design_rule_width, 45);
+        EXPECT_FALSE(sixth->spacing.has_value());
+
+        // 7th: bare PLACEMENT, 4 RECTs, no component/density/soft.
+        const BlockageData *seventh = root.get_blockage(blockage_ids[6]);
+        ASSERT_NE(seventh, nullptr);
+        EXPECT_EQ(seventh->kind, BlockageKind::PLACEMENT);
+        EXPECT_FALSE(seventh->layer_name.has_value());
+        EXPECT_FALSE(seventh->placement.valid());
+        EXPECT_FALSE(seventh->is_soft);
+        EXPECT_FALSE(seventh->placement_max_density.has_value());
+        EXPECT_EQ(shapes_of(blockage_ids[6])[0]->rects.size(), 4u);
+
+        // 8th: PLACEMENT + PARTIAL 0.40 + COMPONENT I1.
+        const BlockageData *eighth = root.get_blockage(blockage_ids[7]);
+        ASSERT_NE(eighth, nullptr);
+        ASSERT_TRUE(eighth->placement.valid());
+        EXPECT_EQ(root.get_placement(eighth->placement)->name, "I1");
+        ASSERT_TRUE(eighth->placement_max_density.has_value());
+        EXPECT_DOUBLE_EQ(*eighth->placement_max_density, 0.40);
+
+        // 10th: PLACEMENT + SOFT.
+        const BlockageData *tenth = root.get_blockage(blockage_ids[9]);
+        ASSERT_NE(tenth, nullptr);
+        EXPECT_TRUE(tenth->is_soft);
+
+        // 11th: PLACEMENT + PARTIAL 0.40 (no COMPONENT).
+        const BlockageData *eleventh = root.get_blockage(blockage_ids[10]);
+        ASSERT_NE(eleventh, nullptr);
+        ASSERT_TRUE(eleventh->placement_max_density.has_value());
+        EXPECT_DOUBLE_EQ(*eleventh->placement_max_density, 0.40);
+        EXPECT_FALSE(eleventh->placement.valid());
+    }
+
     TEST(DEFReaderErrors, FileNotFoundReturnsOne)
     {
         Root root;

@@ -433,6 +433,76 @@ namespace le
         return 0;
     }
 
+    int DEFReader::defrBlockageCbkFn(defrCallbackType_e /*typ*/, defiBlockage *blockage, void *user_data)
+    {
+        auto reader = static_cast<DEFReader *>(user_data);
+        if (!reader->layout_id_.valid())
+        {
+            log_error("BLOCKAGES statement seen before DESIGN - ignored.");
+            return 0;
+        }
+
+        BlockageData data{
+            .layout = reader->layout_id_,
+            .kind = blockage->hasLayer() ? BlockageKind::ROUTING : BlockageKind::PLACEMENT,
+        };
+        if (blockage->hasLayer())
+            data.layer_name = blockage->layerName();
+        if (blockage->hasComponent())
+        {
+            // layerComponentName()/placementComponentName() are the same
+            // underlying field regardless of blockage kind (confirmed
+            // against defiBlockage.cpp: both grammar rules - LAYER's own
+            // "+ COMPONENT" and PLACEMENT's own - call the same
+            // setComponent()) - no Root-level get_placement_by_name
+            // exists (Placement.name is unique_per_parent, same as
+            // Terminal/Component/... elsewhere in this codebase), so this
+            // is the same linear-scan-over-the-current-Layout pattern
+            // api.cpp's own le_placement_by_name uses.
+            const std::string component_name = blockage->layerComponentName();
+            for (const PlacementId placement_id : reader->root_->get_layout_placements(reader->layout_id_))
+            {
+                const PlacementData *placement = reader->root_->get_placement(placement_id);
+                if (placement && placement->name == component_name)
+                {
+                    data.placement = placement_id;
+                    break;
+                }
+            }
+        }
+        if (blockage->hasSpacing())
+            data.spacing = blockage->minSpacing();
+        if (blockage->hasDesignRuleWidth())
+            data.design_rule_width = blockage->designRuleWidth();
+        data.is_soft = static_cast<bool>(blockage->hasSoft());
+        if (blockage->hasPartial())
+            data.placement_max_density = blockage->placementMaxDensity();
+
+        const BlockageId blockage_id = reader->root_->create_blockage(std::move(data));
+
+        if (blockage->numRectangles() > 0 || blockage->numPolygons() > 0)
+        {
+            // A Blockage is scoped to at most one layer (or none, for a
+            // PLACEMENT blockage), unlike a PIN's own per-rect layer
+            // array - so unlike shapes_from_pin_like, this needs only one
+            // Shape, not one grouped per distinct layer name.
+            Shape shape{.layer_name = blockage->hasLayer() ? blockage->layerName() : "", .blockage = blockage_id};
+            for (int i = 0; i < blockage->numRectangles(); i++)
+                shape.rects.push_back(Rect{.ll = {.x = blockage->xl(i), .y = blockage->yl(i)}, .ur = {.x = blockage->xh(i), .y = blockage->yh(i)}});
+            for (int i = 0; i < blockage->numPolygons(); i++)
+            {
+                const defiPoints points = blockage->getPolygon(i);
+                Polygon polygon;
+                polygon.points.reserve(static_cast<size_t>(points.numPoints));
+                for (int j = 0; j < points.numPoints; j++)
+                    polygon.points.push_back(Point{.x = points.x[j], .y = points.y[j]});
+                shape.polygons.push_back(std::move(polygon));
+            }
+            reader->root_->create_shape(std::move(shape));
+        }
+        return 0;
+    }
+
     int DEFReader::read_def(std::string filename, Root &root, std::string library_name)
     {
         defrInit();
@@ -448,6 +518,7 @@ namespace le
         defrSetGcellGridCbk(defrGcellGridCbkFn);
         defrSetComponentCbk(defrComponentCbkFn);
         defrSetPinCbk(defrPinCbkFn);
+        defrSetBlockageCbk(defrBlockageCbkFn);
         defrSetLogFunction(&DEFReader::defrLogFn);
         defrSetWarningLogFunction(&DEFReader::defrLogFn);
 
