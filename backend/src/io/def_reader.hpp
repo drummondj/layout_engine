@@ -9,8 +9,8 @@
 namespace le
 {
     // First-pass DEFReader (migration Step 1): DESIGN/VERSION/UNITS/DIEAREA/
-    // ROW/TRACKS/GCELLGRID/COMPONENTS/PINS/BLOCKAGES/VIAS only - NETS/
-    // REGIONS/NONDEFAULTRULES are added in later rounds (see
+    // ROW/TRACKS/GCELLGRID/COMPONENTS/PINS/BLOCKAGES/VIAS/REGIONS only -
+    // NETS/NONDEFAULTRULES are added in later rounds (see
     // PROJECT_MIGRATION.md and this project's own plan history). Mirrors
     // LEFReader's own shape (callback-registration-then-defrRead driver,
     // instance-held parser-scratch state, thread_local message-bridging for
@@ -38,6 +38,7 @@ namespace le
         static int defrPinCbkFn(defrCallbackType_e typ, defiPin *pin, void *user_data);
         static int defrBlockageCbkFn(defrCallbackType_e typ, defiBlockage *blockage, void *user_data);
         static int defrViaCbkFn(defrCallbackType_e typ, defiVia *via, void *user_data);
+        static int defrRegionCbkFn(defrCallbackType_e typ, defiRegion *region, void *user_data);
 
         // Registered for both defrSetLogFunction and
         // defrSetWarningLogFunction - see LEFReader::lefrLogFn's own

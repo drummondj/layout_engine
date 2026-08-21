@@ -575,6 +575,29 @@ namespace le
         return 0;
     }
 
+    int DEFReader::defrRegionCbkFn(defrCallbackType_e /*typ*/, defiRegion *region, void *user_data)
+    {
+        auto reader = static_cast<DEFReader *>(user_data);
+        if (!reader->layout_id_.valid())
+        {
+            log_error("REGION {} statement seen before DESIGN - ignored.", region->name());
+            return 0;
+        }
+
+        RegionData data{
+            .layout = reader->layout_id_,
+            .name = region->name(),
+        };
+        if (region->hasType())
+            data.region_type = region->type();
+        data.rects.reserve(static_cast<size_t>(region->numRectangles()));
+        for (int i = 0; i < region->numRectangles(); i++)
+            data.rects.push_back(Rect{.ll = {.x = region->xl(i), .y = region->yl(i)}, .ur = {.x = region->xh(i), .y = region->yh(i)}});
+
+        reader->root_->create_region(std::move(data));
+        return 0;
+    }
+
     int DEFReader::read_def(std::string filename, Root &root, std::string library_name)
     {
         defrInit();
@@ -592,6 +615,7 @@ namespace le
         defrSetPinCbk(defrPinCbkFn);
         defrSetBlockageCbk(defrBlockageCbkFn);
         defrSetViaCbk(defrViaCbkFn);
+        defrSetRegionCbk(defrRegionCbkFn);
         defrSetLogFunction(&DEFReader::defrLogFn);
         defrSetWarningLogFunction(&DEFReader::defrLogFn);
 

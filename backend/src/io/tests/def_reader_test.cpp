@@ -542,6 +542,46 @@ namespace le
         ASSERT_EQ(root.get_layout_via_layers(myvia1_id).size(), 3u);
     }
 
+    TEST_F(DEFReaderCompleteFixture, CreatesEveryRegionWithCorrectFields)
+    {
+        const DesignId design_id = root.get_design_by_name("design");
+        const LayoutId layout_id = root.get_design_layout(design_id);
+        const std::vector<RegionId> region_ids = root.get_layout_regions(layout_id);
+        ASSERT_EQ(region_ids.size(), 2u);
+
+        auto find_by_name = [&](const std::string &name) -> const RegionData *
+        {
+            for (const RegionId id : region_ids)
+            {
+                const RegionData *region = root.get_region(id);
+                if (region && region->name == name)
+                    return region;
+            }
+            return nullptr;
+        };
+
+        // region1: 4 coordinate points = 2 rects (each a pair of opposite
+        // corners), TYPE FENCE.
+        const RegionData *region1 = find_by_name("region1");
+        ASSERT_NE(region1, nullptr);
+        ASSERT_TRUE(region1->region_type.has_value());
+        EXPECT_EQ(*region1->region_type, "FENCE");
+        ASSERT_EQ(region1->rects.size(), 2u);
+        EXPECT_EQ(region1->rects[0].ll.x, -500);
+        EXPECT_EQ(region1->rects[0].ur.x, 300);
+        EXPECT_EQ(region1->rects[1].ll.x, 500);
+        EXPECT_EQ(region1->rects[1].ur.x, 1000);
+
+        // region2: 1 rect, TYPE GUIDE.
+        const RegionData *region2 = find_by_name("region2");
+        ASSERT_NE(region2, nullptr);
+        ASSERT_TRUE(region2->region_type.has_value());
+        EXPECT_EQ(*region2->region_type, "GUIDE");
+        ASSERT_EQ(region2->rects.size(), 1u);
+        EXPECT_EQ(region2->rects[0].ll.x, 4000);
+        EXPECT_EQ(region2->rects[0].ur.y, 1000);
+    }
+
     TEST(DEFReaderErrors, FileNotFoundReturnsOne)
     {
         Root root;
