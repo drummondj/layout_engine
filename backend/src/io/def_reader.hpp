@@ -56,8 +56,9 @@ namespace le
         // Builds a Polygon from a DIEAREA defiBox - its own >2-point form
         // (5.6+, defiBox::getPoint()) if present, else the plain 2-corner
         // xl/yl/xh/yh rect shorthand (via Geometry::rect_to_polygon, same
-        // helper LEFReader's own post_process() fallback uses).
-        static Polygon polygon_from_die_area(defiBox *box);
+        // helper LEFReader's own post_process() fallback uses). unit_scale
+        // (see unit_scale_'s own comment) is applied to every point.
+        static Polygon polygon_from_die_area(defiBox *box, double unit_scale);
 
         Root *root_;
         std::string library_name_;
@@ -70,6 +71,20 @@ namespace le
         // routinely read after a LEF file already populated the shared
         // Technology.
         TechnologyId technology_id_;
+        // Almost every DEF coordinate/dimension value is a raw database-unit
+        // integer already expressed at *this file's own* UNITS DISTANCE
+        // MICRONS scale (see defrUnitsCbkFn's own comment) - not
+        // necessarily the shared Technology's scale, if this DEF disagrees
+        // with an already-established Technology (e.g. from an earlier LEF
+        // read). Set once by defrUnitsCbkFn (which always fires before any
+        // geometry callback - DEF's own grammar puts UNITS ahead of DIEAREA/
+        // ROW/TRACKS/... unconditionally) to
+        // technology->database_units_microns / (this DEF's own units), so
+        // every later raw value gets rescaled onto the Technology's actual
+        // shared grid instead of being stored as if it were already there.
+        // 1.0 (i.e. a no-op) whenever this DEF's own units already match -
+        // the overwhelmingly common case.
+        double unit_scale_ = 1.0;
         std::vector<std::string> messages_;
     };
 }

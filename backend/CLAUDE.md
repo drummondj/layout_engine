@@ -165,24 +165,67 @@ none of these are duplicated here.
   scope (DESIGN/VERSION/UNITS/DIEAREA/ROW/TRACKS/GCELLGRID/COMPONENTS/
   PINS/BLOCKAGES/VIAS/REGIONS/NETS/SPECIALNETS/NONDEFAULTRULES). NETS/
   SPECIALNETS cover routing *geometry* only, not connectivity — see
-  `Route`'s own `schema.py` comment. No `DEFWriter` yet.
+  `Route`'s own `schema.py` comment.
+  `def_writer.{hpp,cpp}` mirrors `LEFWriter`'s own shape for the direct
+  (non-callback) `defwWriter.hpp` API, covering the mirror image of
+  `DEFReader`'s scope. Unlike LEF, DEF coordinates need no
+  `microns_to_dbu()`-style conversion at write time either (see the DBU
+  paragraph below) — the one exception, NONDEFAULTRULES LAYER WIDTH/etc,
+  is real vendored-writer gap (see `LEFDEF_BUGS.md`'s "DEF writer" section:
+  `defwNonDefaultRuleLayer` only accepts a plain `int`, so this loses
+  sub-micron precision on write, same asymmetric-precision shape as the
+  reader-side finding). `write_def` uses `defwInitCbk()`, not `defwInit()`
+  — also documented in `LEFDEF_BUGS.md` (a state-machine gap: `defwInit()`
+  writes `VERSION` as text but never updates the internal version-gate
+  variable later calls like `defwTracks`' `MASK` check against, and the
+  "proper" fix, calling `defwVersion()` after, requires a `defwState` only
+  `defwInitCbk()` leaves behind). Tested the same way as `DEFReader`
+  (`def_writer_test.cpp`, reusing `complete.5.8.def` for a
+  read→write→re-read round trip per construct, plus a `defdiff`-based
+  `DEFWriterLefdiffFidelity` test — deliberately narrower than LEF's own
+  analogous `LEFWriterLefdiffFidelity`, since `DEFWriter`'s own scope
+  (mirroring `DEFReader`'s) excludes far more of `complete.5.8.def`'s
+  content than `LEFWriter` excludes of `complete.5.8.lef`'s — see that
+  test's own comment for the full excluded-construct list).
   Most DEF coordinate/dimension values (ROW/TRACKS/GCELLGRID/DIEAREA/
   COMPONENTS placement, routed-path points, etc.) are already expressed
   directly in database units in the file itself, unlike LEF (fully
   micron-based, every value needing `microns_to_dbu()`) — confirmed
   against `complete.5.8.def`'s own fixture data, `DEFReader` casts these
-  directly to `int64_t`/`int`. The one confirmed exception is
-  NONDEFAULTRULES LAYER WIDTH/SPACING/WIREEXT/DIAGWIDTH, written in real
-  microns — `defiNonDefault`'s own `layerWidthVal()`-style accessors
-  looked like the DBU-converted form but actually just truncate the raw
-  micron double to an int (found by testing against real fixture values:
-  `10.1` came back as `10`, not `10100`) — real conversion needs the
-  plain micron accessor times the shared `Technology`'s own
-  `database_units_microns`, same as every LEF conversion; `DEFReader`
-  only resolves/creates that shared `Technology` (mirroring `LEFReader`'s
-  own reuse-or-create) for this one construct, and `defrUnitsCbkFn`
-  writes `database_units_microns` from DEF's own `UNITS DISTANCE
-  MICRONS` the same way LEF's own units callback does.
+  directly to `int64_t`/`int`, scaled through `scale_dbu()`/
+  `DEFReader::unit_scale_` (see below) rather than passed through
+  unconverted. The one confirmed exception is NONDEFAULTRULES LAYER
+  WIDTH/SPACING/WIREEXT/DIAGWIDTH, written in real microns —
+  `defiNonDefault`'s own `layerWidthVal()`-style accessors looked like
+  the DBU-converted form but actually just truncate the raw micron double
+  to an int (found by testing against real fixture values: `10.1` came
+  back as `10`, not `10100`) — real conversion needs the plain micron
+  accessor times the shared `Technology`'s own `database_units_microns`,
+  same as every LEF conversion (this one is unaffected by `unit_scale_` -
+  it's derived from real microns directly, not from this DEF's own raw
+  dbu integers, so there's nothing to rescale). `DEFReader` only
+  resolves/creates that shared `Technology` (mirroring `LEFReader`'s own
+  reuse-or-create), and `defrUnitsCbkFn` writes `database_units_microns`
+  from DEF's own `UNITS DISTANCE MICRONS` the same way LEF's own units
+  callback does - **only** when the Technology didn't already have one
+  (e.g. from an earlier LEF read). When this DEF's own UNITS instead
+  *disagrees* with an already-established Technology scale,
+  `defrUnitsCbkFn` leaves `database_units_microns` alone (every
+  already-created Shape assumed that original scale) and instead sets
+  `unit_scale_ = technology->database_units_microns / units`, which every
+  later raw-value conversion site (`scale_dbu()`, threaded through
+  `polygon_from_die_area`/`shapes_from_pin_like`/
+  `append_shapes_from_path`/every other geometry callback) multiplies
+  through - a real, previously-missing conversion (the old code logged an
+  error and left the DEF's raw values unconverted, silently misreading
+  them at the wrong grid resolution). Logs a `WARNING` (not an `ERROR` -
+  matches `LEFReader::lefrUnitsCbkFn`'s own tone for the same situation,
+  which doesn't need this scaling at all since LEF geometry is always
+  real microns re-derived through the Technology's scale regardless of
+  what the file's own UNITS said) either way; when this DEF's own units
+  are coarser than the technology's (`units < database_units_microns`),
+  the message calls out that the scaled-up geometry still can't carry
+  more precision than its own coarser original grid had.
   `Shape.layer` (both readers) and `Placement.reference_design` (`DEFReader`
   only) are resolved references, not stored names/strings — every reader
   callsite resolves the LEF/DEF-declared name against the shared
@@ -572,11 +615,14 @@ because the mechanism can't reach them; this has no bearing on
 
 ## Open gaps (tracked in README's Plan checklist)
 
-- `DEFReader` covers the full Step 1 reader scope now (see its own
-  `src/io/` bullet above) — a `DEFWriter` is still to come. NETS/
-  SPECIALNETS connectivity (as opposed to routing geometry), per-layer
-  WIDTH overrides, direct net-level RECT/POLYGON/VIA forms, SHIELD nets,
-  and STYLE/SHAPE/TAPERRULE metadata remain deferred within that scope.
+- Migration Step 1 (DEF reader/writer + `Layout` klass) is done —
+  `DEFReader`/`DEFWriter` both cover the full scope described in their own
+  `src/io/` bullet above. NETS/SPECIALNETS connectivity (as opposed to
+  routing geometry), per-layer WIDTH overrides, direct net-level RECT/
+  POLYGON/VIA forms, SHIELD nets, and STYLE/SHAPE/TAPERRULE metadata
+  remain deferred within that scope. Step 2 (layer generation for rows/
+  tracks/blockages) and Step 3 (render pipeline updates + the 1M-instance
+  hierarchy stress test) are separate future phases.
 - Skia isn't vendored/built by this project — `src/render/`'s
   `CMakeLists.txt` `skia` target points `SKIA_DIR` at a pre-built checkout
   (default `/Volumes/Docking/Projects/synthosilicon/skia/skia`, override with

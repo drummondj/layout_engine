@@ -20,6 +20,24 @@ namespace
         g_pending_def_messages.push_back("ERROR: " + msg);
     }
 
+    // See LEFReader's own log_warning - same reasoning, just for DEF.
+    template <typename... Args>
+    void log_warning(fmt::format_string<Args...> fmt_str, Args &&...args)
+    {
+        std::string msg = fmt::format(fmt_str, std::forward<Args>(args)...);
+        spdlog::warn("{}", msg);
+        g_pending_def_messages.push_back("WARNING: " + msg);
+    }
+
+    // Rescales one raw DEF database-unit value from this file's own UNITS
+    // scale onto the shared Technology's actual scale - see
+    // DEFReader::unit_scale_'s own comment. A no-op multiply (unit_scale ==
+    // 1.0) whenever they already agree, the overwhelmingly common case.
+    int64_t scale_dbu(int64_t raw, double unit_scale)
+    {
+        return unit_scale == 1.0 ? raw : static_cast<int64_t>(std::llround(static_cast<double>(raw) * unit_scale));
+    }
+
     // defiComponent has no single placementStatus-to-enum accessor of its
     // own - just the boolean is*() family (isUnplaced/isPlaced/isFixed/
     // isCover/isSoftfixed) - so this maps those the same way this project
@@ -67,11 +85,11 @@ namespace
     // true otherwise, including "no placement at all" (location/
     // orientation simply left unset).
     template <typename PinLike>
-    bool fill_pin_like_placement(PinLike *pin, const char *pin_name, std::optional<le::Point> &location, std::optional<le::Orientation> &orientation)
+    bool fill_pin_like_placement(PinLike *pin, const char *pin_name, double unit_scale, std::optional<le::Point> &location, std::optional<le::Orientation> &orientation)
     {
         if (!pin->isPlaced() && !pin->isFixed() && !pin->isCover())
             return true;
-        location = le::Point{.x = pin->placementX(), .y = pin->placementY()};
+        location = le::Point{.x = scale_dbu(pin->placementX(), unit_scale), .y = scale_dbu(pin->placementY(), unit_scale)};
         const std::optional<le::Orientation> parsed = le::orientation_from_string(pin->orientStr());
         if (!parsed)
         {
@@ -93,7 +111,7 @@ namespace
     // matching layer_name into one Shape per distinct layer, not walk an
     // itemType() stream like LEFReader::shapes_from_parser does.
     template <typename PinLike>
-    std::vector<le::Shape> shapes_from_pin_like(le::Root &root, PinLike *pin)
+    std::vector<le::Shape> shapes_from_pin_like(le::Root &root, PinLike *pin, double unit_scale)
     {
         std::vector<le::Shape> shapes;
         // Returns nullptr (logging once) for a layer name that doesn't
@@ -120,7 +138,7 @@ namespace
             int xl = 0, yl = 0, xh = 0, yh = 0;
             pin->bounds(i, &xl, &yl, &xh, &yh);
             if (le::Shape *shape = find_or_create(pin->layer(i)))
-                shape->rects.push_back(le::Rect{.ll = {.x = xl, .y = yl}, .ur = {.x = xh, .y = yh}});
+                shape->rects.push_back(le::Rect{.ll = {.x = scale_dbu(xl, unit_scale), .y = scale_dbu(yl, unit_scale)}, .ur = {.x = scale_dbu(xh, unit_scale), .y = scale_dbu(yh, unit_scale)}});
         }
         for (int i = 0; i < pin->numPolygons(); i++)
         {
@@ -131,7 +149,7 @@ namespace
             le::Polygon polygon;
             polygon.points.reserve(static_cast<size_t>(points.numPoints));
             for (int j = 0; j < points.numPoints; j++)
-                polygon.points.push_back(le::Point{.x = points.x[j], .y = points.y[j]});
+                polygon.points.push_back(le::Point{.x = scale_dbu(points.x[j], unit_scale), .y = scale_dbu(points.y[j], unit_scale)});
             shape->polygons.push_back(std::move(polygon));
         }
         return shapes;
@@ -161,7 +179,7 @@ namespace
     // rectangular path segment, rare), DEFIPATH_TAPER/TAPERRULE/SHAPE/
     // STYLE (manufacturing/rendering-hint metadata with no schema field
     // for it yet) - skipped, not erroring.
-    void append_shapes_from_path(le::Root &root, std::vector<le::Shape> &shapes, defiPath *path)
+    void append_shapes_from_path(le::Root &root, std::vector<le::Shape> &shapes, defiPath *path, double unit_scale)
     {
         // Returns nullptr (logging once) for a layer name that doesn't
         // resolve to a Technology Layer - every element of this path
@@ -251,13 +269,13 @@ namespace
                 current_shape = find_or_create(path->getLayer());
                 break;
             case DEFIPATH_WIDTH:
-                current_width = path->getWidth();
+                current_width = scale_dbu(path->getWidth(), unit_scale);
                 break;
             case DEFIPATH_POINT:
             {
                 int x = 0, y = 0;
                 path->getPoint(&x, &y);
-                last_point = le::Point{.x = x, .y = y};
+                last_point = le::Point{.x = scale_dbu(x, unit_scale), .y = scale_dbu(y, unit_scale)};
                 current_points.push_back(last_point);
                 break;
             }
@@ -265,7 +283,7 @@ namespace
             {
                 int x = 0, y = 0, ext = 0;
                 path->getFlushPoint(&x, &y, &ext);
-                last_point = le::Point{.x = x, .y = y};
+                last_point = le::Point{.x = scale_dbu(x, unit_scale), .y = scale_dbu(y, unit_scale)};
                 current_points.push_back(last_point);
                 break;
             }
@@ -292,8 +310,8 @@ namespace
                     pending_via->is_array = true;
                     pending_via->num_x = num_x;
                     pending_via->num_y = num_y;
-                    pending_via->space_x = space_x;
-                    pending_via->space_y = space_y;
+                    pending_via->space_x = scale_dbu(space_x, unit_scale);
+                    pending_via->space_y = scale_dbu(space_y, unit_scale);
                 }
                 break;
             default:
@@ -318,7 +336,7 @@ namespace le
             g_pending_def_messages.push_back(std::move(s));
     }
 
-    Polygon DEFReader::polygon_from_die_area(defiBox *box)
+    Polygon DEFReader::polygon_from_die_area(defiBox *box, double unit_scale)
     {
         const defiPoints points = box->getPoint();
         if (points.numPoints >= 3)
@@ -326,13 +344,13 @@ namespace le
             Polygon polygon;
             polygon.points.reserve(static_cast<size_t>(points.numPoints));
             for (int i = 0; i < points.numPoints; i++)
-                polygon.points.push_back(Point{.x = points.x[i], .y = points.y[i]});
+                polygon.points.push_back(Point{.x = scale_dbu(points.x[i], unit_scale), .y = scale_dbu(points.y[i], unit_scale)});
             return polygon;
         }
         // Plain 2-corner shorthand (no explicit point list) - same
         // rect-to-polygon fallback LEFReader::post_process uses for its
         // own SIZE/ORIGIN fallback boundary.
-        const Rect bbox{.ll = {.x = box->xl(), .y = box->yl()}, .ur = {.x = box->xh(), .y = box->yh()}};
+        const Rect bbox{.ll = {.x = scale_dbu(box->xl(), unit_scale), .y = scale_dbu(box->yl(), unit_scale)}, .ur = {.x = scale_dbu(box->xh(), unit_scale), .y = scale_dbu(box->yh(), unit_scale)}};
         return Geometry::rect_to_polygon(bbox);
     }
 
@@ -389,10 +407,42 @@ namespace le
         if (technology->database_units_microns == 0)
         {
             technology->database_units_microns = units;
+            reader->unit_scale_ = 1.0;
         }
         else if (technology->database_units_microns != units)
         {
-            log_error("DEF UNITS DISTANCE MICRONS {} does not equal current technology units {} - ignoring new definition.", units, technology->database_units_microns);
+            // The shared Technology's own scale (typically established by
+            // an earlier LEF read) is never overwritten by a later DEF's
+            // disagreeing UNITS - every other already-created Shape was
+            // stored assuming that original scale. Instead, this DEF's own
+            // raw database-unit values (see unit_scale_'s own comment) get
+            // rescaled onto it via unit_scale_, so they land at the same
+            // real-world position rather than being silently misread at
+            // the wrong grid resolution (the previous behavior here -
+            // logging and using the DEF's raw values unconverted - was a
+            // real bug, not just a missed conversion).
+            reader->unit_scale_ = technology->database_units_microns / units;
+            if (units < technology->database_units_microns)
+            {
+                // DEF's own grid is coarser than the technology's - every
+                // value it expresses scales up exactly (technology units
+                // is always one of the fixed LEF/DEF UNITS values, though
+                // not necessarily an exact multiple of this DEF's own, in
+                // which case scaling can still round to the nearest
+                // technology-grid position) - but the DEF's own original
+                // authored precision can never exceed its own coarser
+                // grid to begin with, so this scaling can't manufacture
+                // detail the file never had.
+                log_warning("DEF UNITS DISTANCE MICRONS {} is coarser than the current technology units {} - scaling DEF geometry up by {:.4g}x, but it cannot carry more precision than its own original {} units/micron.", units, technology->database_units_microns, reader->unit_scale_, units);
+            }
+            else
+            {
+                log_warning("DEF UNITS DISTANCE MICRONS {} does not equal current technology units {} - scaling DEF geometry by {:.4g}x to match.", units, technology->database_units_microns, reader->unit_scale_);
+            }
+        }
+        else
+        {
+            reader->unit_scale_ = 1.0;
         }
         return 0;
     }
@@ -408,7 +458,7 @@ namespace le
         reader->root_->create_shape(ShapeData{
             .layout = reader->layout_id_,
             .purpose = ShapePurpose::BOUNDARY,
-            .polygons = {polygon_from_die_area(box)},
+            .polygons = {polygon_from_die_area(box, reader->unit_scale_)},
         });
         return 0;
     }
@@ -433,7 +483,7 @@ namespace le
             .layout = reader->layout_id_,
             .name = row->name(),
             .site_name = row->macro(),
-            .origin = Point{.x = static_cast<int64_t>(row->x()), .y = static_cast<int64_t>(row->y())},
+            .origin = Point{.x = scale_dbu(row->x(), reader->unit_scale_), .y = scale_dbu(row->y(), reader->unit_scale_)},
             .orientation = *orientation,
         };
         if (row->hasDo())
@@ -443,8 +493,8 @@ namespace le
         }
         if (row->hasDoStep())
         {
-            data.step_x = static_cast<int64_t>(row->xStep());
-            data.step_y = static_cast<int64_t>(row->yStep());
+            data.step_x = scale_dbu(row->xStep(), reader->unit_scale_);
+            data.step_y = scale_dbu(row->yStep(), reader->unit_scale_);
         }
         reader->root_->create_row(std::move(data));
         return 0;
@@ -462,9 +512,9 @@ namespace le
         TrackData data{
             .layout = reader->layout_id_,
             .is_x = std::strcmp(track->macro(), "X") == 0,
-            .start = static_cast<int64_t>(track->x()),
+            .start = scale_dbu(track->x(), reader->unit_scale_),
             .count = static_cast<int>(track->xNum()),
-            .step = static_cast<int64_t>(track->xStep()),
+            .step = scale_dbu(track->xStep(), reader->unit_scale_),
             .same_mask = static_cast<bool>(track->sameMask()),
         };
         data.layer_names.reserve(static_cast<size_t>(track->numLayers()));
@@ -488,9 +538,9 @@ namespace le
         reader->root_->create_g_cell_grid(GCellGridData{
             .layout = reader->layout_id_,
             .is_x = std::strcmp(grid->macro(), "X") == 0,
-            .start = static_cast<int64_t>(grid->x()),
+            .start = scale_dbu(grid->x(), reader->unit_scale_),
             .count = grid->xNum(),
-            .step = static_cast<int64_t>(grid->xStep()),
+            .step = scale_dbu(grid->xStep(), reader->unit_scale_),
         });
         return 0;
     }
@@ -544,7 +594,7 @@ namespace le
         // the early return before create_placement ever ran).
         if (component->isPlaced() || component->isFixed() || component->isCover() || component->isSoftfixed())
         {
-            data.location = Point{.x = component->placementX(), .y = component->placementY()};
+            data.location = Point{.x = scale_dbu(component->placementX(), reader->unit_scale_), .y = scale_dbu(component->placementY(), reader->unit_scale_)};
             const std::optional<Orientation> orientation = orientation_from_string(component->placementOrientStr());
             if (!orientation)
             {
@@ -590,7 +640,7 @@ namespace le
         if (pin->hasUse())
             data.use = pin->use();
         data.placement_status = placement_status_from_pin_like(pin);
-        if (!fill_pin_like_placement(pin, pin->pinName(), data.location, data.orientation))
+        if (!fill_pin_like_placement(pin, pin->pinName(), reader->unit_scale_, data.location, data.orientation))
             return 0;
 
         const PhysicalPortId physical_port_id = reader->root_->create_physical_port(std::move(data));
@@ -613,10 +663,10 @@ namespace le
                 defiPinPort *port = pin->pinPort(i);
                 PhysicalPortSegmentData segment_data{.physical_port = physical_port_id};
                 segment_data.placement_status = placement_status_from_pin_like(port);
-                if (!fill_pin_like_placement(port, pin->pinName(), segment_data.location, segment_data.orientation))
+                if (!fill_pin_like_placement(port, pin->pinName(), reader->unit_scale_, segment_data.location, segment_data.orientation))
                     return 0;
                 const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(std::move(segment_data));
-                for (Shape &shape : shapes_from_pin_like(*reader->root_, port))
+                for (Shape &shape : shapes_from_pin_like(*reader->root_, port, reader->unit_scale_))
                 {
                     shape.physical_port_segment = segment_id;
                     reader->root_->create_shape(std::move(shape));
@@ -626,7 +676,7 @@ namespace le
         else
         {
             const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(PhysicalPortSegmentData{.physical_port = physical_port_id});
-            for (Shape &shape : shapes_from_pin_like(*reader->root_, pin))
+            for (Shape &shape : shapes_from_pin_like(*reader->root_, pin, reader->unit_scale_))
             {
                 shape.physical_port_segment = segment_id;
                 reader->root_->create_shape(std::move(shape));
@@ -673,9 +723,9 @@ namespace le
             }
         }
         if (blockage->hasSpacing())
-            data.spacing = blockage->minSpacing();
+            data.spacing = scale_dbu(blockage->minSpacing(), reader->unit_scale_);
         if (blockage->hasDesignRuleWidth())
-            data.design_rule_width = blockage->designRuleWidth();
+            data.design_rule_width = scale_dbu(blockage->designRuleWidth(), reader->unit_scale_);
         data.is_soft = static_cast<bool>(blockage->hasSoft());
         if (blockage->hasPartial())
             data.placement_max_density = blockage->placementMaxDensity();
@@ -711,14 +761,14 @@ namespace le
                 shape.purpose = ShapePurpose::PLACEMENT_BLOCKAGE;
             }
             for (int i = 0; i < blockage->numRectangles(); i++)
-                shape.rects.push_back(Rect{.ll = {.x = blockage->xl(i), .y = blockage->yl(i)}, .ur = {.x = blockage->xh(i), .y = blockage->yh(i)}});
+                shape.rects.push_back(Rect{.ll = {.x = scale_dbu(blockage->xl(i), reader->unit_scale_), .y = scale_dbu(blockage->yl(i), reader->unit_scale_)}, .ur = {.x = scale_dbu(blockage->xh(i), reader->unit_scale_), .y = scale_dbu(blockage->yh(i), reader->unit_scale_)}});
             for (int i = 0; i < blockage->numPolygons(); i++)
             {
                 const defiPoints points = blockage->getPolygon(i);
                 Polygon polygon;
                 polygon.points.reserve(static_cast<size_t>(points.numPoints));
                 for (int j = 0; j < points.numPoints; j++)
-                    polygon.points.push_back(Point{.x = points.x[j], .y = points.y[j]});
+                    polygon.points.push_back(Point{.x = scale_dbu(points.x[j], reader->unit_scale_), .y = scale_dbu(points.y[j], reader->unit_scale_)});
                 shape.polygons.push_back(std::move(polygon));
             }
             reader->root_->create_shape(std::move(shape));
@@ -759,7 +809,7 @@ namespace le
             char *layer_name = nullptr;
             int xl = 0, yl = 0, xh = 0, yh = 0;
             via->layer(i, &layer_name, &xl, &yl, &xh, &yh);
-            find_or_create(layer_name).rects.push_back(Rect{.ll = {.x = xl, .y = yl}, .ur = {.x = xh, .y = yh}});
+            find_or_create(layer_name).rects.push_back(Rect{.ll = {.x = scale_dbu(xl, reader->unit_scale_), .y = scale_dbu(yl, reader->unit_scale_)}, .ur = {.x = scale_dbu(xh, reader->unit_scale_), .y = scale_dbu(yh, reader->unit_scale_)}});
         }
         for (int i = 0; i < via->numPolygons(); i++)
         {
@@ -767,7 +817,7 @@ namespace le
             Polygon polygon;
             polygon.points.reserve(static_cast<size_t>(points.numPoints));
             for (int j = 0; j < points.numPoints; j++)
-                polygon.points.push_back(Point{.x = points.x[j], .y = points.y[j]});
+                polygon.points.push_back(Point{.x = scale_dbu(points.x[j], reader->unit_scale_), .y = scale_dbu(points.y[j], reader->unit_scale_)});
             find_or_create(via->polygonName(i)).polygons.push_back(std::move(polygon));
         }
         for (ViaLayerData &via_layer : via_layers)
@@ -786,13 +836,13 @@ namespace le
             reader->root_->create_via_rule_reference(ViaRuleReferenceData{
                 .layout_via = layout_via_id,
                 .via_rule_name = via_rule_name,
-                .cut_size = Point{.x = x_size, .y = y_size},
+                .cut_size = Point{.x = scale_dbu(x_size, reader->unit_scale_), .y = scale_dbu(y_size, reader->unit_scale_)},
                 .bot_layer_name = bot_layer,
                 .cut_layer_name = cut_layer,
                 .top_layer_name = top_layer,
-                .cut_spacing = Point{.x = x_cut_spacing, .y = y_cut_spacing},
-                .bot_enclosure = Point{.x = x_bot_enc, .y = y_bot_enc},
-                .top_enclosure = Point{.x = x_top_enc, .y = y_top_enc},
+                .cut_spacing = Point{.x = scale_dbu(x_cut_spacing, reader->unit_scale_), .y = scale_dbu(y_cut_spacing, reader->unit_scale_)},
+                .bot_enclosure = Point{.x = scale_dbu(x_bot_enc, reader->unit_scale_), .y = scale_dbu(y_bot_enc, reader->unit_scale_)},
+                .top_enclosure = Point{.x = scale_dbu(x_top_enc, reader->unit_scale_), .y = scale_dbu(y_top_enc, reader->unit_scale_)},
             });
         }
         return 0;
@@ -815,7 +865,7 @@ namespace le
             data.region_type = region->type();
         data.rects.reserve(static_cast<size_t>(region->numRectangles()));
         for (int i = 0; i < region->numRectangles(); i++)
-            data.rects.push_back(Rect{.ll = {.x = region->xl(i), .y = region->yl(i)}, .ur = {.x = region->xh(i), .y = region->yh(i)}});
+            data.rects.push_back(Rect{.ll = {.x = scale_dbu(region->xl(i), reader->unit_scale_), .y = scale_dbu(region->yl(i), reader->unit_scale_)}, .ur = {.x = scale_dbu(region->xh(i), reader->unit_scale_), .y = scale_dbu(region->yh(i), reader->unit_scale_)}});
 
         reader->root_->create_region(std::move(data));
         return 0;
@@ -854,7 +904,7 @@ namespace le
         {
             defiWire *wire = net->wire(i);
             for (int j = 0; j < wire->numPaths(); j++)
-                append_shapes_from_path(*reader->root_, shapes, wire->path(j));
+                append_shapes_from_path(*reader->root_, shapes, wire->path(j), reader->unit_scale_);
         }
         for (Shape &shape : shapes)
         {
@@ -977,6 +1027,14 @@ namespace le
         design_id_ = DesignId{};
         layout_id_ = LayoutId{};
         technology_id_ = root.is_technology_empty() ? root.create_technology(TechnologyData{}) : root.get_technology_ids().front();
+        // Reset per read_def() call, same as the ids above - re-derived by
+        // defrUnitsCbkFn (which always fires before any geometry callback)
+        // once this file's own UNITS statement is seen; 1.0 is the correct
+        // default even before that if the technology is still fresh
+        // (database_units_microns == 0), or if this DEF happens to omit
+        // UNITS entirely (values then pass through unscaled, same as
+        // before this fix - not making anything worse for that case).
+        unit_scale_ = 1.0;
 
         std::unique_ptr<FILE, int (*)(FILE *)> file(fopen(filename.c_str(), "r"), &fclose);
         if (!file)

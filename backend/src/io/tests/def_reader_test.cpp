@@ -742,4 +742,55 @@ namespace le
         DEFReader reader;
         EXPECT_EQ(reader.read_def("/nonexistent/path.def", root, "test_lib"), 1);
     }
+
+    // unit_scale_mismatch.def declares UNITS DISTANCE MICRONS 500 - coarser
+    // than the pre-existing Technology's own 1000 (as if a LEF tech file
+    // had already been read) - DEFReader must rescale every raw value it
+    // reads (2x here: 1000/500) onto the Technology's actual grid rather
+    // than storing them as if they were already at that scale (the
+    // previous, buggy behavior - see defrUnitsCbkFn's own comment).
+    TEST(DEFReaderUnitScale, RescalesGeometryWhenDefUnitsDifferFromTechnologyUnits)
+    {
+        Root root;
+        root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+        DEFReader reader;
+        ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/unit_scale_mismatch.def", root, "test_lib"), 0);
+
+        const DesignId design_id = root.get_design_by_name("unit_scale_test");
+        ASSERT_TRUE(design_id.valid());
+        const LayoutId layout_id = root.get_design_layout(design_id);
+        ASSERT_TRUE(layout_id.valid());
+
+        const ShapeId diearea_id = root.get_layout_diearea(layout_id);
+        const ShapeData *diearea = root.get_shape(diearea_id);
+        ASSERT_TRUE(diearea && !diearea->polygons.empty());
+        // The plain 2-corner DIEAREA shorthand goes through
+        // Geometry::rect_to_polygon (a closed 5-point ring: ll, ll/ur.y,
+        // ur, ur.x/ll.y, ll again) rather than staying a 2-point polygon.
+        ASSERT_EQ(diearea->polygons.front().points.size(), 5u);
+        EXPECT_EQ(diearea->polygons.front().points[0].x, 0);
+        EXPECT_EQ(diearea->polygons.front().points[0].y, 0);
+        EXPECT_EQ(diearea->polygons.front().points[2].x, 5000); // 2000 * (1000/400)
+        EXPECT_EQ(diearea->polygons.front().points[2].y, 5000);
+
+        const auto &row_ids = root.get_layout_rows(layout_id);
+        ASSERT_EQ(row_ids.size(), 1u);
+        const RowData *row = root.get_row(row_ids.front());
+        ASSERT_TRUE(row && row->origin.has_value());
+        EXPECT_EQ(row->origin->x, 250);  // 100 * 2.5
+        EXPECT_EQ(row->origin->y, 500);  // 200 * 2.5
+        ASSERT_TRUE(row->step_x.has_value());
+        EXPECT_EQ(*row->step_x, 1000); // 400 * 2.5
+
+        // The Technology's own shared scale must never be overwritten by a
+        // disagreeing DEF - every Shape/Row/etc already created under LEF's
+        // 1000 units/micron would otherwise silently go out of alignment.
+        EXPECT_EQ(root.get_technology(root.get_technology_ids().front())->database_units_microns, 1000.0);
+
+        bool saw_precision_warning = false;
+        for (const std::string &message : reader.messages())
+            if (message.find("WARNING") != std::string::npos && message.find("coarser") != std::string::npos)
+                saw_precision_warning = true;
+        EXPECT_TRUE(saw_precision_warning) << "expected a precision warning since DEF units (500) < technology units (1000)";
+    }
 }

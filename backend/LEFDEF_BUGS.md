@@ -1,19 +1,23 @@
 # Vendored LEF/DEF Library Bugs
 
 Confirmed defects and limitations in the vendored Si2 LEF/DEF 6.0.62-p004
-C++ parser/writer (`src/lefdef/lef/`), found while implementing UPDATES.md
-item 12 (LEF syntax completion) by diffing `LEFReader`→`LEFWriter` round
-trips against `src/lefdef/lef/TEST/complete.5.8.lef` via the
-`lef_roundtrip_diff` dev tool. This is third-party vendored source (see its
-own `LICENSE.TXT`) — never hand-edited, per CLAUDE.md's own rule — so every
-entry here is worked around in `src/io/lef_writer.cpp`/`.hpp`, not fixed at
-the source. Each workaround site has its own `KNOWN VENDORED-LIBRARY
-BUG`/`GAP`/`EDGE CASE` comment in the code; this file is the consolidated
-index. Almost all are on the **writer** (`lefw*`) side — most reader
-asymmetries trace back to a real writer defect below, not a parsing error.
-The one exception is a real reader-side finding, not a bug but a deliberate
-library behavior worth knowing about before spending time on it again - see
-"Reader-side: intentional version-obsolescence" at the end of this file.
+C++ parser/writer (`src/lefdef/lef/`, `src/lefdef/def/`), found while
+implementing UPDATES.md item 12 (LEF syntax completion) and the DEF
+migration's `DEFWriter` by diffing `LEFReader`→`LEFWriter`/`DEFReader`→
+`DEFWriter` round trips against `src/lefdef/lef/TEST/complete.5.8.lef`/
+`src/lefdef/def/TEST/complete.5.8.def` (the `lef_roundtrip_diff` dev tool
+for LEF; `DEFWriterLefdiffFidelity` in `src/io/tests/def_writer_test.cpp`
+for DEF). This is third-party vendored source (see its own `LICENSE.TXT`)
+— never hand-edited, per CLAUDE.md's own rule — so every entry here is
+worked around in `src/io/lef_writer.cpp`/`.hpp` or `def_writer.cpp`/`.hpp`,
+not fixed at the source. Each workaround site has its own `KNOWN
+VENDORED-LIBRARY BUG`/`GAP`/`EDGE CASE`/`VENDORED-WRITER GAP` comment in
+the code; this file is the consolidated index. Almost all are on the
+**writer** (`lefw*`/`defw*`) side — most reader asymmetries trace back to a
+real writer defect below, not a parsing error. The one exception is a real
+reader-side finding, not a bug but a deliberate library behavior worth
+knowing about before spending time on it again - see "Reader-side:
+intentional version-obsolescence" at the end of this file.
 
 ## Bugs that produce unparseable output
 
@@ -198,6 +202,76 @@ and the vendored *reader* both accept.
   permanently blocked for the rest of it. `Shape.except_pg_net` is
   writable on OBS only, and callers must avoid mixing a SPACING-layer
   before an EXCEPTPGNET-layer in the same OBS section.
+
+## DEF writer (`defw*`) bugs and gaps
+
+Found implementing `DEFWriter` (`src/io/def_writer.cpp`/`.hpp`) against
+`complete.5.8.def`.
+
+- **`defwTracks`** unconditionally writes the literal token `LAYER` after
+  the `DO`/`STEP`/`MASK` clause, with no guard for `num_layers == 0`
+  (confirmed in `defwWriter.cpp` — the loop that appends layer names is
+  the only thing gated on count, the `LAYER` keyword itself isn't). But
+  DEF's own TRACKS grammar makes the `LAYER` clause fully optional
+  (`complete.5.8.def` itself has two such TRACKS statements, e.g.
+  `TRACKS Y 52 DO 857 STEP 104 MASK 1 ;`) — a Track with no layers can
+  never be written back through this function without producing an empty,
+  unparseable `... LAYER ;`. Same "vendored writer literally cannot
+  produce valid output here, skip rather than write broken text" treatment
+  as LEF's own non-GENERATE VIARULE dead end (an unparseable statement
+  here would silently truncate `defdiff`'s own comparison for everything
+  written after it too). `DEFWriter::write_tracks` skips any Track with an
+  empty `layer_names` entirely.
+- **`defwInit`**'s own `vers1`/`vers2` parameters write a `VERSION x.y ;`
+  line directly, but never update the writer's internal `defVersionNum`
+  state variable (confirmed in `defwWriter.cpp` — only `defwVersion()`
+  itself does; `defVersionNum` defaults to `5.7`), which several later
+  calls gate real behavior on (e.g. `defwTracks`' own `MASK`/`SAMEMASK`
+  support, checked against `defVersionNum < 5.8`). The "proper" fix —
+  calling `defwVersion()` to set it for real — requires `defwState ==
+  DEFW_INIT`, but `defwInit()` itself always leaves `defwState ==
+  DEFW_DESIGN` when it returns; the two entry points can never be
+  sequenced together. `defwInitCbk()` (an alternate init entry point, used
+  here purely for its state side effect — no callbacks are ever actually
+  registered, every section is still driven by the direct `defw*` API) is
+  the only way to reach `defwState == DEFW_INIT` and make a real
+  `defwVersion()` call possible. `DEFWriter::write_def` uses
+  `defwInitCbk()` + explicit `defwVersion`/`defwDividerChar`/
+  `defwBusBitChars`/`defwDesignName`/`defwUnits` calls instead of the
+  single combined `defwInit()` call for this reason. A further
+  consequence: `defwCaseSensitive()` itself returns `DEFW_OBSOLETE` for
+  any `defVersionNum >= 5.6`, so `NAMESCASESENSITIVE` (present in real 5.8
+  files like `complete.5.8.def`) has no write site at all through this
+  API at the version this writer targets.
+- **`defwNonDefaultRuleLayer`**'s `width`/`diagWidth`/`spacing`/`wireExt`
+  parameters are plain `int`, printed with a bare `"%d"` (confirmed in
+  `defwWriter.cpp` — no decimal point, no unit-scale awareness). But
+  unlike every other DEF geometry statement (raw database-unit integers),
+  DEF's own NONDEFAULTRULES `LAYER` `WIDTH`/`DIAGWIDTH`/`SPACING`/
+  `WIREEXT` are written as real **micron decimal** values (confirmed
+  against `complete.5.8.def`: `WIDTH 10.1`, not `WIDTH 10100`) — there is
+  no way to write a fractional-micron value through this function at all.
+  `DEFWriter::write_non_default_rules` converts back to a truncated
+  micron `int` (dividing by `dbu_per_micron`) as the closest available
+  approximation — real, permanent sub-micron precision loss on write
+  (`10.1` round-trips as `10`), not a bug in this project's own code (see
+  `DEFWriterRoundtripFixture.RoundTripsNonDefaultRuleLayerWidthsToWholeMicronPrecision`
+  in `def_writer_test.cpp`, which locks in the *correct* lossy behavior
+  rather than the unconverted-by-1000x wrong one).
+- Regular NETS' own inline path `WIDTH` (`defwNetPathWidth`) writes a DEF
+  grammar construct (`def.y`'s `wire_width: | K_WIDTH NUMBER`) that is
+  itself gated `versionNum < 6.0` → `def60NewSyntaxError` — i.e. `[WIDTH
+  width]` inline within a regular NET's routed path is only valid DEF
+  >= 6.0 syntax, and this writer always emits `VERSION 5.8`
+  (`complete.5.8.def`'s own regular NETS, e.g. `N1`'s `+ ROUTED M1 ( 0 0
+  )`, never have one either — only SPECIALNETS' `defwSpecialNetPathWidth`,
+  a much older, always-valid construct, does). Not a defect in the
+  vendored writer itself (the version gate is real DEF grammar behavior,
+  correctly enforced) so much as a format constraint this writer's own
+  fixed 5.8 output version can't escape — `DEFWriter::write_net_path`
+  never calls `defwNetPathWidth` for a regular (non-special) net's path;
+  `Route.width` is already documented SPECIALNETS-only in `schema.py` for
+  the same reason.
 
 ## Naming quirk (not a functional bug)
 

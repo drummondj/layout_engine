@@ -286,7 +286,7 @@ if(NOT APPLE)
 endif()
 
 # --- io: LEF/DEF file readers ---
-add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp)
+add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp src/io/def_writer.cpp)
 add_dependencies(io lef_lib def_lib)
 target_include_directories(io
     PUBLIC src/io
@@ -565,6 +565,7 @@ add_executable(backend_tests
     src/io/tests/lef_reader_utils_test.cpp
     src/io/tests/lef_writer_test.cpp
     src/io/tests/def_reader_test.cpp
+    src/io/tests/def_writer_test.cpp
     src/api/tests/api_test.cpp
 )
 target_link_libraries(backend_tests PRIVATE database geometry view_style scene editing pipeline render io api fmt::fmt GTest::gtest_main)
