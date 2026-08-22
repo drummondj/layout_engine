@@ -15,7 +15,6 @@ namespace
             technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
             m1 = root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING"});
             m2 = root.create_layer(LayerData{.technology = technology_id, .name = "M2", .type = "ROUTING"});
-            boundary = root.create_layer(LayerData{.technology = technology_id, .name = "BOUNDARY", .type = "BOUNDARY"});
             view_layers = ViewLayerSet::build_for_technology(root, technology_id);
             abstract_id = root.create_abstract(AbstractData{});
         }
@@ -58,7 +57,6 @@ namespace
         TechnologyId technology_id;
         LayerId m1;
         LayerId m2;
-        LayerId boundary;
         ViewLayerSet view_layers;
         AbstractId abstract_id;
         Pipeline pipeline;
@@ -143,11 +141,12 @@ TEST_F(PipelineFixture, GenerateShapesResolvesViewLayerByOrigin)
 
 TEST_F(PipelineFixture, GenerateShapesIncludesAbstractBoundaryResolvedToBoundaryViewLayer)
 {
-    root.create_shape(ShapeData{.abstract = abstract_id, .layer = boundary, .polygons = {Polygon{.points = {{0, 0}, {0, 100}, {100, 100}, {100, 0}, {0, 0}}}}});
+    root.create_shape(ShapeData{.abstract = abstract_id, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {{0, 0}, {0, 100}, {100, 100}, {100, 0}, {0, 0}}}}});
 
     const auto &shapes = pipeline.generate_shapes(root, abstract_id, view_layers);
     ASSERT_EQ(shapes.size(), 1u);
-    EXPECT_EQ(shapes.front().shape.layer, boundary);
+    ASSERT_TRUE(shapes.front().shape.purpose.has_value());
+    EXPECT_EQ(*shapes.front().shape.purpose, ShapePurpose::BOUNDARY);
     EXPECT_EQ(shapes.front().view_layer, view_layers.boundary_view_layer());
 }
 
@@ -624,7 +623,7 @@ TEST_F(PipelineFixture, FilterByLayerVisibilityGroupsInBottomUpLayerOrder)
 
     Scene scene;
     std::vector<RenderedShape> shapes = {
-        RenderedShape{.shape = Shape{.layer = boundary}, .view_layer = boundary_view_layer},
+        RenderedShape{.shape = Shape{.purpose = ShapePurpose::BOUNDARY}, .view_layer = boundary_view_layer},
         RenderedShape{.shape = Shape{.layer = m2}, .view_layer = m2_terminal},
         RenderedShape{.shape = Shape{.layer = m1}, .view_layer = m1_terminal},
     };
@@ -945,7 +944,7 @@ TEST_F(PipelineFixture, HitTestPointReturnsNulloptOnAMiss)
 
 TEST_F(PipelineFixture, HitTestPointNeverHitsTheBoundaryShape)
 {
-    root.create_shape(ShapeData{.abstract = abstract_id, .layer = boundary, .polygons = {Polygon{.points = {{0, 0}, {0, 1000}, {1000, 1000}, {1000, 0}, {0, 0}}}}});
+    root.create_shape(ShapeData{.abstract = abstract_id, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {{0, 0}, {0, 1000}, {1000, 1000}, {1000, 0}, {0, 0}}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);
@@ -1031,7 +1030,7 @@ TEST_F(PipelineFixture, HitTestRectSkipsAnUnselectableLayer)
 
 TEST_F(PipelineFixture, HitTestRectNeverReturnsTheBoundaryShape)
 {
-    root.create_shape(ShapeData{.abstract = abstract_id, .layer = boundary, .polygons = {Polygon{.points = {{0, 0}, {0, 1000}, {1000, 1000}, {1000, 0}, {0, 0}}}}});
+    root.create_shape(ShapeData{.abstract = abstract_id, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {{0, 0}, {0, 1000}, {1000, 1000}, {1000, 0}, {0, 0}}}}});
 
     Scene scene;
     scene.set_current_abstract(abstract_id);

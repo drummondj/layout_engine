@@ -56,11 +56,10 @@ TEST_F(LEFReaderCompleteFixture, ParsesSuccessfullyAndReadsUnits)
 
 TEST_F(LEFReaderCompleteFixture, CreatesAllLayersWithTypeAndDirection)
 {
-    // 25 uppercase `LAYER ...` blocks plus one lowercase `layer OVERLAP`,
-    // plus the programmatic BOUNDARY layer every Technology now gets
-    // (Shape.layer's own schema.py comment) - created once, lazily, the
-    // first time any Abstract's boundary Shape needs it.
-    EXPECT_EQ(root.get_layer_ids().size(), 27u);
+    // 25 uppercase `LAYER ...` blocks plus one lowercase `layer OVERLAP`.
+    // BOUNDARY is not a Layer at all (a Shape with purpose=BOUNDARY
+    // instead - see Shape.layer/.purpose's own schema.py comments).
+    EXPECT_EQ(root.get_layer_ids().size(), 26u);
 
     LayerId m1_id = root.get_layer_by_name("M1");
     ASSERT_TRUE(m1_id.valid());
@@ -209,7 +208,8 @@ TEST_F(LEFReaderCompleteFixture, ConvertsMacroSizeAndOriginToDbu)
     // single rect polygon built from origin (default {0,0}) + size.
     const Shape *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id));
     ASSERT_NE(boundary_shape, nullptr);
-    EXPECT_EQ(root.get_layer(boundary_shape->layer)->name, "BOUNDARY");
+    ASSERT_TRUE(boundary_shape->purpose.has_value());
+    EXPECT_EQ(*boundary_shape->purpose, ShapePurpose::BOUNDARY);
     ASSERT_EQ(boundary_shape->polygons.size(), 1u);
     const Polygon &boundary = boundary_shape->polygons.front();
     ASSERT_EQ(boundary.points.size(), 5u);

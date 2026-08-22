@@ -423,12 +423,6 @@ namespace le
             const LayerData *layer = root.get_layer(layer_id);
             if (!layer)
                 continue;
-            // The programmatic BOUNDARY layer (Shape.layer's own schema.py
-            // comment) - a real Layer so Shape.layer never needs to be
-            // optional, but not a real LEF construct, so never written
-            // back out here.
-            if (layer->type == "BOUNDARY")
-                continue;
 
             // Moved to pooled classes (Phase 2) - materialized into plain
             // local vectors once here (both the ROUTING and CUT branches

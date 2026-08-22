@@ -193,22 +193,39 @@ none of these are duplicated here.
   requires the real Technology (tech LEF) to always be read before a DEF
   that references its layers, and the referenced macro/cell Designs to
   already exist before the DEF that instantiates them — the normal real-
-  world read order anyway. The one deliberate exception: the programmatic
-  BOUNDARY layer (`Abstract.boundary`/`Layout.diearea`, and a DEF
-  PLACEMENT blockage's own region, none of which are real LEF/DEF layers)
-  is a real Technology `Layer` too (`type="BOUNDARY"`), created once
-  lazily via `LEFReader::get_or_create_boundary_layer` (public so
-  `DEFReader` can call it too) — so `Shape.layer` never needs to be
-  optional/unresolved, and `LEFWriter` simply skips writing this one
-  `Layer` back out. See `codegen/codegen/schema.py`'s `Field.
+  world read order anyway. `Shape.layer` is `Optional[Layer]`, not
+  required, though: a Shape that isn't real LEF/DEF routing/terminal/
+  obstruction/routing-blockage geometry (`Abstract.boundary`/
+  `Layout.diearea`, a DEF PLACEMENT blockage's own region - unlike a
+  ROUTING blockage, which sits on a real routing Layer like any other
+  real geometry) has no physical layer at all, so it sets `Shape.purpose`
+  (`ShapePurpose::BOUNDARY`/`PLACEMENT_BLOCKAGE`) instead - see `Shape.
+  layer`/`.purpose`'s own schema.py comments for why exactly one of the
+  two is ever set (documented convention, not database-enforced, same as
+  e.g. `Blockage.spacing`/`design_rule_width`'s own precedent) rather
+  than a fake Technology `Layer` standing in for a non-physical-layer
+  concept, which would pollute `Technology.layers` (a real LEF/DEF
+  stack) for every consumer that walks it. `ViewLayerSet` (`src/
+  view_style/`) builds the `BOUNDARY` `ViewLayer`/row directly off this
+  closed enum, independent of `Technology.layers`, the same way
+  `ViewLayerPurpose` (a parallel, rendering-only enum) already keeps
+  the "what kind of object drew this" concept separate from LEF
+  vocabulary; `ShapePurpose::PLACEMENT_BLOCKAGE` has no `ViewLayer`
+  resolution yet - Layout/DEF content isn't rendered at all yet (Step
+  2/3 of the migration plan), so there's no consumer for one until that
+  lands. See `codegen/codegen/schema.py`'s `Field.
   is_plain_reference_field()`/`Klass.get_reference_create_fields()` for
-  the small, separate codegen mechanism this relies on to give a plain
-  (non-parent) reference field like this its own resolved-by-token
-  `create_<type>`/`update_<type>` flag, deliberately kept apart from
-  `get_parent_fields()` (which several structural concerns - `is_child`
-  enumeration, delete cascade, `tcl_scope`'s current-instance-anchor
-  algorithm - depend on and must not see a field like this as a parent/
-  ownership relationship).
+  the small, separate codegen mechanism giving a plain (non-parent)
+  reference field like `Shape.layer` its own resolved-by-token
+  `create_<type>`/`update_<type>` flag (required or optional - an
+  omitted optional one follows the same "invalid/default id means
+  unset" convention a parent field's own token already does, no
+  has-flag needed at create time, though `update_<type>` still gets one
+  there since nothing is ever required to update), deliberately kept
+  apart from `get_parent_fields()` (which several structural concerns -
+  `is_child` enumeration, delete cascade, `tcl_scope`'s current-instance-
+  anchor algorithm - depend on and must not see a field like this as a
+  parent/ownership relationship).
   Tested against `src/lefdef/def/TEST/complete.5.8.def` (`def_reader_test.cpp`)
   — that fixture has no companion LEF of its own (a grammar-coverage
   fixture, not a real design), so `DEFReaderCompleteFixture`'s own
@@ -467,32 +484,47 @@ the `<Klass>Data{...}` initializer) is built as one Python string in
 Jinja — the per-field-type/optionality branching reads far more clearly as
 real Python control flow.
 
-A *plain* (non-parent, non-child, required) reference-to-pooled-klass
-field — `Shape.layer`, `Placement.reference_design` — gets the same
-token-resolved treatment as a parent field (one `Le<Type>Id`/token flag,
+A *plain* (non-parent, non-child) reference-to-pooled-klass field —
+`Shape.layer`, `Placement.reference_design` — gets the same token-
+resolved treatment as a parent field (one `Le<Type>Id`/token flag,
 `resolve_<type>_id()` in the shim), but via a small, deliberately separate
 mechanism (`Field.is_plain_reference_field()`/`Klass.
 get_reference_create_fields()`), not a broadening of `get_parent_fields()`
 itself — several other structural concerns (`is_child` enumeration, the
 delete cascade, `tcl_scope`'s current-instance-anchor algorithm) depend on
 `get_parent_fields()`/`has_parent()` meaning a real ownership relationship,
-which a field like this isn't. Required-only for now (no field needs
-`is_optional=True` support here yet — such a field would silently stay
-excluded, the same gap this mechanism exists to close for the required
-case). Unlike a parent field, it needs no `Root`-level index bookkeeping
-at all — `Root::create_<klass>`/`update_<klass>` just carry it as an
-ordinary `std::optional<T>`-shaped field alongside every other create
-field. A generated property table still shows it via the *reference*
-branch of `wrap_with_to_property()`/`wrap_with_to_display_property()`
-(`to_string(id)` — a bare `Id{index=.., generation=..}` debug string, not
-a friendly name, since `to_properties()` has no `Root` to resolve one
-from) — a real, known display gap shared with `Instance.reference_design`
-(same shape, never surfaced since nothing populates `Instance` yet); a
-caller wanting the resolved name uses a hand-written accessor
-(`le_shape_layer_name`) or a filter/`get_properties` *hop* through the
-field instead (`.layer.name`, walking to the referenced object's own
-plain `name` property, unaffected by this gap since hops resolve through
-the target's own fields).
+which a field like this isn't. Both required and `is_optional=True` are
+supported (e.g. `Shape.layer`, unset when `Shape.purpose` is set instead)
+- an omitted optional one follows the same "invalid/default id means
+unset" convention a parent field's own token already does at the API
+layer, and the same "empty token means unset" convention a str/enum
+field already does at the shim layer - no `has_<field>` companion needed
+at create time (unlike a compound/numeric optional field), though
+`update_<type>` still gets one there, same as every other field, since
+nothing is ever required to update. Unlike a parent field, it needs no
+`Root`-level index bookkeeping at all — `Root::create_<klass>`/
+`update_<klass>` just carry it as a bare `<Type>Id` (never
+`std::optional<...>`-wrapped, whether or not `is_optional` - "unset" is
+just the id's own default-invalid value, matching a parent field's own
+convention), alongside every other create field. A generated property
+table still shows it via the *reference* branch of `wrap_with_to_property()`/
+`wrap_with_to_display_property()` (`to_string(id)` — a bare
+`Id{index=.., generation=..}` debug string, not a friendly name, since
+`to_properties()` has no `Root` to resolve one from) — a real, known
+display gap shared with `Instance.reference_design` (same shape, never
+surfaced since nothing populates `Instance` yet); a caller wanting the
+resolved name uses a hand-written accessor (`le_shape_layer_name`) or a
+filter/`get_properties` *hop* through the field instead (`.layer.name`,
+walking to the referenced object's own plain `name` property, unaffected
+by this gap since hops resolve through the target's own fields). Note
+`Field._optional_value_needs_unwrap()` guards every `is_optional`-driven
+`.value_or(...)` in these four `wrap_with_*` methods specifically to
+exclude this field kind - get_cpp_type()'s own bare-id storage (never
+`std::optional`-wrapped) means calling `.value_or(...)` on one would be a
+compile error, not just wrong output; a plain enum field (also
+technically `is_reference()`, just enum rather than pooled) still needs
+the unwrap, so this checks the exact `has_pool`-and-not-`is_enum`
+condition, not merely "is a reference".
 
 `update_<type>` mirrors `create_<type>`'s own flag set field-for-field
 (`Klass.update_api_body()`/`update_root_body()`), but every flag's own

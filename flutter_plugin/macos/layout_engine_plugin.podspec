@@ -96,6 +96,7 @@ Flutter plugin binding the Layout Engine C API and rendering le_render_pixel_buf
       File.join(backend_build, 'librender.a'),
       File.join(backend_build, 'libio.a'),
       File.join(backend_dir, 'src/lefdef/lef/lib/liblef.a'),
+      File.join(backend_dir, 'src/lefdef/def/lib/libdef.a'),
       File.join(skia_dir, 'out/MacStatic/libskia.a'),
       '-lharfbuzz', '-licuuc', '-licudata', '-ljpeg', '-lpng', '-lz', '-lwebp', '-lwebpdemux',
       '-lspdlog', '-lfmt',

@@ -25,7 +25,7 @@ namespace
 
     bool apply_shape_snapshot(Root &r, ShapeId id, const ShapeData &d)
     {
-        return r.update_shape(id, d.layer, d.paths, d.polygons, d.rects, d.spacing, d.design_rule_width, d.except_pg_net);
+        return r.update_shape(id, d.layer, d.purpose, d.paths, d.polygons, d.rects, d.spacing, d.design_rule_width, d.except_pg_net);
     }
 }
 

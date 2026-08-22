@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.37.0",
+    version="0.38.0",
     classes=[
         Klass(
             name="Technology",
@@ -1447,8 +1447,15 @@ schema = Schema(
                 ),
                 Field(
                     name="layer",
-                    description="The layer this shape is on, resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). BOUNDARY - the programmatically-added layer/purpose used for Layout.diearea/Abstract.boundary and for a DEF PLACEMENT blockage's own region (neither is tied to a real LEF/DEF routing layer) - is itself a real Layer (type=\"BOUNDARY\"), created once per Technology and never written back out by LEFWriter, so this field needs no optional/unresolved case at all - see src/view_style's own ViewLayerSet::boundary_view_layer().",
+                    description="The layer this shape is on, if it's real LEF/DEF routing/terminal/obstruction geometry - resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). Exactly one of layer/purpose is ever set (documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent) - a Shape with no real physical layer (Layout.diearea, Abstract.boundary, a DEF PLACEMENT blockage's own region) uses purpose instead, unset here.",
                     type="Layer",
+                    is_optional=True,
+                ),
+                Field(
+                    name="purpose",
+                    description="This shape's synthetic, non-physical-layer purpose, if it isn't real routing/terminal/obstruction/routing-blockage geometry - exactly one of layer/purpose is ever set (see layer's own comment). A ROUTING blockage's own Shape still uses layer like any other real geometry (it really is scoped to a physical routing layer) - only a PLACEMENT blockage (no LAYER clause in DEF at all) uses purpose.",
+                    type="ShapePurpose",
+                    is_optional=True,
                 ),
                 Field(
                     name="paths",
@@ -1741,7 +1748,7 @@ schema = Schema(
                 ),
                 Field(
                     name="boundary",
-                    description="The boundary of the abstract, as a Shape on the programmatic BOUNDARY layer (its own polygons list can hold several disjoint polygons). If the block is rectilinear, this matches the OVERLAP layer; otherwise it's the same as bbox. Previously a bare List[Polygon] field, create_excluded since that shape had no working create/update path (see Layout.diearea's own comment on why) - a real Shape reuses proven machinery, and lets the render pipeline reference one persisted Shape (generate_shapes_stage.hpp) instead of synthesizing one on every render.",
+                    description="The boundary of the abstract, as a Shape with purpose=BOUNDARY (its own polygons list can hold several disjoint polygons). If the block is rectilinear, this matches the OVERLAP layer; otherwise it's the same as bbox. Previously a bare List[Polygon] field, create_excluded since that shape had no working create/update path (see Layout.diearea's own comment on why) - a real Shape reuses proven machinery, and lets the render pipeline reference one persisted Shape (generate_shapes_stage.hpp) instead of synthesizing one on every render.",
                     type="Shape",
                     is_child=True,
                     is_optional=True,
@@ -2223,12 +2230,22 @@ schema = Schema(
             ],
         ),
         Klass(
+            name="ShapePurpose",
+            description="A synthetic, non-physical-layer role a Shape can play instead of sitting on a real routing Layer - a closed, application-owned set (mirrors src/view_style's own ViewLayerPurpose, the rendering-layer concept, but persisted here on Shape.purpose itself rather than derived at render time) for the handful of Shapes that aren't real LEF/DEF geometry on a real Layer. Exactly one of Shape.layer/Shape.purpose is ever set on a given Shape - documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent.",
+            is_enum=True,
+            has_pool=False,
+            fields=[
+                Field(name="BOUNDARY", description="Abstract.boundary / Layout.diearea - the design/macro's own outline", type="int", value=0),
+                Field(name="PLACEMENT_BLOCKAGE", description="A DEF PLACEMENT blockage's own region - unlike a ROUTING blockage (which sits on a real routing Layer via Shape.layer, same as any other real geometry), DEF's own PLACEMENT blockage syntax has no LAYER clause at all", type="int", value=1),
+            ],
+        ),
+        Klass(
             name="Layout",
             description="A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc. Net *connectivity* (which component pins a net connects) is deferred to when SystemVerilog/Schematic linking lands - Net here only holds routing geometry.",
             has_current_access=True,
             fields=[
                 Field(name="design", description="Parent design", type="Design", parent="layout"),
-                Field(name="diearea", description="The chip/block boundary (DEF DIEAREA), as a Shape on the programmatic BOUNDARY layer (not necessarily a plain 2-point rectangle - DEF 5.6+ allows more) - reuses Shape's own already-proven rects/polygons create/update machinery rather than a bespoke single-Polygon field (which has no precedent elsewhere in this schema and no working create/update path)", type="Shape", is_child=True, is_optional=True),
+                Field(name="diearea", description="The chip/block boundary (DEF DIEAREA), as a Shape with purpose=BOUNDARY (not necessarily a plain 2-point rectangle - DEF 5.6+ allows more) - reuses Shape's own already-proven rects/polygons create/update machinery rather than a bespoke single-Polygon field (which has no precedent elsewhere in this schema and no working create/update path)", type="Shape", is_child=True, is_optional=True),
                 Field(name="rows", description="Placement rows (DEF ROW)", type="Row", is_list=True, is_child=True),
                 Field(name="tracks", description="Routing track patterns (DEF TRACKS)", type="Track", is_list=True, is_child=True),
                 Field(name="gcell_grids", description="Global-routing gcell grid lines (DEF GCELLGRID)", type="GCellGrid", is_list=True, is_child=True),

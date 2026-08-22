@@ -1,6 +1,5 @@
 #include <fmt/format.h>
 #include "def_reader.hpp"
-#include "lef_reader.hpp"
 #include "../geometry/geometry.hpp"
 #include <cmath>
 #include <cstring>
@@ -408,7 +407,7 @@ namespace le
         }
         reader->root_->create_shape(ShapeData{
             .layout = reader->layout_id_,
-            .layer = LEFReader::get_or_create_boundary_layer(*reader->root_, reader->technology_id_),
+            .purpose = ShapePurpose::BOUNDARY,
             .polygons = {polygon_from_die_area(box)},
         });
         return 0;
@@ -688,21 +687,20 @@ namespace le
             // A Blockage is scoped to at most one layer (or none, for a
             // PLACEMENT blockage), unlike a PIN's own per-rect layer
             // array - so unlike shapes_from_pin_like, this needs only one
-            // Shape, not one grouped per distinct layer name. A PLACEMENT
-            // blockage's own region isn't tied to any routing layer at
-            // all, so it reuses the same programmatic BOUNDARY layer
-            // Abstract.boundary/Layout.diearea do (get_or_create_boundary_layer)
-            // rather than needing Shape.layer to be optional/unresolved; a
-            // ROUTING blockage on an unresolvable layer name drops its
-            // geometry entirely instead (log and skip, same convention as
-            // every other unresolvable reference in this reader) rather
-            // than silently reassigning real routing-layer geometry onto
-            // the unrelated BOUNDARY layer.
-            LayerId shape_layer_id;
+            // Shape, not one grouped per distinct layer name. A ROUTING
+            // blockage's own Shape gets .layer, same as any other real
+            // geometry (it really is scoped to a physical routing layer) -
+            // an unresolvable layer name drops its geometry entirely
+            // (log and skip, same convention as every other unresolvable
+            // reference in this reader). A PLACEMENT blockage's own
+            // region isn't tied to any routing layer at all (DEF's own
+            // PLACEMENT blockage syntax has no LAYER clause), so it gets
+            // .purpose = PLACEMENT_BLOCKAGE instead.
+            Shape shape{.blockage = blockage_id};
             if (blockage->hasLayer())
             {
-                shape_layer_id = reader->root_->get_layer_by_name(blockage->layerName());
-                if (!shape_layer_id.valid())
+                shape.layer = reader->root_->get_layer_by_name(blockage->layerName());
+                if (!shape.layer.valid())
                 {
                     log_error("BLOCKAGES geometry on unknown LAYER '{}' - ignored.", blockage->layerName());
                     return 0;
@@ -710,9 +708,8 @@ namespace le
             }
             else
             {
-                shape_layer_id = LEFReader::get_or_create_boundary_layer(*reader->root_, reader->technology_id_);
+                shape.purpose = ShapePurpose::PLACEMENT_BLOCKAGE;
             }
-            Shape shape{.layer = shape_layer_id, .blockage = blockage_id};
             for (int i = 0; i < blockage->numRectangles(); i++)
                 shape.rects.push_back(Rect{.ll = {.x = blockage->xl(i), .y = blockage->yl(i)}, .ur = {.x = blockage->xh(i), .y = blockage->yh(i)}});
             for (int i = 0; i < blockage->numPolygons(); i++)

@@ -573,7 +573,7 @@ namespace
             const le::ShapeData before = *existing;
             le::ShapeData after = before;
             le::Geometry::transform_piece_in_place(after, selected.piece_kind, selected.piece_index, *delta);
-            handle->root.update_shape(selected.shape_id, after.layer, after.paths, after.polygons, after.rects,
+            handle->root.update_shape(selected.shape_id, after.layer, after.purpose, after.paths, after.polygons, after.rects,
                                       after.spacing, after.design_rule_width, after.except_pg_net);
             handle->root.bump_mutation_version();
 
@@ -957,17 +957,16 @@ extern "C"
         {
             // UPDATES.md 10 - every physical layer this read newly
             // introduced defaults to hidden unless it's ROUTING or CUT.
-            // BOUNDARY is a real Technology Layer now too (Shape.layer's
-            // own schema.py comment), but it's a programmatic construct,
-            // not a real LEF/DEF physical layer, so it's exempted here the
-            // same way it always has been - staying visible via Scene::
-            // is_layer_name_visible's own default-true-until-toggled
-            // behavior.
+            // BOUNDARY isn't a physical layer at all (a Shape with
+            // purpose=BOUNDARY instead - see Shape.layer/.purpose's own
+            // schema.py comments), so it never reaches this loop - stays
+            // visible via Scene::is_layer_name_visible's own default-
+            // true-until-toggled behavior, same as it always has.
             const auto &layers = handle->root.get_technology_layers(technology_ids.front());
             for (size_t i = old_layer_count; i < layers.size(); ++i)
             {
                 const le::LayerData *layer = handle->root.get_layer(layers[i]);
-                if (layer && layer->type != "ROUTING" && layer->type != "CUT" && layer->type != "BOUNDARY")
+                if (layer && layer->type != "ROUTING" && layer->type != "CUT")
                     handle->scene.set_layer_name_visible(layer->name, false);
             }
 

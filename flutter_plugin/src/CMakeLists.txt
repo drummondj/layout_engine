@@ -110,6 +110,7 @@ if(LE_LINK_BACKEND)
     "${LE_BACKEND_BUILD}/librender.a"
     "${LE_BACKEND_BUILD}/libio.a"
     "${LE_BACKEND_DIR}/src/lefdef/lef/lib/liblef.a"
+    "${LE_BACKEND_DIR}/src/lefdef/def/lib/libdef.a"
     "${LE_SKIA_DIR}/out/Linux/libskia.a"
     ${LE_JPEG_LIBRARIES} ${LE_PNG_LIBRARIES}
     spdlog::spdlog fmt::fmt

@@ -115,22 +115,6 @@ namespace le
             {
                 const LayerData *layer = root.get_layer(layer_id);
 
-                // The programmatic BOUNDARY layer (Shape.layer's own
-                // schema.py comment) is a real Technology Layer now, so it
-                // shows up in this loop like any other - but it gets its
-                // own single BOUNDARY-purpose row, not the usual TERMINAL/
-                // OBSTRUCTION pair, and its LayerId (not an invalid one)
-                // backs boundary_id_/boundary_view_layer() directly.
-                if (layer->type == "BOUNDARY")
-                {
-                    set.boundary_id_ = set.add("BOUNDARY", "BOUNDARY", ViewLayerPurpose::BOUNDARY, layer_id, boundary_style());
-                    set.rows_.push_back(ViewLayerRow{
-                        .name = "BOUNDARY",
-                        .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::BOUNDARY, .id = set.boundary_id_}},
-                    });
-                    continue;
-                }
-
                 Color color;
                 if (layer->type == "ROUTING")
                 {
@@ -177,19 +161,19 @@ namespace le
                 });
             }
 
-            // Fallback for a Technology with no BOUNDARY layer yet (no
-            // Abstract/Layout has ever needed one - get_or_create_boundary_layer
-            // creates it lazily, on first use) - still gives callers a
-            // valid boundary_view_layer() to draw the boundary shape a
-            // freshly-created Abstract will get moments later.
-            if (!set.boundary_id_.valid())
-            {
-                set.boundary_id_ = set.add("BOUNDARY", "BOUNDARY", ViewLayerPurpose::BOUNDARY, LayerId{}, boundary_style());
-                set.rows_.push_back(ViewLayerRow{
-                    .name = "BOUNDARY",
-                    .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::BOUNDARY, .id = set.boundary_id_}},
-                });
-            }
+            // BOUNDARY isn't a physical Layer at all (a Shape with
+            // purpose=BOUNDARY instead - see Shape.layer/.purpose's own
+            // schema.py comments), so it's not derived from the loop
+            // above - always added, independent of what real Layers this
+            // Technology has. Note: a Shape with purpose=PLACEMENT_BLOCKAGE
+            // has no ViewLayer of its own yet - Layout/DEF content isn't
+            // rendered at all yet (Step 2/3 of the migration plan), so
+            // there's no consumer for one until that lands.
+            set.boundary_id_ = set.add("BOUNDARY", "BOUNDARY", ViewLayerPurpose::BOUNDARY, LayerId{}, boundary_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "BOUNDARY",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::BOUNDARY, .id = set.boundary_id_}},
+            });
 
             return set;
         }

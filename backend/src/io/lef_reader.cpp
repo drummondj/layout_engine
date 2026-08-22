@@ -208,19 +208,12 @@ namespace le
     /// member of AbstractData - so unlike every other field this function
     /// touches, this one needs no assignment back into
     /// reader->abstract_data_ at all, and lefrMacroCbkFn's own later
-    /// `*stored = reader->abstract_data_` can't clobber it either way) on
-    /// the programmatic BOUNDARY layer - not a bare polygon list, so the
-    /// render pipeline can reference one persisted Shape
-    /// (generate_shapes_stage.hpp) instead of synthesizing one on every
-    /// render.
-    LayerId LEFReader::get_or_create_boundary_layer(Root &root, TechnologyId technology_id)
-    {
-        LayerId existing = root.get_layer_by_name("BOUNDARY");
-        if (existing.valid())
-            return existing;
-        return root.create_layer(LayerData{.technology = technology_id, .name = "BOUNDARY", .type = "BOUNDARY"});
-    }
-
+    /// `*stored = reader->abstract_data_` can't clobber it either way)
+    /// with purpose=BOUNDARY (not a real physical layer, so layer stays
+    /// unset - see Shape.layer/.purpose's own schema.py comments) - not a
+    /// bare polygon list, so the render pipeline can reference one
+    /// persisted Shape (generate_shapes_stage.hpp) instead of
+    /// synthesizing one on every render.
     void LEFReader::post_process(LEFReader *reader)
     {
         // Look for OVERLAP obstructions
@@ -277,7 +270,7 @@ namespace le
 
         reader->root_->create_shape(ShapeData{
             .abstract = reader->abstract_id_,
-            .layer = get_or_create_boundary_layer(*reader->root_, reader->technology_id_),
+            .purpose = ShapePurpose::BOUNDARY,
             .polygons = std::move(boundary_polygons),
         });
     }

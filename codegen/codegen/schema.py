@@ -783,7 +783,22 @@ class Klass:
             add()
             for rf in reference_fields:
                 add(f"const le::{rf.type}Id {rf.name} = from_c({rf.name}_id);")
-                add(f"if (!handle->root.get_{rf._type_klass.to_snake_case()}({rf.name}))")
+                # A required field must resolve unconditionally (an
+                # invalid/omitted token is itself an error, same as a
+                # single parent's own token). An optional one only
+                # errors if a real (non-default-invalid) token was
+                # actually provided but didn't resolve - an omitted one
+                # (the caller's own default-invalid sentinel) just stays
+                # unset, no error - see Field.is_plain_reference_field()'s
+                # own docstring on why this mirrors a parent token's
+                # "omitted means unset" convention rather than needing a
+                # has_<field> companion flag.
+                condition = (
+                    f"!handle->root.get_{rf._type_klass.to_snake_case()}({rf.name})"
+                    if rf.create_required()
+                    else f"{rf.name}.valid() && !handle->root.get_{rf._type_klass.to_snake_case()}({rf.name})"
+                )
+                add(f"if ({condition})")
                 add("{")
                 add(
                     f'    handle->messages.push_back(fmt::format("ERROR: le_create_{snake}: unknown '
@@ -896,7 +911,7 @@ class Klass:
         parts = []
         if len(self.get_parent_fields()) == 1:
             parts.append(f"-{self.get_parent_fields()[0].name}")
-        parts += [f"-{rf.name}" for rf in self.get_reference_create_fields()]
+        parts += [f"-{rf.name}" for rf in self.get_reference_create_fields() if rf.create_required()]
         parts += [f"-{f.name}" for f in self.get_create_fields() if f.create_required()]
         return " ".join(parts)
 
@@ -1130,7 +1145,8 @@ class Klass:
             frag = f"-{pf.name} <token>"
             parts.append(frag if single_parent else f"\\[{frag}\\]")
         for rf in self.get_reference_create_fields():
-            parts.append(f"-{rf.name} <token>")
+            frag = f"-{rf.name} <token>"
+            parts.append(frag if rf.create_required() else f"\\[{frag}\\]")
         for f in self.get_create_fields():
             frag = f"-{f.name} <{f.tcl_help_type_label()}>"
             parts.append(frag if f.create_required() else f"\\[{frag}\\]")
@@ -1169,8 +1185,9 @@ class Klass:
                 f"{{-{pf.name} {{type token required {required} description {{{tcl_brace_escape(desc)}}}}}}}"
             )
         for rf in self.get_reference_create_fields():
+            required = 1 if rf.create_required() else 0
             parts.append(
-                f"{{-{rf.name} {{type token required 1 description {{{tcl_brace_escape(rf.description)}}}}}}}"
+                f"{{-{rf.name} {{type token required {required} description {{{tcl_brace_escape(rf.description)}}}}}}}"
             )
         for f in self.get_create_fields():
             required = 1 if f.create_required() else 0
@@ -2340,24 +2357,37 @@ class Field:
 
     def is_plain_reference_field(self) -> bool:
         """
-        Whether this is a required, scalar reference to another pooled
+        Whether this is a scalar reference to another pooled
         (has_pool=True), non-enum Klass that is neither a parent
         relationship (has_parent()) nor a child relationship (is_child) -
-        e.g. Shape.layer, Placement.reference_design. Klass.
-        get_reference_create_fields() collects these; each gets its own
-        create_<type>/update_<type> `-<field> <token>` flag, resolved via
-        resolve_<type>_id() exactly like a single-parent field's own
-        token (see Klass.create_api_body()/update_api_body()'s own
-        reference-field sections) - a small, deliberately separate
-        mechanism from get_parent_fields()/has_parent(), which several
-        other structural concerns (is_child enumeration, delete cascade,
-        tcl_scope's current-instance-anchor algorithm) depend on and must
-        not see one of these fields as a parent/ownership relationship.
+        e.g. Shape.layer, Shape.blockage's own sibling Shape.layer/
+        Placement.reference_design. Klass.get_reference_create_fields()
+        collects these; each gets its own create_<type>/update_<type>
+        `-<field> <token>` flag, resolved via resolve_<type>_id() exactly
+        like a single-parent field's own token (see Klass.
+        create_api_body()/update_api_body()'s own reference-field
+        sections) - a small, deliberately separate mechanism from
+        get_parent_fields()/has_parent(), which several other structural
+        concerns (is_child enumeration, delete cascade, tcl_scope's
+        current-instance-anchor algorithm) depend on and must not see one
+        of these fields as a parent/ownership relationship.
 
-        Deliberately required-only for now - is_optional=True isn't
-        supported here (no field needs it yet), so such a field would be
-        silently excluded from create_<type>/update_<type> entirely, the
-        same gap this method exists to close for the required case.
+        Both required and is_optional=True fields are supported (e.g.
+        Shape.layer, unset when Shape.purpose is set instead) - an
+        optional one follows the same "omitted means unset" convention a
+        parent-field token already does at the API layer (an invalid,
+        default-constructed Le<Type>Id) and a str/enum field already does
+        at the shim layer (an empty token) - see Klass.create_api_body()'s
+        own reference-field section for exactly how required vs optional
+        differs there (only in whether an unresolved/omitted value is an
+        error). Its own get_cpp_type() stores it as a bare <Type>Id either
+        way (never std::optional<...>-wrapped), same as a parent field -
+        "unset" is representationally just the default-invalid id, not a
+        real std::optional, so is_optional here must never trigger the
+        generic .value_or(...) treatment other optional scalar fields get
+        in wrap_with_to_property()/wrap_with_to_display_property() (see
+        their own is_reference() branches, checked first for exactly this
+        reason).
         """
         return (
             self.is_reference()
@@ -2367,7 +2397,6 @@ class Field:
             and self._type_klass is not None
             and not self._type_klass.is_enum
             and self._type_klass.has_pool
-            and not self.is_optional
             and not self.create_excluded
         )
 
@@ -3302,11 +3331,34 @@ class Field:
         """
         return f"{TYPEMAP[self.type][0] if self.type in TYPEMAP else self.type}{{}}"
 
+    def _optional_value_needs_unwrap(self) -> bool:
+        """
+        Whether an is_optional field's storage is actually
+        std::optional<T>-wrapped in generated C++ (get_cpp_type()'s own
+        rule) and therefore needs a `.value_or(...)` before any of
+        wrap_with_to_string()/_to_property_string()/_to_property()/
+        _to_display_property() can treat its value as a plain T. True for
+        every is_optional field except a reference to another pooled
+        (has_pool=True), non-enum Klass (Instance.reference_design,
+        Shape.layer) - get_cpp_type() stores that as a bare <Type>Id
+        either way (never std::optional<...>-wrapped, since "unset" is
+        just the id's own default-invalid value, the same convention a
+        parent field's own bare <Parent>Id already uses) - calling
+        .value_or(...) on one would be a compile error, not just wrong
+        output.
+        """
+        return self.is_optional and not (
+            self.is_reference()
+            and self._type_klass is not None
+            and not self._type_klass.is_enum
+            and self._type_klass.has_pool
+        )
+
     def wrap_with_to_string(self, code, namespace) -> str:
         if self.is_list:
             return f"std::to_string({code}.size())"
 
-        if self.is_optional:
+        if self._optional_value_needs_unwrap():
             # .value_or(...), not .value() - an unset optional field (LEF
             # marks plenty of fields genuinely optional, e.g. Abstract's
             # own POWER statement) must never throw
@@ -3314,6 +3366,8 @@ class Field:
             # to_properties() below got called on it - matches this
             # project's "no exceptions for expected-missing-data paths"
             # convention (CLAUDE.md), not merely a style preference here.
+            # Skipped for a reference-to-pooled-klass field (Shape.layer) -
+            # see _optional_value_needs_unwrap()'s own docstring for why.
             code = f"{code}.value_or({self._optional_default_cpp()})"
 
         if self.is_reference():
@@ -3388,7 +3442,7 @@ class Field:
                 return f"{namespace}::to_property_list_string({code}, {dbu_var})"
             return f"std::to_string({code}.size())"
 
-        if self.is_optional:
+        if self._optional_value_needs_unwrap():
             code = f"{code}.value_or({self._optional_default_cpp()})"
 
         if self.is_reference():
@@ -3454,7 +3508,7 @@ class Field:
         # default instead of throwing.
         value = (
             f"{code}.value_or({self._optional_default_cpp()})"
-            if self.is_optional
+            if self._optional_value_needs_unwrap()
             else code
         )
 
@@ -3494,7 +3548,7 @@ class Field:
 
         value = (
             f"{code}.value_or({self._optional_default_cpp()})"
-            if self.is_optional
+            if self._optional_value_needs_unwrap()
             else code
         )
 

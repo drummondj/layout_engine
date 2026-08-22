@@ -62,7 +62,8 @@ namespace le
         const LayoutId layout_id = root.get_design_layout(design_id);
         const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id));
         ASSERT_NE(diearea, nullptr);
-        EXPECT_EQ(root.get_layer(diearea->layer)->name, "BOUNDARY");
+        ASSERT_TRUE(diearea->purpose.has_value());
+        EXPECT_EQ(*diearea->purpose, ShapePurpose::BOUNDARY);
         ASSERT_EQ(diearea->polygons.size(), 1u);
         // DIEAREA ( -190000 -120000 ) ( -190000 350000 ) ( 190000 350000 )
         //         ( 190000 190000 ) ( 190360 190000 ) ( 190360 -120000 ) ;

@@ -1129,13 +1129,7 @@ TEST_F(LEFWriterRoundtripFixture, LayerWriteModeNoneWritesNoLayers)
     reread_root.create_technology(TechnologyData{.database_units_microns = 1000.0});
     LEFReader reread;
     ASSERT_EQ(reread.read_lef(out_path, reread_root, "test_lib"), 0);
-    // No real (written) physical layer exists - the one exception is the
-    // programmatic BOUNDARY layer every Technology now gets the first
-    // time any Abstract's boundary Shape needs it (Shape.layer's own
-    // schema.py comment), which isn't a real LEF construct and is never
-    // written back out by LEFWriter either way.
-    for (const LayerId id : reread_root.get_layer_ids())
-        EXPECT_EQ(reread_root.get_layer(id)->type, "BOUNDARY");
+    EXPECT_TRUE(reread_root.is_layer_empty());
     EXPECT_TRUE(reread_root.get_design_by_name("WRITERTEST").valid());
 }
 
