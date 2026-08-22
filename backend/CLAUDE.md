@@ -29,14 +29,36 @@ none of these are duplicated here.
   database's `Point`/`Rect`/`Polygon`/`Path`/`Shape` types. Fully covered by
   `geometry_test.cpp`.
 - `src/view_style/` — `ViewLayerSet`/`ViewLayer`: the rendering-purpose layer
-  concept distinct from the LEF-mirroring `database` — a `TERMINAL` and
-  `OBSTRUCTION` `ViewLayer` per physical `Layer`, plus one `BOUNDARY`
-  `ViewLayer` not tied to any physical `Layer`. `ViewLayerSet::build_for_technology`
-  builds the full set for a `Technology` once, shared/global. Each physical
-  `Layer` gets one color from a default palette (shared by its `TERMINAL`/
-  `OBSTRUCTION` `ViewLayer`s — no purpose-based fill pattern yet); see the
-  class's own doc comments for the palette/wraparound details. Fully covered
-  by `view_style_test.cpp`.
+  concept distinct from the LEF/DEF-mirroring `database`. `ViewLayerPurpose`
+  (a closed, application-owned enum, not a LEF/DEF vocabulary term) has 8
+  members: `TERMINAL`/`OBSTRUCTION`/`TRACK`/`ROUTING_BLOCKAGE` (one
+  `ViewLayer` of each per physical `Layer`) and `BOUNDARY`/`ROW`/
+  `GCELLGRID`/`PLACEMENT_BLOCKAGE` (each its own single `ViewLayer`/row not
+  tied to any physical `Layer` — `Row`/`GCellGrid` have no `Layer`
+  association at all, and a PLACEMENT blockage's own `Shape` uses
+  `Shape.purpose = ShapePurpose::PLACEMENT_BLOCKAGE` instead of a real
+  `Shape.layer` for the same reason `Abstract.boundary`/`Layout.diearea`
+  do — see `Shape.layer`/`.purpose`'s own `schema.py` comments).
+  `ROUTING_BLOCKAGE` and `PLACEMENT_BLOCKAGE` are deliberately two separate
+  purposes, not one shared `BLOCKAGE` purpose, so a user can toggle
+  visibility/selectability of each independently (they serve very
+  different purposes for a user - routing keep-out vs. placement
+  keep-out) — the same "never merge across LEF/DEF-distinct kinds" choice
+  `TERMINAL`/`OBSTRUCTION` of the same physical `Layer` already make.
+  `ViewLayerSet::build_for_technology` builds the full set for a
+  `Technology` once, shared/global. Each physical `Layer` gets one color
+  from a default palette, shared by all 4 of that Layer's `ViewLayer`s;
+  `FillPattern` (a separate, per-purpose visual treatment — `BRICK` for
+  `OBSTRUCTION`, `DOTS` for `ROUTING_BLOCKAGE`/`PLACEMENT_BLOCKAGE`, plain
+  outline for `TRACK`/`ROW`/`GCELLGRID`) is what actually distinguishes
+  same-color `ViewLayer`s from each other; see the class's own doc
+  comments for the palette/wraparound details. `TRACK`/`ROUTING_BLOCKAGE`/
+  `ROW`/`GCELLGRID`/`PLACEMENT_BLOCKAGE` are Migration Step 2 (layer/
+  purpose generation for DEF's Row/Track/GCellGrid/Blockage constructs) —
+  nothing yet actually walks a `Layout`'s content into drawable shapes on
+  them (`Pipeline`/`GenerateShapesStage` still only ever walks an
+  `Abstract` — that's Step 3's own scope, a separate later phase). Fully
+  covered by `view_style_test.cpp`.
 - `src/scene/` — `Scene`, per-handle mutable view state (currently displayed
   `AbstractId`, pan/scale/viewport-size transform, per-`ViewLayer`
   visibility, selection, and current interaction mode). Distinct from the
@@ -620,9 +642,13 @@ because the mechanism can't reach them; this has no bearing on
   `src/io/` bullet above. NETS/SPECIALNETS connectivity (as opposed to
   routing geometry), per-layer WIDTH overrides, direct net-level RECT/
   POLYGON/VIA forms, SHIELD nets, and STYLE/SHAPE/TAPERRULE metadata
-  remain deferred within that scope. Step 2 (layer generation for rows/
-  tracks/blockages) and Step 3 (render pipeline updates + the 1M-instance
-  hierarchy stress test) are separate future phases.
+  remain deferred within that scope. Migration Step 2 (layer/purpose
+  generation for DEF's Row/Track/GCellGrid/Blockage constructs) is also
+  done — see `src/view_style/`'s own bullet above for the resulting
+  `ViewLayerPurpose` members. Step 3 (render pipeline updates - actually
+  walking a `Layout`'s content into drawable shapes, hierarchical Abstract-
+  instance rendering, the 1M-instance stress test) is a separate future
+  phase; nothing in `src/pipeline/`/`src/render/` is Layout-aware yet.
 - Skia isn't vendored/built by this project — `src/render/`'s
   `CMakeLists.txt` `skia` target points `SKIA_DIR` at a pre-built checkout
   (default `/Volumes/Docking/Projects/synthosilicon/skia/skia`, override with

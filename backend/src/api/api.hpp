@@ -277,10 +277,19 @@ extern "C"
     /// null or no ViewLayerSet has been built yet.
     int32_t le_purpose_count(LeHandle *handle);
 
-    /// @brief The purpose at `index` (0..le_purpose_count()-1) - mirrors
-    /// le::ViewLayerPurpose's declaration order: 0 = TERMINAL,
-    /// 1 = OBSTRUCTION, 2 = BOUNDARY. Returns -1 if handle is null or
-    /// index is out of range, rather than crashing.
+    /// @brief The purpose at `index` (0..le_purpose_count()-1) - the
+    /// returned int is le::ViewLayerPurpose's own raw ordinal (its
+    /// declaration order, not necessarily this index): 0 = TERMINAL,
+    /// 1 = OBSTRUCTION, 2 = BOUNDARY, 3 = TRACK, 4 = ROUTING_BLOCKAGE,
+    /// 5 = ROW, 6 = GCELLGRID, 7 = PLACEMENT_BLOCKAGE. `index` itself
+    /// walks ViewLayerSet::purposes()'s own first-encountered order
+    /// instead (TERMINAL/OBSTRUCTION/TRACK/ROUTING_BLOCKAGE from the first
+    /// physical Layer row, then ROW/GCELLGRID/PLACEMENT_BLOCKAGE's own
+    /// pseudo-rows, then BOUNDARY last) - a caller must always pass
+    /// `le_purpose_at`'s own return value back into `le_is_purpose_visible`/
+    /// `le_set_purpose_visible`, never assume index equals ordinal.
+    /// Returns -1 if handle is null or index is out of range, rather than
+    /// crashing.
     int32_t le_purpose_at(LeHandle *handle, int32_t index);
 
     /// @brief Current visibility of every ViewLayer whose LeLayerRow::name
@@ -302,10 +311,12 @@ extern "C"
     void le_set_layer_name_visible(LeHandle *handle, const char *layer_name, int32_t visible);
 
     /// @brief Current visibility of every ViewLayer whose purpose is
-    /// `purpose` (mirrors le::ViewLayerPurpose's declaration order: 0 =
-    /// TERMINAL, 1 = OBSTRUCTION, 2 = BOUNDARY), across every layer - i.e.
-    /// a whole column, not one row. Visible by default until toggled.
-    /// Returns nonzero (visible) if handle is null.
+    /// `purpose` (le::ViewLayerPurpose's own raw ordinal - see
+    /// le_purpose_at's own doc comment for the full list and why a caller
+    /// should always pass that return value here rather than a hand-picked
+    /// index), across every layer - i.e. a whole column, not one row.
+    /// Visible by default until toggled. Returns nonzero (visible) if
+    /// handle is null.
     int32_t le_is_purpose_visible(LeHandle *handle, int32_t purpose);
 
     /// @brief Set the visibility of every ViewLayer whose purpose is

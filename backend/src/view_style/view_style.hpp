@@ -17,6 +17,15 @@ namespace le
         TERMINAL,
         OBSTRUCTION,
         BOUNDARY,
+        TRACK,              // DEF TRACKS - contributes into the named real Layer's own row
+        ROUTING_BLOCKAGE,   // DEF BLOCKAGES LAYER - contributes into the named real Layer's own row
+        ROW,                // DEF ROW - own pseudo-row, no Layer
+        GCELLGRID,          // DEF GCELLGRID - own pseudo-row, no Layer
+        PLACEMENT_BLOCKAGE, // DEF BLOCKAGES PLACEMENT - own pseudo-row, no Layer - kept
+                             // independently toggleable from ROUTING_BLOCKAGE (not merged
+                             // into one shared BLOCKAGE purpose) since the two serve very
+                             // different purposes for a user (routing keep-out vs.
+                             // placement keep-out).
     };
 
     struct Color
@@ -148,27 +157,67 @@ namespace le
                 // share the same color (see the palette logic above) but
                 // not the same FillPattern - OBSTRUCTION always reads as
                 // BRICK regardless of layer type, so blockage regions are
-                // recognizable at a glance across every layer.
+                // recognizable at a glance across every layer. TRACK/
+                // ROUTING_BLOCKAGE (DEF TRACKS/BLOCKAGES LAYER - Migration
+                // Step 2) share that same per-Layer color too: TRACK gets a
+                // plain outline (grid lines, not a filled region, so no
+                // FillPattern needed beyond NONE), ROUTING_BLOCKAGE gets
+                // DOTS - a generic "keep-out" pattern distinct from
+                // OBSTRUCTION's own BRICK, reused (not shared as one
+                // purpose) by PLACEMENT_BLOCKAGE's own pseudo-row below so
+                // the two blockage kinds still read as visually related
+                // while staying independently toggleable.
                 const ViewLayerId terminal_id = set.add(layer->name, layer->name + "/TERMINAL", ViewLayerPurpose::TERMINAL, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
                 const ViewLayerId obstruction_id = set.add(layer->name, layer->name + "/OBSTRUCTION", ViewLayerPurpose::OBSTRUCTION, layer_id, layer_style(color, FillPattern::BRICK));
+                const ViewLayerId track_id = set.add(layer->name, layer->name + "/TRACK", ViewLayerPurpose::TRACK, layer_id, layer_style(color, FillPattern::NONE));
+                const ViewLayerId routing_blockage_id = set.add(layer->name, layer->name + "/ROUTING_BLOCKAGE", ViewLayerPurpose::ROUTING_BLOCKAGE, layer_id, layer_style(color, FillPattern::DOTS));
 
                 set.rows_.push_back(ViewLayerRow{
                     .name = layer->name,
                     .columns = {
                         ViewLayerColumn{.purpose = ViewLayerPurpose::TERMINAL, .id = terminal_id},
                         ViewLayerColumn{.purpose = ViewLayerPurpose::OBSTRUCTION, .id = obstruction_id},
+                        ViewLayerColumn{.purpose = ViewLayerPurpose::TRACK, .id = track_id},
+                        ViewLayerColumn{.purpose = ViewLayerPurpose::ROUTING_BLOCKAGE, .id = routing_blockage_id},
                     },
                 });
             }
 
-            // BOUNDARY isn't a physical Layer at all (a Shape with
-            // purpose=BOUNDARY instead - see Shape.layer/.purpose's own
-            // schema.py comments), so it's not derived from the loop
-            // above - always added, independent of what real Layers this
-            // Technology has. Note: a Shape with purpose=PLACEMENT_BLOCKAGE
-            // has no ViewLayer of its own yet - Layout/DEF content isn't
-            // rendered at all yet (Step 2/3 of the migration plan), so
-            // there's no consumer for one until that lands.
+            // ROW/GCELLGRID/PLACEMENT_BLOCKAGE aren't physical Layers at
+            // all - same treatment as BOUNDARY below (a Shape with
+            // purpose=BOUNDARY/PLACEMENT_BLOCKAGE instead - see Shape.
+            // layer/.purpose's own schema.py comments), so none of these
+            // are derived from the per-Layer loop above - always added,
+            // independent of what real Layers this Technology has.
+            // Row.site_name is an unresolved plain string and GCellGrid has
+            // no layer field whatsoever, so ROW/GCELLGRID get the same
+            // no-physical-layer treatment; a ROUTING blockage's own Shape,
+            // unlike a PLACEMENT blockage's, does sit on a real Layer and
+            // so gets its ROUTING_BLOCKAGE column in the per-Layer loop
+            // above instead, not here. Migration Step 2 only adds these
+            // pseudo/per-layer categorizations - nothing here yet walks a
+            // Layout's actual Row/Track/GCellGrid/Blockage content into
+            // drawable shapes on them (Migration Step 3's own job).
+            const ViewLayerId row_id = set.add("ROW", "ROW", ViewLayerPurpose::ROW, LayerId{}, row_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "ROW",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::ROW, .id = row_id}},
+            });
+
+            const ViewLayerId gcellgrid_id = set.add("GCELLGRID", "GCELLGRID", ViewLayerPurpose::GCELLGRID, LayerId{}, gcellgrid_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "GCELLGRID",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::GCELLGRID, .id = gcellgrid_id}},
+            });
+
+            const ViewLayerId placement_blockage_id = set.add("PLACEMENT_BLOCKAGE", "PLACEMENT_BLOCKAGE", ViewLayerPurpose::PLACEMENT_BLOCKAGE, LayerId{}, placement_blockage_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "PLACEMENT_BLOCKAGE",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PLACEMENT_BLOCKAGE, .id = placement_blockage_id}},
+            });
+
+            // BOUNDARY stays last (existing callers, e.g. rows().back(),
+            // rely on this - see BoundaryRowHasASingleBoundaryColumn).
             set.boundary_id_ = set.add("BOUNDARY", "BOUNDARY", ViewLayerPurpose::BOUNDARY, LayerId{}, boundary_style());
             set.rows_.push_back(ViewLayerRow{
                 .name = "BOUNDARY",
@@ -371,6 +420,32 @@ namespace le
         static ViewLayerStyle boundary_style()
         {
             return ViewLayerStyle{.outline_color = {255, 255, 255, 255}, .fill_color = {0, 0, 0, 0}};
+        }
+
+        // Light gray outline, no fill - rows are background scaffolding
+        // (DEF ROW), not something a user routes/edits, so kept visually
+        // recessive same as boundary_style()'s own plain-outline treatment.
+        static ViewLayerStyle row_style()
+        {
+            return ViewLayerStyle{.outline_color = {160, 160, 160, 255}, .fill_color = {0, 0, 0, 0}};
+        }
+
+        // Faint translucent blue outline, no fill - DEF GCELLGRID is a
+        // global-routing planning aid, meant to stay unobtrusive relative
+        // to real routing-layer content drawn on top of it.
+        static ViewLayerStyle gcellgrid_style()
+        {
+            return ViewLayerStyle{.outline_color = {100, 150, 220, 150}, .fill_color = {0, 0, 0, 0}};
+        }
+
+        // Own fixed color (not layer-derived - a PLACEMENT blockage has no
+        // Layer) - DOTS fill, the same "keep-out" pattern
+        // ROUTING_BLOCKAGE's own per-Layer columns use (see
+        // build_for_technology's own comment), so the two blockage kinds
+        // read as visually related despite being independently toggleable.
+        static ViewLayerStyle placement_blockage_style()
+        {
+            return ViewLayerStyle{.outline_color = {220, 90, 40, 255}, .fill_color = {220, 90, 40, 100}, .fill_pattern = FillPattern::DOTS};
         }
 
         Pool<ViewLayerData, ViewLayerId> pool_;

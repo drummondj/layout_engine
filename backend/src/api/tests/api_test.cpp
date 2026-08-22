@@ -620,7 +620,7 @@ TEST_F(ApiFixture, LayerAtOutOfRangeReturnsInvalidRow)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
 
-    const LeLayerRow row = le_layer_at(handle, 2);
+    const LeLayerRow row = le_layer_at(handle, 5);
     EXPECT_EQ(row.name, nullptr);
 }
 
@@ -629,8 +629,10 @@ TEST_F(ApiFixture, LayerAtIncludesBoundaryAsAnOrdinaryRowAfterEveryPhysicalLayer
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
 
     // testcell.lef declares one physical Layer (M1) - the API doesn't
-    // special-case BOUNDARY, it's just another row, so the count is 2.
-    ASSERT_EQ(le_layer_count(handle), 2);
+    // special-case BOUNDARY, it's just another row, so the count is
+    // M1 + ROW + GCELLGRID + PLACEMENT_BLOCKAGE + BOUNDARY = 5 (Migration
+    // Step 2 - see view_style.hpp's ViewLayerSet::build_for_technology).
+    ASSERT_EQ(le_layer_count(handle), 5);
 
     const LeLayerRow m1_row = le_layer_at(handle, 0);
     ASSERT_NE(m1_row.name, nullptr);
@@ -642,7 +644,7 @@ TEST_F(ApiFixture, LayerAtIncludesBoundaryAsAnOrdinaryRowAfterEveryPhysicalLayer
     EXPECT_EQ(m1_row.color_g, 0);
     EXPECT_EQ(m1_row.color_b, 0);
 
-    const LeLayerRow boundary_row = le_layer_at(handle, 1);
+    const LeLayerRow boundary_row = le_layer_at(handle, 4);
     ASSERT_NE(boundary_row.name, nullptr);
     EXPECT_STREQ(boundary_row.name, "BOUNDARY");
 }
@@ -660,7 +662,7 @@ TEST_F(ApiFixture, PurposeAtOutOfRangeReturnsInvalid)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
 
-    EXPECT_EQ(le_purpose_at(handle, 3), -1);
+    EXPECT_EQ(le_purpose_at(handle, 8), -1);
     EXPECT_EQ(le_purpose_at(handle, -1), -1);
 }
 
@@ -669,11 +671,20 @@ TEST_F(ApiFixture, PurposeAtListsTerminalObstructionThenBoundary)
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
 
     // The "columns" axis - row-independent, not scoped to M1 or any other
-    // specific layer (see ViewLayerSet::purposes()'s own comment).
-    ASSERT_EQ(le_purpose_count(handle), 3);
+    // specific layer (see ViewLayerSet::purposes()'s own comment). Migration
+    // Step 2 added TRACK/ROUTING_BLOCKAGE (per-Layer, right after
+    // TERMINAL/OBSTRUCTION) and ROW/GCELLGRID/PLACEMENT_BLOCKAGE (their own
+    // pseudo-rows, before BOUNDARY, which stays last) - see view_style.hpp's
+    // ViewLayerPurpose declaration order.
+    ASSERT_EQ(le_purpose_count(handle), 8);
     EXPECT_EQ(le_purpose_at(handle, 0), 0); // TERMINAL
     EXPECT_EQ(le_purpose_at(handle, 1), 1); // OBSTRUCTION
-    EXPECT_EQ(le_purpose_at(handle, 2), 2); // BOUNDARY
+    EXPECT_EQ(le_purpose_at(handle, 2), 3); // TRACK
+    EXPECT_EQ(le_purpose_at(handle, 3), 4); // ROUTING_BLOCKAGE
+    EXPECT_EQ(le_purpose_at(handle, 4), 5); // ROW
+    EXPECT_EQ(le_purpose_at(handle, 5), 6); // GCELLGRID
+    EXPECT_EQ(le_purpose_at(handle, 6), 7); // PLACEMENT_BLOCKAGE
+    EXPECT_EQ(le_purpose_at(handle, 7), 2); // BOUNDARY
 }
 
 TEST_F(ApiFixture, LayerNameVisibilityDefaultsTrueAndRoundTrips)
