@@ -1039,3 +1039,337 @@ TEST_F(PipelineFixture, HitTestRectNeverReturnsTheBoundaryShape)
     const auto &shapes = pipeline.run(root, scene, view_layers);
     EXPECT_TRUE(Pipeline::hit_test_rect(shapes, view_layers, scene, Rect{.ll = {0, 0}, .ur = {1000, 1000}}).empty());
 }
+
+namespace
+{
+    // Extends PipelineFixture with a Layout (owned by a minimal
+    // Library/Design) - the common scaffolding every
+    // GenerateLayoutShapesStage test attaches to, mirroring
+    // PipelineFixture's own role for the Abstract path.
+    struct LayoutPipelineFixture : public PipelineFixture
+    {
+        void SetUp() override
+        {
+            PipelineFixture::SetUp();
+            LibraryId library_id = root.create_library(LibraryData{.name = "LIB"});
+            DesignId design_id = root.create_design(DesignData{.library = library_id, .name = "TOP"});
+            layout_id = root.create_layout(LayoutData{.design = design_id});
+        }
+
+        void add_diearea(const Rect &rect)
+        {
+            Shape shape;
+            shape.layout = layout_id;
+            shape.purpose = ShapePurpose::BOUNDARY;
+            shape.rects.push_back(rect);
+            root.create_shape(std::move(shape));
+        }
+
+        BlockageId add_routing_blockage(LayerId layer, const Rect &rect)
+        {
+            BlockageId blockage_id = root.create_blockage(BlockageData{.layout = layout_id, .kind = BlockageKind::ROUTING});
+            Shape shape;
+            shape.blockage = blockage_id;
+            shape.layer = layer;
+            shape.rects.push_back(rect);
+            root.create_shape(std::move(shape));
+            return blockage_id;
+        }
+
+        BlockageId add_placement_blockage(const Rect &rect)
+        {
+            BlockageId blockage_id = root.create_blockage(BlockageData{.layout = layout_id, .kind = BlockageKind::PLACEMENT});
+            Shape shape;
+            shape.blockage = blockage_id;
+            shape.purpose = ShapePurpose::PLACEMENT_BLOCKAGE;
+            shape.rects.push_back(rect);
+            root.create_shape(std::move(shape));
+            return blockage_id;
+        }
+
+        RouteId add_route(LayerId layer, const Rect &rect)
+        {
+            RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "NET1"});
+            Shape shape;
+            shape.route = route_id;
+            shape.layer = layer;
+            shape.rects.push_back(rect);
+            root.create_shape(std::move(shape));
+            return route_id;
+        }
+
+        PhysicalPortId add_physical_port(LayerId layer, const Rect &rect)
+        {
+            PhysicalPortId port_id = root.create_physical_port(PhysicalPortData{.layout = layout_id, .name = "P1"});
+            PhysicalPortSegmentId segment_id = root.create_physical_port_segment(PhysicalPortSegmentData{.physical_port = port_id});
+            Shape shape;
+            shape.physical_port_segment = segment_id;
+            shape.layer = layer;
+            shape.rects.push_back(rect);
+            root.create_shape(std::move(shape));
+            return port_id;
+        }
+
+        SiteId add_site(const std::string &name, Point size)
+        {
+            return root.create_site(SiteData{.technology = technology_id, .name = name, .size = size});
+        }
+
+        RowId add_row(const std::string &site_name, Point origin, std::optional<int> num_x = std::nullopt, std::optional<int> num_y = std::nullopt, std::optional<int64_t> step_x = std::nullopt, std::optional<int64_t> step_y = std::nullopt)
+        {
+            return root.create_row(RowData{
+                .layout = layout_id,
+                .name = "ROW" + std::to_string(next_row_index++),
+                .site_name = site_name,
+                .origin = origin,
+                .orientation = Orientation::N,
+                .num_x = num_x,
+                .num_y = num_y,
+                .step_x = step_x,
+                .step_y = step_y,
+            });
+        }
+
+        TrackId add_track(bool is_x, int64_t start, int count, int64_t step, std::vector<std::string> layer_names)
+        {
+            return root.create_track(TrackData{.layout = layout_id, .is_x = is_x, .start = start, .count = count, .step = step, .layer_names = std::move(layer_names)});
+        }
+
+        GCellGridId add_gcell_grid(bool is_x, int64_t start, int count, int64_t step)
+        {
+            return root.create_g_cell_grid(GCellGridData{.layout = layout_id, .is_x = is_x, .start = start, .count = count, .step = step});
+        }
+
+        RegionId add_region(const Rect &rect)
+        {
+            return root.create_region(RegionData{.layout = layout_id, .name = "REGION" + std::to_string(next_region_index++), .rects = {rect}});
+        }
+
+        LayoutId layout_id;
+        int next_row_index = 0;
+        int next_region_index = 0;
+    };
+
+    // The one RenderedShape (if any) among `shapes` whose ViewLayerId
+    // resolves to `purpose` under `view_layers` - the tests below only
+    // ever expect at most one match per purpose, so an assert-friendly
+    // single-shape lookup is more useful than filtering a subrange.
+    const RenderedShape *find_by_purpose(const std::vector<RenderedShape> &shapes, const ViewLayerSet &view_layers, ViewLayerPurpose purpose)
+    {
+        for (const RenderedShape &shape : shapes)
+        {
+            const ViewLayerData *view_layer = view_layers.get(shape.view_layer);
+            if (view_layer && view_layer->purpose == purpose)
+                return &shape;
+        }
+        return nullptr;
+    }
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesIncludesDieAreaResolvedToBoundaryViewLayer)
+{
+    add_diearea(Rect{.ll = {0, 0}, .ur = {1000, 2000}});
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    ASSERT_EQ(shapes.size(), 1u);
+    EXPECT_EQ(shapes[0].view_layer, view_layers.boundary_view_layer());
+    ASSERT_EQ(shapes[0].shape.rects.size(), 1u);
+    EXPECT_EQ(shapes[0].shape.rects[0].ll.x, 0);
+    EXPECT_EQ(shapes[0].shape.rects[0].ll.y, 0);
+    EXPECT_EQ(shapes[0].shape.rects[0].ur.x, 1000);
+    EXPECT_EQ(shapes[0].shape.rects[0].ur.y, 2000);
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesForUnknownLayoutIsEmpty)
+{
+    const auto &shapes = pipeline.generate_layout_shapes(root, LayoutId{}, view_layers);
+    EXPECT_TRUE(shapes.empty());
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesResolvesRoutingBlockageToRoutingBlockageColumnOfItsLayer)
+{
+    add_routing_blockage(m1, Rect{.ll = {0, 0}, .ur = {10, 10}});
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const RenderedShape *found = find_by_purpose(shapes, view_layers, ViewLayerPurpose::ROUTING_BLOCKAGE);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->view_layer, view_layers.find(m1, ViewLayerPurpose::ROUTING_BLOCKAGE));
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesResolvesPlacementBlockageToPlacementBlockagePseudoRow)
+{
+    add_placement_blockage(Rect{.ll = {0, 0}, .ur = {10, 10}});
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const RenderedShape *found = find_by_purpose(shapes, view_layers, ViewLayerPurpose::PLACEMENT_BLOCKAGE);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->view_layer, view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BLOCKAGE));
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesResolvesRouteToRouteColumnOfItsLayer)
+{
+    add_route(m2, Rect{.ll = {5, 5}, .ur = {15, 15}});
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const RenderedShape *found = find_by_purpose(shapes, view_layers, ViewLayerPurpose::ROUTE);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->view_layer, view_layers.find(m2, ViewLayerPurpose::ROUTE));
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesResolvesPhysicalPortToTerminalColumnOfItsLayer)
+{
+    add_physical_port(m1, Rect{.ll = {0, 0}, .ur = {5, 5}});
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const RenderedShape *found = find_by_purpose(shapes, view_layers, ViewLayerPurpose::TERMINAL);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->view_layer, view_layers.find(m1, ViewLayerPurpose::TERMINAL));
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSynthesizesRowRectangleFromSiteSizeAndTiling)
+{
+    add_site("SITE1", Point{500, 1000});
+    add_row("SITE1", Point{100, 200}, /*num_x=*/3, /*num_y=*/2, /*step_x=*/600, /*step_y=*/std::nullopt);
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const RenderedShape *found = find_by_purpose(shapes, view_layers, ViewLayerPurpose::ROW);
+    ASSERT_NE(found, nullptr);
+    ASSERT_EQ(found->shape.rects.size(), 1u);
+    // width = site.x + (num_x - 1) * step_x = 500 + 2 * 600 = 1700
+    // height = site.y + (num_y - 1) * step_y(fallback site.y=1000) = 1000 + 1000 = 2000
+    EXPECT_EQ(found->shape.rects[0].ll.x, 100);
+    EXPECT_EQ(found->shape.rects[0].ll.y, 200);
+    EXPECT_EQ(found->shape.rects[0].ur.x, 1800);
+    EXPECT_EQ(found->shape.rects[0].ur.y, 2200);
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSkipsRowWithUnresolvableSite)
+{
+    add_row("NO_SUCH_SITE", Point{0, 0});
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    EXPECT_EQ(find_by_purpose(shapes, view_layers, ViewLayerPurpose::ROW), nullptr);
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSkipsRowWithNoOrigin)
+{
+    add_site("SITE1", Point{500, 1000});
+    // create_row directly (not the add_row helper) - leaves origin unset.
+    root.create_row(RowData{.layout = layout_id, .name = "ROW_NO_ORIGIN", .site_name = "SITE1", .orientation = Orientation::N});
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    EXPECT_EQ(find_by_purpose(shapes, view_layers, ViewLayerPurpose::ROW), nullptr);
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSkipsTrackAndGCellGridEntirelyWhenLayoutHasNoDieArea)
+{
+    // No add_diearea() call - layout_die_area_bbox has nothing to bound
+    // the synthesized lines against, so both stay unsynthesized rather
+    // than spanning some made-up default range.
+    add_track(/*is_x=*/true, /*start=*/0, /*count=*/3, /*step=*/100, {"M1"});
+    add_gcell_grid(/*is_x=*/false, /*start=*/500, /*count=*/2, /*step=*/300);
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    EXPECT_EQ(find_by_purpose(shapes, view_layers, ViewLayerPurpose::TRACK), nullptr);
+    EXPECT_EQ(find_by_purpose(shapes, view_layers, ViewLayerPurpose::GCELLGRID), nullptr);
+    EXPECT_TRUE(shapes.empty());
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSynthesizesTrackLinesSpanningDieAreaInThePerpendicularDirection)
+{
+    add_diearea(Rect{.ll = {0, 0}, .ur = {1000, 2000}});
+    add_track(/*is_x=*/true, /*start=*/0, /*count=*/3, /*step=*/100, {"M1"});
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const RenderedShape *found = nullptr;
+    for (const RenderedShape &shape : shapes)
+        if (shape.view_layer == view_layers.find(m1, ViewLayerPurpose::TRACK))
+            found = &shape;
+    ASSERT_NE(found, nullptr);
+    ASSERT_EQ(found->shape.paths.size(), 3u);
+    for (int i = 0; i < 3; i++)
+    {
+        const int64_t x = i * 100;
+        EXPECT_EQ(found->shape.paths[i].polygon.points[0].x, x);
+        EXPECT_EQ(found->shape.paths[i].polygon.points[0].y, 0);
+        EXPECT_EQ(found->shape.paths[i].polygon.points[1].x, x);
+        EXPECT_EQ(found->shape.paths[i].polygon.points[1].y, 2000);
+    }
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSkipsATrackLayerNameThatDoesNotResolveButKeepsResolvableOnes)
+{
+    add_diearea(Rect{.ll = {0, 0}, .ur = {1000, 2000}});
+    add_track(/*is_x=*/true, /*start=*/0, /*count=*/1, /*step=*/100, {"M1", "NO_SUCH_LAYER"});
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    int track_shape_count = 0;
+    for (const RenderedShape &shape : shapes)
+    {
+        const ViewLayerData *view_layer = view_layers.get(shape.view_layer);
+        if (view_layer && view_layer->purpose == ViewLayerPurpose::TRACK)
+            track_shape_count++;
+    }
+    EXPECT_EQ(track_shape_count, 1); // only M1 resolved
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSynthesizesGCellGridLinesSpanningDieArea)
+{
+    add_diearea(Rect{.ll = {0, 0}, .ur = {1000, 2000}});
+    add_gcell_grid(/*is_x=*/false, /*start=*/500, /*count=*/2, /*step=*/300);
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const RenderedShape *found = find_by_purpose(shapes, view_layers, ViewLayerPurpose::GCELLGRID);
+    ASSERT_NE(found, nullptr);
+    ASSERT_EQ(found->shape.paths.size(), 2u);
+    EXPECT_EQ(found->shape.paths[0].polygon.points[0].x, 0);
+    EXPECT_EQ(found->shape.paths[0].polygon.points[0].y, 500);
+    EXPECT_EQ(found->shape.paths[0].polygon.points[1].x, 1000);
+    EXPECT_EQ(found->shape.paths[0].polygon.points[1].y, 500);
+    EXPECT_EQ(found->shape.paths[1].polygon.points[0].x, 0);
+    EXPECT_EQ(found->shape.paths[1].polygon.points[0].y, 800);
+    EXPECT_EQ(found->shape.paths[1].polygon.points[1].x, 1000);
+    EXPECT_EQ(found->shape.paths[1].polygon.points[1].y, 800);
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSynthesizesRegionFromStoredRects)
+{
+    add_region(Rect{.ll = {10, 10}, .ur = {50, 50}});
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const RenderedShape *found = find_by_purpose(shapes, view_layers, ViewLayerPurpose::REGION);
+    ASSERT_NE(found, nullptr);
+    ASSERT_EQ(found->shape.rects.size(), 1u);
+    EXPECT_EQ(found->shape.rects[0].ll.x, 10);
+    EXPECT_EQ(found->shape.rects[0].ll.y, 10);
+    EXPECT_EQ(found->shape.rects[0].ur.x, 50);
+    EXPECT_EQ(found->shape.rects[0].ur.y, 50);
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesReusesCacheForSameLayoutId)
+{
+    add_diearea(Rect{.ll = {0, 0}, .ur = {1000, 1000}});
+
+    pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    EXPECT_EQ(pipeline.generate_layout_calls(), 1u);
+
+    LayoutId other = root.create_layout(LayoutData{.design = root.get_layout(layout_id)->design});
+    pipeline.generate_layout_shapes(root, other, view_layers);
+    EXPECT_EQ(pipeline.generate_layout_calls(), 2u);
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesRecomputesAfterACrudMutationEvenForTheSameLayoutIdAndViewLayerSet)
+{
+    pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    ASSERT_EQ(pipeline.generate_layout_calls(), 1u);
+    ASSERT_TRUE(pipeline.generate_layout_shapes(root, layout_id, view_layers).empty());
+    ASSERT_EQ(pipeline.generate_layout_calls(), 1u); // nothing changed - cache hit
+
+    add_diearea(Rect{.ll = {0, 0}, .ur = {100, 100}});
+    root.bump_mutation_version();
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    EXPECT_EQ(pipeline.generate_layout_calls(), 2u); // same LayoutId, same ViewLayerSet - must still recompute
+    EXPECT_EQ(shapes.size(), 1u);
+}

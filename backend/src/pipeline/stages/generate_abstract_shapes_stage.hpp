@@ -1,5 +1,6 @@
 #pragma once
 #include "../../core/rendered_shape.hpp"
+#include "../../core/shape_generation_stage.hpp"
 #include "../../core/versioned_stage.hpp"
 #include "../../database/database.hpp"
 #include "../../geometry/geometry.hpp"
@@ -13,10 +14,14 @@ namespace le
     /// @brief Collects every Shape from an Abstract's Terminals' Ports, its
     /// Obstructions, and its boundary polygon, each resolved to its
     /// ViewLayerId, in dbu-space. The first stage in both of Pipeline's
-    /// chains (see Pipeline's own class comment for the two chains) - has
-    /// no upstream stage of its own, so its key is the one place in this
-    /// file that lists real trigger sources directly rather than composing
-    /// via another stage's version().
+    /// Abstract-path chains (see Pipeline's own class comment for the
+    /// chains) - has no upstream stage of its own, so its key is the one
+    /// place in this file that lists real trigger sources directly rather
+    /// than composing via another stage's version(). Mirrored by
+    /// GenerateLayoutShapesStage (generate_layout_shapes_stage.hpp) for the
+    /// Layout path - see ShapeGenerationStage's own comment for why both
+    /// share one common base rather than the two paths needing separate
+    /// downstream stage classes too.
     ///
     /// Key: `{AbstractId, ViewLayerSet::generation(), Root::mutation_version()}`.
     /// `ViewLayerSet::generation()` is included (not just AbstractId)
@@ -38,7 +43,7 @@ namespace le
     /// screen, no amount of requesting a new frame fixed it, since the
     /// frame *was* being regenerated - from a stale cache) rather than
     /// anticipated up front.
-    class GenerateShapesStage
+    class GenerateAbstractShapesStage : public ShapeGenerationStage
     {
     public:
         /// @brief Collect every Shape from the Abstract's Terminals' Ports,
@@ -260,8 +265,8 @@ namespace le
             });
         }
 
-        uint64_t version() const { return stage_.version(); }
-        uint64_t call_count() const { return stage_.call_count(); }
+        uint64_t version() const override { return stage_.version(); }
+        uint64_t call_count() const override { return stage_.call_count(); }
 
     private:
         VersionedStage<std::tuple<AbstractId, uint64_t, uint64_t>, std::vector<RenderedShape>> stage_;

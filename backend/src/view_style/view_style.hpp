@@ -26,6 +26,13 @@ namespace le
                              // into one shared BLOCKAGE purpose) since the two serve very
                              // different purposes for a user (routing keep-out vs.
                              // placement keep-out).
+        ROUTE,              // DEF NETS/SPECIALNETS routed geometry (Route) - contributes
+                             // into the named real Layer's own row, same as TRACK/
+                             // ROUTING_BLOCKAGE (Migration Step 3 - Step 2's own scope was
+                             // explicitly rows/tracks/blockages, net routing wasn't included)
+        REGION,             // DEF REGIONS - own pseudo-row, no Layer (Region has no color/
+                             // style field of its own, same "no physical Layer" treatment as
+                             // ROW/GCELLGRID)
     };
 
     struct Color
@@ -159,18 +166,23 @@ namespace le
                 // BRICK regardless of layer type, so blockage regions are
                 // recognizable at a glance across every layer. TRACK/
                 // ROUTING_BLOCKAGE (DEF TRACKS/BLOCKAGES LAYER - Migration
-                // Step 2) share that same per-Layer color too: TRACK gets a
+                // Step 2) and ROUTE (DEF NETS/SPECIALNETS - Migration Step
+                // 3) share that same per-Layer color too: TRACK gets a
                 // plain outline (grid lines, not a filled region, so no
                 // FillPattern needed beyond NONE), ROUTING_BLOCKAGE gets
                 // DOTS - a generic "keep-out" pattern distinct from
                 // OBSTRUCTION's own BRICK, reused (not shared as one
                 // purpose) by PLACEMENT_BLOCKAGE's own pseudo-row below so
                 // the two blockage kinds still read as visually related
-                // while staying independently toggleable.
+                // while staying independently toggleable - and ROUTE gets
+                // a plain filled outline (NONE pattern, like TERMINAL's own
+                // real geometry) since routed net wires are real
+                // conductor shapes, not a hatched keep-out region.
                 const ViewLayerId terminal_id = set.add(layer->name, layer->name + "/TERMINAL", ViewLayerPurpose::TERMINAL, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
                 const ViewLayerId obstruction_id = set.add(layer->name, layer->name + "/OBSTRUCTION", ViewLayerPurpose::OBSTRUCTION, layer_id, layer_style(color, FillPattern::BRICK));
                 const ViewLayerId track_id = set.add(layer->name, layer->name + "/TRACK", ViewLayerPurpose::TRACK, layer_id, layer_style(color, FillPattern::NONE));
                 const ViewLayerId routing_blockage_id = set.add(layer->name, layer->name + "/ROUTING_BLOCKAGE", ViewLayerPurpose::ROUTING_BLOCKAGE, layer_id, layer_style(color, FillPattern::DOTS));
+                const ViewLayerId route_id = set.add(layer->name, layer->name + "/ROUTE", ViewLayerPurpose::ROUTE, layer_id, layer_style(color, FillPattern::NONE));
 
                 set.rows_.push_back(ViewLayerRow{
                     .name = layer->name,
@@ -179,6 +191,7 @@ namespace le
                         ViewLayerColumn{.purpose = ViewLayerPurpose::OBSTRUCTION, .id = obstruction_id},
                         ViewLayerColumn{.purpose = ViewLayerPurpose::TRACK, .id = track_id},
                         ViewLayerColumn{.purpose = ViewLayerPurpose::ROUTING_BLOCKAGE, .id = routing_blockage_id},
+                        ViewLayerColumn{.purpose = ViewLayerPurpose::ROUTE, .id = route_id},
                     },
                 });
             }
@@ -214,6 +227,12 @@ namespace le
             set.rows_.push_back(ViewLayerRow{
                 .name = "PLACEMENT_BLOCKAGE",
                 .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PLACEMENT_BLOCKAGE, .id = placement_blockage_id}},
+            });
+
+            const ViewLayerId region_id = set.add("REGION", "REGION", ViewLayerPurpose::REGION, LayerId{}, region_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "REGION",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::REGION, .id = region_id}},
             });
 
             // BOUNDARY stays last (existing callers, e.g. rows().back(),
@@ -446,6 +465,15 @@ namespace le
         static ViewLayerStyle placement_blockage_style()
         {
             return ViewLayerStyle{.outline_color = {220, 90, 40, 255}, .fill_color = {220, 90, 40, 100}, .fill_pattern = FillPattern::DOTS};
+        }
+
+        // Own fixed color (not layer-derived - a Region has no Layer),
+        // dashed-looking outline-only treatment (plain NONE fill, distinct
+        // hue from every other pseudo-row) - Regions are a placement-
+        // guidance construct (FENCE/GUIDE), not real geometry to fill in.
+        static ViewLayerStyle region_style()
+        {
+            return ViewLayerStyle{.outline_color = {120, 200, 120, 255}, .fill_color = {0, 0, 0, 0}};
         }
 
         Pool<ViewLayerData, ViewLayerId> pool_;

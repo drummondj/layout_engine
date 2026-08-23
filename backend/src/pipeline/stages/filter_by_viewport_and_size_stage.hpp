@@ -1,6 +1,6 @@
 #pragma once
-#include "generate_shapes_stage.hpp"
 #include "../../core/rendered_shape.hpp"
+#include "../../core/shape_generation_stage.hpp"
 #include "../../core/versioned_stage.hpp"
 #include "../../geometry/geometry.hpp"
 #include "../../scene/scene.hpp"
@@ -18,21 +18,26 @@ namespace le
     /// are dropped for now; text rendering isn't subject to this kind of
     /// culling anyway and needs its own handling later.
     ///
-    /// Key: `{Scene::viewport_version(), upstream GenerateShapesStage's
-    /// version()}` - composing via the upstream stage's own version (see
-    /// VersionedStage's own doc comment) instead of manually re-deriving
-    /// everything GenerateShapesStage's key depends on
-    /// (ViewLayerSet::generation(), Root::mutation_version()); this stage
-    /// never reads Root/ViewLayerSet directly (`shapes` is already fully
-    /// resolved), so composing is strictly more correct, not just
+    /// Shared by both Pipeline's Abstract and Layout paths (Migration Step
+    /// 3) - its own logic has nothing Abstract- or Layout-specific in it,
+    /// it only ever needs its upstream's version(), hence the
+    /// ShapeGenerationStage base rather than a concrete Generate*ShapesStage
+    /// type (see that base's own comment).
+    ///
+    /// Key: `{Scene::viewport_version(), upstream's version()}` - composing
+    /// via the upstream stage's own version (see VersionedStage's own doc
+    /// comment) instead of manually re-deriving everything its key depends
+    /// on (ViewLayerSet::generation(), Root::mutation_version()); this
+    /// stage never reads Root/ViewLayerSet directly (`shapes` is already
+    /// fully resolved), so composing is strictly more correct, not just
     /// shorter - the old hand-written key had to be manually kept in sync
-    /// with GenerateShapesStage's own every time *that* stage's triggers
+    /// with the upstream stage's own every time *that* stage's triggers
     /// changed, which is exactly the class of bug TCL_EXPLORATION.md
     /// describes.
     class FilterByViewportAndSizeStage
     {
     public:
-        const std::vector<RenderedShape> &run(GenerateShapesStage &upstream, const std::vector<RenderedShape> &shapes, const Scene &scene)
+        const std::vector<RenderedShape> &run(const ShapeGenerationStage &upstream, const std::vector<RenderedShape> &shapes, const Scene &scene)
         {
             const auto key = std::tuple{scene.viewport_version(), upstream.version()};
             return stage_.get(key, [&]

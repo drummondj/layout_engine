@@ -5,7 +5,8 @@
 #include "../view_style/view_style.hpp"
 #include "stages/filter_by_layer_visibility_stage.hpp"
 #include "stages/filter_by_viewport_and_size_stage.hpp"
-#include "stages/generate_shapes_stage.hpp"
+#include "stages/generate_abstract_shapes_stage.hpp"
+#include "stages/generate_layout_shapes_stage.hpp"
 #include "stages/tiny_shapes_by_layer_visibility_stage.hpp"
 #include "stages/tiny_shapes_by_viewport_stage.hpp"
 #include <cstdint>
@@ -16,13 +17,23 @@
 namespace le
 {
     /// @brief Owns one instance of each stage class above and chains them
-    /// into the two data-flow paths a Scene's currently displayed Abstract
-    /// needs - construct one per Scene-equivalent lifetime and reuse it
-    /// across repeated calls (e.g. every interactive frame); a fresh
-    /// instance recomputes everything on its first call.
+    /// into two parallel pairs of data-flow paths (Migration Step 3) - one
+    /// pair for a Scene's currently displayed Abstract, one for its
+    /// currently displayed Layout - construct one per Scene-equivalent
+    /// lifetime and reuse it across repeated calls (e.g. every interactive
+    /// frame); a fresh instance recomputes everything on its first call.
     ///
-    ///   GenerateShapesStage -> FilterByViewportAndSizeStage -> FilterByLayerVisibilityStage   (run())
-    ///   GenerateShapesStage -> TinyShapesByViewportStage -> TinyShapesByLayerVisibilityStage   (run_tiny_shapes())
+    ///   GenerateAbstractShapesStage -> FilterByViewportAndSizeStage -> FilterByLayerVisibilityStage   (run())
+    ///   GenerateAbstractShapesStage -> TinyShapesByViewportStage -> TinyShapesByLayerVisibilityStage   (run_tiny_shapes())
+    ///   GenerateLayoutShapesStage   -> FilterByViewportAndSizeStage -> FilterByLayerVisibilityStage   (run_layout())
+    ///   GenerateLayoutShapesStage   -> TinyShapesByViewportStage -> TinyShapesByLayerVisibilityStage   (run_layout_tiny_shapes())
+    ///
+    /// FilterByViewportAndSizeStage/FilterByLayerVisibilityStage/
+    /// TinyShapesByViewportStage/TinyShapesByLayerVisibilityStage have
+    /// nothing Abstract- or Layout-specific in their own logic (see
+    /// ShapeGenerationStage's own comment) - each is simply instantiated
+    /// twice, once per path, rather than templated or duplicated under a
+    /// different name.
     ///
     /// Every public method below keeps the exact signature it had before
     /// UPDATES.md item 16's refactor (a `const Root&`/`const ViewLayerSet&`
@@ -38,51 +49,102 @@ namespace le
     /// happens to own it.
     ///
     /// UPDATES.md item 16 also asked for "each stage class in it's own
-    /// .hpp file" - the five stage classes plus RenderedShape/TinyShapeDot
-    /// and VersionedStage each live in their own file under
-    /// src/pipeline/stages/; this file stays a thin aggregator (`#include`
-    /// of all of them, plus this Pipeline class) so every existing
-    /// consumer that `#include`s pipeline.hpp keeps working unchanged -
-    /// `pipeline` is a header-only (INTERFACE) CMake library, so splitting
-    /// the file needed no build-system changes either.
+    /// .hpp file" - the stage classes plus RenderedShape/TinyShapeDot,
+    /// ShapeGenerationStage, and VersionedStage each live in their own file
+    /// under src/pipeline/stages/ (the first three) or src/core/ (the
+    /// last two); this file stays a thin aggregator (`#include` of all of
+    /// them, plus this Pipeline class) so every existing consumer that
+    /// `#include`s pipeline.hpp keeps working unchanged - `pipeline` is a
+    /// header-only (INTERFACE) CMake library, so splitting the file needed
+    /// no build-system changes either.
     class Pipeline
     {
     public:
         const std::vector<RenderedShape> &generate_shapes(const Root &root, AbstractId abstract_id, const ViewLayerSet &view_layers)
         {
-            return generated_.run(root, abstract_id, view_layers);
+            return generated_abstract_.run(root, abstract_id, view_layers);
+        }
+
+        const std::vector<RenderedShape> &generate_layout_shapes(const Root &root, LayoutId layout_id, const ViewLayerSet &view_layers)
+        {
+            return generated_layout_.run(root, layout_id, view_layers);
         }
 
         const std::vector<RenderedShape> &filter_by_viewport_and_size(const Root &root, const std::vector<RenderedShape> &shapes, const Scene &scene, const ViewLayerSet &view_layers)
         {
             (void)root;
             (void)view_layers;
-            return viewport_filtered_.run(generated_, shapes, scene);
+            return viewport_filtered_abstract_.run(generated_abstract_, shapes, scene);
+        }
+
+        const std::vector<RenderedShape> &filter_by_viewport_and_size_layout(const Root &root, const std::vector<RenderedShape> &shapes, const Scene &scene, const ViewLayerSet &view_layers)
+        {
+            (void)root;
+            (void)view_layers;
+            return viewport_filtered_layout_.run(generated_layout_, shapes, scene);
         }
 
         const std::map<ViewLayerId, std::vector<RenderedShape>> &filter_by_layer_visibility(const Root &root, const std::vector<RenderedShape> &shapes, const Scene &scene, const ViewLayerSet &view_layers)
         {
             (void)root;
-            return layer_filtered_.run(viewport_filtered_, shapes, scene, view_layers);
+            return layer_filtered_abstract_.run(viewport_filtered_abstract_, shapes, scene, view_layers);
+        }
+
+        const std::map<ViewLayerId, std::vector<RenderedShape>> &filter_by_layer_visibility_layout(const Root &root, const std::vector<RenderedShape> &shapes, const Scene &scene, const ViewLayerSet &view_layers)
+        {
+            (void)root;
+            return layer_filtered_layout_.run(viewport_filtered_layout_, shapes, scene, view_layers);
         }
 
         const std::vector<TinyShapeDot> &tiny_shapes_by_viewport(const Root &root, AbstractId abstract_id, const Scene &scene, const ViewLayerSet &view_layers)
         {
-            return tiny_shapes_viewport_filtered_.run(generated_, root, abstract_id, scene, view_layers);
+            const auto &shapes = generate_shapes(root, abstract_id, view_layers);
+            return tiny_shapes_viewport_filtered_abstract_.run(generated_abstract_, shapes, scene, view_layers);
+        }
+
+        const std::vector<TinyShapeDot> &tiny_shapes_by_viewport_layout(const Root &root, LayoutId layout_id, const Scene &scene, const ViewLayerSet &view_layers)
+        {
+            const auto &shapes = generate_layout_shapes(root, layout_id, view_layers);
+            return tiny_shapes_viewport_filtered_layout_.run(generated_layout_, shapes, scene, view_layers);
         }
 
         const std::map<ViewLayerId, std::vector<Point>> &tiny_shapes_by_layer_visibility(const Root &root, const std::vector<TinyShapeDot> &tiny_shapes, const Scene &scene, const ViewLayerSet &view_layers)
         {
             (void)root;
-            return tiny_shapes_layer_filtered_.run(tiny_shapes_viewport_filtered_, tiny_shapes, scene, view_layers);
+            return tiny_shapes_layer_filtered_abstract_.run(tiny_shapes_viewport_filtered_abstract_, tiny_shapes, scene, view_layers);
         }
 
-        /// @brief Run all three stages for the Scene's current_abstract().
+        const std::map<ViewLayerId, std::vector<Point>> &tiny_shapes_by_layer_visibility_layout(const Root &root, const std::vector<TinyShapeDot> &tiny_shapes, const Scene &scene, const ViewLayerSet &view_layers)
+        {
+            (void)root;
+            return tiny_shapes_layer_filtered_layout_.run(tiny_shapes_viewport_filtered_layout_, tiny_shapes, scene, view_layers);
+        }
+
+        /// @brief Run all three Abstract-path stages for the Scene's
+        /// current_abstract().
         const std::map<ViewLayerId, std::vector<RenderedShape>> &run(const Root &root, const Scene &scene, const ViewLayerSet &view_layers)
         {
             const auto &generated = generate_shapes(root, scene.current_abstract(), view_layers);
             const auto &viewport_filtered = filter_by_viewport_and_size(root, generated, scene, view_layers);
             return filter_by_layer_visibility(root, viewport_filtered, scene, view_layers);
+        }
+
+        /// @brief Run all three Layout-path stages for `layout_id` -
+        /// mirrors `run` above; only the top-level Layout's own direct
+        /// content (rows/tracks/gcell grids/blockages/routes/physical
+        /// ports/die area - see GenerateLayoutShapesStage's own comment) -
+        /// placed-instance rendering is a separate, picture-cache-based
+        /// mechanism (Migration Step 3 Phase B), not part of this
+        /// RenderedShape-map path at all. Takes `layout_id` directly rather
+        /// than reading a `scene.current_layout()`-style accessor -
+        /// `Scene` gains that concept in Phase C, which will update this
+        /// method's own signature then; kept Phase A self-contained
+        /// (no `Scene` changes) until that phase.
+        const std::map<ViewLayerId, std::vector<RenderedShape>> &run_layout(const Root &root, LayoutId layout_id, const Scene &scene, const ViewLayerSet &view_layers)
+        {
+            const auto &generated = generate_layout_shapes(root, layout_id, view_layers);
+            const auto &viewport_filtered = filter_by_viewport_and_size_layout(root, generated, scene, view_layers);
+            return filter_by_layer_visibility_layout(root, viewport_filtered, scene, view_layers);
         }
 
         /// @brief Run both tiny-shape stages for the Scene's
@@ -94,6 +156,16 @@ namespace le
         {
             const auto &tiny_shapes = tiny_shapes_by_viewport(root, scene.current_abstract(), scene, view_layers);
             return tiny_shapes_by_layer_visibility(root, tiny_shapes, scene, view_layers);
+        }
+
+        /// @brief Run both tiny-shape stages for `layout_id` - mirrors
+        /// `run_tiny_shapes` above; see `run_layout`'s own comment for why
+        /// `layout_id` is an explicit parameter rather than a
+        /// `scene.current_layout()`-style accessor for now.
+        const std::map<ViewLayerId, std::vector<Point>> &run_layout_tiny_shapes(const Root &root, LayoutId layout_id, const Scene &scene, const ViewLayerSet &view_layers)
+        {
+            const auto &tiny_shapes = tiny_shapes_by_viewport_layout(root, layout_id, scene, view_layers);
+            return tiny_shapes_by_layer_visibility_layout(root, tiny_shapes, scene, view_layers);
         }
 
         /// @brief Topmost-layer-first point hit-test (UPDATES.md 7.1 items
@@ -116,7 +188,11 @@ namespace le
         /// only the one piece under the cursor, not the whole group.
         /// First-match-within-a-layer wins for two overlapping shapes on
         /// the same layer, an accepted MVP limitation. nullopt if nothing
-        /// was hit.
+        /// was hit. Works identically against either `run`'s or
+        /// `run_layout`'s own output - a Layout's own direct content
+        /// (rows/tracks/etc.) is selectable the same way an Abstract's
+        /// is; placed-instance (Placement) selection is a separate,
+        /// bbox-only mechanism (Migration Step 3 Phase B), not this path.
         static std::optional<HoverTarget> hit_test_point(const std::map<ViewLayerId, std::vector<RenderedShape>> &shapes, const ViewLayerSet &view_layers, const Scene &scene, Point dbu_point)
         {
             for (auto it = shapes.rbegin(); it != shapes.rend(); ++it)
@@ -184,17 +260,29 @@ namespace le
 
         // Number of times each stage actually recomputed - exposed purely
         // to make cache hits/misses observable in tests.
-        uint64_t generate_calls() const { return generated_.call_count(); }
-        uint64_t viewport_filter_calls() const { return viewport_filtered_.call_count(); }
-        uint64_t layer_filter_calls() const { return layer_filtered_.call_count(); }
-        uint64_t tiny_shapes_viewport_filter_calls() const { return tiny_shapes_viewport_filtered_.call_count(); }
-        uint64_t tiny_shapes_layer_filter_calls() const { return tiny_shapes_layer_filtered_.call_count(); }
+        uint64_t generate_calls() const { return generated_abstract_.call_count(); }
+        uint64_t viewport_filter_calls() const { return viewport_filtered_abstract_.call_count(); }
+        uint64_t layer_filter_calls() const { return layer_filtered_abstract_.call_count(); }
+        uint64_t tiny_shapes_viewport_filter_calls() const { return tiny_shapes_viewport_filtered_abstract_.call_count(); }
+        uint64_t tiny_shapes_layer_filter_calls() const { return tiny_shapes_layer_filtered_abstract_.call_count(); }
+
+        uint64_t generate_layout_calls() const { return generated_layout_.call_count(); }
+        uint64_t viewport_filter_layout_calls() const { return viewport_filtered_layout_.call_count(); }
+        uint64_t layer_filter_layout_calls() const { return layer_filtered_layout_.call_count(); }
+        uint64_t tiny_shapes_viewport_filter_layout_calls() const { return tiny_shapes_viewport_filtered_layout_.call_count(); }
+        uint64_t tiny_shapes_layer_filter_layout_calls() const { return tiny_shapes_layer_filtered_layout_.call_count(); }
 
     private:
-        GenerateShapesStage generated_;
-        FilterByViewportAndSizeStage viewport_filtered_;
-        FilterByLayerVisibilityStage layer_filtered_;
-        TinyShapesByViewportStage tiny_shapes_viewport_filtered_;
-        TinyShapesByLayerVisibilityStage tiny_shapes_layer_filtered_;
+        GenerateAbstractShapesStage generated_abstract_;
+        FilterByViewportAndSizeStage viewport_filtered_abstract_;
+        FilterByLayerVisibilityStage layer_filtered_abstract_;
+        TinyShapesByViewportStage tiny_shapes_viewport_filtered_abstract_;
+        TinyShapesByLayerVisibilityStage tiny_shapes_layer_filtered_abstract_;
+
+        GenerateLayoutShapesStage generated_layout_;
+        FilterByViewportAndSizeStage viewport_filtered_layout_;
+        FilterByLayerVisibilityStage layer_filtered_layout_;
+        TinyShapesByViewportStage tiny_shapes_viewport_filtered_layout_;
+        TinyShapesByLayerVisibilityStage tiny_shapes_layer_filtered_layout_;
     };
 }
