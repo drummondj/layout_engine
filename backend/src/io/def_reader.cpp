@@ -267,6 +267,22 @@ namespace
             case DEFIPATH_LAYER:
                 flush_path();
                 current_shape = find_or_create(path->getLayer());
+                // DEF's own WIDTH token is optional per LAYER occurrence -
+                // when the writer never specifies one (the common case for
+                // ordinary routing - most real DEF writers rely entirely on
+                // this), default here to that Layer's own declared LEF
+                // WIDTH rather than leaving every point at width 0 (which
+                // renders as a hairline stroke, not the real trace width).
+                // A DEFIPATH_WIDTH token encountered afterward (below)
+                // still overrides this for the current layer occurrence -
+                // reset again on the NEXT LAYER token regardless, so an
+                // explicit override for one layer never silently bleeds
+                // into a different layer later in the same path that
+                // never asked for one.
+                current_width = 0;
+                if (current_shape)
+                    if (const le::LayerData *layer = root.get_layer(current_shape->layer))
+                        current_width = layer->width.value_or(0);
                 break;
             case DEFIPATH_WIDTH:
                 current_width = scale_dbu(path->getWidth(), unit_scale);

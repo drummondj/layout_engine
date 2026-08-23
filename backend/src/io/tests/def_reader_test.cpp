@@ -793,4 +793,55 @@ namespace le
                 saw_precision_warning = true;
         EXPECT_TRUE(saw_precision_warning) << "expected a precision warning since DEF units (500) < technology units (1000)";
     }
+
+    // Regression: append_shapes_from_path (def_reader.cpp) used to leave
+    // every routed Path's own width at 0 whenever the DEF text itself
+    // never carried an explicit PATHWIDTH token - the common case for
+    // ordinary routing (most real DEF writers rely entirely on the
+    // LAYER's own default LEF WIDTH instead), which rendered as a
+    // hairline stroke instead of the real trace width. route_default_width.def
+    // has two nets on the same M1 layer - one with no PATHWIDTH at all,
+    // one with an explicit override - proving both the new default AND
+    // that an explicit width still wins.
+    TEST(DEFReaderRouteWidth, DefaultsToLayerWidthWhenPathwidthOmittedButExplicitOverrideStillWins)
+    {
+        Root root;
+        const TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+        root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING", .width = 700});
+        DEFReader reader;
+        ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/route_default_width.def", root, "test_lib"), 0);
+
+        const DesignId design_id = root.get_design_by_name("route_width_test");
+        ASSERT_TRUE(design_id.valid());
+        const LayoutId layout_id = root.get_design_layout(design_id);
+        ASSERT_TRUE(layout_id.valid());
+
+        const std::vector<RouteId> &route_ids = root.get_layout_routes(layout_id);
+        auto find_by_name = [&](const std::string &name) -> RouteId
+        {
+            for (const RouteId id : route_ids)
+                if (const RouteData *route = root.get_route(id); route && route->name == name)
+                    return id;
+            return RouteId{};
+        };
+        auto first_path_width = [&](RouteId id) -> std::optional<int64_t>
+        {
+            for (const ShapeId shape_id : root.get_route_shapes(id))
+                if (const Shape *shape = root.get_shape(shape_id); shape && !shape->paths.empty())
+                    return shape->paths.front().width;
+            return std::nullopt;
+        };
+
+        const RouteId no_width_id = find_by_name("NET_NO_WIDTH");
+        ASSERT_TRUE(no_width_id.valid());
+        const std::optional<int64_t> no_width = first_path_width(no_width_id);
+        ASSERT_TRUE(no_width.has_value());
+        EXPECT_EQ(*no_width, 700); // defaults to M1's own declared LEF width
+
+        const RouteId with_width_id = find_by_name("NET_WITH_WIDTH");
+        ASSERT_TRUE(with_width_id.valid());
+        const std::optional<int64_t> with_width = first_path_width(with_width_id);
+        ASSERT_TRUE(with_width.has_value());
+        EXPECT_EQ(*with_width, 50); // explicit PATHWIDTH still overrides the default
+    }
 }
