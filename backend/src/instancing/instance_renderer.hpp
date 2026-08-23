@@ -190,49 +190,75 @@ namespace le
         /// own Phase C recursion rule ("Top-level call: remaining_depth =
         /// hierarchy_depth - 1").
         ///
-        /// Composes build_layout_picture's own local-pixel-space output
-        /// (pan={0,0}) into the real Scene's own pixel space (grid drawn
-        /// first, then the local picture placed via to_instance_matrix
-        /// with an identity InstanceTransform - no rotation, this is the
-        /// top view itself - so its own translation collapses to exactly
-        /// `-scene.pan() * scene.scale()`, matching every other design
-        /// picture's own `pixel = (dbu - pan) * scale` convention), then
-        /// runs that through this class's own rasterize/compose chain
-        /// (see this class's own doc comment for why it's a second,
-        /// independent chain rather than reusing `Renderer`'s). No tiny-
-        /// shapes or selection-overlay content yet for a Layout view (both
-        /// pass an empty picture/map) - InstanceRenderer doesn't produce
-        /// TinyShapeDots, and placement selection is explicitly deferred
-        /// scope (Step 3's own "whole-placement only" decision) - a real,
-        /// documented gap, not a silent omission.
+        /// Builds `layout_id`'s own TOP-level picture fresh every call
+        /// (bypassing build_layout_picture's own {LayoutId, remaining_depth}
+        /// cache entirely - see build_layout_picture_uncached's own
+        /// comment) with `local_origin = scene.pan()`, so its own baked
+        /// SkScalar coordinates are `(dbu - scene.pan()) * scene.scale()` -
+        /// already the real Scene's own final pixel space, exactly
+        /// TransformToPixelsStage's own `pixel = (dbu - pan) * scale`
+        /// convention - drawn with no further transform at all below.
+        /// This trades away this one picture's own pan-independence (a
+        /// pure pan-drag now re-generates the top level's own direct
+        /// content - die area/rows/tracks/blockages/routes/ports - every
+        /// frame instead of reusing a cached picture unchanged) for
+        /// correctness at high zoom on a real design's real absolute DBU
+        /// coordinates (commonly hundreds of thousands to millions) -
+        /// see build_layout_picture_uncached's own comment for the
+        /// precision failure this fixes. Every *nested* Placement's own
+        /// resolved picture (resolve_design_picture, still reached from
+        /// inside build_layout_picture_uncached's own placement loop)
+        /// keeps its existing local_origin={0,0} convention and its
+        /// existing cache untouched - only this outermost call's own
+        /// direct content pays the extra cost, not the placement-count-
+        /// scaling part BENCHMARKS.md's stress test measures.
+        /// ensure_epoch is called explicitly here (normally a job the
+        /// bypassed build_layout_picture wrapper does) so the recursive
+        /// resolve_design_picture calls inside still see a fresh epoch.
+        /// No tiny-shapes or selection-overlay content yet for a Layout
+        /// view (both pass an empty picture/map) - InstanceRenderer
+        /// doesn't produce TinyShapeDots, and placement selection is
+        /// explicitly deferred scope (Step 3's own "whole-placement
+        /// only" decision) - a real, documented gap, not a silent
+        /// omission.
         const PixelBuffer &render_layout_frame(const Root &root, LayoutId layout_id, int hierarchy_depth, const ViewLayerSet &view_layers, const Scene &scene)
         {
             const int remaining_depth = std::max(0, hierarchy_depth - 1);
-            const sk_sp<SkPicture> local_picture = build_layout_picture(root, layout_id, remaining_depth, view_layers, scene, scene.scale());
+            ensure_epoch(root, view_layers, scene, scene.scale());
 
-            // A synthetic "did the frame's own inputs change" version -
-            // recompute_count_ stands in for "did InstanceRenderer's own
-            // cached content change" (coarser than layout_id's own
-            // picture specifically, matching this class's whole-epoch
-            // invalidation philosophy elsewhere); pan/viewport/scale are
-            // this compose step's own additional inputs build_layout_picture's
-            // own cache doesn't already account for (it's pan-independent
-            // by design).
-            const auto frame_key = std::tuple{layout_id, hierarchy_depth, recompute_count_, scene.pan().x, scene.pan().y, scene.viewport_width_px(), scene.viewport_height_px(), scene.scale()};
-            design_frame_version_stage_.get(frame_key, [] { return 0; });
-            const uint64_t design_version = design_frame_version_stage_.version();
+            // Single-slot cache keyed on scene.viewport_version() (bumped
+            // by any pan/scale/viewport-size change, TransformToPixelsStage's
+            // own established convention) plus the same content-change
+            // triggers ensure_epoch's own Epoch already tracks - so a
+            // repeated call at an unchanged pan/scale (a ruler-only or
+            // overlay-only redraw) still reuses this picture instead of
+            // re-running GenerateLayoutShapesStage/re-resolving every
+            // Placement on every single frame, while a real pan/scale
+            // change correctly rebuilds with the new local_origin below.
+            // Deliberately its own VersionedStage, not a reuse of
+            // layout_pictures_ (which stays keyed pan-independently,
+            // {LayoutId, remaining_depth} only, for nested/reused
+            // sub-block content - see build_layout_picture_uncached's own
+            // comment for why the top level can't share that convention).
+            const auto top_picture_key = std::tuple{layout_id, remaining_depth, root.mutation_version(), view_layers.generation(), scene.visibility_version(), scene.viewport_version()};
+            const sk_sp<SkPicture> &local_picture = top_layout_picture_stage_.get(top_picture_key, [&]
+            { return build_layout_picture_uncached(root, layout_id, remaining_depth, view_layers, scene, scene.scale(), scene.pan()); });
+
+            // top_layout_picture_stage_'s own version() already composes
+            // every real trigger this needs (content mutation/visibility/
+            // pan/scale/viewport-size, via viewport_version() - see its
+            // own key above) - reused directly as this compose step's
+            // "did the design content change" signal instead of a second,
+            // separately-tracked frame_key (this file's own established
+            // "compose off an upstream stage's own version()" pattern,
+            // same as every VersionedStage-based cache key elsewhere).
+            const uint64_t design_version = top_layout_picture_stage_.version();
 
             SkPictureRecorder recorder;
             SkCanvas *canvas = recorder.beginRecording(SkRect::MakeWH(static_cast<SkScalar>(scene.viewport_width_px()), static_cast<SkScalar>(scene.viewport_height_px())));
             draw_grid(*canvas, scene);
             if (local_picture)
-            {
-                const Geometry::InstanceTransform identity{.linear = {1, 0, 0, 1}, .translation = {0, 0}};
-                canvas->save();
-                canvas->concat(to_instance_matrix(identity, scene.pan(), scene.scale()));
                 canvas->drawPicture(local_picture);
-                canvas->restore();
-            }
             const sk_sp<SkPicture> design_picture = recorder.finishRecordingAsPicture();
 
             const std::optional<double> dbu_per_um = technology_dbu_per_um(root);
@@ -390,7 +416,23 @@ namespace le
             return record_local_picture(generate_stage, viewport_stage, layer_stage, dbu_shapes, view_layers, scene, scale, {}, {}, abstract_declared_bbox(root, abstract_id));
         }
 
-        sk_sp<SkPicture> build_layout_picture_uncached(const Root &root, LayoutId layout_id, int remaining_depth, const ViewLayerSet &view_layers, const Scene &scene, double scale)
+        // `local_origin` (default {0,0}, the existing/normal convention
+        // for every cached recursive call below) shifts this picture's
+        // own "local pixel space" to `(dbu - local_origin) * scale`
+        // instead of the class comment's own plain `dbu_local * scale` -
+        // see record_local_picture's own comment for why: it only
+        // matters (non-default) for render_layout_frame's own TOP-level,
+        // uncached call, where `dbu` is the real design's own absolute
+        // DBU coordinates (commonly in the hundreds of thousands to
+        // millions for a real chip) rather than a small, already-local
+        // sub-block's own coordinates - passing scene.pan() there keeps
+        // this picture's own baked-in SkScalar (32-bit float) values
+        // small regardless of scale (BUGS_AND_ENHANCEMENTS.md B1
+        // follow-up: real DBU coordinates times a real zoom scale
+        // routinely exceed float32's exact-integer range, ~16.7M,
+        // collapsing adjacent screen pixels onto the same tile-pattern
+        // phase - a dense checkerboard/moire, worse the more zoomed in).
+        sk_sp<SkPicture> build_layout_picture_uncached(const Root &root, LayoutId layout_id, int remaining_depth, const ViewLayerSet &view_layers, const Scene &scene, double scale, Point local_origin = Point{0, 0})
         {
             recompute_count_++;
 
@@ -512,8 +554,8 @@ namespace le
                 if (width < min_visible_dbu && height < min_visible_dbu)
                 {
                     tiny_instance_rects.push_back(PixelRect{
-                        .ll = PixelPoint{.x = static_cast<double>(world_bbox.ll.x) * scale, .y = static_cast<double>(world_bbox.ll.y) * scale},
-                        .ur = PixelPoint{.x = static_cast<double>(world_bbox.ur.x) * scale, .y = static_cast<double>(world_bbox.ur.y) * scale},
+                        .ll = PixelPoint{.x = static_cast<double>(world_bbox.ll.x - local_origin.x) * scale, .y = static_cast<double>(world_bbox.ll.y - local_origin.y) * scale},
+                        .ur = PixelPoint{.x = static_cast<double>(world_bbox.ur.x - local_origin.x) * scale, .y = static_cast<double>(world_bbox.ur.y - local_origin.y) * scale},
                     });
                     continue;
                 }
@@ -523,12 +565,12 @@ namespace le
                     continue;
 
                 instances.push_back(BuildLayoutPictureStage::ResolvedInstance{
-                    .transform = to_instance_matrix(transform, Point{0, 0}, scale),
+                    .transform = to_instance_matrix(transform, local_origin, scale),
                     .picture = std::move(child_picture),
                 });
             }
 
-            return record_local_picture(generate_stage, viewport_stage, layer_stage, dbu_shapes, view_layers, scene, scale, instances, tiny_instance_rects, content_bbox);
+            return record_local_picture(generate_stage, viewport_stage, layer_stage, dbu_shapes, view_layers, scene, scale, instances, tiny_instance_rects, content_bbox, local_origin);
         }
 
         // Shared core of both build_abstract_picture and
@@ -550,7 +592,13 @@ namespace le
         // is unioned here with `dbu_shapes`'s own actual bbox to produce
         // `bounds` - both the throwaway cull-Scene's own viewport sizing
         // and BuildLayoutPictureStage's own SkPictureRecorder bounds.
-        sk_sp<SkPicture> record_local_picture(const ShapeGenerationStage &generate_stage, FilterByViewportAndSizeStage &viewport_stage, FilterByLayerVisibilityStage &layer_stage, const std::vector<RenderedShape> &dbu_shapes, const ViewLayerSet &view_layers, const Scene &scene, double scale, const std::vector<BuildLayoutPictureStage::ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, Rect declared_bbox)
+        //
+        // `local_origin` (default {0,0}) - see build_layout_picture_uncached's
+        // own comment; threaded straight through into the two places this
+        // function itself bakes `dbu * scale` into final SkScalar
+        // coordinates (`pixel_shapes`/`bounds` below), matching the shift
+        // already applied to `instances`' own transforms by the caller.
+        sk_sp<SkPicture> record_local_picture(const ShapeGenerationStage &generate_stage, FilterByViewportAndSizeStage &viewport_stage, FilterByLayerVisibilityStage &layer_stage, const std::vector<RenderedShape> &dbu_shapes, const ViewLayerSet &view_layers, const Scene &scene, double scale, const std::vector<BuildLayoutPictureStage::ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, Rect declared_bbox, Point local_origin = Point{0, 0})
         {
             // declared_bbox is always a real (if possibly degenerate,
             // e.g. Rect{}) Rect, never absent - every call site
@@ -585,11 +633,11 @@ namespace le
 
             const auto &viewport_filtered = viewport_stage.run(generate_stage, dbu_shapes, cull_scene);
             const auto &layer_filtered = layer_stage.run(viewport_stage, viewport_filtered, scene, view_layers);
-            const auto pixel_shapes = transform_shapes_to_pixel_space(layer_filtered, Point{0, 0}, scale);
+            const auto pixel_shapes = transform_shapes_to_pixel_space(layer_filtered, local_origin, scale);
 
             const SkRect bounds = SkRect::MakeLTRB(
-                static_cast<SkScalar>(static_cast<double>(content_bbox.ll.x) * scale), static_cast<SkScalar>(static_cast<double>(content_bbox.ll.y) * scale),
-                static_cast<SkScalar>(static_cast<double>(content_bbox.ur.x) * scale), static_cast<SkScalar>(static_cast<double>(content_bbox.ur.y) * scale));
+                static_cast<SkScalar>(static_cast<double>(content_bbox.ll.x - local_origin.x) * scale), static_cast<SkScalar>(static_cast<double>(content_bbox.ll.y - local_origin.y) * scale),
+                static_cast<SkScalar>(static_cast<double>(content_bbox.ur.x - local_origin.x) * scale), static_cast<SkScalar>(static_cast<double>(content_bbox.ur.y - local_origin.y) * scale));
 
             return BuildLayoutPictureStage::run(bounds, pixel_shapes, instances, tiny_instance_rects, view_layers);
         }
@@ -604,14 +652,15 @@ namespace le
         std::set<DesignId> unresolved_logged_;
         uint64_t recompute_count_ = 0;
 
+        // render_layout_frame's own single-slot cache for the TOP-level
+        // picture specifically - see that method's own comment for why
+        // it can't share layout_pictures_ (pan-dependent local_origin,
+        // unlike every other entry in that map).
+        VersionedStage<std::tuple<LayoutId, int, uint64_t, uint64_t, uint64_t, uint64_t>, sk_sp<SkPicture>> top_layout_picture_stage_;
+
         // render_layout_frame's own rasterize/compose chain - a second,
         // independent set of instances from Renderer's own (see this
         // class's own doc comment for why sharing would be unsafe).
-        // design_frame_version_stage_'s own "value" is never read, only
-        // its version() - a plain reuse of VersionedStage purely for its
-        // built-in "did this key change" tracking (see render_layout_frame's
-        // own comment).
-        VersionedStage<std::tuple<LayoutId, int, uint64_t, int64_t, int64_t, int, int, double>, int> design_frame_version_stage_;
         BuildOverlayPictureStage build_overlay_picture_stage_;
         BuildRulerOverlayPictureStage build_ruler_overlay_picture_stage_;
         RasterizeStage rasterize_design_stage_;

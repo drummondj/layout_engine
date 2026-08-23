@@ -375,6 +375,52 @@ TEST_F(RenderFixture, BuildPictureFillsInteriorPixelWithLayerStyleColor)
     EXPECT_TRUE(region_shows_color(bitmap, 11, 11, 15, 29, to_sk_color(view_layer->style.outline_color)));
 }
 
+TEST_F(RenderFixture, BuildPictureFillPatternStaysLockedToShapeAcrossPan)
+{
+    // Regression, BUGS_AND_ENHANCEMENTS.md B1: pattern_shader's tiled
+    // SkShader has no local matrix of its own, so it always tiles from
+    // the recording canvas's own (0,0) - but TransformToPixelsStage
+    // bakes `pan` directly into every shape's own pixel coordinates
+    // before this picture is ever recorded. Without BuildAbstractPictureStage's
+    // own pattern_phase_px correction, the tile grid stays fixed on
+    // screen while a shape's pixel position shifts underneath it as the
+    // user pans, so the same dbu-space point inside the shape shows a
+    // different pattern phase at different pans - most visible in
+    // practice while zooming, since a zoom-to-point gesture changes pan
+    // too. Verified here with an asymmetric x-only pan (not x==y) -
+    // DIAGONAL_STRIPES_NE is invariant under an equal x/y shift (a shift
+    // along the stripe's own direction), so a symmetric pan would pass
+    // even with the bug still present and not actually exercise the fix.
+    add_terminal_shape(Shape{.layer = m1, .rects = {Rect{.ll = {500, 500}, .ur = {700, 700}}}});
+
+    Scene scene;
+    scene.set_current_abstract(abstract_id);
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+
+    scene.set_pan(Point{0, 0});
+    const auto &shapes_a = pipeline.run(root, scene, view_layers);
+    const auto &pixel_shapes_a = renderer.transform_to_pixels(root, shapes_a, scene);
+    const auto &picture_a = renderer.build_picture(pixel_shapes_a, scene, view_layers, root);
+    SkBitmap bitmap_a = rasterize(picture_a, 800, 800);
+
+    constexpr int64_t kPan = 47; // not a multiple of the diagonal stripe's own period or tile size
+    scene.set_pan(Point{kPan, 0});
+    const auto &shapes_b = pipeline.run(root, scene, view_layers);
+    const auto &pixel_shapes_b = renderer.transform_to_pixels(root, shapes_b, scene);
+    const auto &picture_b = renderer.build_picture(pixel_shapes_b, scene, view_layers, root);
+    SkBitmap bitmap_b = rasterize(picture_b, 800, 800);
+
+    // Same dbu-space points inside the shape (500+dx, 500+dy) must show
+    // the exact same pattern phase at both pans - scan a region spanning
+    // more than one full period in both directions so a coincidental
+    // match at any single offset can't hide a real phase shift.
+    for (int dx = 5; dx < 45; ++dx)
+        for (int dy = 5; dy < 45; ++dy)
+            ASSERT_EQ(bitmap_a.getColor(500 + dx, 500 + dy), bitmap_b.getColor(500 + dx - kPan, 500 + dy))
+                << "pattern phase diverged at shape-relative offset (" << dx << "," << dy << ")";
+}
+
 TEST_F(RenderFixture, BuildPictureDrawsEachLayerGroupWithItsOwnStyle)
 {
     add_obstruction_shape(Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});

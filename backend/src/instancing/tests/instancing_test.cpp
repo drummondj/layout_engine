@@ -506,3 +506,94 @@ TEST_F(InstancingFixture, RenderLayoutFrameRecomputesAfterARootMutation)
     EXPECT_NE(after_mutation.data, first_data); // mutation invalidated the whole epoch - must recompute
     EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(after_mutation, 520, 220, 580, 280)); // content still correct after recompute
 }
+
+namespace
+{
+    // Builds a small two-segment routed net (mirrors a real DEF net's own
+    // "each NEW-delimited segment is its own Path" shape - see
+    // extend_path_ends_for_buffering's own comment in geometry.hpp) whose
+    // every dbu coordinate is `offset` away from (0,0), then renders a
+    // fixed relative view (pan chosen so the joint always lands at the
+    // same point in the viewport, regardless of `offset`) and returns the
+    // resulting PixelBuffer's own raw bytes as a self-contained copy - a
+    // fresh Root/InstanceRenderer per call, so the returned buffer can't
+    // be invalidated by a second call reusing the same cache slot.
+    std::vector<uint8_t> render_joint_at_offset(Point offset, int &out_width, int &out_height, size_t &out_row_bytes)
+    {
+        Root root;
+        const TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+        const LayerId m1 = root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING"});
+        const ViewLayerSet view_layers = ViewLayerSet::build_for_technology(root, technology_id);
+        const LibraryId library_id = root.create_library(LibraryData{.name = "LIB"});
+        const DesignId design_id = root.create_design(DesignData{.library = library_id, .name = "D"});
+        const LayoutId layout_id = root.create_layout(LayoutData{.design = design_id});
+
+        Shape diearea;
+        diearea.layout = layout_id;
+        diearea.purpose = ShapePurpose::BOUNDARY;
+        diearea.rects.push_back(Rect{.ll = Point{offset.x, offset.y}, .ur = Point{offset.x + 2000, offset.y + 2000}});
+        root.create_shape(std::move(diearea));
+
+        const RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "net", .is_special = false});
+        Shape vertical;
+        vertical.route = route_id;
+        vertical.layer = m1;
+        vertical.paths = {Path{.polygon = Polygon{.points = {{offset.x + 500, offset.y + 1260}, {offset.x + 500, offset.y + 500}}}, .width = 100}};
+        root.create_shape(std::move(vertical));
+
+        Shape horizontal;
+        horizontal.route = route_id;
+        horizontal.layer = m1;
+        horizontal.paths = {Path{.polygon = Polygon{.points = {{offset.x + 500, offset.y + 500}, {offset.x + 1176, offset.y + 500}}}, .width = 100}};
+        root.create_shape(std::move(horizontal));
+
+        InstanceRenderer renderer;
+        Scene scene;
+        constexpr int kViewport = 900;
+        constexpr double kScale = 40.0;
+        scene.set_viewport_size(kViewport, kViewport);
+        scene.set_scale(kScale);
+        // Centers the joint (dbu offset+500,+500) in the viewport - same
+        // relative framing regardless of offset.
+        scene.set_pan(Point{offset.x + 500 - static_cast<int64_t>(kViewport / (2 * kScale)), offset.y + 500 - static_cast<int64_t>(kViewport / (2 * kScale))});
+        scene.set_purpose_visible(ViewLayerPurpose::TRACK, false);
+        scene.set_purpose_visible(ViewLayerPurpose::ROW, false);
+        scene.set_purpose_visible(ViewLayerPurpose::GCELLGRID, false);
+        // Large enough that no grid dot/axis line falls inside this tiny
+        // 200x200 viewport for either offset - isolates the comparison
+        // below to the routed net's own geometry.
+        scene.set_minor_grid_spacing(1000000000);
+        scene.set_major_grid_spacing(1000000000);
+
+        const PixelBuffer &buffer = renderer.render_layout_frame(root, layout_id, /*hierarchy_depth=*/0, view_layers, scene);
+        out_width = buffer.width;
+        out_height = buffer.height;
+        out_row_bytes = buffer.row_bytes;
+        return std::vector<uint8_t>(buffer.data, buffer.data + buffer.row_bytes * static_cast<size_t>(buffer.height));
+    }
+}
+
+TEST(InstanceRendererPrecisionTest, RenderLayoutFrameStaysPixelIdenticalFarFromOrigin)
+{
+    // Regression, BUGS_AND_ENHANCEMENTS.md B1 follow-up: build_layout_picture_uncached
+    // used to bake a Layout's own top-level content as `local_pixel =
+    // dbu * scale` with no origin subtraction - fine near dbu (0,0), but
+    // real chip coordinates (commonly hundreds of thousands to millions
+    // of dbu) times a real zoom scale routinely exceeded float32's
+    // exact-integer range (~16.7M), collapsing adjacent screen pixels
+    // onto the same coordinate - a dense checkerboard/moire, reproduced
+    // and confirmed via this exact joint shape at dbu ~940000, scale 40.
+    // The SAME shape, at the SAME relative pan/scale, must render
+    // byte-identically regardless of how far its own absolute DBU
+    // position is from the origin - a real difference here means
+    // precision was lost for the far-from-origin copy.
+    int w1 = 0, h1 = 0, w2 = 0, h2 = 0;
+    size_t rb1 = 0, rb2 = 0;
+    const std::vector<uint8_t> near_origin = render_joint_at_offset(Point{10000, 10000}, w1, h1, rb1);
+    const std::vector<uint8_t> far_from_origin = render_joint_at_offset(Point{2000000, 2000000}, w2, h2, rb2);
+
+    ASSERT_EQ(w1, w2);
+    ASSERT_EQ(h1, h2);
+    ASSERT_EQ(rb1, rb2);
+    EXPECT_EQ(near_origin, far_from_origin);
+}

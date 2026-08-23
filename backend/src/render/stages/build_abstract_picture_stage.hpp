@@ -71,7 +71,13 @@ namespace le
                 if (const AbstractData *abstract = root.get_abstract(scene.current_abstract()))
                     draw_origin_marker(*canvas, scene, abstract->origin.value_or(Point{}));
 
-                draw_shape_groups(*canvas, shapes, view_layers);
+                // Cancels the tiled fill pattern's own pan-swim - see
+                // draw_group's own doc comment (BUGS_AND_ENHANCEMENTS.md
+                // B1) for why this multiplication is needed at all.
+                const SkPoint pattern_phase_px = SkPoint::Make(
+                    static_cast<SkScalar>(scene.pan().x * scene.scale()),
+                    static_cast<SkScalar>(scene.pan().y * scene.scale()));
+                draw_shape_groups(*canvas, shapes, view_layers, pattern_phase_px);
 
                 return recorder.finishRecordingAsPicture();
             });

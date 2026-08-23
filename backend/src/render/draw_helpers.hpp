@@ -950,7 +950,30 @@ namespace le
 
     // Paint/font construction hoisted out of the per-shape loop - one
     // ViewLayerStyle applies to every shape in the group.
-    inline void draw_group(SkCanvas &canvas, const std::vector<PixelShape> &group, const ViewLayerStyle &style)
+    //
+    // `pattern_phase_px` (default {0,0}) cancels out `pan` from the
+    // tiled shader's own phase - a group's shapes arrive here already
+    // in absolute pixel space (`pixel = (dbu - pan) * scale`, see
+    // TransformToPixelsStage), but pattern_shader's repeating SkShader
+    // has no local matrix of its own, so it always tiles from this
+    // *canvas's* own (0,0), not from any dbu-space origin. Without this
+    // offset, panning shifts every shape's own pixel coordinates while
+    // the tile grid stays put underneath, so the pattern visibly swims
+    // relative to the shape it's filling instead of staying attached to
+    // it (BUGS_AND_ENHANCEMENTS.md B1 - most visible while zooming,
+    // since a zoom-to-point gesture changes pan too). Passing
+    // `{pan.x * scale, pan.y * scale}` (BuildAbstractPictureStage's own
+    // call) shifts the shader's local space by exactly that much, so
+    // shader(pixel + pattern_phase_px) == shader(dbu * scale) - a
+    // function of dbu position alone, independent of pan.
+    // BuildLayoutPictureStage's own shapes are already recorded in
+    // local pixel space with pan implicitly {0,0} (see its own doc
+    // comment), so its default-argument call here is already correct
+    // unchanged - pan there is applied once, afterward, as a whole-
+    // picture canvas transform that carries the baked-in shader phase
+    // along with it rather than re-baking shape coordinates, so it was
+    // never affected by this in the first place.
+    inline void draw_group(SkCanvas &canvas, const std::vector<PixelShape> &group, const ViewLayerStyle &style, SkPoint pattern_phase_px = {0, 0})
     {
         const bool has_fill = style.fill_color.a > 0;
         const bool has_outline = style.outline_color.a > 0;
@@ -961,6 +984,9 @@ namespace le
         fill.setStyle(SkPaint::kFill_Style);
         if (sk_sp<SkShader> shader = pattern_shader(style.fill_pattern, to_sk_color(style.outline_color)))
         {
+            if (pattern_phase_px.x() != 0 || pattern_phase_px.y() != 0)
+                shader = shader->makeWithLocalMatrix(SkMatrix::Translate(-pattern_phase_px.x(), -pattern_phase_px.y()));
+
             // A paint's alpha still modulates its shader's own output
             // alpha even though its RGB is ignored - leaving fill_color
             // (translucent, alpha ~100) as this paint's color would
@@ -1206,7 +1232,7 @@ namespace le
     // origin-marker chrome BuildAbstractPictureStage draws around it - a
     // cached instance picture replayed at arbitrary positions elsewhere
     // in the hierarchy shouldn't carry that.
-    inline void draw_shape_groups(SkCanvas &canvas, const std::map<ViewLayerId, std::vector<PixelShape>> &shapes, const ViewLayerSet &view_layers)
+    inline void draw_shape_groups(SkCanvas &canvas, const std::map<ViewLayerId, std::vector<PixelShape>> &shapes, const ViewLayerSet &view_layers, SkPoint pattern_phase_px = {0, 0})
     {
         for (const auto &[view_layer_id, group] : shapes)
         {
@@ -1214,7 +1240,7 @@ namespace le
             if (!view_layer)
                 continue;
 
-            draw_group(canvas, group, view_layer->style);
+            draw_group(canvas, group, view_layer->style, pattern_phase_px);
         }
     }
 
