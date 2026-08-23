@@ -4,6 +4,8 @@
 #include "../../view_style/view_style.hpp"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPathBuilder.h"
 #include "include/core/SkPicture.h"
 #include "include/core/SkPictureRecorder.h"
 #include "include/core/SkRect.h"
@@ -29,6 +31,24 @@ namespace le
     /// hierarchy (see BuildAbstractPictureStage's own updated doc comment
     /// for the same reasoning from its side).
     ///
+    /// `tiny_instance_rects` - already-scaled local-pixel-space rects, one
+    /// per Placement whose own transformed world bbox is sub-pixel at the
+    /// caller's scale (see InstanceRenderer::build_layout_picture_uncached's
+    /// own comment for why: recursing into/recording a full picture for an
+    /// instance nobody could see anyway is real, avoidable per-instance
+    /// cost at 1,000,000-placement scale). Drawn as an outline only (no
+    /// fill, no internal content) in the BOUNDARY ViewLayer's own
+    /// outline_color - a single collapsed-to-a-point dot would lose the
+    /// instance's own real size/position once the threshold is set well
+    /// above 1px (MIGRATION_REVIEW.md item 2's own follow-up: "what I
+    /// really need is the boundary drawn and nothing else"), where its own
+    /// rect outline still shows both, degrading gracefully to a hairline
+    /// dot-like mark only once truly sub-pixel. Batched into one SkPath
+    /// (addRect per instance) and stroked with a single drawPath call,
+    /// same "one draw call regardless of instance count" reasoning
+    /// drawPoints's own batching had - Skia has no direct batched
+    /// multi-rect stroke API, so a path is the next-cheapest equivalent.
+    ///
     /// Deliberately NOT VersionedStage-cached, unlike every sibling stage
     /// in this directory - a real, reasoned deviation, not an omission:
     /// caching here would need to be keyed per-{LayoutId, remaining_depth},
@@ -48,7 +68,7 @@ namespace le
             sk_sp<SkPicture> picture; // empty/null if unresolved - skipped, not drawn
         };
 
-        static sk_sp<SkPicture> run(SkRect bounds, const std::map<ViewLayerId, std::vector<PixelShape>> &own_shapes, const std::vector<ResolvedInstance> &instances, const ViewLayerSet &view_layers)
+        static sk_sp<SkPicture> run(SkRect bounds, const std::map<ViewLayerId, std::vector<PixelShape>> &own_shapes, const std::vector<ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, const ViewLayerSet &view_layers)
         {
             SkPictureRecorder recorder;
             SkCanvas *canvas = recorder.beginRecording(bounds);
@@ -64,6 +84,24 @@ namespace le
                 canvas->concat(instance.transform);
                 canvas->drawPicture(instance.picture);
                 canvas->restore();
+            }
+
+            if (!tiny_instance_rects.empty())
+            {
+                const ViewLayerData *boundary_view_layer = view_layers.get(view_layers.boundary_view_layer());
+                if (boundary_view_layer && boundary_view_layer->style.outline_color.a != 0)
+                {
+                    SkPaint paint;
+                    paint.setAntiAlias(true);
+                    paint.setStyle(SkPaint::kStroke_Style); // outline only, no fill, no internal content
+                    paint.setColor(to_sk_color(boundary_view_layer->style.outline_color));
+
+                    SkPathBuilder builder;
+                    for (const PixelRect &r : tiny_instance_rects)
+                        builder.addRect(SkRect::MakeLTRB(static_cast<SkScalar>(r.ll.x), static_cast<SkScalar>(r.ll.y), static_cast<SkScalar>(r.ur.x), static_cast<SkScalar>(r.ur.y)));
+
+                    canvas->drawPath(builder.detach(), paint);
+                }
             }
 
             return recorder.finishRecordingAsPicture();

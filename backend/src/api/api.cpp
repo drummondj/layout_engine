@@ -436,6 +436,25 @@ namespace
 
     void fit_scene_unlocked(LeHandle *handle, int32_t padding_px)
     {
+        // A Layout view has no current_abstract() (Phase C's own
+        // convention: the two "current view" trackers are mutually
+        // exclusive) - generate_shapes against an invalid AbstractId
+        // returns nothing, so fit_to_content(nullopt, ...) used to reset
+        // to scale=1.0/pan={0,0} instead of framing the Layout's own
+        // content. Uses the Layout's own declared diearea bbox (same
+        // "declared size" convention as layout_declared_bbox in
+        // instance_renderer.hpp/layout_die_area_bbox in
+        // generate_layout_shapes_stage.hpp) rather than unioning every
+        // Placement's own transformed bbox - O(1) instead of
+        // O(placement count), and diearea is the DEF-standard bound of
+        // everything in it anyway.
+        if (handle->scene.current_layout().valid())
+        {
+            const le::Shape *diearea = handle->root.get_shape(handle->root.get_layout_diearea(handle->scene.current_layout()));
+            handle->scene.fit_to_content(diearea ? le::Geometry::bbox(*diearea) : std::nullopt, padding_px);
+            return;
+        }
+
         const auto &generated = handle->pipeline.generate_shapes(handle->root, handle->scene.current_abstract(), handle->view_layers);
 
         std::vector<const le::Shape *> shape_ptrs;

@@ -287,12 +287,12 @@ class LayoutEnginePluginBindings {
   /// both). Clears current_abstract_id (and Scene's own
   /// current_abstract, so le_render_pixel_buffer() stops rendering the
   /// old Abstract) the same way le_set_current_design_abstract/_by_id clear
-  /// current_layout_id. Returns 0 on success, nonzero if handle is
-  /// null or index is out of range - the current selection is left
-  /// unchanged on failure. Layout rendering itself doesn't exist yet
-  /// (PROJECT_MIGRATION.md's own Step 3) - this only moves the
-  /// TCL-facing current-instance tracker get_rows/get_placements/
-  /// get_blockages/etc.'s own default scope derives from.
+  /// current_layout_id (and Scene's own current_layout). Returns 0 on
+  /// success, nonzero if handle is null or index is out of range - the
+  /// current selection is left unchanged on failure. Once selected,
+  /// le_render_pixel_buffer() renders this Layout's own content plus its
+  /// placed instances, recursed le_hierarchy_depth() levels deep
+  /// (Migration Step 3) - see le_set_hierarchy_depth()'s own comment.
   int le_set_current_design_layout(ffi.Pointer<LeHandle> handle, int index) {
     return _le_set_current_design_layout(handle, index);
   }
@@ -321,6 +321,41 @@ class LayoutEnginePluginBindings {
   late final _le_set_current_design_layout_by_id =
       _le_set_current_design_layout_by_idPtr
           .asFunction<int Function(ffi.Pointer<LeHandle>, LeDesignId)>();
+
+  /// @brief How many further levels of Placement -> Design a Layout view
+  /// recurses into before a placed instance falls back to its own
+  /// Abstract, rather than recursing into its own nested Layout
+  /// (Migration Step 3 Phase C) - 0 (the default) means every placement
+  /// falls back straight to its Abstract. 0 if handle is null.
+  int le_hierarchy_depth(ffi.Pointer<LeHandle> handle) {
+    return _le_hierarchy_depth(handle);
+  }
+
+  late final _le_hierarchy_depthPtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<LeHandle>)>>(
+        'le_hierarchy_depth',
+      );
+  late final _le_hierarchy_depth = _le_hierarchy_depthPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>)>();
+
+  /// @brief Sets le_hierarchy_depth(). Negative values are rejected (the
+  /// current depth is left unchanged) rather than clamped - same
+  /// "reject, don't silently clamp" convention le_set_scale uses for a
+  /// non-positive scale. Bumps Scene's own hierarchy_version() (only)
+  /// on an actual change, cheap for a caller to compare instead of
+  /// snapshotting the depth by value. A no-op return value isn't
+  /// distinguished from a successful no-op (same value set again) -
+  /// query le_hierarchy_depth() afterward if the distinction matters.
+  void le_set_hierarchy_depth(ffi.Pointer<LeHandle> handle, int depth) {
+    return _le_set_hierarchy_depth(handle, depth);
+  }
+
+  late final _le_set_hierarchy_depthPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<LeHandle>, ffi.Int32)>
+      >('le_set_hierarchy_depth');
+  late final _le_set_hierarchy_depth = _le_set_hierarchy_depthPtr
+      .asFunction<void Function(ffi.Pointer<LeHandle>, int)>();
 
   /// @brief Number of layer-widget rows currently available - mirrors
   /// ViewLayerSet::rows() directly (see LeLayerRow's own comment: this
@@ -373,10 +408,19 @@ class LayoutEnginePluginBindings {
   late final _le_purpose_count = _le_purpose_countPtr
       .asFunction<int Function(ffi.Pointer<LeHandle>)>();
 
-  /// @brief The purpose at `index` (0..le_purpose_count()-1) - mirrors
-  /// le::ViewLayerPurpose's declaration order: 0 = TERMINAL,
-  /// 1 = OBSTRUCTION, 2 = BOUNDARY. Returns -1 if handle is null or
-  /// index is out of range, rather than crashing.
+  /// @brief The purpose at `index` (0..le_purpose_count()-1) - the
+  /// returned int is le::ViewLayerPurpose's own raw ordinal (its
+  /// declaration order, not necessarily this index): 0 = TERMINAL,
+  /// 1 = OBSTRUCTION, 2 = BOUNDARY, 3 = TRACK, 4 = ROUTING_BLOCKAGE,
+  /// 5 = ROW, 6 = GCELLGRID, 7 = PLACEMENT_BLOCKAGE. `index` itself
+  /// walks ViewLayerSet::purposes()'s own first-encountered order
+  /// instead (TERMINAL/OBSTRUCTION/TRACK/ROUTING_BLOCKAGE from the first
+  /// physical Layer row, then ROW/GCELLGRID/PLACEMENT_BLOCKAGE's own
+  /// pseudo-rows, then BOUNDARY last) - a caller must always pass
+  /// `le_purpose_at`'s own return value back into `le_is_purpose_visible`/
+  /// `le_set_purpose_visible`, never assume index equals ordinal.
+  /// Returns -1 if handle is null or index is out of range, rather than
+  /// crashing.
   int le_purpose_at(ffi.Pointer<LeHandle> handle, int index) {
     return _le_purpose_at(handle, index);
   }
@@ -442,10 +486,12 @@ class LayoutEnginePluginBindings {
       >();
 
   /// @brief Current visibility of every ViewLayer whose purpose is
-  /// `purpose` (mirrors le::ViewLayerPurpose's declaration order: 0 =
-  /// TERMINAL, 1 = OBSTRUCTION, 2 = BOUNDARY), across every layer - i.e.
-  /// a whole column, not one row. Visible by default until toggled.
-  /// Returns nonzero (visible) if handle is null.
+  /// `purpose` (le::ViewLayerPurpose's own raw ordinal - see
+  /// le_purpose_at's own doc comment for the full list and why a caller
+  /// should always pass that return value here rather than a hand-picked
+  /// index), across every layer - i.e. a whole column, not one row.
+  /// Visible by default until toggled. Returns nonzero (visible) if
+  /// handle is null.
   int le_is_purpose_visible(ffi.Pointer<LeHandle> handle, int purpose) {
     return _le_is_purpose_visible(handle, purpose);
   }

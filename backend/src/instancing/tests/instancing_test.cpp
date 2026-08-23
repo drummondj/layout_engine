@@ -227,6 +227,28 @@ TEST_F(InstancingFixture, UnresolvedReferenceDesignIsSkippedWithoutAffectingOthe
     EXPECT_TRUE(region_has_opaque_pixel(bitmap, 110, 110, 190, 190)); // the valid placement still drew, at world (100,100)-(200,200)
 }
 
+TEST_F(InstancingFixture, PlacementReferencingAContentlessDesignDrawsNoPhantomDot)
+{
+    // Regression: a VALID DesignId that simply has neither an Abstract
+    // nor a reachable Layout (unlike the invalid-DesignId{} case above,
+    // which never reaches the sub-pixel logic at all) must still be
+    // skipped entirely - not collapsed into a MIGRATION_REVIEW.md item 2
+    // dot. resolved_local_bbox's own Rect{} fallback for "unresolved" is
+    // indistinguishable from a legitimately zero-sized declared bbox, so
+    // without design_is_resolvable's own guard, this degenerate case
+    // would trivially satisfy the sub-pixel threshold at ANY scale and
+    // draw a phantom BOUNDARY dot where there's really nothing at all.
+    DesignId empty_design = create_design("EMPTY"); // no Abstract, no Layout
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
+    add_placement(sub_layout, empty_design, Point{200, 200}, Orientation::N, "EMPTY1");
+
+    const sk_sp<SkPicture> picture = instance_renderer.build_layout_picture(root, sub_layout, /*remaining_depth=*/0, view_layers, scene, /*scale=*/1.0);
+    ASSERT_TRUE(picture);
+
+    const SkBitmap bitmap = rasterize(picture, 400, 400);
+    EXPECT_FALSE(region_has_opaque_pixel(bitmap, 199, 199, 201, 201)); // nothing at all at its own location - not even a dot
+}
+
 TEST_F(InstancingFixture, PlacementWithNoLocationIsSkippedWithoutCrashing)
 {
     DesignId leaf = create_leaf_design("LEAF", Point{100, 100});
@@ -282,27 +304,80 @@ TEST_F(InstancingFixture, ReusesCacheUntilAMutationOrScaleChangeInvalidatesTheWh
 
 TEST_F(InstancingFixture, SubPixelCullingReflectsTheCurrentScaleNotAStaleOne)
 {
-    // Regression: FilterByViewportAndSizeStage's own sub-pixel-culling
-    // threshold (min_visible_dbu = 1.0/scale) depends on scale, but
+    // Regression: the sub-pixel threshold (min_visible_dbu =
+    // min_visible_instance_pixels() / scale) depends on scale, but
     // resolving the SAME AbstractId again at a different scale (a real
     // scenario - every InstanceRenderer cache is keyed on the design/
     // layout id, not on scale) must still re-derive that threshold
     // correctly rather than reusing internal filter-stage state left over
-    // from an earlier scale.
+    // from an earlier scale. Sets an explicit threshold rather than
+    // relying on InstanceRenderer's own current default - that default is
+    // a testing/tuning value (see min_visible_instance_pixels()'s own doc
+    // comment) that may change independently of this test's own intent.
+    instance_renderer.set_min_visible_instance_pixels(50.0);
+
     DesignId leaf = create_leaf_design("LEAF", Point{50, 50});
     auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
-    add_placement(sub_layout, leaf, Point{0, 0}, Orientation::N, "U1");
+    add_placement(sub_layout, leaf, Point{100, 100}, Orientation::N, "U1");
 
-    // scale=1.0: min_visible_dbu=1 - the 50x50 leaf is comfortably visible.
-    const sk_sp<SkPicture> visible = instance_renderer.build_layout_picture(root, sub_layout, 0, view_layers, scene, 1.0);
+    // scale=2.0: min_visible_dbu=25 - the 50x50 leaf is comfortably visible
+    // (50 dbu not < 25 dbu threshold).
+    const sk_sp<SkPicture> visible = instance_renderer.build_layout_picture(root, sub_layout, 0, view_layers, scene, 2.0);
     ASSERT_TRUE(visible);
-    EXPECT_TRUE(region_has_opaque_pixel(rasterize(visible, 400, 400), 5, 5, 45, 45));
+    EXPECT_TRUE(region_has_opaque_pixel(rasterize(visible, 800, 800), 220, 220, 280, 280)); // world (100,100)-(150,150)dbu * 2.0
 
-    // scale=0.001: min_visible_dbu=1000 - the same 50x50 leaf is now
-    // sub-pixel and should be culled entirely.
-    const sk_sp<SkPicture> culled = instance_renderer.build_layout_picture(root, sub_layout, 0, view_layers, scene, 0.001);
-    ASSERT_TRUE(culled);
-    EXPECT_FALSE(region_has_opaque_pixel(rasterize(culled, 1, 1), 0, 0, 0, 0));
+    // scale=0.4: min_visible_dbu=125 - the same 50x50 leaf's own PLACEMENT
+    // is now sub-pixel (50 dbu < 125 dbu threshold), so
+    // build_layout_picture_uncached collapses it to its own boundary rect
+    // OUTLINE - no fill, no internal content (MIGRATION_REVIEW.md item 2's
+    // own follow-up) - instead of resolving/drawing its own Abstract
+    // content at all. World bbox (100,100)-(150,150)dbu * 0.4 = a clean
+    // (40,40)-(60,60)px rect: opaque along its border, but NOT filled at
+    // its own center.
+    const sk_sp<SkPicture> outlined = instance_renderer.build_layout_picture(root, sub_layout, 0, view_layers, scene, 0.4);
+    ASSERT_TRUE(outlined);
+    const SkBitmap bitmap = rasterize(outlined, 160, 160);
+    EXPECT_TRUE(region_has_opaque_pixel(bitmap, 39, 49, 41, 51)); // left edge of the outline, vertically centered
+    EXPECT_EQ(SkColorGetA(bitmap.getColor(50, 50)), 0); // dead center - unfilled
+}
+
+TEST_F(InstancingFixture, SubPixelInstanceSkipsResolveEntirelyWhileNormalSizedOneStillFullyRenders)
+{
+    // MIGRATION_REVIEW.md item 2 - the actual perf fix, not just the
+    // visual outline: a sub-pixel Placement's own reference_design must
+    // never reach resolve_design_picture at all (no recursion, no picture
+    // build/cache entry for it), while a normal-sized Placement alongside
+    // it in the SAME Layout still resolves and renders its own full
+    // content exactly as before.
+    instance_renderer.set_min_visible_instance_pixels(50.0);
+
+    DesignId leaf_big = create_leaf_design("BIG", Point{100'000, 100'000});
+    DesignId leaf_small = create_leaf_design("SMALL", Point{20'000, 20'000});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{200'000, 200'000});
+    add_placement(sub_layout, leaf_big, Point{0, 0}, Orientation::N, "BIG1");
+    add_placement(sub_layout, leaf_small, Point{150'000, 150'000}, Orientation::N, "SMALL1");
+
+    // scale=0.001: min_visible_dbu=50,000 - BIG (100,000 dbu) stays fully
+    // visible, SMALL (20,000 dbu, i.e. a 20x20px world bbox at this scale)
+    // is sub-pixel by threshold even though it's still a real, visible
+    // handful of pixels on screen.
+    const sk_sp<SkPicture> picture = instance_renderer.build_layout_picture(root, sub_layout, 1, view_layers, scene, 0.001);
+    ASSERT_TRUE(picture);
+
+    // recompute_count: exactly one for SUB's own build_layout_picture_uncached
+    // plus one for BIG's own build_abstract_picture (via resolve_design_picture) -
+    // SMALL's own resolve_design_picture/build_abstract_picture is never
+    // reached, so it contributes zero, not one.
+    EXPECT_EQ(instance_renderer.design_picture_recompute_count(), 2u);
+
+    const SkBitmap bitmap = rasterize(picture, 200, 200);
+    // BIG's own M1 obstruction fill, comfortably inside its (0,0)-(100,100)px bbox.
+    EXPECT_TRUE(region_has_opaque_pixel(bitmap, 10, 10, 90, 90));
+    // SMALL's own outline: world (150,150)-(170,170)dbu * 0.001... wait,
+    // world bbox is (150000,150000)-(170000,170000)dbu * 0.001 scale =
+    // (150,150)-(170,170)px - opaque along its left edge, unfilled center.
+    EXPECT_TRUE(region_has_opaque_pixel(bitmap, 149, 159, 151, 161));
+    EXPECT_EQ(SkColorGetA(bitmap.getColor(160, 160)), 0); // dead center - unfilled, not BIG's own M1 red either
 }
 
 TEST_F(InstancingFixture, PlacementMathFallsBackToTheBoundaryShapeWhenAbstractSizeIsUnset)

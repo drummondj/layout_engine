@@ -478,6 +478,47 @@ TEST_F(ApiFixture, FitSceneFillsTheViewportWithThePinVisible)
     EXPECT_TRUE(region_has_opaque_pixel(buffer, 80, 80, 120, 120));
 }
 
+TEST_F(ApiFixture, FitSceneInLayoutViewFramesTheDiereaNotTheOrigin)
+{
+    // Regression test: fit_scene_unlocked used to always call
+    // generate_shapes against scene.current_abstract(), which is invalid
+    // in a Layout view (Phase C's own convention: the two "current view"
+    // trackers are mutually exclusive) - generate_shapes on an invalid
+    // AbstractId returns nothing, so fit_to_content(nullopt, ...) reset to
+    // scale=1.0/pan={0,0} instead of framing the Layout's own content.
+    // Places the diearea (and the placement whose pin should end up
+    // visible) far from the origin - with the old bug, scale=1/pan={0,0}
+    // against a 100x100px viewport can't reach dbu coordinates in the
+    // millions no matter what, so this is a direct, robust proof the fix
+    // actually frames the real content rather than replicating fit's own
+    // pan/scale math by hand (no direct pan/scale getter exists in the
+    // C API to assert against directly).
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+
+    const double diearea_um[4] = {1000.0, 1000.0, 1100.0, 1100.0};
+    le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, top_layout, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeLayerId{.index = UINT32_MAX, .generation = 0}, "BOUNDARY", 0, nullptr, 0, 0, nullptr, 0, 1, diearea_um, 4, 0, 0.0, 0, 0.0, 0);
+
+    // TESTCELL placed at (1010,1010)um - well inside the diearea above -
+    // so its own PIN A rect ((2,2)-(8,8)um local) lands at world
+    // (1012,1012)-(1018,1018)um, still far from the origin.
+    ASSERT_NE(le_create_placement(handle, top_layout, testcell_design.id, "U1", "PLACED", /*has_location=*/1, /*location_x_um=*/1010.0, /*location_y_um=*/1010.0, "N", /*has_weight=*/0, 0.0, nullptr).index, UINT32_MAX);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_hierarchy_depth(handle, 1); // remaining_depth 0 - the placement falls back straight to TESTCELL's own Abstract
+
+    le_set_viewport_size(handle, 100, 100);
+    le_fit_scene(handle, 10); // no manual pan/zoom - fit_scene itself must compute a real view
+
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_opaque_pixel(buffer, 0, 0, 100, 100));
+}
+
 TEST_F(ApiFixture, LibraryCountAndAtAreZeroOrInvalidForNullHandle)
 {
     EXPECT_EQ(le_library_count(nullptr), 0);

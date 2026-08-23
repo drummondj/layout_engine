@@ -165,6 +165,20 @@ namespace le
 
         uint64_t design_picture_recompute_count() const { return recompute_count_; }
 
+        /// The sub-pixel instance-collapsing threshold (MIGRATION_REVIEW.md
+        /// item 2, build_layout_picture_uncached's own comment) - a
+        /// Placement whose own transformed world bbox is smaller than this
+        /// many PIXELS (in both dimensions, at the current scale) is drawn
+        /// as a single BOUNDARY-colored dot instead of being resolved/drawn
+        /// in full. Settable (not a compile-time constant) so this can be
+        /// tuned/tested against a real design without rebuilding the
+        /// threshold's own call sites - defaults to 100px, deliberately
+        /// larger than a single device pixel, while this value is still
+        /// being tuned against real content (temporary/testing default -
+        /// tighten back down once a good value is confirmed).
+        double min_visible_instance_pixels() const { return min_visible_instance_pixels_; }
+        void set_min_visible_instance_pixels(double pixels) { min_visible_instance_pixels_ = pixels; }
+
         /// @brief Renders the full displayable frame for a Layout view -
         /// mirrors Renderer::render's own role for the Abstract path, but
         /// for `layout_id`'s own resolved, hierarchical content instead.
@@ -238,6 +252,7 @@ namespace le
             uint64_t view_layers_generation = 0;
             uint64_t visibility_version = 0;
             double scale = -1.0;
+            double min_visible_instance_pixels = -1.0;
 
             bool operator==(const Epoch &) const = default;
         };
@@ -258,6 +273,7 @@ namespace le
                 .view_layers_generation = view_layers.generation(),
                 .visibility_version = scene.visibility_version(),
                 .scale = scale,
+                .min_visible_instance_pixels = min_visible_instance_pixels_,
             };
             if (current == epoch_)
                 return;
@@ -265,6 +281,24 @@ namespace le
             epoch_ = current;
             design_pictures_.clear();
             layout_pictures_.clear();
+        }
+
+        // Whether design_id resolves to anything drawable at all at this
+        // remaining_depth - mirrors build_design_picture's own dispatch
+        // condition exactly (Layout branch first when remaining_depth
+        // allows it, else Abstract), without actually building/recording
+        // anything. A placement whose reference_design fails this check
+        // must NOT be treated as a real (if sub-pixel) instance below:
+        // resolved_local_bbox's own Rect{} fallback for "unresolved" is
+        // indistinguishable from a legitimately zero-sized declared bbox,
+        // so the sub-pixel dot-collapse can't use that as its signal -
+        // this is the real, resolvability-only check it guards on instead.
+        static bool design_is_resolvable(const Root &root, DesignId design_id, int remaining_depth)
+        {
+            const LayoutId layout_id = root.get_design_layout(design_id);
+            if (remaining_depth > 0 && layout_id.valid())
+                return true;
+            return root.get_design_abstract(design_id).valid();
         }
 
         // Resolves design_id's own current view exactly like
@@ -353,7 +387,7 @@ namespace le
             FilterByLayerVisibilityStage layer_stage;
 
             const auto &dbu_shapes = generate_stage.run(root, abstract_id, view_layers);
-            return record_local_picture(generate_stage, viewport_stage, layer_stage, dbu_shapes, view_layers, scene, scale, {}, abstract_declared_bbox(root, abstract_id));
+            return record_local_picture(generate_stage, viewport_stage, layer_stage, dbu_shapes, view_layers, scene, scale, {}, {}, abstract_declared_bbox(root, abstract_id));
         }
 
         sk_sp<SkPicture> build_layout_picture_uncached(const Root &root, LayoutId layout_id, int remaining_depth, const ViewLayerSet &view_layers, const Scene &scene, double scale)
@@ -406,31 +440,87 @@ namespace le
                 content_bbox.ur.y = std::max(content_bbox.ur.y, r.ur.y);
             };
 
+            // Same sub-pixel-threshold SHAPE as TinyShapesByViewportStage
+            // already uses for individual shapes (min_visible_dbu =
+            // threshold_px / scale, tiny_shapes_by_viewport_stage.hpp) -
+            // an instance whose own transformed world bbox is smaller than
+            // this in BOTH dimensions is collapsed to just its own
+            // boundary rect outline (no fill, no internal content) instead
+            // of being resolved/drawn as a full picture. This is a real
+            // perf fix, not just a visual one: resolve_design_picture's own
+            // cache already dedupes the expensive per-Design *build* across
+            // placements of the same {DesignId, remaining_depth}, but the
+            // per-placement canvas->save()/concat()/drawPicture()/restore()
+            // recorded into THIS picture below is paid unconditionally,
+            // once per placement, regardless of on-screen size - at
+            // 1,000,000 placements that's 1,000,000 real recording calls
+            // even when most of them are sub-pixel and would only ever
+            // read back as noise. Skipping resolve_design_picture entirely
+            // for these also means no recursion into a tiny sub-block's own
+            // (potentially large) placement list at all. Unlike
+            // TinyShapesByViewportStage's own fixed 1px, this class's own
+            // threshold is settable (min_visible_instance_pixels()) rather
+            // than hardcoded to 1 - see its own doc comment for why: at a
+            // large threshold, a single collapsed-to-a-point dot would
+            // lose the instance's own real size/position entirely, while
+            // its own boundary rect (however small) still shows both.
+            std::vector<PixelRect> tiny_instance_rects;
+            const double min_visible_dbu = min_visible_instance_pixels_ / scale;
+
             for (PlacementId placement_id : root.get_layout_placements(layout_id))
             {
                 const PlacementData *placement = root.get_placement(placement_id);
                 if (!placement || !placement->location || !placement->reference_design.valid())
                     continue;
 
-                sk_sp<SkPicture> child_picture = resolve_design_picture(root, placement->reference_design, remaining_depth, view_layers, scene, scale);
-                if (!child_picture)
+                // Checked before the sub-pixel logic below: a genuinely
+                // unresolvable reference_design (valid DesignId, but
+                // neither an Abstract nor a reachable Layout) must still
+                // go through resolve_design_picture - not be silently
+                // treated as a sub-pixel instance - so it's (a) skipped
+                // entirely (no phantom dot at its own location; there's
+                // really nothing there) and (b) still logged once per
+                // DesignId, exactly as before this reordering.
+                // resolved_local_bbox's own Rect{} fallback for
+                // "unresolved" would otherwise be indistinguishable from a
+                // legitimately zero-sized declared bbox and get collapsed
+                // into a dot below.
+                if (!design_is_resolvable(root, placement->reference_design, remaining_depth))
+                {
+                    resolve_design_picture(root, placement->reference_design, remaining_depth, view_layers, scene, scale);
                     continue;
+                }
 
                 const Rect child_local_bbox = resolved_local_bbox(root, placement->reference_design, remaining_depth);
                 const Orientation orientation = placement->orientation.value_or(Orientation::N);
                 const Geometry::InstanceTransform transform = Geometry::instance_transform(orientation, child_local_bbox, *placement->location);
+                const Rect world_bbox = Geometry::transform_bbox(transform, child_local_bbox);
 
-                // The instance's own transformed world bbox is folded into
-                // content_bbox below - a Layout with only placements and
-                // no diearea/own-content shapes (e.g. this class's own
-                // tests) would otherwise leave content_bbox degenerate,
-                // under-reporting BuildLayoutPictureStage's own recorded
-                // bounds relative to what's actually drawn (SkPicture's
-                // own bounds don't clip recording, but a too-small
-                // reported cullRect risks a future caller's quickReject
-                // wrongly culling real content - see record_local_picture's
-                // own comment).
-                expand(Geometry::transform_bbox(transform, child_local_bbox));
+                // Folded into content_bbox either way (dot or full picture)
+                // - a Layout with only placements and no diearea/own-content
+                // shapes (e.g. this class's own tests) would otherwise leave
+                // content_bbox degenerate, under-reporting
+                // BuildLayoutPictureStage's own recorded bounds relative to
+                // what's actually drawn (SkPicture's own bounds don't clip
+                // recording, but a too-small reported cullRect risks a
+                // future caller's quickReject wrongly culling real content -
+                // see record_local_picture's own comment).
+                expand(world_bbox);
+
+                const double width = static_cast<double>(world_bbox.ur.x - world_bbox.ll.x);
+                const double height = static_cast<double>(world_bbox.ur.y - world_bbox.ll.y);
+                if (width < min_visible_dbu && height < min_visible_dbu)
+                {
+                    tiny_instance_rects.push_back(PixelRect{
+                        .ll = PixelPoint{.x = static_cast<double>(world_bbox.ll.x) * scale, .y = static_cast<double>(world_bbox.ll.y) * scale},
+                        .ur = PixelPoint{.x = static_cast<double>(world_bbox.ur.x) * scale, .y = static_cast<double>(world_bbox.ur.y) * scale},
+                    });
+                    continue;
+                }
+
+                sk_sp<SkPicture> child_picture = resolve_design_picture(root, placement->reference_design, remaining_depth, view_layers, scene, scale);
+                if (!child_picture)
+                    continue;
 
                 instances.push_back(BuildLayoutPictureStage::ResolvedInstance{
                     .transform = to_instance_matrix(transform, Point{0, 0}, scale),
@@ -438,7 +528,7 @@ namespace le
                 });
             }
 
-            return record_local_picture(generate_stage, viewport_stage, layer_stage, dbu_shapes, view_layers, scene, scale, instances, content_bbox);
+            return record_local_picture(generate_stage, viewport_stage, layer_stage, dbu_shapes, view_layers, scene, scale, instances, tiny_instance_rects, content_bbox);
         }
 
         // Shared core of both build_abstract_picture and
@@ -460,7 +550,7 @@ namespace le
         // is unioned here with `dbu_shapes`'s own actual bbox to produce
         // `bounds` - both the throwaway cull-Scene's own viewport sizing
         // and BuildLayoutPictureStage's own SkPictureRecorder bounds.
-        sk_sp<SkPicture> record_local_picture(const ShapeGenerationStage &generate_stage, FilterByViewportAndSizeStage &viewport_stage, FilterByLayerVisibilityStage &layer_stage, const std::vector<RenderedShape> &dbu_shapes, const ViewLayerSet &view_layers, const Scene &scene, double scale, const std::vector<BuildLayoutPictureStage::ResolvedInstance> &instances, Rect declared_bbox)
+        sk_sp<SkPicture> record_local_picture(const ShapeGenerationStage &generate_stage, FilterByViewportAndSizeStage &viewport_stage, FilterByLayerVisibilityStage &layer_stage, const std::vector<RenderedShape> &dbu_shapes, const ViewLayerSet &view_layers, const Scene &scene, double scale, const std::vector<BuildLayoutPictureStage::ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, Rect declared_bbox)
         {
             // declared_bbox is always a real (if possibly degenerate,
             // e.g. Rect{}) Rect, never absent - every call site
@@ -501,8 +591,12 @@ namespace le
                 static_cast<SkScalar>(static_cast<double>(content_bbox.ll.x) * scale), static_cast<SkScalar>(static_cast<double>(content_bbox.ll.y) * scale),
                 static_cast<SkScalar>(static_cast<double>(content_bbox.ur.x) * scale), static_cast<SkScalar>(static_cast<double>(content_bbox.ur.y) * scale));
 
-            return BuildLayoutPictureStage::run(bounds, pixel_shapes, instances, view_layers);
+            return BuildLayoutPictureStage::run(bounds, pixel_shapes, instances, tiny_instance_rects, view_layers);
         }
+
+        // See min_visible_instance_pixels()'s own doc comment for why this
+        // is a temporary/testing default, not a settled value.
+        double min_visible_instance_pixels_ = 100.0;
 
         Epoch epoch_;
         std::map<std::tuple<DesignId, int>, sk_sp<SkPicture>> design_pictures_;

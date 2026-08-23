@@ -223,12 +223,26 @@ class LeDesignEntry {
 enum LeLayerPurpose {
   terminal,
   obstruction,
-  boundary;
+  boundary,
+  track,
+  routingBlockage,
+  row,
+  gcellgrid,
+  placementBlockage,
+  route,
+  region;
 
   static LeLayerPurpose? fromValue(int value) => switch (value) {
     0 => LeLayerPurpose.terminal,
     1 => LeLayerPurpose.obstruction,
     2 => LeLayerPurpose.boundary,
+    3 => LeLayerPurpose.track,
+    4 => LeLayerPurpose.routingBlockage,
+    5 => LeLayerPurpose.row,
+    6 => LeLayerPurpose.gcellgrid,
+    7 => LeLayerPurpose.placementBlockage,
+    8 => LeLayerPurpose.route,
+    9 => LeLayerPurpose.region,
     _ => null,
   };
 }
@@ -319,6 +333,7 @@ abstract interface class LeEditorBase {
   int libraryDesignCount(int libraryIndex);
   String? messageAt(int index);
   int get messageCount;
+  int get hierarchyDepth;
   LeMode get mode;
   List<LeObjectRef> objectChildren(LeObjectRef ref);
   LeObjectRef objectParent(LeObjectRef ref);
@@ -331,6 +346,7 @@ abstract interface class LeEditorBase {
   int get selectionCount;
   int get selectionVersion;
   bool setCurrentDesignById(LeDesignRef designId);
+  void setHierarchyDepth(int depth);
   void setLayerNameSelectable(String layerName, bool selectable);
   void setLayerNameVisible(String layerName, bool visible);
   void setMode(LeMode mode);
@@ -634,6 +650,25 @@ class LeEditor implements LeEditorBase {
   void setMode(LeMode mode) {
     _checkNotDisposed();
     _bindings.le_set_mode(_handle, mode.value);
+  }
+
+  /// How many further levels of Placement -> Design a Layout view
+  /// recurses into before a placed instance falls back to its own
+  /// Abstract, rather than recursing into its own nested Layout
+  /// (Migration Step 3 Phase C) - 0 (the default) means every placement
+  /// falls back straight to its Abstract.
+  @override
+  int get hierarchyDepth {
+    _checkNotDisposed();
+    return _bindings.le_hierarchy_depth(_handle);
+  }
+
+  /// Sets [hierarchyDepth]. Negative values are rejected by the native
+  /// side (the current depth is left unchanged) rather than clamped.
+  @override
+  void setHierarchyDepth(int depth) {
+    _checkNotDisposed();
+    _bindings.le_set_hierarchy_depth(_handle, depth);
   }
 
   /// Number of rulers (UPDATES.md item 13) - multiple can exist at once,

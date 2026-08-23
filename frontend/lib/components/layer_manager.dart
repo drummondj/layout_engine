@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:layout_engine/providers/le_provider.dart';
 import 'package:provider/provider.dart';
 
@@ -28,6 +29,7 @@ class _LayerManagerState extends State<LayerManager> {
             child: Column(
               mainAxisSize: .min,
               children: [
+                HierarchyRow(),
                 HeaderRow(),
                 AllRow(provider: provider),
                 Divider(),
@@ -283,6 +285,64 @@ class PurposeSelectableCheckbox extends StatelessWidget {
       value: purposeInfo.isSelectable,
       onChanged: (value) {
         provider.setPurposeSelectable(purposeInfo, value);
+      },
+    );
+  }
+}
+
+class HierarchyRow extends StatefulWidget {
+  const HierarchyRow({super.key});
+
+  @override
+  State<HierarchyRow> createState() => _HierarchyRowState();
+}
+
+class _HierarchyRowState extends State<HierarchyRow> {
+  final TextEditingController _controller = TextEditingController();
+  late final LeProvider _provider;
+
+  @override
+  void initState() {
+    super.initState();
+    _provider = context.read();
+    _controller.text = _provider.hierDepth.toString();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit(String value) {
+    final depth = int.tryParse(value);
+    // le_set_hierarchy_depth itself rejects negative values (left
+    // unchanged) rather than clamping - reject here too, before even
+    // calling it, and reset the field back to the real current value
+    // either way so it never shows a value that wasn't actually applied.
+    if (depth != null && depth >= 0) {
+      _provider.setHierDepth(depth);
+    } else {
+      _controller.text = _provider.hierDepth.toString();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<LeProvider>(
+      builder: (context, provider, child) {
+        return Row(
+          mainAxisSize: .min,
+          mainAxisAlignment: .start,
+          spacing: 10,
+          children: [
+            Text("Hierarchy Depth"),
+            SizedBox(
+              width: 100,
+              child: TextField(controller: _controller, onSubmitted: _submit),
+            ),
+          ],
+        );
       },
     );
   }

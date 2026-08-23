@@ -98,6 +98,9 @@ class LeProvider extends ChangeNotifier {
   bool _moveArmed = false;
   bool get moveArmed => _moveArmed;
 
+  int _hierDepth = 0;
+  int get hierDepth => _hierDepth;
+
   // Command-recall log (UPDATES.md item 21, migrated from Terminal's own
   // local _commandHistory list) - cached here (rather than re-fetched on
   // every Up/Down press) so Terminal's own recall navigation can stay
@@ -246,6 +249,12 @@ class LeProvider extends ChangeNotifier {
     return subscription;
   }
 
+  // Same "cheap direct read" shape as refreshMode/refreshMoveArmed above -
+  // for the Hierarchy Depth field in the layer manager (HierarchyRow).
+  void refreshHierDepth() {
+    _hierDepth = _editor.hierarchyDepth;
+  }
+
   // TODO: this currently refreshed everything all the time (except
   // selection, see refreshSelection), choose what to refresh more
   // carefully.
@@ -257,9 +266,18 @@ class LeProvider extends ChangeNotifier {
     refreshTooltipMessage();
     refreshMode();
     refreshMoveArmed();
+    refreshHierDepth();
     refreshCommandHistory();
     refreshTexture();
     notifyListeners();
+  }
+
+  /// Sets how many further levels of Placement -> Design a Layout view
+  /// recurses into before a placed instance falls back to its own
+  /// Abstract (see LeEditorBase.hierarchyDepth) - the HierarchyRow field.
+  Future<void> setHierDepth(int depth) async {
+    _editor.setHierarchyDepth(depth);
+    refreshAndNotify();
   }
 
   /// Switches the current interaction mode (UPDATES.md item 11) - also

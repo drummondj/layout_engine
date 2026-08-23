@@ -178,6 +178,12 @@ class FakeLeEditor implements LeEditorBase {
   @override
   void setMode(LeMode mode) => _mode = mode;
 
+  int _hierarchyDepth = 0;
+  @override
+  int get hierarchyDepth => _hierarchyDepth;
+  @override
+  void setHierarchyDepth(int depth) => _hierarchyDepth = depth;
+
   @override
   void clearRulers() {}
 
