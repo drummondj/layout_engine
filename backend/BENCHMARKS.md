@@ -955,3 +955,47 @@ there. No fill-overlap regression measured on the 1M-shape stress design
 overlapping same-Shape rects) or on `Nangate45_stdcell.lef`; a real
 overlapping-pin macro will now show a visibly darker double-blended patch
 again, an accepted, deliberate tradeoff.
+
+## 2026-08-23 — Migration Step 3 Phase D: 1,000,000-instance hierarchical rendering
+
+A different fixture from the 1M-*shape* one above: `src/pipeline/benchmarks/layout_stress_data.hpp`,
+built directly via `Root::create_*` calls (not a DEF-text round trip - far
+cheaper to construct at this scale). Matches the user's own worked
+example exactly - a "sub-block" `Design` with a `Layout` containing
+1,000,000 `Placement`s of a small fixed "leaf" cell (10x10um, one M1
+obstruction), then a "top-level" `Design` with a `Layout` containing 4
+`Placement`s of that sub-block, one per `Orientation`. Fixture setup
+(building all 1,000,000 `Placement` rows) took 0.23-0.24s, not itself
+part of any measured benchmark. Release build,
+`--benchmark_repetitions=5 --benchmark_report_aggregates_only=true`:
+
+| Benchmark | Mean | cv |
+| --- | --- | --- |
+| `BM_InstanceRenderer_BuildLayoutPicture_ColdCache_FullDepth` (picture-resolution only, no compose/rasterize, 4,000,000 leaf instances) | 87.9 ms | 2.31% |
+| `BM_InstanceRenderer_RenderLayoutFrame_ColdCache_FullDepth` (full frame, first-ever render, 4,000,000 leaf instances) | 262 ms | 1.11% |
+| `BM_InstanceRenderer_RenderLayoutFrame_WarmCache_FullDepth` (full frame, unchanged Scene, every cache a hit) | ~0.000 ms | 1.29% |
+| `BM_InstanceRenderer_RenderLayoutFrame_ColdCache_ShallowDepth` (`hierarchy_depth=0` - every top-level placement falls back to the sub-block's own empty Abstract, no leaf recursion at all) | 6.00 ms | 3.00% |
+
+This is the real verification `PROJECT_MIGRATION.md`'s Step 3 asked
+for: picture-level caching (`InstanceRenderer`, not per-instance shape
+materialization into the `RenderedShape` map) delivers roughly
+constant-per-instance cost rather than scaling with the sub-block's own
+internal shape count. Concretely: cold-resolving all 4,000,000 leaf
+instances into cached `SkPicture`s costs ~88ms (~22ns/instance) - the
+leaf's own M1 geometry is walked once (per distinct resolved picture, not
+per placement) and replayed via cheap `canvas->concat()`+`drawPicture()`
+dispatch thereafter; the further ~174ms in the full cold-frame number is
+Skia's own per-frame rasterization walk of those 4,000,000 nested
+`drawPicture` calls (expected, unavoidable per-frame cost, not a
+caching gap - `RasterizeStage`'s own instance is a genuine cache hit
+after the first call, hence the warm-cache number reading as ~0). The
+~6ms shallow-depth floor (only 4 placements resolved, no leaf recursion
+at all) is the fixed per-call cost of viewport-sized surface allocation
++ grid drawing + compose, present regardless of depth - the real
+comparison point the full-depth numbers above are measured against,
+confirming the ~262ms cold / ~0ms warm split is genuinely about
+instance-count-driven caching, not merely "the shallow case does
+nothing." Per-instance-culling (skipping an off-screen instance's own
+`concat`+`drawPicture` call before it reaches Skia's own quickReject) was
+deliberately not added in this phase - these numbers are the ones to
+revisit before deciding whether it's actually needed.

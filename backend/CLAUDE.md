@@ -53,16 +53,20 @@ none of these are duplicated here.
   outline for `TRACK`/`ROW`/`GCELLGRID`) is what actually distinguishes
   same-color `ViewLayer`s from each other; see the class's own doc
   comments for the palette/wraparound details. `TRACK`/`ROUTING_BLOCKAGE`/
-  `ROW`/`GCELLGRID`/`PLACEMENT_BLOCKAGE` are Migration Step 2 (layer/
-  purpose generation for DEF's Row/Track/GCellGrid/Blockage constructs) —
-  nothing yet actually walks a `Layout`'s content into drawable shapes on
-  them (`Pipeline`/`GenerateShapesStage` still only ever walks an
-  `Abstract` — that's Step 3's own scope, a separate later phase). Fully
-  covered by `view_style_test.cpp`.
-- `src/scene/` — `Scene`, per-handle mutable view state (currently displayed
-  `AbstractId`, pan/scale/viewport-size transform, per-`ViewLayer`
-  visibility, selection, and current interaction mode). Distinct from the
-  persistent `Root` database.
+  `ROW`/`GCELLGRID`/`PLACEMENT_BLOCKAGE` (Migration Step 2) plus `ROUTE`/
+  `REGION` (Step 3 Phase A) are the purposes `GenerateLayoutShapesStage`
+  (`src/pipeline/stages/`) walks a `Layout`'s own direct content onto —
+  see that module's own bullet below. Fully covered by `view_style_test.cpp`.
+- `src/scene/` — `Scene`, per-handle mutable view state: currently
+  displayed `AbstractId` *and*, independently, `LayoutId` (Migration Step
+  3 Phase C — `current_abstract()`/`current_layout()` are mutually
+  exclusive by convention, enforced by every `api.cpp` caller that
+  changes the view, not by `Scene` itself), a `hierarchy_depth()` (how
+  many further `Placement → Design` levels a Layout view recurses into
+  before falling back to a placed instance's own Abstract — see
+  `src/instancing/`'s own bullet), pan/scale/viewport-size transform,
+  per-`ViewLayer` visibility, selection, and current interaction mode.
+  Distinct from the persistent `Root` database.
   Layer visibility is keyed by `ViewLayerId`, not `LayerId` — a physical
   layer has independently toggleable `TERMINAL`/`OBSTRUCTION` visibility.
   Selection is `std::variant<TerminalId, ObstructionId>` — extend the
@@ -84,20 +88,41 @@ none of these are duplicated here.
   key or a change silently went unseen. `CachedStage<Key, Value>` is a
   backward-compatible alias for `VersionedStage`, still used by `render`'s
   own stages.
-- `src/pipeline/` — `Pipeline` chains five stage classes, one per file
-  under `src/pipeline/stages/`, each built on `core`'s `VersionedStage`:
-  `GenerateShapesStage` → `FilterByViewportAndSizeStage` →
-  `FilterByLayerVisibilityStage` (the `run()` chain) and
-  `GenerateShapesStage` → `TinyShapesByViewportStage` →
-  `TinyShapesByLayerVisibilityStage` (the `run_tiny_shapes()` chain,
-  sharing `GenerateShapesStage` with the first). `Pipeline` itself is a
-  thin owner of one instance of each stage plus orchestration
-  (`run`/`run_tiny_shapes`/`hit_test_point`/`hit_test_rect`) — every
-  public method keeps its original signature, delegating to its stage in
-  one line; reuse one `Pipeline` instance per `Scene`-equivalent
-  lifetime. `GenerateShapesStage::run` resolves each `Shape` straight to
-  its `ViewLayerId` in the same pass (no separate resolve stage) and
-  attaches one text label per distinct layer a Terminal has geometry on.
+- `src/pipeline/` — `Pipeline` chains stage classes, one per file under
+  `src/pipeline/stages/`, each built on `core`'s `VersionedStage`, in two
+  parallel pairs of paths (Migration Step 3): `GenerateAbstractShapesStage`
+  → `FilterByViewportAndSizeStage` → `FilterByLayerVisibilityStage`
+  (`run()`) and `GenerateAbstractShapesStage` → `TinyShapesByViewportStage`
+  → `TinyShapesByLayerVisibilityStage` (`run_tiny_shapes()`) for the
+  Abstract path; `GenerateLayoutShapesStage` through the same two shared
+  filter/tiny-shapes chains for the Layout path (`run_layout()`/
+  `run_layout_tiny_shapes()`, taking an explicit `LayoutId` — `Scene` has
+  no `current_layout`-equivalent concept at this layer; that's
+  `src/instancing/`'s own job, see its bullet below). `FilterByViewportAndSizeStage`/
+  `FilterByLayerVisibilityStage`/`TinyShapesByViewportStage`/
+  `TinyShapesByLayerVisibilityStage` have nothing Abstract- or
+  Layout-specific in their own logic — each is typed against a small
+  `ShapeGenerationStage` abstract base (`src/core/shape_generation_stage.hpp`,
+  exposing only `version()`/`call_count()`, all any downstream stage ever
+  needs) rather than templated or duplicated per path. `Pipeline` itself
+  is a thin owner of one instance of each stage (one pair per path) plus
+  orchestration (`run`/`run_layout`/`run_tiny_shapes`/`run_layout_tiny_shapes`/
+  `hit_test_point`/`hit_test_rect`, the last two fully generic over either
+  path's output) — every public method keeps its original signature,
+  delegating to its stage in one line; reuse one `Pipeline` instance per
+  `Scene`-equivalent lifetime. `GenerateAbstractShapesStage::run` resolves
+  each `Shape` straight to its `ViewLayerId` in the same pass (no separate
+  resolve stage) and attaches one text label per distinct layer a Terminal
+  has geometry on. `GenerateLayoutShapesStage::run` (Migration Step 3
+  Phase A) walks a `Layout`'s own direct content the same way — die area,
+  blockages (both kinds), routed net geometry (`ROUTE`), physical ports,
+  plus synthesized geometry for rows/tracks/gcell grids/regions (none of
+  which own a stored `Shape` — synthesized on the fly from `Row.site_name`/
+  `Track`/`GCellGrid`/`Region.rects`). Deliberately does **not** walk
+  `Layout.placements` — hierarchical instance rendering is a separate,
+  picture-cache-based mechanism entirely (`src/instancing/`), since
+  materializing per-instance `Shape`s into this map would scale with
+  instance count (up to 1,000,000×) and defeat the whole point of caching.
   Deliberately does *not* merge/union a Shape's own overlapping rects/
   polygons for rendering (a `Geometry::merge_overlapping_fills` step
   existed for this, removed - see BENCHMARKS.md's 2026-08-19 entry) -
@@ -111,8 +136,11 @@ none of these are duplicated here.
   to `unordered_map`. See each stage class's own doc comment for its
   exact cache key and why it's shaped that way, and `BENCHMARKS.md` for
   current numbers and history. Fully covered by `pipeline_test.cpp`.
-- `src/render/` — `Renderer` chains eight stage classes, one per file
-  under `src/render/stages/` (each built on `core`'s `VersionedStage`;
+- `src/render/` — `Renderer` chains its own stage classes, one per file
+  under `src/render/stages/` (nine of `Renderer`'s own, plus
+  `BuildLayoutPictureStage` — used only by `src/instancing/`'s
+  `InstanceRenderer`, not by `Renderer` itself, see that module's own
+  bullet; each built on `core`'s `VersionedStage`;
   `render` links `core` directly, not `pipeline` — it never names the
   `Pipeline` class itself, only takes its output by reference), plus two
   shared support headers: `pixel_types.hpp` (`PixelShape`/`PixelBuffer`/
@@ -129,7 +157,7 @@ none of these are duplicated here.
     fed them (UPDATES.md item 16 point 4's "generic class for future
     expansion"). Unlike `Pipeline`, cache keys compose via upstream
     `.version()` **uniformly**, including two stages
-    (`BuildPictureStage`/`RasterizeStage`) whose pre-refactor keys
+    (`BuildAbstractPictureStage`/`RasterizeStage`) whose pre-refactor keys
     deliberately did _not_ trust upstream freshness (a fix for two earlier
     real bugs — see git history / BENCHMARKS.md 2026-08-12's Renderer
     entry for the full trade-off writeup) — composing means a caller that
@@ -147,8 +175,13 @@ none of these are duplicated here.
     method still exists alongside it for partial-chain callers (isolation
     benchmarks in `pipeline_benchmark.cpp`, `render_test.cpp`) - `render()`
     is a convenience wrapper, not a replacement.
-    `TransformToPixelsStage` (dbu→pixel, no Y-flip) → `BuildPictureStage`
-    (Skia `SkPictureRecorder` draw calls) → `RasterizeStage` (SkPicture →
+    `TransformToPixelsStage` (dbu→pixel, no Y-flip) → `BuildAbstractPictureStage`
+    (renamed from `BuildPictureStage`, Migration Step 3 Phase B, once a
+    Layout-side sibling existed too — see `src/instancing/`'s own bullet;
+    its shared shape-drawing core is factored out as `draw_shape_groups`
+    in `draw_helpers.hpp` so `BuildLayoutPictureStage` can reuse it without
+    inheriting this stage's own grid/origin-marker chrome) (Skia
+    `SkPictureRecorder` draw calls) → `RasterizeStage` (SkPicture →
     raw `PixelBuffer`) is the main chain; `RasterizeStage`/`ComposeWithOverlaysStage`
     use explicit `kRGBA_8888_SkColorType` (not Skia's platform-native
     `kN32_SkColorType`) so byte layout matches between the macOS dev
@@ -169,6 +202,55 @@ none of these are duplicated here.
     including real pixel-byte assertions, not just "didn't crash". Depends
     on a machine-specific Skia checkout, not committed to this repo — see
     Open gaps below.
+- `src/instancing/` — `InstanceRenderer` (Migration Step 3 Phases B/C):
+  resolves `Placement → Design` into cached, per-instance-transformable
+  `SkPicture`s and renders the full displayable frame for a Layout view
+  (`render_layout_frame`, what `api.cpp`'s `le_render_pixel_buffer` calls
+  when `Scene::current_layout()` is active instead of `Pipeline`/`Renderer`).
+  The **one module allowed to link both `pipeline` and `render`** —
+  resolving an arbitrary `Placement.reference_design` needs a
+  `Pipeline::generate_shapes`/`generate_layout_shapes` call for whichever
+  `Design` it references (not necessarily `Scene`'s own currently-displayed
+  one), which `render`'s own stage classes structurally can't reach (see
+  that module's own "doesn't link `pipeline`" note above); this module
+  exists specifically so that boundary stays intact everywhere else.
+  Every cached picture is recorded in "local pixel space"
+  (`local_pixel = dbu_local * scale`, deliberately no pan subtraction) —
+  what makes one cached picture replayable unchanged at every different
+  placement location/orientation anywhere in the hierarchy; a placement's
+  own `SkMatrix` is built from `Geometry::instance_transform`
+  (`src/geometry/`, the standard LEF/DEF placement-orientation math) +
+  `to_instance_matrix` (`draw_helpers.hpp`). Two `{id, remaining_depth}`-
+  keyed maps (`DesignId`/`LayoutId` → `SkPicture`) with whole-epoch
+  invalidation (`root.mutation_version()`/`view_layers.generation()`/
+  `scene.visibility_version()`/`scale`) rather than per-entry — every
+  other cache in this codebase already has this same global-invalidation
+  shape, and there's no per-entity dirty-tracking anywhere to scope it
+  tighter. Every `Pipeline`/`render` stage this class touches
+  (`GenerateAbstractShapesStage`/`GenerateLayoutShapesStage`/
+  `FilterByViewportAndSizeStage`/`FilterByLayerVisibilityStage`/
+  `RasterizeStage`(×4)/`ComposeWithOverlaysStage`/etc.) is constructed
+  **fresh per call**, never as a persistent member sharing state across
+  calls — this was load-bearing, not just tidy, found via `cpp-review`:
+  a shared, persistent `GenerateLayoutShapesStage` would dangle a
+  `dbu_shapes` reference across a recursive nested-Layout call (a
+  different `LayoutId` evicting the same single-slot `VersionedStage`
+  mid-call), and a shared `FilterByViewportAndSizeStage` would silently
+  reuse dbu-space output whose sub-pixel-culling threshold was computed
+  against a stale `scale`. `remaining_depth`/`hierarchy_depth` are always
+  explicit parameters, never read from `Scene` internally — `Scene` only
+  gained `current_layout()`/`hierarchy_depth()` in Phase C, after this
+  class's own resolution mechanism (Phase B) was already built and
+  tested against hand-picked values. Fully covered by
+  `instancing_test.cpp` (hand-built `Root` hierarchies, real Skia
+  rasterize-and-sample assertions — orientation, recursion depth,
+  caching, mutation/scale invalidation) and `src/pipeline/benchmarks/`
+  (`layout_stress_data.hpp`, the 1,000,000-instance stress fixture
+  `PROJECT_MIGRATION.md` asked for — see `BENCHMARKS.md`'s 2026-08-23
+  entry for the actual numbers: picture-level caching keeps a
+  4,000,000-instance warm-cache frame at ~0ms, cold at ~262ms, vs. an
+  ~88ms picture-resolution-only cost that would otherwise scale with each
+  sub-block's own internal shape count without this design).
 - `src/io/` — format readers/writers. `lef_reader.{hpp,cpp}`/
   `lef_writer.{hpp,cpp}` drive the vendored `lefr*`/`lefw*` LEF-parser C
   API and populate/walk `Root` via the generated create/get API. Tested
@@ -645,10 +727,20 @@ because the mechanism can't reach them; this has no bearing on
   remain deferred within that scope. Migration Step 2 (layer/purpose
   generation for DEF's Row/Track/GCellGrid/Blockage constructs) is also
   done — see `src/view_style/`'s own bullet above for the resulting
-  `ViewLayerPurpose` members. Step 3 (render pipeline updates - actually
-  walking a `Layout`'s content into drawable shapes, hierarchical Abstract-
-  instance rendering, the 1M-instance stress test) is a separate future
-  phase; nothing in `src/pipeline/`/`src/render/` is Layout-aware yet.
+  `ViewLayerPurpose` members. Migration Step 3 (render pipeline updates -
+  walking a `Layout`'s own content into drawable shapes, hierarchical
+  `Placement`-instance rendering with per-instance picture caching, the
+  1M-instance stress test) is also done — see `src/pipeline/`'s own
+  bullet (Phase A, `GenerateLayoutShapesStage`), `src/instancing/`'s own
+  bullet (Phases B/C, `InstanceRenderer`), and `BENCHMARKS.md`'s
+  2026-08-23 entry (Phase D, the real performance numbers). Deep
+  per-shape selection into instanced content (as opposed to whole-
+  placement selection) remains deliberately out of scope - a real,
+  documented deferral, not a gap found later; `InstanceRenderer`'s own
+  per-instance culling (skipping an off-screen instance's own
+  `concat`+`drawPicture` call before it reaches Skia's own quickReject)
+  was also deliberately not added - the Phase D benchmark numbers are
+  the ones to revisit before deciding whether it's actually needed.
 - Skia isn't vendored/built by this project — `src/render/`'s
   `CMakeLists.txt` `skia` target points `SKIA_DIR` at a pre-built checkout
   (default `/Volumes/Docking/Projects/synthosilicon/skia/skia`, override with

@@ -1,6 +1,8 @@
 #include "../../api/api.hpp"
+#include "../../instancing/instance_renderer.hpp"
 #include "../../render/render.hpp"
 #include "../pipeline.hpp"
+#include "layout_stress_data.hpp"
 #include "stress_data.hpp"
 #include <benchmark/benchmark.h>
 
@@ -839,5 +841,104 @@ static void BM_GetLabelLocationLShapedPolygon(benchmark::State &state)
     }
 }
 BENCHMARK(BM_GetLabelLocationLShapedPolygon)->Unit(benchmark::kNanosecond);
+
+// --- Migration Step 3 Phase D: 1,000,000-instance hierarchical rendering ---
+// See layout_stress_data.hpp's own comment for the fixture shape (a
+// sub-block with 1,000,000 leaf placements, a top-level with 4 instances of
+// that sub-block at different orientations) - the user's own spec for this
+// step's real performance verification, not a synthetic shape-count stress
+// like stress_data.hpp's own (unrelated) fixture above.
+
+// The picture-resolution step alone (InstanceRenderer::build_layout_picture),
+// excluding the final grid/overlay/rasterize compose - isolates whether the
+// caching mechanism itself (not the unrelated per-frame compose cost every
+// path pays) is what scales acceptably. remaining_depth=1 (not
+// hierarchy_depth=2's own raw value) since this calls build_layout_picture
+// directly, bypassing render_layout_frame's own "top level consumes one
+// depth" bookkeeping - see that method's own comment.
+static void BM_InstanceRenderer_BuildLayoutPicture_ColdCache_FullDepth(benchmark::State &state)
+{
+    const auto &data = layout_stress_data();
+    Scene scene = make_layout_scene(data, 2);
+
+    for (auto _ : state)
+    {
+        InstanceRenderer instance_renderer;
+        const auto picture = instance_renderer.build_layout_picture(data.root, data.top_layout_id, /*remaining_depth=*/1, data.view_layers, scene, scene.scale());
+        const auto *picture_ptr = picture.get();
+        benchmark::DoNotOptimize(picture_ptr);
+    }
+    state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kSubBlockPlacementCount) * kTopPlacementCount);
+}
+BENCHMARK(BM_InstanceRenderer_BuildLayoutPicture_ColdCache_FullDepth)->Unit(benchmark::kMillisecond);
+
+// Full end-to-end frame (matches le_render_pixel_buffer's own real call
+// path) at hierarchy_depth=2 - deep enough to recurse into every one of the
+// sub-block's own 1,000,000 leaf placements, 4 times over (once per
+// top-level instance) - with a fresh InstanceRenderer every iteration, the
+// "just switched to this Layout view" cold-start case where every stage is
+// a cache miss.
+static void BM_InstanceRenderer_RenderLayoutFrame_ColdCache_FullDepth(benchmark::State &state)
+{
+    const auto &data = layout_stress_data();
+    Scene scene = make_layout_scene(data, /*hierarchy_depth=*/2);
+
+    for (auto _ : state)
+    {
+        InstanceRenderer instance_renderer;
+        const auto &buffer = instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene);
+        const auto *buffer_ptr = &buffer;
+        benchmark::DoNotOptimize(buffer_ptr);
+    }
+    state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kSubBlockPlacementCount) * kTopPlacementCount);
+}
+BENCHMARK(BM_InstanceRenderer_RenderLayoutFrame_ColdCache_FullDepth)->Unit(benchmark::kMillisecond);
+
+// The interactive/reused-instance case: one InstanceRenderer constructed
+// once and reused across iterations (as a real caller - LeHandle - keeps
+// one alive for a Scene's whole interactive lifetime), compared against
+// the cold-start benchmark above to measure the actual caching benefit -
+// this is the number that should read as "roughly constant per frame",
+// not scaling with the sub-block's own 1,000,000-shape internal content,
+// since nothing about the scene changes between iterations (every
+// InstanceRenderer/Renderer-chain cache hits).
+static void BM_InstanceRenderer_RenderLayoutFrame_WarmCache_FullDepth(benchmark::State &state)
+{
+    const auto &data = layout_stress_data();
+    Scene scene = make_layout_scene(data, 2);
+    InstanceRenderer instance_renderer;
+    instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene); // warm every cache once
+
+    for (auto _ : state)
+    {
+        const auto &buffer = instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene);
+        const auto *buffer_ptr = &buffer;
+        benchmark::DoNotOptimize(buffer_ptr);
+    }
+    state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kSubBlockPlacementCount) * kTopPlacementCount);
+}
+BENCHMARK(BM_InstanceRenderer_RenderLayoutFrame_WarmCache_FullDepth)->Unit(benchmark::kMillisecond);
+
+// hierarchy_depth=0 - every top-level placement (of the sub-block) falls
+// back straight to the sub-block's own (empty, size-only) Abstract; none of
+// the sub-block's own 1,000,000 leaf placements are ever visited. The real
+// baseline BM_..._ColdCache_FullDepth's own cost is measured against -
+// proves picture-caching (not merely "the shallow case does nothing") is
+// what keeps the full-depth case's own warm-cache cost low.
+static void BM_InstanceRenderer_RenderLayoutFrame_ColdCache_ShallowDepth(benchmark::State &state)
+{
+    const auto &data = layout_stress_data();
+    Scene scene = make_layout_scene(data, /*hierarchy_depth=*/0);
+
+    for (auto _ : state)
+    {
+        InstanceRenderer instance_renderer;
+        const auto &buffer = instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene);
+        const auto *buffer_ptr = &buffer;
+        benchmark::DoNotOptimize(buffer_ptr);
+    }
+    state.SetItemsProcessed(state.iterations() * kTopPlacementCount);
+}
+BENCHMARK(BM_InstanceRenderer_RenderLayoutFrame_ColdCache_ShallowDepth)->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();
