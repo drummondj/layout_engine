@@ -1694,3 +1694,89 @@ TEST_F(LayoutPipelineFixture, GenerateLayoutShapesRecomputesAfterACrudMutationEv
     EXPECT_EQ(pipeline.generate_layout_calls(), 2u); // same LayoutId, same ViewLayerSet - must still recompute
     EXPECT_EQ(shapes.size(), 1u);
 }
+
+// E1 (BUGS_AND_ENHANCEMENTS.md) - hit_test_point/hit_test_rect are
+// already fully generic over either run()'s or run_layout()'s own
+// output (see their own doc comment) - these confirm the *new* origins
+// GenerateLayoutShapesStage now populates (Blockage/Route/PhysicalPort/
+// Row/Region) actually round-trip through that existing, unmodified
+// machinery, not just that generate_layout_shapes itself sets `.origin`.
+TEST_F(LayoutPipelineFixture, HitTestPointFindsARoutingBlockageViaItsOrigin)
+{
+    const BlockageId blockage_id = add_routing_blockage(m1, Rect{.ll = {0, 0}, .ur = {10, 10}});
+
+    Scene scene;
+    scene.set_viewport_size(1000, 1000);
+    const auto &shapes = pipeline.run_layout(root, layout_id, scene, view_layers);
+    const auto hit = Pipeline::hit_test_point(shapes, view_layers, scene, Point{5, 5});
+
+    ASSERT_TRUE(hit.has_value());
+    ASSERT_TRUE(hit->shape_id.has_value()); // a Blockage has a real backing Shape
+    ASSERT_TRUE(std::holds_alternative<BlockageId>(hit->origin));
+    EXPECT_EQ(std::get<BlockageId>(hit->origin), blockage_id);
+}
+
+TEST_F(LayoutPipelineFixture, HitTestPointFindsARouteViaItsOrigin)
+{
+    const RouteId route_id = add_route(m1, Rect{.ll = {0, 0}, .ur = {10, 10}});
+
+    Scene scene;
+    scene.set_viewport_size(1000, 1000);
+    const auto &shapes = pipeline.run_layout(root, layout_id, scene, view_layers);
+    const auto hit = Pipeline::hit_test_point(shapes, view_layers, scene, Point{5, 5});
+
+    ASSERT_TRUE(hit.has_value());
+    ASSERT_TRUE(std::holds_alternative<RouteId>(hit->origin));
+    EXPECT_EQ(std::get<RouteId>(hit->origin), route_id);
+}
+
+TEST_F(LayoutPipelineFixture, HitTestPointFindsAPhysicalPortViaItsOrigin)
+{
+    const PhysicalPortId port_id = add_physical_port(m1, Rect{.ll = {0, 0}, .ur = {10, 10}});
+
+    Scene scene;
+    scene.set_viewport_size(1000, 1000);
+    const auto &shapes = pipeline.run_layout(root, layout_id, scene, view_layers);
+    const auto hit = Pipeline::hit_test_point(shapes, view_layers, scene, Point{5, 5});
+
+    ASSERT_TRUE(hit.has_value());
+    ASSERT_TRUE(std::holds_alternative<PhysicalPortId>(hit->origin));
+    EXPECT_EQ(std::get<PhysicalPortId>(hit->origin), port_id);
+}
+
+// Row/Region have no backing Shape at all (synthesized geometry - see
+// append_row_shapes'/append_region_shapes' own comments), so a hit here
+// must carry an origin but no shape_id - api.cpp's le_mouse_up relies on
+// exactly this distinction to fork into scene.select(RowId)/
+// scene.select(RegionId) instead of the ShapeId+piece re-resolution path.
+TEST_F(LayoutPipelineFixture, HitTestPointFindsARowWithOriginButNoShapeId)
+{
+    add_site("SITE1", Point{10, 20});
+    const RowId row_id = add_row("SITE1", Point{0, 0});
+
+    Scene scene;
+    scene.set_viewport_size(1000, 1000);
+    const auto &shapes = pipeline.run_layout(root, layout_id, scene, view_layers);
+    const auto hit = Pipeline::hit_test_point(shapes, view_layers, scene, Point{5, 5});
+
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_FALSE(hit->shape_id.has_value());
+    ASSERT_TRUE(std::holds_alternative<RowId>(hit->origin));
+    EXPECT_EQ(std::get<RowId>(hit->origin), row_id);
+}
+
+TEST_F(LayoutPipelineFixture, HitTestRectFindsARegionWithOriginButNoShapeId)
+{
+    const RegionId region_id = add_region(Rect{.ll = {10, 10}, .ur = {50, 50}});
+
+    Scene scene;
+    scene.set_viewport_size(1000, 1000);
+    const auto &shapes = pipeline.run_layout(root, layout_id, scene, view_layers);
+    const auto hits = Pipeline::hit_test_rect(shapes, view_layers, scene, Rect{.ll = {0, 0}, .ur = {100, 100}});
+
+    const auto it = std::ranges::find_if(hits, [](const HoverTarget &h)
+                                          { return std::holds_alternative<RegionId>(h.origin); });
+    ASSERT_NE(it, hits.end());
+    EXPECT_FALSE(it->shape_id.has_value());
+    EXPECT_EQ(std::get<RegionId>(it->origin), region_id);
+}

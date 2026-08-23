@@ -1301,6 +1301,105 @@ class LeEditor implements LeEditorBase {
         ];
       case LeObjectKind.LE_OBJECT_KIND_SHAPE:
         return const [];
+      // E1 (BUGS_AND_ENHANCEMENTS.md) - Blockage/Route/PhysicalPortSegment
+      // own child Shapes the exact same way TerminalPort/Obstruction do
+      // above (le_get_shapes' own multi-parent search already supported
+      // all seven parent kinds before this switch did - see
+      // _invalidPhysicalPortSegmentId's own comment).
+      case LeObjectKind.LE_OBJECT_KIND_BLOCKAGE:
+        final blockageId = ffi.Struct.create<LeBlockageId>()
+          ..index = ref.index
+          ..generation = ref.generation;
+        final count = _bindings.le_get_shapes(
+          _handle,
+          _invalidTerminalPortId,
+          _invalidObstructionId,
+          _invalidPhysicalPortSegmentId,
+          blockageId,
+          _invalidRouteId,
+          _invalidLayoutId,
+          _invalidAbstractId,
+          ffi.nullptr,
+        );
+        return [
+          for (var i = 0; i < count; i++)
+            _shapeRef(_bindings.le_search_result_shape_at(_handle, i)),
+        ];
+      case LeObjectKind.LE_OBJECT_KIND_ROUTE:
+        final routeId = ffi.Struct.create<LeRouteId>()
+          ..index = ref.index
+          ..generation = ref.generation;
+        final count = _bindings.le_get_shapes(
+          _handle,
+          _invalidTerminalPortId,
+          _invalidObstructionId,
+          _invalidPhysicalPortSegmentId,
+          _invalidBlockageId,
+          routeId,
+          _invalidLayoutId,
+          _invalidAbstractId,
+          ffi.nullptr,
+        );
+        return [
+          for (var i = 0; i < count; i++)
+            _shapeRef(_bindings.le_search_result_shape_at(_handle, i)),
+        ];
+      case LeObjectKind.LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT:
+        final segmentId = ffi.Struct.create<LePhysicalPortSegmentId>()
+          ..index = ref.index
+          ..generation = ref.generation;
+        final count = _bindings.le_get_shapes(
+          _handle,
+          _invalidTerminalPortId,
+          _invalidObstructionId,
+          segmentId,
+          _invalidBlockageId,
+          _invalidRouteId,
+          _invalidLayoutId,
+          _invalidAbstractId,
+          ffi.nullptr,
+        );
+        return [
+          for (var i = 0; i < count; i++)
+            _shapeRef(_bindings.le_search_result_shape_at(_handle, i)),
+        ];
+      case LeObjectKind.LE_OBJECT_KIND_PHYSICAL_PORT:
+        final portId = ffi.Struct.create<LePhysicalPortId>()
+          ..index = ref.index
+          ..generation = ref.generation;
+        final count = _bindings.le_get_physical_port_segments(
+          _handle,
+          portId,
+          ffi.nullptr,
+        );
+        return [
+          for (var i = 0; i < count; i++)
+            _physicalPortSegmentRef(
+              _bindings.le_search_result_physical_port_segment_at(_handle, i),
+            ),
+        ];
+      // Row/Placement/Region (E1) have no children at all - Row/Region
+      // have no backing Shape to begin with (synthesized geometry), and
+      // Placement's own children (a nested Layout's own content, once
+      // recursed into) are explicitly out of scope - deep per-shape
+      // navigation into an instanced Placement is a deliberate,
+      // documented deferral (see InstanceRenderer's own class comment),
+      // same reasoning LE_OBJECT_KIND_SHAPE's own empty case above
+      // already established for a true hierarchy leaf.
+      case LeObjectKind.LE_OBJECT_KIND_ROW:
+      case LeObjectKind.LE_OBJECT_KIND_PLACEMENT:
+      case LeObjectKind.LE_OBJECT_KIND_REGION:
+        return const [];
+      // Layout (E1 follow-up, breadcrumb hierarchy fix) only exists as a
+      // parent-hop target today (objectParent's Row/Placement/Blockage/
+      // Route/PhysicalPort/Region -> Layout -> Design chain) - no
+      // le_get_rows/_placements/_blockages/_routes/_physical_ports/
+      // _regions search function is exposed through this C API (only
+      // the TCL-facing generated shim has one), so there's nothing to
+      // enumerate here yet. Same "no current consumer" deferral as
+      // Row/Placement/Region's own empty case above.
+      case LeObjectKind.LE_OBJECT_KIND_LAYOUT:
+        return const [];
     }
   }
 
@@ -1339,6 +1438,13 @@ class LeEditor implements LeEditorBase {
     index: id.index,
     generation: id.generation,
   );
+
+  LeObjectRef _physicalPortSegmentRef(LePhysicalPortSegmentId id) =>
+      LeObjectRef(
+        kind: LeObjectKind.LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT,
+        index: id.index,
+        generation: id.generation,
+      );
 
   LeObstructionId get _invalidObstructionId =>
       ffi.Struct.create<LeObstructionId>()

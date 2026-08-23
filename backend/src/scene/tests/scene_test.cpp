@@ -184,7 +184,7 @@ TEST(Scene, SelectRecordsTheShapeId)
 
     EXPECT_TRUE(scene.is_selected(ShapeId{1, 0}));
     ASSERT_FALSE(scene.selection().empty());
-    EXPECT_EQ(scene.selection().front().shape_id, (ShapeId{1, 0}));
+    EXPECT_EQ(std::get<ShapePiece>(scene.selection().front()).shape_id, (ShapeId{1, 0}));
 }
 
 TEST(Scene, SelectingADifferentShapeAddsASecondEntry)
@@ -202,8 +202,8 @@ TEST(Scene, SelectingADifferentShapeAddsASecondEntry)
     EXPECT_EQ(scene.selection_version(), 2u);
     ASSERT_EQ(scene.selection().size(), 2u); // both shapes are now separately selected
 
-    EXPECT_EQ(scene.selection()[0].shape_id, (ShapeId{1, 0}));
-    EXPECT_EQ(scene.selection()[1].shape_id, (ShapeId{2, 0}));
+    EXPECT_EQ(std::get<ShapePiece>(scene.selection()[0]).shape_id, (ShapeId{1, 0}));
+    EXPECT_EQ(std::get<ShapePiece>(scene.selection()[1]).shape_id, (ShapeId{2, 0}));
 }
 
 TEST(Scene, ReselectingTheSameShapeIsANoOp)
@@ -260,6 +260,70 @@ TEST(Scene, DeselectRemovesAnEntry)
     scene.deselect(ShapeId{1, 0});
     EXPECT_FALSE(scene.is_selected(ShapeId{1, 0}));
     EXPECT_TRUE(scene.selection().empty());
+}
+
+// E1 (BUGS_AND_ENHANCEMENTS.md) - Row/Placement/Region are bare-id
+// SelectedObject alternatives (no backing Shape - see ShapePiece's own
+// comment), so they get their own select()/deselect()/is_selected()
+// overload set rather than riding the ShapeId+piece one. Same dedup/
+// version-bump contract as the ShapeId overload above.
+TEST(Scene, SelectRowRecordsItAndDedups)
+{
+    Scene scene;
+    scene.select(RowId{1, 0});
+
+    EXPECT_TRUE(scene.is_selected(RowId{1, 0}));
+    ASSERT_EQ(scene.selection().size(), 1u);
+    EXPECT_EQ(std::get<RowId>(scene.selection().front()), (RowId{1, 0}));
+    EXPECT_EQ(scene.selection_version(), 1u);
+
+    scene.select(RowId{1, 0}); // re-selecting the same row is a no-op
+    EXPECT_EQ(scene.selection().size(), 1u);
+    EXPECT_EQ(scene.selection_version(), 1u);
+}
+
+TEST(Scene, SelectPlacementAndRegionAlsoWork)
+{
+    Scene scene;
+    scene.select(PlacementId{1, 0});
+    scene.select(RegionId{1, 0});
+
+    EXPECT_TRUE(scene.is_selected(PlacementId{1, 0}));
+    EXPECT_TRUE(scene.is_selected(RegionId{1, 0}));
+    EXPECT_FALSE(scene.is_selected(PlacementId{2, 0}));
+    ASSERT_EQ(scene.selection().size(), 2u);
+    EXPECT_EQ(scene.selection_version(), 2u);
+}
+
+TEST(Scene, DeselectRowRemovesIt)
+{
+    Scene scene;
+    scene.select(RowId{1, 0});
+    ASSERT_TRUE(scene.is_selected(RowId{1, 0}));
+
+    scene.deselect(RowId{1, 0});
+    EXPECT_FALSE(scene.is_selected(RowId{1, 0}));
+    EXPECT_TRUE(scene.selection().empty());
+}
+
+// A ShapeId and a bare-id kind with the same numeric index/generation
+// must never collide - they're different alternatives of the same
+// variant, and std::set<SelectedObject>'s own ordering (operator<=>)
+// distinguishes alternatives before comparing their payload.
+TEST(Scene, ShapePieceAndBareIdSelectionsCoexistWithoutColliding)
+{
+    Scene scene;
+    scene.select(ShapeId{1, 0});
+    scene.select(RowId{1, 0});
+    scene.select(PlacementId{1, 0});
+    scene.select(RegionId{1, 0});
+
+    EXPECT_EQ(scene.selection().size(), 4u);
+    EXPECT_EQ(scene.selection_version(), 4u);
+    EXPECT_TRUE(scene.is_selected(ShapeId{1, 0}));
+    EXPECT_TRUE(scene.is_selected(RowId{1, 0}));
+    EXPECT_TRUE(scene.is_selected(PlacementId{1, 0}));
+    EXPECT_TRUE(scene.is_selected(RegionId{1, 0}));
 }
 
 TEST(Scene, PanAndViewportRoundTrip)
@@ -1169,9 +1233,10 @@ TEST(Scene, ArmMoveSnapshotsSelectionAndGeometry)
     scene.arm_move({geometry});
     EXPECT_TRUE(scene.move().armed);
     ASSERT_EQ(scene.move().moving_pieces.size(), 1u);
-    EXPECT_EQ(scene.move().moving_pieces[0].shape_id, shape_id);
-    EXPECT_EQ(scene.move().moving_pieces[0].piece_kind, PieceKind::POLYGON);
-    EXPECT_EQ(scene.move().moving_pieces[0].piece_index, 2u);
+    const auto &moving_piece = std::get<ShapePiece>(scene.move().moving_pieces[0]);
+    EXPECT_EQ(moving_piece.shape_id, shape_id);
+    EXPECT_EQ(moving_piece.piece_kind, PieceKind::POLYGON);
+    EXPECT_EQ(moving_piece.piece_index, 2u);
     ASSERT_EQ(scene.move().moving_geometry.size(), 1u);
     EXPECT_EQ(scene.move().moving_geometry[0].layer, m1);
     EXPECT_GT(scene.mouse_version(), before);

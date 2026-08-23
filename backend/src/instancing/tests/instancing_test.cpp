@@ -414,6 +414,66 @@ TEST_F(InstancingFixture, PlacementMathFallsBackToTheBoundaryShapeWhenAbstractSi
     EXPECT_TRUE(region_has_opaque_pixel(bitmap, 10, 10, 190, 90));
 }
 
+// E1 (BUGS_AND_ENHANCEMENTS.md) - hit_test_placements_point/_rect
+// (src/core/placement_geometry.hpp) - the "separate, bbox-only
+// mechanism" Pipeline::hit_test_point's own doc comment already
+// anticipated, since a Placement never enters the RenderedShape map at
+// all (see GenerateLayoutShapesStage's own comment).
+TEST_F(InstancingFixture, HitTestPlacementsPointRespectsOrientation)
+{
+    // Same asymmetric-bbox case as OrientationRotatesTheInstancedLeaf
+    // above (world bbox becomes (0,0)-(100,200), swapped), cross-checked
+    // against the hit-test helper instead of real Skia picture playback -
+    // a point inside the UNrotated (200,100) footprint but outside the
+    // W-rotated (100,200) one must miss, the strongest possible check
+    // that orientation, not just translation, is actually applied.
+    DesignId leaf = create_leaf_design("LEAF", Point{200, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
+    add_placement(sub_layout, leaf, Point{0, 0}, Orientation::W, "U1");
+
+    EXPECT_EQ(hit_test_placements_point(root, sub_layout, /*remaining_depth=*/0, Point{150, 50}), std::nullopt); // inside the UNrotated bbox only
+    const auto hit = hit_test_placements_point(root, sub_layout, /*remaining_depth=*/0, Point{50, 150}); // inside the rotated bbox
+    ASSERT_TRUE(hit.has_value());
+}
+
+TEST_F(InstancingFixture, HitTestPlacementsPointReturnsTheTopmostOfTwoOverlappingPlacements)
+{
+    // Placements are drawn in Root::get_layout_placements' own order
+    // (BuildLayoutPictureStage::run's instances loop, topmost last) -
+    // the hit-test iterates in reverse to match, so the LAST-added of
+    // two overlapping placements should win, mirroring
+    // Pipeline::hit_test_point's own "topmost first" contract.
+    DesignId leaf = create_leaf_design("LEAF", Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
+    add_placement(sub_layout, leaf, Point{0, 0}, Orientation::N, "U1");
+    const PlacementId top = add_placement(sub_layout, leaf, Point{0, 0}, Orientation::N, "U2"); // same location, added after - topmost
+
+    const auto hit = hit_test_placements_point(root, sub_layout, /*remaining_depth=*/0, Point{50, 50});
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_EQ(*hit, top);
+}
+
+TEST_F(InstancingFixture, HitTestPlacementsPointMissesOutsideEveryPlacement)
+{
+    DesignId leaf = create_leaf_design("LEAF", Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
+    add_placement(sub_layout, leaf, Point{0, 0}, Orientation::N, "U1");
+
+    EXPECT_EQ(hit_test_placements_point(root, sub_layout, /*remaining_depth=*/0, Point{300, 300}), std::nullopt);
+}
+
+TEST_F(InstancingFixture, HitTestPlacementsRectFindsEveryFullyEnclosedPlacement)
+{
+    DesignId leaf = create_leaf_design("LEAF", Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
+    const PlacementId enclosed = add_placement(sub_layout, leaf, Point{0, 0}, Orientation::N, "U1");
+    add_placement(sub_layout, leaf, Point{350, 350}, Orientation::N, "U2"); // straddles the query rect's edge - not fully enclosed
+
+    const std::vector<PlacementId> hits = hit_test_placements_rect(root, sub_layout, /*remaining_depth=*/0, Rect{.ll = {0, 0}, .ur = {200, 200}});
+    ASSERT_EQ(hits.size(), 1u);
+    EXPECT_EQ(hits.front(), enclosed);
+}
+
 TEST_F(InstancingFixture, RenderLayoutFrameDrawsAtTheCorrectPostFlipPixelPosition)
 {
     DesignId leaf = create_leaf_design("LEAF", Point{100, 100});

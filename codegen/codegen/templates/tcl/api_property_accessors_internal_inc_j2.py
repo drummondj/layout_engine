@@ -27,6 +27,24 @@ std::vector<le::PropertyValue> build_{{klass.to_snake_case()}}_properties(const 
     {%- for child_field in klass.tcl_child_list_fields() %}
     properties.push_back(le::PropertyValue::make_int("{{child_field.name}}_count", static_cast<int64_t>(root.get_{{klass.to_snake_case()}}_{{child_field.name}}(id).size())));
     {%- endfor %}
+    {%- for rf in klass.get_reference_create_fields() %}
+    // to_properties() has no Root to resolve {{rf.name}} against, so it
+    // falls back to to_string(Le{{rf.type}}Id) - a bare "Id{index=.., generation=..}"
+    // debug string (see Field.wrap_with_to_display_property()'s own
+    // docstring). Overwrite it here with a friendly "{{rf._type_klass.to_snake_case()}}:<name>"
+    // token instead, same spelling every other friendly id in this codebase
+    // uses - a signal reference, not a navigable link (unlike a child-list
+    // property, this field's value is never one of properties() own rows'
+    // clickable targets).
+    for (le::PropertyValue &property : properties)
+    {
+        if (property.name != "{{rf.name}}")
+            continue;
+        const le::{{rf.type}}Data *referenced = root.get_{{rf._type_klass.to_snake_case()}}(data->{{rf.name}});
+        property = le::PropertyValue::make_string("{{rf.name}}", referenced ? "{{rf._type_klass.to_snake_case()}}:" + referenced->name : std::string());
+        break;
+    }
+    {%- endfor %}
     return properties;
 }
 {% endfor %}

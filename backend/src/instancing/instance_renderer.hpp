@@ -1,4 +1,5 @@
 #pragma once
+#include "../core/placement_geometry.hpp"
 #include "../database/database.hpp"
 #include "../geometry/geometry.hpp"
 #include "../pipeline/stages/filter_by_layer_visibility_stage.hpp"
@@ -10,6 +11,7 @@
 #include "../render/stages/build_layout_picture_stage.hpp"
 #include "../render/stages/build_overlay_picture_stage.hpp"
 #include "../render/stages/build_ruler_overlay_picture_stage.hpp"
+#include "../render/stages/build_selection_overlay_picture_stage.hpp"
 #include "../render/stages/compose_with_overlays_stage.hpp"
 #include "../render/stages/rasterize_stage.hpp"
 #include "../scene/scene.hpp"
@@ -264,11 +266,18 @@ namespace le
             const std::optional<double> dbu_per_um = technology_dbu_per_um(root);
             const sk_sp<SkPicture> &overlay_picture = build_overlay_picture_stage_.run(scene, dbu_per_um);
             const sk_sp<SkPicture> &ruler_overlay_picture = build_ruler_overlay_picture_stage_.run(scene, dbu_per_um);
-            static const sk_sp<SkPicture> kEmptyPicture; // no tiny-shapes/selection content for a Layout view yet
+            static const sk_sp<SkPicture> kEmptyPicture; // no tiny-shapes content for a Layout view yet
+
+            // E1 (BUGS_AND_ENHANCEMENTS.md) - `shapes` is unused by this
+            // stage (see its own comment), so an empty map is fine here;
+            // `layout_id`/`remaining_depth` let it resolve a selected
+            // PlacementId's own world bbox (src/core/placement_geometry.hpp).
+            static const std::map<ViewLayerId, std::vector<RenderedShape>> kEmptyShapes;
+            const sk_sp<SkPicture> &selection_overlay_picture = build_selection_overlay_picture_stage_.run(scene, root, kEmptyShapes, layout_id, remaining_depth);
 
             return compose_stage_.run(rasterize_design_stage_, rasterize_tiny_stage_, rasterize_selection_stage_, rasterize_ruler_stage_, build_overlay_picture_stage_,
-                                       design_version, 0, 0, build_ruler_overlay_picture_stage_.version(),
-                                       design_picture, kEmptyPicture, overlay_picture, kEmptyPicture, ruler_overlay_picture, scene);
+                                       design_version, 0, build_selection_overlay_picture_stage_.version(), build_ruler_overlay_picture_stage_.version(),
+                                       design_picture, kEmptyPicture, overlay_picture, selection_overlay_picture, ruler_overlay_picture, scene);
         }
 
     private:
@@ -309,67 +318,15 @@ namespace le
             layout_pictures_.clear();
         }
 
-        // Whether design_id resolves to anything drawable at all at this
-        // remaining_depth - mirrors build_design_picture's own dispatch
-        // condition exactly (Layout branch first when remaining_depth
-        // allows it, else Abstract), without actually building/recording
-        // anything. A placement whose reference_design fails this check
-        // must NOT be treated as a real (if sub-pixel) instance below:
-        // resolved_local_bbox's own Rect{} fallback for "unresolved" is
-        // indistinguishable from a legitimately zero-sized declared bbox,
-        // so the sub-pixel dot-collapse can't use that as its signal -
-        // this is the real, resolvability-only check it guards on instead.
-        static bool design_is_resolvable(const Root &root, DesignId design_id, int remaining_depth)
-        {
-            const LayoutId layout_id = root.get_design_layout(design_id);
-            if (remaining_depth > 0 && layout_id.valid())
-                return true;
-            return root.get_design_abstract(design_id).valid();
-        }
-
-        // Resolves design_id's own current view exactly like
-        // build_design_picture below, but without recording anything -
-        // used by a placing parent to get its own child's local_bbox for
-        // Geometry::instance_transform's own orientation math. Mirrors
-        // build_design_picture's own dispatch rule so the two can never
-        // disagree about which view (Layout vs. Abstract) a given
-        // {DesignId, remaining_depth} resolves to.
-        static Rect resolved_local_bbox(const Root &root, DesignId design_id, int remaining_depth)
-        {
-            const LayoutId layout_id = root.get_design_layout(design_id);
-            if (remaining_depth > 0 && layout_id.valid())
-                return layout_declared_bbox(root, layout_id);
-
-            const AbstractId abstract_id = root.get_design_abstract(design_id);
-            if (abstract_id.valid())
-                return abstract_declared_bbox(root, abstract_id);
-
-            return Rect{};
-        }
-
-        static Rect layout_declared_bbox(const Root &root, LayoutId layout_id)
-        {
-            if (const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id)))
-                if (auto b = Geometry::bbox(*diearea))
-                    return *b;
-            return Rect{};
-        }
-
-        // AbstractData.origin is deliberately NOT applied here - a known,
-        // accepted gap, no ORIGIN-bearing test data driving it yet (see
-        // Geometry::instance_transform's own doc comment).
-        static Rect abstract_declared_bbox(const Root &root, AbstractId abstract_id)
-        {
-            const AbstractData *abstract = root.get_abstract(abstract_id);
-            if (abstract && abstract->size)
-                return Rect{.ll = Point{0, 0}, .ur = *abstract->size};
-
-            if (const Shape *boundary = root.get_shape(root.get_abstract_boundary(abstract_id)))
-                if (auto b = Geometry::bbox(*boundary))
-                    return *b;
-
-            return Rect{};
-        }
+        // design_is_resolvable/resolved_local_bbox/layout_declared_bbox/
+        // abstract_declared_bbox used to be private statics of this class
+        // - relocated to src/core/placement_geometry.hpp (E1,
+        // BUGS_AND_ENHANCEMENTS.md) so render's own
+        // BuildSelectionOverlayPictureStage can compute a selected
+        // Placement's own world bbox using the exact same implementation
+        // (render doesn't link instancing - see that header's own
+        // comment for the full reasoning). Called unqualified below
+        // (both live in namespace le).
 
         sk_sp<SkPicture> build_design_picture(const Root &root, DesignId design_id, int remaining_depth, const ViewLayerSet &view_layers, const Scene &scene, double scale)
         {
@@ -663,6 +620,12 @@ namespace le
         // class's own doc comment for why sharing would be unsafe).
         BuildOverlayPictureStage build_overlay_picture_stage_;
         BuildRulerOverlayPictureStage build_ruler_overlay_picture_stage_;
+        // E1 (BUGS_AND_ENHANCEMENTS.md) - same class Renderer's own
+        // Abstract path uses for its selection outline, owned as a
+        // second, independent instance here for the exact same reason as
+        // the two overlay stages just above (see this class's own doc
+        // comment).
+        BuildSelectionOverlayPictureStage build_selection_overlay_picture_stage_;
         RasterizeStage rasterize_design_stage_;
         RasterizeStage rasterize_tiny_stage_;
         RasterizeStage rasterize_selection_stage_;

@@ -1029,12 +1029,17 @@ extern "C"
         double double_value;
     } LeProperty;
 
-    /// @brief Which database class an LeObjectRef names - the same seven
-    /// classes get_properties/the friendly-id convention already
+    /// @brief Which database class an LeObjectRef names - originally the
+    /// seven classes get_properties/the friendly-id convention already
     /// distinguish (le_tcl_shim.cpp's library:/design:/abstract:/
     /// terminal:/terminal_port:/obstruction:/shape: prefixes), just typed
     /// instead of stringly-typed, for the GUI's Property Viewer (UPDATES.md
-    /// 7.2's later database-hierarchy redesign).
+    /// 7.2's later database-hierarchy redesign). Extended (E1,
+    /// BUGS_AND_ENHANCEMENTS.md) with the six top-level Layout-view kinds
+    /// Scene::SelectedObject's own variant grew - le_selected_object_ref()
+    /// dispatches each selected object to its own kind here so the
+    /// Property Viewer shows real properties for a selected Row/
+    /// Placement/Blockage/Route/PhysicalPort/Region, not just a Shape.
     typedef enum LeObjectKind
     {
         LE_OBJECT_KIND_LIBRARY = 0,
@@ -1044,12 +1049,33 @@ extern "C"
         LE_OBJECT_KIND_TERMINAL_PORT = 4,
         LE_OBJECT_KIND_OBSTRUCTION = 5,
         LE_OBJECT_KIND_SHAPE = 6,
+        LE_OBJECT_KIND_ROW = 7,
+        LE_OBJECT_KIND_PLACEMENT = 8,
+        LE_OBJECT_KIND_BLOCKAGE = 9,
+        LE_OBJECT_KIND_ROUTE = 10,
+        LE_OBJECT_KIND_PHYSICAL_PORT = 11,
+        LE_OBJECT_KIND_REGION = 12,
+        // Intermediate parent-hop node only (like LE_OBJECT_KIND_TERMINAL_PORT
+        // - never itself a mouse-click selection result, only reached via
+        // le_object_parent() from a Shape belonging to a PhysicalPort).
+        LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT = 13,
+        // Another intermediate parent-hop node - originally deferred
+        // ("no current consumer needs one", see object_ref_parent's own
+        // history) until the Property Viewer's own breadcrumb tree
+        // (walking le_object_parent() all the way to LE_OBJECT_KIND_LIBRARY)
+        // turned out to be exactly that consumer: without this, every
+        // Layout-view selection's own parent chain dead-ended at
+        // LE_OBJECT_KIND_ROW/_PLACEMENT/etc. instead of continuing
+        // Layout -> Design -> Library the way an Abstract-view
+        // selection's own Terminal -> Abstract -> Design -> Library
+        // chain already does.
+        LE_OBJECT_KIND_LAYOUT = 14,
     } LeObjectKind;
 
-    /// @brief A generic, typed reference to one database object of any of
-    /// the seven LeObjectKind classes - `index`/`generation` are that
-    /// class's own id fields (e.g. for LE_OBJECT_KIND_SHAPE, the same
-    /// pair LeShapeId carries). Used by le_object_property_count()/_at()/
+    /// @brief A generic, typed reference to one database object of any
+    /// LeObjectKind class - `index`/`generation` are that class's own id
+    /// fields (e.g. for LE_OBJECT_KIND_SHAPE, the same pair LeShapeId
+    /// carries). Used by le_object_property_count()/_at()/
     /// le_object_parent()/le_selected_object_ref() below, so a Property
     /// Viewer can walk the database hierarchy (Shape -> TerminalPort ->
     /// Terminal -> Abstract -> Design -> Library) generically instead of
@@ -1098,11 +1124,14 @@ extern "C"
 
     /// @brief The selected object at `selection_index` (0..le_selection_count()-1),
     /// as a generic ref usable with le_object_property_count()/_at()/
-    /// le_object_parent() - always LE_OBJECT_KIND_SHAPE (selection is
-    /// shape-granular - see Scene::SelectedObject's own comment). Read-
-    /// only: never mutates Scene::selection() or bumps selection_version().
-    /// Returns le_object_invalid_ref() if handle is null or selection_index
-    /// is out of range.
+    /// le_object_parent() - LE_OBJECT_KIND_SHAPE for a piece-granular
+    /// ShapePiece selection (Terminal/Obstruction/Blockage/Route/
+    /// PhysicalPort - see Scene::SelectedObject's own comment), or the
+    /// matching whole-object kind (LE_OBJECT_KIND_ROW/_PLACEMENT/_REGION)
+    /// for E1's bare-id alternatives. Read-only: never mutates
+    /// Scene::selection() or bumps selection_version(). Returns
+    /// le_object_invalid_ref() if handle is null or selection_index is
+    /// out of range.
     LeObjectRef le_selected_object_ref(LeHandle *handle, int32_t selection_index);
 
     /// @brief Run the full pipeline+render chain (generate -> filter ->

@@ -3354,6 +3354,35 @@ class Field:
             and self._type_klass.has_pool
         )
 
+    def _optional_enum_needs_unset_guard(self) -> bool:
+        """
+        Whether this is an is_optional enum field (Shape.purpose,
+        Placement.orientation, PhysicalPort.direction/placement_status/
+        orientation, ...) whose property-table display needs a real
+        has_value() check rather than the generic _optional_value_needs_
+        unwrap() `.value_or(<bare-type>{})` treatment every other
+        optional scalar field gets. `_optional_default_cpp()` value-
+        initializes an enum to its zero-valued member ("<Enum>{}" is
+        `static_cast<Enum>(0)`) - for a plain optional int/double/str
+        field that zero value (0, 0.0, "") already reads as "unset" to a
+        user, but an enum's zero-valued member is just whichever value
+        happened to be declared first in schema.py (e.g. ShapePurpose's
+        BOUNDARY, Orientation's N) - a real, meaningful-looking value, not
+        a recognizable "nothing set" sentinel. Without this guard, an
+        unset Shape.purpose (the common case - only a diearea/boundary/
+        placement-blockage Shape ever sets it; every real routing/
+        terminal/obstruction Shape leaves it unset and uses Shape.layer
+        instead) displayed as "BOUNDARY" in the Property Viewer, which
+        looked like a real, wrong classification rather than "not
+        applicable to this Shape".
+        """
+        return bool(
+            self.is_optional
+            and self.is_reference()
+            and self._type_klass is not None
+            and self._type_klass.is_enum
+        )
+
     def wrap_with_to_string(self, code, namespace) -> str:
         if self.is_list:
             return f"std::to_string({code}.size())"
@@ -3442,6 +3471,9 @@ class Field:
                 return f"{namespace}::to_property_list_string({code}, {dbu_var})"
             return f"std::to_string({code}.size())"
 
+        if self._optional_enum_needs_unset_guard():
+            return f'({code}.has_value() ? {namespace}::to_string(*{code}) : std::string())'
+
         if self._optional_value_needs_unwrap():
             code = f"{code}.value_or({self._optional_default_cpp()})"
 
@@ -3503,6 +3535,9 @@ class Field:
                 return f'{namespace}::PropertyValue::make_string("{name}", {namespace}::to_property_list_string({code}, 1.0))'
             return f'{namespace}::PropertyValue::make_int("{name}_count", static_cast<int64_t>({code}.size()))'
 
+        if self._optional_enum_needs_unset_guard():
+            return f'{namespace}::PropertyValue::make_string("{name}", {code}.has_value() ? {namespace}::to_string(*{code}) : std::string())'
+
         # .value_or(...), not .value() - see wrap_with_to_string's own
         # comment for why an unset optional field must degrade to a
         # default instead of throwing.
@@ -3545,6 +3580,9 @@ class Field:
             if self.is_reference() and self._references_embedded_klass():
                 return f'{namespace}::PropertyValue::make_string("{name}", {namespace}::to_property_list_string({code}, {dbu_var}))'
             return f'{namespace}::PropertyValue::make_int("{name}_count", static_cast<int64_t>({code}.size()))'
+
+        if self._optional_enum_needs_unset_guard():
+            return f'{namespace}::PropertyValue::make_string("{name}", {code}.has_value() ? {namespace}::to_string(*{code}) : std::string())'
 
         value = (
             f"{code}.value_or({self._optional_default_cpp()})"

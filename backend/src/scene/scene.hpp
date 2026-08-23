@@ -7,7 +7,6 @@
 #include <limits>
 #include <optional>
 #include <set>
-#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>
@@ -15,11 +14,17 @@
 
 namespace le
 {
-    // Selectable object references - the object kinds that currently have a
-    // rendered geometric representation in an Abstract view. Extend this
-    // variant as more kinds (e.g. Instance, once a Layout/placement view
-    // exists) become selectable.
-    using SelectionRef = std::variant<TerminalId, ObstructionId>;
+    // Selectable object references - the object kinds that have a rendered
+    // geometric representation in an Abstract or Layout view (E1: top-level
+    // Layout-view content - Blockage/Route/PhysicalPort ride RenderedShape
+    // the same way Terminal/Obstruction already do; Row is synthesized
+    // geometry with no backing Shape but still flows through this same
+    // origin mechanism). PlacementId is deliberately excluded - a Placement
+    // never enters the RenderedShape map at all (instance rendering is a
+    // separate, picture-cache-based mechanism at up to 1,000,000x scale -
+    // see src/instancing/), so it never becomes a HoverTarget::origin;
+    // its own hover/selection use a separate bbox hit-test (api.cpp).
+    using SelectionRef = std::variant<TerminalId, ObstructionId, BlockageId, RouteId, PhysicalPortId, RowId, RegionId>;
 
     /// @brief The result of a point hit-test (UPDATES.md 7.1): which
     /// selectable object was hit, plus a copy of the specific piece of
@@ -72,12 +77,39 @@ namespace le
     /// for rendering the highlight - see BuildSelectionOverlayPictureStage)
     /// rather than stored here, unlike HoverTarget::outline, which still
     /// carries its own geometry copy for hover rendering.
-    struct SelectedObject
+    ///
+    /// Named ShapePiece (not SelectedObject, its name before E1) now that
+    /// it's only one alternative of SelectedObject's own variant below -
+    /// every Terminal/Obstruction selection (Abstract view) and every
+    /// Blockage/Route/PhysicalPort selection (Layout view, E1) rides this
+    /// exact alternative unchanged, since all six already have a real
+    /// backing Shape; only Row/Placement/Region (E1, no backing Shape at
+    /// all - see their own schema.py comments) needed a bare-id
+    /// alternative instead.
+    struct ShapePiece
     {
         ShapeId shape_id;
         PieceKind piece_kind = PieceKind::RECT;
         size_t piece_index = 0;
+
+        friend auto operator<=>(const ShapePiece &, const ShapePiece &) = default;
     };
+
+    /// @brief One selected top-level object (E1) - a ShapePiece for
+    /// anything with real backing Shape geometry (Terminal/Obstruction/
+    /// Blockage/Route/PhysicalPort), or a bare id for a kind with none
+    /// (RowId/RegionId - synthesized geometry; PlacementId - no geometry
+    /// at all in this map, see SelectionRef's own comment for why). A
+    /// std::variant, not ShapePiece with more optional fields, so "which
+    /// kind is this" is never ambiguous and every consumer (select/
+    /// deselect/BuildSelectionOverlayPictureStage/le_selected_object_ref)
+    /// is forced to handle every alternative explicitly (std::visit)
+    /// rather than silently ignoring an unset field. Every alternative
+    /// already has operator<=> (Id<Tag> generated, ShapePiece defaulted
+    /// above), so the variant gets one for free - lets selected_keys_
+    /// below be a plain std::set<SelectedObject> instead of a parallel
+    /// hand-rolled tuple structure.
+    using SelectedObject = std::variant<ShapePiece, RowId, PlacementId, RegionId>;
 
     /// @brief Per-handle mutable view state: which Abstract is displayed,
     /// the viewport transform, per-layer visibility, and selection. Distinct
@@ -937,38 +969,42 @@ namespace le
         // convention) - a no-op bump would invalidate the design picture
         // cache for nothing.
         //
-        // Dedup is by (shape_id, piece_kind, piece_index) identity
-        // (selected_keys_, an ordered std::set of that tuple - Id<Tag>
-        // already has operator<=>, and PieceKind/size_t compare
-        // trivially, so no custom hash is needed) - UPDATES.md item 21's
-        // piece-granular selection: two different pieces of the same
-        // Shape are two independent selected entries, not deduped
-        // against each other, but re-selecting the exact same piece
-        // twice (e.g. shift-clicking it again, or a drag-select
-        // re-enclosing it) still no-ops. This still needs to stay cheap
-        // per call: le_mouse_up's drag-select branch (api.cpp) calls
-        // select() once per enclosed piece, and a real design can put
-        // hundreds of thousands of pieces under one shared Obstruction's
-        // OBS block.
+        // Dedup is by SelectedObject identity (selected_keys_, an ordered
+        // std::set<SelectedObject> - every alternative already has
+        // operator<=>, so no custom hash/tuple wrapper is needed) -
+        // UPDATES.md item 21's piece-granular selection: two different
+        // pieces of the same Shape are two independent selected entries,
+        // not deduped against each other, but re-selecting the exact same
+        // piece (or the same whole Row/Placement/Region) twice (e.g.
+        // shift-clicking it again, or a drag-select re-enclosing it)
+        // still no-ops. This still needs to stay cheap per call:
+        // le_mouse_up's drag-select branch (api.cpp) calls select() once
+        // per enclosed piece, and a real design can put hundreds of
+        // thousands of pieces under one shared Obstruction's OBS block.
         void select(ShapeId shape_id, PieceKind piece_kind = PieceKind::RECT, size_t piece_index = 0)
         {
-            if (!selected_keys_.insert({shape_id, piece_kind, piece_index}).second)
-                return; // duplicate, no-op
-
-            selection_.push_back(SelectedObject{.shape_id = shape_id, .piece_kind = piece_kind, .piece_index = piece_index});
-            ++selection_version_;
+            select_object(SelectedObject{ShapePiece{.shape_id = shape_id, .piece_kind = piece_kind, .piece_index = piece_index}});
         }
+
+        // E1 - whole-object selection for a kind with no piece concept
+        // (no backing Shape to address a rect/polygon/path within - see
+        // SelectedObject's own comment). One overload per bare-id
+        // alternative rather than a single templated `select(auto)`: the
+        // implicit SelectedObject construction below only works for a
+        // type that's actually one of the variant's own alternatives, and
+        // an explicit overload set gives a real compile error at the call
+        // site for anything else, not a confusing variant-construction one.
+        void select(RowId row_id) { select_object(SelectedObject{row_id}); }
+        void select(PlacementId placement_id) { select_object(SelectedObject{placement_id}); }
+        void select(RegionId region_id) { select_object(SelectedObject{region_id}); }
 
         void deselect(ShapeId shape_id, PieceKind piece_kind = PieceKind::RECT, size_t piece_index = 0)
         {
-            if (selected_keys_.erase({shape_id, piece_kind, piece_index}) == 0)
-                return;
-
-            std::erase_if(selection_,
-                           [&](const SelectedObject &selected)
-                           { return selected.shape_id == shape_id && selected.piece_kind == piece_kind && selected.piece_index == piece_index; });
-            ++selection_version_;
+            deselect_object(SelectedObject{ShapePiece{.shape_id = shape_id, .piece_kind = piece_kind, .piece_index = piece_index}});
         }
+        void deselect(RowId row_id) { deselect_object(SelectedObject{row_id}); }
+        void deselect(PlacementId placement_id) { deselect_object(SelectedObject{placement_id}); }
+        void deselect(RegionId region_id) { deselect_object(SelectedObject{region_id}); }
 
         void clear_selection()
         {
@@ -989,14 +1025,45 @@ namespace le
         bool is_selected(ShapeId shape_id) const
         {
             return std::ranges::any_of(selection_, [&](const SelectedObject &selected)
-                                        { return selected.shape_id == shape_id; });
+                                        {
+                const auto *piece = std::get_if<ShapePiece>(&selected);
+                return piece && piece->shape_id == shape_id; });
         }
+
+        // E1 - whole-object selected query, one overload per bare-id
+        // alternative, same reasoning as the select() overload set above.
+        bool is_selected(RowId row_id) const { return selected_keys_.contains(SelectedObject{row_id}); }
+        bool is_selected(PlacementId placement_id) const { return selected_keys_.contains(SelectedObject{placement_id}); }
+        bool is_selected(RegionId region_id) const { return selected_keys_.contains(SelectedObject{region_id}); }
 
         const std::vector<SelectedObject> &selection() const { return selection_; }
         uint64_t selection_version() const { return selection_version_; }
 
     private:
-        std::set<std::tuple<ShapeId, PieceKind, size_t>> selected_keys_;
+        std::set<SelectedObject> selected_keys_;
+
+        // Shared core of every select()/deselect() overload above - one
+        // place that maintains selected_keys_/selection_/selection_version_
+        // together, so every public overload (ShapeId+piece, or a bare
+        // RowId/PlacementId/RegionId) goes through the identical dedup/
+        // bump logic instead of re-deriving it per overload.
+        void select_object(SelectedObject object)
+        {
+            if (!selected_keys_.insert(object).second)
+                return; // duplicate, no-op
+
+            selection_.push_back(object);
+            ++selection_version_;
+        }
+
+        void deselect_object(const SelectedObject &object)
+        {
+            if (selected_keys_.erase(object) == 0)
+                return;
+
+            std::erase(selection_, object);
+            ++selection_version_;
+        }
         AbstractId current_abstract_;
         LayoutId current_layout_id_;
         int hierarchy_depth_ = 0;

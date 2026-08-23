@@ -1797,6 +1797,96 @@ TEST_F(RenderFixture, ComposeWithOverlaysDoesNotReRasterizeTheSelectionOverlayWh
     EXPECT_EQ(renderer.rasterize_selection_overlay_calls(), 1u); // selection raster reused, not recomputed
 }
 
+// E1 (BUGS_AND_ENHANCEMENTS.md) - BuildSelectionOverlayPictureStage's own
+// std::visit dispatch for the bare-id SelectedObject alternatives
+// (Row/Region - Placement needs a real LayoutId with placements, covered
+// separately in instancing_test.cpp's own hit-test/bbox tests instead).
+// Reuses draw_selected_piece_outline completely unchanged (see that
+// function's own doc comment) by wrapping each bbox as a transient
+// one-rect Shape - these tests exist to confirm the *stage's own new
+// branches* actually reach it and produce real outline pixels, not that
+// the drawing primitive itself works (already covered for ShapePiece).
+TEST_F(RenderFixture, BuildSelectionOverlayPictureDrawsARowsOwnBboxOutline)
+{
+    const LayoutId layout_id = root.create_layout(LayoutData{.design = root.create_design(DesignData{.library = root.create_library(LibraryData{.name = "LIB"}), .name = "TOP"})});
+    const SiteId site_id = root.create_site(SiteData{.technology = technology_id, .name = "SITE1", .size = Point{10, 20}});
+    const RowId row_id = root.create_row(RowData{.layout = layout_id, .name = "ROW1", .site_name = "SITE1", .origin = Point{10, 10}, .orientation = Orientation::N});
+
+    Scene scene;
+    scene.set_viewport_size(100, 100);
+    scene.set_pan(Point{0, 0});
+    scene.set_scale(1.0);
+    scene.select(row_id);
+
+    BuildSelectionOverlayPictureStage stage;
+    static const std::map<ViewLayerId, std::vector<RenderedShape>> kEmptyShapes;
+    const sk_sp<SkPicture> &picture = stage.run(scene, root, kEmptyShapes, layout_id, /*remaining_depth=*/0);
+    ASSERT_TRUE(picture);
+
+    // Row footprint is (10,10)-(20,30) (site 10x20, num_x/num_y default
+    // 1) - scan along its own outline stroke (a few pixels of margin for
+    // the 2px stroke width) rather than one exact pixel.
+    const SkBitmap bitmap = rasterize(picture, 100, 100);
+    EXPECT_TRUE(region_shows_color(bitmap, 9, 9, 21, 11, to_sk_color(kSelectionOutlineColor))); // top edge
+}
+
+TEST_F(RenderFixture, BuildSelectionOverlayPictureDrawsARegionsOwnRectsUnchanged)
+{
+    const LayoutId layout_id = root.create_layout(LayoutData{.design = root.create_design(DesignData{.library = root.create_library(LibraryData{.name = "LIB"}), .name = "TOP"})});
+    const RegionId region_id = root.create_region(RegionData{.layout = layout_id, .name = "R1", .rects = {Rect{.ll = {10, 10}, .ur = {50, 50}}}});
+
+    Scene scene;
+    scene.set_viewport_size(100, 100);
+    scene.set_pan(Point{0, 0});
+    scene.set_scale(1.0);
+    scene.select(region_id);
+
+    BuildSelectionOverlayPictureStage stage;
+    static const std::map<ViewLayerId, std::vector<RenderedShape>> kEmptyShapes;
+    const sk_sp<SkPicture> &picture = stage.run(scene, root, kEmptyShapes, layout_id, /*remaining_depth=*/0);
+    ASSERT_TRUE(picture);
+
+    const SkBitmap bitmap = rasterize(picture, 100, 100);
+    EXPECT_TRUE(region_shows_color(bitmap, 9, 9, 51, 11, to_sk_color(kSelectionOutlineColor))); // top edge
+}
+
+TEST_F(RenderFixture, BuildSelectionOverlayPictureCacheKeyIncludesCurrentLayout)
+{
+    // Regression: the cache key used to have no Scene::current_layout()
+    // component at all - switching between two Layouts with an
+    // unchanged (empty) selection would leave selection_version()
+    // unbumped and could serve a stale cached picture from the other
+    // Layout, once this same stage class is also driven from Layout view
+    // (InstanceRenderer owns a second, independent instance - see its
+    // own comment for why sharing isn't safe).
+    const DesignId design_id = root.create_design(DesignData{.library = root.create_library(LibraryData{.name = "LIB"}), .name = "TOP"});
+    const LayoutId layout_a = root.create_layout(LayoutData{.design = design_id});
+    const LayoutId layout_b = root.create_layout(LayoutData{.design = design_id});
+    const RowId row_a = root.create_row(RowData{.layout = layout_a, .name = "ROWA", .site_name = "NOSITE", .origin = Point{0, 0}, .orientation = Orientation::N});
+
+    Scene scene;
+    scene.set_viewport_size(100, 100);
+    scene.set_current_layout(layout_a);
+
+    BuildSelectionOverlayPictureStage stage;
+    static const std::map<ViewLayerId, std::vector<RenderedShape>> kEmptyShapes;
+    // .get() copies the raw pointer out immediately - `stage.run()`
+    // itself returns a reference into the stage's own single cache slot,
+    // which the second call below reassigns, so holding onto the
+    // sk_sp<SkPicture>& itself (rather than a plain copied pointer)
+    // would alias the slot's *current* value instead of a stable
+    // snapshot of the first call's own result.
+    const SkPicture *first_ptr = stage.run(scene, root, kEmptyShapes, layout_a, 0).get();
+    const uint64_t version_after_a = stage.version();
+
+    scene.set_current_layout(layout_b); // selection is empty in both - selection_version() alone wouldn't change
+    const SkPicture *second_ptr = stage.run(scene, root, kEmptyShapes, layout_b, 0).get();
+
+    EXPECT_NE(stage.version(), version_after_a); // current_layout() alone must still invalidate the cache
+    EXPECT_NE(second_ptr, first_ptr);
+    (void)row_a;
+}
+
 TEST_F(RenderFixture, ComposeWithOverlaysDoesNotReRasterizeDesignWhenOnlyMouseMoves)
 {
     // This is the whole point of the design/overlay-picture split (see

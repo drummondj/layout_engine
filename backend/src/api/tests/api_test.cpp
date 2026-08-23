@@ -762,6 +762,221 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutWithZeroHierarchyDepthStillRendersOwnPl
     EXPECT_TRUE(region_has_opaque_pixel(buffer, 21, 21, 79, 79));
 }
 
+// --- E1 (BUGS_AND_ENHANCEMENTS.md): selectable objects in Layout view ---
+// Before this, le_mouse_up unconditionally hit-tested the Abstract path
+// even when a Layout view was active - clicking in Layout view hit
+// whatever stale/irrelevant Abstract content happened to exist, never
+// the Layout's own. These exercise the real, full click -> Scene::
+// selection() -> le_selected_object_ref() path end-to-end, the same way
+// ClickSelectingAShapeReportsExactlyTheSamePropertiesAsGetPropertiesOnItsShapeId
+// already does for the Abstract path.
+
+TEST_F(ApiFixture, MouseClickInLayoutViewPrefersATopmostPlacementOverContentBehindIt)
+{
+    // TESTCELL (testcell.lef) is exactly 10x10 um - placed at (0,0) N,
+    // its own world bbox is (0,0)-(10,10) um, fully inside a 20x20 um
+    // routing blockage sharing the same origin. (5,5) um falls inside
+    // both - a Placement is always drawn topmost (BuildLayoutPictureStage::
+    // run draws own_shapes, then instances, on top) - so a click there
+    // must select the Placement, not the Blockage behind it. (15,15) um
+    // falls inside only the (larger) blockage.
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+
+    const LePlacementId placement_id = le_create_placement(handle, top_layout, testcell_design.id, "U1", "PLACED", /*has_location=*/1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+    ASSERT_NE(placement_id.index, UINT32_MAX);
+
+    // le_create_blockage's own generated validation currently requires
+    // `placement_id` to resolve to a real Placement, even though
+    // schema.py documents Blockage.placement as legitimately optional
+    // ("invalid id if unscoped") - a real, separate codegen/schema
+    // mismatch (Blockage.placement isn't a `parent=` field, so per
+    // CLAUDE.md's own convention for a plain reference like Shape.layer
+    // it should accept "unset", the way that field does) found while
+    // writing this test, out of scope for E1 to fix here - worked around
+    // by scoping the blockage under the same placement this test already
+    // creates, which is harmless for what this test actually checks.
+    const LeBlockageId blockage_id = le_create_blockage(handle, top_layout, placement_id, "ROUTING", "M1", 0, 0.0, 0, 0.0, 0, 0, 0.0);
+    ASSERT_NE(blockage_id.index, UINT32_MAX);
+    const double blockage_rect_um[4] = {0.0, 0.0, 20.0, 20.0};
+    const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
+    ASSERT_NE(m1_layer.index, UINT32_MAX);
+    const LeShapeId blockage_shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, blockage_id, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, blockage_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(blockage_shape_id.index, UINT32_MAX);
+
+    // Placement.reference_design and Blockage.placement are both plain
+    // reference-to-pooled-klass fields - the generic property table used
+    // to show a bare "Id{index=.., generation=..}" debug string for each
+    // (to_properties() has no Root to resolve a friendly name from - see
+    // codegen's wrap_with_to_display_property() docstring); build_<type>_
+    // properties now overwrites each with a friendly "<type>:<name>"
+    // token instead (api_property_accessors_internal_inc_j2.py), a plain
+    // signal string, not a navigable link, matching every other friendly
+    // id this codebase already uses. Inlined here rather than via
+    // object_properties() (defined later in this file, after this test).
+    const auto find_string_property = [&](LeObjectRef ref, const char *name) -> std::string {
+        const int32_t count = le_object_property_count(handle, ref);
+        for (int32_t i = 0; i < count; ++i)
+        {
+            const LeProperty property = le_object_property_at(handle, ref, i);
+            if (std::string(property.name) == name)
+                return property.string_value;
+        }
+        return "<not found>";
+    };
+    const LeObjectRef placement_ref = LeObjectRef{.kind = LE_OBJECT_KIND_PLACEMENT, .index = placement_id.index, .generation = placement_id.generation};
+    EXPECT_EQ(find_string_property(placement_ref, "reference_design"), "design:TESTCELL");
+
+    const LeObjectRef blockage_ref = LeObjectRef{.kind = LE_OBJECT_KIND_BLOCKAGE, .index = blockage_id.index, .generation = blockage_id.generation};
+    EXPECT_EQ(find_string_property(blockage_ref, "placement"), "placement:U1");
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_hierarchy_depth(handle, 1); // remaining_depth 0 - the placement falls back straight to TESTCELL's own Abstract
+
+    le_set_viewport_size(handle, 100, 100);
+    // database_units_microns is 1000 (testcell.lef's own UNITS) - 20 um
+    // == 20000 dbu across a 100px viewport -> scale = 100/20000 = 0.005,
+    // anchored at pixel (0,100) (screen bottom-left, Y-flipped) which
+    // already corresponds to dbu (0,0) at the default pan/scale, so pan
+    // stays (0,0) after this zoom - same reasoning
+    // SetCurrentDesignLayoutRendersThePlacedInstancesOwnContent's own
+    // scale-0.01 setup already relies on, just a different target scale.
+    le_zoom(handle, 0.005 - 1.0, 0, 100);
+
+    le_mouse_down(handle, 25, 75); // dbu (5000,5000) = (5,5) um - inside both
+    le_mouse_up(handle, 25, 75);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_PLACEMENT);
+
+    le_mouse_down(handle, 75, 25); // dbu (15000,15000) = (15,15) um - inside only the blockage
+    le_mouse_up(handle, 75, 25);
+    ASSERT_EQ(le_selection_count(handle), 1); // no shift held - replaces the previous selection
+
+    // Blockage has a real backing Shape (unlike Row/Region), so it rides
+    // the same ShapePiece alternative Terminal/Obstruction already do -
+    // le_selected_object_ref always reports LE_OBJECT_KIND_SHAPE for
+    // that alternative, unchanged from before E1 widened the variant
+    // (see scene.hpp's own comment). The owning Blockage is reached one
+    // hop up via le_object_parent (object_ref_parent's own new
+    // Shape->blockage fork).
+    const LeObjectRef shape_ref = le_selected_object_ref(handle, 0);
+    EXPECT_EQ(shape_ref.kind, LE_OBJECT_KIND_SHAPE);
+    EXPECT_EQ(shape_ref.index, blockage_shape_id.index);
+
+    const LeObjectRef parent_ref = le_object_parent(handle, shape_ref);
+    EXPECT_EQ(parent_ref.kind, LE_OBJECT_KIND_BLOCKAGE);
+    EXPECT_EQ(parent_ref.index, blockage_id.index);
+}
+
+TEST_F(ApiFixture, UnsetOptionalReferenceFieldDisplaysAsEmptyStringNotADanglingToken)
+{
+    // Shape.layer is_optional=True (unset for a BOUNDARY-purpose Shape,
+    // which uses Shape.purpose instead - see Shape.layer/.purpose's own
+    // schema.py comments) - the friendly-token override in
+    // build_shape_properties (api_property_accessors_internal_inc_j2.py)
+    // must degrade to an empty string when root.get_layer() finds nothing
+    // for the default-invalid LeLayerId, not dereference a null pointer
+    // or otherwise fall back to the raw "Id{index=.., generation=..}"
+    // debug string.
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+
+    const double diearea_um[4] = {0.0, 0.0, 100.0, 100.0};
+    const LeShapeId diearea_shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, top_layout, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeLayerId{.index = UINT32_MAX, .generation = 0}, "BOUNDARY", 0, nullptr, 0, 0, nullptr, 0, 1, diearea_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(diearea_shape_id.index, UINT32_MAX);
+
+    const LeObjectRef shape_ref = LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = diearea_shape_id.index, .generation = diearea_shape_id.generation};
+    const int32_t count = le_object_property_count(handle, shape_ref);
+    bool found_layer = false;
+    for (int32_t i = 0; i < count; ++i)
+    {
+        const LeProperty property = le_object_property_at(handle, shape_ref, i);
+        if (std::string(property.name) != "layer")
+            continue;
+        found_layer = true;
+        EXPECT_STREQ(property.string_value, "");
+    }
+    EXPECT_TRUE(found_layer);
+}
+
+TEST_F(ApiFixture, UnsetOptionalEnumFieldDisplaysAsEmptyStringNotItsZeroValuedMember)
+{
+    // Reported bug: a Route's own Shape (real routing geometry, scoped
+    // via Shape.route with a real Shape.layer - see Shape.layer/.purpose's
+    // own schema.py comments) displayed its unset Shape.purpose as
+    // "BOUNDARY" in the Property Viewer - ShapePurpose::BOUNDARY just
+    // happens to be the enum's zero-valued member (schema.py's
+    // ShapePurpose declaration order), and value.purpose.value_or(
+    // ShapePurpose{}) value-initialized to that zero value whenever
+    // purpose was genuinely unset, indistinguishable from a real,
+    // deliberate BOUNDARY classification. Fixed generically for every
+    // is_optional enum field (Field._optional_enum_needs_unset_guard(),
+    // codegen/codegen/schema.py) - a real has_value() check now degrades
+    // to an empty string instead.
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+
+    const LeRouteId route_id = le_create_route(handle, top_layout, "NET1", /*is_special=*/0, /*has_width=*/0, 0.0, /*has_voltage=*/0, 0.0, nullptr);
+    ASSERT_NE(route_id.index, UINT32_MAX);
+    const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
+    ASSERT_NE(m1_layer.index, UINT32_MAX);
+    const double route_rect_um[4] = {0.0, 0.0, 1.0, 5.0};
+    const LeShapeId route_shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, route_id, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(route_shape_id.index, UINT32_MAX);
+
+    const LeObjectRef shape_ref = LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = route_shape_id.index, .generation = route_shape_id.generation};
+    const int32_t count = le_object_property_count(handle, shape_ref);
+    bool found_purpose = false;
+    for (int32_t i = 0; i < count; ++i)
+    {
+        const LeProperty property = le_object_property_at(handle, shape_ref, i);
+        if (std::string(property.name) != "purpose")
+            continue;
+        found_purpose = true;
+        EXPECT_STREQ(property.string_value, ""); // not "BOUNDARY"
+    }
+    EXPECT_TRUE(found_purpose);
+}
+
+TEST_F(ApiFixture, MouseClickInLayoutViewSelectsARowWithNoBackingShape)
+{
+    // Row has no stored Shape of its own (purely parametric geometry -
+    // see append_row_shapes' own comment) - this is the specific
+    // "origin set but shape_id unset" fork le_mouse_up needs, distinct
+    // from the ShapeId+piece path every other kind above/below uses.
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0); // establishes the Technology
+
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+
+    ASSERT_NE(le_create_site(handle, le_technology_id(handle), "SITE1", nullptr, /*has_size=*/1, 10.0, 20.0, 0, 0, 0, 0).index, UINT32_MAX);
+    const LeRowId row_id = le_create_row(handle, top_layout, "ROW1", "SITE1", /*has_origin=*/1, 0.0, 0.0, "N", 0, 0, 0, 0, 0, 0.0, 0, 0.0);
+    ASSERT_NE(row_id.index, UINT32_MAX);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_viewport_size(handle, 100, 100);
+    // Row footprint is (0,0)-(10,20) um (site size, single tile) ==
+    // (0,0)-(10000,20000) dbu - scale 0.005 as above, same anchor.
+    le_zoom(handle, 0.005 - 1.0, 0, 100);
+
+    le_mouse_down(handle, 25, 75); // dbu (5000,5000) = (5,5) um - inside the row
+    le_mouse_up(handle, 25, 75);
+
+    ASSERT_EQ(le_selection_count(handle), 1);
+    const LeObjectRef ref = le_selected_object_ref(handle, 0);
+    EXPECT_EQ(ref.kind, LE_OBJECT_KIND_ROW);
+    EXPECT_EQ(ref.index, row_id.index);
+}
+
 TEST_F(ApiFixture, LayerCountAndAtAreZeroOrInvalidForNullHandleOrNoViewLayerSetYet)
 {
     EXPECT_EQ(le_layer_count(nullptr), 0);
@@ -2897,12 +3112,13 @@ TEST_F(ApiFixture, ClickSelectingOnePortOfATwoPortTerminalReportsOnlyThatPortsRe
     ASSERT_TRUE(properties.contains("rects"));
     EXPECT_STREQ(properties.at("rects").string_value, "{{16 1} {19 4}}"); // just the clicked port, not the union of both
 
-    // Shape.layer is a reference field now (LeLayerId, not a plain str),
-    // so the generic property table's own "layer" row just shows a raw
-    // debug id (le::to_string(LayerId) - see codegen's own wrap_with_
-    // to_display_property() comment; to_properties() has no Root to
-    // resolve a friendly name from) - le_shape_layer_name is the real,
-    // resolved accessor to check against instead.
+    // Shape.layer is a reference field now (LeLayerId, not a plain str) -
+    // build_shape_properties overwrites the generic property table's own
+    // "layer" row with a friendly "layer:<name>" token (see
+    // api_property_accessors_internal_inc_j2.py), so this checks the
+    // real generic row directly rather than only le_shape_layer_name.
+    ASSERT_TRUE(properties.contains("layer"));
+    EXPECT_STREQ(properties.at("layer").string_value, "layer:M1");
     EXPECT_STREQ(le_shape_layer_name(handle, LeShapeId{.index = shape_ref.index, .generation = shape_ref.generation}), "M1");
 
     // Parent-level context (Terminal's own name/port_count) is one hop up
@@ -2939,6 +3155,15 @@ TEST_F(ApiFixture, DragSelectingATwoPortTerminalSelectsBothPortsIndependently)
     const std::map<std::string, LeProperty> first_properties = selected_object_properties(handle, 0);
     ASSERT_TRUE(first_properties.contains("rects"));
     const std::string first_rects = first_properties.at("rects").string_value;
+    // Shape.layer is a reference field now (LeLayerId, not a plain str) -
+    // build_shape_properties overwrites the generic property table's own
+    // "layer" row with a friendly "layer:<name>" token (see
+    // api_property_accessors_internal_inc_j2.py). Copied out immediately,
+    // same as first_rects above - le_object_property_at's own string_value
+    // is only valid until the next call for a *different* ref, and
+    // second_properties below is exactly that next call.
+    ASSERT_TRUE(first_properties.contains("layer"));
+    const std::string first_layer = first_properties.at("layer").string_value;
 
     const std::map<std::string, LeProperty> second_properties = selected_object_properties(handle, 1);
     ASSERT_TRUE(second_properties.contains("rects"));
@@ -2947,11 +3172,8 @@ TEST_F(ApiFixture, DragSelectingATwoPortTerminalSelectsBothPortsIndependently)
     EXPECT_NE(first_rects, second_rects); // each port's own rect, not the aggregate
     EXPECT_EQ(first_rects, "{{16 1} {19 4}}");
     EXPECT_EQ(second_rects, "{{16 16} {19 19}}");
-    // Shape.layer is a reference field now (LeLayerId, not a plain str) -
-    // le_shape_layer_name is the real, resolved accessor (see the click-
-    // select test's own comment on why the generic property table's own
-    // "layer" row isn't checked directly here).
-    EXPECT_STREQ(le_shape_layer_name(handle, LeShapeId{.index = first_ref.index, .generation = first_ref.generation}), "M1"); // a piece-level selection always reports its own layer
+    EXPECT_EQ(first_layer, "layer:M1"); // a piece-level selection always reports its own layer
+    EXPECT_STREQ(le_shape_layer_name(handle, LeShapeId{.index = first_ref.index, .generation = first_ref.generation}), "M1");
 }
 
 TEST_F(ApiFixture, ShiftClickingTwoPiecesOfTheSameTerminalSelectsBothIndependently)

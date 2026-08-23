@@ -1,5 +1,6 @@
 #pragma once
 #include "../../core/rendered_shape.hpp"
+#include "../../core/row_geometry.hpp"
 #include "../../core/shape_generation_stage.hpp"
 #include "../../core/versioned_stage.hpp"
 #include "../../database/database.hpp"
@@ -48,7 +49,14 @@ namespace le
             {
                 std::vector<RenderedShape> shapes;
 
-                auto push_shape_id = [&](ShapeId shape_id, ViewLayerPurpose fallback_purpose)
+                // `origin` (E1, BUGS_AND_ENHANCEMENTS.md) makes the pushed
+                // RenderedShape selectable via Pipeline::hit_test_point/
+                // hit_test_rect, which already skip anything with no
+                // origin - see SelectionRef's own comment for why
+                // Blockage/Route/PhysicalPort all ride this same
+                // mechanism (real backing Shape, just like Terminal/
+                // Obstruction in the Abstract path).
+                auto push_shape_id = [&](ShapeId shape_id, ViewLayerPurpose fallback_purpose, SelectionRef origin)
                 {
                     const Shape *shape = root.get_shape(shape_id);
                     if (!shape)
@@ -64,7 +72,7 @@ namespace le
                     const ViewLayerId view_layer = shape->layer.valid()
                                                         ? view_layers.find(shape->layer, fallback_purpose)
                                                         : (shape->purpose ? view_layers.find(LayerId{}, to_view_layer_purpose(*shape->purpose)) : ViewLayerId{});
-                    shapes.push_back(RenderedShape{.shape = *shape, .view_layer = view_layer, .shape_id = shape_id, .path_outlines = compute_path_outlines(*shape)});
+                    shapes.push_back(RenderedShape{.shape = *shape, .view_layer = view_layer, .origin = origin, .shape_id = shape_id, .path_outlines = compute_path_outlines(*shape)});
                     append_via_shapes(root, *shape, fallback_purpose, view_layers, layout_id, shapes);
                 };
 
@@ -73,16 +81,16 @@ namespace le
 
                 for (BlockageId blockage_id : root.get_layout_blockages(layout_id))
                     for (ShapeId shape_id : root.get_blockage_shapes(blockage_id))
-                        push_shape_id(shape_id, ViewLayerPurpose::ROUTING_BLOCKAGE);
+                        push_shape_id(shape_id, ViewLayerPurpose::ROUTING_BLOCKAGE, SelectionRef{blockage_id});
 
                 for (RouteId route_id : root.get_layout_routes(layout_id))
                     for (ShapeId shape_id : root.get_route_shapes(route_id))
-                        push_shape_id(shape_id, ViewLayerPurpose::ROUTE);
+                        push_shape_id(shape_id, ViewLayerPurpose::ROUTE, SelectionRef{route_id});
 
                 for (PhysicalPortId port_id : root.get_layout_physical_ports(layout_id))
                     for (PhysicalPortSegmentId segment_id : root.get_physical_port_segments(port_id))
                         for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
-                            push_shape_id(shape_id, ViewLayerPurpose::TERMINAL);
+                            push_shape_id(shape_id, ViewLayerPurpose::TERMINAL, SelectionRef{port_id});
 
                 append_row_shapes(root, layout_id, view_layers, shapes);
                 append_track_shapes(root, layout_id, view_layers, shapes);
@@ -99,36 +107,31 @@ namespace le
     private:
         // A Row has no stored Shape of its own (see Migration Step 2's own
         // plan for why - purely parametric geometry) - synthesizes one
-        // bounding Rect spanning the whole row's own footprint (site size
-        // tiled num_x/num_y times at step_x/step_y, falling back to the
-        // site's own size as the step when unset - the common case where
-        // sites sit edge-to-edge). Skips (logs nothing - an unresolved
-        // Row.site_name is common enough in synthetic/partial data to not
-        // warrant a log per row) a Row whose site_name doesn't resolve, or
-        // whose Site has no stored size.
+        // bounding Rect spanning the whole row's own footprint via
+        // row_footprint_bbox (src/core/row_geometry.hpp - factored out
+        // there, not kept private here, so render's own
+        // BuildSelectionOverlayPictureStage can resolve a selected RowId's
+        // bbox with the exact same computation, E1). Skips (logs nothing -
+        // an unresolved Row.site_name is common enough in synthetic/
+        // partial data to not warrant a log per row) a Row whose bbox
+        // doesn't resolve. `.origin = RowId{...}` (E1) makes it
+        // selectable via Pipeline::hit_test_point/hit_test_rect the same
+        // way Blockage/Route/PhysicalPort are above - `.shape_id` stays
+        // unset (there's no real Shape row backing it), so a hit here
+        // needs its own small fork in le_mouse_up (see that function's
+        // own comment).
         static void append_row_shapes(const Root &root, LayoutId layout_id, const ViewLayerSet &view_layers, std::vector<RenderedShape> &shapes)
         {
             const ViewLayerId row_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::ROW);
             for (RowId row_id : root.get_layout_rows(layout_id))
             {
-                const RowData *row = root.get_row(row_id);
-                if (!row || !row->origin)
+                const std::optional<Rect> bbox = row_footprint_bbox(root, row_id);
+                if (!bbox)
                     continue;
-                const SiteId site_id = root.get_site_by_name(row->site_name);
-                const SiteData *site = site_id.valid() ? root.get_site(site_id) : nullptr;
-                if (!site || !site->size)
-                    continue;
-
-                const int num_x = row->num_x.value_or(1);
-                const int num_y = row->num_y.value_or(1);
-                const int64_t step_x = row->step_x.value_or(site->size->x);
-                const int64_t step_y = row->step_y.value_or(site->size->y);
-                const int64_t width = site->size->x + static_cast<int64_t>(num_x > 0 ? num_x - 1 : 0) * step_x;
-                const int64_t height = site->size->y + static_cast<int64_t>(num_y > 0 ? num_y - 1 : 0) * step_y;
 
                 Shape shape;
-                shape.rects.push_back(Rect{.ll = *row->origin, .ur = Point{.x = row->origin->x + width, .y = row->origin->y + height}});
-                shapes.push_back(RenderedShape{.shape = shape, .view_layer = row_view_layer, .path_outlines = compute_path_outlines(shape)});
+                shape.rects.push_back(*bbox);
+                shapes.push_back(RenderedShape{.shape = shape, .view_layer = row_view_layer, .origin = SelectionRef{row_id}, .path_outlines = compute_path_outlines(shape)});
             }
         }
 
@@ -205,7 +208,8 @@ namespace le
 
         // Region already stores real Rect geometry directly (no synthesis
         // needed) - just needs wrapping into a Shape for its own
-        // REGION pseudo-row.
+        // REGION pseudo-row. `.origin = RegionId{...}` (E1) - same "no
+        // backing Shape, needs le_mouse_up's own fork" note as Row above.
         static void append_region_shapes(const Root &root, LayoutId layout_id, const ViewLayerSet &view_layers, std::vector<RenderedShape> &shapes)
         {
             const ViewLayerId region_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::REGION);
@@ -217,7 +221,7 @@ namespace le
                 Shape shape;
                 shape.rects = region->rects;
                 auto path_outlines = compute_path_outlines(shape);
-                shapes.push_back(RenderedShape{.shape = std::move(shape), .view_layer = region_view_layer, .path_outlines = std::move(path_outlines)});
+                shapes.push_back(RenderedShape{.shape = std::move(shape), .view_layer = region_view_layer, .origin = SelectionRef{region_id}, .path_outlines = std::move(path_outlines)});
             }
         }
 

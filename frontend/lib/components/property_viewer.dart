@@ -231,6 +231,29 @@ String _tokenFor(LeProvider provider, LeObjectRef ref) {
     LeObjectKind.LE_OBJECT_KIND_TERMINAL_PORT => "terminal_port:$packed",
     LeObjectKind.LE_OBJECT_KIND_OBSTRUCTION => "obstruction:$packed",
     LeObjectKind.LE_OBJECT_KIND_SHAPE => "shape:$packed",
+    // E1 (BUGS_AND_ENHANCEMENTS.md) - Row/Placement/PhysicalPort/Route/
+    // Region are name-keyed friendly ids (le_tcl_shim.cpp's own
+    // Row/Placement/PhysicalPort/Route/Region prefix/format/resolve
+    // triples), matching Library/Design/Terminal's own convention above;
+    // Blockage/PhysicalPortSegment have no natural name (unnamed DEF
+    // constructs) so use the numeric-packed convention Abstract/Shape
+    // already use instead (le_tcl_shim_generated.inc's
+    // format_numeric_friendly_id).
+    LeObjectKind.LE_OBJECT_KIND_ROW => "row:${_nameOf(provider, ref)}",
+    LeObjectKind.LE_OBJECT_KIND_PLACEMENT =>
+      "placement:${_nameOf(provider, ref)}",
+    LeObjectKind.LE_OBJECT_KIND_ROUTE => "route:${_nameOf(provider, ref)}",
+    LeObjectKind.LE_OBJECT_KIND_PHYSICAL_PORT =>
+      "physical_port:${_nameOf(provider, ref)}",
+    LeObjectKind.LE_OBJECT_KIND_REGION => "region:${_nameOf(provider, ref)}",
+    LeObjectKind.LE_OBJECT_KIND_BLOCKAGE => "blockage:$packed",
+    LeObjectKind.LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT =>
+      "physical_port_segment:$packed",
+    // Layout (E1 follow-up, breadcrumb hierarchy fix) has no name field
+    // (schema.py's Layout Klass) so it's numeric-packed, matching
+    // Abstract/Shape/Blockage/PhysicalPortSegment's own convention above
+    // (le_tcl_shim_generated.inc's kLayoutPrefix/format_layout_id).
+    LeObjectKind.LE_OBJECT_KIND_LAYOUT => "layout:$packed",
   };
 }
 
@@ -509,5 +532,22 @@ class ObjectDetail extends StatelessWidget {
     LeObjectKind.LE_OBJECT_KIND_ABSTRACT => "abstracts",
     LeObjectKind.LE_OBJECT_KIND_TERMINAL => "terminals",
     LeObjectKind.LE_OBJECT_KIND_OBSTRUCTION => "obstructions",
+    // E1 (BUGS_AND_ENHANCEMENTS.md) - only Blockage/Route/
+    // PhysicalPortSegment report real children (their own Shapes,
+    // objectChildren) - Row/Placement/Region are hierarchy leaves (see
+    // LeEditor.objectChildren's own comment), so this label is never
+    // actually rendered for those three, but the switch still needs to
+    // be exhaustive.
+    LeObjectKind.LE_OBJECT_KIND_BLOCKAGE => "shapes",
+    LeObjectKind.LE_OBJECT_KIND_ROUTE => "shapes",
+    LeObjectKind.LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT => "shapes",
+    LeObjectKind.LE_OBJECT_KIND_PHYSICAL_PORT => "segments",
+    LeObjectKind.LE_OBJECT_KIND_ROW => "rows",
+    LeObjectKind.LE_OBJECT_KIND_PLACEMENT => "placements",
+    LeObjectKind.LE_OBJECT_KIND_REGION => "regions",
+    // Layout (E1 follow-up, breadcrumb hierarchy fix) also reports no
+    // children through objectChildren yet - same "never actually
+    // rendered, but the switch still needs to be exhaustive" note above.
+    LeObjectKind.LE_OBJECT_KIND_LAYOUT => "layouts",
   };
 }

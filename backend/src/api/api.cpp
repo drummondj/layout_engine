@@ -3,6 +3,8 @@
 #include "../database/filter.hpp"
 #include "../editing/editing.hpp"
 #include "../geometry/geometry.hpp"
+#include "../core/placement_geometry.hpp"
+#include "../core/row_geometry.hpp"
 #include "../instancing/instance_renderer.hpp"
 #include "../io/lef_reader.hpp"
 #include "../io/def_reader.hpp"
@@ -28,6 +30,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <unordered_set>
 #include <vector>
 
@@ -465,26 +468,76 @@ namespace
         handle->scene.fit_to_content(le::Geometry::bbox(shape_ptrs), padding_px);
     }
 
+    // Widens `bbox` to also enclose `r` - a plain min/max union, same
+    // shape as Geometry::expand_bbox (private to that class - this is
+    // the small hand-rolled equivalent api.cpp needs at its own call
+    // sites for the bare-id (no Shape) selectable kinds, E1).
+    void expand_bbox_unlocked(std::optional<le::Rect> &bbox, const le::Rect &r)
+    {
+        if (!bbox)
+        {
+            bbox = r;
+            return;
+        }
+        bbox->ll.x = std::min(bbox->ll.x, r.ll.x);
+        bbox->ll.y = std::min(bbox->ll.y, r.ll.y);
+        bbox->ur.x = std::max(bbox->ur.x, r.ur.x);
+        bbox->ur.y = std::max(bbox->ur.y, r.ur.y);
+    }
+
     // LE_KEY_FIT's Ctrl-held branch (UPDATES.md 9.6) - fits the viewport
     // to the current selection's own combined bbox instead of the whole
     // design's. One Root::get_shape(selected.shape_id) lookup per
-    // selection entry (owned by `root`, outlives this call, no copy
-    // needed), then a single Geometry::bbox call unions them - mirrors
-    // fit_scene_unlocked's own shape_ptrs pattern above. A no-op (view
-    // unchanged) if nothing is selected, unlike fit_scene_unlocked, which
-    // always has the whole design to fall back to.
+    // ShapePiece selection entry (owned by `root`, outlives this call, no
+    // copy needed), then a single Geometry::bbox call unions them -
+    // mirrors fit_scene_unlocked's own shape_ptrs pattern above. E1's own
+    // bare-id kinds (Row/Region/Placement - no backing Shape) resolve
+    // their own bbox directly and union in via expand_bbox_unlocked
+    // instead. A no-op (view unchanged) if nothing is selected, unlike
+    // fit_scene_unlocked, which always has the whole design to fall back
+    // to.
     void fit_selected_unlocked(LeHandle *handle, int32_t padding_px)
     {
         std::vector<const le::Shape *> shape_ptrs;
+        std::optional<le::Rect> bbox;
+        const int remaining_depth = std::max(0, handle->scene.hierarchy_depth() - 1);
 
         for (const le::SelectedObject &selected : handle->scene.selection())
-            if (const le::Shape *shape = handle->root.get_shape(selected.shape_id))
-                shape_ptrs.push_back(shape);
+        {
+            std::visit([&](const auto &s)
+            {
+                using T = std::decay_t<decltype(s)>;
+                if constexpr (std::is_same_v<T, le::ShapePiece>)
+                {
+                    if (const le::Shape *shape = handle->root.get_shape(s.shape_id))
+                        shape_ptrs.push_back(shape);
+                }
+                else if constexpr (std::is_same_v<T, le::RowId>)
+                {
+                    if (auto row_bbox = le::row_footprint_bbox(handle->root, s))
+                        expand_bbox_unlocked(bbox, *row_bbox);
+                }
+                else if constexpr (std::is_same_v<T, le::RegionId>)
+                {
+                    if (const le::RegionData *region = handle->root.get_region(s))
+                        for (const le::Rect &r : region->rects)
+                            expand_bbox_unlocked(bbox, r);
+                }
+                else if constexpr (std::is_same_v<T, le::PlacementId>)
+                {
+                    if (auto placement_bbox = le::placement_world_bbox(handle->root, s, remaining_depth))
+                        expand_bbox_unlocked(bbox, *placement_bbox);
+                }
+            }, selected);
+        }
 
-        if (shape_ptrs.empty())
+        if (const std::optional<le::Rect> shapes_bbox = le::Geometry::bbox(shape_ptrs))
+            expand_bbox_unlocked(bbox, *shapes_bbox);
+
+        if (!bbox)
             return;
 
-        handle->scene.fit_to_content(le::Geometry::bbox(shape_ptrs), padding_px);
+        handle->scene.fit_to_content(bbox, padding_px);
     }
 
     // Builds the one-piece ghost-preview geometry for a single selected
@@ -493,13 +546,21 @@ namespace
     // refresh_armed_move_geometry_unlocked. An empty one-piece Shape
     // (drawing nothing) if the shape itself or the piece index has gone
     // stale since it was selected, rather than crashing or substituting
-    // the wrong piece.
+    // the wrong piece. Also empty (a documented no-op, not a gap) for
+    // E1's Row/Placement/Region alternatives - Move only ever operates on
+    // ShapePiece selections; moving a Row/Placement/Region is explicitly
+    // out of scope for E1 (BUGS_AND_ENHANCEMENTS.md - "selectable", not
+    // "movable").
     le::Shape move_ghost_piece_unlocked(LeHandle *handle, const le::SelectedObject &selected)
     {
-        const le::ShapeData *data = handle->root.get_shape(selected.shape_id);
+        const le::ShapePiece *piece = std::get_if<le::ShapePiece>(&selected);
+        if (!piece)
+            return le::Shape{};
+
+        const le::ShapeData *data = handle->root.get_shape(piece->shape_id);
         if (!data)
             return le::Shape{};
-        return le::Geometry::extract_piece(*data, selected.piece_kind, selected.piece_index);
+        return le::Geometry::extract_piece(*data, piece->piece_kind, piece->piece_index);
     }
 
     // LE_KEY_MOVE/le_arm_move's own body (UPDATES.md item 21) - unlocked
@@ -594,19 +655,28 @@ namespace
         const std::vector<le::SelectedObject> moving_pieces = handle->scene.move().moving_pieces;
         for (const le::SelectedObject &selected : moving_pieces)
         {
-            const le::ShapeData *existing = handle->root.get_shape(selected.shape_id);
-            if (!existing || !le::Geometry::piece_in_range(*existing, selected.piece_kind, selected.piece_index))
+            // Move only ever commits a ShapePiece - E1's Row/Placement/
+            // Region alternatives never reach moving_pieces with real
+            // geometry to move (move_ghost_piece_unlocked's own no-op
+            // above already keeps them out of ghost rendering); this
+            // guard is the matching no-op on the commit side.
+            const le::ShapePiece *piece = std::get_if<le::ShapePiece>(&selected);
+            if (!piece)
+                continue;
+
+            const le::ShapeData *existing = handle->root.get_shape(piece->shape_id);
+            if (!existing || !le::Geometry::piece_in_range(*existing, piece->piece_kind, piece->piece_index))
                 continue; // stale shape or piece index - skip rather than corrupt an unrelated piece
 
             const le::ShapeData before = *existing;
             le::ShapeData after = before;
-            le::Geometry::transform_piece_in_place(after, selected.piece_kind, selected.piece_index, *delta);
-            handle->root.update_shape(selected.shape_id, after.layer, after.purpose, after.paths, after.polygons, after.rects,
+            le::Geometry::transform_piece_in_place(after, piece->piece_kind, piece->piece_index, *delta);
+            handle->root.update_shape(piece->shape_id, after.layer, after.purpose, after.paths, after.polygons, after.rects,
                                       after.spacing, after.design_rule_width, after.except_pg_net);
             handle->root.bump_mutation_version();
 
             if (le::editing::Transaction *txn = handle->command_history.current())
-                txn->record_update<le::ShapeId, le::ShapeData>(selected.shape_id, before, after, &le::apply_shape_snapshot);
+                txn->record_update<le::ShapeId, le::ShapeData>(piece->shape_id, before, after, &le::apply_shape_snapshot);
         }
         handle->command_history.end(/*succeeded=*/true);
 
@@ -821,6 +891,17 @@ namespace
     LeObjectRef ref_from_id(LeObjectKind kind, le::TerminalPortId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
     LeObjectRef ref_from_id(LeObjectKind kind, le::ObstructionId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
     LeObjectRef ref_from_id(LeObjectKind kind, le::ShapeId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
+    // E1 (BUGS_AND_ENHANCEMENTS.md) - the six top-level Layout-view kinds
+    // Scene::SelectedObject's own variant grew, plus PhysicalPortSegment
+    // (an intermediate parent-hop node only, mirroring TerminalPort).
+    LeObjectRef ref_from_id(LeObjectKind kind, le::RowId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
+    LeObjectRef ref_from_id(LeObjectKind kind, le::PlacementId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
+    LeObjectRef ref_from_id(LeObjectKind kind, le::BlockageId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
+    LeObjectRef ref_from_id(LeObjectKind kind, le::RouteId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
+    LeObjectRef ref_from_id(LeObjectKind kind, le::PhysicalPortId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
+    LeObjectRef ref_from_id(LeObjectKind kind, le::RegionId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
+    LeObjectRef ref_from_id(LeObjectKind kind, le::PhysicalPortSegmentId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
+    LeObjectRef ref_from_id(LeObjectKind kind, le::LayoutId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
 
     // Dispatches to the same by-id property builder each class's own
     // le_X_property_count/_at already uses (build_library_properties et
@@ -847,6 +928,22 @@ namespace
             return build_obstruction_properties(root, id_from_ref<le::ObstructionId>(ref));
         case LE_OBJECT_KIND_SHAPE:
             return build_shape_properties(root, id_from_ref<le::ShapeId>(ref));
+        case LE_OBJECT_KIND_ROW:
+            return build_row_properties(root, id_from_ref<le::RowId>(ref));
+        case LE_OBJECT_KIND_PLACEMENT:
+            return build_placement_properties(root, id_from_ref<le::PlacementId>(ref));
+        case LE_OBJECT_KIND_BLOCKAGE:
+            return build_blockage_properties(root, id_from_ref<le::BlockageId>(ref));
+        case LE_OBJECT_KIND_ROUTE:
+            return build_route_properties(root, id_from_ref<le::RouteId>(ref));
+        case LE_OBJECT_KIND_PHYSICAL_PORT:
+            return build_physical_port_properties(root, id_from_ref<le::PhysicalPortId>(ref));
+        case LE_OBJECT_KIND_REGION:
+            return build_region_properties(root, id_from_ref<le::RegionId>(ref));
+        case LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT:
+            return build_physical_port_segment_properties(root, id_from_ref<le::PhysicalPortSegmentId>(ref));
+        case LE_OBJECT_KIND_LAYOUT:
+            return build_layout_properties(root, id_from_ref<le::LayoutId>(ref));
         }
         return {};
     }
@@ -899,7 +996,60 @@ namespace
                 return ref_from_id(LE_OBJECT_KIND_TERMINAL_PORT, shape->terminal_port);
             if (shape->obstruction.valid())
                 return ref_from_id(LE_OBJECT_KIND_OBSTRUCTION, shape->obstruction);
+            // E1 (BUGS_AND_ENHANCEMENTS.md) - the three Layout-view
+            // multi-parent fields Shape gained alongside terminal_port/
+            // obstruction (schema.py).
+            if (shape->blockage.valid())
+                return ref_from_id(LE_OBJECT_KIND_BLOCKAGE, shape->blockage);
+            if (shape->route.valid())
+                return ref_from_id(LE_OBJECT_KIND_ROUTE, shape->route);
+            if (shape->physical_port_segment.valid())
+                return ref_from_id(LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT, shape->physical_port_segment);
             return invalid_object_ref(); // shouldn't happen - mutually exclusive per schema.py - degrade gracefully anyway
+        }
+        case LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT:
+        {
+            const le::PhysicalPortSegmentData *segment = root.get_physical_port_segment(id_from_ref<le::PhysicalPortSegmentId>(ref));
+            return segment ? ref_from_id(LE_OBJECT_KIND_PHYSICAL_PORT, segment->physical_port) : invalid_object_ref();
+        }
+        // E1 - Row/Placement/Blockage/Route/PhysicalPort/Region's own
+        // parent is a Layout, which now has its own LeObjectKind (see
+        // LE_OBJECT_KIND_LAYOUT below) so this hop continues on up to
+        // Design -> Library instead of dead-ending here.
+        case LE_OBJECT_KIND_ROW:
+        {
+            const le::RowData *row = root.get_row(id_from_ref<le::RowId>(ref));
+            return row ? ref_from_id(LE_OBJECT_KIND_LAYOUT, row->layout) : invalid_object_ref();
+        }
+        case LE_OBJECT_KIND_PLACEMENT:
+        {
+            const le::PlacementData *placement = root.get_placement(id_from_ref<le::PlacementId>(ref));
+            return placement ? ref_from_id(LE_OBJECT_KIND_LAYOUT, placement->layout) : invalid_object_ref();
+        }
+        case LE_OBJECT_KIND_BLOCKAGE:
+        {
+            const le::BlockageData *blockage = root.get_blockage(id_from_ref<le::BlockageId>(ref));
+            return blockage ? ref_from_id(LE_OBJECT_KIND_LAYOUT, blockage->layout) : invalid_object_ref();
+        }
+        case LE_OBJECT_KIND_ROUTE:
+        {
+            const le::RouteData *route = root.get_route(id_from_ref<le::RouteId>(ref));
+            return route ? ref_from_id(LE_OBJECT_KIND_LAYOUT, route->layout) : invalid_object_ref();
+        }
+        case LE_OBJECT_KIND_PHYSICAL_PORT:
+        {
+            const le::PhysicalPortData *port = root.get_physical_port(id_from_ref<le::PhysicalPortId>(ref));
+            return port ? ref_from_id(LE_OBJECT_KIND_LAYOUT, port->layout) : invalid_object_ref();
+        }
+        case LE_OBJECT_KIND_REGION:
+        {
+            const le::RegionData *region = root.get_region(id_from_ref<le::RegionId>(ref));
+            return region ? ref_from_id(LE_OBJECT_KIND_LAYOUT, region->layout) : invalid_object_ref();
+        }
+        case LE_OBJECT_KIND_LAYOUT:
+        {
+            const le::LayoutData *layout = root.get_layout(id_from_ref<le::LayoutId>(ref));
+            return layout ? ref_from_id(LE_OBJECT_KIND_DESIGN, layout->design) : invalid_object_ref();
         }
         }
         return invalid_object_ref();
@@ -1669,8 +1819,27 @@ extern "C"
         // discarding it.
         if (handle->scene.mode() == le::Scene::Mode::SELECT)
         {
-            const auto &shapes = handle->pipeline.run(handle->root, handle->scene, handle->view_layers);
-            handle->scene.set_hover(le::Pipeline::hit_test_point(shapes, handle->view_layers, handle->scene, *handle->scene.mouse_dbu_position()));
+            // E1 (BUGS_AND_ENHANCEMENTS.md) - this used to unconditionally
+            // hit-test the Abstract path even in Layout view, hovering
+            // stale/irrelevant content; same branch as le_mouse_up below.
+            // No Placement fallback here (unlike le_mouse_up's own click/
+            // drag handling) - HoverTarget's own SelectionRef variant
+            // deliberately excludes PlacementId (see its own comment: a
+            // Placement never enters the RenderedShape map at all), so
+            // hovering a Placement specifically isn't representable by
+            // this mechanism - a real, separate follow-up, not a gap this
+            // fix silently introduces (Placement was never hoverable
+            // before this fix either).
+            if (handle->scene.current_layout().valid())
+            {
+                const auto &shapes = handle->pipeline.run_layout(handle->root, handle->scene.current_layout(), handle->scene, handle->view_layers);
+                handle->scene.set_hover(le::Pipeline::hit_test_point(shapes, handle->view_layers, handle->scene, *handle->scene.mouse_dbu_position()));
+            }
+            else
+            {
+                const auto &shapes = handle->pipeline.run(handle->root, handle->scene, handle->view_layers);
+                handle->scene.set_hover(le::Pipeline::hit_test_point(shapes, handle->view_layers, handle->scene, *handle->scene.mouse_dbu_position()));
+            }
         }
         else
         {
@@ -1907,6 +2076,172 @@ extern "C"
         handle->scene.begin_drag(x, y, le::Scene::DragKind::ZOOM);
     }
 
+    // le_mouse_up's Select-mode, Abstract-view branch - exactly the
+    // click/drag hit-testing logic that lived directly in le_mouse_up
+    // before E1 (BUGS_AND_ENHANCEMENTS.md) split it out to make room for
+    // select_in_layout_view_unlocked below, which needs an entirely
+    // different hit-test (Layout content has no per-piece geometry
+    // addressable the same way an Abstract's Terminal/Obstruction Shapes
+    // are). Called with handle->mutex_ already held, `x`/`y` the same
+    // release-point le_mouse_up itself received, `is_click` its own
+    // click-vs-drag threshold result.
+    void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
+    {
+        const auto &shapes = handle->pipeline.run(handle->root, handle->scene, handle->view_layers);
+
+        if (is_click)
+        {
+            // Computed straight from this call's own x/y, not
+            // Scene::drag_rect_dbu()/mouse_dbu_position() - those read the
+            // separately-tracked *stored* mouse position (see
+            // le_set_mouse_position), which this call has no guaranteed
+            // ordering against.
+            const le::Point dbu_point = handle->scene.pixel_to_dbu(x, y);
+            const auto hit = le::Pipeline::hit_test_point(shapes, handle->view_layers, handle->scene, dbu_point);
+            if (hit && hit->shape_id)
+            {
+                // UPDATES.md item 21 - hit_test_point's own piece is
+                // Pipeline's *rendered* geometry, not always
+                // addressable in Root (e.g. an ITERATE-expanded piece
+                // has no raw index - see HoverTarget's own comment) -
+                // re-hit-test the same point against the shape's real,
+                // raw geometry to find the piece selection/Move
+                // actually operate on. Selects the whole shape id with
+                // the default piece (0) in the vanishingly unlikely
+                // case the raw geometry doesn't hit at the exact same
+                // point the rendered geometry did (e.g. a boundary
+                // rounding difference, or a pure ITERATE-expanded hit
+                // with no raw counterpart at all) rather than silently
+                // selecting nothing.
+                if (const le::ShapeData *data = handle->root.get_shape(*hit->shape_id))
+                {
+                    if (const auto raw_piece = le::Geometry::find_hit_piece(*data, dbu_point))
+                        handle->scene.select(*hit->shape_id, raw_piece->kind, raw_piece->index);
+                    else
+                        handle->scene.select(*hit->shape_id);
+                }
+            }
+        }
+        else
+        {
+            const le::Point start = handle->scene.pixel_to_dbu(handle->scene.drag_start_x_px(), handle->scene.drag_start_y_px());
+            const le::Point end = handle->scene.pixel_to_dbu(x, y);
+            const le::Rect drag_rect{
+                .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
+                .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
+            };
+
+            // UPDATES.md item 21 - same "re-test against raw geometry"
+            // reasoning as the click branch above: hit_test_rect's own
+            // pieces are only used to find which ShapeIds are
+            // candidates at all; each candidate's actual enclosed
+            // pieces are then found by re-running fully_enclosed_pieces
+            // against its real Root::get_shape() data.
+            std::set<le::ShapeId> candidate_ids;
+            for (const le::HoverTarget &hit : le::Pipeline::hit_test_rect(shapes, handle->view_layers, handle->scene, drag_rect))
+                if (hit.shape_id)
+                    candidate_ids.insert(*hit.shape_id);
+
+            for (const le::ShapeId shape_id : candidate_ids)
+            {
+                const le::ShapeData *data = handle->root.get_shape(shape_id);
+                if (!data)
+                    continue;
+
+                for (const auto &piece : le::Geometry::fully_enclosed_pieces(drag_rect, *data))
+                    handle->scene.select(shape_id, piece.kind, piece.index);
+            }
+        }
+    }
+
+    // le_mouse_up's Select-mode, Layout-view branch (E1,
+    // BUGS_AND_ENHANCEMENTS.md) - top-level Layout content only, never
+    // recursing into a Placement's own reference_design (matches this
+    // codebase's own existing, documented "whole-placement only"
+    // deferral - see InstanceRenderer's own class comment). Placement
+    // hit-testing (hit_test_placements_point/_rect, src/core/
+    // placement_geometry.hpp) is checked first/unioned first since a
+    // Placement is always drawn topmost (BuildLayoutPictureStage::run
+    // draws own_shapes - Blockage/Route/PhysicalPort/Row/Region - first,
+    // then instances on top of them) - a click only ever selects the one
+    // topmost object, a drag unions everything enclosed regardless of
+    // stacking. Blockage/Route/PhysicalPort share the exact same
+    // ShapeId+piece re-resolution as the Abstract branch above (they
+    // have real backing Shapes); Row/Region have no Shape at all, so a
+    // hit with `origin` set but `shape_id` unset gets its own small fork
+    // straight into scene.select(RowId)/scene.select(RegionId) - there's
+    // no separate Root-owned geometry to re-validate a piece against, the
+    // synthesized rect *is* the geometry.
+    void select_in_layout_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
+    {
+        const le::LayoutId layout_id = handle->scene.current_layout();
+        const int remaining_depth = std::max(0, handle->scene.hierarchy_depth() - 1);
+        const auto &shapes = handle->pipeline.run_layout(handle->root, layout_id, handle->scene, handle->view_layers);
+
+        if (is_click)
+        {
+            const le::Point dbu_point = handle->scene.pixel_to_dbu(x, y);
+
+            if (const auto placement_id = le::hit_test_placements_point(handle->root, layout_id, remaining_depth, dbu_point))
+            {
+                handle->scene.select(*placement_id);
+                return;
+            }
+
+            const auto hit = le::Pipeline::hit_test_point(shapes, handle->view_layers, handle->scene, dbu_point);
+            if (!hit)
+                return;
+
+            if (hit->shape_id)
+            {
+                if (const le::ShapeData *data = handle->root.get_shape(*hit->shape_id))
+                {
+                    if (const auto raw_piece = le::Geometry::find_hit_piece(*data, dbu_point))
+                        handle->scene.select(*hit->shape_id, raw_piece->kind, raw_piece->index);
+                    else
+                        handle->scene.select(*hit->shape_id);
+                }
+            }
+            else if (const auto *row_id = std::get_if<le::RowId>(&hit->origin))
+                handle->scene.select(*row_id);
+            else if (const auto *region_id = std::get_if<le::RegionId>(&hit->origin))
+                handle->scene.select(*region_id);
+        }
+        else
+        {
+            const le::Point start = handle->scene.pixel_to_dbu(handle->scene.drag_start_x_px(), handle->scene.drag_start_y_px());
+            const le::Point end = handle->scene.pixel_to_dbu(x, y);
+            const le::Rect drag_rect{
+                .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
+                .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
+            };
+
+            for (le::PlacementId placement_id : le::hit_test_placements_rect(handle->root, layout_id, remaining_depth, drag_rect))
+                handle->scene.select(placement_id);
+
+            std::set<le::ShapeId> candidate_ids;
+            for (const le::HoverTarget &hit : le::Pipeline::hit_test_rect(shapes, handle->view_layers, handle->scene, drag_rect))
+            {
+                if (hit.shape_id)
+                    candidate_ids.insert(*hit.shape_id);
+                else if (const auto *row_id = std::get_if<le::RowId>(&hit.origin))
+                    handle->scene.select(*row_id);
+                else if (const auto *region_id = std::get_if<le::RegionId>(&hit.origin))
+                    handle->scene.select(*region_id);
+            }
+
+            for (const le::ShapeId shape_id : candidate_ids)
+            {
+                const le::ShapeData *data = handle->root.get_shape(shape_id);
+                if (!data)
+                    continue;
+
+                for (const auto &piece : le::Geometry::fully_enclosed_pieces(drag_rect, *data))
+                    handle->scene.select(shape_id, piece.kind, piece.index);
+            }
+        }
+    }
+
     void le_mouse_up(LeHandle *handle, int32_t x, int32_t y)
     {
         if (!handle || !handle->scene.is_dragging())
@@ -1945,75 +2280,19 @@ extern "C"
         // always resets regardless of mode.
         if (handle->scene.mode() == le::Scene::Mode::SELECT)
         {
-            const auto &shapes = handle->pipeline.run(handle->root, handle->scene, handle->view_layers);
             const bool shift = handle->scene.is_key_held(LE_KEY_SHIFT);
 
             if (!shift)
                 handle->scene.clear_selection();
 
-            if (is_click)
-            {
-                // Computed straight from this call's own x/y, not
-                // Scene::drag_rect_dbu()/mouse_dbu_position() - those read the
-                // separately-tracked *stored* mouse position (see
-                // le_set_mouse_position), which this call has no guaranteed
-                // ordering against.
-                const le::Point dbu_point = handle->scene.pixel_to_dbu(x, y);
-                const auto hit = le::Pipeline::hit_test_point(shapes, handle->view_layers, handle->scene, dbu_point);
-                if (hit && hit->shape_id)
-                {
-                    // UPDATES.md item 21 - hit_test_point's own piece is
-                    // Pipeline's *rendered* geometry, not always
-                    // addressable in Root (e.g. an ITERATE-expanded piece
-                    // has no raw index - see HoverTarget's own comment) -
-                    // re-hit-test the same point against the shape's real,
-                    // raw geometry to find the piece selection/Move
-                    // actually operate on. Selects the whole shape id with
-                    // the default piece (0) in the vanishingly unlikely
-                    // case the raw geometry doesn't hit at the exact same
-                    // point the rendered geometry did (e.g. a boundary
-                    // rounding difference, or a pure ITERATE-expanded hit
-                    // with no raw counterpart at all) rather than silently
-                    // selecting nothing.
-                    if (const le::ShapeData *data = handle->root.get_shape(*hit->shape_id))
-                    {
-                        if (const auto raw_piece = le::Geometry::find_hit_piece(*data, dbu_point))
-                            handle->scene.select(*hit->shape_id, raw_piece->kind, raw_piece->index);
-                        else
-                            handle->scene.select(*hit->shape_id);
-                    }
-                }
-            }
+            // E1 (BUGS_AND_ENHANCEMENTS.md) - this used to unconditionally
+            // hit-test the Abstract path even in Layout view (a real bug:
+            // clicking in Layout view hit whatever stale/irrelevant
+            // Abstract content happened to exist, never the Layout's own).
+            if (handle->scene.current_layout().valid())
+                select_in_layout_view_unlocked(handle, x, y, is_click);
             else
-            {
-                const le::Point start = handle->scene.pixel_to_dbu(handle->scene.drag_start_x_px(), handle->scene.drag_start_y_px());
-                const le::Point end = handle->scene.pixel_to_dbu(x, y);
-                const le::Rect drag_rect{
-                    .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
-                    .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
-                };
-
-                // UPDATES.md item 21 - same "re-test against raw geometry"
-                // reasoning as the click branch above: hit_test_rect's own
-                // pieces are only used to find which ShapeIds are
-                // candidates at all; each candidate's actual enclosed
-                // pieces are then found by re-running fully_enclosed_pieces
-                // against its real Root::get_shape() data.
-                std::set<le::ShapeId> candidate_ids;
-                for (const le::HoverTarget &hit : le::Pipeline::hit_test_rect(shapes, handle->view_layers, handle->scene, drag_rect))
-                    if (hit.shape_id)
-                        candidate_ids.insert(*hit.shape_id);
-
-                for (const le::ShapeId shape_id : candidate_ids)
-                {
-                    const le::ShapeData *data = handle->root.get_shape(shape_id);
-                    if (!data)
-                        continue;
-
-                    for (const auto &piece : le::Geometry::fully_enclosed_pieces(drag_rect, *data))
-                        handle->scene.select(shape_id, piece.kind, piece.index);
-                }
-            }
+                select_in_abstract_view_unlocked(handle, x, y, is_click);
         }
         else if (handle->scene.mode() == le::Scene::Mode::RULER)
         {
@@ -2125,7 +2404,25 @@ extern "C"
         if (static_cast<size_t>(selection_index) >= selection.size())
             return invalid_object_ref();
 
-        return ref_from_id(LE_OBJECT_KIND_SHAPE, selection[static_cast<size_t>(selection_index)].shape_id);
+        // E1 (BUGS_AND_ENHANCEMENTS.md) - dispatches every SelectedObject
+        // alternative to its own LeObjectKind; ShapePiece (Terminal/
+        // Obstruction/Blockage/Route/PhysicalPort) always resolves to
+        // LE_OBJECT_KIND_SHAPE, unchanged from before this variant grew -
+        // a Property Viewer wanting the owning Blockage/Route/PhysicalPort
+        // instead walks up via le_object_parent (see object_ref_parent's
+        // own new Shape->blockage/route/physical_port_segment hops).
+        return std::visit([](const auto &s) -> LeObjectRef
+        {
+            using T = std::decay_t<decltype(s)>;
+            if constexpr (std::is_same_v<T, le::ShapePiece>)
+                return ref_from_id(LE_OBJECT_KIND_SHAPE, s.shape_id);
+            else if constexpr (std::is_same_v<T, le::RowId>)
+                return ref_from_id(LE_OBJECT_KIND_ROW, s);
+            else if constexpr (std::is_same_v<T, le::PlacementId>)
+                return ref_from_id(LE_OBJECT_KIND_PLACEMENT, s);
+            else if constexpr (std::is_same_v<T, le::RegionId>)
+                return ref_from_id(LE_OBJECT_KIND_REGION, s);
+        }, selection[static_cast<size_t>(selection_index)]);
     }
 
     LeTerminalId le_terminal_by_name(LeHandle *handle, const char *name)
