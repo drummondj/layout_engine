@@ -167,8 +167,10 @@ TEST_F(RenderFixture, TransformToPixelsHandlesPolygonsPathsAndTexts)
 
     // buffered_outline (transformed from RenderedShape::path_outlines,
     // computed via Geometry::path_to_polygons at generate_shapes time) -
-    // a flat-ended, width-4 buffer of dbu (0,0)-(10,0) is the dbu rect
-    // (0,-2)-(10,2); at scale 2.0/pan (0,0) that's pixel (0,-4)-(20,4).
+    // a width-4 buffer of dbu (0,0)-(10,0) extends each of its two free
+    // ends by half-width (2 dbu, the DEF/LEF default end-cap convention -
+    // see Geometry::extend_path_ends_for_buffering), so the dbu rect is
+    // (-2,-2)-(12,2); at scale 2.0/pan (0,0) that's pixel (-4,-4)-(24,4).
     // Checked via bbox, not exact point order/winding, since that's an
     // internal Boost.Geometry buffer detail this test shouldn't couple to.
     ASSERT_EQ(ps.paths.front().buffered_outline.size(), 1u);
@@ -183,8 +185,8 @@ TEST_F(RenderFixture, TransformToPixelsHandlesPolygonsPathsAndTexts)
         min_y = std::min(min_y, pt.y);
         max_y = std::max(max_y, pt.y);
     }
-    EXPECT_DOUBLE_EQ(min_x, 0.0);
-    EXPECT_DOUBLE_EQ(max_x, 20.0);
+    EXPECT_DOUBLE_EQ(min_x, -4.0);
+    EXPECT_DOUBLE_EQ(max_x, 24.0);
     EXPECT_DOUBLE_EQ(min_y, -4.0);
     EXPECT_DOUBLE_EQ(max_y, 4.0);
 

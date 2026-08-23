@@ -13,6 +13,7 @@
 #include <boost/geometry/geometries/multi_polygon.hpp>
 #include <boost/geometry/strategies/transform/matrix_transformers.hpp>
 #include <boost/geometry/strategies/buffer.hpp>
+#include <cmath>
 #include <limits>
 #include <optional>
 
@@ -436,6 +437,48 @@ namespace le
             return Polygon{.points = points};
         }
 
+        // A Path's own DEF/LEF-standard default end cap: each of its two
+        // free ends extends by half the path's own width beyond its raw
+        // centerline coordinate, rather than butting flush to it - the
+        // usual convention for how a router draws/connects PATH segments
+        // (a genuinely free-standing end is meant to look "capped", not
+        // cut off exactly at its own point; adjacent NEW-delimited path
+        // segments of a route - each its own separate Path, not one
+        // continuous polyline - are meant to visually flush-join at a
+        // shared corner with no gap between them). Boost's own buffer end
+        // strategies only offer end_flat (no extension, the bug this
+        // fixes) or end_round (a semicircular cap) - neither matches - so
+        // the extension is baked into a throwaway copy of the centerline
+        // used only for this buffering call; the caller's own
+        // path.polygon.points (the stored centerline) is never touched.
+        // Interior vertices of a multi-point Path are left exactly as
+        // given - those already get a proper corner via join_miter below,
+        // not an end cap.
+        static std::vector<Point> extend_path_ends_for_buffering(const std::vector<Point> &points, int64_t width)
+        {
+            if (points.size() < 2 || width <= 0)
+                return points;
+
+            std::vector<Point> extended = points;
+            const double half_width = static_cast<double>(width) / 2.0;
+
+            auto extend_endpoint = [half_width](Point &end, const Point &neighbor)
+            {
+                const double dx = static_cast<double>(end.x - neighbor.x);
+                const double dy = static_cast<double>(end.y - neighbor.y);
+                const double length = std::sqrt(dx * dx + dy * dy);
+                if (length <= 0.0)
+                    return; // coincident with its neighbor - no direction to extend along
+                end.x += static_cast<int64_t>(std::llround(dx / length * half_width));
+                end.y += static_cast<int64_t>(std::llround(dy / length * half_width));
+            };
+
+            extend_endpoint(extended.front(), extended[1]);
+            extend_endpoint(extended.back(), extended[extended.size() - 2]);
+
+            return extended;
+        }
+
         static std::vector<Polygon> path_to_polygons(const Path &path)
         {
             using BgPolygon = bg::model::polygon<Point>;
@@ -451,7 +494,8 @@ namespace le
             bg::strategy::buffer::point_square circle_strategy;
             bg::strategy::buffer::side_straight side_strategy;
 
-            bg::buffer(path.polygon.points, out, distance_strategy, side_strategy, join_strategy, end_strategy, circle_strategy);
+            const std::vector<Point> buffering_points = extend_path_ends_for_buffering(path.polygon.points, path.width);
+            bg::buffer(buffering_points, out, distance_strategy, side_strategy, join_strategy, end_strategy, circle_strategy);
 
             std::vector<Polygon> result;
             result.reserve(out.size());

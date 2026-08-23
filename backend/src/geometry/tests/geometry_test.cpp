@@ -189,11 +189,36 @@ TEST(Geometry, PathToPolygonsBuffersCenterlineBySymmetricHalfWidth)
     // LEF PATH WIDTH is the total trace width, so a width-20 horizontal
     // centerline should buffer to a total height of 20 (10 on each side),
     // not 40 - this is the exact bug path_to_polygons had (see CLAUDE.md).
+    // The x extent is also extended by half-width (10) at each free end -
+    // the DEF/LEF default end-cap convention, see
+    // extend_path_ends_for_buffering's own comment - not left flush to
+    // the raw centerline coordinates.
     Path path{.polygon = Polygon{.points = {{0, 0}, {100, 0}}}, .width = 20};
     auto polygons = Geometry::path_to_polygons(path);
 
     ASSERT_EQ(polygons.size(), 1u);
-    expect_bounds(polygons.front().points, Point{0, -10}, Point{100, 10});
+    expect_bounds(polygons.front().points, Point{-10, -10}, Point{110, 10});
+}
+
+TEST(Geometry, PathToPolygonsLeavesInteriorVerticesOfAMultiPointPathUnextended)
+{
+    // Only the two FREE ends of a multi-point Path get the half-width
+    // extension - an interior vertex (a real corner within one continuous
+    // Path) already gets a proper miter join from join_miter and must not
+    // also be pushed outward as if it were a free end too. An
+    // axis-aligned L turning left: (0,0)-(100,0)-(100,100), width 20
+    // (half-width 10). The two free ends extend by 10 along their own
+    // arm's direction: (0,0)-&gt;(-10,0) and (100,100)-&gt;(100,110). The
+    // interior corner at (100,0) is not an end at all - it's covered by
+    // join_miter's own outer corner, which for this left turn lands at
+    // (110,-10) (the buffered strips' own outer/right-side edges: y=-10
+    // from the horizontal arm, x=110 from the vertical arm). Together
+    // these three points bound the whole outline exactly.
+    Path path{.polygon = Polygon{.points = {{0, 0}, {100, 0}, {100, 100}}}, .width = 20};
+    auto polygons = Geometry::path_to_polygons(path);
+
+    ASSERT_EQ(polygons.size(), 1u);
+    expect_bounds(polygons.front().points, Point{-10, -10}, Point{110, 110});
 }
 
 TEST(Geometry, UnionShapesReturnsNulloptWhenNoGeometry)
