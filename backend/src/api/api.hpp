@@ -242,18 +242,35 @@ extern "C"
     /// both). Clears current_abstract_id (and Scene's own
     /// current_abstract, so le_render_pixel_buffer() stops rendering the
     /// old Abstract) the same way le_set_current_design_abstract/_by_id clear
-    /// current_layout_id. Returns 0 on success, nonzero if handle is
-    /// null or index is out of range - the current selection is left
-    /// unchanged on failure. Layout rendering itself doesn't exist yet
-    /// (PROJECT_MIGRATION.md's own Step 3) - this only moves the
-    /// TCL-facing current-instance tracker get_rows/get_placements/
-    /// get_blockages/etc.'s own default scope derives from.
+    /// current_layout_id (and Scene's own current_layout). Returns 0 on
+    /// success, nonzero if handle is null or index is out of range - the
+    /// current selection is left unchanged on failure. Once selected,
+    /// le_render_pixel_buffer() renders this Layout's own content plus its
+    /// placed instances, recursed le_hierarchy_depth() levels deep
+    /// (Migration Step 3) - see le_set_hierarchy_depth()'s own comment.
     int le_set_current_design_layout(LeHandle *handle, int32_t index);
 
     /// @brief Same as le_set_current_design_layout, but addressed by
     /// LeDesignId - same relationship to it as le_set_current_design_abstract_by_id
     /// has to le_set_current_design_abstract.
     int le_set_current_design_layout_by_id(LeHandle *handle, LeDesignId design_id);
+
+    /// @brief How many further levels of Placement -> Design a Layout view
+    /// recurses into before a placed instance falls back to its own
+    /// Abstract, rather than recursing into its own nested Layout
+    /// (Migration Step 3 Phase C) - 0 (the default) means every placement
+    /// falls back straight to its Abstract. 0 if handle is null.
+    int32_t le_hierarchy_depth(LeHandle *handle);
+
+    /// @brief Sets le_hierarchy_depth(). Negative values are rejected (the
+    /// current depth is left unchanged) rather than clamped - same
+    /// "reject, don't silently clamp" convention le_set_scale uses for a
+    /// non-positive scale. Bumps Scene's own hierarchy_version() (only)
+    /// on an actual change, cheap for a caller to compare instead of
+    /// snapshotting the depth by value. A no-op return value isn't
+    /// distinguished from a successful no-op (same value set again) -
+    /// query le_hierarchy_depth() afterward if the distinction matters.
+    void le_set_hierarchy_depth(LeHandle *handle, int32_t depth);
 
     /// @brief Number of layer-widget rows currently available - mirrors
     /// ViewLayerSet::rows() directly (see LeLayerRow's own comment: this

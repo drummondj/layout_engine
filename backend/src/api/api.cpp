@@ -3,6 +3,7 @@
 #include "../database/filter.hpp"
 #include "../editing/editing.hpp"
 #include "../geometry/geometry.hpp"
+#include "../instancing/instance_renderer.hpp"
 #include "../io/lef_reader.hpp"
 #include "../io/def_reader.hpp"
 #include "../pipeline/pipeline.hpp"
@@ -53,6 +54,14 @@ struct LeHandle
     le::Scene scene;
     le::Pipeline pipeline;
     le::Renderer renderer;
+
+    // Resolves Placement -> Design into cached SkPictures and renders the
+    // full displayable frame for a Layout view (Migration Step 3 Phase C)
+    // - le_render_pixel_buffer calls its own render_layout_frame instead
+    // of pipeline/renderer above when scene.current_layout() is active.
+    // See its own class comment for why it owns a second, independent
+    // rasterize/compose chain rather than sharing renderer's.
+    le::InstanceRenderer instance_renderer;
 
     // Undo/redo stack + command-recall log (UPDATES.md item 21) - every
     // generated le_create_X/le_update_X/le_delete_X function records
@@ -1084,13 +1093,15 @@ extern "C"
         // caller (a Dart-driven GUI) or a TCL script (open_design,
         // itself calling le_set_current_design_abstract_by_id below - the same
         // shared entry point) should mean the same thing to both.
-        // Clears current_layout_id: only one view is "open" at a time
+        // Clears current_layout_id and Scene's own current_layout
+        // (Migration Step 3 Phase C): only one view is "open" at a time
         // (see le_set_current_design_layout's own comment) - selecting
         // the Abstract view deactivates the Layout one, same as the
         // reverse.
         const le::DesignId design_id = design_ids[static_cast<size_t>(index)];
         const le::AbstractId abstract_id = handle->root.get_design_abstract(design_id);
         handle->scene.set_current_abstract(abstract_id);
+        handle->scene.set_current_layout(le::LayoutId{});
         handle->current_abstract_id = abstract_id;
         handle->current_layout_id = le::LayoutId{};
         return 0;
@@ -1190,6 +1201,7 @@ extern "C"
         // Abstract-view trackers move together, current_layout_id clears.
         const le::AbstractId abstract_id = handle->root.get_design_abstract(id);
         handle->scene.set_current_abstract(abstract_id);
+        handle->scene.set_current_layout(le::LayoutId{});
         handle->current_abstract_id = abstract_id;
         handle->current_layout_id = le::LayoutId{};
         return 0;
@@ -1205,19 +1217,20 @@ extern "C"
         if (static_cast<size_t>(index) >= design_ids.size())
             return 1;
 
-        // Mirror image of le_set_current_design_abstract: activates the Layout
-        // view's own current-instance tracker (what get_rows/
+        // Mirror image of le_set_current_design_abstract: activates the
+        // Layout view's own current-instance tracker (what get_rows/
         // get_placements/get_blockages/etc.'s own default -of-omitted
-        // scope derives from) and deactivates the Abstract one - only
-        // one view is "open" at a time, matching a real GUI showing one
-        // editor. Scene's own current_abstract clears too, so
-        // le_render_pixel_buffer() stops rendering the old Abstract
-        // (Layout rendering itself doesn't exist yet - PROJECT_MIGRATION.md's
-        // own Step 3).
+        // scope derives from) and Scene's own current_layout (Migration
+        // Step 3 Phase C - what le_render_pixel_buffer now actually
+        // renders, via InstanceRenderer::render_layout_frame), and
+        // deactivates the Abstract-view ones - only one view is "open" at
+        // a time, matching a real GUI showing one editor.
         const le::DesignId design_id = design_ids[static_cast<size_t>(index)];
-        handle->current_layout_id = handle->root.get_design_layout(design_id);
-        handle->current_abstract_id = le::AbstractId{};
+        const le::LayoutId layout_id = handle->root.get_design_layout(design_id);
+        handle->scene.set_current_layout(layout_id);
         handle->scene.set_current_abstract(le::AbstractId{});
+        handle->current_layout_id = layout_id;
+        handle->current_abstract_id = le::AbstractId{};
         return 0;
     }
 
@@ -1232,10 +1245,28 @@ extern "C"
             return 1;
 
         // See le_set_current_design_layout's own comment above.
-        handle->current_layout_id = handle->root.get_design_layout(id);
-        handle->current_abstract_id = le::AbstractId{};
+        const le::LayoutId layout_id = handle->root.get_design_layout(id);
+        handle->scene.set_current_layout(layout_id);
         handle->scene.set_current_abstract(le::AbstractId{});
+        handle->current_layout_id = layout_id;
+        handle->current_abstract_id = le::AbstractId{};
         return 0;
+    }
+
+    int32_t le_hierarchy_depth(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+        return static_cast<int32_t>(handle->scene.hierarchy_depth());
+    }
+
+    void le_set_hierarchy_depth(LeHandle *handle, int32_t depth)
+    {
+        if (!handle)
+            return;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+        handle->scene.set_hierarchy_depth(depth);
     }
 
     int32_t le_layer_count(LeHandle *handle)
@@ -2577,6 +2608,23 @@ extern "C"
         if (!handle)
             return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
         std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        // Migration Step 3 Phase C: a Layout view (scene.current_layout()
+        // valid - set by le_set_current_design_layout(_by_id), which
+        // clears scene.current_abstract() at the same time, so the two
+        // are always mutually exclusive) renders through InstanceRenderer
+        // instead of Pipeline/Renderer - see LeHandle::instance_renderer's
+        // own comment.
+        if (handle->scene.current_layout().valid())
+        {
+            const auto &buffer = handle->instance_renderer.render_layout_frame(handle->root, handle->scene.current_layout(), handle->scene.hierarchy_depth(), handle->view_layers, handle->scene);
+            return LePixelBuffer{
+                .data = buffer.data,
+                .width = buffer.width,
+                .height = buffer.height,
+                .row_bytes = static_cast<int64_t>(buffer.row_bytes),
+            };
+        }
 
         const auto &shapes = handle->pipeline.run(handle->root, handle->scene, handle->view_layers);
         const auto &tiny_shapes = handle->pipeline.run_tiny_shapes(handle->root, handle->scene, handle->view_layers);

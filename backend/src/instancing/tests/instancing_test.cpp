@@ -106,6 +106,30 @@ namespace
             return false;
         }
 
+        // Same region-scan reasoning as region_has_opaque_pixel above, but
+        // reading a raw PixelBuffer (render_layout_frame's own return
+        // type) directly, same technique as render_test.cpp's own
+        // is_white-style helpers. Checks for a *colored* (non-grayscale)
+        // opaque pixel specifically, not just any opacity - render_layout_frame
+        // also draws a background dot/axis grid across the WHOLE viewport
+        // (draw_grid, always gray/white - kMinorGridColor/kMajorGridColor
+        // in draw_helpers.hpp), so a plain alpha-presence check would false-
+        // positive on a grid dot even where no real content was drawn. M1
+        // (a ROUTING layer) gets kRoutingCutColors[0] = pure red
+        // (255,0,0,255) - never grayscale - so r != g reliably distinguishes
+        // real M1 content from the grid.
+        bool pixel_buffer_region_has_opaque_pixel(const PixelBuffer &buffer, int x0, int y0, int x1, int y1)
+        {
+            for (int y = y0; y <= y1; ++y)
+                for (int x = x0; x <= x1; ++x)
+                {
+                    const uint8_t *p = buffer.data + static_cast<size_t>(y) * static_cast<size_t>(buffer.row_bytes) + static_cast<size_t>(x) * 4;
+                    if (p[3] > 0 && p[0] != p[1])
+                        return true;
+                }
+            return false;
+        }
+
         Root root;
         TechnologyId technology_id;
         LayerId m1;
@@ -313,4 +337,97 @@ TEST_F(InstancingFixture, PlacementMathFallsBackToTheBoundaryShapeWhenAbstractSi
     // OrientationRotatesTheInstancedLeaf case above).
     const SkBitmap bitmap = rasterize(picture, 400, 400);
     EXPECT_TRUE(region_has_opaque_pixel(bitmap, 10, 10, 190, 90));
+}
+
+TEST_F(InstancingFixture, RenderLayoutFrameDrawsAtTheCorrectPostFlipPixelPosition)
+{
+    DesignId leaf = create_leaf_design("LEAF", Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
+    add_placement(sub_layout, leaf, Point{500, 500}, Orientation::N, "U1");
+
+    scene.set_pan(Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+
+    const PixelBuffer &buffer = instance_renderer.render_layout_frame(root, sub_layout, /*hierarchy_depth=*/1, view_layers, scene);
+    ASSERT_TRUE(buffer.data);
+    EXPECT_EQ(buffer.width, 800);
+    EXPECT_EQ(buffer.height, 800);
+
+    // Pre-flip pixel rect (pan=0, scale=1) is exactly the leaf's own world
+    // dbu rect, (500,500)-(600,600); RasterizeStage's own Y-flip (baked
+    // into render_layout_frame's own chain, same as the Abstract path)
+    // maps dbu y -> height - y, so the post-flip rect is (500,200)-(600,300).
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(buffer, 520, 220, 580, 280));
+    EXPECT_FALSE(pixel_buffer_region_has_opaque_pixel(buffer, 10, 10, 50, 50));
+}
+
+TEST_F(InstancingFixture, RenderLayoutFramePanShiftsTheDrawnPosition)
+{
+    DesignId leaf = create_leaf_design("LEAF", Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
+    add_placement(sub_layout, leaf, Point{500, 500}, Orientation::N, "U1");
+
+    scene.set_pan(Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+    instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene); // establish the un-panned frame first
+
+    scene.set_pan(Point{100, 100});
+    const PixelBuffer &panned = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene);
+
+    // world dbu rect (500,500)-(600,600), pan=(100,100) -> pre-flip pixel
+    // (400,400)-(500,500) -> post-flip (height - y): (400,300)-(500,400).
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(panned, 420, 320, 480, 380));
+    // The un-panned frame's own region should no longer be lit - proves
+    // the picture actually moved, not that it's drawn twice.
+    EXPECT_FALSE(pixel_buffer_region_has_opaque_pixel(panned, 520, 220, 580, 280));
+}
+
+TEST_F(InstancingFixture, RenderLayoutFrameReusesCacheUntilSceneChanges)
+{
+    DesignId leaf = create_leaf_design("LEAF", Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
+    add_placement(sub_layout, leaf, Point{500, 500}, Orientation::N, "U1");
+
+    scene.set_pan(Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+
+    const PixelBuffer &first = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene);
+    const uint8_t *first_data = first.data;
+
+    const PixelBuffer &second = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene);
+    EXPECT_EQ(second.data, first_data); // unchanged scene - cache hit, same underlying surface
+
+    scene.set_pan(Point{10, 10});
+    const PixelBuffer &after_pan = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene);
+    EXPECT_NE(after_pan.data, first_data); // pan changed - must recompute
+}
+
+TEST_F(InstancingFixture, RenderLayoutFrameRecomputesAfterARootMutation)
+{
+    // Regression: render_layout_frame's own compose-step cache key relies
+    // entirely on recompute_count_ as a proxy for "did anything upstream
+    // (including root.mutation_version()) change" - this only holds
+    // because build_layout_picture (which checks root.mutation_version()
+    // via ensure_epoch) is always called first, on every single call,
+    // before recompute_count_ is read. Exercises that path directly,
+    // not just the pan-changed case RenderLayoutFrameReusesCacheUntilSceneChanges
+    // already covers.
+    DesignId leaf = create_leaf_design("LEAF", Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
+    add_placement(sub_layout, leaf, Point{500, 500}, Orientation::N, "U1");
+
+    scene.set_pan(Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+
+    const PixelBuffer &first = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene);
+    const uint8_t *first_data = first.data;
+
+    root.bump_mutation_version();
+    const PixelBuffer &after_mutation = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene);
+    EXPECT_NE(after_mutation.data, first_data); // mutation invalidated the whole epoch - must recompute
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(after_mutation, 520, 220, 580, 280)); // content still correct after recompute
 }

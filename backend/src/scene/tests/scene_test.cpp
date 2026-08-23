@@ -18,6 +18,9 @@ TEST(Scene, DefaultStateIsSensible)
     EXPECT_EQ(scene.visibility_version(), 0u);
     EXPECT_EQ(scene.minor_grid_spacing(), 5);
     EXPECT_EQ(scene.major_grid_spacing(), 50);
+    EXPECT_FALSE(scene.current_layout().valid());
+    EXPECT_EQ(scene.hierarchy_depth(), 0);
+    EXPECT_EQ(scene.hierarchy_version(), 0u);
 }
 
 TEST(Scene, CurrentAbstractRoundTrips)
@@ -98,6 +101,80 @@ TEST(Scene, SettingTheSameCurrentAbstractAgainIsANoOp)
     scene.set_current_abstract(AbstractId{1, 0}); // same Abstract already displayed
     EXPECT_FALSE(scene.selection().empty());
     EXPECT_EQ(scene.selection_version(), 1u);
+}
+
+TEST(Scene, CurrentLayoutRoundTrips)
+{
+    Scene scene;
+    LayoutId id{5, 1};
+    scene.set_current_layout(id);
+    EXPECT_EQ(scene.current_layout(), id);
+}
+
+TEST(Scene, SwitchingToADifferentLayoutClearsSelectionHoverAndRulers)
+{
+    // Mirrors SwitchingToADifferentAbstractClearsSelectionAndHover/
+    // ClearsRulers - same reasoning (see those tests' own comments)
+    // applies to current_layout_ too.
+    Scene scene;
+    scene.set_current_layout(LayoutId{1, 0});
+    scene.set_pan(Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(100, 100);
+    scene.set_minor_grid_spacing(1);
+
+    Shape outline;
+    outline.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
+    scene.select(ShapeId{1, 0});
+    scene.set_hover(HoverTarget{.origin = TerminalId{1, 0}, .outline = outline});
+    scene.set_mouse_position(10, 90); // dbu (10, 10)
+    scene.add_ruler_point(false);
+    ASSERT_FALSE(scene.selection().empty());
+    ASSERT_TRUE(scene.hover().has_value());
+    ASSERT_FALSE(scene.rulers().empty());
+
+    scene.set_current_layout(LayoutId{2, 0});
+    EXPECT_TRUE(scene.selection().empty());
+    EXPECT_FALSE(scene.hover().has_value());
+    EXPECT_TRUE(scene.rulers().empty());
+}
+
+TEST(Scene, SettingTheSameCurrentLayoutAgainIsANoOp)
+{
+    Scene scene;
+    scene.set_current_layout(LayoutId{1, 0});
+    scene.select(ShapeId{1, 0});
+    ASSERT_EQ(scene.selection_version(), 1u);
+
+    scene.set_current_layout(LayoutId{1, 0}); // same Layout already displayed
+    EXPECT_FALSE(scene.selection().empty());
+    EXPECT_EQ(scene.selection_version(), 1u);
+}
+
+TEST(Scene, HierarchyDepthRoundTripsAndBumpsItsOwnVersion)
+{
+    Scene scene;
+    scene.set_hierarchy_depth(2);
+    EXPECT_EQ(scene.hierarchy_depth(), 2);
+    EXPECT_EQ(scene.hierarchy_version(), 1u);
+
+    scene.set_hierarchy_depth(2); // same value again - no-op
+    EXPECT_EQ(scene.hierarchy_version(), 1u);
+
+    scene.set_hierarchy_depth(0);
+    EXPECT_EQ(scene.hierarchy_depth(), 0);
+    EXPECT_EQ(scene.hierarchy_version(), 2u);
+}
+
+TEST(Scene, SetHierarchyDepthIgnoresNegativeValues)
+{
+    Scene scene;
+    scene.set_hierarchy_depth(3);
+    ASSERT_EQ(scene.hierarchy_depth(), 3);
+
+    scene.set_hierarchy_depth(-1);
+    EXPECT_EQ(scene.hierarchy_depth(), 3);
+    EXPECT_EQ(scene.hierarchy_version(), 1u);
 }
 
 TEST(Scene, SelectRecordsTheShapeId)

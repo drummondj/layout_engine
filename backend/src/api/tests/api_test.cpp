@@ -607,6 +607,120 @@ TEST_F(ApiFixture, SetCurrentDesignByIdSelectsTheSameDesignAsSetCurrentDesign)
     EXPECT_TRUE(region_has_opaque_pixel(buffer, 21, 21, 79, 79)); // pin rect visible, same as le_set_current_design_abstract(handle, 0) would give
 }
 
+// --- Layout view / hierarchy depth (Migration Step 3 Phase C) ---
+
+TEST_F(ApiFixture, HierarchyDepthDefaultsToZeroAndRoundTrips)
+{
+    EXPECT_EQ(le_hierarchy_depth(handle), 0);
+    le_set_hierarchy_depth(handle, 3);
+    EXPECT_EQ(le_hierarchy_depth(handle), 3);
+}
+
+TEST_F(ApiFixture, SetHierarchyDepthRejectsNegativeValues)
+{
+    le_set_hierarchy_depth(handle, 2);
+    ASSERT_EQ(le_hierarchy_depth(handle), 2);
+    le_set_hierarchy_depth(handle, -1);
+    EXPECT_EQ(le_hierarchy_depth(handle), 2);
+}
+
+TEST_F(ApiFixture, HierarchyDepthFunctionsWithNullHandleDoNotCrash)
+{
+    EXPECT_EQ(le_hierarchy_depth(nullptr), 0);
+    le_set_hierarchy_depth(nullptr, 5); // no crash
+}
+
+TEST_F(ApiFixture, SetCurrentDesignLayoutRendersThePlacedInstancesOwnContent)
+{
+    // TOP's own Layout places TESTCELL (read via LEF, real M1 pin
+    // geometry - see testcell.lef) at its own local origin with identity
+    // orientation, so the placement's world dbu rect exactly matches
+    // TESTCELL's own local PIN A rect (2,2)-(8,8) um = (2000,2000)-
+    // (8000,8000) dbu - same viewport/zoom setup as
+    // SetCurrentDesignByIdSelectsTheSameDesignAsSetCurrentDesign above,
+    // so the expected pixel region is identical, letting this test lean
+    // on that one's already-proven math instead of re-deriving it.
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+    ASSERT_NE(le_create_placement(handle, top_layout, testcell_design.id, "U1", "PLACED", /*has_location=*/1, /*location_x_um=*/0.0, /*location_y_um=*/0.0, "N", /*has_weight=*/0, 0.0, nullptr).index, UINT32_MAX);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_hierarchy_depth(handle, 1); // remaining_depth 0 - the placement falls back straight to TESTCELL's own Abstract
+
+    le_set_viewport_size(handle, 100, 100);
+    le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // same scale=0.01 setup as the Abstract-view test above
+
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_EQ(buffer.width, 100);
+    EXPECT_EQ(buffer.height, 100);
+    EXPECT_TRUE(region_has_opaque_pixel(buffer, 21, 21, 79, 79));
+}
+
+TEST_F(ApiFixture, SetCurrentDesignLayoutClearsTheAbstractViewAndViceVersa)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+    le_create_placement(handle, top_layout, testcell_design.id, "U1", "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+
+    le_set_viewport_size(handle, 100, 100);
+    le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
+
+    // Abstract view first - the pin is visible directly.
+    ASSERT_EQ(le_set_current_design_abstract_by_id(handle, testcell_design.id), 0);
+    LePixelBuffer abstract_buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(abstract_buffer.data, nullptr);
+    ASSERT_TRUE(region_has_opaque_pixel(abstract_buffer, 21, 21, 79, 79));
+
+    // Switching to the Layout view must stop rendering the old Abstract
+    // (scene.current_abstract() clears) - render_pixel_buffer now takes
+    // the InstanceRenderer path entirely instead.
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_hierarchy_depth(handle, 1);
+    LePixelBuffer layout_buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(layout_buffer.data, nullptr);
+    EXPECT_TRUE(region_has_opaque_pixel(layout_buffer, 21, 21, 79, 79)); // same pin, now reached via the placement
+
+    // Switching back to the Abstract view must stop rendering the Layout.
+    ASSERT_EQ(le_set_current_design_abstract_by_id(handle, testcell_design.id), 0);
+    LePixelBuffer back_to_abstract = le_render_pixel_buffer(handle);
+    ASSERT_NE(back_to_abstract.data, nullptr);
+    EXPECT_TRUE(region_has_opaque_pixel(back_to_abstract, 21, 21, 79, 79));
+}
+
+TEST_F(ApiFixture, SetCurrentDesignLayoutWithZeroHierarchyDepthStillRendersOwnPlacement)
+{
+    // hierarchy_depth defaults to 0 - remaining_depth is still max(0, 0-1)
+    // == 0, so a placement still falls back to its own Abstract (0 means
+    // "no further recursion into nested Layouts", not "don't render
+    // placements at all").
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+    le_create_placement(handle, top_layout, testcell_design.id, "U1", "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    ASSERT_EQ(le_hierarchy_depth(handle), 0); // default, never set
+
+    le_set_viewport_size(handle, 100, 100);
+    le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
+
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_opaque_pixel(buffer, 21, 21, 79, 79));
+}
+
 TEST_F(ApiFixture, LayerCountAndAtAreZeroOrInvalidForNullHandleOrNoViewLayerSetYet)
 {
     EXPECT_EQ(le_layer_count(nullptr), 0);

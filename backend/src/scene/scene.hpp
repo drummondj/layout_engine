@@ -116,6 +116,55 @@ namespace le
         }
         AbstractId current_abstract() const { return current_abstract_; }
 
+        // --- Currently displayed Layout (Migration Step 3 Phase C) ---
+        // A second, independent "current view" tracker mirroring
+        // current_abstract_'s own shape exactly (same selection/hover/
+        // ruler-clearing reasoning applies - Layout content isn't
+        // selectable yet, but clearing keeps this consistent with the
+        // Abstract path rather than leaving stale state around for when
+        // it is). Deliberately NOT the same field as LeHandle's own
+        // current_layout_id (api.cpp) - that one is the generated TCL
+        // surface's own default-scope tracker (what get_rows/get_placements/
+        // etc. read), a genuinely separate concept from this GUI-rendering
+        // one, exactly the same "two trackers, moved together by whichever
+        // api.cpp caller changes the view" split current_abstract_ already
+        // has with handle->current_abstract_id - see that field's own
+        // api.cpp comment for the full reasoning, which applies here
+        // unchanged.
+        void set_current_layout(LayoutId id)
+        {
+            if (id == current_layout_id_)
+                return;
+
+            current_layout_id_ = id;
+            clear_selection();
+            clear_hover();
+            clear_rulers();
+        }
+        LayoutId current_layout() const { return current_layout_id_; }
+
+        // --- Hierarchy depth (Migration Step 3 Phase C) ---
+        // How many further levels of Placement -> Design a Layout view
+        // recurses into before falling back to a placed instance's own
+        // Abstract - see InstanceRenderer::render_layout_frame's own
+        // comment for the exact recursion rule. 0 (the default) means
+        // every placement falls back straight to its Abstract - the
+        // cheapest, always-safe starting point for a freshly opened
+        // Layout view. Negative values are rejected (same "ignore invalid
+        // values" convention as set_scale below) rather than silently
+        // clamped, so a caller passing a bad value finds out via its own
+        // return value staying unchanged, not a silently-different one.
+        void set_hierarchy_depth(int depth)
+        {
+            if (depth < 0 || depth == hierarchy_depth_)
+                return;
+
+            hierarchy_depth_ = depth;
+            ++hierarchy_version_;
+        }
+        int hierarchy_depth() const { return hierarchy_depth_; }
+        uint64_t hierarchy_version() const { return hierarchy_version_; }
+
         // --- Viewport transform: pixel = (dbu - pan) * scale ---
         // pan/scale/viewport_size each bump viewport_version() - a cheap
         // change signal for callers (e.g. PipelineCache) that would
@@ -949,6 +998,9 @@ namespace le
     private:
         std::set<std::tuple<ShapeId, PieceKind, size_t>> selected_keys_;
         AbstractId current_abstract_;
+        LayoutId current_layout_id_;
+        int hierarchy_depth_ = 0;
+        uint64_t hierarchy_version_ = 0;
         Point pan_{0, 0};
         double scale_ = 1.0;
         int viewport_width_px_ = 0;

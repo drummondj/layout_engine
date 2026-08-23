@@ -6,10 +6,17 @@
 #include "../pipeline/stages/generate_abstract_shapes_stage.hpp"
 #include "../pipeline/stages/generate_layout_shapes_stage.hpp"
 #include "../render/draw_helpers.hpp"
+#include "../render/pixel_types.hpp"
 #include "../render/stages/build_layout_picture_stage.hpp"
+#include "../render/stages/build_overlay_picture_stage.hpp"
+#include "../render/stages/build_ruler_overlay_picture_stage.hpp"
+#include "../render/stages/compose_with_overlays_stage.hpp"
+#include "../render/stages/rasterize_stage.hpp"
 #include "../scene/scene.hpp"
 #include "../view_style/view_style.hpp"
 #include "include/core/SkPicture.h"
+#include "include/core/SkPictureRecorder.h"
+#include "include/core/SkRect.h"
 #include <algorithm>
 #include <map>
 #include <optional>
@@ -81,6 +88,35 @@ namespace le
     /// FilterByLayerVisibilityStage, so a child instance's own layer
     /// visibility toggles (M1/OBSTRUCTION/etc.) still match the top-level
     /// view's own current settings.
+    ///
+    /// Also owns the final "compose a displayable frame" step for a
+    /// Layout view (render_layout_frame, Migration Step 3 Phase C) -
+    /// broadening this class's own scope slightly past pure instance-
+    /// picture resolution, but kept here rather than in `Renderer` (which
+    /// deliberately doesn't link `instancing`/`pipeline` - same boundary
+    /// reasoning as everywhere else in this class) or duplicated ad hoc in
+    /// `api.cpp` (which stays a thin C-API wrapper). Owns its own
+    /// BuildOverlayPictureStage/BuildRulerOverlayPictureStage/
+    /// RasterizeStage(x4)/ComposeWithOverlaysStage rather than reaching
+    /// into a caller's `Renderer` for them: `Renderer::rasterize`/
+    /// `compose_with_overlays` always key off `Renderer`'s own *Abstract*-
+    /// path `build_picture_stage_.version()` internally, regardless of
+    /// what picture is actually passed in - reusing those two methods with
+    /// a Layout-sourced picture would silently rasterize/compose against a
+    /// stale cache key untouched by anything InstanceRenderer does, the
+    /// same class of staleness bug already found and fixed once in this
+    /// file (see build_abstract_picture's own comment). `RasterizeStage`/
+    /// `ComposeWithOverlaysStage` are both already generic over a caller-
+    /// supplied version number for exactly this reason, so a second,
+    /// independent set of instances here is the correct fix, not a
+    /// workaround. Also owns its own BuildOverlayPictureStage/
+    /// BuildRulerOverlayPictureStage rather than reading `Renderer`'s own
+    /// output picture: `ComposeWithOverlaysStage::run` needs the *stage
+    /// object* itself (for its own `.version()`, part of its cache key),
+    /// not just the picture it last produced, and `Renderer`'s own
+    /// instances are private - a small, harmless duplication (their
+    /// content is Scene-only, never view-dependent, so caching it twice
+    /// costs a little memory/CPU, not correctness).
     class InstanceRenderer
     {
     public:
@@ -128,6 +164,72 @@ namespace le
         }
 
         uint64_t design_picture_recompute_count() const { return recompute_count_; }
+
+        /// @brief Renders the full displayable frame for a Layout view -
+        /// mirrors Renderer::render's own role for the Abstract path, but
+        /// for `layout_id`'s own resolved, hierarchical content instead.
+        /// `hierarchy_depth` is Scene::hierarchy_depth() itself (the FULL
+        /// depth budget, not yet decremented) - the top-level call always
+        /// consumes one level on its own (it's already showing
+        /// `layout_id`'s own content), so build_layout_picture is invoked
+        /// with `max(0, hierarchy_depth - 1)`, matching the Step 3 plan's
+        /// own Phase C recursion rule ("Top-level call: remaining_depth =
+        /// hierarchy_depth - 1").
+        ///
+        /// Composes build_layout_picture's own local-pixel-space output
+        /// (pan={0,0}) into the real Scene's own pixel space (grid drawn
+        /// first, then the local picture placed via to_instance_matrix
+        /// with an identity InstanceTransform - no rotation, this is the
+        /// top view itself - so its own translation collapses to exactly
+        /// `-scene.pan() * scene.scale()`, matching every other design
+        /// picture's own `pixel = (dbu - pan) * scale` convention), then
+        /// runs that through this class's own rasterize/compose chain
+        /// (see this class's own doc comment for why it's a second,
+        /// independent chain rather than reusing `Renderer`'s). No tiny-
+        /// shapes or selection-overlay content yet for a Layout view (both
+        /// pass an empty picture/map) - InstanceRenderer doesn't produce
+        /// TinyShapeDots, and placement selection is explicitly deferred
+        /// scope (Step 3's own "whole-placement only" decision) - a real,
+        /// documented gap, not a silent omission.
+        const PixelBuffer &render_layout_frame(const Root &root, LayoutId layout_id, int hierarchy_depth, const ViewLayerSet &view_layers, const Scene &scene)
+        {
+            const int remaining_depth = std::max(0, hierarchy_depth - 1);
+            const sk_sp<SkPicture> local_picture = build_layout_picture(root, layout_id, remaining_depth, view_layers, scene, scene.scale());
+
+            // A synthetic "did the frame's own inputs change" version -
+            // recompute_count_ stands in for "did InstanceRenderer's own
+            // cached content change" (coarser than layout_id's own
+            // picture specifically, matching this class's whole-epoch
+            // invalidation philosophy elsewhere); pan/viewport/scale are
+            // this compose step's own additional inputs build_layout_picture's
+            // own cache doesn't already account for (it's pan-independent
+            // by design).
+            const auto frame_key = std::tuple{layout_id, hierarchy_depth, recompute_count_, scene.pan().x, scene.pan().y, scene.viewport_width_px(), scene.viewport_height_px(), scene.scale()};
+            design_frame_version_stage_.get(frame_key, [] { return 0; });
+            const uint64_t design_version = design_frame_version_stage_.version();
+
+            SkPictureRecorder recorder;
+            SkCanvas *canvas = recorder.beginRecording(SkRect::MakeWH(static_cast<SkScalar>(scene.viewport_width_px()), static_cast<SkScalar>(scene.viewport_height_px())));
+            draw_grid(*canvas, scene);
+            if (local_picture)
+            {
+                const Geometry::InstanceTransform identity{.linear = {1, 0, 0, 1}, .translation = {0, 0}};
+                canvas->save();
+                canvas->concat(to_instance_matrix(identity, scene.pan(), scene.scale()));
+                canvas->drawPicture(local_picture);
+                canvas->restore();
+            }
+            const sk_sp<SkPicture> design_picture = recorder.finishRecordingAsPicture();
+
+            const std::optional<double> dbu_per_um = technology_dbu_per_um(root);
+            const sk_sp<SkPicture> &overlay_picture = build_overlay_picture_stage_.run(scene, dbu_per_um);
+            const sk_sp<SkPicture> &ruler_overlay_picture = build_ruler_overlay_picture_stage_.run(scene, dbu_per_um);
+            static const sk_sp<SkPicture> kEmptyPicture; // no tiny-shapes/selection content for a Layout view yet
+
+            return compose_stage_.run(rasterize_design_stage_, rasterize_tiny_stage_, rasterize_selection_stage_, rasterize_ruler_stage_, build_overlay_picture_stage_,
+                                       design_version, 0, 0, build_ruler_overlay_picture_stage_.version(),
+                                       design_picture, kEmptyPicture, overlay_picture, kEmptyPicture, ruler_overlay_picture, scene);
+        }
 
     private:
         struct Epoch
@@ -407,5 +509,21 @@ namespace le
         std::map<std::tuple<LayoutId, int>, sk_sp<SkPicture>> layout_pictures_;
         std::set<DesignId> unresolved_logged_;
         uint64_t recompute_count_ = 0;
+
+        // render_layout_frame's own rasterize/compose chain - a second,
+        // independent set of instances from Renderer's own (see this
+        // class's own doc comment for why sharing would be unsafe).
+        // design_frame_version_stage_'s own "value" is never read, only
+        // its version() - a plain reuse of VersionedStage purely for its
+        // built-in "did this key change" tracking (see render_layout_frame's
+        // own comment).
+        VersionedStage<std::tuple<LayoutId, int, uint64_t, int64_t, int64_t, int, int, double>, int> design_frame_version_stage_;
+        BuildOverlayPictureStage build_overlay_picture_stage_;
+        BuildRulerOverlayPictureStage build_ruler_overlay_picture_stage_;
+        RasterizeStage rasterize_design_stage_;
+        RasterizeStage rasterize_tiny_stage_;
+        RasterizeStage rasterize_selection_stage_;
+        RasterizeStage rasterize_ruler_stage_;
+        ComposeWithOverlaysStage compose_stage_;
     };
 }
