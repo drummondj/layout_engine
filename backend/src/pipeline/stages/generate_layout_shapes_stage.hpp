@@ -5,6 +5,7 @@
 #include "../../database/database.hpp"
 #include "../../geometry/geometry.hpp"
 #include "../../view_style/view_style.hpp"
+#include <memory>
 #include <optional>
 #include <tuple>
 #include <vector>
@@ -60,11 +61,11 @@ namespace le
                     const ViewLayerId view_layer = shape->layer.valid()
                                                         ? view_layers.find(shape->layer, fallback_purpose)
                                                         : (shape->purpose ? view_layers.find(LayerId{}, to_view_layer_purpose(*shape->purpose)) : ViewLayerId{});
-                    shapes.push_back(RenderedShape{.shape = *shape, .view_layer = view_layer, .shape_id = shape_id});
+                    shapes.push_back(RenderedShape{.shape = *shape, .view_layer = view_layer, .shape_id = shape_id, .path_outlines = compute_path_outlines(*shape)});
                 };
 
                 if (const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id)))
-                    shapes.push_back(RenderedShape{.shape = *diearea, .view_layer = view_layers.boundary_view_layer()});
+                    shapes.push_back(RenderedShape{.shape = *diearea, .view_layer = view_layers.boundary_view_layer(), .path_outlines = compute_path_outlines(*diearea)});
 
                 for (BlockageId blockage_id : root.get_layout_blockages(layout_id))
                     for (ShapeId shape_id : root.get_blockage_shapes(blockage_id))
@@ -123,7 +124,7 @@ namespace le
 
                 Shape shape;
                 shape.rects.push_back(Rect{.ll = *row->origin, .ur = Point{.x = row->origin->x + width, .y = row->origin->y + height}});
-                shapes.push_back(RenderedShape{.shape = shape, .view_layer = row_view_layer});
+                shapes.push_back(RenderedShape{.shape = shape, .view_layer = row_view_layer, .path_outlines = compute_path_outlines(shape)});
             }
         }
 
@@ -163,7 +164,8 @@ namespace le
                         continue;
                     Shape shape = lines;
                     shape.layer = layer_id;
-                    shapes.push_back(RenderedShape{.shape = std::move(shape), .view_layer = view_layers.find(layer_id, ViewLayerPurpose::TRACK)});
+                    auto path_outlines = compute_path_outlines(shape);
+                    shapes.push_back(RenderedShape{.shape = std::move(shape), .view_layer = view_layers.find(layer_id, ViewLayerPurpose::TRACK), .path_outlines = std::move(path_outlines)});
                 }
             }
         }
@@ -191,7 +193,10 @@ namespace le
                 }
             }
             if (!lines.paths.empty())
-                shapes.push_back(RenderedShape{.shape = std::move(lines), .view_layer = gcellgrid_view_layer});
+            {
+                auto path_outlines = compute_path_outlines(lines);
+                shapes.push_back(RenderedShape{.shape = std::move(lines), .view_layer = gcellgrid_view_layer, .path_outlines = std::move(path_outlines)});
+            }
         }
 
         // Region already stores real Rect geometry directly (no synthesis
@@ -207,7 +212,8 @@ namespace le
                     continue;
                 Shape shape;
                 shape.rects = region->rects;
-                shapes.push_back(RenderedShape{.shape = std::move(shape), .view_layer = region_view_layer});
+                auto path_outlines = compute_path_outlines(shape);
+                shapes.push_back(RenderedShape{.shape = std::move(shape), .view_layer = region_view_layer, .path_outlines = std::move(path_outlines)});
             }
         }
 
@@ -217,6 +223,29 @@ namespace le
             if (!diearea)
                 return std::nullopt;
             return Geometry::bbox(*diearea);
+        }
+
+        // (*RenderedShape::path_outlines)[i] == Geometry::path_to_polygons(shape.paths[i])
+        // for every i - see that field's own doc comment. Mirrors
+        // GenerateAbstractShapesStage's own compute_path_outlines lambda
+        // exactly, applied uniformly to every RenderedShape this stage
+        // constructs (not just the ones with real Path geometry - Track/
+        // GCellGrid always synthesize paths, a Route/Blockage/PhysicalPort
+        // Shape sometimes does) rather than leaving it at its default-
+        // constructed empty vector: RenderedShape::path_outlines is
+        // otherwise a safely-dereferenceable but EMPTY vector by default,
+        // and transform_shapes_to_pixel_space indexes it by shape.paths'
+        // own index with no bounds check - a real crash (SIGSEGV, found on
+        // a real DEF file with Tracks/routed Paths) this stage was
+        // shipping before every one of these call sites computed its own
+        // path_outlines to match.
+        static std::shared_ptr<const std::vector<std::vector<Polygon>>> compute_path_outlines(const Shape &shape)
+        {
+            std::vector<std::vector<Polygon>> outlines;
+            outlines.reserve(shape.paths.size());
+            for (const Path &path : shape.paths)
+                outlines.push_back(Geometry::path_to_polygons(path));
+            return std::make_shared<const std::vector<std::vector<Polygon>>>(std::move(outlines));
         }
 
         // ShapePurpose (schema.py, DB-persisted) and ViewLayerPurpose

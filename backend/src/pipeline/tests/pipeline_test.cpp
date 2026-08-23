@@ -1216,6 +1216,41 @@ TEST_F(LayoutPipelineFixture, GenerateLayoutShapesResolvesRouteToRouteColumnOfIt
     EXPECT_EQ(found->view_layer, view_layers.find(m2, ViewLayerPurpose::ROUTE));
 }
 
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesComputesPathOutlinesForARoutedNetPath)
+{
+    // Regression test for the push_shape_id code path specifically (a
+    // separate RenderedShape-constructing call site from the Track one
+    // above) - a routed net drawn as a PATH is the most common real-world
+    // trigger of the path_outlines bug (e.g. NETS/SPECIALNETS in a real
+    // routing DEF file). add_route only builds a rects-based Shape, so
+    // this constructs a path-based Route Shape directly.
+    const RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "NET1"});
+    const Path route_path{.polygon = Polygon{.points = {{0, 0}, {0, 100}}}, .width = 10};
+    Shape shape;
+    shape.route = route_id;
+    shape.layer = m2;
+    shape.paths = {route_path};
+    root.create_shape(std::move(shape));
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const RenderedShape *found = find_by_purpose(shapes, view_layers, ViewLayerPurpose::ROUTE);
+    ASSERT_NE(found, nullptr);
+    ASSERT_EQ(found->shape.paths.size(), 1u);
+    ASSERT_NE(found->path_outlines, nullptr);
+    ASSERT_EQ(found->path_outlines->size(), 1u);
+    const auto expected = Geometry::path_to_polygons(found->shape.paths.front());
+    ASSERT_FALSE(expected.empty());
+    ASSERT_EQ(found->path_outlines->front().size(), expected.size());
+    const Polygon &actual_poly = found->path_outlines->front().front();
+    const Polygon &expected_poly = expected.front();
+    ASSERT_EQ(actual_poly.points.size(), expected_poly.points.size());
+    for (size_t i = 0; i < actual_poly.points.size(); ++i)
+    {
+        EXPECT_EQ(actual_poly.points[i].x, expected_poly.points[i].x);
+        EXPECT_EQ(actual_poly.points[i].y, expected_poly.points[i].y);
+    }
+}
+
 TEST_F(LayoutPipelineFixture, GenerateLayoutShapesResolvesPhysicalPortToTerminalColumnOfItsLayer)
 {
     add_physical_port(m1, Rect{.ll = {0, 0}, .ur = {5, 5}});
@@ -1297,6 +1332,40 @@ TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSynthesizesTrackLinesSpanningD
     }
 }
 
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesComputesPathOutlinesForSynthesizedTrackPaths)
+{
+    // Regression test: GenerateLayoutShapesStage used to leave
+    // RenderedShape::path_outlines at its default-constructed empty
+    // vector for every shape it built, while transform_to_pixels_stage's
+    // transform_shapes_to_pixel_space indexes it by shape.paths' own
+    // index with no bounds check - a real SIGSEGV on any real DEF file
+    // with TRACKS (which always synthesize paths, unlike a Route/
+    // Blockage/PhysicalPort Shape, which only sometimes does). Mirrors
+    // GenerateShapesComputesPathOutlinesForTerminalAndObstructionPaths
+    // above, for the Layout path instead of the Abstract path.
+    add_diearea(Rect{.ll = {0, 0}, .ur = {1000, 2000}});
+    add_track(/*is_x=*/true, /*start=*/0, /*count=*/3, /*step=*/100, {"M1"});
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const RenderedShape *found = find_by_purpose(shapes, view_layers, ViewLayerPurpose::TRACK);
+    ASSERT_NE(found, nullptr);
+    ASSERT_EQ(found->shape.paths.size(), 3u);
+    ASSERT_NE(found->path_outlines, nullptr);
+    ASSERT_EQ(found->path_outlines->size(), 3u);
+    // Tracks are zero-width lines by design (Path::width == 0), so
+    // Geometry::path_to_polygons legitimately returns no polygon for
+    // each one - the invariant this test exists to protect is the
+    // CONTAINER-level size match above (what transform_shapes_to_pixel_space
+    // actually indexes by), not that each entry's own polygon list is
+    // non-empty.
+    for (size_t i = 0; i < found->shape.paths.size(); i++)
+    {
+        const auto expected = Geometry::path_to_polygons(found->shape.paths[i]);
+        EXPECT_EQ((*found->path_outlines)[i].size(), expected.size());
+        EXPECT_TRUE(expected.empty());
+    }
+}
+
 TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSkipsATrackLayerNameThatDoesNotResolveButKeepsResolvableOnes)
 {
     add_diearea(Rect{.ll = {0, 0}, .ur = {1000, 2000}});
@@ -1330,6 +1399,32 @@ TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSynthesizesGCellGridLinesSpann
     EXPECT_EQ(found->shape.paths[1].polygon.points[0].y, 800);
     EXPECT_EQ(found->shape.paths[1].polygon.points[1].x, 1000);
     EXPECT_EQ(found->shape.paths[1].polygon.points[1].y, 800);
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesComputesPathOutlinesForSynthesizedGCellGridPaths)
+{
+    // Regression test for append_gcell_grid_shapes specifically - a
+    // separate RenderedShape-constructing call site from the Track one
+    // above, using its own local `path_outlines` variable computed
+    // before the `std::move(lines)` that builds the RenderedShape.
+    // GCellGrid lines are, like Track lines, an unconditional trigger of
+    // the original SIGSEGV (always non-empty shape.paths).
+    add_diearea(Rect{.ll = {0, 0}, .ur = {1000, 2000}});
+    add_gcell_grid(/*is_x=*/false, /*start=*/500, /*count=*/2, /*step=*/300);
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const RenderedShape *found = find_by_purpose(shapes, view_layers, ViewLayerPurpose::GCELLGRID);
+    ASSERT_NE(found, nullptr);
+    ASSERT_EQ(found->shape.paths.size(), 2u);
+    ASSERT_NE(found->path_outlines, nullptr);
+    ASSERT_EQ(found->path_outlines->size(), 2u);
+    // Zero-width, same reasoning as the Track regression test above.
+    for (size_t i = 0; i < found->shape.paths.size(); i++)
+    {
+        const auto expected = Geometry::path_to_polygons(found->shape.paths[i]);
+        EXPECT_EQ((*found->path_outlines)[i].size(), expected.size());
+        EXPECT_TRUE(expected.empty());
+    }
 }
 
 TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSynthesizesRegionFromStoredRects)
