@@ -174,6 +174,32 @@ TEST_F(ViewStyleFixture, TrackAndRoutingBlockageOfSameLayerShareItsColorButNotOb
     EXPECT_EQ(obstruction->style.fill_pattern, FillPattern::BRICK);
 }
 
+TEST_F(ViewStyleFixture, RouteSharesTerminalsOwnFillPatternNotObstructionsOrRoutingBlockages)
+{
+    // ROUTE (a routed net's real conductor geometry) reads visually as
+    // the same kind of thing as TERMINAL (a Terminal's own real pin
+    // geometry) - both get terminal_fill_pattern()'s own per-layer-type
+    // pattern, not OBSTRUCTION's BRICK or ROUTING_BLOCKAGE's DOTS
+    // (keep-out region patterns, a different visual category).
+    const ViewLayerData *terminal = view_layers.get(view_layers.find(m1, ViewLayerPurpose::TERMINAL));
+    const ViewLayerData *route = view_layers.get(view_layers.find(m1, ViewLayerPurpose::ROUTE));
+    const ViewLayerData *obstruction = view_layers.get(view_layers.find(m1, ViewLayerPurpose::OBSTRUCTION));
+    const ViewLayerData *routing_blockage = view_layers.get(view_layers.find(m1, ViewLayerPurpose::ROUTING_BLOCKAGE));
+    ASSERT_NE(terminal, nullptr);
+    ASSERT_NE(route, nullptr);
+    ASSERT_NE(obstruction, nullptr);
+    ASSERT_NE(routing_blockage, nullptr);
+
+    EXPECT_EQ(route->style.fill_pattern, terminal->style.fill_pattern);
+    EXPECT_NE(route->style.fill_pattern, obstruction->style.fill_pattern);
+    EXPECT_NE(route->style.fill_pattern, routing_blockage->style.fill_pattern);
+
+    // Same per-Layer color as every other column of this row too.
+    EXPECT_EQ(route->style.outline_color.r, terminal->style.outline_color.r);
+    EXPECT_EQ(route->style.outline_color.g, terminal->style.outline_color.g);
+    EXPECT_EQ(route->style.outline_color.b, terminal->style.outline_color.b);
+}
+
 TEST_F(ViewStyleFixture, BoundaryRowHasASingleBoundaryColumn)
 {
     const auto &row = view_layers.rows().back();

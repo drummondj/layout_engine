@@ -175,14 +175,15 @@ namespace le
                 // purpose) by PLACEMENT_BLOCKAGE's own pseudo-row below so
                 // the two blockage kinds still read as visually related
                 // while staying independently toggleable - and ROUTE gets
-                // a plain filled outline (NONE pattern, like TERMINAL's own
-                // real geometry) since routed net wires are real
-                // conductor shapes, not a hatched keep-out region.
+                // TERMINAL's own terminal_fill_pattern() (not OBSTRUCTION's
+                // BRICK) since routed net wires are real conductor shapes,
+                // the same visual category as a Terminal's own real pin
+                // geometry, not a hatched keep-out region.
                 const ViewLayerId terminal_id = set.add(layer->name, layer->name + "/TERMINAL", ViewLayerPurpose::TERMINAL, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
                 const ViewLayerId obstruction_id = set.add(layer->name, layer->name + "/OBSTRUCTION", ViewLayerPurpose::OBSTRUCTION, layer_id, layer_style(color, FillPattern::BRICK));
                 const ViewLayerId track_id = set.add(layer->name, layer->name + "/TRACK", ViewLayerPurpose::TRACK, layer_id, layer_style(color, FillPattern::NONE));
                 const ViewLayerId routing_blockage_id = set.add(layer->name, layer->name + "/ROUTING_BLOCKAGE", ViewLayerPurpose::ROUTING_BLOCKAGE, layer_id, layer_style(color, FillPattern::DOTS));
-                const ViewLayerId route_id = set.add(layer->name, layer->name + "/ROUTE", ViewLayerPurpose::ROUTE, layer_id, layer_style(color, FillPattern::NONE));
+                const ViewLayerId route_id = set.add(layer->name, layer->name + "/ROUTE", ViewLayerPurpose::ROUTE, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
 
                 set.rows_.push_back(ViewLayerRow{
                     .name = layer->name,
