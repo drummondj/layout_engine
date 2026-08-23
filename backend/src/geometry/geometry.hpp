@@ -293,6 +293,137 @@ namespace le
             return out;
         }
 
+        /// @brief The linear (rotate/mirror-only, about local (0,0)) part
+        /// of one of the 8 standard LEF/DEF placement orientations:
+        /// x' = a*x + b*y ; y' = c*x + d*y. Coefficients are always in
+        /// {-1,0,1} - Migration Step 3's own placement-instancing math
+        /// (instance_transform below) relies on this being exact (no
+        /// rounding) even after being scaled to pixel space, since a
+        /// {-1,0,1} coefficient commutes exactly with a uniform scalar
+        /// multiply.
+        struct LinearTransform2D
+        {
+            int64_t a, b, c, d;
+        };
+
+        static LinearTransform2D orientation_linear(Orientation orientation)
+        {
+            switch (orientation)
+            {
+            case Orientation::N:
+                return LinearTransform2D{1, 0, 0, 1};
+            case Orientation::W:
+                return LinearTransform2D{0, -1, 1, 0};
+            case Orientation::S:
+                return LinearTransform2D{-1, 0, 0, -1};
+            case Orientation::E:
+                return LinearTransform2D{0, 1, -1, 0};
+            case Orientation::FN:
+                return LinearTransform2D{-1, 0, 0, 1};
+            case Orientation::FS:
+                return LinearTransform2D{1, 0, 0, -1};
+            case Orientation::FE:
+                return LinearTransform2D{0, -1, -1, 0};
+            case Orientation::FW:
+                return LinearTransform2D{0, 1, 1, 0};
+            }
+            return LinearTransform2D{1, 0, 0, 1};
+        }
+
+        static Point apply_linear(const LinearTransform2D &m, Point p)
+        {
+            return Point{.x = m.a * p.x + m.b * p.y, .y = m.c * p.x + m.d * p.y};
+        }
+
+        /// @brief The dbu-space transform (rotate/mirror + translate) that
+        /// places one placed instance's own local content into its
+        /// parent's dbu space (Migration Step 3, Placement -> Design
+        /// rendering): `linear` is `orientation_linear(orientation)`;
+        /// `translation` is derived, not `placement_location` directly -
+        /// every corner of `local_bbox` is run through `linear`, the
+        /// transformed bbox's own lower-left corner is found
+        /// (componentwise min, not a memorized per-orientation W/H-swap
+        /// table - this is what correctly handles a 90-degree orientation
+        /// swapping which local axis becomes the transformed width), and
+        /// `translation = placement_location - transformed_bbox_ll` - so
+        /// applying {linear, translation} to `local_bbox` itself lands its
+        /// own lower-left corner exactly at `placement_location`, matching
+        /// Placement.location's own schema.py doc comment ("the location
+        /// of the lower-left corner of this instance ... after
+        /// orientation is applied").
+        ///
+        /// `local_bbox` is the instance's own untransformed content bbox
+        /// in its own raw dbu coordinates - AbstractData.size-derived
+        /// {ll=(0,0), ur=size} for an Abstract-backed Design
+        /// (AbstractData.origin is deliberately NOT applied here - a
+        /// known, accepted gap, no ORIGIN-bearing test data driving it
+        /// yet), or Geometry::bbox(the Layout's own diearea Shape) for a
+        /// Layout-backed Design (which can have a non-zero ll).
+        struct InstanceTransform
+        {
+            LinearTransform2D linear;
+            Point translation;
+        };
+
+        static InstanceTransform instance_transform(Orientation orientation, Rect local_bbox, Point placement_location)
+        {
+            const LinearTransform2D linear = orientation_linear(orientation);
+            const Point corners[4] = {
+                local_bbox.ll,
+                Point{.x = local_bbox.ur.x, .y = local_bbox.ll.y},
+                Point{.x = local_bbox.ll.x, .y = local_bbox.ur.y},
+                local_bbox.ur,
+            };
+
+            Point transformed_ll = apply_linear(linear, corners[0]);
+            for (int i = 1; i < 4; i++)
+            {
+                const Point transformed = apply_linear(linear, corners[i]);
+                transformed_ll.x = std::min(transformed_ll.x, transformed.x);
+                transformed_ll.y = std::min(transformed_ll.y, transformed.y);
+            }
+
+            return InstanceTransform{
+                .linear = linear,
+                .translation = Point{.x = placement_location.x - transformed_ll.x, .y = placement_location.y - transformed_ll.y},
+            };
+        }
+
+        /// @brief The world-space axis-aligned bbox `local_bbox` occupies
+        /// once every corner is run through `t` ({linear, translation},
+        /// e.g. from instance_transform above) - useful both for sizing a
+        /// cached instance picture's own recorder bounds (InstanceRenderer,
+        /// src/instancing/) and, in the future, whole-placement hit-testing
+        /// (Migration Step 3's own locked-in "whole-placement only"
+        /// selection scope for instanced content).
+        static Rect transform_bbox(const InstanceTransform &t, Rect local_bbox)
+        {
+            auto world = [&](Point p)
+            {
+                const Point rotated = apply_linear(t.linear, p);
+                return Point{.x = rotated.x + t.translation.x, .y = rotated.y + t.translation.y};
+            };
+
+            const Point corners[4] = {
+                local_bbox.ll,
+                Point{.x = local_bbox.ur.x, .y = local_bbox.ll.y},
+                Point{.x = local_bbox.ll.x, .y = local_bbox.ur.y},
+                local_bbox.ur,
+            };
+
+            Point lo = world(corners[0]);
+            Point hi = lo;
+            for (int i = 1; i < 4; i++)
+            {
+                const Point p = world(corners[i]);
+                lo.x = std::min(lo.x, p.x);
+                lo.y = std::min(lo.y, p.y);
+                hi.x = std::max(hi.x, p.x);
+                hi.y = std::max(hi.y, p.y);
+            }
+            return Rect{.ll = lo, .ur = hi};
+        }
+
         static Polygon rect_to_polygon(const Rect &rect)
         {
             std::vector<Point> points;

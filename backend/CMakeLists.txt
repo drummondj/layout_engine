@@ -285,6 +285,18 @@ if(NOT APPLE)
     target_compile_definitions(render PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
 endif()
 
+# --- instancing: header-only Placement->Design hierarchical instance
+# rendering (Migration Step 3 Phase B) - the one module allowed to link
+# both pipeline and render (resolving an arbitrary Placement's own
+# reference_design needs a Pipeline::generate_shapes/generate_layout_shapes
+# call for whichever Design it references, not just the Scene's own
+# currently-displayed one - render's own stage classes deliberately can't
+# make that call, see src/render/'s own CLAUDE.md bullet). See
+# src/instancing/instance_renderer.hpp's own class comment. ---
+add_library(instancing INTERFACE)
+target_include_directories(instancing INTERFACE src)
+target_link_libraries(instancing INTERFACE database geometry scene view_style pipeline render)
+
 # --- io: LEF/DEF file readers ---
 add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp src/io/def_writer.cpp)
 add_dependencies(io lef_lib def_lib)
@@ -561,6 +573,7 @@ add_executable(backend_tests
     src/editing/tests/editing_test.cpp
     src/pipeline/tests/pipeline_test.cpp
     src/render/tests/render_test.cpp
+    src/instancing/tests/instancing_test.cpp
     src/io/tests/lef_reader_test.cpp
     src/io/tests/lef_reader_utils_test.cpp
     src/io/tests/lef_writer_test.cpp
@@ -568,7 +581,7 @@ add_executable(backend_tests
     src/io/tests/def_writer_test.cpp
     src/api/tests/api_test.cpp
 )
-target_link_libraries(backend_tests PRIVATE database geometry view_style scene editing pipeline render io api fmt::fmt GTest::gtest_main)
+target_link_libraries(backend_tests PRIVATE database geometry view_style scene editing pipeline render instancing io api fmt::fmt GTest::gtest_main)
 target_compile_definitions(backend_tests PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
     IO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures"
@@ -583,7 +596,7 @@ gtest_discover_tests(backend_tests)
 
 # --- benchmarks ---
 add_executable(pipeline_benchmarks src/pipeline/benchmarks/pipeline_benchmark.cpp)
-target_link_libraries(pipeline_benchmarks PRIVATE database geometry scene pipeline render io api benchmark::benchmark)
+target_link_libraries(pipeline_benchmarks PRIVATE database geometry scene pipeline render instancing io api benchmark::benchmark)
 target_compile_definitions(pipeline_benchmarks PRIVATE
     BENCHMARK_DATA_DIR="${CMAKE_BINARY_DIR}/benchmark_data"
 )
@@ -599,7 +612,7 @@ le_enable_coverage_instrumentation(pipeline_benchmarks)
 # sanity-checked without waiting for Flutter texture wiring. Not a benchmark
 # or a test - not run by ctest or the coverage target. ---
 add_executable(render_preview src/pipeline/benchmarks/render_preview.cpp)
-target_link_libraries(render_preview PRIVATE database geometry scene pipeline render io)
+target_link_libraries(render_preview PRIVATE database geometry scene pipeline render instancing io)
 le_enable_coverage_instrumentation(render_preview)
 
 # --- lef_roundtrip_diff: dev-only progress-tracking tool for UPDATES.md

@@ -1,5 +1,6 @@
 #pragma once
 #include "pixel_types.hpp"
+#include "../core/rendered_shape.hpp"
 #include "../database/database.hpp"
 #include "../geometry/geometry.hpp"
 #include "../scene/scene.hpp"
@@ -9,6 +10,7 @@
 #include "include/core/SkFont.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkImageInfo.h"
+#include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
 #include "include/core/SkPathBuilder.h"
@@ -22,6 +24,7 @@
 #include <fmt/format.h>
 #include <cmath>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -1105,5 +1108,138 @@ namespace le
                 }
             }
         }
+    }
+
+    // Transforms a filtered, ViewLayerId-grouped dbu-space shape map into
+    // pixel space: `pixel = (dbu - pan) * scale`. Factored out of
+    // TransformToPixelsStage's own body (Migration Step 3 Phase B) so
+    // InstanceRenderer (src/instancing/) can reuse the exact same
+    // conversion with `pan = {0, 0}` - a cached instance picture is
+    // recorded in "local pixel space" (local_pixel = dbu_local * scale,
+    // no pan/origin-shift - see InstanceRenderer's own class comment for
+    // why), which TransformToPixelsStage's own single-slot VersionedStage
+    // (keyed on the Scene's own current_abstract/pan/scale) can't produce
+    // directly - this is a plain, uncached conversion instead, since the
+    // real caching for instance pictures happens one level up, at the
+    // whole-picture granularity (InstanceRenderer's own {DesignId/
+    // LayoutId, remaining_depth} cache), not per intermediate pixel-shape
+    // conversion.
+    inline std::map<ViewLayerId, std::vector<PixelShape>> transform_shapes_to_pixel_space(const std::map<ViewLayerId, std::vector<RenderedShape>> &shapes, Point pan, double scale)
+    {
+        auto to_pixel = [&](Point p)
+        {
+            return PixelPoint{
+                .x = (static_cast<double>(p.x) - static_cast<double>(pan.x)) * scale,
+                .y = (static_cast<double>(p.y) - static_cast<double>(pan.y)) * scale,
+            };
+        };
+
+        std::map<ViewLayerId, std::vector<PixelShape>> result;
+
+        for (const auto &[view_layer, group] : shapes)
+        {
+            std::vector<PixelShape> pixel_group;
+            pixel_group.reserve(group.size());
+
+            for (const auto &rs : group)
+            {
+                PixelShape ps;
+                ps.origin = rs.origin;
+
+                ps.rects.reserve(rs.shape.rects.size());
+                for (const auto &r : rs.shape.rects)
+                    ps.rects.push_back(PixelRect{.ll = to_pixel(r.ll), .ur = to_pixel(r.ur)});
+
+                ps.polygons.reserve(rs.shape.polygons.size());
+                for (const auto &poly : rs.shape.polygons)
+                {
+                    PixelPolygon pp;
+                    pp.points.reserve(poly.points.size());
+                    for (const auto &pt : poly.points)
+                        pp.points.push_back(to_pixel(pt));
+                    ps.polygons.push_back(std::move(pp));
+                }
+
+                ps.paths.reserve(rs.shape.paths.size());
+                for (size_t i = 0; i < rs.shape.paths.size(); ++i)
+                {
+                    const Path &path = rs.shape.paths[i];
+                    PixelPath pp;
+                    pp.width = static_cast<double>(path.width) * scale;
+                    pp.polygon.points.reserve(path.polygon.points.size());
+                    for (const auto &pt : path.polygon.points)
+                        pp.polygon.points.push_back(to_pixel(pt));
+
+                    pp.buffered_outline.reserve((*rs.path_outlines)[i].size());
+                    for (const auto &outline_poly : (*rs.path_outlines)[i])
+                    {
+                        PixelPolygon outline_pp;
+                        outline_pp.points.reserve(outline_poly.points.size());
+                        for (const auto &pt : outline_poly.points)
+                            outline_pp.points.push_back(to_pixel(pt));
+                        pp.buffered_outline.push_back(std::move(outline_pp));
+                    }
+
+                    ps.paths.push_back(std::move(pp));
+                }
+
+                ps.texts.reserve(rs.shape.texts.size());
+                for (const auto &t : rs.shape.texts)
+                {
+                    const double pixel_size = std::max(t.size * scale * kLabelWidthRatio, kMinLabelPixelSize);
+                    ps.texts.push_back(PixelText{.label = t.label, .location = to_pixel(t.location), .size = pixel_size});
+                }
+
+                pixel_group.push_back(std::move(ps));
+            }
+
+            result.emplace(view_layer, std::move(pixel_group));
+        }
+
+        return result;
+    }
+
+    // Shared core of "draw a filtered, ViewLayerId-grouped pixel-space
+    // shape map" - factored out of BuildAbstractPictureStage's own body
+    // (Migration Step 3 Phase B) so BuildLayoutPictureStage can reuse it
+    // too, without either baking in the current-view-only grid/
+    // origin-marker chrome BuildAbstractPictureStage draws around it - a
+    // cached instance picture replayed at arbitrary positions elsewhere
+    // in the hierarchy shouldn't carry that.
+    inline void draw_shape_groups(SkCanvas &canvas, const std::map<ViewLayerId, std::vector<PixelShape>> &shapes, const ViewLayerSet &view_layers)
+    {
+        for (const auto &[view_layer_id, group] : shapes)
+        {
+            const ViewLayerData *view_layer = view_layers.get(view_layer_id);
+            if (!view_layer)
+                continue;
+
+            draw_group(canvas, group, view_layer->style);
+        }
+    }
+
+    // Converts a Migration Step 3 placement's own dbu-space
+    // InstanceTransform (Geometry::instance_transform) into the SkMatrix
+    // that maps a point already in the CHILD's own local pixel space
+    // (local_pixel = dbu_local * scale - see InstanceRenderer's own class
+    // comment for why no pan/origin-shift is baked into that space) into
+    // the PARENT's own pixel space (pixel = (dbu - parent_pan) *
+    // parent_scale, exactly TransformToPixelsStage's own convention).
+    // Derivation: pixel_parent = linear * local_pixel + to_pixel(t.
+    // translation) - the linear part carries through scale unchanged
+    // because every LinearTransform2D coefficient is in {-1,0,1} (scale *
+    // linear * x == linear * (scale * x) exactly, no rounding drift); the
+    // translation term is `to_pixel` of `t.translation` treated as if it
+    // were itself an absolute dbu point - falls out exactly from
+    // distributing (dbu - parent_pan) * parent_scale across
+    // `linear*local_dbu + translation`.
+    inline SkMatrix to_instance_matrix(const Geometry::InstanceTransform &t, Point parent_pan, double parent_scale)
+    {
+        const auto tx = static_cast<SkScalar>((static_cast<double>(t.translation.x) - static_cast<double>(parent_pan.x)) * parent_scale);
+        const auto ty = static_cast<SkScalar>((static_cast<double>(t.translation.y) - static_cast<double>(parent_pan.y)) * parent_scale);
+        return SkMatrix::MakeAll(
+            static_cast<SkScalar>(t.linear.a), static_cast<SkScalar>(t.linear.b), tx,
+            static_cast<SkScalar>(t.linear.c), static_cast<SkScalar>(t.linear.d), ty,
+            0, 0, 1);
     }
 }

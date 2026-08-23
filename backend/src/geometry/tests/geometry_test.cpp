@@ -685,3 +685,105 @@ TEST(Geometry, TransformPieceInPlaceOfAnOutOfRangeIndexIsANoOp)
 
     expect_point_eq(shape.rects[0].ll, Point{0, 0});
 }
+
+TEST(Geometry, OrientationLinearNIsIdentity)
+{
+    const auto n = Geometry::orientation_linear(Orientation::N);
+    expect_point_eq(Geometry::apply_linear(n, Point{7, -3}), Point{7, -3});
+}
+
+TEST(Geometry, OrientationLinearEveryFlipIsItsOwnInverse)
+{
+    const Point sample{7, -3};
+    for (Orientation o : {Orientation::FN, Orientation::FS, Orientation::FE, Orientation::FW})
+    {
+        const auto m = Geometry::orientation_linear(o);
+        const Point twice = Geometry::apply_linear(m, Geometry::apply_linear(m, sample));
+        expect_point_eq(twice, sample);
+    }
+}
+
+TEST(Geometry, OrientationLinearWHasOrderFour)
+{
+    const auto w = Geometry::orientation_linear(Orientation::W);
+    Point p{7, -3};
+    for (int i = 0; i < 4; i++)
+        p = Geometry::apply_linear(w, p);
+    expect_point_eq(p, Point{7, -3});
+}
+
+TEST(Geometry, OrientationLinearEAndWAreMutualInverses)
+{
+    const auto w = Geometry::orientation_linear(Orientation::W);
+    const auto e = Geometry::orientation_linear(Orientation::E);
+    const Point sample{7, -3};
+    expect_point_eq(Geometry::apply_linear(e, Geometry::apply_linear(w, sample)), sample);
+}
+
+TEST(Geometry, OrientationLinearSAppliedTwiceIsIdentity)
+{
+    const auto s = Geometry::orientation_linear(Orientation::S);
+    const Point sample{7, -3};
+    expect_point_eq(Geometry::apply_linear(s, Geometry::apply_linear(s, sample)), sample);
+}
+
+TEST(Geometry, InstanceTransformSquareBboxLandsLlAtLocationForEveryOrientation)
+{
+    // A square bbox's own transformed size never changes (rotating/
+    // mirroring a square yields a square of the same size) - every
+    // orientation should land ll at the same placement_location and ur at
+    // the same offset from it, regardless of orientation.
+    const Rect local_bbox{.ll = {0, 0}, .ur = {100, 100}};
+    const Point location{500, 1000};
+
+    for (Orientation o : {Orientation::N, Orientation::S, Orientation::E, Orientation::W, Orientation::FN, Orientation::FS, Orientation::FE, Orientation::FW})
+    {
+        const auto t = Geometry::instance_transform(o, local_bbox, location);
+        const Rect world = Geometry::transform_bbox(t, local_bbox);
+        expect_point_eq(world.ll, location);
+        expect_point_eq(world.ur, Point{location.x + 100, location.y + 100});
+    }
+}
+
+TEST(Geometry, InstanceTransformAsymmetricBboxSwapsAxesUnderEAndW)
+{
+    // A non-square bbox is the case a memorized per-orientation W/H-swap
+    // table gets subtly wrong if transcribed carelessly - this confirms
+    // the general corner-based derivation actually swaps which local axis
+    // becomes "width" under a 90-degree orientation.
+    const Rect local_bbox{.ll = {0, 0}, .ur = {200, 100}}; // 200 wide, 100 tall
+    const Point location{0, 0};
+
+    const auto w = Geometry::instance_transform(Orientation::W, local_bbox, location);
+    const Rect world_w = Geometry::transform_bbox(w, local_bbox);
+    expect_point_eq(world_w.ll, location);
+    expect_point_eq(world_w.ur, Point{100, 200}); // swapped: 100 wide, 200 tall
+
+    const auto e = Geometry::instance_transform(Orientation::E, local_bbox, location);
+    const Rect world_e = Geometry::transform_bbox(e, local_bbox);
+    expect_point_eq(world_e.ll, location);
+    expect_point_eq(world_e.ur, Point{100, 200}); // also swapped
+
+    const auto n = Geometry::instance_transform(Orientation::N, local_bbox, location);
+    const Rect world_n = Geometry::transform_bbox(n, local_bbox);
+    expect_point_eq(world_n.ur, Point{200, 100}); // unrotated - not swapped
+}
+
+TEST(Geometry, InstanceTransformHandlesANonZeroLocalBboxLowerLeft)
+{
+    // A Layout's own die area (unlike an Abstract's assumed (0,0)-origin
+    // size) can start at an arbitrary point - confirms the derivation
+    // isn't secretly a (0,0)-assuming shortcut.
+    const Rect local_bbox{.ll = {100, 100}, .ur = {600, 700}}; // 500 x 600
+    const Point location{1000, 2000};
+
+    const auto n = Geometry::instance_transform(Orientation::N, local_bbox, location);
+    const Rect world_n = Geometry::transform_bbox(n, local_bbox);
+    expect_point_eq(world_n.ll, location);
+    expect_point_eq(world_n.ur, Point{1500, 2600});
+
+    const auto s = Geometry::instance_transform(Orientation::S, local_bbox, location);
+    const Rect world_s = Geometry::transform_bbox(s, local_bbox);
+    expect_point_eq(world_s.ll, location); // same size as N (180-degree rotation)
+    expect_point_eq(world_s.ur, Point{1500, 2600});
+}

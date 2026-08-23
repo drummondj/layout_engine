@@ -4,7 +4,7 @@
 #include "../scene/scene.hpp"
 #include "../view_style/view_style.hpp"
 #include "stages/build_overlay_picture_stage.hpp"
-#include "stages/build_picture_stage.hpp"
+#include "stages/build_abstract_picture_stage.hpp"
 #include "stages/build_ruler_overlay_picture_stage.hpp"
 #include "stages/build_selection_overlay_picture_stage.hpp"
 #include "stages/build_tiny_shapes_picture_stage.hpp"
@@ -23,7 +23,7 @@ namespace le
     /// lifetime and reuse it across repeated calls (e.g. every interactive
     /// frame); a fresh instance recomputes everything on its first call.
     ///
-    ///   TransformToPixelsStage -> BuildPictureStage -> RasterizeStage (design)            \
+    ///   TransformToPixelsStage -> BuildAbstractPictureStage -> RasterizeStage (design)            \
     ///   TransformTinyShapesToPixelsStage -> BuildTinyShapesPictureStage -> RasterizeStage   \
     ///   BuildSelectionOverlayPictureStage -> RasterizeStage (selection)                      -> ComposeWithOverlaysStage
     ///   BuildRulerOverlayPictureStage -> RasterizeStage (rulers, UPDATES.md item 13)         /
@@ -157,7 +157,7 @@ namespace le
     private:
         TransformToPixelsStage transform_stage_;
         TransformTinyShapesToPixelsStage tiny_transform_stage_;
-        BuildPictureStage build_picture_stage_;
+        BuildAbstractPictureStage build_picture_stage_;
         BuildOverlayPictureStage build_overlay_picture_stage_;
         BuildTinyShapesPictureStage build_tiny_shapes_picture_stage_;
         BuildSelectionOverlayPictureStage build_selection_overlay_picture_stage_;

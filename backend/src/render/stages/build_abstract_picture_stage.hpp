@@ -33,13 +33,26 @@ namespace le
     /// instead (see its own doc comment for the history of why that split
     /// exists).
     ///
+    /// Renamed from BuildPictureStage (Migration Step 3 Phase B) once a
+    /// Layout-side sibling (BuildLayoutPictureStage) existed too - this
+    /// class's own Abstract-specific behavior isn't just a name, it really
+    /// does look up `root.get_abstract(scene.current_abstract())` for the
+    /// origin marker, unlike the four filter/tiny-shapes pipeline stages
+    /// that turned out not to need a rename at all (see the Step 3 plan's
+    /// own Naming section). Its shared shape-drawing core is factored out
+    /// as draw_shape_groups (draw_helpers.hpp) so BuildLayoutPictureStage
+    /// can reuse it without inheriting this class's own grid/origin-marker
+    /// chrome, which is current-view-only and wrong to bake into a picture
+    /// meant to be cached and replayed at arbitrary positions elsewhere in
+    /// a hierarchy.
+    ///
     /// Key: `{upstream TransformToPixelsStage's version()}` - composes via
     /// the upstream stage's own version (see VersionedStage's own doc
     /// comment) instead of independently re-deriving AbstractId/
     /// viewport_version/visibility_version/root.mutation_version() -
     /// TransformToPixelsStage's own key already covers exactly the same
     /// triggers this stage would otherwise need to re-list by hand.
-    class BuildPictureStage
+    class BuildAbstractPictureStage
     {
     public:
         const sk_sp<SkPicture> &run(TransformToPixelsStage &upstream, const std::map<ViewLayerId, std::vector<PixelShape>> &shapes, const Scene &scene, const ViewLayerSet &view_layers, const Root &root)
@@ -58,14 +71,7 @@ namespace le
                 if (const AbstractData *abstract = root.get_abstract(scene.current_abstract()))
                     draw_origin_marker(*canvas, scene, abstract->origin.value_or(Point{}));
 
-                for (const auto &[view_layer_id, group] : shapes)
-                {
-                    const ViewLayerData *view_layer = view_layers.get(view_layer_id);
-                    if (!view_layer)
-                        continue;
-
-                    draw_group(*canvas, group, view_layer->style);
-                }
+                draw_shape_groups(*canvas, shapes, view_layers);
 
                 return recorder.finishRecordingAsPicture();
             });
