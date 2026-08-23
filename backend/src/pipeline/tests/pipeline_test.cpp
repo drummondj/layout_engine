@@ -121,6 +121,66 @@ TEST_F(PipelineFixture, GenerateShapesComputesPathOutlinesForTerminalAndObstruct
     }
 }
 
+TEST_F(PipelineFixture, GenerateShapesResolvesAViaReferencedByATerminalOntoItsOwnLayerWithTerminalPurpose)
+{
+    // Mirrors LayoutPipelineFixture's own identical Route-side test - the
+    // via's own ViaLayer geometry lives on M2, distinct from the
+    // Terminal's own real M1 geometry.
+    const ViaId via_id = root.create_via(ViaData{.technology = technology_id, .name = "VIA12"});
+    root.create_via_layer(ViaLayerData{.via = via_id, .layer_name = "M2", .rects = {Rect{.ll = {-5, -5}, .ur = {5, 5}}}});
+
+    Shape shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    shape.vias.push_back(ShapeVia{.via_name = "VIA12", .origin = Point{50, 50}});
+    add_terminal_shape(shape);
+
+    const auto &shapes = pipeline.generate_shapes(root, abstract_id, view_layers);
+
+    const ViewLayerId expected = view_layers.find(m2, ViewLayerPurpose::TERMINAL);
+    const RenderedShape *via_shape = nullptr;
+    for (const RenderedShape &rs : shapes)
+        if (rs.view_layer == expected)
+            via_shape = &rs;
+    ASSERT_NE(via_shape, nullptr);
+    ASSERT_EQ(via_shape->shape.rects.size(), 1u);
+    EXPECT_EQ(via_shape->shape.rects[0].ll.x, 45);
+    EXPECT_EQ(via_shape->shape.rects[0].ll.y, 45);
+    EXPECT_FALSE(via_shape->shape_id.has_value());
+}
+
+TEST_F(PipelineFixture, GenerateShapesResolvesAViaReferencedByAnObstructionOntoItsOwnLayerWithObstructionPurpose)
+{
+    // A genuinely separate call site from the Terminal-loop test above
+    // (GenerateAbstractShapesStage's Terminal and Obstruction loops are
+    // two independent append_via_shapes calls, not one shared lambda the
+    // way GenerateLayoutShapesStage's push_shape_id is) - must resolve
+    // with OBSTRUCTION purpose, not TERMINAL.
+    const ViaId via_id = root.create_via(ViaData{.technology = technology_id, .name = "VIA12"});
+    root.create_via_layer(ViaLayerData{.via = via_id, .layer_name = "M2", .rects = {Rect{.ll = {-5, -5}, .ur = {5, 5}}}});
+
+    Shape shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    shape.vias.push_back(ShapeVia{.via_name = "VIA12", .origin = Point{50, 50}});
+    add_obstruction_shape(shape);
+
+    const auto &shapes = pipeline.generate_shapes(root, abstract_id, view_layers);
+
+    const ViewLayerId expected = view_layers.find(m2, ViewLayerPurpose::OBSTRUCTION);
+    const RenderedShape *via_shape = nullptr;
+    for (const RenderedShape &rs : shapes)
+        if (rs.view_layer == expected)
+            via_shape = &rs;
+    ASSERT_NE(via_shape, nullptr);
+    ASSERT_EQ(via_shape->shape.rects.size(), 1u);
+    EXPECT_EQ(via_shape->shape.rects[0].ll.x, 45);
+    EXPECT_EQ(via_shape->shape.rects[0].ll.y, 45);
+    EXPECT_FALSE(via_shape->shape_id.has_value());
+
+    // Not also resolved under TERMINAL - purpose actually came from this
+    // call site's own OBSTRUCTION argument, not a stray default.
+    const ViewLayerId terminal_m2 = view_layers.find(m2, ViewLayerPurpose::TERMINAL);
+    for (const RenderedShape &rs : shapes)
+        EXPECT_NE(rs.view_layer, terminal_m2);
+}
+
 TEST_F(PipelineFixture, GenerateShapesForUnknownAbstractIsEmpty)
 {
     AbstractId unknown{999, 0};
@@ -1214,6 +1274,172 @@ TEST_F(LayoutPipelineFixture, GenerateLayoutShapesResolvesRouteToRouteColumnOfIt
     const RenderedShape *found = find_by_purpose(shapes, view_layers, ViewLayerPurpose::ROUTE);
     ASSERT_NE(found, nullptr);
     EXPECT_EQ(found->view_layer, view_layers.find(m2, ViewLayerPurpose::ROUTE));
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesResolvesAViaReferencedByARouteOntoItsOwnLayerWithRoutePurpose)
+{
+    // The via's own ViaLayer geometry lives on M2 - a different layer
+    // from the route's own real M1 geometry - so the resolved via shape
+    // is unambiguously identifiable by its own ViewLayerId (M2/ROUTE),
+    // distinct from the route's own M1/ROUTE shape.
+    const ViaId via_id = root.create_via(ViaData{.technology = technology_id, .name = "VIA12"});
+    root.create_via_layer(ViaLayerData{.via = via_id, .layer_name = "M2", .rects = {Rect{.ll = {-5, -5}, .ur = {5, 5}}}});
+
+    const RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "NET1"});
+    Shape shape;
+    shape.route = route_id;
+    shape.layer = m1;
+    shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
+    shape.vias.push_back(ShapeVia{.via_name = "VIA12", .origin = Point{50, 50}});
+    root.create_shape(std::move(shape));
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+
+    const ViewLayerId expected = view_layers.find(m2, ViewLayerPurpose::ROUTE);
+    const RenderedShape *via_shape = nullptr;
+    for (const RenderedShape &rs : shapes)
+        if (rs.view_layer == expected)
+            via_shape = &rs;
+    ASSERT_NE(via_shape, nullptr);
+    ASSERT_EQ(via_shape->shape.rects.size(), 1u);
+    EXPECT_EQ(via_shape->shape.rects[0].ll.x, 45);
+    EXPECT_EQ(via_shape->shape.rects[0].ll.y, 45);
+    EXPECT_EQ(via_shape->shape.rects[0].ur.x, 55);
+    EXPECT_EQ(via_shape->shape.rects[0].ur.y, 55);
+    EXPECT_FALSE(via_shape->shape_id.has_value()); // synthesized, not independently selectable
+
+    // The route's own real M1 geometry is unaffected/still present.
+    const RenderedShape *route_shape = find_by_purpose(shapes, view_layers, ViewLayerPurpose::ROUTE);
+    ASSERT_NE(route_shape, nullptr);
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesPrefersALayoutViaOverASameNamedLibraryVia)
+{
+    // A DEF VIAS (LayoutVia) definition local to this Layout takes
+    // precedence over a same-named LEF VIA (Via) from the library - the
+    // resolved geometry lands on M3 (the LayoutVia's own layer), not M2
+    // (the Via's).
+    const ViaId via_id = root.create_via(ViaData{.technology = technology_id, .name = "VIA12"});
+    root.create_via_layer(ViaLayerData{.via = via_id, .layer_name = "M2", .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}});
+
+    const LayoutViaId layout_via_id = root.create_layout_via(LayoutViaData{.layout = layout_id, .name = "VIA12"});
+    const LayerId m3 = root.create_layer(LayerData{.technology = technology_id, .name = "M3", .type = "ROUTING"});
+    root.create_via_layer(ViaLayerData{.layout_via = layout_via_id, .layer_name = "M3", .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}});
+
+    const RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "NET1"});
+    Shape shape;
+    shape.route = route_id;
+    shape.layer = m1;
+    shape.vias.push_back(ShapeVia{.via_name = "VIA12", .origin = Point{0, 0}});
+    root.create_shape(std::move(shape));
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+
+    bool found_on_m3 = false, found_on_m2 = false;
+    for (const RenderedShape &rs : shapes)
+    {
+        if (rs.view_layer == view_layers.find(m3, ViewLayerPurpose::ROUTE))
+            found_on_m3 = true;
+        if (rs.view_layer == view_layers.find(m2, ViewLayerPurpose::ROUTE))
+            found_on_m2 = true;
+    }
+    EXPECT_TRUE(found_on_m3);
+    EXPECT_FALSE(found_on_m2);
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesTransformsAnOrientedViaByGeometrysOwnOrientationMath)
+{
+    // An asymmetric via rect under Orientation::E swaps axes (matches
+    // Geometry::orientation_linear's own E case: {0,1,-1,0}) - confirms
+    // real orientation math is applied, not always the identity.
+    const ViaId via_id = root.create_via(ViaData{.technology = technology_id, .name = "VIA12"});
+    root.create_via_layer(ViaLayerData{.via = via_id, .layer_name = "M2", .rects = {Rect{.ll = {0, 0}, .ur = {20, 10}}}});
+
+    const RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "NET1"});
+    Shape shape;
+    shape.route = route_id;
+    shape.layer = m1;
+    shape.vias.push_back(ShapeVia{.via_name = "VIA12", .origin = Point{100, 100}, .orientation = Orientation::E});
+    root.create_shape(std::move(shape));
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const ViewLayerId expected = view_layers.find(m2, ViewLayerPurpose::ROUTE);
+    const RenderedShape *via_shape = nullptr;
+    for (const RenderedShape &rs : shapes)
+        if (rs.view_layer == expected)
+            via_shape = &rs;
+    ASSERT_NE(via_shape, nullptr);
+    ASSERT_EQ(via_shape->shape.rects.size(), 1u);
+
+    // Geometry::orientation_linear(E) = {0,1,-1,0}: (0,0)->(0,0),
+    // (20,0)->(0,-20), (0,10)->(10,0), (20,10)->(10,-20) - transformed
+    // bbox is (0,-20)-(10,0), then translated by origin (100,100).
+    EXPECT_EQ(via_shape->shape.rects[0].ll.x, 100);
+    EXPECT_EQ(via_shape->shape.rects[0].ll.y, 80);
+    EXPECT_EQ(via_shape->shape.rects[0].ur.x, 110);
+    EXPECT_EQ(via_shape->shape.rects[0].ur.y, 100);
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesExpandsAViaIterateIntoOneResolvedShapePerTile)
+{
+    const ViaId via_id = root.create_via(ViaData{.technology = technology_id, .name = "VIA12"});
+    root.create_via_layer(ViaLayerData{.via = via_id, .layer_name = "M2", .rects = {Rect{.ll = {-5, -5}, .ur = {5, 5}}}});
+
+    const RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "NET1"});
+    Shape shape;
+    shape.route = route_id;
+    shape.layer = m1;
+    shape.via_iterates.push_back(ShapeViaIterate{.via_name = "VIA12", .origin = Point{0, 0}, .num_x = 2, .num_y = 1, .space_x = 100, .space_y = 0});
+    root.create_shape(std::move(shape));
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const ViewLayerId expected = view_layers.find(m2, ViewLayerPurpose::ROUTE);
+    std::vector<int64_t> centers;
+    for (const RenderedShape &rs : shapes)
+        if (rs.view_layer == expected)
+        {
+            ASSERT_EQ(rs.shape.rects.size(), 1u);
+            centers.push_back((rs.shape.rects[0].ll.x + rs.shape.rects[0].ur.x) / 2);
+        }
+    ASSERT_EQ(centers.size(), 2u);
+    std::sort(centers.begin(), centers.end());
+    EXPECT_EQ(centers[0], 0);
+    EXPECT_EQ(centers[1], 100);
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSkipsAnUnresolvedViaNameWithoutAffectingTheReferencingShape)
+{
+    const RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "NET1"});
+    Shape shape;
+    shape.route = route_id;
+    shape.layer = m1;
+    shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
+    shape.vias.push_back(ShapeVia{.via_name = "NO_SUCH_VIA", .origin = Point{0, 0}});
+    root.create_shape(std::move(shape));
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    const RenderedShape *route_shape = find_by_purpose(shapes, view_layers, ViewLayerPurpose::ROUTE);
+    ASSERT_NE(route_shape, nullptr);
+    ASSERT_EQ(route_shape->shape.rects.size(), 1u); // the route's own real geometry, unaffected
+}
+
+TEST_F(LayoutPipelineFixture, GenerateLayoutShapesSkipsAViaWithNoExplicitLayerGeometry)
+{
+    // A Via with no ViaLayer children at all (e.g. a LEF 5.6
+    // VIARULE-inside-VIA reference, or a pure VIARULE-GENERATE via) has
+    // no explicit geometry to draw - skipped, not an error.
+    root.create_via(ViaData{.technology = technology_id, .name = "VIA_NO_GEOMETRY"});
+
+    const RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "NET1"});
+    Shape shape;
+    shape.route = route_id;
+    shape.layer = m1;
+    shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
+    shape.vias.push_back(ShapeVia{.via_name = "VIA_NO_GEOMETRY", .origin = Point{0, 0}});
+    root.create_shape(std::move(shape));
+
+    const auto &shapes = pipeline.generate_layout_shapes(root, layout_id, view_layers);
+    ASSERT_EQ(shapes.size(), 1u); // just the route's own real shape, no extra via shapes
 }
 
 TEST_F(LayoutPipelineFixture, GenerateLayoutShapesComputesPathOutlinesForARoutedNetPath)

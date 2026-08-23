@@ -5,6 +5,7 @@
 #include "../../database/database.hpp"
 #include "../../geometry/geometry.hpp"
 #include "../../view_style/view_style.hpp"
+#include "via_shapes.hpp"
 #include <memory>
 #include <optional>
 #include <tuple>
@@ -28,10 +29,12 @@ namespace le
     /// would scale with instance count (up to 1,000,000x) and defeat the
     /// whole point of picture-level caching.
     ///
-    /// `LayoutVia` (named via definitions) and any `ShapeVia` reference
-    /// within Route/Blockage/PhysicalPort geometry are not drawn - same as
-    /// GenerateAbstractShapesStage, which doesn't draw via-cut geometry
-    /// for Abstracts either; not a new gap, an existing consistent one.
+    /// Any `ShapeVia`/`ShapeViaIterate` reference within a Blockage/Route/
+    /// PhysicalPort Shape is resolved and drawn too (via_shapes.hpp's
+    /// `append_via_shapes`, called from `push_shape_id` below) - against
+    /// the Layout's own DEF VIAS (`LayoutVia`) first, falling back to the
+    /// Technology's own LEF VIA (`Via`). Mirrors GenerateAbstractShapesStage's
+    /// own identical handling for Terminal/Obstruction Shapes.
     ///
     /// Key: `{LayoutId, ViewLayerSet::generation(), Root::mutation_version()}` -
     /// same reasoning as GenerateAbstractShapesStage's own key (see its
@@ -62,6 +65,7 @@ namespace le
                                                         ? view_layers.find(shape->layer, fallback_purpose)
                                                         : (shape->purpose ? view_layers.find(LayerId{}, to_view_layer_purpose(*shape->purpose)) : ViewLayerId{});
                     shapes.push_back(RenderedShape{.shape = *shape, .view_layer = view_layer, .shape_id = shape_id, .path_outlines = compute_path_outlines(*shape)});
+                    append_via_shapes(root, *shape, fallback_purpose, view_layers, layout_id, shapes);
                 };
 
                 if (const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id)))

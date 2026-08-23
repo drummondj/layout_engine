@@ -5,6 +5,7 @@
 #include "../../database/database.hpp"
 #include "../../geometry/geometry.hpp"
 #include "../../view_style/view_style.hpp"
+#include "via_shapes.hpp"
 #include <tuple>
 #include <unordered_map>
 #include <vector>
@@ -221,6 +222,7 @@ namespace le
                             combined.paths.insert(combined.paths.end(), shape.paths.begin(), shape.paths.end());
 
                             shapes.push_back(RenderedShape{.shape = shape, .view_layer = resolve(shape, ViewLayerPurpose::TERMINAL), .origin = SelectionRef{terminal_id}, .shape_id = shape_id, .path_outlines = compute_path_outlines(shape)});
+                            append_via_shapes(root, shape, ViewLayerPurpose::TERMINAL, view_layers, LayoutId{}, shapes);
                         }
                     }
 
@@ -250,6 +252,7 @@ namespace le
                             continue;
                         const Shape shape = expand_iterates(*raw_shape);
                         shapes.push_back(RenderedShape{.shape = shape, .view_layer = resolve(shape, ViewLayerPurpose::OBSTRUCTION), .origin = SelectionRef{obstruction_id}, .shape_id = shape_id, .path_outlines = compute_path_outlines(shape)});
+                        append_via_shapes(root, shape, ViewLayerPurpose::OBSTRUCTION, view_layers, LayoutId{}, shapes);
                     }
                 }
 
