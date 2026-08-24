@@ -153,6 +153,29 @@ set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googlebenchmark)
 
+# Taskflow (backend/TASKFLOW_EXPERIMENT.md) - header-only thread-pool +
+# dynamic task-DAG library, the basis for the src/flow module below.
+# FetchContent_Populate (not FetchContent_MakeAvailable) deliberately - we
+# only want the headers, not their own top-level CMakeLists.txt, which by
+# default wires up its own unittests/examples/benchmarks subtrees; wrapping
+# our own INTERFACE target below is simpler and keeps that out of this
+# project's build entirely.
+find_package(Threads REQUIRED)
+FetchContent_Declare(
+    taskflow
+    URL https://github.com/taskflow/taskflow/archive/refs/tags/v3.9.0.zip
+)
+FetchContent_GetProperties(taskflow)
+if(NOT taskflow_POPULATED)
+    if(POLICY CMP0169)
+        cmake_policy(SET CMP0169 OLD) # keep FetchContent_Populate's simple (non-MakeAvailable) form usable
+    endif()
+    FetchContent_Populate(taskflow)
+endif()
+add_library(taskflow INTERFACE)
+target_include_directories(taskflow SYSTEM INTERFACE ${taskflow_SOURCE_DIR})
+target_link_libraries(taskflow INTERFACE Threads::Threads)
+
 enable_testing()
 include(GoogleTest)
 
@@ -187,6 +210,16 @@ target_link_libraries(editing INTERFACE database scene)
 add_library(core INTERFACE)
 target_include_directories(core INTERFACE src)
 target_link_libraries(core INTERFACE database scene view_style)
+
+# --- flow: Taskflow-based building blocks (backend/TASKFLOW_EXPERIMENT.md) -
+# a thread-pool + dynamic task-DAG experiment, kept separate from
+# pipeline/render/instancing until proven out. Deliberately has no
+# dependency on this project's own domain types (database/core/etc.) -
+# generic infrastructure that pipeline etc. would link into, not the
+# other way around. ---
+add_library(flow INTERFACE)
+target_include_directories(flow INTERFACE src)
+target_link_libraries(flow INTERFACE taskflow)
 
 # --- pipeline: header-only shape generation + viewport/size/layer filtering ---
 add_library(pipeline INTERFACE)
@@ -580,8 +613,9 @@ add_executable(backend_tests
     src/io/tests/def_reader_test.cpp
     src/io/tests/def_writer_test.cpp
     src/api/tests/api_test.cpp
+    src/flow/tests/flow_test.cpp
 )
-target_link_libraries(backend_tests PRIVATE database geometry view_style scene editing pipeline render instancing io api fmt::fmt GTest::gtest_main)
+target_link_libraries(backend_tests PRIVATE database geometry view_style scene editing pipeline render instancing io api flow fmt::fmt GTest::gtest_main)
 target_compile_definitions(backend_tests PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
     IO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures"
@@ -606,6 +640,13 @@ target_compile_definitions(pipeline_benchmarks PRIVATE
 # runtime symbol that only gets linked into the final executable if this
 # target also passes -fprofile-instr-generate, or the link fails.
 le_enable_coverage_instrumentation(pipeline_benchmarks)
+
+# --- flow_benchmarks: Taskflow experiment - serial vs multi-threaded
+# throughput on a synthetic workload shaped like pipeline/render's real
+# per-item stage cost (TASKFLOW_EXPERIMENT.md goal 1). A synthetic
+# stand-in only - doesn't touch real Pipeline/Renderer code. ---
+add_executable(flow_benchmarks src/flow/benchmarks/flow_benchmark.cpp)
+target_link_libraries(flow_benchmarks PRIVATE flow benchmark::benchmark)
 
 # --- render_preview: dev-only tool, rasterizes each given LEF file's Designs
 # to PNGs (preview/<lef-stem>__<design-name>.png) so they can be visually
