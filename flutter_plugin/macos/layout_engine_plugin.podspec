@@ -32,6 +32,27 @@ unless File.exist?(File.join(backend_build, 'libapi.a'))
         "cmake --build #{backend_build} --target api render io -j"
 end
 
+# backend/ONETBB_INTEGRATION.md migration (Phase 5 cutover) - api.cpp now
+# depends on oneTBB (find_package(TBB REQUIRED) in backend/CMakeLists.txt)
+# and Tracy (FetchContent'd into build_release's own _deps/, since it has
+# no Homebrew formula). libapi.a's own object code references both
+# directly (MemoizingStage/flow::graph machinery, Tracy's ZoneScoped/etc.
+# profiling macros), so without these two the link fails with undefined
+# `tbb::detail::r1::*`/`tracy::*` symbols - found by trial (a
+# `flutter run -d macos` linker failure), not anticipated in advance.
+# libtbb.dylib is a non-keg-only Homebrew formula, symlinked directly into
+# /opt/homebrew/lib (already in LIBRARY_SEARCH_PATHS below), so `-ltbb`
+# resolves the same way `-lharfbuzz`/`-lspdlog`/etc. do; TracyClient has no
+# Homebrew formula at all, so its full build path is needed instead - see
+# backend/CMakeLists.txt's own Tracy FetchContent_Declare for why exactly
+# this path (`_deps/tracy-build/`) is where CMake puts it.
+tracy_lib = File.join(backend_build, '_deps/tracy-build/libTracyClient.a')
+unless File.exist?(tracy_lib)
+  raise "#{tracy_lib} not found - rebuild backend/build_release: " \
+        "cmake -S #{backend_dir} -B #{backend_build} -DCMAKE_BUILD_TYPE=Release && " \
+        "cmake --build #{backend_build} --target api render io -j"
+end
+
 # le_tcl.so/le_tcl_procs.tcl (LeTclBridge.mm's show_gui Tcl console -
 # see TCL_EXPLORATION.md) come from backend's *Debug* tree, not
 # build_release like everything else above: unlike api/render/io (hot
@@ -98,8 +119,9 @@ Flutter plugin binding the Layout Engine C API and rendering le_render_pixel_buf
       File.join(backend_dir, 'src/lefdef/lef/lib/liblef.a'),
       File.join(backend_dir, 'src/lefdef/def/lib/libdef.a'),
       File.join(skia_dir, 'out/MacStatic/libskia.a'),
+      tracy_lib,
       '-lharfbuzz', '-licuuc', '-licudata', '-ljpeg', '-lpng', '-lz', '-lwebp', '-lwebpdemux',
-      '-lspdlog', '-lfmt',
+      '-lspdlog', '-lfmt', '-ltbb',
       # LeTclBridge.mm's embedded Tcl interpreter (show_gui console) -
       # dynamically `load`s le_tcl.so itself at runtime (see
       # le_tcl_module_path above), so only libtcl itself needs linking

@@ -15,7 +15,7 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
-  layout_engine_plugin: d3be2c27d62d7a579757481e564a6a9de87b5a85
+  layout_engine_plugin: 7dc9235c77854b4e90c1b7f8c54ede9c8df00616
 
 PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
 

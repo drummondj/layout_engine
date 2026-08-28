@@ -177,7 +177,30 @@ find_package(TBB REQUIRED CONFIG)
 # project's own CMakeLists.txt (kept in lockstep with the Homebrew-bottled
 # Tracy GUI viewer's own protocol version, per that project's own
 # CLAUDE.md).
-set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
+#
+# TRACY_ENABLE OFF (not ON, despite the earlier decision to bring Tracy in
+# for real) - found by actually running the Flutter macOS app, not
+# anticipated: Tracy's own background profiler worker thread
+# (tracy::Profiler::Worker, started unconditionally by a static
+# constructor the moment TracyClient's code is loaded into any process)
+# crashes with `std::mutex::lock()` throwing "Invalid argument" inside
+# this app's own sandboxed macOS-app-bundle/Flutter-embedding context -
+# reproduced via a real crash report (tracy::Thread::Launch ->
+# tracy::Profiler::Worker -> std::__1::mutex::lock, SIGABRT). Does not
+# reproduce in the plain CLI backend_tests binary (98 real ApiFixture
+# tests pass there, including a concurrent-render stress test) - this is
+# specific to Tracy's own startup behavior in this particular embedding,
+# not a bug in this project's own code. With TRACY_ENABLE OFF, Tracy's
+# own headers compile ZoneScoped/etc. down to no-ops and the profiler
+# worker thread is never constructed at all - the ZoneScoped/ZoneName/
+# ZoneText/FrameMark call sites in tbb_core.hpp stay exactly as copied
+# from oneTBB_test, unmodified; only this build flag differs. Revisit
+# turning this back on (e.g. investigating TRACY_NO_BROADCAST or Tracy's
+# own sandboxed-app guidance) as a separate, non-blocking follow-up if
+# real in-app profiling is ever wanted - not attempted here since it's
+# not this migration's own concern and the crash was actively blocking
+# testing the actual behavior change (Phase 5's api.cpp cutover).
+set(TRACY_ENABLE OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     tracy
     URL https://github.com/wolfpld/tracy/archive/refs/tags/v0.13.1.zip
