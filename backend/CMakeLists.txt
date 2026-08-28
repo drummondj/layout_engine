@@ -332,18 +332,19 @@ target_include_directories(instancing INTERFACE src)
 target_link_libraries(instancing INTERFACE database geometry scene view_style pipeline render)
 
 # --- pipelines: oneTBB-based building blocks (backend/ONETBB_INTEGRATION.md
-# migration, Phase 0) - eventually replaces pipeline+render+instancing+core
-# (see the migration plan for the phased cutover); for now this is just
-# tbb_core.hpp (StageData/MemoizingStage/FanInCollectStage, copied from the
-# sibling oneTBB_test project and wrapped in namespace le) plus a throwaway
-# toolchain-proving test - no real stages ported yet. Header-only until a
-# compiled TU (the eventual Skia font-manager isolation, currently
-# render.cpp) moves in. Gated on TBB_FOUND above - skipped entirely where
-# TBB isn't available (see that comment). ---
+# migration) - eventually replaces pipeline+render+instancing+core (see the
+# migration plan for the phased cutover). Header-only until a compiled TU
+# (the eventual Skia font-manager isolation, currently render.cpp) moves in
+# at the Phase 5 cutover - until then, links the *existing* `render` target
+# directly to reach its default_typeface() symbol and Skia include paths/
+# link flags (draw_helpers.hpp, reused unchanged by several ported stages,
+# declares but doesn't define that function - see render.cpp's own
+# comment). Gated on TBB_FOUND above - skipped entirely where TBB isn't
+# available (see that comment). ---
 if(TBB_FOUND)
     add_library(pipelines INTERFACE)
     target_include_directories(pipelines INTERFACE src)
-    target_link_libraries(pipelines INTERFACE TBB::tbb TracyClient)
+    target_link_libraries(pipelines INTERFACE TBB::tbb TracyClient render)
 endif()
 
 # --- io: LEF/DEF file readers ---
@@ -641,7 +642,7 @@ target_compile_definitions(backend_tests PRIVATE
 )
 add_dependencies(backend_tests lef_lib def_lib)
 if(TBB_FOUND)
-    target_sources(backend_tests PRIVATE src/pipelines/tests/pipelines_test.cpp)
+    target_sources(backend_tests PRIVATE src/pipelines/tests/pipelines_test.cpp src/pipelines/tests/render_pipelines_test.cpp)
     target_link_libraries(backend_tests PRIVATE pipelines)
 endif()
 le_enable_coverage_instrumentation(backend_tests)
