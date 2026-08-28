@@ -642,7 +642,7 @@ target_compile_definitions(backend_tests PRIVATE
 )
 add_dependencies(backend_tests lef_lib def_lib)
 if(TBB_FOUND)
-    target_sources(backend_tests PRIVATE src/pipelines/tests/pipelines_test.cpp src/pipelines/tests/render_pipelines_test.cpp)
+    target_sources(backend_tests PRIVATE src/pipelines/tests/pipelines_test.cpp src/pipelines/tests/render_pipelines_test.cpp src/pipelines/tests/hierarchy_resolver_test.cpp)
     target_link_libraries(backend_tests PRIVATE pipelines)
 endif()
 le_enable_coverage_instrumentation(backend_tests)
