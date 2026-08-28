@@ -2976,27 +2976,25 @@ extern "C"
         // are always mutually exclusive) renders through HierarchyResolver
         // instead of AbstractShapePipeline/FrameRenderPipeline - see
         // LeHandle::hierarchy_resolver's own comment.
+        const le::PixelBuffer *buffer = nullptr;
         if (handle->scene.current_layout().valid())
         {
-            const auto &buffer = handle->hierarchy_resolver.render_layout_frame(handle->root, handle->scene.current_layout(), handle->scene.hierarchy_depth(), handle->view_layers, handle->scene, handle->frame_render_pipeline);
-            return LePixelBuffer{
-                .data = buffer.data,
-                .width = buffer.width,
-                .height = buffer.height,
-                .row_bytes = static_cast<int64_t>(buffer.row_bytes),
-            };
+            buffer = &handle->hierarchy_resolver.render_layout_frame(handle->root, handle->scene.current_layout(), handle->scene.hierarchy_depth(), handle->view_layers, handle->scene, handle->frame_render_pipeline);
+        }
+        else
+        {
+            const le::PipelineOptions options = pipeline_options_for(handle);
+            const auto &shapes = handle->abstract_shape_pipeline.run(handle->scene.current_abstract(), options);
+            const auto &tiny_shapes = handle->abstract_shape_pipeline.run_tiny_shapes(handle->scene.current_abstract(), options);
+            buffer = &handle->frame_render_pipeline.run(handle->scene.current_abstract(), shapes, tiny_shapes, options);
         }
 
-        const le::PipelineOptions options = pipeline_options_for(handle);
-        const auto &shapes = handle->abstract_shape_pipeline.run(handle->scene.current_abstract(), options);
-        const auto &tiny_shapes = handle->abstract_shape_pipeline.run_tiny_shapes(handle->scene.current_abstract(), options);
-        const auto &buffer = handle->frame_render_pipeline.run(handle->scene.current_abstract(), shapes, tiny_shapes, options);
-
+        FrameMark;
         return LePixelBuffer{
-            .data = buffer.data,
-            .width = buffer.width,
-            .height = buffer.height,
-            .row_bytes = static_cast<int64_t>(buffer.row_bytes),
+            .data = buffer->data,
+            .width = buffer->width,
+            .height = buffer->height,
+            .row_bytes = static_cast<int64_t>(buffer->row_bytes),
         };
     }
 }
