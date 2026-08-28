@@ -153,29 +153,6 @@ set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googlebenchmark)
 
-# Taskflow (backend/TASKFLOW_EXPERIMENT.md) - header-only thread-pool +
-# dynamic task-DAG library, the basis for the src/flow module below.
-# FetchContent_Populate (not FetchContent_MakeAvailable) deliberately - we
-# only want the headers, not their own top-level CMakeLists.txt, which by
-# default wires up its own unittests/examples/benchmarks subtrees; wrapping
-# our own INTERFACE target below is simpler and keeps that out of this
-# project's build entirely.
-find_package(Threads REQUIRED)
-FetchContent_Declare(
-    taskflow
-    URL https://github.com/taskflow/taskflow/archive/refs/tags/v3.9.0.zip
-)
-FetchContent_GetProperties(taskflow)
-if(NOT taskflow_POPULATED)
-    if(POLICY CMP0169)
-        cmake_policy(SET CMP0169 OLD) # keep FetchContent_Populate's simple (non-MakeAvailable) form usable
-    endif()
-    FetchContent_Populate(taskflow)
-endif()
-add_library(taskflow INTERFACE)
-target_include_directories(taskflow SYSTEM INTERFACE ${taskflow_SOURCE_DIR})
-target_link_libraries(taskflow INTERFACE Threads::Threads)
-
 enable_testing()
 include(GoogleTest)
 
@@ -210,19 +187,6 @@ target_link_libraries(editing INTERFACE database scene)
 add_library(core INTERFACE)
 target_include_directories(core INTERFACE src)
 target_link_libraries(core INTERFACE database scene view_style)
-
-# --- flow: Taskflow-based building blocks (backend/TASKFLOW_EXPERIMENT.md) -
-# a thread-pool + dynamic task-DAG experiment, kept separate from
-# pipeline/render/instancing until proven out. flow.hpp/parallel_by_key.hpp/
-# parallel_chunks.hpp/task_profiler.hpp are domain-agnostic generic
-# infrastructure; src/flow/pipeline/ (linked against core/geometry below)
-# is a standalone, parallelized reimplementation of two of Pipeline's own
-# stages built on top of that infra, for comparison - not included by
-# pipeline/render/instancing, and doesn't include anything from them
-# either. ---
-add_library(flow INTERFACE)
-target_include_directories(flow INTERFACE src)
-target_link_libraries(flow INTERFACE taskflow core geometry)
 
 # --- pipeline: header-only shape generation + viewport/size/layer filtering ---
 add_library(pipeline INTERFACE)
@@ -332,25 +296,6 @@ endif()
 add_library(instancing INTERFACE)
 target_include_directories(instancing INTERFACE src)
 target_link_libraries(instancing INTERFACE database geometry scene view_style pipeline render)
-
-# --- flow_instancing: a second, separate Taskflow experiment
-# (TASKFLOW_EXPERIMENT.md) - parallel hierarchical instance-picture
-# rendering, targeting src/instancing/InstanceRenderer's own real
-# bottleneck (a single-threaded per-placement drawing loop at
-# 1,000,000-instance scale) rather than src/flow/pipeline/'s abstract-
-# shapes generation. Only InstanceRenderer's own orchestration logic
-# (resolve/cache/build) gets a fresh port under src/flow/instancing/ -
-# GenerateAbstractShapesStage/FilterByViewportAndSizeStage/
-# BuildLayoutPictureStage/draw_helpers etc. are real, unmodified,
-# already-Skia-correct code with no src/instancing-specific logic in
-# them, so this links pipeline/render directly instead of forking those
-# too - same "the one module allowed to link both pipeline and render"
-# role as src/instancing/ itself, kept separate from the base `flow`
-# target (which stays deliberately light) so this heavier dependency
-# doesn't leak into every other flow consumer. ---
-add_library(flow_instancing INTERFACE)
-target_include_directories(flow_instancing INTERFACE src)
-target_link_libraries(flow_instancing INTERFACE flow pipeline render)
 
 # --- io: LEF/DEF file readers ---
 add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp src/io/def_writer.cpp)
@@ -635,11 +580,8 @@ add_executable(backend_tests
     src/io/tests/def_reader_test.cpp
     src/io/tests/def_writer_test.cpp
     src/api/tests/api_test.cpp
-    src/flow/tests/flow_test.cpp
-    src/flow/tests/pipeline_stages_test.cpp
-    src/flow/tests/parallel_layout_picture_builder_test.cpp
 )
-target_link_libraries(backend_tests PRIVATE database geometry view_style scene editing pipeline render instancing io api flow flow_instancing fmt::fmt GTest::gtest_main)
+target_link_libraries(backend_tests PRIVATE database geometry view_style scene editing pipeline render instancing io api fmt::fmt GTest::gtest_main)
 target_compile_definitions(backend_tests PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
     IO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures"
@@ -664,35 +606,6 @@ target_compile_definitions(pipeline_benchmarks PRIVATE
 # runtime symbol that only gets linked into the final executable if this
 # target also passes -fprofile-instr-generate, or the link fails.
 le_enable_coverage_instrumentation(pipeline_benchmarks)
-
-# --- flow_benchmarks: Taskflow experiment - serial vs multi-threaded
-# throughput on a synthetic workload shaped like pipeline/render's real
-# per-item stage cost (TASKFLOW_EXPERIMENT.md goal 1). A synthetic
-# stand-in only - doesn't touch real Pipeline/Renderer code. ---
-add_executable(flow_benchmarks src/flow/benchmarks/flow_benchmark.cpp)
-target_link_libraries(flow_benchmarks PRIVATE flow benchmark::benchmark)
-
-# --- flow_pipeline_stages_benchmarks: real generate_shapes/
-# filter_by_viewport_and_size workloads (src/flow/pipeline/) run through
-# flow::parallel_chunks - answers TASKFLOW_EXPERIMENT.md goal 1 with the
-# actual algorithm rather than flow_benchmarks' own synthetic stand-in. ---
-add_executable(flow_pipeline_stages_benchmarks src/flow/benchmarks/pipeline_stages_benchmark.cpp)
-target_link_libraries(flow_pipeline_stages_benchmarks PRIVATE flow benchmark::benchmark)
-
-# --- flow_profile_pipeline: dev-only tool (not a benchmark - mirrors
-# render_preview's own role), prints a real flow::StageProfiler report
-# (TASKFLOW_EXPERIMENT.md goal 3) for one GenerateAndFilterPipeline run
-# against a moderate multi-layer fixture. ---
-add_executable(flow_profile_pipeline src/flow/benchmarks/profile_pipeline.cpp)
-target_link_libraries(flow_profile_pipeline PRIVATE flow)
-
-# --- flow_profile_instancing: dev-only tool, true A/B (real InstanceRenderer
-# vs. flow::ParallelLayoutPictureBuilder) against a real design
-# (test_data/ispd19_test10) - see TASKFLOW_EXPERIMENT.md. Links `instancing`
-# (the real, unmodified class, called read-only for comparison) and `io`
-# (to parse the real LEF/DEF) in addition to flow_instancing. ---
-add_executable(flow_profile_instancing src/flow/benchmarks/profile_instancing.cpp)
-target_link_libraries(flow_profile_instancing PRIVATE flow_instancing instancing io)
 
 # --- render_preview: dev-only tool, rasterizes each given LEF file's Designs
 # to PNGs (preview/<lef-stem>__<design-name>.png) so they can be visually
