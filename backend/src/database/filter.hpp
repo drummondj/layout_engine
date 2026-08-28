@@ -27,11 +27,14 @@
 #include "generated/property.hpp"
 
 #include <cctype>
+#include <cerrno>
 #include <charconv>
+#include <cstdlib>
 #include <expected>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace le
@@ -459,13 +462,39 @@ namespace le
         bool compare_number(T actual, FilterOp op, std::string_view literal)
         {
             T lit{};
-            auto result = std::from_chars(literal.data(), literal.data() + literal.size(), lit);
-            // A literal that isn't a number never matches a numeric field
-            // (degrade gracefully - e.g. `.width == abc` - rather than an
-            // error, matching this project's "expected-missing-data
-            // returns empty/false, doesn't throw" convention).
-            if (result.ec != std::errc{} || result.ptr != literal.data() + literal.size())
-                return false;
+            if constexpr (std::is_floating_point_v<T>)
+            {
+                // std::from_chars' floating-point overload is only
+                // available starting macOS 26.0 in Apple's libc++ (a
+                // real, recent SDK gap - the integer overloads below
+                // have been available since C++17 support landed) - this
+                // backend's own deployment target is pinned much older
+                // (CMAKE_OSX_DEPLOYMENT_TARGET, matching flutter_plugin's
+                // own macOS app target - see backend/CMakeLists.txt's own
+                // comment), so doubles need a portable fallback instead:
+                // strtod over a NUL-terminated copy of `literal`
+                // (string_view itself isn't guaranteed NUL-terminated),
+                // checking both errno and full consumption the same way
+                // the from_chars branch below already does.
+                const std::string owned(literal);
+                errno = 0;
+                char *end = nullptr;
+                const double parsed = std::strtod(owned.c_str(), &end);
+                if (errno == ERANGE || end == owned.c_str() || end != owned.c_str() + owned.size())
+                    return false;
+                lit = static_cast<T>(parsed);
+            }
+            else
+            {
+                auto result = std::from_chars(literal.data(), literal.data() + literal.size(), lit);
+                // A literal that isn't a number never matches a numeric
+                // field (degrade gracefully - e.g. `.width == abc` -
+                // rather than an error, matching this project's
+                // "expected-missing-data returns empty/false, doesn't
+                // throw" convention).
+                if (result.ec != std::errc{} || result.ptr != literal.data() + literal.size())
+                    return false;
+            }
             switch (op)
             {
             case FilterOp::Eq:

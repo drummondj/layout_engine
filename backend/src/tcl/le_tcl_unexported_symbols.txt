@@ -1,2 +1,3 @@
 __ZN12LefDefParser*
 __Z*2le4Root*
+__ZN5tracy*

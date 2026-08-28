@@ -1,4 +1,30 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Must be set before project() to take effect. Without this, CMake lets
+# clang default to targeting whatever macOS SDK/version this machine
+# currently runs (drifts upward over time, e.g. macOS 26.0 as of this
+# writing) - fine for this backend's own standalone binaries (ctest,
+# benchmarks), but a real problem once linked into flutter_plugin's
+# macOS app bundle, which targets a much older macOS (11.0, per
+# frontend/macos/Podfile's/Runner.xcodeproj's own MACOSX_DEPLOYMENT_TARGET) -
+# found via a real crash, not anticipated: Apple's libc++ has real
+# __API_AVAILABLE-gated implementation differences for synchronization
+# primitives across SDK versions, so object code compiled assuming a much
+# newer minimum (this backend's libapi.a/libTracyClient.a, previously
+# unset -> 26.0) linked into a binary built for 11.0 can end up with a
+# std::mutex whose construction/locking disagrees with what the final
+# binary's own runtime expects - manifested as Tracy's own background
+# profiler thread (tracy::Profiler::Worker) throwing `std::mutex::lock()
+# "Invalid argument"` on startup, only inside the actual Flutter app
+# bundle, never in this backend's own plain CLI binaries (which stayed
+# internally consistent throughout). 11.0 matches the actual effective
+# target the app's own linker already reported building for (`ld:
+# warning: building for macOS-11.0`) - keep in sync with frontend/macos's
+# own deployment target if that ever changes.
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version - must match flutter_plugin's own Flutter-app deployment target, see comment above")
+endif()
+
 project(layout_engine_backend VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -178,29 +204,17 @@ find_package(TBB REQUIRED CONFIG)
 # Tracy GUI viewer's own protocol version, per that project's own
 # CLAUDE.md).
 #
-# TRACY_ENABLE OFF (not ON, despite the earlier decision to bring Tracy in
-# for real) - found by actually running the Flutter macOS app, not
-# anticipated: Tracy's own background profiler worker thread
-# (tracy::Profiler::Worker, started unconditionally by a static
-# constructor the moment TracyClient's code is loaded into any process)
-# crashes with `std::mutex::lock()` throwing "Invalid argument" inside
-# this app's own sandboxed macOS-app-bundle/Flutter-embedding context -
-# reproduced via a real crash report (tracy::Thread::Launch ->
-# tracy::Profiler::Worker -> std::__1::mutex::lock, SIGABRT). Does not
-# reproduce in the plain CLI backend_tests binary (98 real ApiFixture
-# tests pass there, including a concurrent-render stress test) - this is
-# specific to Tracy's own startup behavior in this particular embedding,
-# not a bug in this project's own code. With TRACY_ENABLE OFF, Tracy's
-# own headers compile ZoneScoped/etc. down to no-ops and the profiler
-# worker thread is never constructed at all - the ZoneScoped/ZoneName/
-# ZoneText/FrameMark call sites in tbb_core.hpp stay exactly as copied
-# from oneTBB_test, unmodified; only this build flag differs. Revisit
-# turning this back on (e.g. investigating TRACY_NO_BROADCAST or Tracy's
-# own sandboxed-app guidance) as a separate, non-blocking follow-up if
-# real in-app profiling is ever wanted - not attempted here since it's
-# not this migration's own concern and the crash was actively blocking
-# testing the actual behavior change (Phase 5's api.cpp cutover).
-set(TRACY_ENABLE OFF CACHE BOOL "" FORCE)
+# TRACY_ENABLE ON - see this file's own CMAKE_OSX_DEPLOYMENT_TARGET
+# comment near the top for the real story: this was briefly set OFF after
+# Tracy's own background profiler worker thread crashed on startup inside
+# the Flutter macOS app bundle (`std::mutex::lock()` throwing "Invalid
+# argument", tracy::Thread::Launch -> tracy::Profiler::Worker, SIGABRT) -
+# root-caused to this backend's own object code (including TracyClient's)
+# having drifted to targeting a much newer macOS SDK minimum than the
+# actual app binary it links into, not a real Tracy bug or a reason to
+# keep it disabled. Re-enabled once CMAKE_OSX_DEPLOYMENT_TARGET pinned
+# both to the same target.
+set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
     tracy
     URL https://github.com/wolfpld/tracy/archive/refs/tags/v0.13.1.zip
@@ -506,6 +520,31 @@ if(SWIG_FOUND AND TCL_FOUND)
     # image's copy of the guard "wins" a coalescing race), so this closes
     # a real, confirmed-duplicated hazard without itself being confirmed
     # as the original report's actual cause.
+    #
+    # A third instance of the exact same bug (backend/ONETBB_INTEGRATION.md
+    # migration) - `tracy::` (Tracy's own global Profiler singleton and its
+    # background worker threads, pulled in transitively via `api` ->
+    # `pipelines` -> the STATIC `TracyClient` library - a genuine STATIC
+    # library gets its own separate copy of code baked into every image
+    # that links it, unlike TBB's own runtime, which stays a single shared
+    # instance across images since libtbb is a dylib, not a static lib).
+    # This one WAS confirmed as a real crash's actual cause, not just a
+    # closed-preemptively gap like le::Root above: a real crash report
+    # showed `le_tcl.so` loaded into the same process as
+    # flutter_plugin's own main app binary (both independently linking
+    # `api`/`pipelines`/`TracyClient`), and Tracy's own background
+    # worker thread (tracy::Profiler::Worker, already running against the
+    # main binary's own copy of the Profiler singleton) crashed with
+    # `std::mutex::lock() "Invalid argument"` at almost exactly the
+    # moment le_tcl.so's own Tcl bridge was first invoked (the frontend's
+    # "Load Test Data" button, calling into a `read_lef` Tcl command) -
+    # dyld's flat-namespace symbol coalescing rebinding some subset of
+    # calls to le_tcl.so's own freshly-loaded, differently-initialized
+    # copy of the same singleton state out from under the already-running
+    # worker thread. `__ZN5tracy*` (not just an exact-namespace match -
+    # Tracy vendors its own `tracy::moodycamel::` queue implementation
+    # nested inside the same `tracy` namespace, which needs covering too)
+    # closes this the same way the other two entries do.
     #
     # Second gotcha: editing le_tcl_unexported_symbols.txt alone does not
     # reliably trigger a relink - it's passed to the linker as a raw path
