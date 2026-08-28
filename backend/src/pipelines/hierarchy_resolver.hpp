@@ -1,17 +1,25 @@
 #pragma once
 #include "../core/placement_geometry.hpp"
+#include "../core/versioned_stage.hpp"
 #include "../database/database.hpp"
 #include "../geometry/geometry.hpp"
 #include "../render/draw_helpers.hpp"
 #include "../render/stages/build_layout_picture_stage.hpp"
 #include "../scene/scene.hpp"
 #include "../view_style/view_style.hpp"
+#include "frame_render_pipeline.hpp"
 #include "pipeline_options.hpp"
 #include "stages/abstract_geometry_stage.hpp"
 #include "stages/layer_visibility_filter_stage.hpp"
 #include "stages/layout_geometry_stage.hpp"
+#include "stages/mouse_overlay_stage.hpp"
+#include "stages/ruler_overlay_stage.hpp"
+#include "stages/selection_overlay_stage.hpp"
 #include "stages/viewport_filter_stage.hpp"
 #include "tbb_core.hpp"
+#include "version_utils.hpp"
+#include "include/core/SkPictureRecorder.h"
+#include "include/core/SkRect.h"
 #include <algorithm>
 #include <map>
 #include <optional>
@@ -119,6 +127,95 @@ namespace le
         double min_visible_instance_pixels() const { return min_visible_instance_pixels_; }
         void set_min_visible_instance_pixels(double pixels) { min_visible_instance_pixels_ = pixels; }
 
+        /// @brief Renders the full displayable frame for a Layout view -
+        /// mirrors InstanceRenderer::render_layout_frame's own role
+        /// exactly (see that method's own doc comment for the full
+        /// reasoning: `local_origin = scene.pan()` for this one top-level
+        /// picture trades away its own pan-independence for correctness
+        /// at high zoom on real absolute DBU coordinates; every nested
+        /// Placement's own resolved picture keeps its usual
+        /// local_origin={0,0} convention untouched).
+        ///
+        /// `frame` is the same FrameRenderPipeline instance `api.cpp`'s
+        /// own Abstract-path rendering uses (mirrors
+        /// InstanceRenderer::render_layout_frame taking a `Renderer&`) -
+        /// its design/tiny-shapes/selection/ruler RasterizePictureStage
+        /// instances and ComposeStage are shared directly (via
+        /// run_design_rasterize/run_tiny_shapes_rasterize/
+        /// run_selection_rasterize/run_ruler_rasterize/run_compose) rather
+        /// than duplicated, since all are already fully generic over a
+        /// caller-supplied version number. kLayoutVersionDomainTag keeps
+        /// this domain's own version numbering disjoint from
+        /// FrameRenderPipeline's own Abstract-path numbering - see the
+        /// original class's own doc comment for the real bug (two
+        /// unrelated pictures landing on the same small version number)
+        /// this fixes. This class's own MouseOverlayStage/RulerOverlayStage/
+        /// SelectionOverlayStage instances stay separately owned (not
+        /// shared with `frame`'s own MouseTargetLayerPipeline/
+        /// SelectionGhostLayerPipeline) - their content is Scene-only,
+        /// never view-dependent, so duplicating them costs a little
+        /// memory/CPU, not correctness, unlike the rasterize/compose
+        /// stages above.
+        const PixelBuffer &render_layout_frame(const Root &root, LayoutId layout_id, int hierarchy_depth, const ViewLayerSet &view_layers, const Scene &scene, FrameRenderPipeline &frame)
+        {
+            const int remaining_depth = std::max(0, hierarchy_depth - 1);
+            ensure_epoch(root, view_layers, scene, scene.scale());
+
+            const auto top_picture_key = std::tuple{layout_id, remaining_depth, root.mutation_version(), view_layers.generation(), scene.visibility_version(), scene.viewport_version()};
+            const sk_sp<SkPicture> &local_picture = top_layout_picture_stage_.get(top_picture_key, [&]
+                                                                                   { return build_layout_picture_uncached(root, layout_id, remaining_depth, view_layers, scene, scene.scale(), scene.pan()); });
+            const uint64_t design_version = top_layout_picture_stage_.version();
+
+            SkPictureRecorder recorder;
+            SkCanvas *canvas = recorder.beginRecording(SkRect::MakeWH(static_cast<SkScalar>(scene.viewport_width_px()), static_cast<SkScalar>(scene.viewport_height_px())));
+            draw_grid(*canvas, scene);
+            if (local_picture)
+                canvas->drawPicture(local_picture);
+            const sk_sp<SkPicture> design_picture = recorder.finishRecordingAsPicture();
+
+            PipelineOptions options;
+            options.ctx.root = &root;
+            options.ctx.view_layers = &view_layers;
+            options.ctx.scene = &scene;
+            options.epoch.root_mutation_version = root.mutation_version();
+            options.viewport.viewport_version = scene.viewport_version();
+            options.viewport.visibility_version = scene.visibility_version();
+            options.interaction.mouse_version = scene.mouse_version();
+            options.interaction.ruler_version = scene.ruler_version();
+            options.interaction.selection_version = scene.selection_version();
+
+            const sk_sp<SkPicture> &overlay_picture = build_overlay_picture_stage_.run(0, 0, options);
+            const sk_sp<SkPicture> &ruler_overlay_picture = build_ruler_overlay_picture_stage_.run(0, 0, options);
+
+            const SelectionOverlayRequest selection_request{.abstract_id = {}, .current_layout = layout_id, .remaining_depth = remaining_depth};
+            const sk_sp<SkPicture> &selection_overlay_picture = build_selection_overlay_picture_stage_.run(selection_request, SelectionOverlayStage::data_version_for(selection_request, options), options);
+
+            // Keeps this domain's own version numbering entirely disjoint
+            // from FrameRenderPipeline's own Abstract-path one - see this
+            // method's own doc comment.
+            constexpr uint64_t kLayoutVersionDomainTag = uint64_t{1} << 63;
+            static const sk_sp<SkPicture> kEmptyPicture; // no tiny-shapes content for a Layout view yet
+
+            const RasterizedFrame &design_frame = frame.design_pipeline().run_design_rasterize(design_picture, kLayoutVersionDomainTag | design_version, options);
+            const RasterizedFrame &tiny_frame = frame.design_pipeline().run_tiny_shapes_rasterize(kEmptyPicture, kLayoutVersionDomainTag, options);
+            const RasterizedFrame &selection_frame = frame.selection_ghost_pipeline().run_selection_rasterize(selection_overlay_picture, kLayoutVersionDomainTag | build_selection_overlay_picture_stage_.last_version(), options);
+            const RasterizedFrame &ruler_frame = frame.selection_ghost_pipeline().run_ruler_rasterize(ruler_overlay_picture, kLayoutVersionDomainTag | build_ruler_overlay_picture_stage_.last_version(), options);
+
+            const uint64_t compose_version = ComposeStage::data_version_for(
+                kLayoutVersionDomainTag | design_version, kLayoutVersionDomainTag,
+                kLayoutVersionDomainTag | build_selection_overlay_picture_stage_.last_version(), kLayoutVersionDomainTag | build_ruler_overlay_picture_stage_.last_version(),
+                kLayoutVersionDomainTag | build_overlay_picture_stage_.last_version());
+
+            return frame.run_compose(ComposeInput{
+                                          .design_frame = design_frame,
+                                          .tiny_shapes_frame = tiny_frame,
+                                          .selection_frame = selection_frame,
+                                          .ruler_frame = ruler_frame,
+                                          .overlay_picture = overlay_picture,
+                                      },
+                                      compose_version, options);
+        }
+
     private:
         struct Epoch
         {
@@ -175,6 +272,14 @@ namespace le
                 graph_.wait_for_all();
                 return result_.data;
             }
+
+            // The last-emitted output's own data_version (bumped only on
+            // a real recompute, see MemoizingStage::execute) - the
+            // Renderer-style "reach into an upstream stage's own
+            // version()" pattern render_layout_frame needs to build
+            // kLayoutVersionDomainTag-tagged keys for the shared
+            // RasterizePictureStage/ComposeStage instances downstream.
+            uint64_t last_version() const { return result_.data_version; }
 
         private:
             oneapi::tbb::flow::graph graph_;
@@ -395,5 +500,30 @@ namespace le
         // filter runners above, which are constructed fresh per call.
         SynchronousStageRunner<AbstractGeometryStage, AbstractId, std::vector<RenderedShape>> generate_abstract_stage_{"hierarchy_generate_abstract"};
         SynchronousStageRunner<LayoutGeometryStage, LayoutId, std::vector<RenderedShape>> generate_layout_stage_{"hierarchy_generate_layout"};
+
+        // render_layout_frame's own single-slot cache for the TOP-level
+        // picture specifically - see that method's own comment for why it
+        // can't share layout_pictures_ (pan-dependent local_origin,
+        // unlike every other entry in that map). Stays on core::VersionedStage
+        // rather than a SynchronousStageRunner - it's a plain single-slot
+        // memo tightly coupled to this class's own recursive
+        // build_layout_picture_uncached (its own compute body can't live
+        // in a standalone MemoizingStage subclass without exposing this
+        // class's private methods), the same "recursion-adjacent
+        // internals stay on VersionedStage" reasoning as the fresh-per-call
+        // filter runners above.
+        VersionedStage<std::tuple<LayoutId, int, uint64_t, uint64_t, uint64_t, uint64_t>, sk_sp<SkPicture>> top_layout_picture_stage_;
+
+        // render_layout_frame's own build-stage trio - separate, second
+        // instances from FrameRenderPipeline's own MouseTargetLayerPipeline/
+        // SelectionGhostLayerPipeline (Scene-only content, never view-
+        // dependent, so duplicating costs a little memory/CPU, not
+        // correctness - see render_layout_frame's own doc comment). The
+        // shared RasterizePictureStage/ComposeStage instances that DO get
+        // reused live in `frame` (a render_layout_frame parameter), not
+        // here.
+        SynchronousStageRunner<MouseOverlayStage, int, sk_sp<SkPicture>> build_overlay_picture_stage_{"hierarchy_mouse_overlay"};
+        SynchronousStageRunner<RulerOverlayStage, int, sk_sp<SkPicture>> build_ruler_overlay_picture_stage_{"hierarchy_ruler_overlay"};
+        SynchronousStageRunner<SelectionOverlayStage, SelectionOverlayRequest, sk_sp<SkPicture>> build_selection_overlay_picture_stage_{"hierarchy_selection_overlay"};
     };
 }

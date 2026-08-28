@@ -47,9 +47,15 @@ namespace le
         SelectionGhostLayerPipeline(const SelectionGhostLayerPipeline &) = delete;
         SelectionGhostLayerPipeline &operator=(const SelectionGhostLayerPipeline &) = delete;
 
-        const RasterizedFrame &run(AbstractId current_abstract, const PipelineOptions &options)
+        /// @brief `current_layout`/`remaining_depth` default to the
+        /// Abstract-path convention (`{}`/`0`, matching
+        /// SelectionOverlayStage's own original key shape) - FrameRenderPipeline's
+        /// own Abstract-path usage doesn't pass them; HierarchyResolver's
+        /// own Layout-path usage (Phase 4, render_layout_frame) does.
+        const RasterizedFrame &run(AbstractId current_abstract, const PipelineOptions &options, LayoutId current_layout = LayoutId{}, int remaining_depth = 0)
         {
-            selection_overlay_stage_.try_put({.data = current_abstract, .data_version = SelectionOverlayStage::data_version_for(current_abstract, options), .options = options});
+            const SelectionOverlayRequest request{.abstract_id = current_abstract, .current_layout = current_layout, .remaining_depth = remaining_depth};
+            selection_overlay_stage_.try_put({.data = request, .data_version = SelectionOverlayStage::data_version_for(request, options), .options = options});
             graph_.wait_for_all();
             return selection_result_.data;
         }
@@ -63,6 +69,25 @@ namespace le
 
         uint64_t selection_version() const { return selection_result_.data_version; }
         uint64_t ruler_version() const { return ruler_result_.data_version; }
+
+        /// @brief Drives this class's own selection/ruler
+        /// RasterizePictureStage instances directly with a caller-supplied
+        /// picture+version - see DesignRenderPipeline's own
+        /// run_design_rasterize/run_tiny_shapes_rasterize for the full
+        /// reasoning (same shape, same domain-tag caveat).
+        const RasterizedFrame &run_selection_rasterize(const sk_sp<SkPicture> &picture, uint64_t picture_version, const PipelineOptions &options)
+        {
+            selection_rasterize_stage_.try_put({.data = picture, .data_version = picture_version, .options = options});
+            graph_.wait_for_all();
+            return selection_result_.data;
+        }
+
+        const RasterizedFrame &run_ruler_rasterize(const sk_sp<SkPicture> &picture, uint64_t picture_version, const PipelineOptions &options)
+        {
+            ruler_rasterize_stage_.try_put({.data = picture, .data_version = picture_version, .options = options});
+            graph_.wait_for_all();
+            return ruler_result_.data;
+        }
 
     private:
         oneapi::tbb::flow::graph graph_;

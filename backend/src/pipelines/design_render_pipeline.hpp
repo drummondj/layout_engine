@@ -75,6 +75,38 @@ namespace le
         uint64_t design_version() const { return design_result_.data_version; }
         uint64_t tiny_shapes_version() const { return tiny_result_.data_version; }
 
+        /// @brief Drives this class's own design/tiny-shapes
+        /// RasterizePictureStage instances directly with a caller-supplied
+        /// picture+version, bypassing the normal PixelTransformStage/
+        /// BuildDesignPictureStage upstream chain - lets a second caller
+        /// with its own content (HierarchyResolver's own render_layout_frame,
+        /// Phase 4) reuse the same real cached raster surfaces instead of
+        /// duplicating them, mirroring Renderer's own
+        /// design_rasterize_stage()/tiny_shapes_rasterize_stage()
+        /// accessors and their own doc comment's reasoning - including the
+        /// same domain-tag caveat (each RasterizePictureStage's own key is
+        /// just `{data_version}`, no domain discriminator, so a second
+        /// caller sharing these must keep its own version numbers disjoint
+        /// from this class's own Abstract-path numbering - see
+        /// HierarchyResolver's own kLayoutVersionDomainTag). Unlike a bare
+        /// stage-reference accessor, these wrap the try_put+wait_for_all
+        /// pairing themselves - `design_rasterize_stage_`'s own node lives
+        /// in this class's private `graph_`, which only this class can
+        /// correctly wait on.
+        const RasterizedFrame &run_design_rasterize(const sk_sp<SkPicture> &picture, uint64_t picture_version, const PipelineOptions &options)
+        {
+            design_rasterize_stage_.try_put({.data = picture, .data_version = picture_version, .options = options});
+            graph_.wait_for_all();
+            return design_result_.data;
+        }
+
+        const RasterizedFrame &run_tiny_shapes_rasterize(const sk_sp<SkPicture> &picture, uint64_t picture_version, const PipelineOptions &options)
+        {
+            tiny_rasterize_stage_.try_put({.data = picture, .data_version = picture_version, .options = options});
+            graph_.wait_for_all();
+            return tiny_result_.data;
+        }
+
     private:
         oneapi::tbb::flow::graph graph_;
         PixelTransformStage pixel_transform_stage_;

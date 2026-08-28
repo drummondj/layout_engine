@@ -1,8 +1,8 @@
 // backend/ONETBB_INTEGRATION.md migration plan, Phase 4: HierarchyResolver -
 // a representative subset of instancing_test.cpp's own InstancingFixture
-// cases, covering Phase B scope only (resolve_design_picture and its own
-// recursive helpers) - render_layout_frame (Phase C) is a deliberate
-// follow-up, see hierarchy_resolver.hpp's own class comment.
+// cases, covering both Phase B (resolve_design_picture/build_layout_picture)
+// and Phase C (render_layout_frame) scope.
+#include "../abstract_shape_pipeline.hpp"
 #include "../hierarchy_resolver.hpp"
 #include "include/core/SkBitmap.h"
 #include "include/core/SkImageInfo.h"
@@ -83,12 +83,33 @@ namespace
             return false;
         }
 
+        // Same region-scan reasoning as region_has_opaque_pixel above, but
+        // reading a raw PixelBuffer (render_layout_frame's own return
+        // type) directly - checks for a *colored* (non-grayscale) opaque
+        // pixel specifically, not just any opacity, since render_layout_frame
+        // also draws a background dot/axis grid across the whole viewport
+        // (always gray/white). M1 (a ROUTING layer) never gets a
+        // grayscale default color, so r != g reliably distinguishes real
+        // M1 content from the grid.
+        bool pixel_buffer_region_has_opaque_pixel(const le::PixelBuffer &buffer, int x0, int y0, int x1, int y1)
+        {
+            for (int y = y0; y <= y1; ++y)
+                for (int x = x0; x <= x1; ++x)
+                {
+                    const uint8_t *p = buffer.data + static_cast<size_t>(y) * buffer.row_bytes + static_cast<size_t>(x) * 4;
+                    if (p[3] > 0 && p[0] != p[1])
+                        return true;
+                }
+            return false;
+        }
+
         le::Root root;
         le::TechnologyId technology_id;
         le::LayerId m1;
         le::ViewLayerSet view_layers;
         le::LibraryId library_id;
         le::HierarchyResolver resolver;
+        le::FrameRenderPipeline frame;
         le::Scene scene;
     };
 }
@@ -248,4 +269,141 @@ TEST_F(HierarchyResolverFixture, LayerVisibilityAppliesInsideACachedInstancePict
 
     const SkBitmap bitmap = rasterize(picture, 800, 800);
     EXPECT_FALSE(region_has_opaque_pixel(bitmap, 510, 510, 590, 590)); // M1 hidden - the leaf's own content must not draw
+}
+
+// --- render_layout_frame (Phase C) ---
+
+TEST_F(HierarchyResolverFixture, RenderLayoutFrameDrawsAtTheCorrectPostFlipPixelPosition)
+{
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{400, 400});
+    add_placement(sub_layout, leaf, le::Point{500, 500}, le::Orientation::N, "U1");
+
+    scene.set_pan(le::Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+
+    const le::PixelBuffer &buffer = resolver.render_layout_frame(root, sub_layout, /*hierarchy_depth=*/1, view_layers, scene, frame);
+    ASSERT_TRUE(buffer.data);
+    EXPECT_EQ(buffer.width, 800);
+    EXPECT_EQ(buffer.height, 800);
+
+    // Pre-flip pixel rect (pan=0, scale=1) is exactly the leaf's own world
+    // dbu rect, (500,500)-(600,600); the Y-flip baked into the shared
+    // RasterizePictureStage chain maps dbu y -> height - y, so the
+    // post-flip rect is (500,200)-(600,300).
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(buffer, 520, 220, 580, 280));
+    EXPECT_FALSE(pixel_buffer_region_has_opaque_pixel(buffer, 10, 10, 50, 50));
+}
+
+TEST_F(HierarchyResolverFixture, RenderLayoutFramePanShiftsTheDrawnPosition)
+{
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{400, 400});
+    add_placement(sub_layout, leaf, le::Point{500, 500}, le::Orientation::N, "U1");
+
+    scene.set_pan(le::Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+    resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame); // establish the un-panned frame first
+
+    scene.set_pan(le::Point{100, 100});
+    const le::PixelBuffer &panned = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+
+    // world dbu rect (500,500)-(600,600), pan=(100,100) -> pre-flip pixel
+    // (400,400)-(500,500) -> post-flip (height - y): (400,300)-(500,400).
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(panned, 420, 320, 480, 380));
+    EXPECT_FALSE(pixel_buffer_region_has_opaque_pixel(panned, 520, 220, 580, 280));
+}
+
+TEST_F(HierarchyResolverFixture, RenderLayoutFrameReusesCacheUntilSceneChanges)
+{
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{400, 400});
+    add_placement(sub_layout, leaf, le::Point{500, 500}, le::Orientation::N, "U1");
+
+    scene.set_pan(le::Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+
+    const le::PixelBuffer &first = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+    const uint8_t *first_data = first.data;
+
+    const le::PixelBuffer &second = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+    EXPECT_EQ(second.data, first_data); // unchanged scene - cache hit, same underlying surface
+
+    scene.set_pan(le::Point{10, 10});
+    const le::PixelBuffer &after_pan = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+    EXPECT_NE(after_pan.data, first_data); // pan changed - must recompute
+}
+
+TEST_F(HierarchyResolverFixture, RenderLayoutFrameRecomputesAfterARootMutation)
+{
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{400, 400});
+    add_placement(sub_layout, leaf, le::Point{500, 500}, le::Orientation::N, "U1");
+
+    scene.set_pan(le::Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+
+    const le::PixelBuffer &first = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+    const uint8_t *first_data = first.data;
+
+    root.bump_mutation_version();
+    const le::PixelBuffer &after_mutation = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+    EXPECT_NE(after_mutation.data, first_data); // mutation invalidated the whole epoch - must recompute
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(after_mutation, 520, 220, 580, 280));
+}
+
+TEST_F(HierarchyResolverFixture, SwitchingFromAbstractViewToLayoutViewThroughTheSameFrameRenderPipelineDoesNotShowStaleContent)
+{
+    // The direct regression guard for kLayoutVersionDomainTag: sharing
+    // FrameRenderPipeline's rasterize/compose instances between
+    // FrameRenderPipeline::run() (Abstract view) and
+    // HierarchyResolver::render_layout_frame() (Layout view) is only safe
+    // because a real caller never calls both for the same frame - a view
+    // switch is a genuine content change. Proves the Layout-view frame's
+    // own pixels are correct - not the previous Abstract-view frame's
+    // stale, cached content - immediately after switching, through the
+    // SAME shared FrameRenderPipeline instance.
+    const le::AbstractId abstract_id = root.create_abstract(le::AbstractData{});
+    const le::TerminalId terminal_id = root.create_terminal(le::TerminalData{.abstract = abstract_id});
+    const le::TerminalPortId port_id = root.create_terminal_port(le::TerminalPortData{.terminal = terminal_id});
+    le::Shape abstract_shape;
+    abstract_shape.terminal_port = port_id;
+    abstract_shape.layer = m1;
+    abstract_shape.rects.push_back(le::Rect{.ll = {10, 10}, .ur = {30, 30}});
+    root.create_shape(std::move(abstract_shape));
+
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{400, 400});
+    add_placement(sub_layout, leaf, le::Point{500, 500}, le::Orientation::N, "U1");
+
+    le::AbstractShapePipeline shape_pipeline;
+    scene.set_current_abstract(abstract_id);
+    scene.set_pan(le::Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+
+    le::PipelineOptions options;
+    options.ctx.root = &root;
+    options.ctx.view_layers = &view_layers;
+    options.ctx.scene = &scene;
+    options.epoch.root_mutation_version = root.mutation_version();
+    options.epoch.view_layers_generation = view_layers.generation();
+    options.viewport.viewport_version = scene.viewport_version();
+    options.viewport.visibility_version = scene.visibility_version();
+    options.viewport.scale = scene.scale();
+
+    const auto &shapes = shape_pipeline.run(abstract_id, options);
+    const auto &tiny_shapes = shape_pipeline.run_tiny_shapes(abstract_id, options);
+    frame.run(abstract_id, shapes, tiny_shapes, options); // an Abstract-view frame, cached in frame's own instances
+
+    scene.set_current_layout(sub_layout);
+    scene.set_current_abstract(le::AbstractId{});
+
+    const le::PixelBuffer &layout_buffer = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+    ASSERT_TRUE(layout_buffer.data);
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(layout_buffer, 520, 220, 580, 280));
 }

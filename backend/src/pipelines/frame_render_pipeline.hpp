@@ -68,13 +68,34 @@ namespace le
                 selection_ghost_pipeline_.selection_version(), selection_ghost_pipeline_.ruler_version(),
                 mouse_pipeline_.version());
 
-            ComposeInput input{
-                .design_frame = design_frame,
-                .tiny_shapes_frame = tiny_frame,
-                .selection_frame = selection_frame,
-                .ruler_frame = ruler_frame,
-                .overlay_picture = overlay_picture,
-            };
+            return run_compose(ComposeInput{
+                                   .design_frame = design_frame,
+                                   .tiny_shapes_frame = tiny_frame,
+                                   .selection_frame = selection_frame,
+                                   .ruler_frame = ruler_frame,
+                                   .overlay_picture = overlay_picture,
+                               },
+                               compose_version, options);
+        }
+
+        /// @brief Direct access to the two layer pipelines this class
+        /// owns - lets HierarchyResolver's own render_layout_frame (Phase
+        /// 4) drive their real RasterizePictureStage instances directly
+        /// (via design_pipeline().run_design_rasterize(...), etc.) rather
+        /// than duplicate them, mirroring Renderer's own
+        /// design_rasterize_stage()/etc. accessors and their own doc
+        /// comment's reasoning (same domain-tag caveat - see
+        /// HierarchyResolver's own kLayoutVersionDomainTag).
+        DesignRenderPipeline &design_pipeline() { return design_pipeline_; }
+        SelectionGhostLayerPipeline &selection_ghost_pipeline() { return selection_ghost_pipeline_; }
+
+        /// @brief Drives this class's own ComposeStage directly with a
+        /// caller-supplied ComposeInput+version - same shape as
+        /// DesignRenderPipeline's own run_design_rasterize (compose_stage_'s
+        /// own node lives in this class's private compose_graph_, which
+        /// only this class can correctly wait on).
+        const PixelBuffer &run_compose(ComposeInput input, uint64_t compose_version, const PipelineOptions &options)
+        {
             compose_stage_.try_put({.data = std::move(input), .data_version = compose_version, .options = options});
             compose_graph_.wait_for_all();
             return compose_result_.data.buffer;
