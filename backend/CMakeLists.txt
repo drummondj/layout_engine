@@ -153,6 +153,40 @@ set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googlebenchmark)
 
+# --- oneTBB (backend/ONETBB_INTEGRATION.md migration - merging
+# pipeline/render/instancing into src/pipelines on top of oneTBB's
+# flow::graph). TBB_DIR is a Homebrew-macOS-specific hint, matching the
+# sibling oneTBB_test project's own CMakeLists.txt; Linux/Rocky8 TBB
+# acquisition (the rootless-build target, see the Rocky 8 bullet in
+# CLAUDE.md's Open gaps) is a deliberate, tracked follow-up, not solved
+# here - so this stays optional (QUIET, not REQUIRED): a configure
+# without TBB available just skips the `pipelines` target entirely, the
+# same "optional, degrade gracefully" idiom the SWIG/TCL le_tcl target
+# below already uses, rather than failing the whole build on a platform
+# this migration hasn't reached yet. ---
+if(APPLE)
+    set(TBB_DIR "/opt/homebrew/opt/tbb/lib/cmake/TBB" CACHE PATH
+        "Path to a oneTBB CMake package config (Homebrew tbb keg)")
+endif()
+find_package(TBB CONFIG QUIET)
+
+if(TBB_FOUND)
+    # Tracy - the sibling oneTBB_test project's own src/core.hpp (copied
+    # into src/pipelines/tbb_core.hpp) hard-depends on its
+    # ZoneScoped/ZoneName/ZoneText/FrameMark profiling macros. Pinned to
+    # v0.13.1 to match that project's own CMakeLists.txt (kept in
+    # lockstep with the Homebrew-bottled Tracy GUI viewer's own protocol
+    # version, per that project's own CLAUDE.md).
+    set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        tracy
+        URL https://github.com/wolfpld/tracy/archive/refs/tags/v0.13.1.zip
+    )
+    FetchContent_MakeAvailable(tracy)
+else()
+    message(STATUS "oneTBB not found (see TBB_DIR) - skipping the `pipelines` target (backend/ONETBB_INTEGRATION.md); this is expected on non-macOS for now")
+endif()
+
 enable_testing()
 include(GoogleTest)
 
@@ -296,6 +330,21 @@ endif()
 add_library(instancing INTERFACE)
 target_include_directories(instancing INTERFACE src)
 target_link_libraries(instancing INTERFACE database geometry scene view_style pipeline render)
+
+# --- pipelines: oneTBB-based building blocks (backend/ONETBB_INTEGRATION.md
+# migration, Phase 0) - eventually replaces pipeline+render+instancing+core
+# (see the migration plan for the phased cutover); for now this is just
+# tbb_core.hpp (StageData/MemoizingStage/FanInCollectStage, copied from the
+# sibling oneTBB_test project and wrapped in namespace le) plus a throwaway
+# toolchain-proving test - no real stages ported yet. Header-only until a
+# compiled TU (the eventual Skia font-manager isolation, currently
+# render.cpp) moves in. Gated on TBB_FOUND above - skipped entirely where
+# TBB isn't available (see that comment). ---
+if(TBB_FOUND)
+    add_library(pipelines INTERFACE)
+    target_include_directories(pipelines INTERFACE src)
+    target_link_libraries(pipelines INTERFACE TBB::tbb TracyClient)
+endif()
 
 # --- io: LEF/DEF file readers ---
 add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp src/io/def_writer.cpp)
@@ -591,6 +640,10 @@ target_compile_definitions(backend_tests PRIVATE
     DEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/bin/defdiff"
 )
 add_dependencies(backend_tests lef_lib def_lib)
+if(TBB_FOUND)
+    target_sources(backend_tests PRIVATE src/pipelines/tests/pipelines_test.cpp)
+    target_link_libraries(backend_tests PRIVATE pipelines)
+endif()
 le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
 
