@@ -48,11 +48,14 @@ namespace le
               shapes_sink_(graph_, oneapi::tbb::flow::serial, [this](StageData<std::map<ViewLayerId, std::vector<RenderedShape>>, PipelineOptions> in)
                            { shapes_result_ = std::move(in); }),
               tiny_shapes_sink_(graph_, oneapi::tbb::flow::serial, [this](StageData<std::map<ViewLayerId, std::vector<Point>>, PipelineOptions> in)
-                                { tiny_shapes_result_ = std::move(in); })
+                                { tiny_shapes_result_ = std::move(in); }),
+              generate_sink_(graph_, oneapi::tbb::flow::serial, [this](StageData<std::vector<RenderedShape>, PipelineOptions> in)
+                             { generate_result_ = std::move(in); })
         {
             using namespace oneapi::tbb::flow;
             make_edge(geometry_stage_.node(), viewport_filter_stage_.node());
             make_edge(geometry_stage_.node(), tiny_viewport_filter_stage_.node());
+            make_edge(geometry_stage_.node(), generate_sink_);
             make_edge(viewport_filter_stage_.node(), layer_visibility_filter_stage_.node());
             make_edge(tiny_viewport_filter_stage_.node(), tiny_layer_visibility_filter_stage_.node());
             make_edge(layer_visibility_filter_stage_.node(), shapes_sink_);
@@ -91,6 +94,24 @@ namespace le
         uint64_t shapes_version() const { return shapes_result_.data_version; }
         uint64_t tiny_shapes_version() const { return tiny_shapes_result_.data_version; }
 
+        /// @brief Runs AbstractGeometryStage alone, skipping both filter
+        /// chains - mirrors Pipeline::generate_shapes's own role (a few
+        /// api.cpp call sites need the whole Abstract's own unfiltered
+        /// content, e.g. fitting the viewport to it or selecting
+        /// everything, where viewport/sub-pixel culling would wrongly
+        /// exclude off-screen or tiny content). Since AbstractGeometryStage
+        /// fans out to both filter chains unconditionally (see this
+        /// class's own wiring comment), this call still triggers them as a
+        /// side effect - harmless (their own results are simply not read
+        /// here) but not free; acceptable since every real caller of this
+        /// method is a one-off user action (fit-to-content, select-all),
+        /// not a per-frame hot path.
+        const std::vector<RenderedShape> &run_generate_shapes(AbstractId abstract_id, const PipelineOptions &options)
+        {
+            submit(abstract_id, options);
+            return generate_result_.data;
+        }
+
     private:
         // Submits abstract_id to the head of both chains and blocks until
         // every downstream node has finished - both sinks below are
@@ -114,8 +135,10 @@ namespace le
 
         oneapi::tbb::flow::function_node<StageData<std::map<ViewLayerId, std::vector<RenderedShape>>, PipelineOptions>> shapes_sink_;
         oneapi::tbb::flow::function_node<StageData<std::map<ViewLayerId, std::vector<Point>>, PipelineOptions>> tiny_shapes_sink_;
+        oneapi::tbb::flow::function_node<StageData<std::vector<RenderedShape>, PipelineOptions>> generate_sink_;
 
         StageData<std::map<ViewLayerId, std::vector<RenderedShape>>, PipelineOptions> shapes_result_{};
         StageData<std::map<ViewLayerId, std::vector<Point>>, PipelineOptions> tiny_shapes_result_{};
+        StageData<std::vector<RenderedShape>, PipelineOptions> generate_result_{};
     };
 }

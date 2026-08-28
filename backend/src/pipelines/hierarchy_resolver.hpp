@@ -16,6 +16,7 @@
 #include "stages/ruler_overlay_stage.hpp"
 #include "stages/selection_overlay_stage.hpp"
 #include "stages/viewport_filter_stage.hpp"
+#include "synchronous_stage_runner.hpp"
 #include "tbb_core.hpp"
 #include "version_utils.hpp"
 #include "include/core/SkPictureRecorder.h"
@@ -244,49 +245,6 @@ namespace le
             design_pictures_.clear();
             layout_pictures_.clear();
         }
-
-        /// @brief Synchronous single-call wrapper around a persistent
-        /// AbstractGeometryStage/LayoutGeometryStage member - constructs
-        /// its own tiny private graph + sink once, then every call is
-        /// just try_put + wait_for_all + read the sink's last result.
-        /// Reused for both geometry stages below rather than duplicated,
-        /// since the wrapping shape is identical for either one.
-        template <typename Stage, typename InputData, typename OutputData>
-        class SynchronousStageRunner
-        {
-        public:
-            explicit SynchronousStageRunner(std::string label)
-                : stage_(graph_, std::move(label)),
-                  sink_(graph_, oneapi::tbb::flow::serial, [this](StageData<OutputData, PipelineOptions> in)
-                        { result_ = std::move(in); })
-            {
-                make_edge(stage_.node(), sink_);
-            }
-
-            SynchronousStageRunner(const SynchronousStageRunner &) = delete;
-            SynchronousStageRunner &operator=(const SynchronousStageRunner &) = delete;
-
-            const OutputData &run(InputData data, uint64_t data_version, const PipelineOptions &options)
-            {
-                stage_.try_put({.data = std::move(data), .data_version = data_version, .options = options});
-                graph_.wait_for_all();
-                return result_.data;
-            }
-
-            // The last-emitted output's own data_version (bumped only on
-            // a real recompute, see MemoizingStage::execute) - the
-            // Renderer-style "reach into an upstream stage's own
-            // version()" pattern render_layout_frame needs to build
-            // kLayoutVersionDomainTag-tagged keys for the shared
-            // RasterizePictureStage/ComposeStage instances downstream.
-            uint64_t last_version() const { return result_.data_version; }
-
-        private:
-            oneapi::tbb::flow::graph graph_;
-            Stage stage_;
-            oneapi::tbb::flow::function_node<StageData<OutputData, PipelineOptions>> sink_;
-            StageData<OutputData, PipelineOptions> result_{};
-        };
 
         PipelineOptions options_for(const Root &root, const ViewLayerSet &view_layers, const Scene &scene) const
         {
