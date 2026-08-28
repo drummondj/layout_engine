@@ -5,11 +5,14 @@
 #include "../geometry/geometry.hpp"
 #include "../core/placement_geometry.hpp"
 #include "../core/row_geometry.hpp"
-#include "../instancing/instance_renderer.hpp"
 #include "../io/lef_reader.hpp"
 #include "../io/def_reader.hpp"
-#include "../pipeline/pipeline.hpp"
-#include "../render/render.hpp"
+#include "../pipelines/abstract_shape_pipeline.hpp"
+#include "../pipelines/frame_render_pipeline.hpp"
+#include "../pipelines/hierarchy_resolver.hpp"
+#include "../pipelines/hit_test.hpp"
+#include "../pipelines/layout_shape_pipeline.hpp"
+#include "../pipelines/synchronous_stage_runner.hpp"
 #include "../scene/scene.hpp"
 #include "../view_style/view_style.hpp"
 // Generated apply_<snake>_snapshot(Root&, <Klass>Id, const <Klass>Data&)
@@ -36,9 +39,11 @@
 
 // The real, C++-only definition behind the opaque LeHandle - never exposed
 // in api.hpp. Owns everything needed to load a LEF file and render it: one
-// Pipeline and one Renderer per handle (not one per call), matching the
-// "reuse across repeated calls" lifetime their own internal CachedStage
-// caching is designed around.
+// each of the oneTBB-based pipelines module's own owner objects per handle
+// (not one per call), matching the "reuse across repeated calls" lifetime
+// their own internal MemoizingStage caching is designed around
+// (backend/ONETBB_INTEGRATION.md migration, Phase 5 cutover - replaces the
+// former Pipeline/Renderer/InstanceRenderer trio).
 //
 // `mutex_` exists because this handle genuinely is called from more than
 // one thread today, not as defensive-but-unnecessary caution: Flutter's
@@ -46,7 +51,7 @@
 // LeTexture.copyPixelBuffer()) from its own dedicated raster thread once
 // per frame, while ordinary pointer/FFI calls (le_set_mouse_position,
 // le_mouse_down/up, le_zoom, ...) run on the platform thread - both
-// threads reach the same Pipeline/Scene/Root state. See every exported
+// threads reach the same pipelines/Scene/Root state. See every exported
 // function's own std::lock_guard for the actual enforcement; see
 // le_destroy's doc comment in api.hpp for the one function that can't be
 // covered by the handle's own mutex.
@@ -55,20 +60,22 @@ struct LeHandle
     le::Root root;
     le::ViewLayerSet view_layers;
     le::Scene scene;
-    le::Pipeline pipeline;
-    le::Renderer renderer;
+    le::AbstractShapePipeline abstract_shape_pipeline;
+    le::LayoutShapePipeline layout_shape_pipeline;
+    le::FrameRenderPipeline frame_render_pipeline;
 
     // Resolves Placement -> Design into cached SkPictures and renders the
     // full displayable frame for a Layout view (Migration Step 3 Phase C)
     // - le_render_pixel_buffer calls its own render_layout_frame instead
-    // of pipeline/renderer above when scene.current_layout() is active.
-    // render_layout_frame takes `renderer` above as an explicit
-    // parameter and shares its rasterize/compose stages directly (see
-    // Renderer::design_rasterize_stage()'s own comment) - it still owns
-    // its own separate BuildOverlayPictureStage/BuildRulerOverlayPictureStage/
-    // BuildSelectionOverlayPictureStage trio (see InstanceRenderer's own
-    // class comment for why that much stays duplicated).
-    le::InstanceRenderer instance_renderer;
+    // of abstract_shape_pipeline/frame_render_pipeline above when
+    // scene.current_layout() is active. render_layout_frame takes
+    // `frame_render_pipeline` above as an explicit parameter and shares
+    // its rasterize/compose stages directly (see
+    // DesignRenderPipeline::run_design_rasterize's own comment) - it
+    // still owns its own separate MouseOverlayStage/RulerOverlayStage/
+    // SelectionOverlayStage trio (see HierarchyResolver's own class
+    // comment for why that much stays duplicated).
+    le::HierarchyResolver hierarchy_resolver;
 
     // Undo/redo stack + command-recall log (UPDATES.md item 21) - every
     // generated le_create_X/le_update_X/le_delete_X function records
@@ -131,6 +138,29 @@ struct LeHandle
 
 namespace
 {
+    // Builds a PipelineOptions snapshot of `handle`'s own current root/
+    // view_layers/scene state - every pipelines-module call site below
+    // needs one of these (backend/ONETBB_INTEGRATION.md migration, Phase
+    // 5 cutover). Read-only (just copies counters/pointers out of
+    // `handle`), safe to call regardless of lock state, though every real
+    // call site already holds handle->mutex_ by the time it does.
+    le::PipelineOptions pipeline_options_for(const LeHandle *handle)
+    {
+        le::PipelineOptions options;
+        options.ctx.root = &handle->root;
+        options.ctx.view_layers = &handle->view_layers;
+        options.ctx.scene = &handle->scene;
+        options.epoch.root_mutation_version = handle->root.mutation_version();
+        options.epoch.view_layers_generation = handle->view_layers.generation();
+        options.viewport.viewport_version = handle->scene.viewport_version();
+        options.viewport.visibility_version = handle->scene.visibility_version();
+        options.viewport.scale = handle->scene.scale();
+        options.interaction.mouse_version = handle->scene.mouse_version();
+        options.interaction.selection_version = handle->scene.selection_version();
+        options.interaction.ruler_version = handle->scene.ruler_version();
+        return options;
+    }
+
     // Below this many pixels of down-to-up movement, le_mouse_up treats a
     // gesture as a click rather than a drag-select - small enough that an
     // intended click with a little hand tremor still registers as one,
@@ -462,7 +492,7 @@ namespace
             return;
         }
 
-        const auto &generated = handle->pipeline.generate_shapes(handle->root, handle->scene.current_abstract(), handle->view_layers);
+        const auto &generated = handle->abstract_shape_pipeline.run_generate_shapes(handle->scene.current_abstract(), pipeline_options_for(handle));
 
         std::vector<const le::Shape *> shape_ptrs;
         shape_ptrs.reserve(generated.size());
@@ -715,8 +745,19 @@ namespace
     // fully_enclosed_pieces call needed, unlike drag-select).
     void select_all_unlocked(LeHandle *handle)
     {
-        const auto &generated = handle->pipeline.generate_shapes(handle->root, handle->scene.current_abstract(), handle->view_layers);
-        const auto &filtered = handle->pipeline.filter_by_layer_visibility(handle->root, generated, handle->scene, handle->view_layers);
+        const auto &generated = handle->abstract_shape_pipeline.run_generate_shapes(handle->scene.current_abstract(), pipeline_options_for(handle));
+
+        // Deliberately a fresh, standalone LayerVisibilityFilterStage
+        // call directly off `generated` (bypassing viewport filtering) -
+        // AbstractShapePipeline's own wired chain has no path from
+        // AbstractGeometryStage straight to LayerVisibilityFilterStage
+        // without going through ViewportFilterStage first (see this
+        // function's own comment above for why viewport filtering must
+        // be skipped here). Same "fresh, call-local filter instance"
+        // pattern HierarchyResolver already uses for its own per-call
+        // culling passes.
+        le::SynchronousStageRunner<le::LayerVisibilityFilterStage, std::vector<le::RenderedShape>, std::map<le::ViewLayerId, std::vector<le::RenderedShape>>> layer_visibility_runner{"select_all_layer_visibility_filter"};
+        const auto &filtered = layer_visibility_runner.run(generated, handle->abstract_shape_pipeline.shapes_version(), pipeline_options_for(handle));
 
         std::vector<const le::Shape *> shape_ptrs;
         shape_ptrs.reserve(generated.size());
@@ -729,7 +770,7 @@ namespace
         handle->scene.clear_selection();
 
         std::set<le::ShapeId> candidate_ids;
-        for (const le::HoverTarget &hit : le::Pipeline::hit_test_rect(filtered, handle->view_layers, handle->scene, *bbox))
+        for (const le::HoverTarget &hit : le::hit_test_rect(filtered, handle->view_layers, handle->scene, *bbox))
             if (hit.shape_id)
                 candidate_ids.insert(*hit.shape_id);
 
@@ -1836,13 +1877,13 @@ extern "C"
             // before this fix either).
             if (handle->scene.current_layout().valid())
             {
-                const auto &shapes = handle->pipeline.run_layout(handle->root, handle->scene.current_layout(), handle->scene, handle->view_layers);
-                handle->scene.set_hover(le::Pipeline::hit_test_point(shapes, handle->view_layers, handle->scene, *handle->scene.mouse_dbu_position()));
+                const auto &shapes = handle->layout_shape_pipeline.run(handle->scene.current_layout(), pipeline_options_for(handle));
+                handle->scene.set_hover(le::hit_test_point(shapes, handle->view_layers, handle->scene, *handle->scene.mouse_dbu_position()));
             }
             else
             {
-                const auto &shapes = handle->pipeline.run(handle->root, handle->scene, handle->view_layers);
-                handle->scene.set_hover(le::Pipeline::hit_test_point(shapes, handle->view_layers, handle->scene, *handle->scene.mouse_dbu_position()));
+                const auto &shapes = handle->abstract_shape_pipeline.run(handle->scene.current_abstract(), pipeline_options_for(handle));
+                handle->scene.set_hover(le::hit_test_point(shapes, handle->view_layers, handle->scene, *handle->scene.mouse_dbu_position()));
             }
         }
         else
@@ -2091,7 +2132,7 @@ extern "C"
     // click-vs-drag threshold result.
     void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
     {
-        const auto &shapes = handle->pipeline.run(handle->root, handle->scene, handle->view_layers);
+        const auto &shapes = handle->abstract_shape_pipeline.run(handle->scene.current_abstract(), pipeline_options_for(handle));
 
         if (is_click)
         {
@@ -2101,7 +2142,7 @@ extern "C"
             // le_set_mouse_position), which this call has no guaranteed
             // ordering against.
             const le::Point dbu_point = handle->scene.pixel_to_dbu(x, y);
-            const auto hit = le::Pipeline::hit_test_point(shapes, handle->view_layers, handle->scene, dbu_point);
+            const auto hit = le::hit_test_point(shapes, handle->view_layers, handle->scene, dbu_point);
             if (hit && hit->shape_id)
             {
                 // UPDATES.md item 21 - hit_test_point's own piece is
@@ -2142,7 +2183,7 @@ extern "C"
             // pieces are then found by re-running fully_enclosed_pieces
             // against its real Root::get_shape() data.
             std::set<le::ShapeId> candidate_ids;
-            for (const le::HoverTarget &hit : le::Pipeline::hit_test_rect(shapes, handle->view_layers, handle->scene, drag_rect))
+            for (const le::HoverTarget &hit : le::hit_test_rect(shapes, handle->view_layers, handle->scene, drag_rect))
                 if (hit.shape_id)
                     candidate_ids.insert(*hit.shape_id);
 
@@ -2180,7 +2221,7 @@ extern "C"
     {
         const le::LayoutId layout_id = handle->scene.current_layout();
         const int remaining_depth = std::max(0, handle->scene.hierarchy_depth() - 1);
-        const auto &shapes = handle->pipeline.run_layout(handle->root, layout_id, handle->scene, handle->view_layers);
+        const auto &shapes = handle->layout_shape_pipeline.run(layout_id, pipeline_options_for(handle));
 
         if (is_click)
         {
@@ -2192,7 +2233,7 @@ extern "C"
                 return;
             }
 
-            const auto hit = le::Pipeline::hit_test_point(shapes, handle->view_layers, handle->scene, dbu_point);
+            const auto hit = le::hit_test_point(shapes, handle->view_layers, handle->scene, dbu_point);
             if (!hit)
                 return;
 
@@ -2224,7 +2265,7 @@ extern "C"
                 handle->scene.select(placement_id);
 
             std::set<le::ShapeId> candidate_ids;
-            for (const le::HoverTarget &hit : le::Pipeline::hit_test_rect(shapes, handle->view_layers, handle->scene, drag_rect))
+            for (const le::HoverTarget &hit : le::hit_test_rect(shapes, handle->view_layers, handle->scene, drag_rect))
             {
                 if (hit.shape_id)
                     candidate_ids.insert(*hit.shape_id);
@@ -2932,12 +2973,12 @@ extern "C"
         // Migration Step 3 Phase C: a Layout view (scene.current_layout()
         // valid - set by le_set_current_design_layout(_by_id), which
         // clears scene.current_abstract() at the same time, so the two
-        // are always mutually exclusive) renders through InstanceRenderer
-        // instead of Pipeline/Renderer - see LeHandle::instance_renderer's
-        // own comment.
+        // are always mutually exclusive) renders through HierarchyResolver
+        // instead of AbstractShapePipeline/FrameRenderPipeline - see
+        // LeHandle::hierarchy_resolver's own comment.
         if (handle->scene.current_layout().valid())
         {
-            const auto &buffer = handle->instance_renderer.render_layout_frame(handle->root, handle->scene.current_layout(), handle->scene.hierarchy_depth(), handle->view_layers, handle->scene, handle->renderer);
+            const auto &buffer = handle->hierarchy_resolver.render_layout_frame(handle->root, handle->scene.current_layout(), handle->scene.hierarchy_depth(), handle->view_layers, handle->scene, handle->frame_render_pipeline);
             return LePixelBuffer{
                 .data = buffer.data,
                 .width = buffer.width,
@@ -2946,9 +2987,10 @@ extern "C"
             };
         }
 
-        const auto &shapes = handle->pipeline.run(handle->root, handle->scene, handle->view_layers);
-        const auto &tiny_shapes = handle->pipeline.run_tiny_shapes(handle->root, handle->scene, handle->view_layers);
-        const auto &buffer = handle->renderer.render(handle->root, shapes, tiny_shapes, handle->scene, handle->view_layers);
+        const le::PipelineOptions options = pipeline_options_for(handle);
+        const auto &shapes = handle->abstract_shape_pipeline.run(handle->scene.current_abstract(), options);
+        const auto &tiny_shapes = handle->abstract_shape_pipeline.run_tiny_shapes(handle->scene.current_abstract(), options);
+        const auto &buffer = handle->frame_render_pipeline.run(handle->scene.current_abstract(), shapes, tiny_shapes, options);
 
         return LePixelBuffer{
             .data = buffer.data,
