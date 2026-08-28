@@ -4,6 +4,7 @@
 // mirrors pipeline_test.cpp/render_test.cpp/instancing_test.cpp's own
 // "one file per module, grouped by class" convention.
 #include "../abstract_shape_pipeline.hpp"
+#include "../layout_shape_pipeline.hpp"
 #include "../stages/viewport_filter_stage.hpp"
 #include "../tbb_core.hpp"
 #include <gtest/gtest.h>
@@ -404,4 +405,257 @@ TEST_F(AbstractShapePipelineFixture, RunTinyShapesProducesADotForASubPixelShapeB
     for (const auto &[_, dots] : tiny)
         tiny_count += dots.size();
     EXPECT_EQ(tiny_count, 1u);
+}
+
+// --- LayoutShapePipeline (Phase 3: oneTBB wiring of LayoutGeometryStage ->
+// ViewportFilterStage -> LayerVisibilityFilterStage / -> TinyViewportFilterStage
+// -> TinyLayerVisibilityFilterStage) - a representative subset of
+// pipeline_test.cpp's own LayoutPipelineFixture cases against Pipeline, for
+// the same reason AbstractShapePipelineFixture's own subset is representative
+// rather than exhaustive (see that section's own comment) - LayoutGeometryStage's
+// compute() body is an unchanged copy of GenerateLayoutShapesStage::run's
+// own lambda plus its private helper statics.
+
+namespace
+{
+    struct LayoutShapePipelineFixture : public ::testing::Test
+    {
+        void SetUp() override
+        {
+            technology_id = root.create_technology(le::TechnologyData{.database_units_microns = 1000.0});
+            m1 = root.create_layer(le::LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING"});
+            m2 = root.create_layer(le::LayerData{.technology = technology_id, .name = "M2", .type = "ROUTING"});
+            view_layers = le::ViewLayerSet::build_for_technology(root, technology_id);
+
+            le::LibraryId library_id = root.create_library(le::LibraryData{.name = "LIB"});
+            le::DesignId design_id = root.create_design(le::DesignData{.library = library_id, .name = "TOP"});
+            layout_id = root.create_layout(le::LayoutData{.design = design_id});
+
+            scene.set_pan(le::Point{0, 0});
+            scene.set_scale(1.0);
+            scene.set_viewport_size(4000, 4000); // large enough to enclose every test shape below
+        }
+
+        void add_diearea(const le::Rect &rect)
+        {
+            le::Shape shape;
+            shape.layout = layout_id;
+            shape.purpose = le::ShapePurpose::BOUNDARY;
+            shape.rects.push_back(rect);
+            root.create_shape(std::move(shape));
+        }
+
+        le::BlockageId add_routing_blockage(le::LayerId layer, const le::Rect &rect)
+        {
+            le::BlockageId blockage_id = root.create_blockage(le::BlockageData{.layout = layout_id, .kind = le::BlockageKind::ROUTING});
+            le::Shape shape;
+            shape.blockage = blockage_id;
+            shape.layer = layer;
+            shape.rects.push_back(rect);
+            root.create_shape(std::move(shape));
+            return blockage_id;
+        }
+
+        le::RouteId add_route(le::LayerId layer, const le::Rect &rect)
+        {
+            le::RouteId route_id = root.create_route(le::RouteData{.layout = layout_id, .name = "NET1"});
+            le::Shape shape;
+            shape.route = route_id;
+            shape.layer = layer;
+            shape.rects.push_back(rect);
+            root.create_shape(std::move(shape));
+            return route_id;
+        }
+
+        le::SiteId add_site(const std::string &name, le::Point size)
+        {
+            return root.create_site(le::SiteData{.technology = technology_id, .name = name, .size = size});
+        }
+
+        le::RowId add_row(const std::string &site_name, le::Point origin, std::optional<int> num_x = std::nullopt, std::optional<int> num_y = std::nullopt, std::optional<int64_t> step_x = std::nullopt, std::optional<int64_t> step_y = std::nullopt)
+        {
+            return root.create_row(le::RowData{
+                .layout = layout_id,
+                .name = "ROW" + std::to_string(next_row_index++),
+                .site_name = site_name,
+                .origin = origin,
+                .orientation = le::Orientation::N,
+                .num_x = num_x,
+                .num_y = num_y,
+                .step_x = step_x,
+                .step_y = step_y,
+            });
+        }
+
+        le::TrackId add_track(bool is_x, int64_t start, int count, int64_t step, std::vector<std::string> layer_names)
+        {
+            return root.create_track(le::TrackData{.layout = layout_id, .is_x = is_x, .start = start, .count = count, .step = step, .layer_names = std::move(layer_names)});
+        }
+
+        le::GCellGridId add_gcell_grid(bool is_x, int64_t start, int count, int64_t step)
+        {
+            return root.create_g_cell_grid(le::GCellGridData{.layout = layout_id, .is_x = is_x, .start = start, .count = count, .step = step});
+        }
+
+        le::RegionId add_region(const le::Rect &rect)
+        {
+            return root.create_region(le::RegionData{.layout = layout_id, .name = "REGION" + std::to_string(next_region_index++), .rects = {rect}});
+        }
+
+        le::PipelineOptions options() const
+        {
+            le::PipelineOptions o;
+            o.ctx.root = &root;
+            o.ctx.view_layers = &view_layers;
+            o.ctx.scene = &scene;
+            o.epoch.root_mutation_version = root.mutation_version();
+            o.epoch.view_layers_generation = view_layers.generation();
+            o.viewport.viewport_version = scene.viewport_version();
+            o.viewport.visibility_version = scene.visibility_version();
+            o.viewport.scale = scene.scale();
+            return o;
+        }
+
+        static const le::RenderedShape *find_by_purpose(const std::map<le::ViewLayerId, std::vector<le::RenderedShape>> &grouped, const le::ViewLayerSet &view_layers, le::ViewLayerPurpose purpose)
+        {
+            for (const auto &[view_layer_id, shapes] : grouped)
+            {
+                const le::ViewLayerData *data = view_layers.get(view_layer_id);
+                if (data && data->purpose == purpose && !shapes.empty())
+                    return &shapes.front();
+            }
+            return nullptr;
+        }
+
+        le::Root root;
+        le::TechnologyId technology_id;
+        le::LayerId m1;
+        le::LayerId m2;
+        le::ViewLayerSet view_layers;
+        le::LayoutId layout_id;
+        le::Scene scene;
+        le::LayoutShapePipeline pipeline;
+        int next_row_index = 0;
+        int next_region_index = 0;
+    };
+}
+
+TEST_F(LayoutShapePipelineFixture, RunIncludesDieAreaResolvedToBoundaryViewLayer)
+{
+    add_diearea(le::Rect{.ll = {0, 0}, .ur = {1000, 2000}});
+
+    const auto &grouped = pipeline.run(layout_id, options());
+    const auto it = grouped.find(view_layers.boundary_view_layer());
+    ASSERT_NE(it, grouped.end());
+    ASSERT_EQ(it->second.size(), 1u);
+    EXPECT_EQ(it->second.front().shape.rects[0].ur.x, 1000);
+    EXPECT_EQ(it->second.front().shape.rects[0].ur.y, 2000);
+}
+
+TEST_F(LayoutShapePipelineFixture, RunForUnknownLayoutIsEmpty)
+{
+    EXPECT_TRUE(pipeline.run(le::LayoutId{}, options()).empty());
+}
+
+TEST_F(LayoutShapePipelineFixture, RunResolvesRoutingBlockageAndRouteToTheirOwnLayerColumns)
+{
+    add_routing_blockage(m1, le::Rect{.ll = {0, 0}, .ur = {10, 10}});
+    add_route(m2, le::Rect{.ll = {5, 5}, .ur = {15, 15}});
+
+    const auto &grouped = pipeline.run(layout_id, options());
+    const le::RenderedShape *blockage = find_by_purpose(grouped, view_layers, le::ViewLayerPurpose::ROUTING_BLOCKAGE);
+    ASSERT_NE(blockage, nullptr);
+    EXPECT_EQ(blockage->view_layer, view_layers.find(m1, le::ViewLayerPurpose::ROUTING_BLOCKAGE));
+
+    const le::RenderedShape *route = find_by_purpose(grouped, view_layers, le::ViewLayerPurpose::ROUTE);
+    ASSERT_NE(route, nullptr);
+    EXPECT_EQ(route->view_layer, view_layers.find(m2, le::ViewLayerPurpose::ROUTE));
+}
+
+TEST_F(LayoutShapePipelineFixture, RunSynthesizesRowRectangleFromSiteSizeAndTiling)
+{
+    add_site("SITE1", le::Point{500, 1000});
+    add_row("SITE1", le::Point{100, 200}, /*num_x=*/3, /*num_y=*/2, /*step_x=*/600, /*step_y=*/std::nullopt);
+
+    const auto &grouped = pipeline.run(layout_id, options());
+    const le::RenderedShape *found = find_by_purpose(grouped, view_layers, le::ViewLayerPurpose::ROW);
+    ASSERT_NE(found, nullptr);
+    ASSERT_EQ(found->shape.rects.size(), 1u);
+    // width = site.x + (num_x - 1) * step_x = 500 + 2 * 600 = 1700
+    // height = site.y + (num_y - 1) * step_y(fallback site.y=1000) = 1000 + 1000 = 2000
+    EXPECT_EQ(found->shape.rects[0].ll.x, 100);
+    EXPECT_EQ(found->shape.rects[0].ll.y, 200);
+    EXPECT_EQ(found->shape.rects[0].ur.x, 1800);
+    EXPECT_EQ(found->shape.rects[0].ur.y, 2200);
+}
+
+TEST_F(LayoutShapePipelineFixture, RunSynthesizesTrackLinesSpanningDieAreaInThePerpendicularDirection)
+{
+    add_diearea(le::Rect{.ll = {0, 0}, .ur = {1000, 2000}});
+    add_track(/*is_x=*/true, /*start=*/0, /*count=*/3, /*step=*/100, {"M1"});
+
+    const auto &grouped = pipeline.run(layout_id, options());
+    const le::RenderedShape *found = find_by_purpose(grouped, view_layers, le::ViewLayerPurpose::TRACK);
+    ASSERT_NE(found, nullptr);
+    ASSERT_EQ(found->shape.paths.size(), 3u);
+    for (int i = 0; i < 3; i++)
+    {
+        const int64_t x = i * 100;
+        EXPECT_EQ(found->shape.paths[i].polygon.points[0].x, x);
+        EXPECT_EQ(found->shape.paths[i].polygon.points[1].x, x);
+    }
+}
+
+TEST_F(LayoutShapePipelineFixture, RunSynthesizesGCellGridLinesSpanningDieArea)
+{
+    add_diearea(le::Rect{.ll = {0, 0}, .ur = {1000, 2000}});
+    add_gcell_grid(/*is_x=*/false, /*start=*/500, /*count=*/2, /*step=*/300);
+
+    const auto &grouped = pipeline.run(layout_id, options());
+    const le::RenderedShape *found = find_by_purpose(grouped, view_layers, le::ViewLayerPurpose::GCELLGRID);
+    ASSERT_NE(found, nullptr);
+    ASSERT_EQ(found->shape.paths.size(), 2u);
+    EXPECT_EQ(found->shape.paths[0].polygon.points[0].y, 500);
+    EXPECT_EQ(found->shape.paths[1].polygon.points[0].y, 800);
+}
+
+TEST_F(LayoutShapePipelineFixture, RunSkipsTrackAndGCellGridEntirelyWhenLayoutHasNoDieArea)
+{
+    add_track(/*is_x=*/true, /*start=*/0, /*count=*/3, /*step=*/100, {"M1"});
+    add_gcell_grid(/*is_x=*/false, /*start=*/500, /*count=*/2, /*step=*/300);
+
+    EXPECT_TRUE(pipeline.run(layout_id, options()).empty());
+}
+
+TEST_F(LayoutShapePipelineFixture, RunSynthesizesRegionFromStoredRects)
+{
+    add_region(le::Rect{.ll = {0, 0}, .ur = {50, 50}});
+
+    const auto &grouped = pipeline.run(layout_id, options());
+    const le::RenderedShape *found = find_by_purpose(grouped, view_layers, le::ViewLayerPurpose::REGION);
+    ASSERT_NE(found, nullptr);
+    ASSERT_EQ(found->shape.rects.size(), 1u);
+    EXPECT_EQ(found->shape.rects[0].ur.x, 50);
+}
+
+TEST_F(LayoutShapePipelineFixture, RunReusesCacheForSameLayoutIdAndEpoch)
+{
+    add_diearea(le::Rect{.ll = {0, 0}, .ur = {1000, 2000}});
+
+    pipeline.run(layout_id, options());
+    const uint64_t first_version = pipeline.shapes_version();
+    pipeline.run(layout_id, options());
+    EXPECT_EQ(pipeline.shapes_version(), first_version);
+}
+
+TEST_F(LayoutShapePipelineFixture, RunRecomputesAfterACrudMutationEvenForTheSameLayoutIdAndViewLayerSet)
+{
+    pipeline.run(layout_id, options());
+    const uint64_t first_version = pipeline.shapes_version();
+
+    add_diearea(le::Rect{.ll = {0, 0}, .ur = {1000, 2000}});
+    root.bump_mutation_version();
+
+    EXPECT_FALSE(pipeline.run(layout_id, options()).empty());
+    EXPECT_NE(pipeline.shapes_version(), first_version);
 }
