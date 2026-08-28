@@ -139,12 +139,29 @@ extract_rpm_closure() {
 # dependencies are satisfied, so if $pkg shows as installed at all, its
 # closure is already present too - no need to re-derive and re-check it
 # ourselves. If $pkg is missing OR too old for what's actually needed,
-# falls through to a real extract_rpm_closure call. ---
+# falls through to a real extract_rpm_closure call.
+#
+# `rpm -q` alone isn't enough, though - confirmed for real on a templated/
+# scratch-filesystem machine where tcl-devel showed as installed in the
+# RPM database, but tcl.h itself wasn't actually on disk (this particular
+# base image variant had stripped it, without updating the database) -
+# tk-devel on that same machine genuinely wasn't installed, so it took the
+# real extract_rpm_closure path and worked fine, while tcl-devel's stale
+# database record silently skipped extraction and left this toolchain with
+# no tcl.h at all until this check started verifying `rpm -ql`'s files are
+# actually present, not just that rpm thinks the package is there. ---
 extract_rpm_closure_if_missing() {
     local pkg="$1"
     if rpm -q "$pkg" >/dev/null 2>&1; then
-        ok "$pkg already installed on this system ($(rpm -q "$pkg")) - skipping download/extract"
-        return 0
+        local f missing_files=0
+        while IFS= read -r f; do
+            [ -e "$f" ] || { missing_files=1; break; }
+        done < <(rpm -ql "$pkg" 2>/dev/null)
+        if [ "$missing_files" = "0" ]; then
+            ok "$pkg already installed on this system ($(rpm -q "$pkg")) - skipping download/extract"
+            return 0
+        fi
+        log "$pkg is recorded as installed but some of its files are missing on disk (e.g. a stripped base image) - extracting anyway"
     fi
     extract_rpm_closure "$@"
 }

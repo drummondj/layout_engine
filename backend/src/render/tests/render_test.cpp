@@ -920,6 +920,42 @@ TEST_F(RenderFixture, BuildPictureAndRasterizeAreNotInvalidatedBySelectionChange
     EXPECT_EQ(renderer.rasterize_calls(), 1u);
 }
 
+TEST_F(RenderFixture, RasterizeAndComposeAccessorsExposeTheSameLiveInstancesRenderUsesInternally)
+{
+    // Regression: design_rasterize_stage()/compose_stage() (and their
+    // three siblings) exist specifically so a second caller
+    // (InstanceRenderer::render_layout_frame) can drive Renderer's own
+    // RasterizeStage/ComposeWithOverlaysStage instances directly with
+    // its own version numbers instead of owning duplicate copies - that
+    // only works if the accessor really returns the SAME live member,
+    // not some other/copied instance. Proven here by confirming a call
+    // through the accessor is observable via the existing, independently
+    // implemented rasterize_calls() public counter (and vice versa).
+    const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
+    add_port_shape(terminal_id, Shape{.layer = m1, .rects = {Rect{.ll = {10, 10}, .ur = {30, 30}}}});
+
+    Scene scene;
+    scene.set_current_abstract(abstract_id);
+    scene.set_pan(Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(100, 100);
+
+    const auto &shapes = pipeline.run(root, scene, view_layers);
+    const auto &pixel_shapes = renderer.transform_to_pixels(root, shapes, scene);
+    const auto &picture = renderer.build_picture(pixel_shapes, scene, view_layers, root);
+
+    ASSERT_EQ(renderer.design_rasterize_stage().call_count(), 0u);
+    renderer.rasterize(root, picture, scene);
+    EXPECT_EQ(renderer.design_rasterize_stage().call_count(), 1u); // rasterize() incremented the SAME instance the accessor exposes
+
+    // The reverse direction: call through the accessor directly, confirm
+    // Renderer's own public counter sees it too.
+    renderer.design_rasterize_stage().run(renderer.design_rasterize_stage().version() + 1, picture, scene);
+    EXPECT_EQ(renderer.rasterize_calls(), 2u);
+
+    EXPECT_EQ(&renderer.compose_stage(), &renderer.compose_stage()); // same object every call, not a fresh one
+}
+
 TEST_F(RenderFixture, BuildPictureReusesCacheUntilVisibilityVersionChanges)
 {
     // UPDATES.md item 16's Renderer refactor: BuildPictureStage's cache

@@ -886,7 +886,8 @@ static void BM_InstanceRenderer_RenderLayoutFrame_ColdCache_FullDepth(benchmark:
     for (auto _ : state)
     {
         InstanceRenderer instance_renderer;
-        const auto &buffer = instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene);
+        Renderer renderer;
+        const auto &buffer = instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, renderer);
         const auto *buffer_ptr = &buffer;
         benchmark::DoNotOptimize(buffer_ptr);
     }
@@ -907,11 +908,12 @@ static void BM_InstanceRenderer_RenderLayoutFrame_WarmCache_FullDepth(benchmark:
     const auto &data = layout_stress_data();
     Scene scene = make_layout_scene(data, 2);
     InstanceRenderer instance_renderer;
-    instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene); // warm every cache once
+    Renderer renderer;
+    instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, renderer); // warm every cache once
 
     for (auto _ : state)
     {
-        const auto &buffer = instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene);
+        const auto &buffer = instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, renderer);
         const auto *buffer_ptr = &buffer;
         benchmark::DoNotOptimize(buffer_ptr);
     }
@@ -933,7 +935,8 @@ static void BM_InstanceRenderer_RenderLayoutFrame_ColdCache_ShallowDepth(benchma
     for (auto _ : state)
     {
         InstanceRenderer instance_renderer;
-        const auto &buffer = instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene);
+        Renderer renderer;
+        const auto &buffer = instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, renderer);
         const auto *buffer_ptr = &buffer;
         benchmark::DoNotOptimize(buffer_ptr);
     }

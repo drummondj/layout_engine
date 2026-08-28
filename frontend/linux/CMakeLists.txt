@@ -146,6 +146,15 @@ endforeach(bundled_library)
 
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/linux/")
+# This project has no native_assets_cli packages, so flutter assemble's own
+# install_code_assets target (which normally creates this directory, even
+# empty) gets skipped entirely - confirmed for real ("Skipping target:
+# install_code_assets" in a verbose build log) - leaving install(DIRECTORY)
+# below pointed at a source that doesn't exist, a hard install-time error
+# ("file INSTALL cannot find ... No such file or directory"). Create it
+# ourselves (a no-op if flutter assemble did make it) so there's always
+# something, possibly empty, to install.
+install(CODE "file(MAKE_DIRECTORY \"${NATIVE_ASSETS_DIR}\")" COMPONENT Runtime)
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"
    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
    COMPONENT Runtime)

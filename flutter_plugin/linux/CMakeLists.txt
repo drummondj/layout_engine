@@ -54,6 +54,35 @@ target_include_directories(${PLUGIN_NAME} INTERFACE
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
 
+# A rootless Rocky 8 build (rocky8-env.sh) compiles the backend/Skia (below,
+# LE_LINK_BACKEND block) with a real gcc-toolset-13 g++, for its newer
+# libstdc++ (backend's C++23 std::expected usage needs a libstdc++ new
+# enough to have <expected> at all - RHEL8's base gcc-toolset-11 doesn't).
+# But flutter's own Linux build tooling links this target with a *different*
+# compiler on such a machine - a locally-built engine's own clang++ (an
+# engine built from source has to be built with a specific clang for the
+# engine's own ABI reasons, and flutter_tools matches the app build to it) -
+# and that clang++, with no explicit hint, auto-detects whichever GCC
+# installation looks like the system default (gcc-toolset-11 here, not the
+# rootlessly-extracted gcc-toolset-13), so it resolves against gcc-toolset-11's
+# *older* libstdc++. Since this target whole-archives backend/Skia static
+# libraries built against gcc-toolset-13's newer one (LE_LINK_BACKEND block
+# below), that mismatch is a real, confirmed link failure - "undefined
+# reference to std::__cxx11::basic_string<...>::_M_replace_cold(...)" - not
+# hypothetical. --gcc-toolchain tells clang which GCC installation's
+# headers/libs to actually use, overriding its own auto-detection; only
+# applies when this target is genuinely being linked by Clang (Docker CI/
+# macOS never hit this, and LE_TOOLCHAIN_ROOT is unset there, so this is a
+# no-op off the rootless Rocky 8 path). Mirrored in
+# ../../frontend/linux/runner/CMakeLists.txt for the same reason - the
+# final runner executable link hits the identical mismatch.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND DEFINED ENV{LE_TOOLCHAIN_ROOT})
+  set(LE_GCC13_TOOLCHAIN "$ENV{LE_TOOLCHAIN_ROOT}/root/opt/rh/gcc-toolset-13/root/usr")
+  if(EXISTS "${LE_GCC13_TOOLCHAIN}")
+    target_link_options(${PLUGIN_NAME} PRIVATE "--gcc-toolchain=${LE_GCC13_TOOLCHAIN}")
+  endif()
+endif()
+
 if(LE_LINK_BACKEND)
   # LE_LINK_BACKEND/LE_BACKEND_DIR/LE_BACKEND_BUILD/LE_SKIA_DIR are all
   # defined in ../src/CMakeLists.txt, already processed by the
@@ -120,7 +149,46 @@ if(LE_LINK_BACKEND)
   # handful of typed commands per keystroke, so Debug-build overhead here
   # is irrelevant, and this avoids needing le_tcl added to the Release
   # tree at all (mirrors ../macos/layout_engine_plugin.podspec's own choice).
-  find_package(TCL REQUIRED)
+  # On a rootless Rocky 8 build, tcl.h lives under the rootlessly-extracted
+  # toolchain root ($LE_TOOLCHAIN_ROOT/root/usr/include, once
+  # rocky8-bootstrap.sh has actually extracted it there - see that script's
+  # own comment on extract_rpm_closure_if_missing for a real case where a
+  # stale RPM-database record silently skipped this) - the real system
+  # /usr/include has no tcl.h at all (only a base "tcl" runtime package is
+  # actually installed there, no -devel headers). find_package(TCL)'s own
+  # TCL_INCLUDE_PATH search only ever reaches the rootless one via a
+  # "${TCL_TCLSH_PATH_PARENT}/include" hint derived from wherever `tclsh`
+  # happens to resolve on PATH (see FindTCL.cmake's own
+  # TCLTK_POSSIBLE_INCLUDE_PATHS) - fragile and PATH-order-dependent,
+  # confirmed by this exact search flipping from finding tcl.h to not
+  # finding it, with no change to this file, just PATH order changing
+  # elsewhere (an unrelated compiler-PATH fix) resolving the real system's
+  # /bin/tclsh instead of the rootless toolchain's own tclsh. TCL_LIBRARY
+  # isn't fragile the same way - the base "tcl" runtime package's .so is
+  # already on the real system's default library search path, no hint
+  # needed. Set TCL_INCLUDE_PATH explicitly instead of hoping PATH order
+  # cooperates - mirrors backend/CMakeLists.txt's own TCL_TK_ROOT override
+  # for macOS's Homebrew tcl-tk@8 (same fragile-default-search problem,
+  # different platform).
+  if(DEFINED ENV{LE_TOOLCHAIN_ROOT})
+    set(LE_ROCKY8_TCL_INCLUDE "$ENV{LE_TOOLCHAIN_ROOT}/root/usr/include")
+    if(EXISTS "${LE_ROCKY8_TCL_INCLUDE}/tcl.h")
+      set(TCL_INCLUDE_PATH "${LE_ROCKY8_TCL_INCLUDE}" CACHE PATH "" FORCE)
+    endif()
+  endif()
+  # Deliberately find_package(TCL) without REQUIRED, then check
+  # TCL_LIBRARY/TCL_INCLUDE_PATH ourselves - CMake's bundled FindTCL.cmake
+  # always resolves Tcl *and* Tk together (it runs a second, combined
+  # TCLTK find_package_handle_standard_args() check requiring
+  # TK_LIBRARY/TK_INCLUDE_PATH too, and inherits REQUIRED onto that check
+  # from this one - see the module itself). This project only uses plain
+  # Tcl (le_tcl_bridge.cpp #includes tcl.h, no Tk widgets), so a machine
+  # with Tcl but no Tk headers installed shouldn't hard-fail configure over
+  # a dependency this target never links.
+  find_package(TCL)
+  if(NOT TCL_LIBRARY OR NOT TCL_INCLUDE_PATH)
+    message(FATAL_ERROR "Tcl not found (need TCL_LIBRARY and TCL_INCLUDE_PATH) - required by ${PLUGIN_NAME}'s embedded Tcl console (le_tcl_bridge.cpp)")
+  endif()
   set(LE_BACKEND_TCL_BUILD "${LE_BACKEND_DIR}/build-linux" CACHE PATH
       "Path to the backend's own Debug CMake build directory, providing le_tcl.so")
   target_sources(${PLUGIN_NAME} PRIVATE "../src/le_tcl_bridge.cpp")

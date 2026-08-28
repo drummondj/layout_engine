@@ -27,25 +27,15 @@ class ToolbarButton extends StatelessWidget {
         ? colorScheme.tertiary
         : colorScheme.primary;
     final strokeWidth = selected ? 1.5 : 1.0;
-    final finalText = shortcutKey != null ? "$text\n($shortcutKey)" : "$text\n";
+    final finalText = shortcutKey != null ? "$text ($shortcutKey)" : text;
 
     return Container(
       decoration: selected
           ? BoxDecoration(
-              border: .fromLTRB(
-                top: BorderSide(color: forgroundColor, width: 4.0),
-              ),
-              gradient: LinearGradient(
-                colors: [forgroundColor.withAlpha(25), Colors.transparent],
-                begin: .topCenter,
-                end: .bottomCenter,
-              ),
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              borderRadius: .all(Radius.circular(9)),
             )
-          : BoxDecoration(
-              border: .fromLTRB(
-                top: BorderSide(color: Colors.transparent, width: 4.0),
-              ),
-            ),
+          : null,
       child: Padding(
         padding: EdgeInsets.all(4),
         child: Tooltip(
@@ -57,7 +47,7 @@ class ToolbarButton extends StatelessWidget {
                 HugeIcon(
                   icon: icon,
                   color: forgroundColor,
-                  size: 32,
+                  size: 24,
                   strokeWidth: strokeWidth,
                 ),
               ],

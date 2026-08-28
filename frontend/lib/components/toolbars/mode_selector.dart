@@ -27,41 +27,32 @@ class ModeButton extends StatelessWidget {
         ? colorScheme.tertiary
         : colorScheme.primary;
     final strokeWidth = selected ? 1.5 : 1.0;
-    final FontWeight fontWeight = selected ? .bold : .normal;
-    final finalText = shortcutKey != null ? "$text\n($shortcutKey)" : "$text\n";
+    final finalText = shortcutKey != null ? "$text ($shortcutKey)" : text;
 
     return Container(
       decoration: selected
           ? BoxDecoration(
-              border: .fromLTRB(
-                left: BorderSide(color: forgroundColor, width: 4.0),
-              ),
-              gradient: LinearGradient(
-                colors: [forgroundColor.withAlpha(25), Colors.transparent],
-              ),
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              borderRadius: .all(Radius.circular(9)),
             )
           : null,
       child: Padding(
         padding: EdgeInsets.all(8.0),
-        child: TextButton(
-          onPressed: selected ? null : onPressed,
-          child: Column(
-            children: [
-              HugeIcon(
-                icon: icon,
-                color: forgroundColor,
-                size: 48,
-                strokeWidth: strokeWidth,
-              ),
-              Text(
-                finalText,
-                textAlign: .center,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+        child: Tooltip(
+          message: finalText,
+          verticalOffset: 30,
+          child: TextButton(
+            onPressed: selected ? null : onPressed,
+            child: Column(
+              children: [
+                HugeIcon(
+                  icon: icon,
                   color: forgroundColor,
-                  fontWeight: fontWeight,
+                  size: 32,
+                  strokeWidth: strokeWidth,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

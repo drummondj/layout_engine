@@ -8,12 +8,11 @@
 #include "../pipeline/stages/generate_layout_shapes_stage.hpp"
 #include "../render/draw_helpers.hpp"
 #include "../render/pixel_types.hpp"
+#include "../render/render.hpp"
 #include "../render/stages/build_layout_picture_stage.hpp"
 #include "../render/stages/build_overlay_picture_stage.hpp"
 #include "../render/stages/build_ruler_overlay_picture_stage.hpp"
 #include "../render/stages/build_selection_overlay_picture_stage.hpp"
-#include "../render/stages/compose_with_overlays_stage.hpp"
-#include "../render/stages/rasterize_stage.hpp"
 #include "../scene/scene.hpp"
 #include "../view_style/view_style.hpp"
 #include "include/core/SkPicture.h"
@@ -61,35 +60,36 @@ namespace le
     /// coordinate would - not a new gap Phase B introduces, just one this
     /// design doesn't paper over with a hidden per-instance origin shift.
     ///
-    /// Builds a fresh, call-local GenerateAbstractShapesStage/
-    /// GenerateLayoutShapesStage/FilterByViewportAndSizeStage/
-    /// FilterByLayerVisibilityStage set inside build_abstract_picture/
-    /// build_layout_picture_uncached, rather than sharing either a
-    /// caller's Pipeline or persistent members of its own - deliberately,
-    /// not just for simplicity. This class's own real caching (the two
-    /// {id, remaining_depth}-keyed maps below) already means
-    /// build_abstract_picture/build_layout_picture_uncached are only ever
-    /// reached on a genuine cache MISS, so a persistent VersionedStage
-    /// here would never legitimately hit - and for
-    /// build_layout_picture_uncached specifically, persistence would be
-    /// actively unsafe: its own placement loop calls resolve_design_picture,
-    /// which can recurse back into build_layout_picture_uncached for a
-    /// DIFFERENT LayoutId (a nested sub-block) - a shared, persistent
-    /// GenerateLayoutShapesStage's single VersionedStage slot would get
-    /// overwritten by that recursive call, leaving the OUTER call's own
-    /// `dbu_shapes` (a reference into that slot, captured before the loop)
-    /// dangling by the time it's used afterward. A fresh local instance
-    /// per call can't be evicted out from under itself this way, since a
-    /// recursive call gets its own, entirely separate instance. The
-    /// viewport-filter stage is driven by a throwaway internal Scene sized
-    /// to fully enclose the content being recorded (not the real Scene's
-    /// own current pan/viewport) - a cached, reusable instance picture
-    /// must hold its FULL content regardless of the CURRENT viewport (it
-    /// has to remain valid at every future pan/zoom until scale itself
-    /// changes); the real Scene is still passed to
-    /// FilterByLayerVisibilityStage, so a child instance's own layer
-    /// visibility toggles (M1/OBSTRUCTION/etc.) still match the top-level
-    /// view's own current settings.
+    /// Builds a fresh, call-local FilterByViewportAndSizeStage/
+    /// FilterByLayerVisibilityStage pair inside build_abstract_picture/
+    /// build_layout_picture_uncached (see those methods' own comments) -
+    /// their own cache key composes a throwaway `cull_scene`'s
+    /// `viewport_version()` as a proxy for its real content, and two
+    /// calls with a different `scale` could otherwise collide on that
+    /// same proxy value and wrongly reuse output culled at the wrong
+    /// threshold; a fresh instance per call can't go stale this way,
+    /// since it has no prior key to accidentally collide with.
+    ///
+    /// `generate_abstract_stage_`/`generate_layout_stage_` (below), by
+    /// contrast, ARE persistent, shared members - safe despite this
+    /// class's own recursive resolution (`resolve_design_picture` ->
+    /// `build_layout_picture` -> `build_layout_picture_uncached`, which
+    /// can recurse back into itself for a DIFFERENT LayoutId, a nested
+    /// sub-block) because `build_abstract_picture`/
+    /// `build_layout_picture_uncached` copy each stage's own `run()`
+    /// result into a local `std::vector<RenderedShape>` immediately,
+    /// before the placement loop runs, rather than holding a reference
+    /// into the stage's own single-slot cache across that recursive
+    /// call - the exact fix for a real bug this class used to work
+    /// around by constructing BOTH stages fresh per call instead (a
+    /// shared single-slot cache being overwritten by a nested recursive
+    /// call for a different key would otherwise leave an outer, still-
+    /// referenced value silently aliasing the inner call's data by the
+    /// time it's used afterward, in record_local_picture). This class's
+    /// own real caching (the two {id, remaining_depth}-keyed maps below)
+    /// already means neither shape-generation stage is ever actually hit
+    /// twice for the same key within one epoch regardless - sharing them
+    /// is a design-clarity fix, not a cache-hit-rate one.
     ///
     /// Also owns the final "compose a displayable frame" step for a
     /// Layout view (render_layout_frame, Migration Step 3 Phase C) -
@@ -97,28 +97,41 @@ namespace le
     /// picture resolution, but kept here rather than in `Renderer` (which
     /// deliberately doesn't link `instancing`/`pipeline` - same boundary
     /// reasoning as everywhere else in this class) or duplicated ad hoc in
-    /// `api.cpp` (which stays a thin C-API wrapper). Owns its own
-    /// BuildOverlayPictureStage/BuildRulerOverlayPictureStage/
-    /// RasterizeStage(x4)/ComposeWithOverlaysStage rather than reaching
-    /// into a caller's `Renderer` for them: `Renderer::rasterize`/
-    /// `compose_with_overlays` always key off `Renderer`'s own *Abstract*-
-    /// path `build_picture_stage_.version()` internally, regardless of
-    /// what picture is actually passed in - reusing those two methods with
-    /// a Layout-sourced picture would silently rasterize/compose against a
-    /// stale cache key untouched by anything InstanceRenderer does, the
-    /// same class of staleness bug already found and fixed once in this
-    /// file (see build_abstract_picture's own comment). `RasterizeStage`/
-    /// `ComposeWithOverlaysStage` are both already generic over a caller-
-    /// supplied version number for exactly this reason, so a second,
-    /// independent set of instances here is the correct fix, not a
-    /// workaround. Also owns its own BuildOverlayPictureStage/
-    /// BuildRulerOverlayPictureStage rather than reading `Renderer`'s own
-    /// output picture: `ComposeWithOverlaysStage::run` needs the *stage
-    /// object* itself (for its own `.version()`, part of its cache key),
-    /// not just the picture it last produced, and `Renderer`'s own
-    /// instances are private - a small, harmless duplication (their
-    /// content is Scene-only, never view-dependent, so caching it twice
-    /// costs a little memory/CPU, not correctness).
+    /// `api.cpp` (which stays a thin C-API wrapper). `render_layout_frame`
+    /// takes a `Renderer&` (the same one `api.cpp`'s `LeHandle` already
+    /// owns) and calls straight through its `design_rasterize_stage()`/
+    /// `tiny_shapes_rasterize_stage()`/`selection_rasterize_stage()`/
+    /// `ruler_rasterize_stage()`/`compose_stage()` accessors - those five
+    /// classes are already fully generic over a caller-supplied version
+    /// number (RasterizeStage/ComposeWithOverlaysStage take every
+    /// upstream version as an explicit parameter, nothing hardcoded
+    /// internally), so the real Renderer-owned instances are safe to
+    /// share directly rather than duplicate: `Scene::current_abstract()`/
+    /// `current_layout()` are mutually exclusive (api.cpp's
+    /// `le_render_pixel_buffer` is a strict if/else between
+    /// `Renderer::render()` and this method), so there's never a
+    /// concurrent/interleaved call from both paths - but each
+    /// RasterizeStage's own key is just `{upstream_version}`, with no
+    /// domain discriminator, and both callers' version counters start at
+    /// 0 independently, so two completely different pictures can land on
+    /// the exact same small version number the first time each domain is
+    /// used - wrongly serving the OTHER domain's stale cached frame
+    /// (a real bug this class's own tests caught -
+    /// SwitchingFromAbstractViewToLayoutViewThroughTheSameRendererDoesNotShowStaleContent,
+    /// instancing_test.cpp). render_layout_frame ORs every version number
+    /// it feeds into the shared stages with `kLayoutVersionDomainTag`
+    /// (its own private constant, see its own body) to keep this
+    /// class's own numbering entirely disjoint from Renderer's
+    /// Abstract-path one - no real session will ever recompute either
+    /// path anywhere near 2^63 times. Still owns its own BuildOverlayPictureStage/
+    /// BuildRulerOverlayPictureStage/BuildSelectionOverlayPictureStage
+    /// rather than reaching into `Renderer`'s: `ComposeWithOverlaysStage::run`
+    /// needs the *stage object* itself (for its own `.version()`, part of
+    /// its cache key) for the overlay stage specifically, and this
+    /// trio's own content is Scene-only, never view-dependent - caching
+    /// it twice costs a little memory/CPU, not correctness, unlike the
+    /// four RasterizeStages/ComposeWithOverlaysStage above, which hold
+    /// real rasterized surfaces and do real compositing work.
     class InstanceRenderer
     {
     public:
@@ -223,7 +236,7 @@ namespace le
         /// explicitly deferred scope (Step 3's own "whole-placement
         /// only" decision) - a real, documented gap, not a silent
         /// omission.
-        const PixelBuffer &render_layout_frame(const Root &root, LayoutId layout_id, int hierarchy_depth, const ViewLayerSet &view_layers, const Scene &scene)
+        const PixelBuffer &render_layout_frame(const Root &root, LayoutId layout_id, int hierarchy_depth, const ViewLayerSet &view_layers, const Scene &scene, Renderer &renderer)
         {
             const int remaining_depth = std::max(0, hierarchy_depth - 1);
             ensure_epoch(root, view_layers, scene, scene.scale());
@@ -275,9 +288,31 @@ namespace le
             static const std::map<ViewLayerId, std::vector<RenderedShape>> kEmptyShapes;
             const sk_sp<SkPicture> &selection_overlay_picture = build_selection_overlay_picture_stage_.run(scene, root, kEmptyShapes, layout_id, remaining_depth);
 
-            return compose_stage_.run(rasterize_design_stage_, rasterize_tiny_stage_, rasterize_selection_stage_, rasterize_ruler_stage_, build_overlay_picture_stage_,
-                                       design_version, 0, build_selection_overlay_picture_stage_.version(), build_ruler_overlay_picture_stage_.version(),
-                                       design_picture, kEmptyPicture, overlay_picture, selection_overlay_picture, ruler_overlay_picture, scene);
+            // kLayoutVersionDomainTag: renderer's four RasterizeStage
+            // instances (and compose_stage()) are SHARED with Renderer's
+            // own Abstract-path render() (see Renderer::design_rasterize_
+            // stage()'s own comment) - each RasterizeStage's own cache key
+            // is just {upstream_version}, a bare uint64_t with no domain
+            // discriminator, trusting the caller's own numbering is
+            // globally injective. Abstract-path's build_picture_stage_
+            // etc. and Layout-path's design_version/etc. are each
+            // independent VersionedStage counters that start at 0 - two
+            // completely different pictures can trivially land on the
+            // exact same small version number the first time each domain
+            // is used, which would wrongly serve the OTHER domain's
+            // stale, cached RasterizedFrame (a real bug this class's own
+            // tests caught - SwitchingFromAbstractViewToLayoutViewThroughTheSameRendererDoesNotShowStaleContent,
+            // instancing_test.cpp). OR-ing this tag into every version
+            // number fed into the shared stages keeps this domain's own
+            // numbering entirely disjoint from Renderer's Abstract-path
+            // one (no real session will ever recompute either path
+            // anywhere near 2^63 times), without needing RasterizeStage/
+            // ComposeWithOverlaysStage's own generic key shape to change.
+            constexpr uint64_t kLayoutVersionDomainTag = uint64_t{1} << 63;
+
+            return renderer.compose_stage().run(renderer.design_rasterize_stage(), renderer.tiny_shapes_rasterize_stage(), renderer.selection_rasterize_stage(), renderer.ruler_rasterize_stage(), build_overlay_picture_stage_,
+                                                 kLayoutVersionDomainTag | design_version, kLayoutVersionDomainTag, kLayoutVersionDomainTag | build_selection_overlay_picture_stage_.version(), kLayoutVersionDomainTag | build_ruler_overlay_picture_stage_.version(),
+                                                 design_picture, kEmptyPicture, overlay_picture, selection_overlay_picture, ruler_overlay_picture, scene);
         }
 
     private:
@@ -347,13 +382,9 @@ namespace le
         {
             recompute_count_++;
 
-            // Fresh, call-local stages, not persistent class members - see
-            // this class's own comment on why the caching Pipeline's own
-            // stage classes normally provide is illusory here (this
-            // function is only ever reached on a real resolve_design_
-            // picture/build_layout_picture cache MISS in the first place)
-            // and, worse, actively wrong for FilterByViewportAndSizeStage
-            // specifically: its own key composes `cull_scene.
+            // FilterByViewportAndSizeStage/FilterByLayerVisibilityStage
+            // stay fresh, call-local instances, not persistent class
+            // members - their own cache key composes `cull_scene.
             // viewport_version()`, but a fresh throwaway Scene's version
             // counter only reflects HOW MANY setters were called, not
             // WHAT was set - two calls with different `scale` (hence a
@@ -365,12 +396,17 @@ namespace le
             // a real, hard-to-see-in-review staleness bug rather than a
             // no-op - a fresh instance can't go stale since it has no
             // prior key to accidentally collide with.
-            GenerateAbstractShapesStage generate_stage;
             FilterByViewportAndSizeStage viewport_stage;
             FilterByLayerVisibilityStage layer_stage;
 
-            const auto &dbu_shapes = generate_stage.run(root, abstract_id, view_layers);
-            return record_local_picture(generate_stage, viewport_stage, layer_stage, dbu_shapes, view_layers, scene, scale, {}, {}, abstract_declared_bbox(root, abstract_id));
+            // generate_abstract_stage_ IS a persistent, shared member
+            // (see this class's own comment) - copy its result rather
+            // than binding a reference, so a recursive call elsewhere in
+            // this same frame can't leave `dbu_shapes` aliasing the
+            // wrong Design's data by the time record_local_picture below
+            // uses it.
+            const std::vector<RenderedShape> dbu_shapes = generate_abstract_stage_.run(root, abstract_id, view_layers);
+            return record_local_picture(generate_abstract_stage_, viewport_stage, layer_stage, dbu_shapes, view_layers, scene, scale, {}, {}, abstract_declared_bbox(root, abstract_id));
         }
 
         // `local_origin` (default {0,0}, the existing/normal convention
@@ -393,33 +429,30 @@ namespace le
         {
             recompute_count_++;
 
-            // Fresh, call-local stages (see build_abstract_picture's own
-            // comment for the scale-staleness reason) - doubly required
-            // here, not just an efficiency nicety: this function's own
-            // placement loop below calls resolve_design_picture, which can
-            // recurse back into build_layout_picture_uncached for a
-            // DIFFERENT LayoutId (a nested sub-block). A persistent,
-            // shared `generate_layout_` member would have its single
-            // VersionedStage slot overwritten by that recursive call
-            // before this (outer) call reaches its own record_local_picture
-            // below - `dbu_shapes`, a reference bound to the slot's THEN-
-            // current vector, would be left dangling (the reassigned
-            // std::vector's old heap buffer freed) by the time it's
-            // actually used. A real bug this class's own tests exercise
-            // (TwoLevelHierarchyRecursesAndPlacesTheLeafRelativeToItsSubBlock,
-            // where the sub-block is a distinct LayoutId from the top) -
-            // it "worked" under a plain Debug build's own allocator
-            // behavior, exactly the kind of UB that's silent until it
-            // isn't (a sanitizer build, a different allocator, a future
-            // change to VersionedStage's own storage). A fresh local
-            // instance per call can't be evicted out from under itself by
-            // a recursive call, since the recursive call gets its own,
-            // entirely separate instance.
-            GenerateLayoutShapesStage generate_stage;
+            // FilterByViewportAndSizeStage/FilterByLayerVisibilityStage
+            // stay fresh, call-local instances - see build_abstract_
+            // picture's own comment for the scale-staleness reason.
             FilterByViewportAndSizeStage viewport_stage;
             FilterByLayerVisibilityStage layer_stage;
 
-            const auto &dbu_shapes = generate_stage.run(root, layout_id, view_layers);
+            // generate_layout_stage_ IS a persistent, shared member (see
+            // this class's own comment) - copy its result into a real
+            // local rather than binding a reference, BEFORE the
+            // recursive placement loop below runs. That loop calls
+            // resolve_design_picture, which can recurse back into
+            // build_layout_picture_uncached for a DIFFERENT LayoutId (a
+            // nested sub-block) - reusing this same shared stage for
+            // that recursive call would overwrite its single
+            // VersionedStage slot; a `dbu_shapes` bound BY REFERENCE to
+            // that slot would silently end up aliasing the recursive
+            // call's own data by the time it's used afterward, in
+            // record_local_picture (a real bug this class's own tests
+            // exercise -
+            // TwoLevelHierarchyRecursesAndPlacesTheLeafRelativeToItsSubBlock,
+            // where the sub-block is a distinct LayoutId from the top).
+            // A local copy, taken before the recursion, can't be
+            // affected by what the shared stage's slot holds afterward.
+            const std::vector<RenderedShape> dbu_shapes = generate_layout_stage_.run(root, layout_id, view_layers);
 
             std::vector<BuildLayoutPictureStage::ResolvedInstance> instances;
             Rect content_bbox = layout_declared_bbox(root, layout_id);
@@ -527,7 +560,7 @@ namespace le
                 });
             }
 
-            return record_local_picture(generate_stage, viewport_stage, layer_stage, dbu_shapes, view_layers, scene, scale, instances, tiny_instance_rects, content_bbox, local_origin);
+            return record_local_picture(generate_layout_stage_, viewport_stage, layer_stage, dbu_shapes, view_layers, scene, scale, instances, tiny_instance_rects, content_bbox, local_origin);
         }
 
         // Shared core of both build_abstract_picture and
@@ -609,15 +642,30 @@ namespace le
         std::set<DesignId> unresolved_logged_;
         uint64_t recompute_count_ = 0;
 
+        // Persistent, shared shape-generation stages - see this class's
+        // own doc comment for why sharing these is safe (their own
+        // result is always copied, not referenced, before any recursive
+        // call that could otherwise evict their single-slot cache out
+        // from under a still-live reference).
+        GenerateAbstractShapesStage generate_abstract_stage_;
+        GenerateLayoutShapesStage generate_layout_stage_;
+
         // render_layout_frame's own single-slot cache for the TOP-level
         // picture specifically - see that method's own comment for why
         // it can't share layout_pictures_ (pan-dependent local_origin,
         // unlike every other entry in that map).
         VersionedStage<std::tuple<LayoutId, int, uint64_t, uint64_t, uint64_t, uint64_t>, sk_sp<SkPicture>> top_layout_picture_stage_;
 
-        // render_layout_frame's own rasterize/compose chain - a second,
+        // render_layout_frame's own build-stage trio - still a second,
         // independent set of instances from Renderer's own (see this
-        // class's own doc comment for why sharing would be unsafe).
+        // class's own doc comment: Scene-only content, never view-
+        // dependent, so duplicating it costs a little memory/CPU, not
+        // correctness). The four RasterizeStages/ComposeWithOverlaysStage
+        // Renderer also owns are NOT duplicated here anymore - reached
+        // directly through the `Renderer&` render_layout_frame now takes,
+        // via its design_rasterize_stage()/tiny_shapes_rasterize_stage()/
+        // selection_rasterize_stage()/ruler_rasterize_stage()/
+        // compose_stage() accessors.
         BuildOverlayPictureStage build_overlay_picture_stage_;
         BuildRulerOverlayPictureStage build_ruler_overlay_picture_stage_;
         // E1 (BUGS_AND_ENHANCEMENTS.md) - same class Renderer's own
@@ -626,10 +674,5 @@ namespace le
         // the two overlay stages just above (see this class's own doc
         // comment).
         BuildSelectionOverlayPictureStage build_selection_overlay_picture_stage_;
-        RasterizeStage rasterize_design_stage_;
-        RasterizeStage rasterize_tiny_stage_;
-        RasterizeStage rasterize_selection_stage_;
-        RasterizeStage rasterize_ruler_stage_;
-        ComposeWithOverlaysStage compose_stage_;
     };
 }

@@ -62,8 +62,12 @@ struct LeHandle
     // full displayable frame for a Layout view (Migration Step 3 Phase C)
     // - le_render_pixel_buffer calls its own render_layout_frame instead
     // of pipeline/renderer above when scene.current_layout() is active.
-    // See its own class comment for why it owns a second, independent
-    // rasterize/compose chain rather than sharing renderer's.
+    // render_layout_frame takes `renderer` above as an explicit
+    // parameter and shares its rasterize/compose stages directly (see
+    // Renderer::design_rasterize_stage()'s own comment) - it still owns
+    // its own separate BuildOverlayPictureStage/BuildRulerOverlayPictureStage/
+    // BuildSelectionOverlayPictureStage trio (see InstanceRenderer's own
+    // class comment for why that much stays duplicated).
     le::InstanceRenderer instance_renderer;
 
     // Undo/redo stack + command-recall log (UPDATES.md item 21) - every
@@ -2933,7 +2937,7 @@ extern "C"
         // own comment.
         if (handle->scene.current_layout().valid())
         {
-            const auto &buffer = handle->instance_renderer.render_layout_frame(handle->root, handle->scene.current_layout(), handle->scene.hierarchy_depth(), handle->view_layers, handle->scene);
+            const auto &buffer = handle->instance_renderer.render_layout_frame(handle->root, handle->scene.current_layout(), handle->scene.hierarchy_depth(), handle->view_layers, handle->scene, handle->renderer);
             return LePixelBuffer{
                 .data = buffer.data,
                 .width = buffer.width,

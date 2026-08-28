@@ -139,6 +139,48 @@ namespace le
             return compose_with_overlays(root, picture, tiny_shapes_picture, overlay_picture, selection_overlay_picture, ruler_overlay_picture, scene);
         }
 
+        /// @brief Direct access to the four RasterizeStage instances and
+        /// the ComposeWithOverlaysStage instance this class owns - both
+        /// classes are already fully generic/reentrant (every upstream
+        /// version is an explicit parameter, nothing hardcoded
+        /// internally, see each class's own doc comment), so a second
+        /// caller with its own content (InstanceRenderer's Layout-view
+        /// path, render_layout_frame) can drive them directly with its
+        /// own version numbers instead of duplicating these two classes
+        /// (BuildOverlayPictureStage/BuildRulerOverlayPictureStage/
+        /// BuildSelectionOverlayPictureStage stay separately owned by
+        /// that caller - see InstanceRenderer's own doc comment for why
+        /// that trio's own duplication is still fine). Safe to share
+        /// across both callers in the sense that matters -
+        /// Scene::current_abstract()/current_layout() are mutually
+        /// exclusive (api.cpp's le_render_pixel_buffer is a strict
+        /// if/else between this class's own render() and
+        /// InstanceRenderer::render_layout_frame(), both under the same
+        /// handle mutex), so there's never a concurrent/interleaved call
+        /// from both paths - BUT each RasterizeStage's own cache key is
+        /// just `{upstream_version}`, a bare uint64_t with no domain
+        /// discriminator, and both callers' version counters
+        /// independently start at 0 - two completely different pictures
+        /// can land on the exact same small version number the first
+        /// time each domain is used, which would wrongly serve the
+        /// OTHER domain's stale cached frame (a real bug caught by
+        /// instancing_test.cpp's own
+        /// SwitchingFromAbstractViewToLayoutViewThroughTheSameRendererDoesNotShowStaleContent
+        /// while building this). InstanceRenderer's own render_layout_frame
+        /// is the one responsible for keeping its own version numbers
+        /// disjoint from this class's (see its own
+        /// kLayoutVersionDomainTag) - these accessors themselves don't
+        /// enforce that, since RasterizeStage's generic `{upstream_version}`
+        /// key has no room for a domain tag of its own.
+        /// `Renderer::rasterize()`/`compose_with_overlays()` themselves
+        /// are untouched by this - every existing caller of those two
+        /// methods needs no changes.
+        RasterizeStage &design_rasterize_stage() { return rasterize_design_stage_; }
+        RasterizeStage &tiny_shapes_rasterize_stage() { return rasterize_tiny_stage_; }
+        RasterizeStage &selection_rasterize_stage() { return rasterize_selection_stage_; }
+        RasterizeStage &ruler_rasterize_stage() { return rasterize_ruler_stage_; }
+        ComposeWithOverlaysStage &compose_stage() { return compose_stage_; }
+
         // Number of times each stage actually recomputed - exposed purely
         // to make cache hits/misses observable in tests.
         uint64_t transform_calls() const { return transform_stage_.call_count(); }

@@ -87,7 +87,51 @@ success; if it instead prints an error about
 `~/.local/layout_engine_toolchain/root` not being found, step 1 didn't
 complete — go back and fix that first.
 
-## 3. Build and test the backend
+## 3. Generate the database/TCL bindings (codegen)
+
+Step 4 below won't compile without this — `backend/src/database/generated/`
+and the TCL-facing generated surface (`backend/src/api/generated_tcl/`,
+`backend/src/tcl/generated/`) are `.gitignore`d, produced from
+`backend/src/database/schema.py` by this repo's own `codegen` fork (repo
+root: `codegen/`), not checked in. There's no combined script for this yet —
+run both generation targets by hand:
+
+```
+cd codegen
+poetry install 2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-poetry-install.log"
+
+poetry run cmg --schema ../backend/src/database/schema.py \
+                --output ../backend/src/database/generated \
+    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-database.log"
+
+poetry run cmg --schema ../backend/src/database/schema.py \
+                --output ../backend/src \
+                --target tcl \
+    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-tcl.log"
+
+cd ..
+```
+
+This needs Python (`>=3.11,<3.14` per `codegen/pyproject.toml`) and
+[Poetry](https://python-poetry.org/) on `PATH` — neither is installed by
+step 1's bootstrap script, which only assembles the C++ toolchain.
+**Rocky 8's system `python3` is 3.6**, too old for this — you'll need a
+newer interpreter available some other way (e.g. an already-installed
+`python3.11`+, or `pyenv`/an extracted portable build) before `poetry
+install` will succeed; this hasn't been verified on the actual Rocky 8
+target machine yet, so treat it the same as everything else in this
+doc — expect to hit something here and send back
+`codegen-poetry-install.log` if `poetry install` itself is what fails.
+
+See `backend/.claude/skills/regen-database/SKILL.md` and
+`regen-tcl/SKILL.md` for what each target actually generates and why
+both are needed (one covers `src/database/generated/`, the other covers
+the TCL/SWIG-facing surface `src/tcl/` and `src/api/` `#include`). Rerun
+both any time `schema.py` changes — those skills are the ones to reach
+for then, this section is just the one-time "get from nothing to a
+buildable tree" version.
+
+## 4. Build and test the backend
 
 ```
 cd backend
@@ -119,7 +163,7 @@ link failure, found via the new GitHub Releases build path (see
 
 Two trees on purpose: `build-linux` (Debug) is what `ctest` runs against;
 `build_release-linux` (Release) is what the actual GUI app links — see
-`backend/CLAUDE.md`'s Build section. `flutter_plugin`/`frontend` (steps 4-5
+`backend/CLAUDE.md`'s Build section. `flutter_plugin`/`frontend` (steps 5-6
 below) need `build_release-linux` to already exist, so don't skip it even
 though `ctest` doesn't touch it.
 
@@ -133,7 +177,7 @@ actually hold up. `ctest`'s own `--output-on-failure` output goes into
 specifically (not the configure/build logs, unless the failure is a build
 error rather than a test result).
 
-## 4. Build and test the Flutter plugin (Dart side only)
+## 5. Build and test the Flutter plugin (Dart side only)
 
 ```
 cd ../flutter_plugin
@@ -147,9 +191,9 @@ This doesn't build the native Linux plugin standalone — see this
 package's own `build-test` skill/CLAUDE.md for why that's not a real,
 buildable configuration on its own (`apply_standard_settings` only exists
 inside a real consuming app's own build). The native link is verified for
-real in step 5.
+real in step 6.
 
-## 5. Build the actual app
+## 6. Build the actual app
 
 ```
 cd ../frontend
@@ -160,7 +204,7 @@ flutter build linux 2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/frontend-build-linux.log
 
 This is the real end-to-end check: it configures and builds
 `layout_engine_plugin_plugin` (the GTK/method-channel/texture native library)
-against everything steps 1-3 produced, and `layout_engine_plugin` (the FFI
+against everything steps 1-4 produced, and `layout_engine_plugin` (the FFI
 shared library) alongside it. A clean run ends with
 `✓ Built build/linux/<arch>/release/bundle/layout_engine`.
 
@@ -173,7 +217,7 @@ detail) — if that happens, re-run with `-v` and send the fuller log:
 flutter build linux -v 2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/frontend-build-linux-verbose.log"
 ```
 
-## 6. Run it
+## 7. Run it
 
 ```
 ./build/linux/*/release/bundle/layout_engine
@@ -186,9 +230,12 @@ exists specifically for a headless container).
 ## After a source change
 
 Steps 1-2 are one-time (until you want to rebuild the toolchain itself).
-After editing backend C++ source, re-run step 3's `cmake --build`/`ctest`
+After editing backend C++ source, re-run step 4's `cmake --build`/`ctest`
 lines (no need to reconfigure unless `CMakeLists.txt` itself changed).
-After editing Dart/plugin source, re-run step 5. If a build ever looks
+After editing `backend/src/database/schema.py`, re-run step 3 (both
+`cmg` targets) before step 4 — see the `regen-database`/`regen-tcl`
+skills for the fuller regeneration workflow. After editing Dart/plugin
+source, re-run step 6. If a build ever looks
 inexplicably wrong after switching between this path and something else
 (e.g. macOS, or Docker) on the *same* checkout, suspect stale
 cross-environment build artifacts in `build*/`, `.dart_tool/`, or

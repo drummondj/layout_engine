@@ -1,4 +1,5 @@
 #include "../instance_renderer.hpp"
+#include "../../pipeline/pipeline.hpp"
 #include "include/core/SkBitmap.h"
 #include "include/core/SkColor.h"
 #include "include/core/SkImageInfo.h"
@@ -136,6 +137,11 @@ namespace
         ViewLayerSet view_layers;
         LibraryId library_id;
         InstanceRenderer instance_renderer;
+        // render_layout_frame's own real Renderer collaborator - shares
+        // its rasterize/compose stages directly (Renderer::
+        // design_rasterize_stage()'s own comment) rather than
+        // instance_renderer owning a second, duplicate copy of them.
+        Renderer renderer;
         Scene scene; // default-constructed - every ViewLayer visible
         int next_placement_index = 0;
     };
@@ -197,6 +203,43 @@ TEST_F(InstancingFixture, TwoLevelHierarchyRecursesAndPlacesTheLeafRelativeToIts
     const SkBitmap bitmap = rasterize(picture, 4000, 4000);
     EXPECT_TRUE(region_has_opaque_pixel(bitmap, 1010, 1010, 1090, 1090)); // inside the leaf
     EXPECT_FALSE(region_has_opaque_pixel(bitmap, 1250, 1250, 1290, 1290)); // inside sub's own diearea but outside the leaf
+}
+
+TEST_F(InstancingFixture, NestedLayoutRecursionDoesNotCorruptTheOuterLayoutsOwnDirectContent)
+{
+    // Regression for generate_abstract_stage_/generate_layout_stage_
+    // becoming persistent, shared members (previously constructed fresh
+    // per call specifically to avoid this): TOP's own direct content (a
+    // real routing Blockage, not just its diearea outline) must survive
+    // the recursive placement loop below, which - through the SAME
+    // shared generate_layout_stage_ - also resolves SUB (a DIFFERENT
+    // LayoutId) and, deeper still, LEAF's own Abstract via the SAME
+    // shared generate_abstract_stage_. If either fix regressed back to
+    // holding a reference across that recursion instead of copying,
+    // TOP's own content would be silently replaced by whatever SUB/LEAF
+    // last computed by the time record_local_picture consumes it.
+    DesignId leaf = create_leaf_design("LEAF", Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
+    add_placement(sub_layout, leaf, Point{0, 0}, Orientation::N, "U1");
+
+    auto [top_design, top_layout] = create_layout_design("TOP", Point{3000, 3000});
+    add_placement(top_layout, sub_design, Point{1000, 1000}, Orientation::N, "U1");
+
+    // TOP's own direct content - a routing Blockage far from where SUB's
+    // own placement lands (SUB occupies world (1000,1000)-(1400,1400)).
+    const BlockageId blockage_id = root.create_blockage(BlockageData{.layout = top_layout, .kind = BlockageKind::ROUTING});
+    Shape blockage_shape;
+    blockage_shape.blockage = blockage_id;
+    blockage_shape.layer = m1;
+    blockage_shape.rects.push_back(Rect{.ll = {2000, 2000}, .ur = {2200, 2200}});
+    root.create_shape(std::move(blockage_shape));
+
+    const sk_sp<SkPicture> picture = instance_renderer.build_layout_picture(root, top_layout, /*remaining_depth=*/2, view_layers, scene, /*scale=*/1.0);
+    ASSERT_TRUE(picture);
+
+    const SkBitmap bitmap = rasterize(picture, 4000, 4000);
+    EXPECT_TRUE(region_has_opaque_pixel(bitmap, 2010, 2010, 2190, 2190)); // TOP's own blockage - must survive the recursive SUB/LEAF resolution
+    EXPECT_TRUE(region_has_opaque_pixel(bitmap, 1010, 1010, 1090, 1090)); // the nested leaf still resolves correctly too
 }
 
 TEST_F(InstancingFixture, ResolveDesignPictureFallsBackToAbstractOnlyWhenRemainingDepthIsExhausted)
@@ -484,7 +527,7 @@ TEST_F(InstancingFixture, RenderLayoutFrameDrawsAtTheCorrectPostFlipPixelPositio
     scene.set_scale(1.0);
     scene.set_viewport_size(800, 800);
 
-    const PixelBuffer &buffer = instance_renderer.render_layout_frame(root, sub_layout, /*hierarchy_depth=*/1, view_layers, scene);
+    const PixelBuffer &buffer = instance_renderer.render_layout_frame(root, sub_layout, /*hierarchy_depth=*/1, view_layers, scene, renderer);
     ASSERT_TRUE(buffer.data);
     EXPECT_EQ(buffer.width, 800);
     EXPECT_EQ(buffer.height, 800);
@@ -506,10 +549,10 @@ TEST_F(InstancingFixture, RenderLayoutFramePanShiftsTheDrawnPosition)
     scene.set_pan(Point{0, 0});
     scene.set_scale(1.0);
     scene.set_viewport_size(800, 800);
-    instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene); // establish the un-panned frame first
+    instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene, renderer); // establish the un-panned frame first
 
     scene.set_pan(Point{100, 100});
-    const PixelBuffer &panned = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene);
+    const PixelBuffer &panned = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene, renderer);
 
     // world dbu rect (500,500)-(600,600), pan=(100,100) -> pre-flip pixel
     // (400,400)-(500,500) -> post-flip (height - y): (400,300)-(500,400).
@@ -529,14 +572,14 @@ TEST_F(InstancingFixture, RenderLayoutFrameReusesCacheUntilSceneChanges)
     scene.set_scale(1.0);
     scene.set_viewport_size(800, 800);
 
-    const PixelBuffer &first = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene);
+    const PixelBuffer &first = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene, renderer);
     const uint8_t *first_data = first.data;
 
-    const PixelBuffer &second = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene);
+    const PixelBuffer &second = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene, renderer);
     EXPECT_EQ(second.data, first_data); // unchanged scene - cache hit, same underlying surface
 
     scene.set_pan(Point{10, 10});
-    const PixelBuffer &after_pan = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene);
+    const PixelBuffer &after_pan = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene, renderer);
     EXPECT_NE(after_pan.data, first_data); // pan changed - must recompute
 }
 
@@ -558,13 +601,93 @@ TEST_F(InstancingFixture, RenderLayoutFrameRecomputesAfterARootMutation)
     scene.set_scale(1.0);
     scene.set_viewport_size(800, 800);
 
-    const PixelBuffer &first = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene);
+    const PixelBuffer &first = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene, renderer);
     const uint8_t *first_data = first.data;
 
     root.bump_mutation_version();
-    const PixelBuffer &after_mutation = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene);
+    const PixelBuffer &after_mutation = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene, renderer);
     EXPECT_NE(after_mutation.data, first_data); // mutation invalidated the whole epoch - must recompute
     EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(after_mutation, 520, 220, 580, 280)); // content still correct after recompute
+}
+
+TEST_F(InstancingFixture, RenderLayoutFrameReusesRendererOwnRasterizeAndComposeStagesNotDuplicates)
+{
+    // Regression for Fix 2 (the "instancing seam" follow-up): render_layout_frame
+    // now takes a real Renderer& and calls straight through its
+    // design_rasterize_stage()/tiny_shapes_rasterize_stage()/
+    // selection_rasterize_stage()/ruler_rasterize_stage()/compose_stage()
+    // accessors instead of owning a second, duplicate copy of those five
+    // classes. Proven directly via Renderer's own call_count() counters -
+    // an unchanged Scene must NOT bump them a second time (real reuse of
+    // the shared instance, not "still correct because nothing actually
+    // shares"), and a real content/scene change must.
+    DesignId leaf = create_leaf_design("LEAF", Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
+    add_placement(sub_layout, leaf, Point{500, 500}, Orientation::N, "U1");
+
+    scene.set_pan(Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+
+    instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene, renderer);
+    ASSERT_EQ(renderer.design_rasterize_stage().call_count(), 1u);
+    ASSERT_EQ(renderer.compose_stage().call_count(), 1u);
+
+    instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene, renderer); // unchanged scene - must reuse
+    EXPECT_EQ(renderer.design_rasterize_stage().call_count(), 1u);
+    EXPECT_EQ(renderer.compose_stage().call_count(), 1u);
+
+    scene.set_pan(Point{25, 25});
+    instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene, renderer); // pan changed - must recompute
+    EXPECT_EQ(renderer.design_rasterize_stage().call_count(), 2u);
+    EXPECT_EQ(renderer.compose_stage().call_count(), 2u);
+}
+
+TEST_F(InstancingFixture, SwitchingFromAbstractViewToLayoutViewThroughTheSameRendererDoesNotShowStaleContent)
+{
+    // The direct regression guard for Fix 2's own safety claim: sharing
+    // Renderer's rasterize/compose instances between Renderer::render()
+    // (Abstract view) and InstanceRenderer::render_layout_frame() (Layout
+    // view) is only safe because a real caller (api.cpp's
+    // le_render_pixel_buffer) never calls both for the same frame - a
+    // view switch is a genuine content change, not extra thrashing. This
+    // proves the Layout-view frame's own pixels are correct - not the
+    // previous Abstract-view frame's stale, cached content - immediately
+    // after switching, through the SAME shared Renderer instance.
+    const AbstractId abstract_id = root.create_abstract(AbstractData{});
+    const TerminalId terminal_id = root.create_terminal(TerminalData{.abstract = abstract_id});
+    const TerminalPortId port_id = root.create_terminal_port(TerminalPortData{.terminal = terminal_id});
+    Shape abstract_shape;
+    abstract_shape.terminal_port = port_id;
+    abstract_shape.layer = m1;
+    abstract_shape.rects.push_back(Rect{.ll = {10, 10}, .ur = {30, 30}});
+    root.create_shape(std::move(abstract_shape));
+
+    DesignId leaf = create_leaf_design("LEAF", Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", Point{400, 400});
+    add_placement(sub_layout, leaf, Point{500, 500}, Orientation::N, "U1");
+
+    Pipeline pipeline;
+    scene.set_current_abstract(abstract_id);
+    scene.set_pan(Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+
+    const auto &shapes = pipeline.run(root, scene, view_layers);
+    const auto &tiny_shapes = pipeline.run_tiny_shapes(root, scene, view_layers);
+    renderer.render(root, shapes, tiny_shapes, scene, view_layers); // an Abstract-view frame, cached in renderer's own instances
+
+    // Switch views, exactly as le_set_current_design_layout_by_id does.
+    scene.set_current_layout(sub_layout);
+    scene.set_current_abstract(AbstractId{});
+
+    const PixelBuffer &layout_buffer = instance_renderer.render_layout_frame(root, sub_layout, 1, view_layers, scene, renderer);
+    ASSERT_TRUE(layout_buffer.data);
+    // The leaf's own world rect, (500,500)-(600,600) pre-flip -> post-flip
+    // (500,200)-(600,300) - present means real Layout-view content, not a
+    // stale Abstract-view frame reused because the compose key happened
+    // to collide.
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(layout_buffer, 520, 220, 580, 280));
 }
 
 namespace
@@ -608,6 +731,7 @@ namespace
         root.create_shape(std::move(horizontal));
 
         InstanceRenderer renderer;
+        Renderer render_engine;
         Scene scene;
         constexpr int kViewport = 900;
         constexpr double kScale = 40.0;
@@ -625,7 +749,7 @@ namespace
         scene.set_minor_grid_spacing(1000000000);
         scene.set_major_grid_spacing(1000000000);
 
-        const PixelBuffer &buffer = renderer.render_layout_frame(root, layout_id, /*hierarchy_depth=*/0, view_layers, scene);
+        const PixelBuffer &buffer = renderer.render_layout_frame(root, layout_id, /*hierarchy_depth=*/0, view_layers, scene, render_engine);
         out_width = buffer.width;
         out_height = buffer.height;
         out_row_bytes = buffer.row_bytes;
