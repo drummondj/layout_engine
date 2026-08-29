@@ -249,17 +249,14 @@ add_library(editing INTERFACE)
 target_include_directories(editing INTERFACE src)
 target_link_libraries(editing INTERFACE database scene)
 
-# --- core: header-only generic building blocks shared between pipeline and
-# render (RenderedShape/TinyShapeDot, VersionedStage) - neither module
-# depends on the other for these, only both on core. See UPDATES.md item 16. ---
+# --- core: header-only generic building blocks (RenderedShape/TinyShapeDot,
+# VersionedStage) shared by `pipelines` and by HierarchyResolver's own
+# recursive core, which stays on VersionedStage rather than MemoizingStage
+# (backend/ONETBB_INTEGRATION.md migration plan, decision 1). See
+# UPDATES.md item 16. ---
 add_library(core INTERFACE)
 target_include_directories(core INTERFACE src)
 target_link_libraries(core INTERFACE database scene view_style)
-
-# --- pipeline: header-only shape generation + viewport/size/layer filtering ---
-add_library(pipeline INTERFACE)
-target_include_directories(pipeline INTERFACE src)
-target_link_libraries(pipeline INTERFACE database geometry scene view_style core)
 
 # --- Skia (not vendored/built by this project - a pre-built checkout on
 # this machine). SKIA_DIR must contain out/MacStatic/{libskia.a,...} on
@@ -333,51 +330,30 @@ else()
     target_link_libraries(skia INTERFACE freetype)
 endif()
 
-# --- render: dbu->pixel transform + Skia SkPicture generation. Compiled
-# (not header-only) so render.cpp alone pulls in the CoreText font manager's
-# ApplicationServices.h - see Renderer::default_typeface()'s comment for why
-# that can't be a header-only detail. ---
-add_library(render STATIC src/render/render.cpp)
-target_include_directories(render PUBLIC src)
-target_link_libraries(render PUBLIC database geometry scene view_style core skia fmt::fmt spdlog::spdlog)
+# --- pipelines: dbu->pixel transform + Skia SkPicture generation, built on
+# oneTBB's flow::graph (backend/ONETBB_INTEGRATION.md migration, Phase 5c
+# cutover) - the direct replacement for the former pipeline/render/
+# instancing modules (deleted; see git history for their own doc comments,
+# preserved in this module's own stage-class comments as "oneTBB port of
+# src/render/stages/..." provenance notes). Compiled (not header-only) so
+# pipelines.cpp alone pulls in the CoreText font manager's
+# ApplicationServices.h - see default_typeface()'s own comment (in
+# draw_helpers.hpp) for why that can't be a header-only detail. ---
+add_library(pipelines STATIC src/pipelines/pipelines.cpp)
+target_include_directories(pipelines PUBLIC src)
+target_link_libraries(pipelines PUBLIC database geometry scene view_style core skia fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
 
-# LE_FONT_DIR: Linux's default_typeface() (render.cpp) loads its default
+# LE_FONT_DIR: Linux's default_typeface() (pipelines.cpp) loads its default
 # font from this bundled directory (backend/assets/fonts, committed to the
 # repo - DejaVu Sans, Bitstream-Vera licensed) instead of system fontconfig,
 # so rendering doesn't depend on the target machine having any fonts
-# installed at all - see render.cpp's own comment. Not used on macOS
+# installed at all - see pipelines.cpp's own comment. Not used on macOS
 # (CoreText path). Override for a different bundled font set.
 if(NOT APPLE)
     set(LE_FONT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" CACHE PATH
         "Directory of .ttf/.ttc/.otf/.pfb files default_typeface() loads from on Linux")
-    target_compile_definitions(render PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
+    target_compile_definitions(pipelines PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
 endif()
-
-# --- instancing: header-only Placement->Design hierarchical instance
-# rendering (Migration Step 3 Phase B) - the one module allowed to link
-# both pipeline and render (resolving an arbitrary Placement's own
-# reference_design needs a Pipeline::generate_shapes/generate_layout_shapes
-# call for whichever Design it references, not just the Scene's own
-# currently-displayed one - render's own stage classes deliberately can't
-# make that call, see src/render/'s own CLAUDE.md bullet). See
-# src/instancing/instance_renderer.hpp's own class comment. ---
-add_library(instancing INTERFACE)
-target_include_directories(instancing INTERFACE src)
-target_link_libraries(instancing INTERFACE database geometry scene view_style pipeline render)
-
-# --- pipelines: oneTBB-based building blocks (backend/ONETBB_INTEGRATION.md
-# migration) - `api` now depends on this directly (Phase 5 cutover); the
-# former pipeline/render/instancing modules stay in the tree for now purely
-# so their own still-referenced test files keep passing until Phase 5c
-# deletes them. Header-only - still links the *existing* `render` target
-# to reach its default_typeface() symbol and Skia include paths/link flags
-# (draw_helpers.hpp, reused unchanged by several ported stages, declares
-# but doesn't define that function - see render.cpp's own comment); the
-# Skia font-manager isolation TU itself (render.cpp) moves into this
-# module's own compiled TU once Phase 5c deletes src/render/. ---
-add_library(pipelines INTERFACE)
-target_include_directories(pipelines INTERFACE src)
-target_link_libraries(pipelines INTERFACE TBB::tbb TracyClient render)
 
 # --- io: LEF/DEF file readers ---
 add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp src/io/def_writer.cpp)
@@ -678,9 +654,6 @@ add_executable(backend_tests
     src/view_style/tests/view_style_test.cpp
     src/scene/tests/scene_test.cpp
     src/editing/tests/editing_test.cpp
-    src/pipeline/tests/pipeline_test.cpp
-    src/render/tests/render_test.cpp
-    src/instancing/tests/instancing_test.cpp
     src/io/tests/lef_reader_test.cpp
     src/io/tests/lef_reader_utils_test.cpp
     src/io/tests/lef_writer_test.cpp
@@ -688,7 +661,7 @@ add_executable(backend_tests
     src/io/tests/def_writer_test.cpp
     src/api/tests/api_test.cpp
 )
-target_link_libraries(backend_tests PRIVATE database geometry view_style scene editing pipeline render instancing io api fmt::fmt GTest::gtest_main)
+target_link_libraries(backend_tests PRIVATE database geometry view_style scene editing io api fmt::fmt GTest::gtest_main)
 target_compile_definitions(backend_tests PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
     IO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures"
@@ -704,8 +677,8 @@ le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
 
 # --- benchmarks ---
-add_executable(pipeline_benchmarks src/pipeline/benchmarks/pipeline_benchmark.cpp)
-target_link_libraries(pipeline_benchmarks PRIVATE database geometry scene pipeline render instancing io api benchmark::benchmark)
+add_executable(pipeline_benchmarks src/pipelines/benchmarks/pipeline_benchmark.cpp)
+target_link_libraries(pipeline_benchmarks PRIVATE database geometry scene pipelines io api benchmark::benchmark)
 target_compile_definitions(pipeline_benchmarks PRIVATE
     BENCHMARK_DATA_DIR="${CMAKE_BINARY_DIR}/benchmark_data"
 )
@@ -720,8 +693,8 @@ le_enable_coverage_instrumentation(pipeline_benchmarks)
 # to PNGs (preview/<lef-stem>__<design-name>.png) so they can be visually
 # sanity-checked without waiting for Flutter texture wiring. Not a benchmark
 # or a test - not run by ctest or the coverage target. ---
-add_executable(render_preview src/pipeline/benchmarks/render_preview.cpp)
-target_link_libraries(render_preview PRIVATE database geometry scene pipeline render instancing io)
+add_executable(render_preview src/pipelines/benchmarks/render_preview.cpp)
+target_link_libraries(render_preview PRIVATE database geometry scene pipelines io)
 le_enable_coverage_instrumentation(render_preview)
 
 # --- lef_roundtrip_diff: dev-only progress-tracking tool for UPDATES.md
@@ -732,7 +705,7 @@ le_enable_coverage_instrumentation(render_preview)
 # benchmark or a test - not run by ctest or the coverage target, not a hard
 # gate (see src/io/tests/lef_writer_test.cpp's own lefdiff-based CTest for
 # the actual gated check, scoped to what this phase supports). ---
-add_executable(lef_roundtrip_diff src/pipeline/benchmarks/lef_roundtrip_diff.cpp)
+add_executable(lef_roundtrip_diff src/pipelines/benchmarks/lef_roundtrip_diff.cpp)
 add_dependencies(lef_roundtrip_diff lef_lib)
 target_link_libraries(lef_roundtrip_diff PRIVATE database geometry io)
 target_compile_definitions(lef_roundtrip_diff PRIVATE

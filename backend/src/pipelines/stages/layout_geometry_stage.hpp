@@ -3,7 +3,7 @@
 #include "../../core/row_geometry.hpp"
 #include "../../database/database.hpp"
 #include "../../geometry/geometry.hpp"
-#include "../../pipeline/stages/via_shapes.hpp"
+#include "via_shapes.hpp"
 #include "../../view_style/view_style.hpp"
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"

@@ -1,6 +1,7 @@
 #pragma once
 #include "../../io/lef_reader.hpp"
-#include "../pipeline.hpp"
+#include "../../scene/scene.hpp"
+#include "../../view_style/view_style.hpp"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -10,7 +11,7 @@
 // Generates a deliberately unrealistic single-macro LEF file with
 // kTotalShapes individual Shape entries (a fresh "LAYER ;" before every
 // geometry item forces shapes_from_parser to finalize a separate Shape each
-// time - see pipeline.hpp's comment on Shape granularity), split across
+// time - see AbstractGeometryStage's comment on Shape granularity), split across
 // PINs (10%) and one OBS block (90%), alternating M1/M2 and RECT/POLYGON/
 // PATH, with position and size spread across a wide range so the pipeline's
 // viewport, sub-pixel-size, and layer filters all have real work to do -

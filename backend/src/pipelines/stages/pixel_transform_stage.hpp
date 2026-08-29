@@ -1,8 +1,8 @@
 #pragma once
 #include "../../core/rendered_shape.hpp"
 #include "../../database/database.hpp"
-#include "../../render/draw_helpers.hpp"
-#include "../../render/pixel_types.hpp"
+#include "../draw_helpers.hpp"
+#include "../pixel_types.hpp"
 #include "../../scene/scene.hpp"
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"

@@ -1,7 +1,7 @@
 #include "../../geometry/geometry.hpp"
 #include "../../io/lef_reader.hpp"
-#include "../../render/render.hpp"
-#include "../pipeline.hpp"
+#include "../abstract_shape_pipeline.hpp"
+#include "../frame_render_pipeline.hpp"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkPixmap.h"
 #include "include/core/SkStream.h"
@@ -16,16 +16,39 @@ namespace
     constexpr int kOutputSize = 1000;
     constexpr int kPaddingPx = 20;
 
+    // Builds a PipelineOptions snapshot of root/view_layers/scene's current
+    // state - mirrors api.cpp's own pipeline_options_for helper (see that
+    // file's own comment), duplicated here rather than shared since this is
+    // a separate, throwaway le::Root (not an LeHandle) - matches
+    // stress_data.hpp's own "each including .cpp gets its own private copy"
+    // convention for this kind of small per-TU setup helper.
+    PipelineOptions pipeline_options_for(const Root &root, const ViewLayerSet &view_layers, const Scene &scene)
+    {
+        PipelineOptions options;
+        options.ctx.root = &root;
+        options.ctx.view_layers = &view_layers;
+        options.ctx.scene = &scene;
+        options.epoch.root_mutation_version = root.mutation_version();
+        options.epoch.view_layers_generation = view_layers.generation();
+        options.viewport.viewport_version = scene.viewport_version();
+        options.viewport.visibility_version = scene.visibility_version();
+        options.viewport.scale = scene.scale();
+        options.interaction.mouse_version = scene.mouse_version();
+        options.interaction.selection_version = scene.selection_version();
+        options.interaction.ruler_version = scene.ruler_version();
+        return options;
+    }
+
     // Fits abstract_id's content bbox into a kOutputSize x kOutputSize image
     // with kPaddingPx of margin on every side - see Scene::fit_to_content
     // (also used by api.cpp's le_fit_scene) for the actual scale/pan math.
-    Scene fit_scene(const Root &root, AbstractId abstract_id, Pipeline &pipeline, const ViewLayerSet &view_layers)
+    Scene fit_scene(const Root &root, AbstractId abstract_id, AbstractShapePipeline &pipeline, const ViewLayerSet &view_layers)
     {
         Scene scene;
         scene.set_current_abstract(abstract_id);
         scene.set_viewport_size(kOutputSize, kOutputSize);
 
-        const auto &generated = pipeline.generate_shapes(root, abstract_id, view_layers);
+        const auto &generated = pipeline.run_generate_shapes(abstract_id, pipeline_options_for(root, view_layers, scene));
 
         std::vector<const Shape *> shape_ptrs;
         shape_ptrs.reserve(generated.size());
@@ -36,13 +59,13 @@ namespace
         return scene;
     }
 
-    // Encodes Renderer::rasterize()'s own output directly - using the same
+    // Encodes RasterizePictureStage's own output directly - using the same
     // production rasterization path (RGBA8888, Y-flip applied) this preview
     // tool exists to sanity-check, rather than a separate ad hoc
     // SkSurface/drawPicture of its own. The background is therefore fully
-    // transparent wherever nothing was drawn (Renderer's real "nothing
-    // here" state), not a dark-gray preview convenience like this used to
-    // clear to - most image viewers render PNG transparency fine.
+    // transparent wherever nothing was drawn, not a dark-gray preview
+    // convenience like this used to clear to - most image viewers render
+    // PNG transparency fine.
     bool write_png(const PixelBuffer &buffer, const std::string &output_path)
     {
         const SkImageInfo info = SkImageInfo::Make(buffer.width, buffer.height, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
@@ -67,13 +90,13 @@ namespace
 }
 
 // Dev-only visualization tool, not part of the render pipeline itself: reads
-// every given LEF file into one shared Root, runs Pipeline + Renderer
-// against every Design's Abstract found across all of them (Scene fitted to
-// that Abstract's own content bbox, since real macros don't share the
-// stress data's hardcoded scene - see fit_scene above), and writes one PNG
-// per Design into preview/ - a quick way to sanity-check what real LEF
-// files render as (layer colors, bottom-up z-order, Terminal labels)
-// without waiting for Flutter texture wiring.
+// every given LEF file into one shared Root, runs AbstractShapePipeline +
+// FrameRenderPipeline against every Design's Abstract found across all of
+// them (Scene fitted to that Abstract's own content bbox, since real macros
+// don't share the stress data's hardcoded scene - see fit_scene above), and
+// writes one PNG per Design into preview/ - a quick way to sanity-check what
+// real LEF files render as (layer colors, bottom-up z-order, Terminal
+// labels) without waiting for Flutter texture wiring.
 //
 // A single shared Root (not one per file) matters because LEF is commonly
 // split across a tech file (LAYER definitions, no macros) and one or more
@@ -133,13 +156,14 @@ int main(int argc, char **argv)
         const DesignData *design = root.get_design(design_id);
         const AbstractId abstract_id = root.get_design_abstract(design_id);
 
-        Pipeline pipeline;
-        Renderer renderer;
-        Scene scene = fit_scene(root, abstract_id, pipeline, view_layers);
+        AbstractShapePipeline abstract_shape_pipeline;
+        FrameRenderPipeline frame_render_pipeline;
+        Scene scene = fit_scene(root, abstract_id, abstract_shape_pipeline, view_layers);
+        const PipelineOptions options = pipeline_options_for(root, view_layers, scene);
 
-        const auto &shapes = pipeline.run(root, scene, view_layers);
-        const auto &tiny_shapes = pipeline.run_tiny_shapes(root, scene, view_layers);
-        const auto &buffer = renderer.render(root, shapes, tiny_shapes, scene, view_layers);
+        const auto &shapes = abstract_shape_pipeline.run(abstract_id, options);
+        const auto &tiny_shapes = abstract_shape_pipeline.run_tiny_shapes(abstract_id, options);
+        const auto &buffer = frame_render_pipeline.run(abstract_id, shapes, tiny_shapes, options);
 
         // The design's own library name (derived from whichever file's
         // read_lef call actually declared its MACRO - see the file-level

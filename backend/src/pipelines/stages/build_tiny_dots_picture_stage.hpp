@@ -1,6 +1,6 @@
 #pragma once
-#include "../../render/draw_helpers.hpp"
-#include "../../render/pixel_types.hpp"
+#include "../draw_helpers.hpp"
+#include "../pixel_types.hpp"
 #include "../../scene/scene.hpp"
 #include "../../view_style/view_style.hpp"
 #include "../pipeline_options.hpp"

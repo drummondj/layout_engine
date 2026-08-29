@@ -116,7 +116,7 @@ if(LE_LINK_BACKEND)
   target_compile_definitions(${PLUGIN_NAME} PRIVATE LE_LINK_BACKEND_ENABLED)
   target_link_libraries(${PLUGIN_NAME} PRIVATE
     "-Wl,--whole-archive" "${LE_BACKEND_BUILD}/libapi.a" "-Wl,--no-whole-archive"
-    "${LE_BACKEND_BUILD}/librender.a"
+    "${LE_BACKEND_BUILD}/libpipelines.a"
     "${LE_BACKEND_BUILD}/libio.a"
     "${LE_BACKEND_DIR}/src/lefdef/lef/lib/liblef.a"
     "${LE_SKIA_DIR}/out/Linux/libskia.a"

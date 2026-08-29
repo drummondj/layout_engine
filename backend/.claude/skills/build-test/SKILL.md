@@ -24,14 +24,14 @@ allowed-tools:
 
 3. **Also keep `build_release/` (Release) up to date**, not just `build/`
    (Debug) - `flutter_plugin/macos/layout_engine_plugin.podspec` links
-   `build_release`'s `api`/`render`/`io` output directly (a real running
+   `build_release`'s `api`/`pipelines`/`io` output directly (a real running
    Flutter app needs actual optimized performance, not debug-build
    timings - see the podspec's own comment), so it's a persistent tree
    now, not a throwaway benchmarking artifact:
 
    ```
    cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release
-   cmake --build build_release --target api render io -j
+   cmake --build build_release --target api pipelines io -j
    ```
 
    Rebuild both trees after a backend source change if `flutter_plugin`/

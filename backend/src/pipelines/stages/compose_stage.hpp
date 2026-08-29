@@ -1,5 +1,5 @@
 #pragma once
-#include "../../render/pixel_types.hpp"
+#include "../pixel_types.hpp"
 #include "../../scene/scene.hpp"
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"

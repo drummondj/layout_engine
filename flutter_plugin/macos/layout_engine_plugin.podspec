@@ -114,7 +114,7 @@ Flutter plugin binding the Layout Engine C API and rendering le_render_pixel_buf
       # without -force_load, the linker drops libapi.a's object file
       # entirely since nothing in this link appears to need it.
       "-Wl,-force_load,#{File.join(backend_build, 'libapi.a')}",
-      File.join(backend_build, 'librender.a'),
+      File.join(backend_build, 'libpipelines.a'),
       File.join(backend_build, 'libio.a'),
       File.join(backend_dir, 'src/lefdef/lef/lib/liblef.a'),
       File.join(backend_dir, 'src/lefdef/def/lib/libdef.a'),

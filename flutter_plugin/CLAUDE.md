@@ -150,8 +150,8 @@ Two separate paths call into the C API — not one:
 
 - **Linux native link: now built and verified (via Docker CI), not just
   written.** Both backend gaps that used to block this (CoreText-only
-  `Renderer::default_typeface()`, no Linux Skia checkout) are closed — see
-  backend/CLAUDE.md's `render` entry and "Open gaps". `LE_LINK_BACKEND`
+  `default_typeface()`, no Linux Skia checkout) are closed — see
+  backend/CLAUDE.md's `pipelines` entry and "Open gaps". `LE_LINK_BACKEND`
   (`src/CMakeLists.txt`) still defaults `OFF` (a plain `flutter build
   linux` from a bare checkout has no backend build/Skia checkout to link
   against), but `../frontend/linux/CMakeLists.txt` forces it `ON` and
@@ -205,7 +205,7 @@ embeds, so it needs real optimized performance, not debug-build timings.
 `ctest`/development workflow - **both trees are expected to exist and be
 kept current going forward**, not just Release built on-demand for
 benchmarking (see backend's own `build-test` skill/CLAUDE.md). Rebuild
-`build_release`'s `api`/`render`/`io` targets after any backend source
+`build_release`'s `api`/`pipelines`/`io` targets after any backend source
 change before rebuilding this plugin, the same way `build`'s targets get
 rebuilt before running `ctest`.
 
@@ -213,7 +213,7 @@ rebuilt before running `ctest`.
   `OTHER_LDFLAGS` force-loads `libapi.a` (its `le_*()` symbols are never
   referenced by this plugin's own sources — Dart only finds them via
   `dlsym` at runtime — so without `-force_load` the linker drops the whole
-  object file) plus `librender.a`/`libio.a`/`liblef.a`/`libskia.a` and the
+  object file) plus `libpipelines.a`/`libio.a`/`liblef.a`/`libskia.a` and the
   Homebrew/system libs backend's own `CMakeLists.txt` needs. Verified
   end-to-end (originally via this plugin's own `example/` app, since
   removed — `../frontend` is the real end-user app and now the live proof
@@ -233,7 +233,7 @@ rebuilt before running `ctest`.
     `.symlinks/plugins/...` path, not this repo's real layout — wrap it in
     `File.realpath` before computing `../../backend`, or the relative walk
     silently lands inside `.symlinks` instead.
-  - Requires `backend/build_release/{libapi,librender,libio}.a` and
+  - Requires `backend/build_release/{libapi,libpipelines,libio}.a` and
     `backend/src/lefdef/lef/lib/liblef.a` to already be built (`build-test`
     skill, step 1) and a Skia checkout at `$SKIA_DIR` or
     `/Users/john/Projects/synthosilicon/skia/skia` (backend's own default).

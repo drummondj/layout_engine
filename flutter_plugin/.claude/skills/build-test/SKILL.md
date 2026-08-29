@@ -11,9 +11,9 @@ allowed-tools:
 
 ## 1. Backend native code
 
-The plugin links against the backend's `api`/`render`/`io` targets
-(`backend/src/api/`, `src/render/`, `src/io/`), which transitively pull in
-`database`/`geometry`/`scene`/`view_style`/`pipeline` (all header-only) and
+The plugin links against the backend's `api`/`pipelines`/`io` targets
+(`backend/src/api/`, `src/pipelines/`, `src/io/`), which transitively pull in
+`database`/`geometry`/`scene`/`view_style`/`core` (all header-only) and
 the vendored `liblef.a`. This plugin deliberately links the **Release**
 build (`backend/build_release`), not Debug - it's what a real running
 Flutter app embeds, so it needs actual optimized performance (see the
@@ -22,7 +22,7 @@ something to link against:
 
 ```
 cmake -S ../backend -B ../backend/build_release -DCMAKE_BUILD_TYPE=Release
-cmake --build ../backend/build_release --target api render io -j
+cmake --build ../backend/build_release --target api pipelines io -j
 ```
 
 `../backend/build` (Debug) is a separate tree used for backend's own

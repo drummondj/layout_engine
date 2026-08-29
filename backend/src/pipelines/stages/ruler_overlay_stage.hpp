@@ -1,6 +1,6 @@
 #pragma once
 #include "../../database/database.hpp"
-#include "../../render/draw_helpers.hpp"
+#include "../draw_helpers.hpp"
 #include "../../scene/scene.hpp"
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"

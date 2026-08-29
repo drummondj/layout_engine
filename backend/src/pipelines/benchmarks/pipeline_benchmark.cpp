@@ -1,28 +1,74 @@
 #include "../../api/api.hpp"
-#include "../../instancing/instance_renderer.hpp"
-#include "../../render/render.hpp"
-#include "../pipeline.hpp"
+#include "../../database/database.hpp"
+#include "../abstract_shape_pipeline.hpp"
+#include "../design_render_pipeline.hpp"
+#include "../frame_render_pipeline.hpp"
+#include "../hierarchy_resolver.hpp"
+#include "../hit_test.hpp"
+#include "../synchronous_stage_runner.hpp"
+#include "../stages/abstract_geometry_stage.hpp"
+#include "../stages/build_design_picture_stage.hpp"
+#include "../stages/build_tiny_dots_picture_stage.hpp"
+#include "../stages/layer_visibility_filter_stage.hpp"
+#include "../stages/pixel_transform_stage.hpp"
+#include "../stages/rasterize_picture_stage.hpp"
+#include "../stages/selection_overlay_stage.hpp"
+#include "../stages/tiny_pixel_transform_stage.hpp"
+#include "../stages/tiny_viewport_filter_stage.hpp"
+#include "../stages/viewport_filter_stage.hpp"
 #include "layout_stress_data.hpp"
 #include "stress_data.hpp"
 #include <benchmark/benchmark.h>
 
 using namespace le;
 
-// Pipeline now caches internally per-instance (see pipeline.hpp), so
-// measuring a single stage's *uncached* per-call cost requires a fresh
-// Pipeline every iteration - otherwise iterations after the first would be
-// cache hits and the benchmark would measure ~nothing instead of real work.
+namespace
+{
+    // Builds a PipelineOptions snapshot of root/view_layers/scene's current
+    // state - mirrors api.cpp's own pipeline_options_for helper (same
+    // fields, same source), duplicated here per this file's own "each
+    // including .cpp gets its own private copy" convention (see
+    // stress_data.hpp's own comment) rather than sharing a header, since
+    // this benchmark's own le::Root/Scene never come from an LeHandle.
+    PipelineOptions pipeline_options_for(const Root &root, const ViewLayerSet &view_layers, const Scene &scene)
+    {
+        PipelineOptions options;
+        options.ctx.root = &root;
+        options.ctx.view_layers = &view_layers;
+        options.ctx.scene = &scene;
+        options.epoch.root_mutation_version = root.mutation_version();
+        options.epoch.view_layers_generation = view_layers.generation();
+        options.viewport.viewport_version = scene.viewport_version();
+        options.viewport.visibility_version = scene.visibility_version();
+        options.viewport.scale = scene.scale();
+        options.interaction.mouse_version = scene.mouse_version();
+        options.interaction.selection_version = scene.selection_version();
+        options.interaction.ruler_version = scene.ruler_version();
+        return options;
+    }
+}
+
+// Every isolated-stage benchmark below drives its stage class directly via a
+// fresh SynchronousStageRunner each iteration (backend/ONETBB_INTEGRATION.md
+// migration, Phase 5c) - the oneTBB replacement for "a fresh Pipeline/
+// Renderer every iteration" (a brand-new MemoizingStage's own
+// last_data_version_ starts unset, so its very first call always
+// recomputes regardless of what data_version is passed - the same "force a
+// real cache miss" property a fresh Pipeline/Renderer had via its own
+// fresh CachedStage members).
 
 // Now includes the ViewLayerId resolution that used to be a separate
-// resolve_view_layers stage - see pipeline.hpp's class comment for why
-// they were merged.
+// resolve_view_layers stage - see AbstractGeometryStage's own class comment
+// for why they were merged (carried over from the original Pipeline).
 static void BM_GenerateShapes(benchmark::State &state)
 {
     const auto &data = stress_data();
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, Scene{});
+
     for (auto _ : state)
     {
-        Pipeline pipeline;
-        const auto &shapes = pipeline.generate_shapes(data.root, data.abstract_id, data.view_layers);
+        SynchronousStageRunner<AbstractGeometryStage, AbstractId, std::vector<RenderedShape>> runner{"bm_generate_shapes"};
+        const auto &shapes = runner.run(data.abstract_id, AbstractGeometryStage::data_version_for(data.abstract_id, options), options);
         const auto *shapes_data = shapes.data();
         benchmark::DoNotOptimize(shapes_data);
     }
@@ -31,19 +77,20 @@ static void BM_GenerateShapes(benchmark::State &state)
 BENCHMARK(BM_GenerateShapes)->Unit(benchmark::kMillisecond);
 
 // Benchmarked on the full 1M-shape generated (and resolved) set, matching
-// how Pipeline::run() actually calls it.
+// how AbstractShapePipeline::run() actually calls it.
 static void BM_FilterByViewportAndSize(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
 
-    Pipeline setup;
-    const auto &generated = setup.generate_shapes(data.root, data.abstract_id, data.view_layers);
+    SynchronousStageRunner<AbstractGeometryStage, AbstractId, std::vector<RenderedShape>> setup{"bm_generate_setup"};
+    const auto &generated = setup.run(data.abstract_id, AbstractGeometryStage::data_version_for(data.abstract_id, options), options);
 
     for (auto _ : state)
     {
-        Pipeline pipeline;
-        const auto &filtered = pipeline.filter_by_viewport_and_size(data.root, generated, scene, data.view_layers);
+        SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> runner{"bm_viewport_filter"};
+        const auto &filtered = runner.run(generated, /*data_version=*/0, options);
         const auto *filtered_data = filtered.data();
         benchmark::DoNotOptimize(filtered_data);
     }
@@ -55,15 +102,17 @@ static void BM_FilterByLayerVisibility(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
 
-    Pipeline setup;
-    const auto &generated = setup.generate_shapes(data.root, data.abstract_id, data.view_layers);
-    const auto &viewport_filtered = setup.filter_by_viewport_and_size(data.root, generated, scene, data.view_layers);
+    SynchronousStageRunner<AbstractGeometryStage, AbstractId, std::vector<RenderedShape>> generate_setup{"bm_generate_setup"};
+    const auto &generated = generate_setup.run(data.abstract_id, AbstractGeometryStage::data_version_for(data.abstract_id, options), options);
+    SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> viewport_setup{"bm_viewport_setup"};
+    const auto &viewport_filtered = viewport_setup.run(generated, 0, options);
 
     for (auto _ : state)
     {
-        Pipeline pipeline;
-        const auto &filtered = pipeline.filter_by_layer_visibility(data.root, viewport_filtered, scene, data.view_layers);
+        SynchronousStageRunner<LayerVisibilityFilterStage, std::vector<RenderedShape>, std::map<ViewLayerId, std::vector<RenderedShape>>> runner{"bm_layer_filter"};
+        const auto &filtered = runner.run(viewport_filtered, /*data_version=*/0, options);
         const auto *filtered_ptr = &filtered;
         benchmark::DoNotOptimize(filtered_ptr);
     }
@@ -89,29 +138,36 @@ namespace
     }
 }
 
-// Isolated cost of tiny_shapes_by_viewport's own "second pass" over
-// generate_shapes's output (UPDATES.md item 6, see its own doc comment for
-// why this is a second pass rather than a second return value bolted onto
-// filter_by_viewport_and_size). One Pipeline reused across iterations so
-// generate_shapes itself stays a cache hit (its key, {AbstractId,
-// view_layers.generation()}, doesn't include viewport_version - see its
-// own code); only pan is varied each iteration, which invalidates
-// tiny_shapes_by_viewport's own cache (keyed additionally on
-// viewport_version) without touching generate_shapes's. This isolates
-// exactly the cost this stage adds on top of generate_shapes, the same
-// way BM_FilterByViewportAndSize isolates its own stage above.
+// Isolated cost of TinyViewportFilterStage's own "second pass" over
+// AbstractGeometryStage's output (UPDATES.md item 6, see its own doc
+// comment for why this is a second pass rather than a second return value
+// bolted onto ViewportFilterStage). Both stages reused across iterations so
+// AbstractGeometryStage itself stays a cache hit (its own data_version
+// doesn't depend on viewport_version - see AbstractGeometryStage::
+// data_version_for); only pan is varied each iteration, which bumps
+// scene.viewport_version() and therefore forces TinyViewportFilterStage's
+// own options_did_change to recompute without touching the geometry
+// stage's cache. Isolates exactly the cost this stage adds on top of
+// AbstractGeometryStage, the same way BM_FilterByViewportAndSize isolates
+// its own stage above.
 static void BM_TinyShapesByViewport(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
-    Pipeline pipeline;
-    pipeline.generate_shapes(data.root, data.abstract_id, data.view_layers); // warm the cache
+    PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
+
+    SynchronousStageRunner<AbstractGeometryStage, AbstractId, std::vector<RenderedShape>> generate_runner{"bm_generate"};
+    const uint64_t geometry_data_version = AbstractGeometryStage::data_version_for(data.abstract_id, options);
+    const auto &generated = generate_runner.run(data.abstract_id, geometry_data_version, options); // warm the cache
+
+    SynchronousStageRunner<TinyViewportFilterStage, std::vector<RenderedShape>, std::vector<TinyShapeDot>> tiny_viewport_runner{"bm_tiny_viewport_filter"};
 
     int64_t pan_x = 0;
     for (auto _ : state)
     {
         scene.set_pan(Point{pan_x++, 0});
-        const auto &result = pipeline.tiny_shapes_by_viewport(data.root, data.abstract_id, scene, data.view_layers);
+        options = pipeline_options_for(data.root, data.view_layers, scene);
+        const auto &result = tiny_viewport_runner.run(generated, geometry_data_version, options);
         const auto *result_ptr = &result;
         benchmark::DoNotOptimize(result_ptr);
     }
@@ -119,18 +175,19 @@ static void BM_TinyShapesByViewport(benchmark::State &state)
 }
 BENCHMARK(BM_TinyShapesByViewport)->Unit(benchmark::kMillisecond);
 
-// A fresh Pipeline every iteration, one run() call each - the "just
-// switched to a different Abstract" cold-start case, where every stage is
-// a cache miss.
+// A fresh AbstractShapePipeline every iteration, one run() call each - the
+// "just switched to a different Abstract" cold-start case, where every
+// stage is a cache miss.
 static void BM_Run(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
 
     for (auto _ : state)
     {
-        Pipeline pipeline;
-        const auto &result = pipeline.run(data.root, scene, data.view_layers);
+        AbstractShapePipeline pipeline;
+        const auto &result = pipeline.run(data.abstract_id, options);
         const auto *result_ptr = &result;
         benchmark::DoNotOptimize(result_ptr);
     }
@@ -138,10 +195,11 @@ static void BM_Run(benchmark::State &state)
 }
 BENCHMARK(BM_Run)->Unit(benchmark::kMillisecond);
 
-// The interactive/reused-instance case: one Pipeline constructed once and
-// reused across iterations (as a real caller would keep one alive for a
-// Scene's whole interactive lifetime), compared against BM_Run's cold-start
-// baseline above to measure the actual caching benefit, per BENCHMARKS.md.
+// The interactive/reused-instance case: one AbstractShapePipeline
+// constructed once and reused across iterations (as a real caller - LeHandle -
+// keeps one alive for a Scene's whole interactive lifetime), compared
+// against BM_Run's cold-start baseline above to measure the actual caching
+// benefit, per BENCHMARKS.md.
 
 // Nothing changes between calls - the steady-state "no input this frame"
 // case. Expect near-zero: every stage hits its cache.
@@ -149,11 +207,11 @@ static void BM_RunReused_NoChange(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
-    Pipeline pipeline;
+    AbstractShapePipeline pipeline;
 
     for (auto _ : state)
     {
-        const auto &result = pipeline.run(data.root, scene, data.view_layers);
+        const auto &result = pipeline.run(data.abstract_id, pipeline_options_for(data.root, data.view_layers, scene));
         const auto *result_ptr = &result;
         benchmark::DoNotOptimize(result_ptr);
     }
@@ -162,20 +220,20 @@ static void BM_RunReused_NoChange(benchmark::State &state)
 BENCHMARK(BM_RunReused_NoChange)->Unit(benchmark::kMillisecond);
 
 // Only pan changes each call, simulating interactive panning - the common
-// case generate_shapes's AbstractId-keyed cache is meant for. Expect close
-// to the uncached viewport-filter and layer-filter costs, not the full
-// BM_Run cost, since generate_shapes is skipped every iteration.
+// case AbstractGeometryStage's AbstractId-keyed cache is meant for. Expect
+// close to the uncached viewport-filter and layer-filter costs, not the
+// full BM_Run cost, since AbstractGeometryStage is skipped every iteration.
 static void BM_RunReused_PanOnly(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
-    Pipeline pipeline;
+    AbstractShapePipeline pipeline;
 
     int64_t pan_x = 0;
     for (auto _ : state)
     {
         scene.set_pan(Point{pan_x++, 0});
-        const auto &result = pipeline.run(data.root, scene, data.view_layers);
+        const auto &result = pipeline.run(data.abstract_id, pipeline_options_for(data.root, data.view_layers, scene));
         const auto *result_ptr = &result;
         benchmark::DoNotOptimize(result_ptr);
     }
@@ -185,20 +243,20 @@ BENCHMARK(BM_RunReused_PanOnly)->Unit(benchmark::kMillisecond);
 
 // Only a layer's visibility changes each call, simulating toggling a layer
 // on/off in the UI. Expect close to just the uncached layer-filter stage
-// cost, since generate_shapes and the viewport filter are both still
+// cost, since AbstractGeometryStage and the viewport filter are both still
 // cached.
 static void BM_RunReused_VisibilityOnly(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
-    Pipeline pipeline;
+    AbstractShapePipeline pipeline;
 
     bool visible = true;
     for (auto _ : state)
     {
         scene.set_layer_name_visible("M1", visible);
         visible = !visible;
-        const auto &result = pipeline.run(data.root, scene, data.view_layers);
+        const auto &result = pipeline.run(data.abstract_id, pipeline_options_for(data.root, data.view_layers, scene));
         const auto *result_ptr = &result;
         benchmark::DoNotOptimize(result_ptr);
     }
@@ -206,51 +264,54 @@ static void BM_RunReused_VisibilityOnly(benchmark::State &state)
 }
 BENCHMARK(BM_RunReused_VisibilityOnly)->Unit(benchmark::kMillisecond);
 
-// UPDATES.md 7.1's mouse-hover feature calls Pipeline::hit_test_point on
-// every pointer-move event (see le_set_mouse_position in api.cpp) - unlike
-// the stages above, it's not CachedStage-backed (the query point changes
+// UPDATES.md 7.1's mouse-hover feature calls le::hit_test_point on every
+// pointer-move event (see le_set_mouse_position in api.cpp) - unlike the
+// stages above, it's not MemoizingStage-backed (the query point changes
 // every call), so its real per-call cost matters directly, not just its
 // cold-vs-warm delta. Measures a worst-case miss (scans every visible
 // shape without ever finding a hit, since a real hit could short-circuit
 // early) at the center of make_scene's own visible viewport - the
-// candidate set is already viewport-culled/visibility-filtered by `run`,
-// not the full kTotalShapes design, which is the whole point of bounding
-// hit-testing to on-screen shapes rather than a full design scan.
+// candidate set is already viewport-culled/visibility-filtered by
+// AbstractShapePipeline::run, not the full kTotalShapes design, which is
+// the whole point of bounding hit-testing to on-screen shapes rather than
+// a full design scan.
 static void BM_HitTestPoint(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
 
-    Pipeline setup;
-    const auto &shapes = setup.run(data.root, scene, data.view_layers);
+    AbstractShapePipeline setup;
+    const auto &shapes = setup.run(data.abstract_id, pipeline_options_for(data.root, data.view_layers, scene));
 
     const Point query{50'000'000, 50'000'000}; // center of make_scene's visible [0, 100,000,000) range
 
     for (auto _ : state)
     {
-        const auto hit = Pipeline::hit_test_point(shapes, data.view_layers, scene, query);
+        const auto hit = hit_test_point(shapes, data.view_layers, scene, query);
         const auto *hit_ptr = &hit;
         benchmark::DoNotOptimize(hit_ptr);
     }
 }
 BENCHMARK(BM_HitTestPoint)->Unit(benchmark::kMicrosecond);
 
-// render module benchmarks - Renderer also caches internally per-instance
-// (see render.hpp), so isolated-stage benchmarks need a fresh Renderer per
-// iteration too, same reasoning as the Pipeline benchmarks above.
+// pipelines-module render-stage benchmarks - PixelTransformStage/
+// BuildDesignPictureStage/RasterizePictureStage also cache internally per-
+// instance, so isolated-stage benchmarks need a fresh SynchronousStageRunner
+// per iteration too, same reasoning as the shape-pipeline benchmarks above.
 
 static void BM_TransformToPixels(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
 
-    Pipeline setup_pipeline;
-    const auto &generated = setup_pipeline.run(data.root, scene, data.view_layers);
+    AbstractShapePipeline setup_pipeline;
+    const auto &generated = setup_pipeline.run(data.abstract_id, options);
 
     for (auto _ : state)
     {
-        Renderer renderer;
-        const auto &pixel_shapes = renderer.transform_to_pixels(data.root, generated, scene);
+        SynchronousStageRunner<PixelTransformStage, std::map<ViewLayerId, std::vector<RenderedShape>>, std::map<ViewLayerId, std::vector<PixelShape>>> runner{"bm_pixel_transform"};
+        const auto &pixel_shapes = runner.run(generated, PixelTransformStage::data_version_for(data.abstract_id, options), options);
         const auto *pixel_shapes_ptr = &pixel_shapes;
         benchmark::DoNotOptimize(pixel_shapes_ptr);
     }
@@ -258,7 +319,7 @@ static void BM_TransformToPixels(benchmark::State &state)
 }
 BENCHMARK(BM_TransformToPixels)->Unit(benchmark::kMillisecond);
 
-// Isolated cost of transform_tiny_shapes_to_pixels (UPDATES.md item 6), at
+// Isolated cost of TinyPixelTransformStage (UPDATES.md item 6), at
 // make_zoomed_out_scene's scale where virtually every one of the 1M
 // stress shapes is tiny - the realistic worst case for this per-point
 // transform.
@@ -266,14 +327,15 @@ static void BM_TransformTinyShapesToPixels(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_zoomed_out_scene(data);
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
 
-    Pipeline setup_pipeline;
-    const auto &tiny_shapes = setup_pipeline.run_tiny_shapes(data.root, scene, data.view_layers);
+    AbstractShapePipeline setup_pipeline;
+    const auto &tiny_shapes = setup_pipeline.run_tiny_shapes(data.abstract_id, options);
 
     for (auto _ : state)
     {
-        Renderer renderer;
-        const auto &tiny_pixel_shapes = renderer.transform_tiny_shapes_to_pixels(data.root, tiny_shapes, scene);
+        SynchronousStageRunner<TinyPixelTransformStage, std::map<ViewLayerId, std::vector<Point>>, std::map<ViewLayerId, std::vector<PixelPoint>>> runner{"bm_tiny_pixel_transform"};
+        const auto &tiny_pixel_shapes = runner.run(tiny_shapes, TinyPixelTransformStage::data_version_for(data.abstract_id, options), options);
         const auto *tiny_pixel_shapes_ptr = &tiny_pixel_shapes;
         benchmark::DoNotOptimize(tiny_pixel_shapes_ptr);
     }
@@ -288,16 +350,17 @@ static void BM_BuildPicture(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
 
-    Pipeline setup_pipeline;
-    const auto &generated = setup_pipeline.run(data.root, scene, data.view_layers);
-    Renderer setup_renderer;
-    const auto &pixel_shapes = setup_renderer.transform_to_pixels(data.root, generated, scene);
+    AbstractShapePipeline setup_pipeline;
+    const auto &generated = setup_pipeline.run(data.abstract_id, options);
+    SynchronousStageRunner<PixelTransformStage, std::map<ViewLayerId, std::vector<RenderedShape>>, std::map<ViewLayerId, std::vector<PixelShape>>> setup_transform{"bm_pixel_transform_setup"};
+    const auto &pixel_shapes = setup_transform.run(generated, PixelTransformStage::data_version_for(data.abstract_id, options), options);
 
     for (auto _ : state)
     {
-        Renderer renderer;
-        const auto &picture = renderer.build_picture(pixel_shapes, scene, data.view_layers, data.root);
+        SynchronousStageRunner<BuildDesignPictureStage, std::map<ViewLayerId, std::vector<PixelShape>>, sk_sp<SkPicture>> runner{"bm_build_picture"};
+        const auto &picture = runner.run(pixel_shapes, /*data_version=*/0, options);
         benchmark::DoNotOptimize(picture.get());
     }
     state.SetItemsProcessed(state.iterations() * pixel_shapes.size());
@@ -311,21 +374,22 @@ BENCHMARK(BM_BuildPicture)->Unit(benchmark::kMillisecond);
 // shapes * selection size), re-paid on every select() call (build_picture
 // recomputed whenever selection_version() changed). That pass was also
 // provably unreachable through the public API (api.cpp's le_mouse_up
-// always calls Scene::select() with a piece - see Pipeline::hit_test_rect)
-// so it was pure wasted cost. Removed entirely, along with
+// always calls Scene::select() with a piece - see le::hit_test_rect) so it
+// was pure wasted cost. Removed entirely, along with
 // Scene::is_selected_as_whole_object and build_picture's own dependency
-// on selection_version. This benchmark now confirms build_picture stays
-// flat-cost regardless of selection size, not just that it happens to be
-// fast today.
+// on selection_version. This benchmark now confirms BuildDesignPictureStage
+// stays flat-cost regardless of selection size, not just that it happens
+// to be fast today.
 static void BM_BuildPicture_WithLargeSelection(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
+    const PipelineOptions setup_options = pipeline_options_for(data.root, data.view_layers, scene);
 
-    Pipeline setup_pipeline;
-    const auto &generated = setup_pipeline.run(data.root, scene, data.view_layers);
-    Renderer setup_renderer;
-    const auto &pixel_shapes = setup_renderer.transform_to_pixels(data.root, generated, scene);
+    AbstractShapePipeline setup_pipeline;
+    const auto &generated = setup_pipeline.run(data.abstract_id, setup_options);
+    SynchronousStageRunner<PixelTransformStage, std::map<ViewLayerId, std::vector<RenderedShape>>, std::map<ViewLayerId, std::vector<PixelShape>>> setup_transform{"bm_pixel_transform_setup"};
+    const auto &pixel_shapes = setup_transform.run(generated, PixelTransformStage::data_version_for(data.abstract_id, setup_options), setup_options);
 
     const int n = static_cast<int>(state.range(0));
     int selected = 0;
@@ -339,18 +403,19 @@ static void BM_BuildPicture_WithLargeSelection(benchmark::State &state)
             ++selected;
         }
     }
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
 
     for (auto _ : state)
     {
-        Renderer renderer;
-        const auto &picture = renderer.build_picture(pixel_shapes, scene, data.view_layers, data.root);
+        SynchronousStageRunner<BuildDesignPictureStage, std::map<ViewLayerId, std::vector<PixelShape>>, sk_sp<SkPicture>> runner{"bm_build_picture"};
+        const auto &picture = runner.run(pixel_shapes, /*data_version=*/0, options);
         benchmark::DoNotOptimize(picture.get());
     }
     state.SetItemsProcessed(state.iterations() * pixel_shapes.size());
 }
 BENCHMARK(BM_BuildPicture_WithLargeSelection)->Arg(0)->Arg(1000)->Arg(5000)->Arg(20000)->Unit(benchmark::kMillisecond);
 
-// Isolated cost of build_tiny_shapes_picture (UPDATES.md item 6), at
+// Isolated cost of BuildTinyDotsPictureStage (UPDATES.md item 6), at
 // make_zoomed_out_scene's scale where virtually every one of the 1M
 // stress shapes is tiny - the realistic worst case for this stage's own
 // batched-drawPoints-per-ViewLayer-group approach (see its own doc
@@ -359,11 +424,12 @@ static void BM_BuildTinyShapesPicture(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_zoomed_out_scene(data);
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
 
-    Pipeline setup_pipeline;
-    const auto &tiny_shapes = setup_pipeline.run_tiny_shapes(data.root, scene, data.view_layers);
-    Renderer setup_renderer;
-    const auto &tiny_pixel_shapes = setup_renderer.transform_tiny_shapes_to_pixels(data.root, tiny_shapes, scene);
+    AbstractShapePipeline setup_pipeline;
+    const auto &tiny_shapes = setup_pipeline.run_tiny_shapes(data.abstract_id, options);
+    SynchronousStageRunner<TinyPixelTransformStage, std::map<ViewLayerId, std::vector<Point>>, std::map<ViewLayerId, std::vector<PixelPoint>>> setup_transform{"bm_tiny_pixel_transform_setup"};
+    const auto &tiny_pixel_shapes = setup_transform.run(tiny_shapes, TinyPixelTransformStage::data_version_for(data.abstract_id, options), options);
 
     size_t total_dots = 0;
     for (const auto &[view_layer, group] : tiny_pixel_shapes)
@@ -371,8 +437,8 @@ static void BM_BuildTinyShapesPicture(benchmark::State &state)
 
     for (auto _ : state)
     {
-        Renderer renderer;
-        const auto &picture = renderer.build_tiny_shapes_picture(data.root, tiny_pixel_shapes, scene, data.view_layers);
+        SynchronousStageRunner<BuildTinyDotsPictureStage, std::map<ViewLayerId, std::vector<PixelPoint>>, sk_sp<SkPicture>> runner{"bm_build_tiny_dots_picture"};
+        const auto &picture = runner.run(tiny_pixel_shapes, /*data_version=*/0, options);
         benchmark::DoNotOptimize(picture.get());
     }
     state.SetItemsProcessed(state.iterations() * total_dots);
@@ -383,28 +449,30 @@ static void BM_Rasterize(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
 
-    Pipeline setup_pipeline;
-    const auto &generated = setup_pipeline.run(data.root, scene, data.view_layers);
-    Renderer setup_renderer;
-    const auto &pixel_shapes = setup_renderer.transform_to_pixels(data.root, generated, scene);
-    const auto &picture = setup_renderer.build_picture(pixel_shapes, scene, data.view_layers, data.root);
+    AbstractShapePipeline setup_pipeline;
+    const auto &generated = setup_pipeline.run(data.abstract_id, options);
+    SynchronousStageRunner<PixelTransformStage, std::map<ViewLayerId, std::vector<RenderedShape>>, std::map<ViewLayerId, std::vector<PixelShape>>> setup_transform{"bm_pixel_transform_setup"};
+    const auto &pixel_shapes = setup_transform.run(generated, PixelTransformStage::data_version_for(data.abstract_id, options), options);
+    SynchronousStageRunner<BuildDesignPictureStage, std::map<ViewLayerId, std::vector<PixelShape>>, sk_sp<SkPicture>> setup_build{"bm_build_picture_setup"};
+    const auto &picture = setup_build.run(pixel_shapes, 0, options);
 
     for (auto _ : state)
     {
-        Renderer renderer;
-        const auto &buffer = renderer.rasterize(data.root, picture, scene);
-        const uint8_t *buffer_data = buffer.data;
+        SynchronousStageRunner<RasterizePictureStage, sk_sp<SkPicture>, RasterizedFrame> runner{"bm_rasterize"};
+        const auto &frame = runner.run(picture, /*data_version=*/0, options);
+        const uint8_t *buffer_data = frame.buffer.data;
         benchmark::DoNotOptimize(buffer_data);
     }
     state.SetItemsProcessed(state.iterations() * pixel_shapes.size());
 }
 BENCHMARK(BM_Rasterize)->Unit(benchmark::kMillisecond);
 
-// A fresh Pipeline + Renderer every iteration, running the full
-// generate -> filter -> filter -> transform -> picture -> rasterize chain
-// once each - the "just switched to a different Abstract" cold-start case,
-// now including all three render stages.
+// A fresh AbstractShapePipeline + FrameRenderPipeline every iteration,
+// running the full generate -> filter -> filter -> transform -> picture ->
+// rasterize -> compose chain once each - the "just switched to a different
+// Abstract" cold-start case, now including all render stages.
 static void BM_Render(benchmark::State &state)
 {
     const auto &data = stress_data();
@@ -412,12 +480,12 @@ static void BM_Render(benchmark::State &state)
 
     for (auto _ : state)
     {
-        Pipeline pipeline;
-        Renderer renderer;
-        const auto &shapes = pipeline.run(data.root, scene, data.view_layers);
-        const auto &pixel_shapes = renderer.transform_to_pixels(data.root, shapes, scene);
-        const auto &picture = renderer.build_picture(pixel_shapes, scene, data.view_layers, data.root);
-        const auto &buffer = renderer.rasterize(data.root, picture, scene);
+        AbstractShapePipeline pipeline;
+        FrameRenderPipeline frame;
+        const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
+        const auto &shapes = pipeline.run(data.abstract_id, options);
+        const auto &tiny_shapes = pipeline.run_tiny_shapes(data.abstract_id, options);
+        const auto &buffer = frame.run(data.abstract_id, shapes, tiny_shapes, options);
         const uint8_t *buffer_data = buffer.data;
         benchmark::DoNotOptimize(buffer_data);
     }
@@ -425,9 +493,9 @@ static void BM_Render(benchmark::State &state)
 }
 BENCHMARK(BM_Render)->Unit(benchmark::kMillisecond);
 
-// Reused Pipeline + Renderer across iterations, mirroring the
-// BM_RunReused_* scenarios above but through the full render chain -
-// real numbers for the threading question (README's open design
+// Reused AbstractShapePipeline + FrameRenderPipeline across iterations,
+// mirroring the BM_RunReused_* scenarios above but through the full render
+// chain - real numbers for the threading question (README's open design
 // question): is Skia picture generation/rasterization actually a
 // bottleneck on the interactive path, or does it stay cheap because it's
 // caching-aware too?
@@ -436,15 +504,15 @@ static void BM_RenderReused_NoChange(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
-    Pipeline pipeline;
-    Renderer renderer;
+    AbstractShapePipeline pipeline;
+    FrameRenderPipeline frame;
 
     for (auto _ : state)
     {
-        const auto &shapes = pipeline.run(data.root, scene, data.view_layers);
-        const auto &pixel_shapes = renderer.transform_to_pixels(data.root, shapes, scene);
-        const auto &picture = renderer.build_picture(pixel_shapes, scene, data.view_layers, data.root);
-        const auto &buffer = renderer.rasterize(data.root, picture, scene);
+        const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
+        const auto &shapes = pipeline.run(data.abstract_id, options);
+        const auto &tiny_shapes = pipeline.run_tiny_shapes(data.abstract_id, options);
+        const auto &buffer = frame.run(data.abstract_id, shapes, tiny_shapes, options);
         const uint8_t *buffer_data = buffer.data;
         benchmark::DoNotOptimize(buffer_data);
     }
@@ -456,17 +524,17 @@ static void BM_RenderReused_PanOnly(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
-    Pipeline pipeline;
-    Renderer renderer;
+    AbstractShapePipeline pipeline;
+    FrameRenderPipeline frame;
 
     int64_t pan_x = 0;
     for (auto _ : state)
     {
         scene.set_pan(Point{pan_x++, 0});
-        const auto &shapes = pipeline.run(data.root, scene, data.view_layers);
-        const auto &pixel_shapes = renderer.transform_to_pixels(data.root, shapes, scene);
-        const auto &picture = renderer.build_picture(pixel_shapes, scene, data.view_layers, data.root);
-        const auto &buffer = renderer.rasterize(data.root, picture, scene);
+        const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
+        const auto &shapes = pipeline.run(data.abstract_id, options);
+        const auto &tiny_shapes = pipeline.run_tiny_shapes(data.abstract_id, options);
+        const auto &buffer = frame.run(data.abstract_id, shapes, tiny_shapes, options);
         const uint8_t *buffer_data = buffer.data;
         benchmark::DoNotOptimize(buffer_data);
     }
@@ -477,45 +545,46 @@ BENCHMARK(BM_RenderReused_PanOnly)->Unit(benchmark::kMillisecond);
 // Full-chain warm/pan-only comparison at make_zoomed_out_scene's scale
 // (UPDATES.md item 6), three variants isolating two different things:
 //
-// - BM_RenderReused_PanOnly_ZoomedOut: the design content pass alone,
-//   via renderer.rasterize(data.root, ) directly (no compositing pass at all) - the
-//   same code BM_RenderReused_PanOnly above exercises, just re-run at a
-//   scale where nearly every shape is tiny so it's dropped from
-//   build_picture's own output almost entirely.
-// - BM_ComposeWithOverlays_PanOnly_ZoomedOut_NoTinyShapes: the same
-//   design content, but composited via compose_with_overlays with a null
-//   tiny-shapes picture - isolates compose_with_overlays's own fixed
-//   overhead (rasterizing+blitting the selection-overlay frame, even
+// - BM_RenderReused_PanOnly_ZoomedOut: the design content pass alone, via
+//   DesignRenderPipeline::run() directly (no compose step at all) - the
+//   same code BM_RenderReused_PanOnly above exercises through
+//   FrameRenderPipeline, just isolated from compose and re-run at a scale
+//   where nearly every shape is tiny so it's dropped from
+//   BuildDesignPictureStage's own output almost entirely.
+// - BM_ComposeWithOverlays_PanOnly_ZoomedOut_NoTinyShapes: the same design
+//   content, but composited via FrameRenderPipeline::run() with an empty
+//   tiny_shapes map - isolates ComposeStage's own fixed overhead
+//   (rasterizing+blitting the mouse/selection/ruler overlay frames, even
 //   empty, plus the extra blit machinery) from anything tiny-shapes-
 //   specific, since BM_RenderReused_PanOnly_ZoomedOut never goes through
-//   compose_with_overlays at all.
+//   ComposeStage at all.
 // - BM_RenderReusedWithTinyShapes_PanOnly_ZoomedOut: adds the real
-//   tiny_shapes_by_viewport -> tiny_shapes_by_layer_visibility ->
-//   transform_tiny_shapes_to_pixels -> build_tiny_shapes_picture chain
-//   and a real (non-null) tiny-shapes picture into compose_with_overlays.
+//   AbstractGeometryStage -> TinyViewportFilterStage ->
+//   TinyLayerVisibilityFilterStage -> TinyPixelTransformStage ->
+//   BuildTinyDotsPictureStage chain and a real (non-empty) tiny-shapes map
+//   into FrameRenderPipeline::run().
 //
 // The delta between the second and third is this feature's own marginal
-// cost on top of compose_with_overlays's pre-existing overhead - a
-// same-scale, single-variable comparison rather than a git-stash
-// before/after of the whole feature, since that isolates exactly what
-// the new stages add without conflating it with anything else changed
-// since the last commit. See BENCHMARKS.md for the actual numbers.
+// cost on top of ComposeStage's pre-existing overhead - a same-scale,
+// single-variable comparison rather than a git-stash before/after of the
+// whole feature, since that isolates exactly what the new stages add
+// without conflating it with anything else changed since the last commit.
+// See BENCHMARKS.md for the actual numbers.
 static void BM_RenderReused_PanOnly_ZoomedOut(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_zoomed_out_scene(data);
-    Pipeline pipeline;
-    Renderer renderer;
+    AbstractShapePipeline pipeline;
+    DesignRenderPipeline design;
 
     int64_t pan_x = 0;
     for (auto _ : state)
     {
         scene.set_pan(Point{pan_x++, 0});
-        const auto &shapes = pipeline.run(data.root, scene, data.view_layers);
-        const auto &pixel_shapes = renderer.transform_to_pixels(data.root, shapes, scene);
-        const auto &picture = renderer.build_picture(pixel_shapes, scene, data.view_layers, data.root);
-        const auto &buffer = renderer.rasterize(data.root, picture, scene);
-        const uint8_t *buffer_data = buffer.data;
+        const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
+        const auto &shapes = pipeline.run(data.abstract_id, options);
+        const auto &frame = design.run(shapes, PixelTransformStage::data_version_for(data.abstract_id, options), options);
+        const uint8_t *buffer_data = frame.buffer.data;
         benchmark::DoNotOptimize(buffer_data);
     }
     state.SetItemsProcessed(state.iterations() * kTotalShapes);
@@ -526,17 +595,17 @@ static void BM_ComposeWithOverlays_PanOnly_ZoomedOut_NoTinyShapes(benchmark::Sta
 {
     const auto &data = stress_data();
     Scene scene = make_zoomed_out_scene(data);
-    Pipeline pipeline;
-    Renderer renderer;
+    AbstractShapePipeline pipeline;
+    FrameRenderPipeline frame;
+    const std::map<ViewLayerId, std::vector<Point>> no_tiny_shapes;
 
     int64_t pan_x = 0;
     for (auto _ : state)
     {
         scene.set_pan(Point{pan_x++, 0});
-        const auto &shapes = pipeline.run(data.root, scene, data.view_layers);
-        const auto &pixel_shapes = renderer.transform_to_pixels(data.root, shapes, scene);
-        const auto &picture = renderer.build_picture(pixel_shapes, scene, data.view_layers, data.root);
-        const auto &buffer = renderer.compose_with_overlays(data.root, picture, sk_sp<SkPicture>{}, sk_sp<SkPicture>{}, sk_sp<SkPicture>{}, sk_sp<SkPicture>{}, scene);
+        const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
+        const auto &shapes = pipeline.run(data.abstract_id, options);
+        const auto &buffer = frame.run(data.abstract_id, shapes, no_tiny_shapes, options);
         const uint8_t *buffer_data = buffer.data;
         benchmark::DoNotOptimize(buffer_data);
     }
@@ -548,22 +617,17 @@ static void BM_RenderReusedWithTinyShapes_PanOnly_ZoomedOut(benchmark::State &st
 {
     const auto &data = stress_data();
     Scene scene = make_zoomed_out_scene(data);
-    Pipeline pipeline;
-    Renderer renderer;
+    AbstractShapePipeline pipeline;
+    FrameRenderPipeline frame;
 
     int64_t pan_x = 0;
     for (auto _ : state)
     {
         scene.set_pan(Point{pan_x++, 0});
-        const auto &shapes = pipeline.run(data.root, scene, data.view_layers);
-        const auto &pixel_shapes = renderer.transform_to_pixels(data.root, shapes, scene);
-        const auto &picture = renderer.build_picture(pixel_shapes, scene, data.view_layers, data.root);
-
-        const auto &tiny_shapes = pipeline.run_tiny_shapes(data.root, scene, data.view_layers);
-        const auto &tiny_pixel_shapes = renderer.transform_tiny_shapes_to_pixels(data.root, tiny_shapes, scene);
-        const auto &tiny_shapes_picture = renderer.build_tiny_shapes_picture(data.root, tiny_pixel_shapes, scene, data.view_layers);
-
-        const auto &buffer = renderer.compose_with_overlays(data.root, picture, tiny_shapes_picture, sk_sp<SkPicture>{}, sk_sp<SkPicture>{}, sk_sp<SkPicture>{}, scene);
+        const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
+        const auto &shapes = pipeline.run(data.abstract_id, options);
+        const auto &tiny_shapes = pipeline.run_tiny_shapes(data.abstract_id, options);
+        const auto &buffer = frame.run(data.abstract_id, shapes, tiny_shapes, options);
         const uint8_t *buffer_data = buffer.data;
         benchmark::DoNotOptimize(buffer_data);
     }
@@ -577,10 +641,10 @@ BENCHMARK(BM_RenderReusedWithTinyShapes_PanOnly_ZoomedOut)->Unit(benchmark::kMil
 // Selects a batch of real pieces (mixed RECT/POLYGON/PATH, matching the
 // stress generator's 1-in-3 PATH ratio, and drawn from the same giant
 // single-Obstruction OBS block a real rectangle-drag-select over the
-// stress LEF would produce) from the stress design's own filtered
-// output, then measures the steady-state "mouse moves, selection doesn't
-// change" cost through the actual render.hpp entry points a real
-// interactive session calls (api.cpp's le_render_pixel_buffer).
+// stress LEF would produce) from the stress design's own filtered output,
+// then measures the steady-state "mouse moves, selection doesn't change"
+// cost through the actual pipelines-module entry points a real interactive
+// session calls (api.cpp's le_render_pixel_buffer).
 namespace
 {
     void select_pieces(le::Scene &scene, const std::map<le::ViewLayerId, std::vector<le::RenderedShape>> &shapes, int count)
@@ -605,44 +669,49 @@ static void BM_BuildSelectionOverlayPicture_ManySelectedPieces(benchmark::State 
     const auto &data = stress_data();
     Scene scene = make_scene(data);
 
-    Pipeline setup_pipeline;
-    const auto &shapes = setup_pipeline.run(data.root, scene, data.view_layers);
+    AbstractShapePipeline setup_pipeline;
+    const auto &shapes = setup_pipeline.run(data.abstract_id, pipeline_options_for(data.root, data.view_layers, scene));
     select_pieces(scene, shapes, static_cast<int>(state.range(0)));
+
+    const SelectionOverlayRequest request{.abstract_id = data.abstract_id, .current_layout = {}, .remaining_depth = 0};
 
     for (auto _ : state)
     {
-        Renderer renderer;
-        const auto &picture = renderer.build_selection_overlay_picture(scene, data.root, shapes);
+        const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
+        SynchronousStageRunner<SelectionOverlayStage, SelectionOverlayRequest, sk_sp<SkPicture>> runner{"bm_selection_overlay"};
+        const auto &picture = runner.run(request, SelectionOverlayStage::data_version_for(request, options), options);
         benchmark::DoNotOptimize(picture.get());
     }
 }
 BENCHMARK(BM_BuildSelectionOverlayPicture_ManySelectedPieces)->Arg(100)->Arg(1000)->Arg(5000)->Arg(20000)->Unit(benchmark::kMillisecond);
 
-// Steady state: selection is built once (one Renderer reused across
-// iterations, matching how api.cpp keeps one Renderer per handle for a
-// Scene's whole interactive lifetime, so the selection-overlay picture's
-// own cache stays warm), then only mouse position changes every
-// iteration - the exact scenario reported as slow.
+// Steady state: selection is built once (one FrameRenderPipeline reused
+// across iterations, matching how api.cpp keeps one FrameRenderPipeline per
+// handle for a Scene's whole interactive lifetime, so the design/selection
+// pictures' own caches stay warm), then only mouse position changes every
+// iteration - the exact scenario reported as slow. Reusing
+// FrameRenderPipeline::run() directly (rather than driving MouseOverlayStage/
+// SelectionOverlayStage/ComposeStage by hand) both matches the real call
+// path and relies on each stage's own MemoizingStage cache to keep the
+// unrelated design/selection/ruler work a no-op while only the mouse-driven
+// chrome and the final compose actually recompute each iteration.
 static void BM_ComposeWithOverlays_ManySelectedPieces_MouseMoveOnly(benchmark::State &state)
 {
     const auto &data = stress_data();
     Scene scene = make_scene(data);
 
-    Pipeline pipeline;
-    const auto &shapes = pipeline.run(data.root, scene, data.view_layers);
+    AbstractShapePipeline pipeline;
+    const auto &shapes = pipeline.run(data.abstract_id, pipeline_options_for(data.root, data.view_layers, scene));
     select_pieces(scene, shapes, static_cast<int>(state.range(0)));
+    const auto &tiny_shapes = pipeline.run_tiny_shapes(data.abstract_id, pipeline_options_for(data.root, data.view_layers, scene));
 
-    Renderer renderer;
-    const auto &pixel_shapes = renderer.transform_to_pixels(data.root, shapes, scene);
-    const auto &design_picture = renderer.build_picture(pixel_shapes, scene, data.view_layers, data.root);
+    FrameRenderPipeline frame;
 
     int64_t x = 0;
     for (auto _ : state)
     {
-        scene.set_mouse_position(x++ % 2000, 0);
-        const auto &overlay_picture = renderer.build_overlay_picture(scene, std::nullopt);
-        const auto &selection_overlay_picture = renderer.build_selection_overlay_picture(scene, data.root, shapes);
-        const auto &buffer = renderer.compose_with_overlays(data.root, design_picture, sk_sp<SkPicture>{}, overlay_picture, selection_overlay_picture, sk_sp<SkPicture>{}, scene);
+        scene.set_mouse_position(static_cast<int>(x++ % 2000), 0);
+        const auto &buffer = frame.run(data.abstract_id, shapes, tiny_shapes, pipeline_options_for(data.root, data.view_layers, scene));
         const uint8_t *buffer_data = buffer.data;
         benchmark::DoNotOptimize(buffer_data);
     }
@@ -650,7 +719,7 @@ static void BM_ComposeWithOverlays_ManySelectedPieces_MouseMoveOnly(benchmark::S
 BENCHMARK(BM_ComposeWithOverlays_ManySelectedPieces_MouseMoveOnly)->Arg(0)->Arg(100)->Arg(1000)->Arg(5000)->Arg(20000)->Unit(benchmark::kMillisecond);
 
 // le_selected_object_ref/le_object_property_* FFI-facing benchmark - added
-// because the two Renderer-side fixes above (overlay/selection-picture
+// because the two pipeline-side fixes above (overlay/selection-picture
 // split, then rasterizing the selection overlay instead of replaying it)
 // did not resolve a reported mouse-move delay that scaled with selection
 // size. The Flutter provider (frontend/lib/providers/le_provider.dart)
@@ -659,14 +728,14 @@ BENCHMARK(BM_ComposeWithOverlays_ManySelectedPieces_MouseMoveOnly)->Arg(0)->Arg(
 // the full selected-object ref list from scratch every time:
 // le_selected_object_ref per currently selected object (the Property
 // Viewer fetches its properties separately, on demand, once navigated
-// to - see le_object_property_count/_at) - none of this is Renderer/
-// Pipeline content, so it was invisible to every benchmark above. This
-// measures the real C API call sequence Dart's refreshSelection() makes,
-// through the actual api.cpp (mutex-locked-per-call) surface, not a
+// to - see le_object_property_count/_at) - none of this is
+// pipelines-module content, so it was invisible to every benchmark above.
+// This measures the real C API call sequence Dart's refreshSelection()
+// makes, through the actual api.cpp (mutex-locked-per-call) surface, not a
 // synthetic reconstruction - i.e. the true cost of one refreshSelection()
 // call at a given selection size, plus one full property fetch per
-// selected object (the worst case if a Property Viewer paged through
-// all of them).
+// selected object (the worst case if a Property Viewer paged through all
+// of them).
 static void BM_RefreshSelectedObjects_ManySelectedPieces(benchmark::State &state)
 {
     // Ensures the shared stress LEF file exists on disk (stress_data()
@@ -712,7 +781,7 @@ static void BM_RefreshSelectedObjects_ManySelectedPieces(benchmark::State &state
 BENCHMARK(BM_RefreshSelectedObjects_ManySelectedPieces)->Arg(200)->Arg(800)->Arg(1400)->Arg(2000)->Unit(benchmark::kMillisecond);
 
 // Isolated Scene::select() benchmark - times only the select() loop
-// itself (not Pipeline::hit_test_rect or any other machinery le_mouse_up
+// itself (not le::hit_test_rect or any other machinery le_mouse_up
 // also runs), against N distinct synthetic ShapeIds - the exact shape of
 // a real drag-select over one Obstruction's whole OBS block (a real
 // design puts every OBS item under one shared ObstructionId regardless of
@@ -809,8 +878,8 @@ BENCHMARK(BM_PathToPolygonsSingleCall)->Unit(benchmark::kNanosecond);
 
 // Geometry::get_label_location (UPDATES.md item 8) - isolated cost of a
 // single call, for both the trivial "one rect, no fracturing" case and
-// the "polygon needs fracturing" case, since Pipeline::generate_shapes
-// calls this once per (Terminal, distinct layer_name) pair.
+// the "polygon needs fracturing" case, since AbstractGeometryStage calls
+// this once per (Terminal, distinct layer_name) pair.
 static void BM_GetLabelLocationSingleRect(benchmark::State &state)
 {
     const Shape shape{.rects = {Rect{.ll = {0, 0}, .ur = {50'000, 20'000}}}};
@@ -849,77 +918,77 @@ BENCHMARK(BM_GetLabelLocationLShapedPolygon)->Unit(benchmark::kNanosecond);
 // step's real performance verification, not a synthetic shape-count stress
 // like stress_data.hpp's own (unrelated) fixture above.
 
-// The picture-resolution step alone (InstanceRenderer::build_layout_picture),
+// The picture-resolution step alone (HierarchyResolver::build_layout_picture),
 // excluding the final grid/overlay/rasterize compose - isolates whether the
 // caching mechanism itself (not the unrelated per-frame compose cost every
 // path pays) is what scales acceptably. remaining_depth=1 (not
 // hierarchy_depth=2's own raw value) since this calls build_layout_picture
 // directly, bypassing render_layout_frame's own "top level consumes one
 // depth" bookkeeping - see that method's own comment.
-static void BM_InstanceRenderer_BuildLayoutPicture_ColdCache_FullDepth(benchmark::State &state)
+static void BM_HierarchyResolver_BuildLayoutPicture_ColdCache_FullDepth(benchmark::State &state)
 {
     const auto &data = layout_stress_data();
     Scene scene = make_layout_scene(data, 2);
 
     for (auto _ : state)
     {
-        InstanceRenderer instance_renderer;
-        const auto picture = instance_renderer.build_layout_picture(data.root, data.top_layout_id, /*remaining_depth=*/1, data.view_layers, scene, scene.scale());
+        HierarchyResolver resolver;
+        const auto picture = resolver.build_layout_picture(data.root, data.top_layout_id, /*remaining_depth=*/1, data.view_layers, scene, scene.scale());
         const auto *picture_ptr = picture.get();
         benchmark::DoNotOptimize(picture_ptr);
     }
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kSubBlockPlacementCount) * kTopPlacementCount);
 }
-BENCHMARK(BM_InstanceRenderer_BuildLayoutPicture_ColdCache_FullDepth)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_HierarchyResolver_BuildLayoutPicture_ColdCache_FullDepth)->Unit(benchmark::kMillisecond);
 
 // Full end-to-end frame (matches le_render_pixel_buffer's own real call
 // path) at hierarchy_depth=2 - deep enough to recurse into every one of the
 // sub-block's own 1,000,000 leaf placements, 4 times over (once per
-// top-level instance) - with a fresh InstanceRenderer every iteration, the
+// top-level instance) - with a fresh HierarchyResolver every iteration, the
 // "just switched to this Layout view" cold-start case where every stage is
 // a cache miss.
-static void BM_InstanceRenderer_RenderLayoutFrame_ColdCache_FullDepth(benchmark::State &state)
+static void BM_HierarchyResolver_RenderLayoutFrame_ColdCache_FullDepth(benchmark::State &state)
 {
     const auto &data = layout_stress_data();
     Scene scene = make_layout_scene(data, /*hierarchy_depth=*/2);
 
     for (auto _ : state)
     {
-        InstanceRenderer instance_renderer;
-        Renderer renderer;
-        const auto &buffer = instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, renderer);
+        HierarchyResolver resolver;
+        FrameRenderPipeline frame;
+        const auto &buffer = resolver.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, frame);
         const auto *buffer_ptr = &buffer;
         benchmark::DoNotOptimize(buffer_ptr);
     }
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kSubBlockPlacementCount) * kTopPlacementCount);
 }
-BENCHMARK(BM_InstanceRenderer_RenderLayoutFrame_ColdCache_FullDepth)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_HierarchyResolver_RenderLayoutFrame_ColdCache_FullDepth)->Unit(benchmark::kMillisecond);
 
-// The interactive/reused-instance case: one InstanceRenderer constructed
+// The interactive/reused-instance case: one HierarchyResolver constructed
 // once and reused across iterations (as a real caller - LeHandle - keeps
 // one alive for a Scene's whole interactive lifetime), compared against
 // the cold-start benchmark above to measure the actual caching benefit -
 // this is the number that should read as "roughly constant per frame",
 // not scaling with the sub-block's own 1,000,000-shape internal content,
 // since nothing about the scene changes between iterations (every
-// InstanceRenderer/Renderer-chain cache hits).
-static void BM_InstanceRenderer_RenderLayoutFrame_WarmCache_FullDepth(benchmark::State &state)
+// HierarchyResolver/FrameRenderPipeline-chain cache hits).
+static void BM_HierarchyResolver_RenderLayoutFrame_WarmCache_FullDepth(benchmark::State &state)
 {
     const auto &data = layout_stress_data();
     Scene scene = make_layout_scene(data, 2);
-    InstanceRenderer instance_renderer;
-    Renderer renderer;
-    instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, renderer); // warm every cache once
+    HierarchyResolver resolver;
+    FrameRenderPipeline frame;
+    resolver.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, frame); // warm every cache once
 
     for (auto _ : state)
     {
-        const auto &buffer = instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, renderer);
+        const auto &buffer = resolver.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, frame);
         const auto *buffer_ptr = &buffer;
         benchmark::DoNotOptimize(buffer_ptr);
     }
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kSubBlockPlacementCount) * kTopPlacementCount);
 }
-BENCHMARK(BM_InstanceRenderer_RenderLayoutFrame_WarmCache_FullDepth)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_HierarchyResolver_RenderLayoutFrame_WarmCache_FullDepth)->Unit(benchmark::kMillisecond);
 
 // hierarchy_depth=0 - every top-level placement (of the sub-block) falls
 // back straight to the sub-block's own (empty, size-only) Abstract; none of
@@ -927,21 +996,21 @@ BENCHMARK(BM_InstanceRenderer_RenderLayoutFrame_WarmCache_FullDepth)->Unit(bench
 // baseline BM_..._ColdCache_FullDepth's own cost is measured against -
 // proves picture-caching (not merely "the shallow case does nothing") is
 // what keeps the full-depth case's own warm-cache cost low.
-static void BM_InstanceRenderer_RenderLayoutFrame_ColdCache_ShallowDepth(benchmark::State &state)
+static void BM_HierarchyResolver_RenderLayoutFrame_ColdCache_ShallowDepth(benchmark::State &state)
 {
     const auto &data = layout_stress_data();
     Scene scene = make_layout_scene(data, /*hierarchy_depth=*/0);
 
     for (auto _ : state)
     {
-        InstanceRenderer instance_renderer;
-        Renderer renderer;
-        const auto &buffer = instance_renderer.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, renderer);
+        HierarchyResolver resolver;
+        FrameRenderPipeline frame;
+        const auto &buffer = resolver.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, frame);
         const auto *buffer_ptr = &buffer;
         benchmark::DoNotOptimize(buffer_ptr);
     }
     state.SetItemsProcessed(state.iterations() * kTopPlacementCount);
 }
-BENCHMARK(BM_InstanceRenderer_RenderLayoutFrame_ColdCache_ShallowDepth)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_HierarchyResolver_RenderLayoutFrame_ColdCache_ShallowDepth)->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();

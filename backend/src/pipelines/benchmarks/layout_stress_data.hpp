@@ -1,6 +1,7 @@
 #pragma once
-#include "../../instancing/instance_renderer.hpp"
-#include "../pipeline.hpp"
+#include "../../database/database.hpp"
+#include "../../scene/scene.hpp"
+#include "../../view_style/view_style.hpp"
 #include <chrono>
 #include <iostream>
 #include <string>
