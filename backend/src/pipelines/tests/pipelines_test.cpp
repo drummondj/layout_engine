@@ -574,6 +574,9 @@ TEST_F(LayoutShapePipelineFixture, RunResolvesRoutingBlockageAndRouteToTheirOwnL
 
 TEST_F(LayoutShapePipelineFixture, RunSynthesizesRowRectangleFromSiteSizeAndTiling)
 {
+    // ROW defaults to invisible (BUGS_AND_ENHANCEMENTS.md E2) - this test
+    // is about the synthesized geometry itself, not visibility filtering.
+    scene.set_purpose_visible(le::ViewLayerPurpose::ROW, true);
     add_site("SITE1", le::Point{500, 1000});
     add_row("SITE1", le::Point{100, 200}, /*num_x=*/3, /*num_y=*/2, /*step_x=*/600, /*step_y=*/std::nullopt);
 
@@ -591,11 +594,19 @@ TEST_F(LayoutShapePipelineFixture, RunSynthesizesRowRectangleFromSiteSizeAndTili
 
 TEST_F(LayoutShapePipelineFixture, RunSynthesizesTrackLinesSpanningDieAreaInThePerpendicularDirection)
 {
+    // M1's own LayerData.direction defaults to RoutingDirection::H (no
+    // explicit direction set in this fixture's SetUp) - an is_x=true
+    // track (DEF TRACKS X, vertical lines) doesn't match H, so this
+    // resolves to TRACK_NON_PREFERRED, not TRACK_PREFERRED (see
+    // append_track_shapes's own comment on the is_x/direction mapping).
+    // TRACK_NON_PREFERRED defaults to invisible (E2) - this test is about
+    // the synthesized geometry itself, not visibility filtering.
+    scene.set_purpose_visible(le::ViewLayerPurpose::TRACK_NON_PREFERRED, true);
     add_diearea(le::Rect{.ll = {0, 0}, .ur = {1000, 2000}});
     add_track(/*is_x=*/true, /*start=*/0, /*count=*/3, /*step=*/100, {"M1"});
 
     const auto &grouped = pipeline.run(layout_id, options());
-    const le::RenderedShape *found = find_by_purpose(grouped, view_layers, le::ViewLayerPurpose::TRACK);
+    const le::RenderedShape *found = find_by_purpose(grouped, view_layers, le::ViewLayerPurpose::TRACK_NON_PREFERRED);
     ASSERT_NE(found, nullptr);
     ASSERT_EQ(found->shape.paths.size(), 3u);
     for (int i = 0; i < 3; i++)
@@ -606,8 +617,35 @@ TEST_F(LayoutShapePipelineFixture, RunSynthesizesTrackLinesSpanningDieAreaInTheP
     }
 }
 
+TEST_F(LayoutShapePipelineFixture, RunSynthesizesPreferredDirectionTrackLinesWhenIsXMatchesLayersOwnDirection)
+{
+    // Same M1 (direction defaults to H) but is_x=false (DEF TRACKS Y,
+    // horizontal lines) matches H - resolves to TRACK_PREFERRED instead.
+    // TRACK_PREFERRED defaults to invisible (E2) - this test is about the
+    // synthesized geometry itself, not visibility filtering.
+    scene.set_purpose_visible(le::ViewLayerPurpose::TRACK_PREFERRED, true);
+    add_diearea(le::Rect{.ll = {0, 0}, .ur = {1000, 2000}});
+    add_track(/*is_x=*/false, /*start=*/0, /*count=*/2, /*step=*/500, {"M1"});
+
+    const auto &grouped = pipeline.run(layout_id, options());
+    const le::RenderedShape *preferred = find_by_purpose(grouped, view_layers, le::ViewLayerPurpose::TRACK_PREFERRED);
+    const le::RenderedShape *non_preferred = find_by_purpose(grouped, view_layers, le::ViewLayerPurpose::TRACK_NON_PREFERRED);
+    ASSERT_NE(preferred, nullptr);
+    EXPECT_EQ(non_preferred, nullptr);
+    ASSERT_EQ(preferred->shape.paths.size(), 2u);
+    for (int i = 0; i < 2; i++)
+    {
+        const int64_t y = i * 500;
+        EXPECT_EQ(preferred->shape.paths[i].polygon.points[0].y, y);
+        EXPECT_EQ(preferred->shape.paths[i].polygon.points[1].y, y);
+    }
+}
+
 TEST_F(LayoutShapePipelineFixture, RunSynthesizesGCellGridLinesSpanningDieArea)
 {
+    // GCELLGRID defaults to invisible (BUGS_AND_ENHANCEMENTS.md E2) -
+    // this test is about the synthesized geometry, not visibility filtering.
+    scene.set_purpose_visible(le::ViewLayerPurpose::GCELLGRID, true);
     add_diearea(le::Rect{.ll = {0, 0}, .ur = {1000, 2000}});
     add_gcell_grid(/*is_x=*/false, /*start=*/500, /*count=*/2, /*step=*/300);
 

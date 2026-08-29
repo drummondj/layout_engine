@@ -808,6 +808,26 @@ TEST(Scene, PurposeVisibilityDefaultsToTrueUntilSet)
     EXPECT_TRUE(scene.is_purpose_visible(ViewLayerPurpose::TERMINAL));
 }
 
+TEST(Scene, TrackRowAndGCellGridDefaultToInvisibleUnlikeEveryOtherPurpose)
+{
+    // BUGS_AND_ENHANCEMENTS.md E2 - these four are pre-seeded false
+    // (everything else keeps the ordinary "unknown key -> visible"
+    // default PurposeVisibilityDefaultsToTrueUntilSet above covers).
+    Scene scene;
+    EXPECT_FALSE(scene.is_purpose_visible(ViewLayerPurpose::TRACK_PREFERRED));
+    EXPECT_FALSE(scene.is_purpose_visible(ViewLayerPurpose::TRACK_NON_PREFERRED));
+    EXPECT_FALSE(scene.is_purpose_visible(ViewLayerPurpose::ROW));
+    EXPECT_FALSE(scene.is_purpose_visible(ViewLayerPurpose::GCELLGRID));
+
+    // Still toggleable like any other purpose, both directions.
+    scene.set_purpose_visible(ViewLayerPurpose::TRACK_PREFERRED, true);
+    EXPECT_TRUE(scene.is_purpose_visible(ViewLayerPurpose::TRACK_PREFERRED));
+    // TRACK_NON_PREFERRED is unaffected by TRACK_PREFERRED's own toggle -
+    // that's the whole point of splitting them (E2's "toggled by
+    // preferred and non-preferred routing direction" independently).
+    EXPECT_FALSE(scene.is_purpose_visible(ViewLayerPurpose::TRACK_NON_PREFERRED));
+}
+
 TEST(Scene, IsViewLayerVisibleIsTheAndOfBothAxes)
 {
     Scene scene;
@@ -877,6 +897,22 @@ TEST(Scene, PurposeSelectabilityDefaultsToTrueUntilSet)
     EXPECT_TRUE(scene.is_purpose_selectable(ViewLayerPurpose::OBSTRUCTION));
 
     EXPECT_TRUE(scene.is_purpose_selectable(ViewLayerPurpose::TERMINAL));
+}
+
+TEST(Scene, TrackAndGCellGridDefaultToNonSelectableButRowStaysSelectable)
+{
+    // BUGS_AND_ENHANCEMENTS.md E2 ("not selectable") - hit_test_point/
+    // hit_test_rect already skip these regardless (no `origin` set on a
+    // track/gcellgrid RenderedShape - see LayoutGeometryStage::
+    // append_track_shapes/append_gcell_grid_shapes), this just keeps the
+    // visibility widget's own selectable-checkbox default consistent
+    // with that. ROW stays selectable by default (E1 - rows are meant to
+    // be selectable), unlike its own visibility default above.
+    Scene scene;
+    EXPECT_FALSE(scene.is_purpose_selectable(ViewLayerPurpose::TRACK_PREFERRED));
+    EXPECT_FALSE(scene.is_purpose_selectable(ViewLayerPurpose::TRACK_NON_PREFERRED));
+    EXPECT_FALSE(scene.is_purpose_selectable(ViewLayerPurpose::GCELLGRID));
+    EXPECT_TRUE(scene.is_purpose_selectable(ViewLayerPurpose::ROW));
 }
 
 TEST(Scene, IsViewLayerSelectableIsTheAndOfBothAxes)

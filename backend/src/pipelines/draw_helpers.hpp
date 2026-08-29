@@ -187,6 +187,14 @@ namespace le
     inline constexpr float kMoveGhostDashOnPx = 6.0f;
     inline constexpr float kMoveGhostDashOffPx = 4.0f;
 
+    // TRACK_PREFERRED/TRACK_NON_PREFERRED/GCELLGRID lines (draw_group's
+    // own ViewLayerStyle::dashed handling below - BUGS_AND_ENHANCEMENTS.md
+    // E2) - shorter/tighter than the Move ghost's own dash above, since
+    // these are thin scaffolding grid lines, not an interactive preview
+    // that needs to stand out.
+    inline constexpr float kTrackDashOnPx = 3.0f;
+    inline constexpr float kTrackDashOffPx = 3.0f;
+
     // Rubber-band drag-select rectangle (UPDATES.md 7.1 item 5) - a
     // translucent fill so covered shapes stay visible underneath, plus
     // a solid stroke for a crisp edge. Blue, a color family not
@@ -1006,6 +1014,14 @@ namespace le
         stroke.setAntiAlias(true);
         stroke.setStyle(SkPaint::kStroke_Style);
         stroke.setColor(to_sk_color(style.outline_color));
+        // BUGS_AND_ENHANCEMENTS.md E2 - TRACK_PREFERRED/
+        // TRACK_NON_PREFERRED/GCELLGRID set this on their own
+        // ViewLayerStyle (see ViewLayerSet::build_for_technology/
+        // gcellgrid_style) so their lines read as dashed scaffolding
+        // rather than solid geometry, the same SkDashPathEffect approach
+        // draw_move_ghost already uses for its own ghost preview below.
+        if (style.dashed)
+            stroke.setPathEffect(SkDashPathEffect::Make({kTrackDashOnPx, kTrackDashOffPx}, 0.0f));
 
         // Labels use the outline color (always opaque in every default
         // ViewLayerStyle, unlike fill) - there's no dedicated label

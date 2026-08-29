@@ -142,10 +142,28 @@ namespace le
                     const LayerId layer_id = root.get_layer_by_name(layer_name);
                     if (!layer_id.valid())
                         continue;
+
+                    // BUGS_AND_ENHANCEMENTS.md E2: a track resolves to
+                    // TRACK_PREFERRED if its own line direction matches
+                    // this Layer's own declared preferred routing
+                    // direction, else TRACK_NON_PREFERRED - DEF TRACKS X
+                    // (is_x) lays out vertical lines (constant X, running
+                    // along Y), matching RoutingDirection::V; TRACKS Y
+                    // matches RoutingDirection::H. A layer with no real
+                    // H/V preference (NONE/DIAG45/DIAG135) can't match
+                    // either, so its tracks always fall back to
+                    // TRACK_NON_PREFERRED - a deliberate, if rare, choice
+                    // rather than a third purpose for an edge case real
+                    // DEF files essentially never hit.
+                    const LayerData *layer = root.get_layer(layer_id);
+                    const bool is_preferred = layer && ((track->is_x && layer->direction == RoutingDirection::V) ||
+                                                         (!track->is_x && layer->direction == RoutingDirection::H));
+                    const ViewLayerPurpose purpose = is_preferred ? ViewLayerPurpose::TRACK_PREFERRED : ViewLayerPurpose::TRACK_NON_PREFERRED;
+
                     Shape shape = lines;
                     shape.layer = layer_id;
                     auto path_outlines = compute_path_outlines(shape);
-                    shapes.push_back(RenderedShape{.shape = std::move(shape), .view_layer = view_layers.find(layer_id, ViewLayerPurpose::TRACK), .path_outlines = std::move(path_outlines)});
+                    shapes.push_back(RenderedShape{.shape = std::move(shape), .view_layer = view_layers.find(layer_id, purpose), .path_outlines = std::move(path_outlines)});
                 }
             }
         }

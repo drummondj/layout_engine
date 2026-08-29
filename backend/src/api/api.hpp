@@ -297,14 +297,24 @@ extern "C"
     /// @brief The purpose at `index` (0..le_purpose_count()-1) - the
     /// returned int is le::ViewLayerPurpose's own raw ordinal (its
     /// declaration order, not necessarily this index): 0 = TERMINAL,
-    /// 1 = OBSTRUCTION, 2 = BOUNDARY, 3 = TRACK, 4 = ROUTING_BLOCKAGE,
-    /// 5 = ROW, 6 = GCELLGRID, 7 = PLACEMENT_BLOCKAGE. `index` itself
-    /// walks ViewLayerSet::purposes()'s own first-encountered order
-    /// instead (TERMINAL/OBSTRUCTION/TRACK/ROUTING_BLOCKAGE from the first
-    /// physical Layer row, then ROW/GCELLGRID/PLACEMENT_BLOCKAGE's own
-    /// pseudo-rows, then BOUNDARY last) - a caller must always pass
-    /// `le_purpose_at`'s own return value back into `le_is_purpose_visible`/
-    /// `le_set_purpose_visible`, never assume index equals ordinal.
+    /// 1 = OBSTRUCTION, 2 = BOUNDARY, 3 = TRACK_PREFERRED,
+    /// 4 = TRACK_NON_PREFERRED, 5 = ROUTING_BLOCKAGE, 6 = ROW,
+    /// 7 = GCELLGRID, 8 = PLACEMENT_BLOCKAGE, 9 = ROUTE, 10 = REGION.
+    /// `index` itself walks ViewLayerSet::purposes()'s own
+    /// first-encountered order instead (TERMINAL/OBSTRUCTION/
+    /// TRACK_PREFERRED/TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE from the
+    /// first physical Layer row, then ROW/GCELLGRID/PLACEMENT_BLOCKAGE/
+    /// REGION's own pseudo-rows, then BOUNDARY last) - a caller must
+    /// always pass `le_purpose_at`'s own return value back into
+    /// `le_is_purpose_visible`/`le_set_purpose_visible`, never assume
+    /// index equals ordinal.
+    ///
+    /// NOTE: this ordinal list crosses into flutter_plugin/lib/
+    /// layout_engine_plugin.dart's own hand-synced `LeLayerPurpose` enum/
+    /// `fromValue` switch (no C-side named enum exists for it) - update
+    /// both together if le::ViewLayerPurpose's declaration order ever
+    /// changes again.
+    ///
     /// Returns -1 if handle is null or index is out of range, rather than
     /// crashing.
     int32_t le_purpose_at(LeHandle *handle, int32_t index);

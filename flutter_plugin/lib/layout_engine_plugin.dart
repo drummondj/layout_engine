@@ -220,11 +220,18 @@ class LeDesignEntry {
 /// Mirrors `le::ViewLayerPurpose`'s declaration order (api.hpp's
 /// `le_purpose_at`/`le_is_purpose_visible`/etc.) - the layer widget's
 /// column axis, independent of any row (see [LeEditor.purposeAt]).
+// Hand-synced mirror of le::ViewLayerPurpose's own raw ordinal (backend/
+// src/view_style/view_style.hpp) - there is no C-side named enum for it
+// (le_purpose_at returns a plain int32_t), so this enum's declaration
+// order below and fromValue's switch must both be kept in lockstep with
+// the C++ enum by hand. If that enum's declaration order ever changes,
+// update both here.
 enum LeLayerPurpose {
   terminal,
   obstruction,
   boundary,
-  track,
+  trackPreferred,
+  trackNonPreferred,
   routingBlockage,
   row,
   gcellgrid,
@@ -236,13 +243,14 @@ enum LeLayerPurpose {
     0 => LeLayerPurpose.terminal,
     1 => LeLayerPurpose.obstruction,
     2 => LeLayerPurpose.boundary,
-    3 => LeLayerPurpose.track,
-    4 => LeLayerPurpose.routingBlockage,
-    5 => LeLayerPurpose.row,
-    6 => LeLayerPurpose.gcellgrid,
-    7 => LeLayerPurpose.placementBlockage,
-    8 => LeLayerPurpose.route,
-    9 => LeLayerPurpose.region,
+    3 => LeLayerPurpose.trackPreferred,
+    4 => LeLayerPurpose.trackNonPreferred,
+    5 => LeLayerPurpose.routingBlockage,
+    6 => LeLayerPurpose.row,
+    7 => LeLayerPurpose.gcellgrid,
+    8 => LeLayerPurpose.placementBlockage,
+    9 => LeLayerPurpose.route,
+    10 => LeLayerPurpose.region,
     _ => null,
   };
 }

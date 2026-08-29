@@ -17,7 +17,25 @@ namespace le
         TERMINAL,
         OBSTRUCTION,
         BOUNDARY,
-        TRACK,              // DEF TRACKS - contributes into the named real Layer's own row
+        // DEF TRACKS, split into two independently toggleable purposes
+        // (BUGS_AND_ENHANCEMENTS.md E2) rather than one shared TRACK
+        // purpose - a Track's own is_x compared against its Layer's own
+        // declared `direction` (RoutingDirection) decides which one a
+        // given track resolves to (see LayoutGeometryStage::
+        // append_track_shapes). Both still contribute into the named
+        // real Layer's own row, as two separate columns.
+        //
+        // NOTE: these occupy TRACK's old ordinal slot deliberately -
+        // le::ViewLayerPurpose's raw ordinal crosses the C API
+        // (le_purpose_at) with no C-side named enum; the Dart side
+        // re-declares its own hand-synced mirror (LeLayerPurpose in
+        // flutter_plugin/lib/layout_engine_plugin.dart) hardcoding the
+        // same ordinals. Both api.hpp's own doc comment and that Dart
+        // enum/switch were updated together with this change - if this
+        // enum's declaration order ever changes again, that Dart file
+        // must change with it.
+        TRACK_PREFERRED,
+        TRACK_NON_PREFERRED,
         ROUTING_BLOCKAGE,   // DEF BLOCKAGES LAYER - contributes into the named real Layer's own row
         ROW,                // DEF ROW - own pseudo-row, no Layer
         GCELLGRID,          // DEF GCELLGRID - own pseudo-row, no Layer
@@ -27,9 +45,10 @@ namespace le
                              // different purposes for a user (routing keep-out vs.
                              // placement keep-out).
         ROUTE,              // DEF NETS/SPECIALNETS routed geometry (Route) - contributes
-                             // into the named real Layer's own row, same as TRACK/
-                             // ROUTING_BLOCKAGE (Migration Step 3 - Step 2's own scope was
-                             // explicitly rows/tracks/blockages, net routing wasn't included)
+                             // into the named real Layer's own row, same as TRACK_PREFERRED/
+                             // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE (Migration Step 3 - Step 2's
+                             // own scope was explicitly rows/tracks/blockages, net routing
+                             // wasn't included)
         REGION,             // DEF REGIONS - own pseudo-row, no Layer (Region has no color/
                              // style field of its own, same "no physical Layer" treatment as
                              // ROW/GCELLGRID)
@@ -63,6 +82,11 @@ namespace le
         Color outline_color;
         Color fill_color;
         FillPattern fill_pattern = FillPattern::NONE;
+        // Stroked (path/rect/polygon outline) drawing uses a dashed
+        // SkDashPathEffect instead of a solid line - see draw_group's own
+        // comment. TRACK_PREFERRED/TRACK_NON_PREFERRED/GCELLGRID
+        // (BUGS_AND_ENHANCEMENTS.md E2) are the only styles with this set.
+        bool dashed = false;
     };
 
     struct ViewLayerTag
@@ -167,21 +191,26 @@ namespace le
                 // recognizable at a glance across every layer. TRACK/
                 // ROUTING_BLOCKAGE (DEF TRACKS/BLOCKAGES LAYER - Migration
                 // Step 2) and ROUTE (DEF NETS/SPECIALNETS - Migration Step
-                // 3) share that same per-Layer color too: TRACK gets a
-                // plain outline (grid lines, not a filled region, so no
-                // FillPattern needed beyond NONE), ROUTING_BLOCKAGE gets
-                // DOTS - a generic "keep-out" pattern distinct from
-                // OBSTRUCTION's own BRICK, reused (not shared as one
-                // purpose) by PLACEMENT_BLOCKAGE's own pseudo-row below so
-                // the two blockage kinds still read as visually related
-                // while staying independently toggleable - and ROUTE gets
-                // TERMINAL's own terminal_fill_pattern() (not OBSTRUCTION's
-                // BRICK) since routed net wires are real conductor shapes,
-                // the same visual category as a Terminal's own real pin
-                // geometry, not a hatched keep-out region.
+                // 3) share that same per-Layer color too: TRACK_PREFERRED/
+                // TRACK_NON_PREFERRED get a plain dashed outline (grid
+                // lines, not a filled region, so no FillPattern needed
+                // beyond NONE - see BUGS_AND_ENHANCEMENTS.md E2),
+                // ROUTING_BLOCKAGE gets DOTS - a generic "keep-out" pattern
+                // distinct from OBSTRUCTION's own BRICK, reused (not shared
+                // as one purpose) by PLACEMENT_BLOCKAGE's own pseudo-row
+                // below so the two blockage kinds still read as visually
+                // related while staying independently toggleable - and
+                // ROUTE gets TERMINAL's own terminal_fill_pattern() (not
+                // OBSTRUCTION's BRICK) since routed net wires are real
+                // conductor shapes, the same visual category as a
+                // Terminal's own real pin geometry, not a hatched keep-out
+                // region.
                 const ViewLayerId terminal_id = set.add(layer->name, layer->name + "/TERMINAL", ViewLayerPurpose::TERMINAL, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
                 const ViewLayerId obstruction_id = set.add(layer->name, layer->name + "/OBSTRUCTION", ViewLayerPurpose::OBSTRUCTION, layer_id, layer_style(color, FillPattern::BRICK));
-                const ViewLayerId track_id = set.add(layer->name, layer->name + "/TRACK", ViewLayerPurpose::TRACK, layer_id, layer_style(color, FillPattern::NONE));
+                ViewLayerStyle track_style = layer_style(color, FillPattern::NONE);
+                track_style.dashed = true;
+                const ViewLayerId track_preferred_id = set.add(layer->name, layer->name + "/TRACK_PREFERRED", ViewLayerPurpose::TRACK_PREFERRED, layer_id, track_style);
+                const ViewLayerId track_non_preferred_id = set.add(layer->name, layer->name + "/TRACK_NON_PREFERRED", ViewLayerPurpose::TRACK_NON_PREFERRED, layer_id, track_style);
                 const ViewLayerId routing_blockage_id = set.add(layer->name, layer->name + "/ROUTING_BLOCKAGE", ViewLayerPurpose::ROUTING_BLOCKAGE, layer_id, layer_style(color, FillPattern::DOTS));
                 const ViewLayerId route_id = set.add(layer->name, layer->name + "/ROUTE", ViewLayerPurpose::ROUTE, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
 
@@ -190,7 +219,8 @@ namespace le
                     .columns = {
                         ViewLayerColumn{.purpose = ViewLayerPurpose::TERMINAL, .id = terminal_id},
                         ViewLayerColumn{.purpose = ViewLayerPurpose::OBSTRUCTION, .id = obstruction_id},
-                        ViewLayerColumn{.purpose = ViewLayerPurpose::TRACK, .id = track_id},
+                        ViewLayerColumn{.purpose = ViewLayerPurpose::TRACK_PREFERRED, .id = track_preferred_id},
+                        ViewLayerColumn{.purpose = ViewLayerPurpose::TRACK_NON_PREFERRED, .id = track_non_preferred_id},
                         ViewLayerColumn{.purpose = ViewLayerPurpose::ROUTING_BLOCKAGE, .id = routing_blockage_id},
                         ViewLayerColumn{.purpose = ViewLayerPurpose::ROUTE, .id = route_id},
                     },
@@ -452,10 +482,12 @@ namespace le
 
         // Faint translucent blue outline, no fill - DEF GCELLGRID is a
         // global-routing planning aid, meant to stay unobtrusive relative
-        // to real routing-layer content drawn on top of it.
+        // to real routing-layer content drawn on top of it. Dashed
+        // (BUGS_AND_ENHANCEMENTS.md E2), same reasoning as track_style
+        // above.
         static ViewLayerStyle gcellgrid_style()
         {
-            return ViewLayerStyle{.outline_color = {100, 150, 220, 150}, .fill_color = {0, 0, 0, 0}};
+            return ViewLayerStyle{.outline_color = {100, 150, 220, 150}, .fill_color = {0, 0, 0, 0}, .dashed = true};
         }
 
         // Own fixed color (not layer-derived - a PLACEMENT blockage has no

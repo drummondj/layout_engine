@@ -877,7 +877,9 @@ namespace le
         void clear_hover() { hovered_.reset(); }
         const std::optional<HoverTarget> &hover() const { return hovered_; }
 
-        // --- Layer visibility (defaults to visible until toggled) ---
+        // --- Layer visibility (defaults to visible until toggled, except
+        // TRACK_PREFERRED/TRACK_NON_PREFERRED/ROW/GCELLGRID, pre-seeded
+        // invisible below - BUGS_AND_ENHANCEMENTS.md E2) ---
         // Two independent axes, deliberately *not* per-ViewLayerId: by
         // layer name (every purpose-column of that ViewLayerRow, e.g.
         // toggling "M1" off hides both M1/TERMINAL and M1/OBSTRUCTION) and
@@ -923,7 +925,9 @@ namespace le
         // cheap for a caller to compare instead of comparing both maps by value.
         uint64_t visibility_version() const { return visibility_version_; }
 
-        // --- Layer selectability (defaults to selectable until toggled) ---
+        // --- Layer selectability (defaults to selectable until toggled,
+        // except TRACK_PREFERRED/TRACK_NON_PREFERRED/GCELLGRID, pre-seeded
+        // non-selectable below - BUGS_AND_ENHANCEMENTS.md E2) ---
         // Same two-axis shape as visibility above, but deliberately doesn't
         // bump any version counter: unlike visibility, nothing here caches
         // on it yet - it's consulted by a future hit-testing/click-to-select
@@ -1097,10 +1101,32 @@ namespace le
         std::unordered_set<int32_t> held_keys_;
         std::optional<HoverTarget> hovered_;
         std::unordered_map<std::string, bool> layer_name_visible_;
-        std::unordered_map<ViewLayerPurpose, bool> purpose_visible_;
+        // Pre-seeded false for TRACK_PREFERRED/TRACK_NON_PREFERRED/ROW/
+        // GCELLGRID (BUGS_AND_ENHANCEMENTS.md E2 - "invisible by
+        // default") - every other purpose still falls back to
+        // is_purpose_visible()'s own "unknown key -> visible" default.
+        std::unordered_map<ViewLayerPurpose, bool> purpose_visible_{
+            {ViewLayerPurpose::TRACK_PREFERRED, false},
+            {ViewLayerPurpose::TRACK_NON_PREFERRED, false},
+            {ViewLayerPurpose::ROW, false},
+            {ViewLayerPurpose::GCELLGRID, false},
+        };
         uint64_t visibility_version_ = 0;
         std::unordered_map<std::string, bool> layer_name_selectable_;
-        std::unordered_map<ViewLayerPurpose, bool> purpose_selectable_;
+        // Pre-seeded false for TRACK_PREFERRED/TRACK_NON_PREFERRED/
+        // GCELLGRID (BUGS_AND_ENHANCEMENTS.md E2 - "not selectable") -
+        // hit_test_point/hit_test_rect (pipelines/hit_test.hpp) already
+        // skip these regardless, since LayoutGeometryStage never sets an
+        // `origin` on a track/gcellgrid RenderedShape; this just keeps
+        // the visibility widget's own selectable-checkbox default
+        // consistent with that rather than showing an active-looking
+        // no-op. ROW stays selectable by default (BUGS_AND_ENHANCEMENTS.md
+        // E1 - rows are meant to be selectable).
+        std::unordered_map<ViewLayerPurpose, bool> purpose_selectable_{
+            {ViewLayerPurpose::TRACK_PREFERRED, false},
+            {ViewLayerPurpose::TRACK_NON_PREFERRED, false},
+            {ViewLayerPurpose::GCELLGRID, false},
+        };
         std::vector<SelectedObject> selection_;
         // signature (piece_signature) -> index into selection_ - see
         // select()'s own comment for why this exists.
