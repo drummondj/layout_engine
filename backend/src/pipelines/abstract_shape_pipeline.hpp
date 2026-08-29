@@ -121,6 +121,7 @@ namespace le
         // differs by stage, not by which sink the caller reads from).
         void submit(AbstractId abstract_id, const PipelineOptions &options)
         {
+            ZoneScopedN("AbstractShapePipeline: submit");
             const uint64_t data_version = AbstractGeometryStage::data_version_for(abstract_id, options);
             geometry_stage_.try_put({.data = abstract_id, .data_version = data_version, .options = options});
             graph_.wait_for_all();

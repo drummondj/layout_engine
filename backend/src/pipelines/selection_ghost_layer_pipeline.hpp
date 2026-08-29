@@ -54,6 +54,7 @@ namespace le
         /// own Layout-path usage (Phase 4, render_layout_frame) does.
         const RasterizedFrame &run(AbstractId current_abstract, const PipelineOptions &options, LayoutId current_layout = LayoutId{}, int remaining_depth = 0)
         {
+            ZoneScopedN("SelectionGhostLayerPipeline: run");
             const SelectionOverlayRequest request{.abstract_id = current_abstract, .current_layout = current_layout, .remaining_depth = remaining_depth};
             selection_overlay_stage_.try_put({.data = request, .data_version = SelectionOverlayStage::data_version_for(request, options), .options = options});
             graph_.wait_for_all();
@@ -62,6 +63,7 @@ namespace le
 
         const RasterizedFrame &run_ruler(const PipelineOptions &options)
         {
+            ZoneScopedN("SelectionGhostLayerPipeline: run_ruler");
             ruler_overlay_stage_.try_put({.data = 0, .data_version = 0, .options = options});
             graph_.wait_for_all();
             return ruler_result_.data;
@@ -77,6 +79,7 @@ namespace le
         /// reasoning (same shape, same domain-tag caveat).
         const RasterizedFrame &run_selection_rasterize(const sk_sp<SkPicture> &picture, uint64_t picture_version, const PipelineOptions &options)
         {
+            ZoneScopedN("SelectionGhostLayerPipeline: run_selection_rasterize");
             selection_rasterize_stage_.try_put({.data = picture, .data_version = picture_version, .options = options});
             graph_.wait_for_all();
             return selection_result_.data;
@@ -84,6 +87,7 @@ namespace le
 
         const RasterizedFrame &run_ruler_rasterize(const sk_sp<SkPicture> &picture, uint64_t picture_version, const PipelineOptions &options)
         {
+            ZoneScopedN("SelectionGhostLayerPipeline: run_ruler_rasterize");
             ruler_rasterize_stage_.try_put({.data = picture, .data_version = picture_version, .options = options});
             graph_.wait_for_all();
             return ruler_result_.data;

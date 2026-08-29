@@ -60,6 +60,7 @@ namespace le
         /// comment).
         const RasterizedFrame &run(const std::map<ViewLayerId, std::vector<RenderedShape>> &shapes, uint64_t shapes_data_version, const PipelineOptions &options)
         {
+            ZoneScopedN("DesignRenderPipeline: run");
             pixel_transform_stage_.try_put({.data = shapes, .data_version = shapes_data_version, .options = options});
             graph_.wait_for_all();
             return design_result_.data;
@@ -67,6 +68,7 @@ namespace le
 
         const RasterizedFrame &run_tiny_shapes(const std::map<ViewLayerId, std::vector<Point>> &tiny_shapes, uint64_t tiny_shapes_data_version, const PipelineOptions &options)
         {
+            ZoneScopedN("DesignRenderPipeline: run_tiny_shapes");
             tiny_pixel_transform_stage_.try_put({.data = tiny_shapes, .data_version = tiny_shapes_data_version, .options = options});
             graph_.wait_for_all();
             return tiny_result_.data;
@@ -95,6 +97,7 @@ namespace le
         /// correctly wait on.
         const RasterizedFrame &run_design_rasterize(const sk_sp<SkPicture> &picture, uint64_t picture_version, const PipelineOptions &options)
         {
+            ZoneScopedN("DesignRenderPipeline: run_design_rasterize");
             design_rasterize_stage_.try_put({.data = picture, .data_version = picture_version, .options = options});
             graph_.wait_for_all();
             return design_result_.data;
@@ -102,6 +105,7 @@ namespace le
 
         const RasterizedFrame &run_tiny_shapes_rasterize(const sk_sp<SkPicture> &picture, uint64_t picture_version, const PipelineOptions &options)
         {
+            ZoneScopedN("DesignRenderPipeline: run_tiny_shapes_rasterize");
             tiny_rasterize_stage_.try_put({.data = picture, .data_version = picture_version, .options = options});
             graph_.wait_for_all();
             return tiny_result_.data;

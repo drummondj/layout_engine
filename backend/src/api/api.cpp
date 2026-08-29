@@ -539,7 +539,7 @@ namespace
         for (const le::SelectedObject &selected : handle->scene.selection())
         {
             std::visit([&](const auto &s)
-            {
+                       {
                 using T = std::decay_t<decltype(s)>;
                 if constexpr (std::is_same_v<T, le::ShapePiece>)
                 {
@@ -561,8 +561,7 @@ namespace
                 {
                     if (auto placement_bbox = le::placement_world_bbox(handle->root, s, remaining_depth))
                         expand_bbox_unlocked(bbox, *placement_bbox);
-                }
-            }, selected);
+                } }, selected);
         }
 
         if (const std::optional<le::Rect> shapes_bbox = le::Geometry::bbox(shape_ptrs))
@@ -2457,7 +2456,7 @@ extern "C"
         // instead walks up via le_object_parent (see object_ref_parent's
         // own new Shape->blockage/route/physical_port_segment hops).
         return std::visit([](const auto &s) -> LeObjectRef
-        {
+                          {
             using T = std::decay_t<decltype(s)>;
             if constexpr (std::is_same_v<T, le::ShapePiece>)
                 return ref_from_id(LE_OBJECT_KIND_SHAPE, s.shape_id);
@@ -2466,8 +2465,7 @@ extern "C"
             else if constexpr (std::is_same_v<T, le::PlacementId>)
                 return ref_from_id(LE_OBJECT_KIND_PLACEMENT, s);
             else if constexpr (std::is_same_v<T, le::RegionId>)
-                return ref_from_id(LE_OBJECT_KIND_REGION, s);
-        }, selection[static_cast<size_t>(selection_index)]);
+                return ref_from_id(LE_OBJECT_KIND_REGION, s); }, selection[static_cast<size_t>(selection_index)]);
     }
 
     LeTerminalId le_terminal_by_name(LeHandle *handle, const char *name)
@@ -2969,6 +2967,8 @@ extern "C"
         if (!handle)
             return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
         std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        ZoneScopedN("le_render_pixel_buffer");
 
         // Migration Step 3 Phase C: a Layout view (scene.current_layout()
         // valid - set by le_set_current_design_layout(_by_id), which

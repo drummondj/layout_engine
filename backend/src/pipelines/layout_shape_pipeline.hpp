@@ -86,6 +86,7 @@ namespace le
     private:
         void submit(LayoutId layout_id, const PipelineOptions &options)
         {
+            ZoneScopedN("LayoutShapePipeline: submit");
             const uint64_t data_version = LayoutGeometryStage::data_version_for(layout_id, options);
             geometry_stage_.try_put({.data = layout_id, .data_version = data_version, .options = options});
             graph_.wait_for_all();

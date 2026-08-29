@@ -94,6 +94,7 @@ namespace le
         /// resolves (logged once per DesignId, not once per Placement).
         sk_sp<SkPicture> resolve_design_picture(const Root &root, DesignId design_id, int remaining_depth, const ViewLayerSet &view_layers, const Scene &scene, double scale)
         {
+            ZoneScopedN("HierarchyResolver: resolve_design_picture");
             ensure_epoch(root, view_layers, scene, scale);
 
             const auto key = std::tuple{design_id, remaining_depth};
@@ -112,6 +113,7 @@ namespace le
         /// drawn through its own SkMatrix.
         sk_sp<SkPicture> build_layout_picture(const Root &root, LayoutId layout_id, int remaining_depth, const ViewLayerSet &view_layers, const Scene &scene, double scale)
         {
+            ZoneScopedN("HierarchyResolver: build_layout_picture");
             ensure_epoch(root, view_layers, scene, scale);
 
             const auto key = std::tuple{layout_id, remaining_depth};
@@ -159,12 +161,14 @@ namespace le
         /// stages above.
         const PixelBuffer &render_layout_frame(const Root &root, LayoutId layout_id, int hierarchy_depth, const ViewLayerSet &view_layers, const Scene &scene, FrameRenderPipeline &frame)
         {
+            ZoneScopedN("HierarchyResolver: render_layout_frame");
+
             const int remaining_depth = std::max(0, hierarchy_depth - 1);
             ensure_epoch(root, view_layers, scene, scene.scale());
 
             const auto top_picture_key = std::tuple{layout_id, remaining_depth, root.mutation_version(), view_layers.generation(), scene.visibility_version(), scene.viewport_version()};
             const sk_sp<SkPicture> &local_picture = top_layout_picture_stage_.get(top_picture_key, [&]
-                                                                                   { return build_layout_picture_uncached(root, layout_id, remaining_depth, view_layers, scene, scene.scale(), scene.pan()); });
+                                                                                  { return build_layout_picture_uncached(root, layout_id, remaining_depth, view_layers, scene, scene.scale(), scene.pan()); });
             const uint64_t design_version = top_layout_picture_stage_.version();
 
             SkPictureRecorder recorder;
@@ -208,13 +212,13 @@ namespace le
                 kLayoutVersionDomainTag | build_overlay_picture_stage_.last_version());
 
             return frame.run_compose(ComposeInput{
-                                          .design_frame = design_frame,
-                                          .tiny_shapes_frame = tiny_frame,
-                                          .selection_frame = selection_frame,
-                                          .ruler_frame = ruler_frame,
-                                          .overlay_picture = overlay_picture,
-                                      },
-                                      compose_version, options);
+                                         .design_frame = design_frame,
+                                         .tiny_shapes_frame = tiny_frame,
+                                         .selection_frame = selection_frame,
+                                         .ruler_frame = ruler_frame,
+                                         .overlay_picture = overlay_picture,
+                                     },
+                                     compose_version, options);
         }
 
     private:
@@ -260,6 +264,7 @@ namespace le
 
         sk_sp<SkPicture> build_design_picture(const Root &root, DesignId design_id, int remaining_depth, const ViewLayerSet &view_layers, const Scene &scene, double scale)
         {
+            ZoneScopedN("HierarchyResolver: build_design_picture");
             const LayoutId layout_id = root.get_design_layout(design_id);
             if (remaining_depth > 0 && layout_id.valid())
                 return build_layout_picture(root, layout_id, remaining_depth - 1, view_layers, scene, scale);
@@ -275,6 +280,7 @@ namespace le
 
         sk_sp<SkPicture> build_abstract_picture(const Root &root, AbstractId abstract_id, const ViewLayerSet &view_layers, const Scene &scene, double scale)
         {
+            ZoneScopedN("HierarchyResolver: build_abstract_picture");
             recompute_count_++;
 
             // Fresh, call-local instances every call - see this class's
@@ -297,6 +303,7 @@ namespace le
 
         sk_sp<SkPicture> build_layout_picture_uncached(const Root &root, LayoutId layout_id, int remaining_depth, const ViewLayerSet &view_layers, const Scene &scene, double scale, Point local_origin = Point{0, 0})
         {
+            ZoneScopedN("HierarchyResolver: build_layout_picture_uncached");
             recompute_count_++;
 
             SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> viewport_runner{"hierarchy_viewport_filter"};
@@ -378,11 +385,12 @@ namespace le
         }
 
         sk_sp<SkPicture> record_local_picture(const std::vector<RenderedShape> &dbu_shapes, uint64_t geometry_data_version,
-                                               SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> &viewport_runner,
-                                               SynchronousStageRunner<LayerVisibilityFilterStage, std::vector<RenderedShape>, std::map<ViewLayerId, std::vector<RenderedShape>>> &layer_runner,
-                                               const ViewLayerSet &view_layers, const Scene &scene, double scale,
-                                               const std::vector<BuildLayoutPictureStage::ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, Rect declared_bbox, Point local_origin = Point{0, 0})
+                                              SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> &viewport_runner,
+                                              SynchronousStageRunner<LayerVisibilityFilterStage, std::vector<RenderedShape>, std::map<ViewLayerId, std::vector<RenderedShape>>> &layer_runner,
+                                              const ViewLayerSet &view_layers, const Scene &scene, double scale,
+                                              const std::vector<BuildLayoutPictureStage::ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, Rect declared_bbox, Point local_origin = Point{0, 0})
         {
+            ZoneScopedN("HierarchyResolver: record_local_picture");
             Rect content_bbox = declared_bbox;
             for (const RenderedShape &rs : dbu_shapes)
             {

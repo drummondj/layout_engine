@@ -27,6 +27,7 @@ namespace le
 
         const sk_sp<SkPicture> &run(const PipelineOptions &options)
         {
+            ZoneScopedN("MouseTargetLayerPipeline: run");
             mouse_overlay_stage_.try_put({.data = 0, .data_version = 0, .options = options});
             graph_.wait_for_all();
             return result_.data;

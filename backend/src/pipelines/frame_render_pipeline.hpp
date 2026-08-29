@@ -57,6 +57,7 @@ namespace le
         /// ruler frames, then compose all five into one final PixelBuffer.
         const PixelBuffer &run(AbstractId abstract_id, const std::map<ViewLayerId, std::vector<RenderedShape>> &shapes, const std::map<ViewLayerId, std::vector<Point>> &tiny_shapes, const PipelineOptions &options)
         {
+            ZoneScopedN("FrameRenderPipeline: run");
             const RasterizedFrame &design_frame = design_pipeline_.run(shapes, PixelTransformStage::data_version_for(abstract_id, options), options);
             const RasterizedFrame &tiny_frame = design_pipeline_.run_tiny_shapes(tiny_shapes, TinyPixelTransformStage::data_version_for(abstract_id, options), options);
             const sk_sp<SkPicture> &overlay_picture = mouse_pipeline_.run(options);
@@ -96,6 +97,7 @@ namespace le
         /// only this class can correctly wait on).
         const PixelBuffer &run_compose(ComposeInput input, uint64_t compose_version, const PipelineOptions &options)
         {
+            ZoneScopedN("FrameRenderPipeline: run_compose");
             compose_stage_.try_put({.data = std::move(input), .data_version = compose_version, .options = options});
             compose_graph_.wait_for_all();
             return compose_result_.data.buffer;
