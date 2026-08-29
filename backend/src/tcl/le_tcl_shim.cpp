@@ -410,14 +410,40 @@ const char *technology_id()
     return return_string(format_technology_id(id));
 }
 
+namespace
+{
+    // Matches api.cpp's own kKeyFitPaddingPx / the Dart-side LeProvider.
+    // openDesign's own `_editor.fitScene(10)` call - the same padding
+    // convention every "just opened a view" fit already uses, duplicated
+    // here since le_tcl_shim.cpp is a separate TU from both.
+    constexpr int32_t kOpenDesignFitPaddingPx = 10;
+}
+
 int set_current_design_abstract_cmd(long long design_id)
 {
-    return le_set_current_design_abstract_by_id(session(), unpack<LeDesignId>(design_id));
+    const int result = le_set_current_design_abstract_by_id(session(), unpack<LeDesignId>(design_id));
+    // Frames the newly-opened Abstract's own content the same way the
+    // GUI's own Library Browser open action does (LeProvider.openDesign)
+    // - a script-driven open_design should land on a sensible view, not
+    // whatever scale/pan happened to be left over from a previous one.
+    // Safe even with no viewport set yet (e.g. a headless le_shell run) -
+    // Scene::fit_to_content degrades to scale=1/pan={0,0} in that case.
+    if (result == 0)
+        le_fit_scene(session(), kOpenDesignFitPaddingPx);
+    return result;
 }
 
 int set_current_design_layout_cmd(long long design_id)
 {
-    return le_set_current_design_layout_by_id(session(), unpack<LeDesignId>(design_id));
+    const int result = le_set_current_design_layout_by_id(session(), unpack<LeDesignId>(design_id));
+    // Same reasoning as set_current_design_abstract_cmd above - a Layout
+    // view didn't get this at all before (the actual bug report this
+    // fixes: opening a layout view left the scene at its previous/default
+    // scale and pan instead of framing the Layout's own diearea, unlike
+    // an Abstract view opened through the GUI).
+    if (result == 0)
+        le_fit_scene(session(), kOpenDesignFitPaddingPx);
+    return result;
 }
 
 void set_session_handle(long long handle_address)
