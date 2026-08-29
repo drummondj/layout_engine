@@ -1663,3 +1663,13 @@ class LeTclConsole implements LeTclConsoleBase {
     });
   }
 }
+
+/// Resizes the app's native window to fill the current screen (macOS only
+/// today - see LayoutEnginePlugin.swift's own doc comment on the
+/// `maximizeWindow` case). A narrowly-scoped hook for the Tracy profiling
+/// integration test (frontend/scripts/profile_tcl_script.sh), not part of
+/// the real app's own normal startup path - it doesn't touch
+/// MainFlutterWindow's own frame-autosave behavior for a real user.
+Future<void> maximizeWindow() async {
+  await _channel.invokeMethod<void>('maximizeWindow', <String, dynamic>{});
+}

@@ -100,6 +100,20 @@ public class LayoutEnginePlugin: NSObject, FlutterPlugin {
       tclConsoles.removeValue(forKey: consoleId)
       result(nil)
 
+    // Resizes the app's window to fill the current screen's visible frame
+    // (excluding the menu bar/Dock) - a narrowly-scoped hook for the
+    // Tracy profiling integration test (frontend/scripts/
+    // profile_tcl_script.sh), which wants a large, deterministic
+    // LayoutEngine viewport regardless of whatever frame a previous
+    // manual run left MainFlutterWindow's own frame-autosave at. Not
+    // called anywhere in the real app's own normal startup path.
+    case "maximizeWindow":
+      if let screenFrame = NSScreen.main?.visibleFrame,
+         let window = NSApplication.shared.windows.first {
+        window.setFrame(screenFrame, display: true)
+      }
+      result(nil)
+
     default:
       result(FlutterMethodNotImplemented)
     }

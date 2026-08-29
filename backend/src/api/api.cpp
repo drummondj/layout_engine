@@ -138,6 +138,16 @@ struct LeHandle
 
 namespace
 {
+    // Tracy's FrameMarkStart/FrameMarkEnd send the raw pointer value of
+    // `name`, not a copy of the string (see TracyProfiler.hpp's
+    // SendFrameMark) - the server pairs a Start with its matching End by
+    // that pointer, so both call sites in le_render_pixel_buffer must pass
+    // the exact same pointer, not two separately-compiled string literals
+    // (which the compiler is free, but not guaranteed, to pool into one
+    // address). A single named constant guarantees that regardless of
+    // compiler/optimization level.
+    constexpr const char *kRenderFrameName = "le_render_pixel_buffer";
+
     // Builds a PipelineOptions snapshot of `handle`'s own current root/
     // view_layers/scene state - every pipelines-module call site below
     // needs one of these (backend/ONETBB_INTEGRATION.md migration, Phase
@@ -2969,6 +2979,16 @@ extern "C"
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
         ZoneScopedN("le_render_pixel_buffer");
+        // FrameMarkStart/End (named), not plain FrameMark - a frame here
+        // only ever happens on demand (whenever something changed and the
+        // native texture callback next pulls a frame), not once per
+        // engine vsync like a game's continuous main loop, which is what
+        // plain FrameMark assumes (see Tracy's own manual). A named
+        // start/end pair correctly represents this as a discontinuous
+        // frame set with its own explicit duration in the Tracy timeline,
+        // instead of a single zero-width instant marker that would make
+        // every render look free.
+        FrameMarkStart(kRenderFrameName);
 
         // Migration Step 3 Phase C: a Layout view (scene.current_layout()
         // valid - set by le_set_current_design_layout(_by_id), which

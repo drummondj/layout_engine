@@ -40,7 +40,19 @@ class _HomeAreaBuilder extends AreaBuilder with AreaBuilderMixin {
 }
 
 class Home extends StatefulWidget {
-  const Home({super.key});
+  const Home({super.key, this.initiallyMaximizedItemId});
+
+  /// DockingItem id (see `_dockingItem` below) to start already maximized -
+  /// a narrowly-scoped hook for the Tracy profiling integration test
+  /// (frontend/scripts/profile_tcl_script.sh), which wants LayoutEngine's
+  /// Texture to use most of the window rather than share it with the
+  /// Browser/Console/Layers/Properties panels, so the render pipeline
+  /// gets a large, representative viewport. `null` (the real app's own
+  /// default) leaves every panel un-maximized, same as before this was
+  /// added; also skips restoring any saved docking layout (see
+  /// `_restoreLayout` below) so a test run gets a deterministic layout
+  /// regardless of whatever the running machine's own app has saved.
+  final String? initiallyMaximizedItemId;
 
   @override
   State<Home> createState() => _HomeState();
@@ -169,7 +181,10 @@ class _HomeState extends State<Home> {
           _dockingItem(id: 'browser'),
         ]),
         DockingColumn([
-          _dockingItem(id: 'layout'),
+          _dockingItem(
+            id: 'layout',
+            maximized: widget.initiallyMaximizedItemId == 'layout',
+          ),
           _dockingItem(id: 'console'),
         ]),
         DockingTabs(size: 300, minimalSize: 300, [
@@ -181,6 +196,11 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> _restoreLayout() async {
+    // See initiallyMaximizedItemId's own doc comment - a caller asking
+    // for a specific starting layout wants a deterministic one, not
+    // whatever this machine's own real app run last saved.
+    if (widget.initiallyMaximizedItemId != null) return;
+
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     _prefs = prefs;

@@ -14,9 +14,14 @@ class MyApp extends StatelessWidget {
   /// test/fakes/fake_le_editor.dart) instead of the real [LeEditor],
   /// whose constructor isn't safe to call outside a real built app (see
   /// LeEditorBase's own doc comment).
-  const MyApp({super.key, this.provider});
+  const MyApp({super.key, this.provider, this.initiallyMaximizedItemId});
 
   final LeProvider? provider;
+
+  /// Forwarded to [Home] - see its own doc comment. `null` (the real
+  /// app's own default, via `runApp(const MyApp())` in this file's
+  /// `main()`) leaves Home's own default docking layout untouched.
+  final String? initiallyMaximizedItemId;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +33,7 @@ class MyApp extends StatelessWidget {
       ],
       child: MaterialApp(
         title: 'Layout Engine',
-        home: const Home(),
+        home: Home(initiallyMaximizedItemId: initiallyMaximizedItemId),
         debugShowCheckedModeBanner: false,
         themeMode: .dark,
         darkTheme: ThemeData(
