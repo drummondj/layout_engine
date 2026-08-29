@@ -174,6 +174,15 @@ int set_current_design_abstract_cmd(long long design_id);
 /// Layout instead.
 int set_current_design_layout_cmd(long long design_id);
 
+/// @brief Backing for the `zoom -factor <double>` Tcl command (see
+/// le_tcl_procs.tcl) - zooms the current view in (positive factor) or
+/// out (negative factor) by le_zoom's own signed-fractional-step
+/// semantics (new_scale = scale * (1 + factor)), anchored at the
+/// viewport's own center via viewport_width()/viewport_height() above -
+/// a script has no live mouse position to anchor a le_zoom-style point
+/// zoom on the way the GUI's own keyboard shortcut does.
+void zoom_cmd(double factor);
+
 /// @brief Sentinel for "no such id" for AbstractId/DesignId in their
 /// CRUD-flag/session-selection role - see this header's own "IDs"
 /// comment. Every api.hpp failure path for these two types in that role

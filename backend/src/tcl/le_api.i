@@ -90,6 +90,7 @@ long long design_by_name(const char *name);
 const char *technology_id();
 int set_current_design_abstract_cmd(long long design_id);
 int set_current_design_layout_cmd(long long design_id);
+void zoom_cmd(double factor);
 void set_session_handle(long long handle_address);
 
 // --- Terminal/TerminalPort/Obstruction CRUD is fully generated now

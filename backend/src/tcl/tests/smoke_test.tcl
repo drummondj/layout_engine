@@ -45,4 +45,25 @@ if {[catch {set_viewport_size -bogus 1} err]} {
     exit 1
 }
 
+if {[catch {zoom -factor 0.3} err]} {
+    puts stderr "FAIL: zoom -factor 0.3 raised an error: $err"
+    exit 1
+} else {
+    puts "ok: zoom -factor 0.3"
+}
+
+if {[catch {zoom} err]} {
+    puts "ok: zoom rejects a missing -factor ($err)"
+} else {
+    puts stderr "FAIL: zoom accepted a missing -factor"
+    exit 1
+}
+
+if {[catch {zoom -bogus 1} err]} {
+    puts "ok: zoom rejects an unknown flag ($err)"
+} else {
+    puts stderr "FAIL: zoom accepted an unknown flag"
+    exit 1
+}
+
 puts "le_tcl smoke test passed"

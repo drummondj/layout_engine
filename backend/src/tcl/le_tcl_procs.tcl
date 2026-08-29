@@ -615,6 +615,32 @@ register_command_help open_design \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+# --- zoom (backed by zoom_cmd/le_zoom) ---
+proc zoom {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "zoom -factor <double> \[-help\] - Zooms the current view in or out, anchored at the viewport center"
+    }
+    array set opts {-factor {}}
+    foreach {flag value} $args {
+        if {![info exists opts($flag)]} {
+            error "zoom: unknown flag $flag"
+        }
+        set opts($flag) $value
+    }
+    if {$opts(-factor) eq ""} {
+        error "zoom: -factor is required"
+    }
+    zoom_cmd $opts(-factor)
+    return ""
+}
+register_command_help zoom \
+    "zoom -factor <double> \[-help\] - Zooms the current view in or out, anchored at the viewport center" \
+    "Zooms the current view by a signed fractional step (new_scale = scale * (1 + factor), matching le_zoom's own semantics - positive zooms in, negative zooms out), anchored at the viewport's own center rather than a screen point - a script has no live mouse position to anchor on the way the GUI's own keyboard zoom shortcut does. That shortcut uses a fixed step of 0.3 (30%) per press." \
+    {
+        {-factor {type double required 1 description {Signed fractional zoom step - positive zooms in, negative zooms out (e.g. 0.3 zooms in 30%, matching the GUI's own per-keypress step)}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 # --- get_<type> (UPDATES.md item 19.1) ---
 #
 # `get_<type> [<name-expr>...] [-of <parent-token>...] [-filter <expr>]

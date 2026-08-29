@@ -446,6 +446,11 @@ int set_current_design_layout_cmd(long long design_id)
     return result;
 }
 
+void zoom_cmd(double factor)
+{
+    le_zoom(session(), factor, viewport_width() / 2, viewport_height() / 2);
+}
+
 void set_session_handle(long long handle_address)
 {
     injected_handle() = reinterpret_cast<LeHandle *>(static_cast<uintptr_t>(handle_address));
