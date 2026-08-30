@@ -385,6 +385,18 @@ namespace le
             };
 
             const double min_visible_dbu = min_visible_instance_pixels_ / scale;
+            // Same "genuinely invisible" threshold ViewportFilterStage/
+            // TinyViewportFilterStage already use for real shapes (1
+            // device pixel in both dimensions) - a placement under
+            // min_visible_dbu still gets a real outline rect drawn
+            // (below) down to any nonzero size, which at high placement
+            // density (thousands of adjacent standard cells, zoomed
+            // out) rasterizes as a dense grid of hairline-adjacent
+            // rectangles that reads as a solid block, not useful
+            // information - once a placement is ALSO sub-pixel in both
+            // dimensions, its own outline conveys nothing a real user
+            // could see, so skip it entirely rather than drawing it.
+            const double sub_pixel_dbu = 1.0 / scale;
             std::set<NodeKey> seen_children;
 
             for (PlacementId placement_id : root.get_layout_placements(layout_id))
@@ -412,6 +424,9 @@ namespace le
                 const double height = static_cast<double>(world_bbox.ur.y - world_bbox.ll.y);
                 if (width < min_visible_dbu && height < min_visible_dbu)
                 {
+                    if (width < sub_pixel_dbu && height < sub_pixel_dbu)
+                        continue; // sub-pixel outline would be visual noise, not information
+
                     result.tiny_instance_rects.push_back(PixelRect{
                         .ll = PixelPoint{.x = static_cast<double>(world_bbox.ll.x - local_origin.x) * scale, .y = static_cast<double>(world_bbox.ll.y - local_origin.y) * scale},
                         .ur = PixelPoint{.x = static_cast<double>(world_bbox.ur.x - local_origin.x) * scale, .y = static_cast<double>(world_bbox.ur.y - local_origin.y) * scale},

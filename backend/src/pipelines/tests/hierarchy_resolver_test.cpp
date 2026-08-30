@@ -250,6 +250,33 @@ TEST_F(HierarchyResolverFixture, SubPixelCullingReflectsTheCurrentScaleNotAStale
     EXPECT_EQ(SkColorGetA(bitmap.getColor(50, 50)), 0);           // dead center - unfilled
 }
 
+TEST_F(HierarchyResolverFixture, GenuinelySubPixelPlacementDrawsNoOutlineAtAll)
+{
+    // A placement under min_visible_instance_pixels_ still gets an
+    // outline rect (the case above) down to any nonzero size, unless
+    // it's ALSO sub-pixel in both dimensions (1 device pixel, same
+    // threshold ViewportFilterStage uses for real shapes) - at high
+    // placement density this outline-down-to-nothing behavior used to
+    // rasterize as a dense grid of hairline-adjacent rectangles that
+    // reads as a solid block, not useful information.
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{50, 50});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{40000, 40000});
+    add_placement(sub_layout, leaf, le::Point{10000, 10000}, le::Orientation::N, "U1");
+
+    // scale=0.01: the 50x50 leaf's own placement is 0.5px in both
+    // dimensions - genuinely sub-pixel (not just "under
+    // min_visible_instance_pixels_", the default 100.0) - so it must
+    // draw nothing at all, not even a faint outline.
+    const sk_sp<SkPicture> picture = resolver.build_layout_picture(root, sub_layout, 0, view_layers, scene, 0.01);
+    ASSERT_TRUE(picture);
+
+    const SkBitmap bitmap = rasterize(picture, 400, 400);
+    // Placement world (10000,10000)-(10050,10050) -> pixel (100,100)-(100.5,100.5),
+    // comfortably inside SUB's own 400x400px diearea and far from its
+    // own boundary edges (at pixel 0 and pixel 400).
+    EXPECT_FALSE(region_has_opaque_pixel(bitmap, 95, 95, 105, 105));
+}
+
 TEST_F(HierarchyResolverFixture, LayerVisibilityAppliesInsideACachedInstancePicture)
 {
     // Regression for this port specifically (not present verbatim in
