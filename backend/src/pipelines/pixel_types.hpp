@@ -111,5 +111,6 @@ namespace le
     {
         sk_sp<SkSurface> surface;
         PixelBuffer buffer;
+        bool empty = false;
     };
 }

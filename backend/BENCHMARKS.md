@@ -999,3 +999,63 @@ nothing." Per-instance-culling (skipping an off-screen instance's own
 `concat`+`drawPicture` call before it reaches Skia's own quickReject) was
 deliberately not added in this phase - these numbers are the ones to
 revisit before deciding whether it's actually needed.
+
+## 2026-08-30 — HierarchyResolver rewrite onto MemoizingStage + a dynamic tbb::flow::graph
+
+Same fixture as Phase D above (`layout_stress_data.hpp`, unmodified),
+same `BM_HierarchyResolver_*` benchmark names (renamed from
+`BM_InstanceRenderer_*` when `HierarchyResolver` replaced
+`InstanceRenderer` - the numbers above remain the correct pre-migration
+baseline for this comparison). Release build, `--benchmark_repetitions=5
+--benchmark_report_aggregates_only=true`:
+
+| Benchmark | Mean | cv | vs. Phase D baseline |
+| --- | --- | --- | --- |
+| `BM_HierarchyResolver_BuildLayoutPicture_ColdCache_FullDepth` | 41.0 ms | 1.64% | **~2.1x faster** (was 87.9 ms) |
+| `BM_HierarchyResolver_RenderLayoutFrame_ColdCache_FullDepth` | 483-486 ms | 1.11% (time), 21-30% (CPU/items - noisy, see below) | **~1.8-1.9x slower** (was 262 ms) |
+| `BM_HierarchyResolver_RenderLayoutFrame_WarmCache_FullDepth` | 0.003 ms | 1.44% | flat (was ~0.000 ms) |
+| `BM_HierarchyResolver_RenderLayoutFrame_ColdCache_ShallowDepth` | 6.12-6.18 ms | 3.74% | flat (was 6.00 ms) |
+
+This is a genuinely mixed result, reported as measured rather than
+smoothed into a single "faster"/"slower" story:
+
+- **`BuildLayoutPicture` cold-resolve got faster**, not flat-or-worse as
+  anticipated going in (see the design writeup this entry accompanies).
+  This fixture has only 3 distinct `NodeKey`s (the sub-block's `Layout`,
+  its leaf `Abstract`, degenerate top-level dispatch) despite 4,000,000
+  leaf placements, so there's no real opportunity for the new design's
+  concurrent-node execution to help here - the win looks like it comes
+  from the discovery pass itself: a plain `graph_->nodes.find(key)` map
+  lookup per already-seen placement is cheaper than the old design's
+  per-call `SynchronousStageRunner` construction inside the recursive
+  walk. Not confirmed by profiling - a plausible read of the numbers,
+  not a verified root cause.
+- **`RenderLayoutFrame`'s cold-full-depth case got measurably slower.**
+  The per-call bookkeeping this rewrite adds on top of `BuildLayoutPicture`'s
+  own path - `graph_->current_generation` bumped on every top-level
+  call, `discover_layout_children` walking the top layout's own
+  placements a second time (once for `BuildLayoutPicture`'s own nested
+  resolution during a prior warm-up-adjacent call in some benchmark
+  variants, again for `render_layout_frame`'s own top-level picture),
+  and `sweep_stale_nodes()`'s O(node count) scan after every call - is
+  the leading suspect, but this has **not been root-caused by profiling
+  in this pass**; flagged as follow-up work rather than papered over.
+  The CPU/items-per-second figures for this one case carry high variance
+  (21-30% cv) that the wall-clock time figures (1.11% cv) don't share -
+  consistent with background system load during this run (a `Load
+  Average` of 4+ was observed), not instability in the measurement
+  itself; re-run in a quieter environment before treating the exact
+  1.8-1.9x figure as precise.
+- Warm-cache and shallow-depth numbers are unchanged within noise, as
+  expected - neither path exercises the new discovery/graph machinery
+  differently from the old recursive one.
+
+**Deferred**: the design writeup for this rewrite calls for a second,
+"wide" stress fixture (many distinct designs, e.g. 10,000 distinct leaf
+types x 100 placements each) specifically to exercise the new design's
+per-distinct-node concurrency, since this existing fixture structurally
+can't (only 3 live nodes, ever). That fixture, plus a benchmark
+repeatedly toggling `hierarchy_depth` to measure `sweep_stale_nodes`'s
+own scan cost, were not built in this pass - the numbers above are
+useful as a same-fixture before/after comparison, but say nothing yet
+about the new design's actual payoff case or pruning overhead at scale.

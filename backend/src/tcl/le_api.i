@@ -124,6 +124,9 @@ int redo_command();
 int command_history_count();
 const char *command_history_at(int index);
 
+int get_hierarchy_depth_command();
+void set_hierarchy_depth_command(int depth);
+
 // --- Generated TCL property-reading surface (see backend/CLAUDE.md's
 // TCL section) - never edit generated/le_api_generated.i directly,
 // regenerate via the regen-tcl skill instead. ---

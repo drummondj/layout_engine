@@ -169,19 +169,16 @@ TEST_F(DesignRenderPipelineFixture, FillsInteriorPixelWithLayerStyleColor)
 
     const auto &shapes = shape_pipeline.run(abstract_id, options());
     const uint64_t data_version = le::PixelTransformStage::data_version_for(abstract_id, options());
-    const le::RasterizedFrame &frame = pipeline.run(shapes, data_version, options());
+    const auto &picture = pipeline.run(shapes, data_version, options());
 
-    ASSERT_NE(frame.surface, nullptr);
+    ASSERT_NE(picture, nullptr);
     const le::ViewLayerData *view_layer = view_layers.get(shapes.begin()->first);
     ASSERT_NE(view_layer, nullptr);
-    // Sample directly from the RasterizedFrame's own surface - it's
-    // already Y-flipped, but the fill pattern covers a wide enough strip
-    // (11..15, 11..29 pre-flip == 11..15, 71..89 post-flip within a
-    // 100px-tall canvas) that region_shows_color finds it regardless.
-    SkBitmap bitmap;
-    bitmap.allocPixels(SkImageInfo::MakeN32Premul(100, 100));
-    frame.surface->readPixels(bitmap, 0, 0);
-    EXPECT_TRUE(region_shows_color(bitmap, 11, 71, 15, 89, to_sk_color(view_layer->style.outline_color)));
+    // DesignRenderPipeline no longer rasterizes (RasterizeComposePipeline
+    // owns that, applying the Y-flip) - sample the raw picture directly,
+    // pre-flip, at (10,10)-(30,30)'s own interior strip.
+    SkBitmap bitmap = rasterize_picture(picture, 100, 100);
+    EXPECT_TRUE(region_shows_color(bitmap, 11, 11, 15, 29, to_sk_color(view_layer->style.outline_color)));
 }
 
 TEST_F(DesignRenderPipelineFixture, ReusesCacheUntilMutationEvenForTheSameAbstractId)
@@ -264,32 +261,29 @@ TEST_F(SelectionGhostLayerPipelineFixture, OutlinesOnlyTheSelectedPieceNotTheWho
     add_port_shape(terminal_id, le::Shape{.layer = m1, .rects = {le::Rect{.ll = {60, 60}, .ur = {80, 80}}}});
     scene.select(first_shape_id);
 
-    const le::RasterizedFrame &frame = pipeline.run(abstract_id, options());
-    ASSERT_NE(frame.surface, nullptr);
-    SkBitmap bitmap;
-    bitmap.allocPixels(SkImageInfo::MakeN32Premul(100, 100));
-    frame.surface->readPixels(bitmap, 0, 0);
+    const auto &picture = pipeline.run(abstract_id, options());
+    ASSERT_NE(picture, nullptr);
+    // SelectionGhostLayerPipeline no longer rasterizes
+    // (RasterizeComposePipeline owns that, applying the Y-flip) - sample
+    // the raw picture directly, pre-flip: the selected piece's own left
+    // edge is at x=9,y=20; the second, unselected piece's own left edge
+    // (x=59,y=70) must show nothing.
+    SkBitmap bitmap = rasterize_picture(picture, 100, 100);
 
-    // Pre-flip (10,10)-(30,30) is the selected piece's own left edge at
-    // x=9 (RasterizePictureStage's own Y-flip means pre-flip y=20 lands
-    // at post-flip y = 100-20 = 80); the second, unselected piece's own
-    // left edge (pre-flip x=59,y=70 -> post-flip y=30) must show nothing.
     auto is_white = [&](int x, int y)
     {
         SkColor c = bitmap.getColor(x, y);
         return SkColorGetR(c) == 255 && SkColorGetG(c) == 255 && SkColorGetB(c) == 255 && SkColorGetA(c) > 200;
     };
-    EXPECT_TRUE(is_white(9, 80));
-    EXPECT_FALSE(is_white(59, 30));
+    EXPECT_TRUE(is_white(9, 20));
+    EXPECT_FALSE(is_white(59, 70));
 }
 
 TEST_F(SelectionGhostLayerPipelineFixture, RunRulerIsEmptyWhenNoRulersExist)
 {
-    const le::RasterizedFrame &frame = pipeline.run_ruler(options());
-    ASSERT_NE(frame.surface, nullptr);
-    SkBitmap bitmap;
-    bitmap.allocPixels(SkImageInfo::MakeN32Premul(100, 100));
-    frame.surface->readPixels(bitmap, 0, 0);
+    const auto &picture = pipeline.run_ruler(options());
+    ASSERT_NE(picture, nullptr);
+    SkBitmap bitmap = rasterize_picture(picture, 100, 100);
     for (int y = 0; y < 100; ++y)
         for (int x = 0; x < 100; ++x)
             ASSERT_EQ(SkColorGetA(bitmap.getColor(x, y)), 0);

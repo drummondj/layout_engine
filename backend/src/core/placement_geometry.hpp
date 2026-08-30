@@ -22,21 +22,41 @@ namespace le
     /// `static`, no instance state) - InstanceRenderer calls these same
     /// free functions now instead of its own private copies.
 
-    /// Whether design_id's own current view (Layout, recursed, if
-    /// remaining_depth allows it; otherwise Abstract) resolves to
-    /// anything drawable at all, without actually building/recording
-    /// anything - mirrors InstanceRenderer::build_design_picture's own
-    /// dispatch condition exactly. A placement whose reference_design
-    /// fails this check must not be treated as a real (if sub-pixel)
-    /// instance elsewhere: placement_world_bbox's own nullopt return for
-    /// "unresolved" is otherwise indistinguishable from a legitimately
-    /// zero-sized declared bbox.
-    inline bool design_is_resolvable(const Root &root, DesignId design_id, int remaining_depth)
+    /// The dispatch rule for design_id's own current view (Layout,
+    /// recursed, if remaining_depth allows it; otherwise Abstract;
+    /// Kind::None if neither resolves) - the single source of truth
+    /// design_is_resolvable/resolved_local_bbox below are now thin
+    /// callers of, and HierarchyResolver's own node-key scheme
+    /// (hierarchy_resolver.hpp NodeKey/discover_layout_children) is built
+    /// on directly. Previously this exact if/else was hand-duplicated
+    /// three ways (build_design_picture, design_is_resolvable,
+    /// resolved_local_bbox) - a real drift risk; now three (four,
+    /// counting HierarchyResolver's own discovery) callers of one
+    /// function can never disagree about which view a given
+    /// {DesignId, remaining_depth} resolves to.
+    struct DesignTarget
+    {
+        enum class Kind
+        {
+            None,
+            Layout,
+            Abstract
+        } kind = Kind::None;
+        LayoutId layout_id;
+        AbstractId abstract_id;
+    };
+
+    inline DesignTarget resolve_design_target(const Root &root, DesignId design_id, int remaining_depth)
     {
         const LayoutId layout_id = root.get_design_layout(design_id);
         if (remaining_depth > 0 && layout_id.valid())
-            return true;
-        return root.get_design_abstract(design_id).valid();
+            return DesignTarget{.kind = DesignTarget::Kind::Layout, .layout_id = layout_id, .abstract_id = {}};
+
+        const AbstractId abstract_id = root.get_design_abstract(design_id);
+        if (abstract_id.valid())
+            return DesignTarget{.kind = DesignTarget::Kind::Abstract, .layout_id = {}, .abstract_id = abstract_id};
+
+        return DesignTarget{};
     }
 
     inline Rect layout_declared_bbox(const Root &root, LayoutId layout_id)
@@ -63,25 +83,39 @@ namespace le
         return Rect{};
     }
 
-    // Resolves design_id's own current view exactly like
-    // InstanceRenderer::build_design_picture, but without building/
-    // recording anything - used both for a placing parent's own
+    /// Whether design_id's own current view (Layout, recursed, if
+    /// remaining_depth allows it; otherwise Abstract) resolves to
+    /// anything drawable at all, without actually building/recording
+    /// anything. A placement whose reference_design fails this check
+    /// must not be treated as a real (if sub-pixel) instance elsewhere:
+    /// placement_world_bbox's own nullopt return for "unresolved" is
+    /// otherwise indistinguishable from a legitimately zero-sized
+    /// declared bbox.
+    inline bool design_is_resolvable(const Root &root, DesignId design_id, int remaining_depth)
+    {
+        return resolve_design_target(root, design_id, remaining_depth).kind != DesignTarget::Kind::None;
+    }
+
+    // Resolves design_id's own current view's own declared bbox, without
+    // building/recording anything - used both for a placing parent's own
     // Geometry::instance_transform orientation math and for
-    // placement_world_bbox below. Mirrors build_design_picture's own
-    // dispatch rule so the two can never disagree about which view
-    // (Layout vs. Abstract) a given {DesignId, remaining_depth} resolves
-    // to.
+    // placement_world_bbox below. Thin caller of resolve_design_target
+    // above, so this and design_is_resolvable can never disagree about
+    // which view (Layout vs. Abstract) a given {DesignId, remaining_depth}
+    // resolves to.
     inline Rect resolved_local_bbox(const Root &root, DesignId design_id, int remaining_depth)
     {
-        const LayoutId layout_id = root.get_design_layout(design_id);
-        if (remaining_depth > 0 && layout_id.valid())
-            return layout_declared_bbox(root, layout_id);
-
-        const AbstractId abstract_id = root.get_design_abstract(design_id);
-        if (abstract_id.valid())
-            return abstract_declared_bbox(root, abstract_id);
-
-        return Rect{};
+        const DesignTarget target = resolve_design_target(root, design_id, remaining_depth);
+        switch (target.kind)
+        {
+        case DesignTarget::Kind::Layout:
+            return layout_declared_bbox(root, target.layout_id);
+        case DesignTarget::Kind::Abstract:
+            return abstract_declared_bbox(root, target.abstract_id);
+        case DesignTarget::Kind::None:
+        default:
+            return Rect{};
+        }
     }
 
     /// A Placement's own world-space bbox (its reference_design's own

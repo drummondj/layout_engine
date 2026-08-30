@@ -572,3 +572,13 @@ const char *command_history_at(int index)
     const char *value = le_command_history_at(session(), index);
     return value ? value : "";
 }
+
+int get_hierarchy_depth_command()
+{
+    return le_hierarchy_depth(session());
+}
+
+void set_hierarchy_depth_command(int depth)
+{
+    le_set_hierarchy_depth(session(), depth);
+}

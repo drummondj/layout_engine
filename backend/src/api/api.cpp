@@ -68,13 +68,13 @@ struct LeHandle
     // full displayable frame for a Layout view (Migration Step 3 Phase C)
     // - le_render_pixel_buffer calls its own render_layout_frame instead
     // of abstract_shape_pipeline/frame_render_pipeline above when
-    // scene.current_layout() is active. render_layout_frame takes
-    // `frame_render_pipeline` above as an explicit parameter and shares
-    // its rasterize/compose stages directly (see
-    // DesignRenderPipeline::run_design_rasterize's own comment) - it
-    // still owns its own separate MouseOverlayStage/RulerOverlayStage/
-    // SelectionOverlayStage trio (see HierarchyResolver's own class
-    // comment for why that much stays duplicated).
+    // scene.current_layout() is active. Fully self-contained: it owns its
+    // own private MouseOverlayStage/RulerOverlayStage/SelectionOverlayStage
+    // trio AND its own private RasterizeComposePipeline, entirely separate
+    // from frame_render_pipeline's own equivalents (see HierarchyResolver's
+    // own class comment for why - a pipeline is a self-contained graph of
+    // stages, so this never reaches into frame_render_pipeline's internal
+    // nodes).
     le::HierarchyResolver hierarchy_resolver;
 
     // Undo/redo stack + command-recall log (UPDATES.md item 21) - every
@@ -2972,13 +2972,14 @@ extern "C"
         return 0;
     }
 
+    int frame_mark_count = 0;
+
     LePixelBuffer le_render_pixel_buffer(LeHandle *handle)
     {
         if (!handle)
             return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        ZoneScopedN("le_render_pixel_buffer");
         // FrameMarkStart/End (named), not plain FrameMark - a frame here
         // only ever happens on demand (whenever something changed and the
         // native texture callback next pulls a frame), not once per
@@ -2988,6 +2989,7 @@ extern "C"
         // frame set with its own explicit duration in the Tracy timeline,
         // instead of a single zero-width instant marker that would make
         // every render look free.
+
         FrameMarkStart(kRenderFrameName);
 
         // Migration Step 3 Phase C: a Layout view (scene.current_layout()
@@ -2999,7 +3001,7 @@ extern "C"
         const le::PixelBuffer *buffer = nullptr;
         if (handle->scene.current_layout().valid())
         {
-            buffer = &handle->hierarchy_resolver.render_layout_frame(handle->root, handle->scene.current_layout(), handle->scene.hierarchy_depth(), handle->view_layers, handle->scene, handle->frame_render_pipeline);
+            buffer = &handle->hierarchy_resolver.render_layout_frame(handle->root, handle->scene.current_layout(), handle->scene.hierarchy_depth(), handle->view_layers, handle->scene);
         }
         else
         {
@@ -3009,7 +3011,7 @@ extern "C"
             buffer = &handle->frame_render_pipeline.run(handle->scene.current_abstract(), shapes, tiny_shapes, options);
         }
 
-        FrameMark;
+        FrameMarkEnd(kRenderFrameName);
         return LePixelBuffer{
             .data = buffer->data,
             .width = buffer->width,

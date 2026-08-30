@@ -2,7 +2,6 @@
 // a representative subset of instancing_test.cpp's own InstancingFixture
 // cases, covering both Phase B (resolve_design_picture/build_layout_picture)
 // and Phase C (render_layout_frame) scope.
-#include "../abstract_shape_pipeline.hpp"
 #include "../hierarchy_resolver.hpp"
 #include "include/core/SkBitmap.h"
 #include "include/core/SkImageInfo.h"
@@ -109,7 +108,6 @@ namespace
         le::ViewLayerSet view_layers;
         le::LibraryId library_id;
         le::HierarchyResolver resolver;
-        le::FrameRenderPipeline frame;
         le::Scene scene;
     };
 }
@@ -147,16 +145,21 @@ TEST_F(HierarchyResolverFixture, TwoLevelHierarchyRecursesAndPlacesTheLeafRelati
 
 TEST_F(HierarchyResolverFixture, NestedLayoutRecursionDoesNotCorruptTheOuterLayoutsOwnDirectContent)
 {
-    // Regression for generate_abstract_stage_/generate_layout_stage_
-    // being persistent, shared members: TOP's own direct content (a real
-    // routing Blockage, not just its diearea outline) must survive the
-    // recursive placement loop below, which - through the SAME shared
-    // generate_layout_stage_ - also resolves SUB (a DIFFERENT LayoutId)
-    // and, deeper still, LEAF's own Abstract via the SAME shared
-    // generate_abstract_stage_. If the copy-before-recursion fix
-    // regressed back to holding a reference across that recursion,
-    // TOP's own content would be silently replaced by whatever SUB/LEAF
-    // last computed by the time record_local_picture consumes it.
+    // Regression for the same "own content must survive resolving a
+    // different node's content" guarantee the pre-graph design's own
+    // single-slot generate_abstract_stage_/generate_layout_stage_
+    // sharing needed a copy-before-recursion fix for: TOP's own direct
+    // content (a real routing Blockage, not just its diearea outline)
+    // must survive discovering/resolving SUB (a DIFFERENT LayoutId, its
+    // own HierarchyLayoutNodeStage node) and, deeper still, LEAF's own
+    // Abstract (its own HierarchyAbstractLeafStage node). In this design
+    // each node owns its own permanent, per-node
+    // AbstractGeometryStage/LayoutGeometryStage runner (no single-slot
+    // aliasing hazard is even structurally possible any more - see
+    // HierarchyLayoutNodeStage's own doc comment) - this test still
+    // exercises the equivalent end-to-end guarantee (TOP's own content
+    // isn't corrupted by resolving its own nested SUB/LEAF subtree)
+    // rather than the original single-slot-race mechanism specifically.
     le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
     auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{400, 400});
     add_placement(sub_layout, leaf, le::Point{0, 0}, le::Orientation::N, "U1");
@@ -283,7 +286,7 @@ TEST_F(HierarchyResolverFixture, RenderLayoutFrameDrawsAtTheCorrectPostFlipPixel
     scene.set_scale(1.0);
     scene.set_viewport_size(800, 800);
 
-    const le::PixelBuffer &buffer = resolver.render_layout_frame(root, sub_layout, /*hierarchy_depth=*/1, view_layers, scene, frame);
+    const le::PixelBuffer &buffer = resolver.render_layout_frame(root, sub_layout, /*hierarchy_depth=*/1, view_layers, scene);
     ASSERT_TRUE(buffer.data);
     EXPECT_EQ(buffer.width, 800);
     EXPECT_EQ(buffer.height, 800);
@@ -305,10 +308,10 @@ TEST_F(HierarchyResolverFixture, RenderLayoutFramePanShiftsTheDrawnPosition)
     scene.set_pan(le::Point{0, 0});
     scene.set_scale(1.0);
     scene.set_viewport_size(800, 800);
-    resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame); // establish the un-panned frame first
+    resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene); // establish the un-panned frame first
 
     scene.set_pan(le::Point{100, 100});
-    const le::PixelBuffer &panned = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+    const le::PixelBuffer &panned = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene);
 
     // world dbu rect (500,500)-(600,600), pan=(100,100) -> pre-flip pixel
     // (400,400)-(500,500) -> post-flip (height - y): (400,300)-(500,400).
@@ -326,14 +329,14 @@ TEST_F(HierarchyResolverFixture, RenderLayoutFrameReusesCacheUntilSceneChanges)
     scene.set_scale(1.0);
     scene.set_viewport_size(800, 800);
 
-    const le::PixelBuffer &first = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+    const le::PixelBuffer &first = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene);
     const uint8_t *first_data = first.data;
 
-    const le::PixelBuffer &second = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+    const le::PixelBuffer &second = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene);
     EXPECT_EQ(second.data, first_data); // unchanged scene - cache hit, same underlying surface
 
     scene.set_pan(le::Point{10, 10});
-    const le::PixelBuffer &after_pan = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+    const le::PixelBuffer &after_pan = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene);
     EXPECT_NE(after_pan.data, first_data); // pan changed - must recompute
 }
 
@@ -347,63 +350,174 @@ TEST_F(HierarchyResolverFixture, RenderLayoutFrameRecomputesAfterARootMutation)
     scene.set_scale(1.0);
     scene.set_viewport_size(800, 800);
 
-    const le::PixelBuffer &first = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+    const le::PixelBuffer &first = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene);
     const uint8_t *first_data = first.data;
 
     root.bump_mutation_version();
-    const le::PixelBuffer &after_mutation = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
+    const le::PixelBuffer &after_mutation = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene);
     EXPECT_NE(after_mutation.data, first_data); // mutation invalidated the whole epoch - must recompute
     EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(after_mutation, 520, 220, 580, 280));
 }
 
-TEST_F(HierarchyResolverFixture, SwitchingFromAbstractViewToLayoutViewThroughTheSameFrameRenderPipelineDoesNotShowStaleContent)
-{
-    // The direct regression guard for kLayoutVersionDomainTag: sharing
-    // FrameRenderPipeline's rasterize/compose instances between
-    // FrameRenderPipeline::run() (Abstract view) and
-    // HierarchyResolver::render_layout_frame() (Layout view) is only safe
-    // because a real caller never calls both for the same frame - a view
-    // switch is a genuine content change. Proves the Layout-view frame's
-    // own pixels are correct - not the previous Abstract-view frame's
-    // stale, cached content - immediately after switching, through the
-    // SAME shared FrameRenderPipeline instance.
-    const le::AbstractId abstract_id = root.create_abstract(le::AbstractData{});
-    const le::TerminalId terminal_id = root.create_terminal(le::TerminalData{.abstract = abstract_id});
-    const le::TerminalPortId port_id = root.create_terminal_port(le::TerminalPortData{.terminal = terminal_id});
-    le::Shape abstract_shape;
-    abstract_shape.terminal_port = port_id;
-    abstract_shape.layer = m1;
-    abstract_shape.rects.push_back(le::Rect{.ll = {10, 10}, .ur = {30, 30}});
-    root.create_shape(std::move(abstract_shape));
+// --- MemoizingStage/tbb::flow::graph rewrite - new coverage ---
 
+TEST_F(HierarchyResolverFixture, DedupByKeyComputesASharedLeafExactlyOnceRegardlessOfPlacementCount)
+{
+    // N placements of the SAME leaf design in one Layout - direct test of
+    // "one graph node per distinct NodeKey, not one per Placement."
+    // 100x100, matching the size convention every other fixture in this
+    // file uses - anything smaller than min_visible_instance_pixels_
+    // (100.0 default) at scale=1.0 gets sub-pixel-culled into a
+    // tiny_instance_rects entry instead of a real graph edge, which would
+    // make this test exercise culling, not dedup.
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{4000, 4000});
+    constexpr int kPlacementCount = 100;
+    for (int i = 0; i < kPlacementCount; ++i)
+        add_placement(sub_layout, leaf, le::Point{static_cast<int64_t>(i) * 20, 0}, le::Orientation::N, "U" + std::to_string(i));
+
+    const uint64_t before = resolver.design_picture_recompute_count();
+    const sk_sp<SkPicture> picture = resolver.build_layout_picture(root, sub_layout, /*remaining_depth=*/0, view_layers, scene, /*scale=*/1.0);
+    ASSERT_TRUE(picture);
+
+    // Exactly 2 new recomputes total - one for LEAF's own shared
+    // HierarchyAbstractLeafStage node, one for SUB's own
+    // HierarchyLayoutNodeStage node - regardless of kPlacementCount.
+    EXPECT_EQ(resolver.design_picture_recompute_count() - before, 2u);
+}
+
+TEST_F(HierarchyResolverFixture, IncrementalMultiRootDiscoverySharesAChildAcrossTwoRootsWithinOneEpoch)
+{
+    // Two different, partially-overlapping roots resolved within one
+    // epoch (shallow-ish then a second root sharing the first's own
+    // child) - targets ensure_node_built's own incremental extension of
+    // an already-live, already-quiescent flow_graph.
     le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
     auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{400, 400});
-    add_placement(sub_layout, leaf, le::Point{500, 500}, le::Orientation::N, "U1");
+    add_placement(sub_layout, leaf, le::Point{0, 0}, le::Orientation::N, "U1");
 
-    le::AbstractShapePipeline shape_pipeline;
-    scene.set_current_abstract(abstract_id);
-    scene.set_pan(le::Point{0, 0});
-    scene.set_scale(1.0);
-    scene.set_viewport_size(800, 800);
+    auto [top_a_design, top_a_layout] = create_layout_design("TOPA", le::Point{3000, 3000});
+    add_placement(top_a_layout, sub_design, le::Point{0, 0}, le::Orientation::N, "U1");
 
-    le::PipelineOptions options;
-    options.ctx.root = &root;
-    options.ctx.view_layers = &view_layers;
-    options.ctx.scene = &scene;
-    options.epoch.root_mutation_version = root.mutation_version();
-    options.epoch.view_layers_generation = view_layers.generation();
-    options.viewport.viewport_version = scene.viewport_version();
-    options.viewport.visibility_version = scene.visibility_version();
-    options.viewport.scale = scene.scale();
+    auto [top_b_design, top_b_layout] = create_layout_design("TOPB", le::Point{3000, 3000});
+    add_placement(top_b_layout, sub_design, le::Point{500, 500}, le::Orientation::N, "U1");
 
-    const auto &shapes = shape_pipeline.run(abstract_id, options);
-    const auto &tiny_shapes = shape_pipeline.run_tiny_shapes(abstract_id, options);
-    frame.run(abstract_id, shapes, tiny_shapes, options); // an Abstract-view frame, cached in frame's own instances
+    resolver.build_layout_picture(root, top_a_layout, /*remaining_depth=*/1, view_layers, scene, 1.0);
+    const uint64_t after_a = resolver.design_picture_recompute_count();
+    ASSERT_GT(after_a, 0u);
 
-    scene.set_current_layout(sub_layout);
-    scene.set_current_abstract(le::AbstractId{});
+    // TOPB references the SAME sub_design at the SAME remaining_depth -
+    // its own {sub_layout, 0} and LEAF's own Abstract node should already
+    // be live from TOPA's own discovery above (same NodeKey), so only
+    // TOPB's own new Layout node should recompute.
+    resolver.build_layout_picture(root, top_b_layout, /*remaining_depth=*/1, view_layers, scene, 1.0);
+    const uint64_t after_b = resolver.design_picture_recompute_count();
 
-    const le::PixelBuffer &layout_buffer = resolver.render_layout_frame(root, sub_layout, 1, view_layers, scene, frame);
-    ASSERT_TRUE(layout_buffer.data);
-    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(layout_buffer, 520, 220, 580, 280));
+    EXPECT_EQ(after_b - after_a, 1u); // SUB/LEAF reused, not doubled
+}
+
+TEST_F(HierarchyResolverFixture, PruningRemovesStaleDepthOnlyNodesButKeepsStillSharedNodesLiveAndUncomputed)
+{
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{400, 400});
+    add_placement(sub_layout, leaf, le::Point{0, 0}, le::Orientation::N, "U1");
+
+    auto [top_design, top_layout] = create_layout_design("TOP", le::Point{3000, 3000});
+    add_placement(top_layout, sub_design, le::Point{1000, 1000}, le::Orientation::N, "U1");
+
+    // Deep resolve first (remaining_depth=2): reaches SUB's own
+    // {sub_layout, remaining_depth=1} node and, deeper still, LEAF's own
+    // Abstract node.
+    resolver.build_layout_picture(root, top_layout, /*remaining_depth=*/2, view_layers, scene, 1.0);
+    ASSERT_TRUE(resolver.has_node_for_test(sub_layout, /*remaining_depth=*/1));
+
+    // Re-request the SAME top_layout at a SHALLOWER depth (1) repeatedly
+    // - a genuinely different {top_layout, 1}/{sub_layout, 0} subtree
+    // (Kind::Layout keys are depth-sensitive), sharing only LEAF's own
+    // Abstract node (Kind::Abstract keys collapse depth away) with the
+    // depth-2 subtree above. Enough repeats to cross
+    // kStaleGenerationWindow so the depth-2-only nodes go untouched long
+    // enough to be pruned.
+    for (int i = 0; i < 3; ++i)
+        resolver.build_layout_picture(root, top_layout, /*remaining_depth=*/1, view_layers, scene, 1.0);
+
+    // (a) the depth-2-only nodes are gone.
+    EXPECT_FALSE(resolver.has_node_for_test(top_layout, /*remaining_depth=*/2));
+    EXPECT_FALSE(resolver.has_node_for_test(sub_layout, /*remaining_depth=*/1));
+
+    // (b) the still-in-use shallow nodes remain, and a repeated identical
+    // request doesn't recompute anything - including LEAF's own node,
+    // which survived being shared across both subtrees rather than being
+    // wrongly swept as part of the depth-2 subtree's own cleanup.
+    ASSERT_TRUE(resolver.has_node_for_test(top_layout, /*remaining_depth=*/1));
+    ASSERT_TRUE(resolver.has_node_for_test(sub_layout, /*remaining_depth=*/0));
+    const uint64_t before_repeat = resolver.design_picture_recompute_count();
+    resolver.build_layout_picture(root, top_layout, /*remaining_depth=*/1, view_layers, scene, 1.0);
+    EXPECT_EQ(resolver.design_picture_recompute_count(), before_repeat);
+
+    // (c) a subsequent depth-2 request after pruning still resolves
+    // correctly - full re-discovery/re-build of the pruned subtree, not a
+    // dangling reference into anything unwired/destroyed by the sweep.
+    const sk_sp<SkPicture> picture = resolver.build_layout_picture(root, top_layout, /*remaining_depth=*/2, view_layers, scene, 1.0);
+    ASSERT_TRUE(picture);
+    const SkBitmap bitmap = rasterize(picture, 4000, 4000);
+    EXPECT_TRUE(region_has_opaque_pixel(bitmap, 1010, 1010, 1090, 1090)); // the nested leaf still resolves correctly
+}
+
+TEST_F(HierarchyResolverFixture, InterleavedRootsAlternatingEveryCallAreNeverPruned)
+{
+    // Guards kStaleGenerationWindow's own off-by-one: two roots that each
+    // get touched only every OTHER top-level call must never see their
+    // own nodes pruned out from under them.
+    le::DesignId leaf_a = create_leaf_design("LEAFA", le::Point{100, 100});
+    auto [sub_a_design, sub_a_layout] = create_layout_design("SUBA", le::Point{400, 400});
+    add_placement(sub_a_layout, leaf_a, le::Point{0, 0}, le::Orientation::N, "U1");
+
+    le::DesignId leaf_b = create_leaf_design("LEAFB", le::Point{100, 100});
+    auto [sub_b_design, sub_b_layout] = create_layout_design("SUBB", le::Point{400, 400});
+    add_placement(sub_b_layout, leaf_b, le::Point{0, 0}, le::Orientation::N, "U1");
+
+    for (int i = 0; i < 6; ++i)
+    {
+        if (i % 2 == 0)
+            resolver.build_layout_picture(root, sub_a_layout, /*remaining_depth=*/0, view_layers, scene, 1.0);
+        else
+            resolver.build_layout_picture(root, sub_b_layout, /*remaining_depth=*/0, view_layers, scene, 1.0);
+
+        if (i < 1)
+            continue; // the other root's own node doesn't exist yet
+        EXPECT_TRUE(resolver.has_node_for_test(sub_a_layout, 0)) << "iteration " << i;
+        EXPECT_TRUE(resolver.has_node_for_test(sub_b_layout, 0)) << "iteration " << i;
+    }
+}
+
+TEST_F(HierarchyResolverFixture, ConcurrencySmokeTestManyDistinctReferenceDesignsResolveCorrectly)
+{
+    // Fan-out over many GENUINELY DISTINCT reference designs (not all the
+    // same, unlike the dedup-by-key test above) - each becomes its own
+    // independent sibling HierarchyAbstractLeafStage node, free to be
+    // scheduled concurrently by TBB once triggered (see
+    // hierarchy_resolver.hpp's own class doc comment for why touching
+    // only each node's own private nested-graph runners makes that
+    // safe). A plain Release/Debug run only confirms the RESULT is
+    // correct (right node count, no crash) - real race coverage needs
+    // ThreadSanitizer or a TBB_USE_ASSERT build, flagged as a manual/CI
+    // action item, not something this single run can prove on its own.
+    constexpr int kDesignCount = 200;
+    auto [top_design, top_layout] = create_layout_design("TOP", le::Point{300'000, 300'000});
+    for (int i = 0; i < kDesignCount; ++i)
+    {
+        le::DesignId leaf = create_leaf_design("LEAF" + std::to_string(i), le::Point{100, 100});
+        add_placement(top_layout, leaf, le::Point{static_cast<int64_t>(i) * 1000, 0}, le::Orientation::N, "U" + std::to_string(i));
+    }
+
+    const uint64_t before = resolver.design_picture_recompute_count();
+    const sk_sp<SkPicture> picture = resolver.build_layout_picture(root, top_layout, /*remaining_depth=*/0, view_layers, scene, /*scale=*/1.0);
+    ASSERT_TRUE(picture);
+
+    // One node per distinct LEAF design plus one for TOP itself - if
+    // concurrent sibling execution corrupted shared state (e.g. a data
+    // race on the recompute counter), this count would be unstable
+    // across runs rather than exactly kDesignCount + 1 every time.
+    EXPECT_EQ(resolver.design_picture_recompute_count() - before, static_cast<uint64_t>(kDesignCount) + 1);
 }

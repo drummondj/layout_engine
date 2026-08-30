@@ -951,3 +951,21 @@ register_command_help shape_paths \
     {
         {<id> {type token required 1 description {A shape: friendly-id token}}}
     }
+
+proc set_hierarchy_depth { depth } {
+    set_hierarchy_depth_command $depth
+}
+register_command_help set_hierarchy_depth \
+    "set_hierarchy_depth <depth>" \
+    "Set the visible hierarchy depth" \
+    {
+        {<depth> {type int required 1 description {The hierarchy depth, 1 or larger}}}
+    }
+
+proc get_hierarchy_depth {} {
+    return [get_hierarchy_depth_command]
+}
+register_command_help get_hierarchy_depth \
+    "get_hierarchy_depth" \
+    "Return the visible hierarchy depth" \
+    {}

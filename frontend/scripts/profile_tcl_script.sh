@@ -84,4 +84,6 @@ echo "Done."
 echo "  Trace: $TRACE_FILE"
 echo "  CSV:   $CSV_FILE"
 
+tracy $TRACE_FILE
+
 exit "$TEST_STATUS"

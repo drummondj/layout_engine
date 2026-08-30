@@ -81,9 +81,11 @@ none of these are duplicated here.
   memoization primitive (`get(key, compute_fn)`) with its own monotonic
   `version()`, bumped on every real recompute; `pipelines`' own
   `MemoizingStage` (`src/pipelines/tbb_core.hpp`) is the oneTBB-flow-graph
-  equivalent for most stages, but `HierarchyResolver`'s recursive core
-  stays on `VersionedStage` directly (backend/ONETBB_INTEGRATION.md
-  migration plan, decision 1 — see `src/pipelines/`'s own bullet). A
+  equivalent for most stages, including `HierarchyResolver`'s own
+  per-`NodeKey` nodes since 2026-08-30 (see `src/pipelines/`'s own
+  bullet) — `top_layout_picture_stage_`, `HierarchyResolver`'s one
+  remaining `VersionedStage` use, is a thin cache in front of that
+  `MemoizingStage`-based graph, not a stand-in for it. A
   downstream stage composes its own cache key from an upstream stage's
   `version()` instead of manually re-deriving everything the upstream
   depends on — the fix for a caching-bug class where a new upstream
@@ -102,8 +104,13 @@ none of these are duplicated here.
   override, `PipelineOptions` actually changed since the last
   invocation, else returns the cached result; also emits a Tracy
   `ZoneScoped`/`ZoneName` per real recompute) and `FanInCollectStage`
-  (a versioned parallel fan-in accumulator — used nowhere in the current
-  pipeline shape, kept for a future per-`ViewLayerId` parallelism pass).
+  (a versioned parallel fan-in accumulator — since 2026-08-30, used by
+  `HierarchyResolver`'s own `HierarchyLayoutNodeStage::wire_fan_in` to
+  gather a Layout node's variable-arity (0 to 1,000,000), runtime-
+  determined placement count, which `join_node`/`indexer_node`'s
+  compile-time-fixed arity can't express; still otherwise unused
+  elsewhere, kept generic for a future per-`ViewLayerId` parallelism
+  pass too).
   `PipelineOptions` (`pipeline_options.hpp`) is the one options type every
   stage in the module shares — `PipelineContext` (raw, non-owning
   `Root`/`ViewLayerSet`/`Scene` pointers), `FrameEpoch`
@@ -153,23 +160,70 @@ none of these are duplicated here.
   `HierarchyResolver` (`hierarchy_resolver.hpp`) is the
   `Placement → Design` hierarchical-instance resolver — same design as
   the original `InstanceRenderer` it replaced (same "local pixel space"
-  cached-`SkPicture` convention, same `{id, remaining_depth}`-keyed
-  `design_pictures_`/`layout_pictures_` maps with whole-epoch
-  invalidation, same fresh-per-call `ViewportFilterStage`/
-  `LayerVisibilityFilterStage` pair inside `build_abstract_picture`/
-  `build_layout_picture_uncached` load-bearing correctness fix — see
-  that class's own doc comment for the original bugs both preserved
-  fixes address) — but deliberately **not** built from `MemoizingStage`/
-  `flow::graph` nodes itself: the recursive `Placement → Design` walk is
-  a data-dependent tree shape, decided fresh per call, not a fixed graph
-  topology, and a `flow::graph` node's task body calling `try_put`/
-  blocking `wait_for_all` back into its *own* enclosing graph is a real
-  TBB reentrancy hazard (constructing/using an independent *nested*
-  graph inside `compute()` is the proven-safe pattern instead — see
-  `generate_abstract_stage_`/`generate_layout_stage_`, each a persistent
-  `SynchronousStageRunner`). Stays on `core::VersionedStage` for its own
-  `top_layout_picture_stage_` (the top-level `render_layout_frame` cache)
-  for the same reason. `render_layout_frame` (what `api.cpp`'s
+  cached-`SkPicture` convention; same `ViewportFilterStage`/
+  `LayerVisibilityFilterStage`-per-node load-bearing correctness fix,
+  now *permanent, per-node-instance* members rather than fresh-per-call
+  locals — see the class's own doc comment for why that's *strictly
+  safer* than the original fresh-per-call rule, not merely still-safe:
+  each node is permanently bound to one id for its whole lifetime, so
+  the original rule's own aliasing hazard — a shared runner reused
+  across many different ids in one frame — can't occur by construction).
+  As of 2026-08-30 it *is* built on `MemoizingStage`/`flow::graph`,
+  reversing the original design's own decision to avoid that — see git
+  history for the pre-2026-08-30 version and its own "data-dependent
+  topology, 1,000,000-placement/frame frequency, reentrancy hazard"
+  rationale, which this design resolves differently rather than
+  ignoring: a single-threaded discovery pass
+  (`ensure_node_built`/`discover_layout_children`) walks the database
+  first, deciding the graph's own shape — one node per distinct
+  `NodeKey` (`Kind::Abstract` keyed on `AbstractId` alone, since an
+  Abstract's content never depends on `remaining_depth`; `Kind::Layout`
+  keyed `{LayoutId, remaining_depth}`, mirroring the old
+  `design_pictures_`/`layout_pictures_` map keys exactly) — *before* any
+  node ever executes, incrementally extending one persistent,
+  epoch-scoped `flow_graph` as new keys are discovered rather than
+  rebuilding a fixed topology per call. No node's own `compute()` ever
+  calls `try_put`/`wait_for_all` back into its own enclosing graph — the
+  original reentrancy hazard — since topology is decided by the
+  discovery pass, not by nodes recursing into each other. A Layout
+  node's own placement count (0 to 1,000,000 in the stress fixture) is
+  handled by `FanInCollectStage` (`join_node`/`indexer_node` need
+  compile-time-fixed arity), one fan-in edge per *placement*, so a
+  design placed N times is still resolved once and its single picture
+  broadcast to all N. Node lifetime within one epoch is bounded by
+  generation-stamped, reachability-based pruning
+  (`HierarchyNodeBase::last_touched_generation`/`touch_children`/
+  `sweep_stale_nodes` — needed since a `scene.hierarchy_depth()` change
+  alone doesn't bump `Epoch`, and each node now carries three permanent
+  private nested-graph runners, not just an `sk_sp<SkPicture>`); pruning
+  is two-pass (unwire every stale node's own incoming edges before
+  destroying any of them) since TBB `flow::graph` nodes don't
+  self-deregister from a predecessor's/successor's edge list on
+  destruction. `run_pending()`'s own `wait_for_all()` runs
+  *unconditionally* on every top-level call, even with nothing in its
+  explicit trigger lists — `HierarchyLayoutNodeStage::wire_fan_in`'s
+  "already computed" shortcut (an already-settled child shared by a
+  second top-level request within the same epoch, fed into the new
+  parent's fan-in via a direct `try_put`) seeds real async TBB work
+  untracked by those lists; skipping `wait_for_all()` in that case raced
+  `node->last_picture()` and `sweep_stale_nodes()`'s own destruction
+  against a still-in-flight `compute()` task — a real bug found while
+  building this (flaky recompute counts, a null picture, a "Pure
+  virtual function called" abort at teardown), not a theoretical one —
+  and costs nothing extra once fixed, since `wait_for_all()` on an
+  already-quiescent graph returns immediately. `top_layout_picture_stage_`
+  (the top-level `render_layout_frame` cache) stays a plain
+  `core::VersionedStage`, now a thin cache *in front of* the epoch's
+  graph rather than a node inside it (a graph node would force a rebuild
+  on every pan tick, defeating "rebuild only on epoch change"). See
+  `BENCHMARKS.md`'s 2026-08-30 entry for a same-fixture before/after
+  against the numbers below — a genuinely mixed, not-yet-fully-explained
+  result (`BuildLayoutPicture`'s own cold-resolve got faster;
+  `RenderLayoutFrame`'s own cold-full-depth case got slower) on a
+  fixture with only 3 distinct nodes despite 4,000,000 placements, so it
+  says little yet about this design's actual concurrent-node payoff case
+  — a wider fixture is still needed (that entry's own "Deferred" note).
+  `render_layout_frame` (what `api.cpp`'s
   `le_render_pixel_buffer` calls when `Scene::current_layout()` is
   active) shares `FrameRenderPipeline`'s own `RasterizePictureStage`/
   `ComposeStage` instances with the Abstract-view path via

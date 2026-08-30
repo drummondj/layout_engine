@@ -261,6 +261,9 @@ int command_history_count();
 /// Empty string if index is out of range.
 const char *command_history_at(int index);
 
+int get_hierarchy_depth_command();
+void set_hierarchy_depth_command(int depth);
+
 // --- Generated TCL property-reading surface (see backend/CLAUDE.md's
 // TCL section) - bare property-table accessors and is_child-field
 // enumeration for every TCL-readable class not already covered above.

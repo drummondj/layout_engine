@@ -546,11 +546,13 @@ BENCHMARK(BM_RenderReused_PanOnly)->Unit(benchmark::kMillisecond);
 // (UPDATES.md item 6), three variants isolating two different things:
 //
 // - BM_RenderReused_PanOnly_ZoomedOut: the design content pass alone, via
-//   DesignRenderPipeline::run() directly (no compose step at all) - the
-//   same code BM_RenderReused_PanOnly above exercises through
-//   FrameRenderPipeline, just isolated from compose and re-run at a scale
-//   where nearly every shape is tiny so it's dropped from
-//   BuildDesignPictureStage's own output almost entirely.
+//   DesignRenderPipeline::run() directly (no rasterize/compose step at
+//   all - DesignRenderPipeline only builds a picture; RasterizeComposePipeline
+//   owns rasterize+compose now) - the same code BM_RenderReused_PanOnly
+//   above exercises through FrameRenderPipeline, just isolated from
+//   rasterize/compose and re-run at a scale where nearly every shape is
+//   tiny so it's dropped from BuildDesignPictureStage's own output almost
+//   entirely.
 // - BM_ComposeWithOverlays_PanOnly_ZoomedOut_NoTinyShapes: the same design
 //   content, but composited via FrameRenderPipeline::run() with an empty
 //   tiny_shapes map - isolates ComposeStage's own fixed overhead
@@ -583,9 +585,9 @@ static void BM_RenderReused_PanOnly_ZoomedOut(benchmark::State &state)
         scene.set_pan(Point{pan_x++, 0});
         const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
         const auto &shapes = pipeline.run(data.abstract_id, options);
-        const auto &frame = design.run(shapes, PixelTransformStage::data_version_for(data.abstract_id, options), options);
-        const uint8_t *buffer_data = frame.buffer.data;
-        benchmark::DoNotOptimize(buffer_data);
+        const auto &picture = design.run(shapes, PixelTransformStage::data_version_for(data.abstract_id, options), options);
+        const SkPicture *picture_ptr = picture.get();
+        benchmark::DoNotOptimize(picture_ptr);
     }
     state.SetItemsProcessed(state.iterations() * kTotalShapes);
 }
@@ -955,8 +957,7 @@ static void BM_HierarchyResolver_RenderLayoutFrame_ColdCache_FullDepth(benchmark
     for (auto _ : state)
     {
         HierarchyResolver resolver;
-        FrameRenderPipeline frame;
-        const auto &buffer = resolver.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, frame);
+        const auto &buffer = resolver.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene);
         const auto *buffer_ptr = &buffer;
         benchmark::DoNotOptimize(buffer_ptr);
     }
@@ -977,12 +978,11 @@ static void BM_HierarchyResolver_RenderLayoutFrame_WarmCache_FullDepth(benchmark
     const auto &data = layout_stress_data();
     Scene scene = make_layout_scene(data, 2);
     HierarchyResolver resolver;
-    FrameRenderPipeline frame;
-    resolver.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, frame); // warm every cache once
+    resolver.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene); // warm every cache once
 
     for (auto _ : state)
     {
-        const auto &buffer = resolver.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, frame);
+        const auto &buffer = resolver.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene);
         const auto *buffer_ptr = &buffer;
         benchmark::DoNotOptimize(buffer_ptr);
     }
@@ -1004,8 +1004,7 @@ static void BM_HierarchyResolver_RenderLayoutFrame_ColdCache_ShallowDepth(benchm
     for (auto _ : state)
     {
         HierarchyResolver resolver;
-        FrameRenderPipeline frame;
-        const auto &buffer = resolver.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene, frame);
+        const auto &buffer = resolver.render_layout_frame(data.root, data.top_layout_id, scene.hierarchy_depth(), data.view_layers, scene);
         const auto *buffer_ptr = &buffer;
         benchmark::DoNotOptimize(buffer_ptr);
     }
