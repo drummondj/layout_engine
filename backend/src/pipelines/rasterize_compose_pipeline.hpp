@@ -3,6 +3,7 @@
 #include "pixel_types.hpp"
 #include "stages/compose_stage.hpp"
 #include "stages/rasterize_picture_stage.hpp"
+#include "stages/tiled_rasterize_picture_stage.hpp"
 #include "tbb_core.hpp"
 #include "include/core/SkPicture.h"
 
@@ -29,12 +30,16 @@ namespace le
     /// two separate MemoizingStage instances can't collide with each
     /// other's version() counters in the first place.
     ///
-    /// The four RasterizePictureStage instances are independent (no
-    /// make_edge between them - same "fixed, compile-time-known arity, no
-    /// FanInCollectStage needed" reasoning as ComposeStage's own doc
-    /// comment), so run() dispatches all four via try_put before a single
-    /// wait_for_all() - they settle concurrently within this pipeline's
-    /// own graph_ rather than one-at-a-time.
+    /// The four rasterize stages are independent (no make_edge between
+    /// them - same "fixed, compile-time-known arity, no FanInCollectStage
+    /// needed" reasoning as ComposeStage's own doc comment), so run()
+    /// dispatches all four via try_put before a single wait_for_all() -
+    /// they settle concurrently within this pipeline's own graph_ rather
+    /// than one-at-a-time. design_rasterize_ is a TiledRasterizePictureStage
+    /// (parallel row-band tiling within itself, on top of that) rather
+    /// than a plain RasterizePictureStage like the other three - see its
+    /// own doc comment for why the design slot specifically earns that
+    /// (it's the content-heavy one Tracy identified as the bottleneck).
     class RasterizeComposePipeline
     {
     public:
@@ -108,7 +113,7 @@ namespace le
 
     private:
         oneapi::tbb::flow::graph graph_;
-        RasterizePictureStage design_rasterize_;
+        TiledRasterizePictureStage design_rasterize_;
         RasterizePictureStage tiny_rasterize_;
         RasterizePictureStage selection_rasterize_;
         RasterizePictureStage ruler_rasterize_;

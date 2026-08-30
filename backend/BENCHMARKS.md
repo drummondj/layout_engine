@@ -1059,3 +1059,81 @@ repeatedly toggling `hierarchy_depth` to measure `sweep_stale_nodes`'s
 own scan cost, were not built in this pass - the numbers above are
 useful as a same-fixture before/after comparison, but say nothing yet
 about the new design's actual payoff case or pruning overhead at scale.
+
+## 2026-08-30 — TiledRasterizePictureStage: row-band-parallel rasterize for RasterizeComposePipeline's design slot
+
+Tracy identified `RasterizeComposePipeline`'s `design_rasterize_` step as
+the actual bottleneck. A per-`ViewLayerId` content split
+(`BuildParallelDesignPictureStage`/`MultipleRasterizePictureStage`/
+`ComposePictures`, from this same session's earlier `DesignRenderPipeline`
+work) was tried and removed - it only ever reached the Abstract-view path,
+since a Layout view's `design_picture` is one already-composited
+`SkPicture` with no per-layer structure left to split by the time it
+reaches a rasterize stage. `TiledRasterizePictureStage` splits the
+*output* space instead (row-band tiles, each a separate `SkSurface` via
+`SkSurfaces::WrapPixels` aliasing a disjoint row-range of the same backing
+buffer - no merge/blit step needed afterward), which works on any single
+`sk_sp<SkPicture>` regardless of how its content is organized, so both
+view paths benefit. Same `sk_sp<SkPicture> -> RasterizedFrame` contract as
+`RasterizePictureStage`, used only for `design_rasterize_` (the
+content-heavy slot); `tiny_rasterize_`/`selection_rasterize_`/
+`ruler_rasterize_` stay on plain `RasterizePictureStage`, where per-tile
+overhead would outweigh the benefit on much lighter content.
+
+Release build, A/B via a temporary revert of `design_rasterize_`'s own
+type (`TiledRasterizePictureStage` vs. plain `RasterizePictureStage`,
+everything else unchanged), `--benchmark_repetitions=5` (8 for the
+noisiest case). System was under heavy, fluctuating background load
+during this run (`Load Average` observed between ~7 and ~33 across
+different invocations) - flagged per-row below rather than smoothed over,
+since it visibly affects which numbers are trustworthy.
+
+| Benchmark | Untiled | Tiled | Δ | Load during run |
+| --- | --- | --- | --- | --- |
+| `BM_RenderReused_PanOnly` (full 1M-shape content, real per-tick recompute) | 5509 ms (cv 11.76%) | 2460 ms (cv 7.56%) | **~55% faster** | ~8 → ~22 |
+| `BM_HierarchyResolver_RenderLayoutFrame_ColdCache_FullDepth` (4M-placement Layout fixture) | 491 ms (cv 1.48%) | 418 ms (cv 2.91%) | **~15% faster** | ~7-9 (quiet) |
+| `BM_HierarchyResolver_RenderLayoutFrame_ColdCache_ShallowDepth` | 7.17 ms (cv 18.09%) | 6.17 ms (cv 0.90%) | ~14% faster, low confidence | ~7-9 (quiet) |
+| `BM_ComposeWithOverlays_PanOnly_ZoomedOut_NoTinyShapes` | 2104 ms (cv 7.58%) | 2080 ms (cv 4.89%) | flat, within noise | ~7-9 (quiet) |
+| `BM_RenderReused_NoChange` (full content, no pan - mostly cache hits) | 7045 ms (cv 22.08%) | 5712 ms (cv 22.19%) | inconclusive - both too noisy | ~22 → ~33 |
+
+- **The two reliable, load-quiet results (`PanOnly` and Layout `ColdCache_FullDepth`) both show a real win**, and both go through
+  `design_rasterize_` with genuinely dense, mostly-uncullled content -
+  the case this change targets. `PanOnly`'s ~55% dwarfs Layout's ~15%
+  because `PanOnly` isolates the design-picture-build-and-rasterize path
+  almost entirely (`FrameRenderPipeline::run()`'s own overhead is small
+  next to a 1M-shape rasterize), while `RenderLayoutFrame` pays a lot of
+  other cost per call (hierarchy discovery, node touch-propagation,
+  `sweep_stale_nodes`) that tiling doesn't touch - see the entry above
+  this one for that path's own overhead breakdown.
+- **`BM_RenderReused_PanOnly_ZoomedOut` was deliberately excluded from
+  this table** - after this session's earlier `DesignRenderPipeline`
+  refactor, that benchmark calls `DesignRenderPipeline::run()` directly,
+  which no longer rasterizes at all (`RasterizeComposePipeline` owns that
+  now) - it doesn't exercise this change in either direction, and an
+  earlier draft of this comparison mistakenly read its ~12% run-to-run
+  delta as a regression before catching that it isn't wired to
+  `design_rasterize_` any more.
+- **The `_ZoomedOut` fixture that *does* reach `design_rasterize_`
+  (`ComposeWithOverlays_..._NoTinyShapes`) shows no meaningful change.**
+  That fixture is deliberately scaled so nearly every shape is tiny and
+  dropped from `BuildDesignPictureStage`'s own output (see that
+  benchmark's own comment) - there's very little picture content left to
+  rasterize by the time it reaches this stage, so tiling has little room
+  to help and its own small fixed overhead (N `SkSurface`/`SkCanvas`
+  objects, N `parallel_for` task dispatches) roughly cancels out. Tiling
+  is a real win specifically on dense content, not a universal one.
+- `NoChange`/`ShallowDepth` are flagged low-confidence/inconclusive
+  rather than reported as clean deltas - both ran under visibly higher
+  background load (`NoChange`) or already carried high baseline variance
+  before this change (`ShallowDepth`, 18% cv on its own untiled number).
+  Worth re-running in a quieter environment before trusting the exact
+  percentages, though the direction (faster) is consistent with every
+  other result here.
+
+Kept the change: the two load-quiet, architecturally-relevant benchmarks
+both show a clear win with no correctness regressions (full 633-test
+suite passes unchanged). No `SkRTreeFactory`/BBH was added to the picture
+recorders in this pass (each tile's `drawPicture` still walks every
+recorded op, not just the ones intersecting its own row range) - a
+plausible next increment, deferred so this change stays isolated to one
+variable per this project's own benchmarking convention.
