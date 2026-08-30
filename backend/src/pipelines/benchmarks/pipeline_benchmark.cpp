@@ -2,6 +2,7 @@
 #include "../../database/database.hpp"
 #include "../abstract_shape_pipeline.hpp"
 #include "../design_render_pipeline.hpp"
+#include "../draw_helpers.hpp"
 #include "../frame_render_pipeline.hpp"
 #include "../hierarchy_resolver.hpp"
 #include "../hit_test.hpp"
@@ -1011,5 +1012,97 @@ static void BM_HierarchyResolver_RenderLayoutFrame_ColdCache_ShallowDepth(benchm
     state.SetItemsProcessed(state.iterations() * kTopPlacementCount);
 }
 BENCHMARK(BM_HierarchyResolver_RenderLayoutFrame_ColdCache_ShallowDepth)->Unit(benchmark::kMillisecond);
+
+// Direct benchmark of draw_group's own hairline-simplification branch
+// (BENCHMARKS.md's dated entry for this) - stress_data.hpp's existing
+// 1M-shape fixture deliberately can't exercise it: its RECT/PATH
+// geometry uses the same size_um for both length and width (see
+// item_geometry's own comment), so a shape there is only ever "both
+// dimensions sub-pixel" (culled entirely upstream of draw_group) or
+// "both dimensions visible" - never the long-thin-wire case (sub-pixel
+// in exactly one dimension) the hairline branch targets. This fixture
+// is genuinely long-thin instead: fixed sub-pixel width, length
+// spanning many pixels - the real population that survives
+// ViewportFilterStage's own cull but used to pay full buffered-outline/
+// AA-fill cost in draw_group regardless. Calls draw_group directly
+// (not through a whole pipeline) since it's the one function this
+// change touches.
+namespace
+{
+    constexpr int kThinWireCount = 200'000;
+
+    std::vector<PixelShape> thin_wire_group(bool as_paths)
+    {
+        std::vector<PixelShape> group;
+        group.reserve(kThinWireCount);
+        constexpr int kCols = 500;
+        for (int i = 0; i < kThinWireCount; ++i)
+        {
+            const double x0 = static_cast<double>(i % kCols) * 5.0;
+            const double y0 = static_cast<double>(i / kCols) * 5.0;
+            const double length = 20.0 + (i % 20);
+            const double width = 0.3; // fixed, always sub-pixel at scale 1.0
+
+            PixelShape shape;
+            if (as_paths)
+            {
+                PixelPath path;
+                path.width = width;
+                path.polygon.points = {{.x = x0, .y = y0}, {.x = x0 + length, .y = y0}};
+                path.buffered_outline.push_back(PixelPolygon{.points = {
+                                                                   {.x = x0, .y = y0 - width / 2},
+                                                                   {.x = x0 + length, .y = y0 - width / 2},
+                                                                   {.x = x0 + length, .y = y0 + width / 2},
+                                                                   {.x = x0, .y = y0 + width / 2},
+                                                               }});
+                shape.paths.push_back(std::move(path));
+            }
+            else
+            {
+                shape.rects.push_back(PixelRect{.ll = {.x = x0, .y = y0}, .ur = {.x = x0 + length, .y = y0 + width}});
+            }
+            group.push_back(std::move(shape));
+        }
+        return group;
+    }
+
+    ViewLayerStyle thin_wire_style()
+    {
+        ViewLayerStyle style;
+        style.fill_color = Color{.r = 200, .g = 50, .b = 50, .a = 255};
+        style.outline_color = Color{.r = 0, .g = 0, .b = 0, .a = 255};
+        return style;
+    }
+}
+
+static void BM_DrawGroup_ThinRects(benchmark::State &state)
+{
+    const std::vector<PixelShape> group = thin_wire_group(/*as_paths=*/false);
+    const ViewLayerStyle style = thin_wire_style();
+    sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(2600, 2100));
+
+    for (auto _ : state)
+    {
+        surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+        draw_group(*surface->getCanvas(), group, style);
+    }
+    state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kThinWireCount));
+}
+BENCHMARK(BM_DrawGroup_ThinRects)->Unit(benchmark::kMillisecond);
+
+static void BM_DrawGroup_ThinPaths(benchmark::State &state)
+{
+    const std::vector<PixelShape> group = thin_wire_group(/*as_paths=*/true);
+    const ViewLayerStyle style = thin_wire_style();
+    sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(2600, 2100));
+
+    for (auto _ : state)
+    {
+        surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+        draw_group(*surface->getCanvas(), group, style);
+    }
+    state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kThinWireCount));
+}
+BENCHMARK(BM_DrawGroup_ThinPaths)->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();

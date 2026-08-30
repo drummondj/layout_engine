@@ -1057,8 +1057,37 @@ namespace le
                 {
                     if (has_outline)
                         draw_cross(canvas, rect, stroke);
+                    if (has_outline)
+                        canvas.drawRect(rect, stroke);
+                    continue;
                 }
-                else if (has_fill)
+
+                // Sub-pixel in exactly one dimension - both-sub-pixel
+                // rects are already dropped upstream by ViewportFilterStage
+                // in favor of the tiny-shape-dot mechanism, so this can
+                // only be the "long thin wire" case ViewportFilterStage's
+                // own doc comment describes (kept visible on purpose, not
+                // culled). The real fill+outline would rasterize to an
+                // imperceptibly thin AA sliver anyway, so draw one
+                // hairline (a 0-width SkPaint stroke - exactly 1 device
+                // pixel regardless of the current transform) along the
+                // rect's long axis instead of a full fill+outline pass -
+                // fill's own color if this layer has one (what you'd
+                // predominantly see if the real width could be resolved),
+                // else the outline color.
+                const bool width_sub_pixel = rect.width() < 1.0f;
+                const bool height_sub_pixel = rect.height() < 1.0f;
+                if (width_sub_pixel != height_sub_pixel && (has_fill || has_outline))
+                {
+                    const SkPaint &hairline_paint = has_fill ? fill : stroke;
+                    if (width_sub_pixel)
+                        canvas.drawLine(rect.centerX(), rect.top(), rect.centerX(), rect.bottom(), hairline_paint);
+                    else
+                        canvas.drawLine(rect.left(), rect.centerY(), rect.right(), rect.centerY(), hairline_paint);
+                    continue;
+                }
+
+                if (has_fill)
                     canvas.drawRect(rect, fill);
                 if (has_outline)
                     canvas.drawRect(rect, stroke);
@@ -1099,6 +1128,40 @@ namespace le
             // boundary) rather than a new named color.
             for (const auto &p : shape.paths)
             {
+                // A sub-pixel-width path's buffered_outline is a real
+                // Geometry::buffer()-computed polygon (generate_shapes
+                // time, independent of the current viewport scale) -
+                // filling/outlining it here would rasterize to an
+                // imperceptibly thin sliver anyway (same reasoning as the
+                // sub-pixel rect case above), so draw a single hairline
+                // along the path's own centerline instead of the
+                // buffered outline's fill + boundary stroke + centerline
+                // stroke - three draws collapsing to the one that already
+                // read as "a wire" regardless. This threshold must match
+                // transform_shapes_to_pixel_space's own (below) - that's
+                // where buffered_outline's points are skipped rather
+                // than transformed for exactly this case.
+                if (p.width < 1.0)
+                {
+                    // Unlike drawLine (SkCanvas's own "Style is ignored,
+                    // as if kStroke_Style" contract - see the rect case
+                    // above), drawPath honors the paint's own Style, so
+                    // `fill` (kFill_Style) can't be passed directly here -
+                    // filling a 2-point open path is a degenerate no-op,
+                    // not a line. Copy `stroke` (already the right style/
+                    // width/dash-effect for a centerline) and only swap
+                    // its color when this layer's own fill color is what
+                    // should show through the collapsed hairline.
+                    if (has_fill || has_outline)
+                    {
+                        SkPaint hairline_stroke = stroke;
+                        if (has_fill)
+                            hairline_stroke.setColor(to_sk_color(style.fill_color));
+                        canvas.drawPath(to_sk_path(p.polygon, /*close=*/false), hairline_stroke);
+                    }
+                    continue;
+                }
+
                 if (has_fill)
                     for (const auto &poly : p.buffered_outline)
                         canvas.drawPath(to_sk_path(poly, /*close=*/true), fill);
@@ -1212,14 +1275,22 @@ namespace le
                     for (const auto &pt : path.polygon.points)
                         pp.polygon.points.push_back(to_pixel(pt));
 
-                    pp.buffered_outline.reserve((*rs.path_outlines)[i].size());
-                    for (const auto &outline_poly : (*rs.path_outlines)[i])
+                    // A sub-pixel-width path never touches buffered_outline
+                    // - draw_group draws a single centerline hairline for
+                    // it instead (see that function's own comment, same
+                    // threshold) - so transforming its points to pixel
+                    // space here would be wasted work.
+                    if (pp.width >= 1.0)
                     {
-                        PixelPolygon outline_pp;
-                        outline_pp.points.reserve(outline_poly.points.size());
-                        for (const auto &pt : outline_poly.points)
-                            outline_pp.points.push_back(to_pixel(pt));
-                        pp.buffered_outline.push_back(std::move(outline_pp));
+                        pp.buffered_outline.reserve((*rs.path_outlines)[i].size());
+                        for (const auto &outline_poly : (*rs.path_outlines)[i])
+                        {
+                            PixelPolygon outline_pp;
+                            outline_pp.points.reserve(outline_poly.points.size());
+                            for (const auto &pt : outline_poly.points)
+                                outline_pp.points.push_back(to_pixel(pt));
+                            pp.buffered_outline.push_back(std::move(outline_pp));
+                        }
                     }
 
                     ps.paths.push_back(std::move(pp));

@@ -1137,3 +1137,77 @@ recorders in this pass (each tile's `drawPicture` still walks every
 recorded op, not just the ones intersecting its own row range) - a
 plausible next increment, deferred so this change stays isolated to one
 variable per this project's own benchmarking convention.
+
+## 2026-08-30 — draw_group: hairline simplification for shapes sub-pixel in exactly one dimension
+
+`ViewportFilterStage` already drops shapes sub-pixel in *both* dimensions
+(in favor of the tiny-shape-dot mechanism), but deliberately keeps a shape
+sub-pixel in only *one* dimension - "a long thin wire survives even if its
+width alone is sub-pixel" (that stage's own doc comment). Real routing
+wires are exactly this population, and `draw_group` used to rasterize
+them at full fidelity regardless: a rect got a full AA fill + outline
+pass, and a path got its buffered_outline (a real `Geometry::buffer()`
+polygon) filled, outlined, *and* a redundant centerline stroke on top -
+three draws that all collapse to "a barely-there thin line" once the
+declared width is sub-pixel. Changed `draw_group` to draw a single
+hairline (`SkPaint`'s 0-width stroke - exactly 1 device pixel regardless
+of the current transform) along the long axis/centerline instead, for
+both the rect and path cases; `transform_shapes_to_pixel_space` also now
+skips transforming a sub-pixel-width path's `buffered_outline` points to
+pixel space at all, since `draw_group` will never read them for that path.
+
+**Not exercisable by the existing 1M-shape stress fixture** -
+`stress_data.hpp`'s `item_geometry` deliberately uses the same `size_um`
+for both a shape's length and width, so a shape there is only ever "both
+dimensions sub-pixel" (culled upstream) or "both dimensions visible" -
+never the single-dimension case this change targets. Added a small,
+purpose-built fixture instead (`thin_wire_group` in
+`pipeline_benchmark.cpp`) - 200,000 shapes with a fixed sub-pixel width
+(0.3px) and length spanning many pixels (20-40px), calling `draw_group`
+directly (the one function this change touches) rather than through a
+whole pipeline. A/B via a temporary `git stash` of `draw_helpers.hpp`
+alone (benchmark harness unchanged in both runs). Release build,
+`--benchmark_repetitions=8 --benchmark_report_aggregates_only=true`,
+quiet system (`Load Average` ~3.3-3.5 throughout, both runs):
+
+| Benchmark | Before | After | Δ |
+| --- | --- | --- | --- |
+| `BM_DrawGroup_ThinRects` (200K sub-pixel-width rects) | 70.6 ms (cv 1.37%) | 31.0 ms (cv 0.81%) | **~56% faster** (2.28x) |
+| `BM_DrawGroup_ThinPaths` (200K sub-pixel-width paths) | 207 ms (cv 1.38%) | 62.9 ms (cv 1.93%) | **~70% faster** (3.29x) |
+
+The path case wins more than the rect case, as expected - a rect
+collapses 2 draws (fill + outline) into 1 (a line), while a path
+collapses 3 (buffered-outline fill, buffered-outline stroke, centerline
+stroke - each over real polygon geometry, not just a rect) into the same
+1. Both numbers are clean (cv well under 2%, consistent with the quiet
+system this ran on, unlike some of this session's earlier noisy runs).
+
+**Real-world impact depends on how much of this population an actual
+design has** - this synthetic fixture is deliberately 100% long-thin-wire
+content to isolate the mechanism, not representative of a real design's
+own mix. The user has a real Tracy-profiled fixture for this
+(`frontend/tcl/aes_5x5.tcl`, run via
+`frontend/scripts/profile_tcl_script.sh` against the live app) that would
+give the actual real-design number; not run in this pass (would need a
+full Flutter app build + GUI session unavailable in this environment) -
+deferred to the user to run themselves, or a follow-up session with GUI
+access. Correctness confirmed by 6 new direct `draw_group` unit tests
+(`draw_helpers_test.cpp`) plus the full 639-test suite passing unchanged.
+A real bug was caught while writing those tests: the path hairline
+branch's first draft passed `fill` (a `kFill_Style` paint) to
+`SkCanvas::drawPath`, which - unlike `drawLine`, whose own doc says
+"Style is ignored, as if kStroke_Style" - honors Style, so it silently
+filled a degenerate 2-point open path (drawing nothing) instead of
+stroking it whenever a layer had a fill color. Fixed by copying `stroke`
+(already the right style/width/dash-effect) and only swapping its color.
+
+**Real-design confirmation** (self-reported by the user, not independently
+captured/CSV-verified in this pass - see the caveat above about GUI/Tracy
+access): `aes_5x5.tcl` (`hierarchy_depth=2`, `zoom -factor 0.3`) against
+the live app, cold-path single frame render, **both this session's
+changes together** (`TiledRasterizePictureStage` above + this hairline
+simplification, not isolated per-change) - **5 s -> 1.47 s (~3.4x
+faster)**. Directionally consistent with the synthetic numbers on both
+entries; the exact split between the two changes' own contributions on
+this specific design isn't known, since they weren't measured separately
+against this fixture.

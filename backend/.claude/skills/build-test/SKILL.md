@@ -13,7 +13,7 @@ allowed-tools:
 
    ```
    cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-   cmake --build build -j
+   cmake --build build -j3
    ```
 
 2. **Run tests via ctest:**
@@ -31,7 +31,7 @@ allowed-tools:
 
    ```
    cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release
-   cmake --build build_release --target api pipelines io -j
+   cmake --build build_release --target api pipelines io -j3
    ```
 
    Rebuild both trees after a backend source change if `flutter_plugin`/

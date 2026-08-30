@@ -671,7 +671,7 @@ target_compile_definitions(backend_tests PRIVATE
     DEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/bin/defdiff"
 )
 add_dependencies(backend_tests lef_lib def_lib)
-target_sources(backend_tests PRIVATE src/pipelines/tests/pipelines_test.cpp src/pipelines/tests/render_pipelines_test.cpp src/pipelines/tests/hierarchy_resolver_test.cpp)
+target_sources(backend_tests PRIVATE src/pipelines/tests/pipelines_test.cpp src/pipelines/tests/render_pipelines_test.cpp src/pipelines/tests/hierarchy_resolver_test.cpp src/pipelines/tests/draw_helpers_test.cpp)
 target_link_libraries(backend_tests PRIVATE pipelines)
 le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
