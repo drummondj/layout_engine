@@ -283,6 +283,12 @@ namespace le
             ZoneScopedN("HierarchyResolver: build_abstract_picture");
             recompute_count_++;
 
+            // Fresh, call-local instances every call - see this class's
+            // own doc comment for why (a throwaway culling Scene's
+            // version counter is a bad content proxy).
+            SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> viewport_runner{"hierarchy_viewport_filter"};
+            SynchronousStageRunner<LayerVisibilityFilterStage, std::vector<RenderedShape>, std::map<ViewLayerId, std::vector<RenderedShape>>> layer_runner{"hierarchy_layer_visibility_filter"};
+
             const PipelineOptions options = options_for(root, view_layers, scene);
             const uint64_t geometry_data_version = AbstractGeometryStage::data_version_for(abstract_id, options);
 
@@ -292,13 +298,16 @@ namespace le
             // `dbu_shapes` aliasing the wrong Design's data by the time
             // record_local_picture below uses it.
             const std::vector<RenderedShape> dbu_shapes = generate_abstract_stage_.run(abstract_id, geometry_data_version, options);
-            return record_local_picture(dbu_shapes, view_layers, scene, scale, {}, {}, abstract_declared_bbox(root, abstract_id));
+            return record_local_picture(dbu_shapes, geometry_data_version, viewport_runner, layer_runner, view_layers, scene, scale, {}, {}, abstract_declared_bbox(root, abstract_id));
         }
 
         sk_sp<SkPicture> build_layout_picture_uncached(const Root &root, LayoutId layout_id, int remaining_depth, const ViewLayerSet &view_layers, const Scene &scene, double scale, Point local_origin = Point{0, 0})
         {
             ZoneScopedN("HierarchyResolver: build_layout_picture_uncached");
             recompute_count_++;
+
+            SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> viewport_runner{"hierarchy_viewport_filter"};
+            SynchronousStageRunner<LayerVisibilityFilterStage, std::vector<RenderedShape>, std::map<ViewLayerId, std::vector<RenderedShape>>> layer_runner{"hierarchy_layer_visibility_filter"};
 
             const PipelineOptions options = options_for(root, view_layers, scene);
             const uint64_t geometry_data_version = LayoutGeometryStage::data_version_for(layout_id, options);
@@ -372,10 +381,12 @@ namespace le
                 });
             }
 
-            return record_local_picture(dbu_shapes, view_layers, scene, scale, instances, tiny_instance_rects, content_bbox, local_origin);
+            return record_local_picture(dbu_shapes, geometry_data_version, viewport_runner, layer_runner, view_layers, scene, scale, instances, tiny_instance_rects, content_bbox, local_origin);
         }
 
-        sk_sp<SkPicture> record_local_picture(const std::vector<RenderedShape> &dbu_shapes,
+        sk_sp<SkPicture> record_local_picture(const std::vector<RenderedShape> &dbu_shapes, uint64_t geometry_data_version,
+                                              SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> &viewport_runner,
+                                              SynchronousStageRunner<LayerVisibilityFilterStage, std::vector<RenderedShape>, std::map<ViewLayerId, std::vector<RenderedShape>>> &layer_runner,
                                               const ViewLayerSet &view_layers, const Scene &scene, double scale,
                                               const std::vector<BuildLayoutPictureStage::ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, Rect declared_bbox, Point local_origin = Point{0, 0})
         {
@@ -406,8 +417,8 @@ namespace le
 
             // Viewport culling uses cull_scene (the throwaway enclosing
             // viewport above) - but layer VISIBILITY must use the real
-            // `scene`, not cull_scene: filter_shapes_by_layer_visibility
-            // checks Scene::is_view_layer_visible against the user's actual
+            // `scene`, not cull_scene: FilterByLayerVisibilityStage checks
+            // Scene::is_view_layer_visible against the user's actual
             // layer show/hide toggles, which a fresh cull_scene has no
             // knowledge of (every layer defaults to visible on a
             // just-constructed Scene) - using cull_scene here would
@@ -417,26 +428,18 @@ namespace le
             // `viewport_stage.run(..., cull_scene)` then
             // `layer_stage.run(..., scene, view_layers)` - two different
             // Scenes for two different purposes, not a copy-paste slip.
-            //
-            // Called as plain functions, not through
-            // SynchronousStageRunner<ViewportFilterStage,...>/
-            // <LayerVisibilityFilterStage,...> (a fresh tbb::flow::graph
-            // per call) as before - this recursive call site never reused
-            // a runner's cache across calls anyway (a fresh instance was
-            // required per call for correctness - see this class's own
-            // doc comment), so the graph/MemoizingStage machinery bought
-            // nothing here except a repeated construct/destroy of a
-            // tbb::flow::graph on every level of the recursion. That
-            // pattern was the prime suspect for BUGS_AND_ENHANCEMENTS.md
-            // B2 (a real EXC_BAD_ACCESS/SIGBUS inside
-            // LayerVisibilityFilterStage::compute on a TBB worker thread,
-            // reproduced on a real large design's Layout view) - removing
-            // the graph from this path entirely is strictly simpler and
-            // removes the suspected hazard by construction, rather than
-            // relying on nested flow::graph construction under recursion
-            // being safe.
-            const std::vector<RenderedShape> viewport_filtered = filter_shapes_by_viewport(dbu_shapes, cull_scene);
-            const std::map<ViewLayerId, std::vector<RenderedShape>> layer_filtered = filter_shapes_by_layer_visibility(viewport_filtered, scene, view_layers);
+            PipelineOptions viewport_options;
+            viewport_options.ctx.scene = &cull_scene;
+            viewport_options.viewport.viewport_version = cull_scene.viewport_version();
+            viewport_options.viewport.scale = scale;
+
+            PipelineOptions layer_options;
+            layer_options.ctx.scene = &scene;
+            layer_options.ctx.view_layers = &view_layers;
+            layer_options.viewport.visibility_version = scene.visibility_version();
+
+            const std::vector<RenderedShape> &viewport_filtered = viewport_runner.run(dbu_shapes, geometry_data_version, viewport_options);
+            const std::map<ViewLayerId, std::vector<RenderedShape>> &layer_filtered = layer_runner.run(viewport_filtered, geometry_data_version, layer_options);
             const auto pixel_shapes = transform_shapes_to_pixel_space(layer_filtered, local_origin, scale);
 
             const SkRect bounds = SkRect::MakeLTRB(

@@ -43,15 +43,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(ENABLE_COVERAGE "Instrument io/backend_tests with Clang source-based line+branch coverage" OFF)
 
-# BUGS_AND_ENHANCEMENTS.md B2 investigation: ThreadSanitizer for
-# hierarchy_race_repro's own dependency chain only (database/geometry/
-# view_style/scene/core/pipelines) - deliberately NOT a global
-# CMAKE_CXX_FLAGS override, which poisons GoogleTest/GoogleBenchmark's own
-# FetchContent-time try_compile/try_run configure checks (observed
-# first-hand: googlebenchmark's regex-backend probe fails to link/run
-# under a global -fsanitize=thread and aborts configure entirely).
-option(ENABLE_TSAN "Instrument hierarchy_race_repro's dependency chain with ThreadSanitizer" OFF)
-
 if(ENABLE_COVERAGE)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         message(FATAL_ERROR "ENABLE_COVERAGE uses -fprofile-instr-generate, which requires Clang; found ${CMAKE_CXX_COMPILER_ID}. On GCC/Linux use --coverage + gcov/lcov instead.")
@@ -705,25 +696,6 @@ le_enable_coverage_instrumentation(pipeline_benchmarks)
 add_executable(render_preview src/pipelines/benchmarks/render_preview.cpp)
 target_link_libraries(render_preview PRIVATE database geometry scene pipelines io)
 le_enable_coverage_instrumentation(render_preview)
-
-# --- hierarchy_race_repro: dev-only investigative repro for
-# BUGS_AND_ENHANCEMENTS.md B2 (a real-scale Layout-view TBB race in
-# HierarchyResolver, only ever reproduced through the full Flutter app so
-# far) - not a benchmark or a test, not run by ctest. Meant to be built in
-# a separate -fsanitize=thread tree for a fast repro/fix loop. ---
-add_executable(hierarchy_race_repro src/pipelines/benchmarks/hierarchy_race_repro.cpp)
-target_link_libraries(hierarchy_race_repro PRIVATE database geometry scene pipelines)
-
-if(ENABLE_TSAN)
-    foreach(le_tsan_interface_target database geometry view_style scene core)
-        target_compile_options(${le_tsan_interface_target} INTERFACE -fsanitize=thread -g -O1)
-        target_link_options(${le_tsan_interface_target} INTERFACE -fsanitize=thread)
-    endforeach()
-    target_compile_options(pipelines PUBLIC -fsanitize=thread -g -O1)
-    target_link_options(pipelines PUBLIC -fsanitize=thread)
-    target_compile_options(hierarchy_race_repro PRIVATE -fsanitize=thread -g -O1)
-    target_link_options(hierarchy_race_repro PRIVATE -fsanitize=thread)
-endif()
 
 # --- lef_roundtrip_diff: dev-only progress-tracking tool for UPDATES.md
 # item 12 (LEF syntax completion) - reads a LEF file (default:
