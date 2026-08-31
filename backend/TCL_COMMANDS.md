@@ -1370,7 +1370,7 @@ Renders the current view (the same le_render_pixel_buffer output the app's own T
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<path>` | `str` | yes | Output PNG file path |
+| `<path>` | `file` | yes | Output PNG file path |
 
 ## get_abstracts
 
@@ -1980,6 +1980,26 @@ Selects a Design by name as this session's current view - every subsequent get_<
 | `-view` | `str` | no | "abstract" (default) or "layout" - mutually exclusive, selecting one deactivates the other |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## read_def
+
+`read_def <path> [-help]`
+
+Reads one DEF file into a new Layout under this session's shared Root - the DEF's own referenced layers/macros must already be present (read the tech/macro LEF(s) first via read_lef). Returns 0 on success; a nonzero code or a message in le_message_count/le_message_at (see get_messages) on a parse problem.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<path>` | `file` | yes | DEF file to read |
+
+## read_lef
+
+`read_lef <path> [-help]`
+
+Reads one LEF file (a tech LEF, a macro LEF, or both combined) into this session's shared Root - callable multiple times to layer a tech file and one or more macro files. Returns 0 on success; a nonzero code or a message in le_message_count/le_message_at (see get_messages) on a parse problem.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<path>` | `file` | yes | LEF file to read |
+
 ## redo
 
 `redo [-help]`
@@ -2082,6 +2102,16 @@ Deliberate stub, not a missing feature: this project's only GUI is the separate 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-help` | `flag` | no | Show this usage message and return immediately |
+
+## source
+
+`source <path> [-help]`
+
+Evaluates the contents of a Tcl script file, in the same scope source itself was called from (Tcl's own built-in behavior, unchanged) - what a typed console command's own [source foo.tcl] or a batch script's own top-level [source foo.tcl] both already expect. Returns whatever the script's own last command returns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<path>` | `file` | yes | Tcl script file to evaluate |
 
 ## undo
 

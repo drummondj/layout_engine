@@ -225,17 +225,22 @@ proc man {name} {
 
 # `complete_command <line>` - candidate replacements for the
 # whitespace-delimited token currently being typed at the end of `line`
-# (a command name, a -flag, or a .-prefixed property path), as a sorted
-# Tcl list (empty if nothing matches or the token being completed isn't
-# one of those three kinds - e.g. a plain positional value like a
-# friendly-id token isn't attempted, since suggesting real object tokens
-# would mean actually running a query while the user is still typing,
-# not a safe/generic thing to do speculatively). Every candidate is a
-# *full* replacement for that last token, not just a suffix, so the
-# caller's own splice logic ("replace the last token with the chosen
-# candidate") stays uniform across every completion kind. Pure
-# static-metadata lookup (::command_help/::property_scalars/
-# ::property_hops) - never runs the command/query being completed.
+# (a command name, a -flag, a .-prefixed property path, or a
+# filesystem path - BUGS_AND_ENHANCEMENTS.md E11 - for whichever
+# command's own single `type file` positional argument it is, see
+# _file_positional_name), as a sorted Tcl list (empty if nothing matches
+# or the token being completed isn't one of those four kinds - e.g. a
+# plain positional value like a friendly-id token isn't attempted, since
+# suggesting real object tokens would mean actually running a query
+# while the user is still typing, not a safe/generic thing to do
+# speculatively). Every candidate is a *full* replacement for that last
+# token, not just a suffix, so the caller's own splice logic ("replace
+# the last token with the chosen candidate") stays uniform across every
+# completion kind. Pure static-metadata lookup (::command_help/
+# ::property_scalars/::property_hops) for every kind except filenames,
+# which is the one real (if narrowly scoped and read-only) filesystem
+# access in this whole proc - never runs the command/query being
+# completed.
 #
 # Always returns via `join` (a plain space-separated string), never a
 # raw Tcl list value directly - a property-path candidate can itself
@@ -319,6 +324,16 @@ proc complete_command {line} {
             lappend flags [lindex $opt 0]
         }
         return [join [lsort [lsearch -all -inline -glob $flags "${partial}*"]]]
+    }
+
+    # A command whose own current positional argument is a real
+    # filesystem path (read_lef/read_def/source/dump_png -
+    # BUGS_AND_ENHANCEMENTS.md E11 - see _file_positional_name's own
+    # comment for why this is a `type file` metadata lookup rather than
+    # a hardcoded command-name list) completes against the filesystem
+    # instead of any of this proc's other completion kinds.
+    if {[_file_positional_name $command_name] ne {}} {
+        return [join [_filename_candidates $partial]]
     }
 
     # A dot-path can be completed in two different argument shapes:
@@ -489,6 +504,88 @@ proc _property_path_candidates {class_key partial} {
         }
     }
     return [lsort $candidates]
+}
+
+# complete_command's own filename-completion hook (BUGS_AND_ENHANCEMENTS.md
+# E11) - the name (without its angle brackets) of $command_name's own
+# positional argument, if it has exactly one registered option and its
+# type is "file"; {} otherwise (not registered at all, no positional
+# argument, or a positional whose type isn't "file"). "file" is a plain
+# free-form label like every other `type` value here (str/bool/flag/
+# token...) - nothing else in this file switches on it, so introducing
+# it doesn't touch man/generate_command_docs, only this lookup.
+#
+# Checking "does this command have exactly one positional, and is *it*
+# file-typed" (not "which specific positional index is being typed") is
+# enough for every command wired into this so far (read_lef/read_def/
+# source/dump_png each take exactly one argument, full stop) - a future
+# command with more than one positional, only some of them file-typed,
+# would need a real index-aware lookup instead of this presence check.
+proc _file_positional_name {command_name} {
+    if {![dict exists $::command_help $command_name]} {
+        return {}
+    }
+    set options [dict get $::command_help $command_name options]
+    if {[llength $options] != 1} {
+        return {}
+    }
+    lassign [lindex $options 0] name meta
+    if {[string index $name 0] ne "<"} {
+        return {}
+    }
+    if {[dict get $meta type] ne "file"} {
+        return {}
+    }
+    return [string trim $name "<>"]
+}
+
+# Filesystem-glob-based candidates for a file-path argument's own
+# partial token (BUGS_AND_ENHANCEMENTS.md E11) - every candidate is
+# still a *full* replacement for `partial` (complete_command's own
+# contract, see its own doc comment), so this reconstructs each match's
+# full path text itself rather than returning bare filenames, and a
+# directory match gets its own trailing "/" appended (same convention a
+# real shell's filename completion uses) so a caller can keep tabbing
+# deeper without retyping the separator.
+#
+# `partial` ending in "/" (the user already named a directory and typed
+# the separator) lists *that* directory's own contents, not siblings
+# matching it as a prefix - `file dirname`/`file tail` alone can't tell
+# these two cases apart (both normalize away a trailing slash, e.g.
+# `file tail foo/` is "foo", identical to `file tail foo`), so the
+# trailing slash is checked and stripped explicitly first.
+proc _filename_candidates {partial} {
+    set has_trailing_slash [expr {
+        [string length $partial] > 0 && [string index $partial end] eq "/"
+    }]
+    set trimmed [expr {$has_trailing_slash ? [string range $partial 0 end-1] : $partial}]
+
+    if {$has_trailing_slash} {
+        set search_dir [expr {$trimmed eq {} ? "/" : $trimmed}]
+        set dir_prefix $partial
+        set prefix ""
+    } else {
+        set has_dir [expr {[string first "/" $trimmed] >= 0}]
+        if {$has_dir} {
+            set search_dir [file dirname $trimmed]
+            set dir_prefix "${search_dir}/"
+        } else {
+            set search_dir "."
+            set dir_prefix ""
+        }
+        set prefix [file tail $trimmed]
+    }
+
+    set entries [lsort [glob -nocomplain -tails -directory $search_dir -- "${prefix}*"]]
+    set candidates {}
+    foreach entry $entries {
+        set candidate "${dir_prefix}${entry}"
+        if {[file isdirectory [file join $search_dir $entry]]} {
+            append candidate "/"
+        }
+        lappend candidates $candidate
+    }
+    return $candidates
 }
 
 # `generate_command_docs ?path?` - one Markdown string covering every
@@ -776,7 +873,78 @@ register_command_help get_antialiasing_enabled \
     "Returns whether fill/stroke geometry paints currently antialias their own edges (0 or 1)." \
     {}
 
-# --- dump_png (backed by dump_png_cmd -> le_render_pixel_buffer + SkPngEncoder) ---
+# --- read_lef/read_def/source/dump_png - BUGS_AND_ENHANCEMENTS.md E11/
+# E14. read_lef/read_def were previously raw SWIG-bound commands with no
+# -help/help-system integration at all, unlike every hand-written or
+# generated command elsewhere in this file (E14); `source` is Tcl's own
+# builtin, never registered at all. All four take a real filesystem path
+# as their own single positional argument (`type file`, not the generic
+# `type str` every other string-typed argument elsewhere uses) -
+# complete_command's own _file_positional_name (below) looks for exactly
+# that type to offer filesystem completion (E11), rather than a separate
+# hardcoded command-name list.
+#
+# Each `rename`s the real command out of the way first, the same trick
+# flutter_plugin/src/le_tcl_bridge.cpp's own kCapturePutsBootstrap uses
+# for `puts` - a Tcl proc can't otherwise both claim a command's real,
+# expected name *and* still call through to what it's replacing.
+# read_lef/read_def: return code/error semantics are untouched (still an
+# int, 0 on success) - existing callers (le_shell scripts, every other
+# test fixture's own `read_lef $path`) see no behavior change beyond
+# gaining -help. source: `uplevel 1` (not a plain call) is load-bearing,
+# not defensive style - the real `source` command evaluates a script in
+# whatever scope *it* was called from; calling the renamed command
+# directly from inside this wrapper proc would instead trap the sourced
+# script's own top-level `set`s etc. in *this proc's* local scope,
+# discarding them the moment it returns, since that's now the renamed
+# command's own immediate caller. `uplevel 1` calls it one frame up
+# instead - from wherever this wrapper's own caller actually is - so it
+# sees the real, original caller's scope, exactly like the unwrapped
+# command would have (confirmed empirically: a variable a sourced script
+# sets lands in the right scope whether `source` is called at top level
+# or from inside another proc).
+rename read_lef _read_lef_cmd
+proc read_lef {path} {
+    if {$path eq "-help"} {
+        return "read_lef <path> \[-help\] - Reads a LEF file into the shared Technology/Library"
+    }
+    return [_read_lef_cmd $path]
+}
+register_command_help read_lef \
+    "read_lef <path> \[-help\] - Reads a LEF file into the shared Technology/Library" \
+    "Reads one LEF file (a tech LEF, a macro LEF, or both combined) into this session's shared Root - callable multiple times to layer a tech file and one or more macro files. Returns 0 on success; a nonzero code or a message in le_message_count/le_message_at (see get_messages) on a parse problem." \
+    {
+        {<path> {type file required 1 description {LEF file to read}}}
+    }
+
+rename read_def _read_def_cmd
+proc read_def {path} {
+    if {$path eq "-help"} {
+        return "read_def <path> \[-help\] - Reads a DEF file into a new Layout"
+    }
+    return [_read_def_cmd $path]
+}
+register_command_help read_def \
+    "read_def <path> \[-help\] - Reads a DEF file into a new Layout" \
+    "Reads one DEF file into a new Layout under this session's shared Root - the DEF's own referenced layers/macros must already be present (read the tech/macro LEF(s) first via read_lef). Returns 0 on success; a nonzero code or a message in le_message_count/le_message_at (see get_messages) on a parse problem." \
+    {
+        {<path> {type file required 1 description {DEF file to read}}}
+    }
+
+rename ::source ::_source_real
+proc source {path} {
+    if {$path eq "-help"} {
+        return "source <path> \[-help\] - Evaluates a Tcl script file"
+    }
+    return [uplevel 1 [list _source_real $path]]
+}
+register_command_help source \
+    "source <path> \[-help\] - Evaluates a Tcl script file" \
+    "Evaluates the contents of a Tcl script file, in the same scope source itself was called from (Tcl's own built-in behavior, unchanged) - what a typed console command's own \[source foo.tcl\] or a batch script's own top-level \[source foo.tcl\] both already expect. Returns whatever the script's own last command returns." \
+    {
+        {<path> {type file required 1 description {Tcl script file to evaluate}}}
+    }
+
 proc dump_png { path } {
     if {$path eq "-help"} {
         return "dump_png <path> \[-help\] - Writes the current render as a PNG file"
@@ -790,7 +958,7 @@ register_command_help dump_png \
     "dump_png <path> \[-help\] - Writes the current render as a PNG file" \
     "Renders the current view (the same le_render_pixel_buffer output the app's own Texture uses) and writes it as an RGBA8888 PNG (with transparency) at path - no GUI needed, works in le_shell too. Useful for visually inspecting a script-driven repro (zoom_area/set_layer_visible/set_hierarchy_depth/...) without the Flutter app." \
     {
-        {<path> {type str required 1 description {Output PNG file path}}}
+        {<path> {type file required 1 description {Output PNG file path}}}
     }
 
 # --- get_<type> (UPDATES.md item 19.1) ---

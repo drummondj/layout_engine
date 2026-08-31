@@ -181,6 +181,76 @@ check "complete_command -filter dot-path completion is scoped to -filter's own v
 check "complete_command -filter dot-path completion never fires for a command with no -filter flag" \
     {} [complete_command "create_terminal -filter {.dir"]
 
+# --- complete_command: filename completion (BUGS_AND_ENHANCEMENTS.md
+# E11) - read_lef/read_def/source/dump_png each take exactly one `type
+# file` positional argument; every other command (get_terminals here)
+# stays unaffected, same as any other positional value complete_command
+# never speculatively completes. A scratch directory (not test_data/ or
+# any other real fixture) keeps this deterministic regardless of what
+# else happens to exist in the repo, and is cleaned up either way.
+
+set scratch_dir [file join [expr {
+    [info exists ::env(TMPDIR)] ? $::env(TMPDIR) : "/tmp"
+}] "le_tcl_help_test_completion_scratch"]
+file delete -force $scratch_dir
+file mkdir $scratch_dir
+file mkdir [file join $scratch_dir subdir]
+close [open [file join $scratch_dir foo.lef] w]
+close [open [file join $scratch_dir foobar.txt] w]
+close [open [file join $scratch_dir bar.def] w]
+close [open [file join $scratch_dir subdir inner.tcl] w]
+
+check "_file_positional_name resolves dump_png's own <path> to \"path\"" \
+    "path" [_file_positional_name dump_png]
+check "_file_positional_name resolves read_lef's own <path> to \"path\"" \
+    "path" [_file_positional_name read_lef]
+check "_file_positional_name resolves read_def's own <path> to \"path\"" \
+    "path" [_file_positional_name read_def]
+check "_file_positional_name resolves source's own <path> to \"path\"" \
+    "path" [_file_positional_name source]
+check "_file_positional_name is empty for a command with no type-file positional" \
+    {} [_file_positional_name get_terminals]
+check "_file_positional_name is empty for an unregistered command" \
+    {} [_file_positional_name help]
+
+foreach cmd {dump_png read_lef read_def source} {
+    set candidates [complete_command "$cmd [file join $scratch_dir fo]"]
+    check_true "complete_command completes $cmd's own file argument to foo.lef and foobar.txt" \
+        [expr {
+            [file join $scratch_dir foo.lef] in $candidates
+            && [file join $scratch_dir foobar.txt] in $candidates
+        }]
+}
+
+check "complete_command narrows to a single file match" \
+    [file join $scratch_dir foo.lef] \
+    [complete_command "dump_png [file join $scratch_dir foo.]"]
+
+check "complete_command matches a directory with a trailing slash appended" \
+    "[file join $scratch_dir subdir]/" \
+    [complete_command "dump_png [file join $scratch_dir sub]"]
+
+check "complete_command lists a named directory's own contents given a trailing slash" \
+    "[file join $scratch_dir subdir inner.tcl]" \
+    [complete_command "dump_png [file join $scratch_dir subdir]/"]
+
+check "complete_command never offers filename completion for an unrelated command's own positional" \
+    {} [complete_command "get_terminals [file join $scratch_dir fo]"]
+
+file delete -force $scratch_dir
+
+# --- -help / help-system integration for read_lef/read_def/source
+# (BUGS_AND_ENHANCEMENTS.md E14 - a down payment specifically for the
+# three commands E11 needed a real command_help registration for
+# anyway, not a full audit of every other command) ---
+
+check_contains "read_lef -help returns its own usage text" [read_lef -help] "read_lef <path>"
+check_contains "read_def -help returns its own usage text" [read_def -help] "read_def <path>"
+check_contains "source -help returns its own usage text" [source -help] "source <path>"
+check_contains "help r* now includes read_lef" [help r*] "read_lef"
+check_contains "help r* now includes read_def" [help r*] "read_def"
+check_contains "man read_lef documents its own <path> argument" [man read_lef] "LEF file to read"
+
 # --- generate_command_docs ---
 
 set docs [generate_command_docs]
