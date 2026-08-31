@@ -921,9 +921,29 @@ namespace le
             return is_layer_name_visible(layer_name) && is_purpose_visible(purpose);
         }
 
-        // Monotonic counter bumped by set_layer_name_visible/set_purpose_visible -
-        // cheap for a caller to compare instead of comparing both maps by value.
+        // Monotonic counter bumped by set_layer_name_visible/set_purpose_visible/
+        // set_antialiasing_enabled - cheap for a caller to compare instead of
+        // comparing both maps (or this flag) by value.
         uint64_t visibility_version() const { return visibility_version_; }
+
+        // --- Design-content anti-aliasing (draw_group's own fill/stroke
+        // paints only - grid, cursor, selection/hover/move-ghost outlines,
+        // ruler, and text labels stay AA'd regardless, all low-volume UI
+        // chrome where AA costs nothing meaningful and turning it off
+        // would just look worse). Off by default, matching commercial EDA
+        // tool convention - real IC layout content is overwhelmingly
+        // Manhattan/orthogonal, so AA buys little visually there while
+        // costing real rasterization time at scale; a user who wants it
+        // can turn it back on. Reuses visibility_version_ rather than a
+        // dedicated counter, same "a Scene-level render-config change"
+        // category set_layer_name_visible/set_purpose_visible already
+        // are, not a separate concern.
+        bool antialiasing_enabled() const { return antialiasing_enabled_; }
+        void set_antialiasing_enabled(bool enabled)
+        {
+            antialiasing_enabled_ = enabled;
+            ++visibility_version_;
+        }
 
         // --- Layer selectability (defaults to selectable until toggled,
         // except TRACK_PREFERRED/TRACK_NON_PREFERRED/GCELLGRID, pre-seeded
@@ -1112,6 +1132,7 @@ namespace le
             {ViewLayerPurpose::GCELLGRID, false},
         };
         uint64_t visibility_version_ = 0;
+        bool antialiasing_enabled_ = false;
         std::unordered_map<std::string, bool> layer_name_selectable_;
         // Pre-seeded false for TRACK_PREFERRED/TRACK_NON_PREFERRED/
         // GCELLGRID (BUGS_AND_ENHANCEMENTS.md E2 - "not selectable") -

@@ -56,7 +56,7 @@ namespace le
             const SkPoint pattern_phase_px = SkPoint::Make(
                 static_cast<SkScalar>(scene.pan().x * scene.scale()),
                 static_cast<SkScalar>(scene.pan().y * scene.scale()));
-            draw_shape_groups(*canvas, shapes, view_layers, pattern_phase_px);
+            draw_shape_groups(*canvas, shapes, view_layers, scene.antialiasing_enabled(), pattern_phase_px);
 
             return recorder.finishRecordingAsPicture();
         }

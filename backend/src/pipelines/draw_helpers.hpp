@@ -981,14 +981,14 @@ namespace le
     // picture canvas transform that carries the baked-in shader phase
     // along with it rather than re-baking shape coordinates, so it was
     // never affected by this in the first place.
-    inline void draw_group(SkCanvas &canvas, const std::vector<PixelShape> &group, const ViewLayerStyle &style, SkPoint pattern_phase_px = {0, 0})
+    inline void draw_group(SkCanvas &canvas, const std::vector<PixelShape> &group, const ViewLayerStyle &style, bool antialiasing_enabled, SkPoint pattern_phase_px = {0, 0})
     {
         const bool has_fill = style.fill_color.a > 0;
         const bool has_outline = style.outline_color.a > 0;
         const bool is_cross = style.fill_pattern == FillPattern::CROSS;
 
         SkPaint fill;
-        fill.setAntiAlias(true);
+        fill.setAntiAlias(antialiasing_enabled);
         fill.setStyle(SkPaint::kFill_Style);
         if (sk_sp<SkShader> shader = pattern_shader(style.fill_pattern, to_sk_color(style.outline_color)))
         {
@@ -1011,7 +1011,7 @@ namespace le
         }
 
         SkPaint stroke;
-        stroke.setAntiAlias(true);
+        stroke.setAntiAlias(antialiasing_enabled);
         stroke.setStyle(SkPaint::kStroke_Style);
         stroke.setColor(to_sk_color(style.outline_color));
         // BUGS_AND_ENHANCEMENTS.md E2 - TRACK_PREFERRED/
@@ -1319,7 +1319,7 @@ namespace le
     // origin-marker chrome BuildAbstractPictureStage draws around it - a
     // cached instance picture replayed at arbitrary positions elsewhere
     // in the hierarchy shouldn't carry that.
-    inline void draw_shape_groups(SkCanvas &canvas, const std::map<ViewLayerId, std::vector<PixelShape>> &shapes, const ViewLayerSet &view_layers, SkPoint pattern_phase_px = {0, 0})
+    inline void draw_shape_groups(SkCanvas &canvas, const std::map<ViewLayerId, std::vector<PixelShape>> &shapes, const ViewLayerSet &view_layers, bool antialiasing_enabled, SkPoint pattern_phase_px = {0, 0})
     {
         for (const auto &[view_layer_id, group] : shapes)
         {
@@ -1327,7 +1327,7 @@ namespace le
             if (!view_layer)
                 continue;
 
-            draw_group(canvas, group, view_layer->style, pattern_phase_px);
+            draw_group(canvas, group, view_layer->style, antialiasing_enabled, pattern_phase_px);
         }
     }
 

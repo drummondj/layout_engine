@@ -207,13 +207,21 @@ int dump_png_cmd(const char *path);
 /// ViewLayer of the real Layer named `layer_name`, e.g. both TERMINAL and
 /// OBSTRUCTION - see that function's own api.hpp comment for why it's the
 /// whole real-Layer's worth, not one ViewLayerPurpose at a time).
-void set_layer_visible_cmd(const char *layer_name, int visible);
+void set_layer_visible_cmd(const char *layer_name, bool visible);
 
 /// @brief Backing for the `get_layer_visible <layer_name>` Tcl command -
-/// mirrors le_is_layer_name_visible directly. Returns 1/0, or 0 if
+/// mirrors le_is_layer_name_visible directly. Returns false if
 /// `layer_name` doesn't name a real Layer (le_is_layer_name_visible's own
 /// "unknown name" fallback).
-int get_layer_visible_cmd(const char *layer_name);
+bool get_layer_visible_cmd(const char *layer_name);
+
+/// @brief Backing for the `set_antialiasing_enabled <enabled>` Tcl
+/// command - mirrors le_set_antialiasing_enabled directly.
+void set_antialiasing_enabled_cmd(bool enabled);
+
+/// @brief Backing for the `get_antialiasing_enabled` Tcl command - mirrors
+/// le_is_antialiasing_enabled directly.
+bool get_antialiasing_enabled_cmd();
 
 /// @brief Sentinel for "no such id" for AbstractId/DesignId in their
 /// CRUD-flag/session-selection role - see this header's own "IDs"

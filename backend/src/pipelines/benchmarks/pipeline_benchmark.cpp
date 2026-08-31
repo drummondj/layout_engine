@@ -1084,7 +1084,7 @@ static void BM_DrawGroup_ThinRects(benchmark::State &state)
     for (auto _ : state)
     {
         surface->getCanvas()->clear(SK_ColorTRANSPARENT);
-        draw_group(*surface->getCanvas(), group, style);
+        draw_group(*surface->getCanvas(), group, style, /*antialiasing_enabled=*/true);
     }
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kThinWireCount));
 }
@@ -1099,7 +1099,7 @@ static void BM_DrawGroup_ThinPaths(benchmark::State &state)
     for (auto _ : state)
     {
         surface->getCanvas()->clear(SK_ColorTRANSPARENT);
-        draw_group(*surface->getCanvas(), group, style);
+        draw_group(*surface->getCanvas(), group, style, /*antialiasing_enabled=*/true);
     }
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kThinWireCount));
 }

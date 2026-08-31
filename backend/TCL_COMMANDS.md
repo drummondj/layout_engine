@@ -1396,6 +1396,12 @@ One LEF ANTENNAMODEL OXIDE1-4 block within a LAYER - each scalar-or-PWL pair is 
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_antialiasing_enabled
+
+`get_antialiasing_enabled`
+
+Returns whether fill/stroke geometry paints currently antialias their own edges (0 or 1).
+
 ## get_array_spacings
 
 `get_array_spacings [-of <token>...] [-filter <expr>] [-help]`
@@ -1994,6 +2000,16 @@ Pretty-prints every property of every given friendly-id token to stdout, one ali
 | --- | --- | --- | --- |
 | `<tokens>` | `token...` | yes | One friendly-id token, or a list of them |
 
+## set_antialiasing_enabled
+
+`set_antialiasing_enabled <enabled>`
+
+Sets whether fill/stroke geometry paints antialias their own edges (grid/chrome/text paints are unaffected, always antialiased - see draw_group's own comment). Off by default, matching most commercial EDA tools' own default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<enabled>` | `bool` | yes | 0/1 or true/false |
+
 ## set_hierarchy_depth
 
 `set_hierarchy_depth <depth>`
@@ -2008,12 +2024,12 @@ Set the visible hierarchy depth
 
 `set_layer_visible <layer_name> <visible>`
 
-Sets whether every ViewLayer of the real Layer named layer_name (e.g. both its TERMINAL and OBSTRUCTION purposes, not one at a time - see le_set_layer_name_visible's own api.hpp comment) is visible. visible is 0 or 1. Visible by default until toggled.
+Sets whether every ViewLayer of the real Layer named layer_name (e.g. both its TERMINAL and OBSTRUCTION purposes, not one at a time - see le_set_layer_name_visible's own api.hpp comment) is visible. Visible by default until toggled.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<layer_name>` | `str` | yes | A real Layer's own name, e.g. "M1" |
-| `<visible>` | `int` | yes | 0 to hide, 1 to show |
+| `<visible>` | `bool` | yes | 0/1 or true/false - hide/show |
 
 ## set_viewport_size
 

@@ -16,11 +16,11 @@
 
 namespace
 {
-    SkBitmap draw_group_to_bitmap(const std::vector<le::PixelShape> &group, const le::ViewLayerStyle &style, int width, int height)
+    SkBitmap draw_group_to_bitmap(const std::vector<le::PixelShape> &group, const le::ViewLayerStyle &style, int width, int height, bool antialiasing_enabled = true)
     {
         sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(width, height));
         surface->getCanvas()->clear(SK_ColorTRANSPARENT);
-        le::draw_group(*surface->getCanvas(), group, style);
+        le::draw_group(*surface->getCanvas(), group, style, antialiasing_enabled);
 
         SkBitmap bitmap;
         bitmap.allocPixels(SkImageInfo::MakeN32Premul(width, height));
@@ -180,4 +180,37 @@ TEST(DrawGroupHairline, NormalWidthPathStillDrawsTheBufferedOutlineFill)
 
     EXPECT_TRUE(region_has_opaque_pixel(bitmap, 15, 8, 17, 8));  // near the top edge of the buffered outline
     EXPECT_TRUE(region_has_opaque_pixel(bitmap, 15, 12, 17, 12)); // near the bottom edge of the buffered outline
+}
+
+TEST(DrawGroupAntiAliasing, DisablingAntiAliasingProducesAHardEdgeInsteadOfAFractionalCoverageOne)
+{
+    // A rect whose own edge lands mid-pixel (not aligned to a whole
+    // pixel boundary) - with AA on, Skia blends partial coverage into
+    // the boundary pixel (an alpha strictly between 0 and 255); with AA
+    // off, every pixel is either fully covered or not at all, so that
+    // same boundary pixel must land on one side or the other with no
+    // fractional value. This is the actual, directly observable effect
+    // Scene::antialiasing_enabled()/draw_group's own new parameter
+    // controls - not just "does it compile with a bool added".
+    //
+    // outline_color is explicitly transparent: ViewLayerStyle's own
+    // default is an *opaque* outline (Color's own a=255 default), which
+    // would stroke a solid hairline right over this same boundary pixel
+    // and swamp the fill's own fractional-coverage edge under test here.
+    le::PixelShape shape;
+    shape.rects.push_back(le::PixelRect{.ll = {.x = 10.0, .y = 10.0}, .ur = {.x = 20.5, .y = 20.0}});
+
+    le::ViewLayerStyle style;
+    style.fill_color = le::Color{.r = 200, .g = 50, .b = 50, .a = 255};
+    style.outline_color = le::Color{.r = 0, .g = 0, .b = 0, .a = 0};
+
+    const SkBitmap aa_on = draw_group_to_bitmap({shape}, style, 30, 30, /*antialiasing_enabled=*/true);
+    const SkBitmap aa_off = draw_group_to_bitmap({shape}, style, 30, 30, /*antialiasing_enabled=*/false);
+
+    // Column 20 is the boundary pixel (rect edge at x=20.5, mid-pixel).
+    const uint8_t aa_on_alpha = SkColorGetA(aa_on.getColor(20, 15));
+    const uint8_t aa_off_alpha = SkColorGetA(aa_off.getColor(20, 15));
+    EXPECT_GT(aa_on_alpha, 0);
+    EXPECT_LT(aa_on_alpha, 255);
+    EXPECT_TRUE(aa_off_alpha == 0 || aa_off_alpha == 255) << "got " << static_cast<int>(aa_off_alpha);
 }

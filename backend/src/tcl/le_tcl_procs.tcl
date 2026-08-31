@@ -677,10 +677,10 @@ proc set_layer_visible { layer_name visible } {
 }
 register_command_help set_layer_visible \
     "set_layer_visible <layer_name> <visible>" \
-    "Sets whether every ViewLayer of the real Layer named layer_name (e.g. both its TERMINAL and OBSTRUCTION purposes, not one at a time - see le_set_layer_name_visible's own api.hpp comment) is visible. visible is 0 or 1. Visible by default until toggled." \
+    "Sets whether every ViewLayer of the real Layer named layer_name (e.g. both its TERMINAL and OBSTRUCTION purposes, not one at a time - see le_set_layer_name_visible's own api.hpp comment) is visible. Visible by default until toggled." \
     {
         {<layer_name> {type str required 1 description {A real Layer's own name, e.g. "M1"}}}
-        {<visible> {type int required 1 description {0 to hide, 1 to show}}}
+        {<visible> {type bool required 1 description {0/1 or true/false - hide/show}}}
     }
 
 proc get_layer_visible { layer_name } {
@@ -692,6 +692,28 @@ register_command_help get_layer_visible \
     {
         {<layer_name> {type str required 1 description {A real Layer's own name, e.g. "M1"}}}
     }
+
+# --- antialiasing (backed by set_antialiasing_enabled_cmd/
+# get_antialiasing_enabled_cmd -> le_set_antialiasing_enabled/
+# le_is_antialiasing_enabled) ---
+proc set_antialiasing_enabled { enabled } {
+    set_antialiasing_enabled_cmd $enabled
+    return ""
+}
+register_command_help set_antialiasing_enabled \
+    "set_antialiasing_enabled <enabled>" \
+    "Sets whether fill/stroke geometry paints antialias their own edges (grid/chrome/text paints are unaffected, always antialiased - see draw_group's own comment). Off by default, matching most commercial EDA tools' own default." \
+    {
+        {<enabled> {type bool required 1 description {0/1 or true/false}}}
+    }
+
+proc get_antialiasing_enabled {} {
+    return [get_antialiasing_enabled_cmd]
+}
+register_command_help get_antialiasing_enabled \
+    "get_antialiasing_enabled" \
+    "Returns whether fill/stroke geometry paints currently antialias their own edges (0 or 1)." \
+    {}
 
 # --- dump_png (backed by dump_png_cmd -> le_render_pixel_buffer + SkPngEncoder) ---
 proc dump_png { path } {

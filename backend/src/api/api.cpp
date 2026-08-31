@@ -1543,20 +1543,36 @@ extern "C"
         return static_cast<int32_t>(purposes[static_cast<size_t>(index)]);
     }
 
-    int32_t le_is_layer_name_visible(LeHandle *handle, const char *layer_name)
+    bool le_is_layer_name_visible(LeHandle *handle, const char *layer_name)
     {
         if (!handle || !layer_name)
-            return 1;
+            return true;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return handle->scene.is_layer_name_visible(layer_name) ? 1 : 0;
+        return handle->scene.is_layer_name_visible(layer_name);
     }
 
-    void le_set_layer_name_visible(LeHandle *handle, const char *layer_name, int32_t visible)
+    void le_set_layer_name_visible(LeHandle *handle, const char *layer_name, bool visible)
     {
         if (!handle || !layer_name)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.set_layer_name_visible(layer_name, visible != 0);
+        handle->scene.set_layer_name_visible(layer_name, visible);
+    }
+
+    bool le_is_antialiasing_enabled(LeHandle *handle)
+    {
+        if (!handle)
+            return false;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+        return handle->scene.antialiasing_enabled();
+    }
+
+    void le_set_antialiasing_enabled(LeHandle *handle, bool enabled)
+    {
+        if (!handle)
+            return;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+        handle->scene.set_antialiasing_enabled(enabled);
     }
 
     int32_t le_is_purpose_visible(LeHandle *handle, int32_t purpose)

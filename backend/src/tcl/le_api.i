@@ -92,9 +92,11 @@ int set_current_design_abstract_cmd(long long design_id);
 int set_current_design_layout_cmd(long long design_id);
 void zoom_cmd(double factor);
 void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int padding_px);
-void set_layer_visible_cmd(const char *layer_name, int visible);
+void set_layer_visible_cmd(const char *layer_name, bool visible);
 int dump_png_cmd(const char *path);
-int get_layer_visible_cmd(const char *layer_name);
+bool get_layer_visible_cmd(const char *layer_name);
+void set_antialiasing_enabled_cmd(bool enabled);
+bool get_antialiasing_enabled_cmd();
 void set_session_handle(long long handle_address);
 
 // --- Terminal/TerminalPort/Obstruction CRUD is fully generated now

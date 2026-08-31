@@ -68,12 +68,12 @@ namespace le
             sk_sp<SkPicture> picture; // empty/null if unresolved - skipped, not drawn
         };
 
-        static sk_sp<SkPicture> run(SkRect bounds, const std::map<ViewLayerId, std::vector<PixelShape>> &own_shapes, const std::vector<ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, const ViewLayerSet &view_layers)
+        static sk_sp<SkPicture> run(SkRect bounds, const std::map<ViewLayerId, std::vector<PixelShape>> &own_shapes, const std::vector<ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, const ViewLayerSet &view_layers, bool antialiasing_enabled)
         {
             SkPictureRecorder recorder;
             SkCanvas *canvas = recorder.beginRecording(bounds);
 
-            draw_shape_groups(*canvas, own_shapes, view_layers);
+            draw_shape_groups(*canvas, own_shapes, view_layers, antialiasing_enabled);
 
             for (const ResolvedInstance &instance : instances)
             {

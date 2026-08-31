@@ -461,7 +461,7 @@ void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_u
     le_fit_rect(session(), ll_x_um, ll_y_um, ur_x_um, ur_y_um, padding_px);
 }
 
-void set_layer_visible_cmd(const char *layer_name, int visible)
+void set_layer_visible_cmd(const char *layer_name, bool visible)
 {
     le_set_layer_name_visible(session(), layer_name, visible);
 }
@@ -482,9 +482,19 @@ int dump_png_cmd(const char *path)
     return SkPngEncoder::Encode(&stream, pixmap, SkPngEncoder::Options{}) ? 0 : 1;
 }
 
-int get_layer_visible_cmd(const char *layer_name)
+bool get_layer_visible_cmd(const char *layer_name)
 {
     return le_is_layer_name_visible(session(), layer_name);
+}
+
+void set_antialiasing_enabled_cmd(bool enabled)
+{
+    le_set_antialiasing_enabled(session(), enabled);
+}
+
+bool get_antialiasing_enabled_cmd()
+{
+    return le_is_antialiasing_enabled(session());
 }
 
 void set_session_handle(long long handle_address)

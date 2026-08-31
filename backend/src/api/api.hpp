@@ -1,4 +1,5 @@
 #pragma once
+#include <stdbool.h>
 #include <stdint.h>
 
 // The C API surface a Flutter plugin's Dart FFI binds to (see README's
@@ -326,16 +327,27 @@ extern "C"
     /// grid cell: see le_is_purpose_visible() for the other axis, and
     /// Scene::is_view_layer_visible for how a specific column's effective
     /// visibility combines both. Visible by default until toggled. Returns
-    /// nonzero (visible) if handle or layer_name is null, matching Scene's
+    /// true if handle or layer_name is null, matching Scene's
     /// own "unknown name defaults to visible" default.
-    int32_t le_is_layer_name_visible(LeHandle *handle, const char *layer_name);
+    bool le_is_layer_name_visible(LeHandle *handle, const char *layer_name);
 
     /// @brief Set the visibility of every ViewLayer whose LeLayerRow::name
     /// is `layer_name` - e.g. a layer-visibility widget's row-header
     /// checkbox. Mirrors Scene::set_layer_name_visible directly (affects
     /// rendering - see Pipeline::filter_by_layer_visibility). A no-op if
     /// handle or layer_name is null.
-    void le_set_layer_name_visible(LeHandle *handle, const char *layer_name, int32_t visible);
+    void le_set_layer_name_visible(LeHandle *handle, const char *layer_name, bool visible);
+
+    /// @brief Whether fill/stroke geometry paints antialias their own
+    /// edges (Scene::antialiasing_enabled() - grid/chrome/text paints are
+    /// unaffected, always antialiased). Off by default, matching most
+    /// commercial EDA tools' own default. Returns false if handle is null.
+    bool le_is_antialiasing_enabled(LeHandle *handle);
+
+    /// @brief Toggle antialiasing - e.g. a view-options checkbox. Mirrors
+    /// Scene::set_antialiasing_enabled directly (affects rendering). A
+    /// no-op if handle is null.
+    void le_set_antialiasing_enabled(LeHandle *handle, bool enabled);
 
     /// @brief Current visibility of every ViewLayer whose purpose is
     /// `purpose` (le::ViewLayerPurpose's own raw ordinal - see
