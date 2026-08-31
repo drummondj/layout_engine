@@ -26,12 +26,23 @@ set kInvalidId 4294967295
 # Wraps one user-typed command with undo/redo transaction recording +
 # command-recall logging - the single bracket point every REPL-style
 # caller should use instead of raw Tcl_Eval, so a typed command is
-# exactly as undoable (Ctrl-Z/Ctrl-Shift-Z) as a GUI edit like Move, and
-# only successfully-run commands (`code == 0`) get added to
-# command_history. `uplevel #0` runs $command in the *global* scope, not
-# nested inside this proc's own local one - matching how a real
-# interactive shell evaluates each line at toplevel (a bare `set x 5`
-# lands in global scope, not thrown away when this proc returns).
+# exactly as undoable (Ctrl-Z/Ctrl-Shift-Z) as a GUI edit like Move.
+# Every command, successful or not, gets added to command_history
+# (BUGS_AND_ENHANCEMENTS.md E5 - a failed command is exactly the one a
+# user most wants back, to recall and edit into a working one).
+# `uplevel #0` runs $command in the *global* scope, not nested inside
+# this proc's own local one - matching how a real interactive shell
+# evaluates each line at toplevel (a bare `set x 5` lands in global
+# scope, not thrown away when this proc returns).
+#
+# complete_command (Tab-completion's own backing command, see below) is
+# the one exception - skipped entirely, not just excluded from the
+# recall log afterward, since it's a pure read with nothing to undo:
+# every Tab press would otherwise pollute command_history with its own
+# "complete_command ..." entry (BUGS_AND_ENHANCEMENTS.md E5's other
+# half). `[lindex $command 0]` reads the command name the same way Tcl
+# itself would dispatch it, so this catches "complete_command foo" and
+# "complete_command {foo bar}" alike regardless of quoting.
 #
 # `flutter_plugin`'s LeTclBridge.mm is the only caller (every typed
 # console command goes through it) - le_shell.cpp's own interactive REPL
@@ -42,6 +53,10 @@ set kInvalidId 4294967295
 # just not batched into one transaction/recall entry per line the way a
 # Flutter-console command is.
 proc le_repl_eval {command} {
+    if {[lindex $command 0] eq "complete_command"} {
+        catch {uplevel #0 $command} result
+        return $result
+    }
     begin_command $command
     set code [catch {uplevel #0 $command} result]
     end_command [expr {$code == 0}]
@@ -506,7 +521,7 @@ register_command_help redo \
 
 proc command_history {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
-        return "command_history \[-help\] - Lists successfully executed commands, in order"
+        return "command_history \[-help\] - Lists every typed command, in order"
     }
     set count [command_history_count]
     set lines {}
@@ -516,8 +531,8 @@ proc command_history {args} {
     return [join $lines "\n"]
 }
 register_command_help command_history \
-    "command_history \[-help\] - Lists successfully executed commands, in order" \
-    "Lists every successfully executed typed command, in submission order (one per line, numbered) - backs the console's Up/Down recall. A command that errored is not recorded." \
+    "command_history \[-help\] - Lists every typed command, in order" \
+    "Lists every typed command, successful or not, in submission order (one per line, numbered) - backs the console's Up/Down recall (BUGS_AND_ENHANCEMENTS.md E5 - a failed command stays recalled/editable rather than vanishing). complete_command (Tab-completion's own backing command) is the one exception - never recorded." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }

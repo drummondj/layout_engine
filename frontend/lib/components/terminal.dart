@@ -110,10 +110,11 @@ class _TerminalState extends State<Terminal> {
     if (command.isEmpty || _running) return;
     if (command == "history") {
       // Sourced from the backend's own command-recall log (UPDATES.md
-      // item 21), not a local list - only successfully executed commands
-      // appear, an intentional, requirement-driven behavior change (the
-      // old local _commandHistory recorded every submission regardless
-      // of outcome).
+      // item 21), not a local list - every typed command appears here,
+      // successful or not (BUGS_AND_ENHANCEMENTS.md E5 - a failed one is
+      // exactly what a user wants back, to recall and edit into a working
+      // one), except complete_command (Tab-completion's own backing
+      // command), which is never recorded at all.
       final history = _provider.commandHistoryCache;
       var padding = history.length.toString().length;
       setState(() {

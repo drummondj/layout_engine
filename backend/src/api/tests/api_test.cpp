@@ -4103,8 +4103,11 @@ TEST_F(ApiFixture, UndoRedoRoundTripsAGeneratedUpdateCallThroughBeginEndCommand)
     EXPECT_EQ(le_redo(nullptr), 0);
 }
 
-TEST_F(ApiFixture, CommandHistoryOnlyRecordsSuccessfulCommands)
+TEST_F(ApiFixture, CommandHistoryRecordsBothSuccessfulAndFailedCommands)
 {
+    // BUGS_AND_ENHANCEMENTS.md E5 - a failed command is exactly the one a
+    // user most wants back, to recall and edit into a working one, so it
+    // stays in the recall log same as a successful one.
     EXPECT_EQ(le_command_history_count(handle), 0);
 
     le_begin_command(handle, "ok_command");
@@ -4114,9 +4117,10 @@ TEST_F(ApiFixture, CommandHistoryOnlyRecordsSuccessfulCommands)
 
     le_begin_command(handle, "bad_command");
     le_end_command(handle, 0);
-    EXPECT_EQ(le_command_history_count(handle), 1); // unchanged
+    ASSERT_EQ(le_command_history_count(handle), 2);
+    EXPECT_STREQ(le_command_history_at(handle, 1), "bad_command");
 
-    EXPECT_EQ(le_command_history_at(handle, 1), nullptr); // out of range
+    EXPECT_EQ(le_command_history_at(handle, 2), nullptr); // out of range
     EXPECT_EQ(le_command_history_at(handle, -1), nullptr);
 }
 

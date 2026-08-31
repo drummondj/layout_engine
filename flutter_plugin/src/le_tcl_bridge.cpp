@@ -169,8 +169,10 @@ void TclBridge::workerLoop() {
             // Tcl_Eval of `command` itself (UPDATES.md item 21) - the
             // single bracket point that makes a typed console command
             // exactly as undoable (Ctrl-Z/Ctrl-Shift-Z) as a GUI edit, and
-            // the source of the command-recall log's success-only
-            // filtering. `command` is passed through Tcl_SetVar/a
+            // the source of the command-recall log itself (every typed
+            // command, successful or not, except complete_command -
+            // BUGS_AND_ENHANCEMENTS.md E5). `command` is passed through
+            // Tcl_SetVar/a
             // variable reference, not substituted directly into the
             // eval'd string, to avoid re-escaping arbitrary user-typed
             // text.

@@ -182,12 +182,16 @@ TEST(CommandHistoryTest, EmptyTransactionNeverPushedOntoUndoStack)
     EXPECT_EQ(history.recall_at(0), "noop_read_command");
 }
 
-TEST(CommandHistoryTest, FailedCommandNotRecordedInRecallLog)
+TEST(CommandHistoryTest, FailedCommandIsStillRecordedInRecallLog)
 {
+    // BUGS_AND_ENHANCEMENTS.md E5 - a failed command is exactly the one a
+    // user most wants back, to recall and edit into a working one.
     CommandHistory history;
     history.begin("bad_command");
     history.end(/*succeeded=*/false);
-    EXPECT_EQ(history.recall_count(), 0u);
+    ASSERT_EQ(history.recall_count(), 1u);
+    EXPECT_EQ(history.recall_at(0), "bad_command");
+    EXPECT_FALSE(history.can_undo()); // still recorded zero undoable steps
 }
 
 TEST(CommandHistoryTest, BeginWhileAlreadyRecordingIsANoOp)

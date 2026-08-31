@@ -624,10 +624,22 @@ check "layer name is back to M1 after undo" M1 [get_properties $scratch_shape .l
 check "redo re-applies the rename" 1 [redo]
 check "layer name is M2 again after redo" M2 [get_properties $scratch_shape .layer.name]
 
-# A deliberately-errored command is not added to command_history.
-set history_before [command_history]
+# A deliberately-errored command is still added to command_history
+# (BUGS_AND_ENHANCEMENTS.md E5) - unlike every other entry so far, its
+# own text is the literal, unresolved command as submitted (there's no
+# successful/generated form to record instead).
+set count_before [command_history_count]
 le_repl_eval {this_command_does_not_exist}
-check "command_history is unchanged after a failed command" $history_before [command_history]
+check "command_history gained one entry after a failed command" [expr {$count_before + 1}] [command_history_count]
+check "the failed command's own text is recorded verbatim" "this_command_does_not_exist" \
+    [command_history_at [expr {[command_history_count] - 1}]]
+
+# complete_command itself is never added to command_history
+# (BUGS_AND_ENHANCEMENTS.md E5's other half) - Tab-completion shouldn't
+# pollute the recall log with its own lookups.
+set count_before_completion [command_history_count]
+le_repl_eval {complete_command get_t}
+check "command_history is unchanged after a complete_command call" $count_before_completion [command_history_count]
 
 # delete_terminal round trip - undo recreates the terminal (at a new id,
 # not necessarily $delete_target - see Transaction's own id-cell doc

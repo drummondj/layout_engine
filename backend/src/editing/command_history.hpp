@@ -34,11 +34,14 @@ namespace le::editing
         /// none is active). If it recorded at least one step, pushes it
         /// onto the undo stack (clearing the redo stack - a fresh edit
         /// invalidates old redo history, standard undo/redo convention)
-        /// regardless of `succeeded`. If `succeeded` is true, the
-        /// transaction's own label is also appended to the recall log -
-        /// this is what makes command_history() only ever show commands
-        /// that actually ran successfully, even ones (like a pure read)
-        /// that recorded zero undoable steps.
+        /// regardless of `succeeded`. The transaction's own label is
+        /// always appended to the recall log too, `succeeded` or not
+        /// (BUGS_AND_ENHANCEMENTS.md E5) - a failed command is exactly
+        /// the one a user most wants back, to recall and edit into a
+        /// working one, rather than retyping it from scratch. `succeeded`
+        /// is still accepted (not collapsed into a no-op parameter) since
+        /// callers - le_repl_eval, Move - already compute it for their
+        /// own error-message/undo-step-empty reasons regardless.
         void end(bool succeeded)
         {
             if (!recording_)
@@ -54,8 +57,7 @@ namespace le::editing
                 redo_stack_.clear();
             }
 
-            if (succeeded)
-                command_text_log_.push_back(label);
+            command_text_log_.push_back(label);
         }
 
         bool is_recording() const { return recording_.has_value(); }
