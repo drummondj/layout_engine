@@ -183,6 +183,38 @@ int set_current_design_layout_cmd(long long design_id);
 /// zoom on the way the GUI's own keyboard shortcut does.
 void zoom_cmd(double factor);
 
+/// @brief Backing for the `zoom_area {llx lly urx ury} [-padding <int>]`
+/// Tcl command - mirrors le_fit_rect directly (fits the viewport's pan/
+/// scale to the given micron-space rect, uniform scale, centered, with
+/// `padding_px` margin - see that function's own api.hpp comment for the
+/// um->dbu conversion and the degenerate-rect fallback).
+void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int padding_px);
+
+/// @brief Backing for the `dump_png <path>` Tcl command - renders the
+/// current view via le_render_pixel_buffer (the same output the app's own
+/// Texture uses, and the same call le_shell's own viewport_width()/
+/// viewport_height() above already make - no GUI needed) and encodes it
+/// as an RGBA8888 PNG at `path` via SkPngEncoder (same approach
+/// render_preview.cpp's own write_png uses, scoped to this Tcl-facing
+/// shim rather than api.hpp - the Flutter app never needs to write a PNG
+/// of its own render, only a script/debugging session does). Returns 0
+/// on success, nonzero if the buffer is empty (e.g. no viewport size set)
+/// or the file couldn't be opened/encoded.
+int dump_png_cmd(const char *path);
+
+/// @brief Backing for the `set_layer_visible <layer_name> <visible>` Tcl
+/// command - mirrors le_set_layer_name_visible directly (affects every
+/// ViewLayer of the real Layer named `layer_name`, e.g. both TERMINAL and
+/// OBSTRUCTION - see that function's own api.hpp comment for why it's the
+/// whole real-Layer's worth, not one ViewLayerPurpose at a time).
+void set_layer_visible_cmd(const char *layer_name, int visible);
+
+/// @brief Backing for the `get_layer_visible <layer_name>` Tcl command -
+/// mirrors le_is_layer_name_visible directly. Returns 1/0, or 0 if
+/// `layer_name` doesn't name a real Layer (le_is_layer_name_visible's own
+/// "unknown name" fallback).
+int get_layer_visible_cmd(const char *layer_name);
+
 /// @brief Sentinel for "no such id" for AbstractId/DesignId in their
 /// CRUD-flag/session-selection role - see this header's own "IDs"
 /// comment. Every api.hpp failure path for these two types in that role

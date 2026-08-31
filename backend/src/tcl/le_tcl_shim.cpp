@@ -2,6 +2,11 @@
 
 #include "api.hpp"
 
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkStream.h"
+#include "include/encode/SkPngEncoder.h"
+
 #include <charconv>
 #include <cstdint>
 #include <sstream>
@@ -449,6 +454,37 @@ int set_current_design_layout_cmd(long long design_id)
 void zoom_cmd(double factor)
 {
     le_zoom(session(), factor, viewport_width() / 2, viewport_height() / 2);
+}
+
+void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int padding_px)
+{
+    le_fit_rect(session(), ll_x_um, ll_y_um, ur_x_um, ur_y_um, padding_px);
+}
+
+void set_layer_visible_cmd(const char *layer_name, int visible)
+{
+    le_set_layer_name_visible(session(), layer_name, visible);
+}
+
+int dump_png_cmd(const char *path)
+{
+    const LePixelBuffer buffer = le_render_pixel_buffer(session());
+    if (!buffer.data || buffer.width <= 0 || buffer.height <= 0)
+        return 1;
+
+    const SkImageInfo info = SkImageInfo::Make(buffer.width, buffer.height, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+    SkPixmap pixmap(info, buffer.data, static_cast<size_t>(buffer.row_bytes));
+
+    SkFILEWStream stream(path);
+    if (!stream.isValid())
+        return 1;
+
+    return SkPngEncoder::Encode(&stream, pixmap, SkPngEncoder::Options{}) ? 0 : 1;
+}
+
+int get_layer_visible_cmd(const char *layer_name)
+{
+    return le_is_layer_name_visible(session(), layer_name);
 }
 
 void set_session_handle(long long handle_address)

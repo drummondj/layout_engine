@@ -326,6 +326,145 @@ TEST_F(HierarchyResolverFixture, RenderLayoutFrameDrawsAtTheCorrectPostFlipPixel
     EXPECT_FALSE(pixel_buffer_region_has_opaque_pixel(buffer, 10, 10, 50, 50));
 }
 
+TEST_F(HierarchyResolverFixture, RenderLayoutFrameAtDepthTwoShowsTerminalAndObstructionOfTheBottomAbstract)
+{
+    // Layout(TOP, viewed) -> Layout(SUB) -> Abstract(LEAF), hierarchy_depth=2
+    // - the exact "Layout -> Layout -> Abstract" shape reported as
+    // dropping the bottom Abstract's own Terminal/Obstruction content
+    // (working fine one level shallower, "Layout -> Abstract"). Every
+    // existing 2-level test in this file drives build_layout_picture
+    // directly with an explicit remaining_depth, bypassing
+    // render_layout_frame's own hierarchy_depth -> remaining_depth
+    // conversion (remaining_depth = hierarchy_depth - 1) entirely - this
+    // is the first to go through the real render_layout_frame entry
+    // point (what le_render_pixel_buffer actually calls) for a
+    // structure that needs 2 Layout hops before reaching the Abstract.
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100}); // adds an OBSTRUCTION shape on M1
+
+    const le::TerminalId terminal_id = root.create_terminal(le::TerminalData{.abstract = root.get_design_abstract(leaf)});
+    const le::TerminalPortId port_id = root.create_terminal_port(le::TerminalPortData{.terminal = terminal_id});
+    le::Shape terminal_shape;
+    terminal_shape.terminal_port = port_id;
+    terminal_shape.layer = m1;
+    terminal_shape.rects.push_back(le::Rect{.ll = {20, 20}, .ur = {40, 40}});
+    root.create_shape(std::move(terminal_shape));
+
+    auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{400, 400});
+    add_placement(sub_layout, leaf, le::Point{0, 0}, le::Orientation::N, "U1");
+
+    auto [top_design, top_layout] = create_layout_design("TOP", le::Point{3000, 3000});
+    add_placement(top_layout, sub_design, le::Point{1000, 1000}, le::Orientation::N, "U1");
+
+    scene.set_pan(le::Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(4000, 4000);
+
+    const le::PixelBuffer &buffer = resolver.render_layout_frame(root, top_layout, /*hierarchy_depth=*/2, view_layers, scene);
+    ASSERT_TRUE(buffer.data);
+
+    // world (1000,1000)-(1100,1100) is the leaf's own OBSTRUCTION rect
+    // (0,0)-(100,100) placed at (1000,1000); post-flip y = height - y.
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(buffer, 1010, 4000 - 1090, 1090, 4000 - 1010));
+    // world (1020,1020)-(1040,1040) is the leaf's own TERMINAL rect.
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(buffer, 1022, 4000 - 1038, 1038, 4000 - 1022));
+}
+
+TEST_F(HierarchyResolverFixture, RenderLayoutFrameAtDepthTwoShowsTwoDistinctLeafDesignsSharingOneParentsFanIn)
+{
+    // Layout(TOP, viewed) -> Layout(MID) -> two DIFFERENT Abstract leaf
+    // designs (not just repeated placements of the SAME one, unlike
+    // DedupByKeyComputesASharedLeafExactlyOnceRegardlessOfPlacementCount,
+    // and going through render_layout_frame - the real entry point -
+    // rather than build_layout_picture directly, unlike every other
+    // 2-level test in this file). MID's own HierarchyLayoutNodeStage
+    // fan-in has to correctly gather BOTH distinct leaf nodes' own
+    // pictures, not just N copies of one.
+    le::DesignId leaf_a = create_leaf_design("LEAFA", le::Point{100, 100});
+    le::DesignId leaf_b = create_leaf_design("LEAFB", le::Point{100, 100});
+
+    auto [mid_design, mid_layout] = create_layout_design("MID", le::Point{4000, 4000});
+    add_placement(mid_layout, leaf_a, le::Point{0, 0}, le::Orientation::N, "UA");
+    add_placement(mid_layout, leaf_b, le::Point{500, 500}, le::Orientation::N, "UB");
+
+    auto [top_design, top_layout] = create_layout_design("TOP", le::Point{5000, 5000});
+    add_placement(top_layout, mid_design, le::Point{0, 0}, le::Orientation::N, "U1");
+
+    scene.set_pan(le::Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(5000, 5000);
+
+    const le::PixelBuffer &buffer = resolver.render_layout_frame(root, top_layout, /*hierarchy_depth=*/2, view_layers, scene);
+    ASSERT_TRUE(buffer.data);
+
+    // LEAFA's own obstruction: world (0,0)-(100,100); post-flip y = height - y.
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(buffer, 10, 5000 - 90, 90, 5000 - 10));
+    // LEAFB's own obstruction: world (500,500)-(600,600).
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(buffer, 510, 5000 - 590, 590, 5000 - 510));
+}
+
+TEST_F(HierarchyResolverFixture, RenderLayoutFrameAtDepthOneShowsTwoDistinctLeafDesignsInOneFanIn)
+{
+    // Same MID/LEAFA/LEAFB setup as the depth-two test above, but MID is
+    // the VIEWED layout itself (hierarchy_depth=1, one level, MID's own
+    // fan-in reached via build_top_layout_picture rather than as a
+    // nested HierarchyLayoutNodeStage) - isolates whether "two distinct
+    // leaf designs sharing one fan-in" alone is enough to reproduce the
+    // bug, or whether it specifically needs the extra level of nesting.
+    le::DesignId leaf_a = create_leaf_design("LEAFA", le::Point{100, 100});
+    le::DesignId leaf_b = create_leaf_design("LEAFB", le::Point{100, 100});
+
+    auto [mid_design, mid_layout] = create_layout_design("MID", le::Point{4000, 4000});
+    add_placement(mid_layout, leaf_a, le::Point{0, 0}, le::Orientation::N, "UA");
+    add_placement(mid_layout, leaf_b, le::Point{500, 500}, le::Orientation::N, "UB");
+
+    scene.set_pan(le::Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(5000, 5000);
+
+    const le::PixelBuffer &buffer = resolver.render_layout_frame(root, mid_layout, /*hierarchy_depth=*/1, view_layers, scene);
+    ASSERT_TRUE(buffer.data);
+
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(buffer, 10, 5000 - 90, 90, 5000 - 10));
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(buffer, 510, 5000 - 590, 590, 5000 - 510));
+}
+
+TEST_F(HierarchyResolverFixture, RenderLayoutFrameAtDepthTwoShowsTwoPlacementsOfTheSameLeafDesignInOneFanIn)
+{
+    // Same shape as RenderLayoutFrameAtDepthTwoShowsTwoDistinctLeafDesignsSharingOneParentsFanIn
+    // (MID nested one level under TOP, hierarchy_depth=2), but both of
+    // MID's own placements reference the SAME design (matching
+    // DedupByKeyComputesASharedLeafExactlyOnceRegardlessOfPlacementCount's
+    // own "one shared child, repeated" pattern, nested this time) -
+    // isolates whether nesting alone is enough to break MID's own
+    // fan-in, or whether it specifically needs distinct children.
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
+
+    auto [mid_design, mid_layout] = create_layout_design("MID", le::Point{4000, 4000});
+    add_placement(mid_layout, leaf, le::Point{0, 0}, le::Orientation::N, "UA");
+    add_placement(mid_layout, leaf, le::Point{500, 500}, le::Orientation::N, "UB");
+
+    auto [top_design, top_layout] = create_layout_design("TOP", le::Point{5000, 5000});
+    add_placement(top_layout, mid_design, le::Point{0, 0}, le::Orientation::N, "U1");
+
+    scene.set_pan(le::Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(5000, 5000);
+
+    const uint64_t before = resolver.design_picture_recompute_count();
+    const le::PixelBuffer &buffer = resolver.render_layout_frame(root, top_layout, /*hierarchy_depth=*/2, view_layers, scene);
+    ASSERT_TRUE(buffer.data);
+    // LEAF's own node + MID's own node + render_layout_frame's own
+    // top-level picture = 3 real recomputes - proves MID's own fan-in
+    // actually fired on the real, fully-accumulated result (not just
+    // once on FanInCollectStage's own first, still-accumulating empty
+    // placeholder - see wire_fan_in's own comment for the bug this
+    // guards against).
+    EXPECT_EQ(resolver.design_picture_recompute_count() - before, 3u);
+
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(buffer, 10, 5000 - 90, 90, 5000 - 10));
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(buffer, 510, 5000 - 590, 590, 5000 - 510));
+}
+
 TEST_F(HierarchyResolverFixture, RenderLayoutFramePanShiftsTheDrawnPosition)
 {
     le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
@@ -411,6 +550,24 @@ TEST_F(HierarchyResolverFixture, DedupByKeyComputesASharedLeafExactlyOnceRegardl
     // HierarchyAbstractLeafStage node, one for SUB's own
     // HierarchyLayoutNodeStage node - regardless of kPlacementCount.
     EXPECT_EQ(resolver.design_picture_recompute_count() - before, 2u);
+
+    // A non-null recompute-count-matching picture alone doesn't prove
+    // every placement's own content actually made it in - this exact gap
+    // is how HierarchyLayoutNodeStage's own fan-in bug (wrap_ used to
+    // forward FanInCollectStage's intermediate, still-accumulating empty
+    // results with the same data_version as the real final one, so
+    // SUB's own downstream MemoizingStage locked onto the empty first
+    // message and never recomputed for the real one - see
+    // wire_fan_in's own comment) went undetected: it left `instances`
+    // completely empty for ANY Layout node with 2+ real edges, yet a
+    // picture (SUB's own diearea outline, unaffected) was still
+    // produced with the expected recompute count. Check the first AND
+    // last placement's own content specifically, not just "some pixel
+    // somewhere" - both ends of the fan-in's own slot range.
+    const SkBitmap bitmap = rasterize(picture, 4000, 4000);
+    EXPECT_TRUE(region_has_opaque_pixel(bitmap, 5, 5, 95, 95));       // U0 at world (0,0)-(100,100)
+    const int64_t last_x = static_cast<int64_t>(kPlacementCount - 1) * 20;
+    EXPECT_TRUE(region_has_opaque_pixel(bitmap, static_cast<int>(last_x) + 5, 5, static_cast<int>(last_x) + 95, 95)); // U99
 }
 
 TEST_F(HierarchyResolverFixture, IncrementalMultiRootDiscoverySharesAChildAcrossTwoRootsWithinOneEpoch)

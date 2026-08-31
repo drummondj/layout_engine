@@ -72,6 +72,24 @@ LEF ARRAYSPACING (CUT layers, at most one per layer)
 | `-cut_spacing` | `dbu` | yes | CUTSPACING, in database units |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## create_blockage
+
+`create_blockage -layout <token> -placement <token> -kind <BlockageKind> [-layer_name <str>] [-spacing <dbu>] [-design_rule_width <dbu>] [-is_soft <bool>] [-placement_max_density <double>] [-help]`
+
+A routing or placement blockage (DEF BLOCKAGES) - one klass for both kinds, mirroring how the vendored parser's own defiBlockage struct covers both
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-placement` | `token` | yes | Scope this blockage to underneath one placed instance - invalid id if unscoped |
+| `-kind` | `BlockageKind` | yes | Whether this is a routing-layer or placement blockage |
+| `-layer_name` | `str` | no | The name of the blocked routing layer, as read - set only for a ROUTING blockage |
+| `-spacing` | `dbu` | no | Minimum spacing override, in database units (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width |
+| `-design_rule_width` | `dbu` | no | Effective width for design rule checks, in database units (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing |
+| `-is_soft` | `bool` | no | PLACEMENT ... SOFT - PLACEMENT only |
+| `-placement_max_density` | `double` | no | PLACEMENT ... PARTIAL maxDensity (0-100) - unset if not PARTIAL |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## create_design
 
 `create_design -library <token> -name <str> [-help]`
@@ -103,18 +121,34 @@ One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several. width/exce
 
 ## create_foreign
 
-`create_foreign [-via <token>] [-non_default_rule_via <token>] [-abstract <token>] -name <str> [-origin <Point>] [-orient <Orientation>] [-help]`
+`create_foreign [-via <token>] [-non_default_rule_via <token>] [-abstract <token>] [-layout_via <token>] -name <str> [-origin <Point>] [-orient <Orientation>] [-help]`
 
-A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract (mutually exclusive - Abstract can hold several, the other two at most one)
+A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract/LayoutVia (mutually exclusive - Abstract can hold several, the others at most one)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-via` | `token` | no | Parent Via token - exactly one of this class's parent flags is required |
 | `-non_default_rule_via` | `token` | no | Parent NonDefaultRuleVia token - exactly one of this class's parent flags is required |
 | `-abstract` | `token` | no | Parent Abstract token - exactly one of this class's parent flags is required |
+| `-layout_via` | `token` | no | Parent LayoutVia token - exactly one of this class's parent flags is required |
 | `-name` | `str` | yes | The foreign cell name (usually the same as the design name) |
 | `-origin` | `Point` | no | The foreign origin - LEF FOREIGN's point is itself optional (bare 'FOREIGN name ;' is legal), so unset here means no point was written, not (0,0) |
 | `-orient` | `Orientation` | no | The foreign orientation - also optional independently of origin ('FOREIGN name ( x y ) ;' with no orientation is legal) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## create_g_cell_grid
+
+`create_g_cell_grid -layout <token> [-is_x <bool>] -start <dbu> -count <int> -step <dbu> [-help]`
+
+A global-routing gcell grid line (DEF GCELLGRID)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-is_x` | `bool` | no | True for an X-direction grid line, false for Y (DEF GCELLGRID X/Y) |
+| `-start` | `dbu` | yes | Starting coordinate, in database units (DEF GCELLGRID DO start) |
+| `-count` | `int` | yes | Number of grid lines (DEF GCELLGRID DO ... n) |
+| `-step` | `dbu` | yes | Spacing between grid lines, in database units (DEF GCELLGRID STEP) |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## create_influence_spacing_entry
@@ -133,13 +167,14 @@ One row of a LEF SPACINGTABLE INFLUENCE table (ROUTING layers)
 
 ## create_instance
 
-`create_instance -schematic <token> -name <str> -reference_name <str> [-location <Point>] [-help]`
+`create_instance -schematic <token> -reference_design <token> -name <str> -reference_name <str> [-location <Point>] [-help]`
 
 An instance of another design
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-schematic` | `token` | yes | Parent Schematic token |
+| `-reference_design` | `token` | yes | The ID of the reference design after linking |
 | `-name` | `str` | yes | The name of the instance |
 | `-reference_name` | `str` | yes | The name of the reference design |
 | `-location` | `Point` | no | The location of the lower-left corner of this instance |
@@ -203,6 +238,29 @@ One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is a
 | `-dc_layer` | `token` | no | Parent Layer token - exactly one of this class's parent flags is required |
 | `-type` | `str` | yes | PEAK, AVERAGE, or RMS |
 | `-one_entry` | `double` | no | Plain-scalar form value, declared units - no dbu conversion |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## create_layout
+
+`create_layout -design <token> [-help]`
+
+A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc. Net *connectivity* (which component pins a net connects) is deferred to when SystemVerilog/Schematic linking lands - Net here only holds routing geometry.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-design` | `token` | yes | Parent Design token |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## create_layout_via
+
+`create_layout_via -layout <token> -name <str> [-help]`
+
+A design-scoped named via (DEF VIAS) - distinct from the Technology-level Via since these are per-design and may even shadow a Technology-level via name
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-name` | `str` | yes | The name of the via |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## create_library
@@ -335,6 +393,38 @@ An abstract routing blockage
 | `-abstract` | `token` | yes | Parent Abstract token |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## create_physical_port
+
+`create_physical_port -layout <token> -name <str> [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
+
+A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's future logical Port, named PhysicalPort (not Pin, DEF's own section name) since SCHEMA.md reserves Pin for a different concept (a logical pin on a Schematic Instance, i.e. a Verilog instance pin). Net connectivity is deferred to when SystemVerilog/Schematic linking lands - net_name is stored as read, not resolved to a (future) Net.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-name` | `str` | yes | The name of the pin - unique within its parent Layout (see unique_per_parent) |
+| `-net_name` | `str` | no | The name of the net this pin connects to, as read - not resolved to a (future) Net (DEF PINS NET) |
+| `-direction` | `SignalDirection` | no | The direction of the pin - unset if omitted |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF PINS USE) |
+| `-placement_status` | `PlacementStatus` | no | Placement status - unset if never placed |
+| `-location` | `Point` | no | The pin's location, in database units - unset if unplaced |
+| `-orientation` | `Orientation` | no | Placement orientation - unset if unplaced |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## create_physical_port_segment
+
+`create_physical_port_segment -physical_port <token> [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
+
+One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort's own relationship to Terminal, just named to avoid stuttering (PhysicalPort + Port). Unlike TerminalPort, carries its own placement_status/location/orientation - DEF lets each PORT of a multi-port pin be placed independently (setPortPlacement, distinct from the pin's own top-level setPlacement), and its own LAYER/POLYGON coordinates are relative to that placement, not the parent PhysicalPort's - confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3 different placements: FIXED/COVER/PLACED at 3 different locations). Unset for the synthetic single segment a pre-5.7 simple (no-PORT-wrapper) pin gets - that case's placement lives on the parent PhysicalPort instead.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-physical_port` | `token` | yes | Parent PhysicalPort token |
+| `-placement_status` | `PlacementStatus` | no | This segment's own placement status - unset for the synthetic segment of a simple (non-multi-port) pin, whose placement lives on the parent PhysicalPort instead |
+| `-location` | `Point` | no | This segment's own location, in database units - unset if unplaced |
+| `-orientation` | `Orientation` | no | This segment's own orientation - unset if unplaced |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## create_pin_antenna_model
 
 `create_pin_antenna_model -terminal <token> -oxide <str> [-help]`
@@ -345,6 +435,24 @@ One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer'
 | --- | --- | --- | --- |
 | `-terminal` | `token` | yes | Parent Terminal token |
 | `-oxide` | `str` | yes | OXIDE1, OXIDE2, OXIDE3, or OXIDE4 |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## create_placement
+
+`create_placement -layout <token> -reference_design <token> -name <str> -placement_status <PlacementStatus> [-location <Point>] [-orientation <Orientation>] [-weight <double>] [-source <str>] [-help]`
+
+A placed physical instance (DEF COMPONENTS) - the physical counterpart to Instance, kept as a separate klass to keep physical placement apart from logical connectivity (Instance/Schematic, not yet populated - no SystemVerilog reader exists). Named Placement (not Component, DEF's own section name) to mirror Net/Route's own logical-vs-physical naming split - see SCHEMA.md.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-reference_design` | `token` | yes | The reference Design, resolved from the referenced macro/design name at creation time - readers error rather than create a Placement with an unresolved reference |
+| `-name` | `str` | yes | The name of the instance - unique within its parent Layout (see unique_per_parent) |
+| `-placement_status` | `PlacementStatus` | yes | Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED) |
+| `-location` | `Point` | no | The location of the lower-left corner of this instance, in database units - unset if UNPLACED |
+| `-orientation` | `Orientation` | no | Placement orientation - unset if UNPLACED |
+| `-weight` | `double` | no | DEF COMPONENTS WEIGHT - unset if omitted |
+| `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) - unset if omitted |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## create_prefer_enclosure_entry
@@ -380,6 +488,55 @@ One LEF PROPERTYDEFINITIONS entry - declares a property name's data type (and op
 | `-default_string` | `str` | no | Default value, if data_type is S(tring)/Q(uoted string) - unset if none was declared |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## create_region
+
+`create_region -layout <token> -name <str> [-region_type <str>] [-rects <Rect...>] [-help]`
+
+A placement region (DEF REGIONS)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-name` | `str` | yes | The name of the region - unique within its parent Layout (see unique_per_parent) |
+| `-region_type` | `str` | no | FENCE or GUIDE - unset if omitted (DEF REGIONS TYPE) |
+| `-rects` | `Rect...` | no | The region's rects (a region can be a multi-rect rectilinear area) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## create_route
+
+`create_route -layout <token> -name <str> [-is_special <bool>] [-width <dbu>] [-voltage <double>] [-use <str>] [-help]`
+
+The routing geometry of a regular or special net (DEF NETS/SPECIALNETS) - named Route rather than Net to reserve the Net name for the future Schematic/SystemVerilog netlist connectivity klass. Net *connectivity* (which component pins a net connects) is deferred to when that linking lands - this klass only holds physical routed geometry.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-name` | `str` | yes | The name of the net this routes, as read - unique within its parent Layout (see unique_per_parent); not resolved to a (future) Net, same deferred-connectivity convention as Pin.net_name |
+| `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
+| `-width` | `dbu` | no | Routing width override, in database units (DEF SPECIALNETS WIDTH) - SPECIALNETS only, unset if omitted |
+| `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only, unset if omitted |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF NETS/SPECIALNETS USE) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## create_row
+
+`create_row -layout <token> -name <str> -site_name <str> [-origin <Point>] -orientation <Orientation> [-num_x <int>] [-num_y <int>] [-step_x <dbu>] [-step_y <dbu>] [-help]`
+
+A placement row (DEF ROW)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-name` | `str` | yes | The name of the row |
+| `-site_name` | `str` | yes | The name of the site this row is built from, as read (DEF ROW macro name) - a plain name reference, same convention as Abstract.site, not resolved to a SiteId |
+| `-origin` | `Point` | no | The row's origin, in database units - always set for a real Row (is_optional=True only so create_row's -origin flag can be genuinely omittable at creation, per this schema's compound-field convention, see Abstract.size's own note) |
+| `-orientation` | `Orientation` | yes | The row's orientation |
+| `-num_x` | `int` | no | Number of site repeats in X (DEF ROW DO n) |
+| `-num_y` | `int` | no | Number of site repeats in Y (DEF ROW BY m) |
+| `-step_x` | `dbu` | no | Step in X between repeats, in database units (DEF ROW STEP) |
+| `-step_y` | `dbu` | no | Step in Y between repeats, in database units (DEF ROW STEP) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## create_schematic
 
 `create_schematic -design <token> [-help]`
@@ -393,15 +550,21 @@ A logical connectivity view (netlist)
 
 ## create_shape
 
-`create_shape [-terminal_port <token>] [-obstruction <token>] -layer_name <str> [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <dbu>] [-design_rule_width <dbu>] [-except_pg_net <bool>] [-help]`
+`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <dbu>] [-design_rule_width <dbu>] [-except_pg_net <bool>] [-help]`
 
-A shape on a layer, owned by exactly one of TerminalPort or Obstruction (mutually exclusive - at most one of the terminal_port/obstruction parent fields is ever set on a given Shape)
+A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-terminal_port` | `token` | no | Parent TerminalPort token - exactly one of this class's parent flags is required |
 | `-obstruction` | `token` | no | Parent Obstruction token - exactly one of this class's parent flags is required |
-| `-layer_name` | `str` | yes | The name of the layer |
+| `-physical_port_segment` | `token` | no | Parent PhysicalPortSegment token - exactly one of this class's parent flags is required |
+| `-blockage` | `token` | no | Parent Blockage token - exactly one of this class's parent flags is required |
+| `-route` | `token` | no | Parent Route token - exactly one of this class's parent flags is required |
+| `-layout` | `token` | no | Parent Layout token - exactly one of this class's parent flags is required |
+| `-abstract` | `token` | no | Parent Abstract token - exactly one of this class's parent flags is required |
+| `-layer` | `token` | no | The layer this shape is on, if it's real LEF/DEF routing/terminal/obstruction geometry - resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). Exactly one of layer/purpose is ever set (documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent) - a Shape with no real physical layer (Layout.diearea, Abstract.boundary, a DEF PLACEMENT blockage's own region) uses purpose instead, unset here. |
+| `-purpose` | `ShapePurpose` | no | This shape's synthetic, non-physical-layer purpose, if it isn't real routing/terminal/obstruction/routing-blockage geometry - exactly one of layer/purpose is ever set (see layer's own comment). A ROUTING blockage's own Shape still uses layer like any other real geometry (it really is scoped to a physical routing layer) - only a PLACEMENT blockage (no LAYER clause in DEF at all) uses purpose. |
 | `-paths` | `Path...` | no | A list of paths |
 | `-polygons` | `Polygon...` | no | A list of polygons |
 | `-rects` | `Rect...` | no | A list of rects |
@@ -534,6 +697,23 @@ Physical connection for a Terminal
 | `-port_class` | `str` | no | LEF PORT CLASS (NONE/CORE/BUMP) - unset if omitted |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## create_track
+
+`create_track -layout <token> [-is_x <bool>] -start <dbu> -count <int> -step <dbu> [-mask <int>] [-same_mask <bool>] [-help]`
+
+A routing track pattern (DEF TRACKS)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-is_x` | `bool` | no | True for an X-direction track pattern, false for Y (DEF TRACKS X/Y) |
+| `-start` | `dbu` | yes | Starting coordinate, in database units (DEF TRACKS DO start) |
+| `-count` | `int` | yes | Number of tracks (DEF TRACKS DO ... n) |
+| `-step` | `dbu` | yes | Spacing between tracks, in database units (DEF TRACKS STEP) |
+| `-mask` | `int` | no | MASK color (DEF 5.8) - unset if omitted |
+| `-same_mask` | `bool` | no | Whether SAMEMASK was specified (DEF 5.8) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## create_two_widths_spacing_entry
 
 `create_two_widths_spacing_entry -layer <token> -width <dbu> [-prl <dbu>] [-help]`
@@ -563,14 +743,15 @@ A fixed/default via definition (LEF VIA)
 
 ## create_via_layer
 
-`create_via_layer [-via <token>] [-non_default_rule_via <token>] -layer_name <str> [-help]`
+`create_via_layer [-via <token>] [-non_default_rule_via <token>] [-layout_via <token>] -layer_name <str> [-help]`
 
-One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction parents)
+One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia/LayoutVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction/... parents)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-via` | `token` | no | Parent Via token - exactly one of this class's parent flags is required |
 | `-non_default_rule_via` | `token` | no | Parent NonDefaultRuleVia token - exactly one of this class's parent flags is required |
+| `-layout_via` | `token` | no | Parent LayoutVia token - exactly one of this class's parent flags is required |
 | `-layer_name` | `str` | yes | The name of the layer |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
@@ -613,13 +794,14 @@ One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd bei
 
 ## create_via_rule_reference
 
-`create_via_rule_reference -via <token> -via_rule_name <str> [-cut_size <Point>] -bot_layer_name <str> -cut_layer_name <str> -top_layer_name <str> [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-help]`
+`create_via_rule_reference [-via <token>] [-layout_via <token>] -via_rule_name <str> [-cut_size <Point>] -bot_layer_name <str> -cut_layer_name <str> -top_layer_name <str> [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-help]`
 
-A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet.
+A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `-via` | `token` | yes | Parent Via token |
+| `-via` | `token` | no | Parent Via token - exactly one of this class's parent flags is required |
+| `-layout_via` | `token` | no | Parent LayoutVia token - exactly one of this class's parent flags is required |
 | `-via_rule_name` | `str` | yes | The name of the referenced VIARULE |
 | `-cut_size` | `Point` | no | The cut size, in database units (LEF CUTSIZE) - always set when a ViaRuleReference exists (is_optional=True only so create_via_rule_reference's flag can be genuinely omittable, per this schema's compound-field convention) |
 | `-bot_layer_name` | `str` | yes | The bottom metal layer name (LEF LAYERS botLayer cutLayer topLayer) |
@@ -635,6 +817,17 @@ A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-i
 `current_abstract [<id>] [-help]`
 
 Returns the current Abstract (empty string if none is set yet); with <id> given, selects it first (this is also every other readable class's own get_<type> default -of-omitted scope anchor), then returns it.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | no | A friendly-id token to select as current - omit to just read the current value |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## current_layout
+
+`current_layout [<id>] [-help]`
+
+Returns the current Layout (empty string if none is set yet); with <id> given, selects it first (this is also every other readable class's own get_<type> default -of-omitted scope anchor), then returns it.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -696,6 +889,17 @@ LEF ARRAYSPACING (CUT layers, at most one per layer)
 | `<id>` | `token` | yes | Friendly id of the ArraySpacing to delete |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## delete_blockage
+
+`delete_blockage <id> [-help]`
+
+A routing or placement blockage (DEF BLOCKAGES) - one klass for both kinds, mirroring how the vendored parser's own defiBlockage struct covers both
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the Blockage to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## delete_design
 
 `delete_design <id> [-help]`
@@ -722,11 +926,22 @@ One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several. width/exce
 
 `delete_foreign <id> [-help]`
 
-A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract (mutually exclusive - Abstract can hold several, the other two at most one)
+A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract/LayoutVia (mutually exclusive - Abstract can hold several, the others at most one)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Friendly id of the Foreign to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## delete_g_cell_grid
+
+`delete_g_cell_grid <id> [-help]`
+
+A global-routing gcell grid line (DEF GCELLGRID)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the GCellGrid to delete |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## delete_influence_spacing_entry
@@ -771,6 +986,28 @@ One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is a
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Friendly id of the LayerDensityEntry to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## delete_layout
+
+`delete_layout <id> [-help]`
+
+A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc. Net *connectivity* (which component pins a net connects) is deferred to when SystemVerilog/Schematic linking lands - Net here only holds routing geometry.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the Layout to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## delete_layout_via
+
+`delete_layout_via <id> [-help]`
+
+A design-scoped named via (DEF VIAS) - distinct from the Technology-level Via since these are per-design and may even shadow a Technology-level via name
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the LayoutVia to delete |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## delete_library
@@ -872,6 +1109,28 @@ An abstract routing blockage
 | `<id>` | `token` | yes | Friendly id of the Obstruction to delete |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## delete_physical_port
+
+`delete_physical_port <id> [-help]`
+
+A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's future logical Port, named PhysicalPort (not Pin, DEF's own section name) since SCHEMA.md reserves Pin for a different concept (a logical pin on a Schematic Instance, i.e. a Verilog instance pin). Net connectivity is deferred to when SystemVerilog/Schematic linking lands - net_name is stored as read, not resolved to a (future) Net.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the PhysicalPort to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## delete_physical_port_segment
+
+`delete_physical_port_segment <id> [-help]`
+
+One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort's own relationship to Terminal, just named to avoid stuttering (PhysicalPort + Port). Unlike TerminalPort, carries its own placement_status/location/orientation - DEF lets each PORT of a multi-port pin be placed independently (setPortPlacement, distinct from the pin's own top-level setPlacement), and its own LAYER/POLYGON coordinates are relative to that placement, not the parent PhysicalPort's - confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3 different placements: FIXED/COVER/PLACED at 3 different locations). Unset for the synthetic single segment a pre-5.7 simple (no-PORT-wrapper) pin gets - that case's placement lives on the parent PhysicalPort instead.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the PhysicalPortSegment to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## delete_pin_antenna_model
 
 `delete_pin_antenna_model <id> [-help]`
@@ -881,6 +1140,17 @@ One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer'
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Friendly id of the PinAntennaModel to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## delete_placement
+
+`delete_placement <id> [-help]`
+
+A placed physical instance (DEF COMPONENTS) - the physical counterpart to Instance, kept as a separate klass to keep physical placement apart from logical connectivity (Instance/Schematic, not yet populated - no SystemVerilog reader exists). Named Placement (not Component, DEF's own section name) to mirror Net/Route's own logical-vs-physical naming split - see SCHEMA.md.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the Placement to delete |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## delete_prefer_enclosure_entry
@@ -905,6 +1175,39 @@ One LEF PROPERTYDEFINITIONS entry - declares a property name's data type (and op
 | `<id>` | `token` | yes | Friendly id of the PropertyDefinition to delete |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## delete_region
+
+`delete_region <id> [-help]`
+
+A placement region (DEF REGIONS)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the Region to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## delete_route
+
+`delete_route <id> [-help]`
+
+The routing geometry of a regular or special net (DEF NETS/SPECIALNETS) - named Route rather than Net to reserve the Net name for the future Schematic/SystemVerilog netlist connectivity klass. Net *connectivity* (which component pins a net connects) is deferred to when that linking lands - this klass only holds physical routed geometry.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the Route to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## delete_row
+
+`delete_row <id> [-help]`
+
+A placement row (DEF ROW)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the Row to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## delete_schematic
 
 `delete_schematic <id> [-help]`
@@ -920,7 +1223,7 @@ A logical connectivity view (netlist)
 
 `delete_shape <id> [-help]`
 
-A shape on a layer, owned by exactly one of TerminalPort or Obstruction (mutually exclusive - at most one of the terminal_port/obstruction parent fields is ever set on a given Shape)
+A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -982,6 +1285,17 @@ Physical connection for a Terminal
 | `<id>` | `token` | yes | Friendly id of the TerminalPort to delete |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## delete_track
+
+`delete_track <id> [-help]`
+
+A routing track pattern (DEF TRACKS)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the Track to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## delete_two_widths_spacing_entry
 
 `delete_two_widths_spacing_entry <id> [-help]`
@@ -1008,7 +1322,7 @@ A fixed/default via definition (LEF VIA)
 
 `delete_via_layer <id> [-help]`
 
-One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction parents)
+One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia/LayoutVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction/... parents)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1041,12 +1355,22 @@ One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd bei
 
 `delete_via_rule_reference <id> [-help]`
 
-A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet.
+A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Friendly id of the ViaRuleReference to delete |
 | `-help` | `flag` | no | Show this usage message and return immediately |
+
+## dump_png
+
+`dump_png <path> [-help]`
+
+Renders the current view (the same le_render_pixel_buffer output the app's own Texture uses) and writes it as an RGBA8888 PNG (with transparency) at path - no GUI needed, works in le_shell too. Useful for visually inspecting a script-driven repro (zoom_area/set_layer_visible/set_hierarchy_depth/...) without the Flutter app.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<path>` | `str` | yes | Output PNG file path |
 
 ## get_abstracts
 
@@ -1084,6 +1408,18 @@ LEF ARRAYSPACING (CUT layers, at most one per layer)
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_blockages
+
+`get_blockages [-of <token>...] [-filter <expr>] [-help]`
+
+A routing or placement blockage (DEF BLOCKAGES) - one klass for both kinds, mirroring how the vendored parser's own defiBlockage struct covers both
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_designs
 
 `get_designs [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
@@ -1113,13 +1449,31 @@ One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several. width/exce
 
 `get_foreigns [-of <token>...] [-filter <expr>] [-help]`
 
-A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract (mutually exclusive - Abstract can hold several, the other two at most one)
+A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract/LayoutVia (mutually exclusive - Abstract can hold several, the others at most one)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_g_cell_grids
+
+`get_g_cell_grids [-of <token>...] [-filter <expr>] [-help]`
+
+A global-routing gcell grid line (DEF GCELLGRID)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_hierarchy_depth
+
+`get_hierarchy_depth`
+
+Return the visible hierarchy depth
 
 ## get_influence_spacing_entries
 
@@ -1156,6 +1510,16 @@ One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is a
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_layer_visible
+
+`get_layer_visible <layer_name>`
+
+Returns whether every ViewLayer of the real Layer named layer_name is currently visible (0 or 1) - see set_layer_visible's own comment for the row-not-column granularity. Returns 1 for an unknown layer_name, matching Scene's own "unknown name defaults to visible" default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<layer_name>` | `str` | yes | A real Layer's own name, e.g. "M1" |
+
 ## get_layers
 
 `get_layers [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
@@ -1165,6 +1529,31 @@ A routing layer
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_layout_vias
+
+`get_layout_vias [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+A design-scoped named via (DEF VIAS) - distinct from the Technology-level Via since these are per-design and may even shadow a Technology-level via name
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_layouts
+
+`get_layouts [-of <token>...] [-filter <expr>] [-help]`
+
+A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc. Net *connectivity* (which component pins a net connects) is deferred to when SystemVerilog/Schematic linking lands - Net here only holds routing geometry.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
 | `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
@@ -1278,6 +1667,31 @@ An abstract routing blockage
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_physical_port_segments
+
+`get_physical_port_segments [-of <token>...] [-filter <expr>] [-help]`
+
+One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort's own relationship to Terminal, just named to avoid stuttering (PhysicalPort + Port). Unlike TerminalPort, carries its own placement_status/location/orientation - DEF lets each PORT of a multi-port pin be placed independently (setPortPlacement, distinct from the pin's own top-level setPlacement), and its own LAYER/POLYGON coordinates are relative to that placement, not the parent PhysicalPort's - confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3 different placements: FIXED/COVER/PLACED at 3 different locations). Unset for the synthetic single segment a pre-5.7 simple (no-PORT-wrapper) pin gets - that case's placement lives on the parent PhysicalPort instead.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_physical_ports
+
+`get_physical_ports [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's future logical Port, named PhysicalPort (not Pin, DEF's own section name) since SCHEMA.md reserves Pin for a different concept (a logical pin on a Schematic Instance, i.e. a Verilog instance pin). Net connectivity is deferred to when SystemVerilog/Schematic linking lands - net_name is stored as read, not resolved to a (future) Net.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_pin_antenna_models
 
 `get_pin_antenna_models [-of <token>...] [-filter <expr>] [-help]`
@@ -1286,6 +1700,19 @@ One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer'
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_placements
+
+`get_placements [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+A placed physical instance (DEF COMPONENTS) - the physical counterpart to Instance, kept as a separate klass to keep physical placement apart from logical connectivity (Instance/Schematic, not yet populated - no SystemVerilog reader exists). Named Placement (not Component, DEF's own section name) to mirror Net/Route's own logical-vs-physical naming split - see SCHEMA.md.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
 | `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
@@ -1325,6 +1752,45 @@ One LEF PROPERTYDEFINITIONS entry - declares a property name's data type (and op
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_regions
+
+`get_regions [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+A placement region (DEF REGIONS)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_routes
+
+`get_routes [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+The routing geometry of a regular or special net (DEF NETS/SPECIALNETS) - named Route rather than Net to reserve the Net name for the future Schematic/SystemVerilog netlist connectivity klass. Net *connectivity* (which component pins a net connects) is deferred to when that linking lands - this klass only holds physical routed geometry.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_rows
+
+`get_rows [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+A placement row (DEF ROW)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_schematics
 
 `get_schematics [-of <token>...] [-filter <expr>] [-help]`
@@ -1341,7 +1807,7 @@ A logical connectivity view (netlist)
 
 `get_shapes [-of <token>...] [-filter <expr>] [-help]`
 
-A shape on a layer, owned by exactly one of TerminalPort or Obstruction (mutually exclusive - at most one of the terminal_port/obstruction parent fields is ever set on a given Shape)
+A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1410,6 +1876,18 @@ Top-level pin name of an abstract
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_tracks
+
+`get_tracks [-of <token>...] [-filter <expr>] [-help]`
+
+A routing track pattern (DEF TRACKS)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_two_widths_spacing_entries
 
 `get_two_widths_spacing_entries [-of <token>...] [-filter <expr>] [-help]`
@@ -1426,7 +1904,7 @@ One WIDTH row of a LEF SPACINGTABLE TWOWIDTHS block (5.7) - Layer.spacing_table_
 
 `get_via_layers [-of <token>...] [-filter <expr>] [-help]`
 
-One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction parents)
+One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia/LayoutVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction/... parents)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1450,7 +1928,7 @@ One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd bei
 
 `get_via_rule_references [-of <token>...] [-filter <expr>] [-help]`
 
-A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet.
+A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1486,14 +1964,14 @@ A fixed/default via definition (LEF VIA)
 
 ## open_design
 
-`open_design <name> [-view abstract] [-help]`
+`open_design <name> [-view abstract|layout] [-help]`
 
-Selects a Design by name as this session's current view - every subsequent get_<type> call's default (-of omitted) scope derives from it.
+Selects a Design by name as this session's current view - every subsequent get_<type> call's default (-of omitted) scope derives from it. Only one view is ever open at a time: -view abstract (the default) and -view layout are mutually exclusive, each deactivating the other.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<name>` | `str` | yes | Name of the Design to open |
-| `-view` | `str` | no | Only "abstract" is currently meaningful |
+| `-view` | `str` | no | "abstract" (default) or "layout" - mutually exclusive, selecting one deactivates the other |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## redo
@@ -1515,6 +1993,27 @@ Pretty-prints every property of every given friendly-id token to stdout, one ali
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<tokens>` | `token...` | yes | One friendly-id token, or a list of them |
+
+## set_hierarchy_depth
+
+`set_hierarchy_depth <depth>`
+
+Set the visible hierarchy depth
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<depth>` | `int` | yes | The hierarchy depth, 1 or larger |
+
+## set_layer_visible
+
+`set_layer_visible <layer_name> <visible>`
+
+Sets whether every ViewLayer of the real Layer named layer_name (e.g. both its TERMINAL and OBSTRUCTION purposes, not one at a time - see le_set_layer_name_visible's own api.hpp comment) is visible. visible is 0 or 1. Visible by default until toggled.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<layer_name>` | `str` | yes | A real Layer's own name, e.g. "M1" |
+| `<visible>` | `int` | yes | 0 to hide, 1 to show |
 
 ## set_viewport_size
 
@@ -1638,6 +2137,24 @@ LEF ARRAYSPACING (CUT layers, at most one per layer)
 | `-cut_spacing` | `dbu` | no | CUTSPACING, in database units |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## update_blockage
+
+`update_blockage <id> [-layout <token>] [-placement <token>] [-kind <BlockageKind>] [-layer_name <str>] [-spacing <dbu>] [-design_rule_width <dbu>] [-is_soft <bool>] [-placement_max_density <double>] [-help]`
+
+A routing or placement blockage (DEF BLOCKAGES) - one klass for both kinds, mirroring how the vendored parser's own defiBlockage struct covers both
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Reassign this object's parent Layout (token) |
+| `-placement` | `token` | no | Scope this blockage to underneath one placed instance - invalid id if unscoped |
+| `-kind` | `BlockageKind` | no | Whether this is a routing-layer or placement blockage |
+| `-layer_name` | `str` | no | The name of the blocked routing layer, as read - set only for a ROUTING blockage |
+| `-spacing` | `dbu` | no | Minimum spacing override, in database units (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width |
+| `-design_rule_width` | `dbu` | no | Effective width for design rule checks, in database units (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing |
+| `-is_soft` | `bool` | no | PLACEMENT ... SOFT - PLACEMENT only |
+| `-placement_max_density` | `double` | no | PLACEMENT ... PARTIAL maxDensity (0-100) - unset if not PARTIAL |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## update_design
 
 `update_design <id> [-library <token>] [-name <str>] [-help]`
@@ -1671,13 +2188,28 @@ One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several. width/exce
 
 `update_foreign <id> [-name <str>] [-origin <Point>] [-orient <Orientation>] [-help]`
 
-A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract (mutually exclusive - Abstract can hold several, the other two at most one)
+A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract/LayoutVia (mutually exclusive - Abstract can hold several, the others at most one)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-name` | `str` | no | The foreign cell name (usually the same as the design name) |
 | `-origin` | `Point` | no | The foreign origin - LEF FOREIGN's point is itself optional (bare 'FOREIGN name ;' is legal), so unset here means no point was written, not (0,0) |
 | `-orient` | `Orientation` | no | The foreign orientation - also optional independently of origin ('FOREIGN name ( x y ) ;' with no orientation is legal) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## update_g_cell_grid
+
+`update_g_cell_grid <id> [-layout <token>] [-is_x <bool>] [-start <dbu>] [-count <int>] [-step <dbu>] [-help]`
+
+A global-routing gcell grid line (DEF GCELLGRID)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Reassign this object's parent Layout (token) |
+| `-is_x` | `bool` | no | True for an X-direction grid line, false for Y (DEF GCELLGRID X/Y) |
+| `-start` | `dbu` | no | Starting coordinate, in database units (DEF GCELLGRID DO start) |
+| `-count` | `int` | no | Number of grid lines (DEF GCELLGRID DO ... n) |
+| `-step` | `dbu` | no | Spacing between grid lines, in database units (DEF GCELLGRID STEP) |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## update_influence_spacing_entry
@@ -1696,13 +2228,14 @@ One row of a LEF SPACINGTABLE INFLUENCE table (ROUTING layers)
 
 ## update_instance
 
-`update_instance <id> [-schematic <token>] [-name <str>] [-reference_name <str>] [-location <Point>] [-help]`
+`update_instance <id> [-schematic <token>] [-reference_design <token>] [-name <str>] [-reference_name <str>] [-location <Point>] [-help]`
 
 An instance of another design
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-schematic` | `token` | no | Reassign this object's parent Schematic (token) |
+| `-reference_design` | `token` | no | The ID of the reference design after linking |
 | `-name` | `str` | no | The name of the instance |
 | `-reference_name` | `str` | no | The name of the reference design |
 | `-location` | `Point` | no | The location of the lower-left corner of this instance |
@@ -1764,6 +2297,29 @@ One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is a
 | --- | --- | --- | --- |
 | `-type` | `str` | no | PEAK, AVERAGE, or RMS |
 | `-one_entry` | `double` | no | Plain-scalar form value, declared units - no dbu conversion |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## update_layout
+
+`update_layout <id> [-design <token>] [-help]`
+
+A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc. Net *connectivity* (which component pins a net connects) is deferred to when SystemVerilog/Schematic linking lands - Net here only holds routing geometry.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-design` | `token` | no | Reassign this object's parent Design (token) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## update_layout_via
+
+`update_layout_via <id> [-layout <token>] [-name <str>] [-help]`
+
+A design-scoped named via (DEF VIAS) - distinct from the Technology-level Via since these are per-design and may even shadow a Technology-level via name
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Reassign this object's parent Layout (token) |
+| `-name` | `str` | no | The name of the via |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## update_library
@@ -1896,6 +2452,38 @@ An abstract routing blockage
 | `-abstract` | `token` | no | Reassign this object's parent Abstract (token) |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## update_physical_port
+
+`update_physical_port <id> [-layout <token>] [-name <str>] [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
+
+A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's future logical Port, named PhysicalPort (not Pin, DEF's own section name) since SCHEMA.md reserves Pin for a different concept (a logical pin on a Schematic Instance, i.e. a Verilog instance pin). Net connectivity is deferred to when SystemVerilog/Schematic linking lands - net_name is stored as read, not resolved to a (future) Net.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Reassign this object's parent Layout (token) |
+| `-name` | `str` | no | The name of the pin - unique within its parent Layout (see unique_per_parent) |
+| `-net_name` | `str` | no | The name of the net this pin connects to, as read - not resolved to a (future) Net (DEF PINS NET) |
+| `-direction` | `SignalDirection` | no | The direction of the pin - unset if omitted |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF PINS USE) |
+| `-placement_status` | `PlacementStatus` | no | Placement status - unset if never placed |
+| `-location` | `Point` | no | The pin's location, in database units - unset if unplaced |
+| `-orientation` | `Orientation` | no | Placement orientation - unset if unplaced |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## update_physical_port_segment
+
+`update_physical_port_segment <id> [-physical_port <token>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
+
+One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort's own relationship to Terminal, just named to avoid stuttering (PhysicalPort + Port). Unlike TerminalPort, carries its own placement_status/location/orientation - DEF lets each PORT of a multi-port pin be placed independently (setPortPlacement, distinct from the pin's own top-level setPlacement), and its own LAYER/POLYGON coordinates are relative to that placement, not the parent PhysicalPort's - confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3 different placements: FIXED/COVER/PLACED at 3 different locations). Unset for the synthetic single segment a pre-5.7 simple (no-PORT-wrapper) pin gets - that case's placement lives on the parent PhysicalPort instead.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-physical_port` | `token` | no | Reassign this object's parent PhysicalPort (token) |
+| `-placement_status` | `PlacementStatus` | no | This segment's own placement status - unset for the synthetic segment of a simple (non-multi-port) pin, whose placement lives on the parent PhysicalPort instead |
+| `-location` | `Point` | no | This segment's own location, in database units - unset if unplaced |
+| `-orientation` | `Orientation` | no | This segment's own orientation - unset if unplaced |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## update_pin_antenna_model
 
 `update_pin_antenna_model <id> [-terminal <token>] [-oxide <str>] [-help]`
@@ -1906,6 +2494,24 @@ One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer'
 | --- | --- | --- | --- |
 | `-terminal` | `token` | no | Reassign this object's parent Terminal (token) |
 | `-oxide` | `str` | no | OXIDE1, OXIDE2, OXIDE3, or OXIDE4 |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## update_placement
+
+`update_placement <id> [-layout <token>] [-reference_design <token>] [-name <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-weight <double>] [-source <str>] [-help]`
+
+A placed physical instance (DEF COMPONENTS) - the physical counterpart to Instance, kept as a separate klass to keep physical placement apart from logical connectivity (Instance/Schematic, not yet populated - no SystemVerilog reader exists). Named Placement (not Component, DEF's own section name) to mirror Net/Route's own logical-vs-physical naming split - see SCHEMA.md.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Reassign this object's parent Layout (token) |
+| `-reference_design` | `token` | no | The reference Design, resolved from the referenced macro/design name at creation time - readers error rather than create a Placement with an unresolved reference |
+| `-name` | `str` | no | The name of the instance - unique within its parent Layout (see unique_per_parent) |
+| `-placement_status` | `PlacementStatus` | no | Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED) |
+| `-location` | `Point` | no | The location of the lower-left corner of this instance, in database units - unset if UNPLACED |
+| `-orientation` | `Orientation` | no | Placement orientation - unset if UNPLACED |
+| `-weight` | `double` | no | DEF COMPONENTS WEIGHT - unset if omitted |
+| `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) - unset if omitted |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## update_prefer_enclosure_entry
@@ -1941,6 +2547,55 @@ One LEF PROPERTYDEFINITIONS entry - declares a property name's data type (and op
 | `-default_string` | `str` | no | Default value, if data_type is S(tring)/Q(uoted string) - unset if none was declared |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## update_region
+
+`update_region <id> [-layout <token>] [-name <str>] [-region_type <str>] [-rects <Rect...>] [-help]`
+
+A placement region (DEF REGIONS)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Reassign this object's parent Layout (token) |
+| `-name` | `str` | no | The name of the region - unique within its parent Layout (see unique_per_parent) |
+| `-region_type` | `str` | no | FENCE or GUIDE - unset if omitted (DEF REGIONS TYPE) |
+| `-rects` | `Rect...` | no | The region's rects (a region can be a multi-rect rectilinear area) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## update_route
+
+`update_route <id> [-layout <token>] [-name <str>] [-is_special <bool>] [-width <dbu>] [-voltage <double>] [-use <str>] [-help]`
+
+The routing geometry of a regular or special net (DEF NETS/SPECIALNETS) - named Route rather than Net to reserve the Net name for the future Schematic/SystemVerilog netlist connectivity klass. Net *connectivity* (which component pins a net connects) is deferred to when that linking lands - this klass only holds physical routed geometry.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Reassign this object's parent Layout (token) |
+| `-name` | `str` | no | The name of the net this routes, as read - unique within its parent Layout (see unique_per_parent); not resolved to a (future) Net, same deferred-connectivity convention as Pin.net_name |
+| `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
+| `-width` | `dbu` | no | Routing width override, in database units (DEF SPECIALNETS WIDTH) - SPECIALNETS only, unset if omitted |
+| `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only, unset if omitted |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF NETS/SPECIALNETS USE) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## update_row
+
+`update_row <id> [-layout <token>] [-name <str>] [-site_name <str>] [-origin <Point>] [-orientation <Orientation>] [-num_x <int>] [-num_y <int>] [-step_x <dbu>] [-step_y <dbu>] [-help]`
+
+A placement row (DEF ROW)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Reassign this object's parent Layout (token) |
+| `-name` | `str` | no | The name of the row |
+| `-site_name` | `str` | no | The name of the site this row is built from, as read (DEF ROW macro name) - a plain name reference, same convention as Abstract.site, not resolved to a SiteId |
+| `-origin` | `Point` | no | The row's origin, in database units - always set for a real Row (is_optional=True only so create_row's -origin flag can be genuinely omittable at creation, per this schema's compound-field convention, see Abstract.size's own note) |
+| `-orientation` | `Orientation` | no | The row's orientation |
+| `-num_x` | `int` | no | Number of site repeats in X (DEF ROW DO n) |
+| `-num_y` | `int` | no | Number of site repeats in Y (DEF ROW BY m) |
+| `-step_x` | `dbu` | no | Step in X between repeats, in database units (DEF ROW STEP) |
+| `-step_y` | `dbu` | no | Step in Y between repeats, in database units (DEF ROW STEP) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## update_schematic
 
 `update_schematic <id> [-design <token>] [-help]`
@@ -1954,13 +2609,14 @@ A logical connectivity view (netlist)
 
 ## update_shape
 
-`update_shape <id> [-layer_name <str>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <dbu>] [-design_rule_width <dbu>] [-except_pg_net <bool>] [-help]`
+`update_shape <id> [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <dbu>] [-design_rule_width <dbu>] [-except_pg_net <bool>] [-help]`
 
-A shape on a layer, owned by exactly one of TerminalPort or Obstruction (mutually exclusive - at most one of the terminal_port/obstruction parent fields is ever set on a given Shape)
+A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `-layer_name` | `str` | no | The name of the layer |
+| `-layer` | `token` | no | The layer this shape is on, if it's real LEF/DEF routing/terminal/obstruction geometry - resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). Exactly one of layer/purpose is ever set (documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent) - a Shape with no real physical layer (Layout.diearea, Abstract.boundary, a DEF PLACEMENT blockage's own region) uses purpose instead, unset here. |
+| `-purpose` | `ShapePurpose` | no | This shape's synthetic, non-physical-layer purpose, if it isn't real routing/terminal/obstruction/routing-blockage geometry - exactly one of layer/purpose is ever set (see layer's own comment). A ROUTING blockage's own Shape still uses layer like any other real geometry (it really is scoped to a physical routing layer) - only a PLACEMENT blockage (no LAYER clause in DEF at all) uses purpose. |
 | `-paths` | `Path...` | no | A list of paths |
 | `-polygons` | `Polygon...` | no | A list of polygons |
 | `-rects` | `Rect...` | no | A list of rects |
@@ -2093,6 +2749,23 @@ Physical connection for a Terminal
 | `-port_class` | `str` | no | LEF PORT CLASS (NONE/CORE/BUMP) - unset if omitted |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## update_track
+
+`update_track <id> [-layout <token>] [-is_x <bool>] [-start <dbu>] [-count <int>] [-step <dbu>] [-mask <int>] [-same_mask <bool>] [-help]`
+
+A routing track pattern (DEF TRACKS)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Reassign this object's parent Layout (token) |
+| `-is_x` | `bool` | no | True for an X-direction track pattern, false for Y (DEF TRACKS X/Y) |
+| `-start` | `dbu` | no | Starting coordinate, in database units (DEF TRACKS DO start) |
+| `-count` | `int` | no | Number of tracks (DEF TRACKS DO ... n) |
+| `-step` | `dbu` | no | Spacing between tracks, in database units (DEF TRACKS STEP) |
+| `-mask` | `int` | no | MASK color (DEF 5.8) - unset if omitted |
+| `-same_mask` | `bool` | no | Whether SAMEMASK was specified (DEF 5.8) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## update_two_widths_spacing_entry
 
 `update_two_widths_spacing_entry <id> [-layer <token>] [-width <dbu>] [-prl <dbu>] [-help]`
@@ -2124,7 +2797,7 @@ A fixed/default via definition (LEF VIA)
 
 `update_via_layer <id> [-layer_name <str>] [-help]`
 
-One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction parents)
+One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia/LayoutVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction/... parents)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2170,13 +2843,12 @@ One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd bei
 
 ## update_via_rule_reference
 
-`update_via_rule_reference <id> [-via <token>] [-via_rule_name <str>] [-cut_size <Point>] [-bot_layer_name <str>] [-cut_layer_name <str>] [-top_layer_name <str>] [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-help]`
+`update_via_rule_reference <id> [-via_rule_name <str>] [-cut_size <Point>] [-bot_layer_name <str>] [-cut_layer_name <str>] [-top_layer_name <str>] [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-help]`
 
-A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet.
+A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `-via` | `token` | no | Reassign this object's parent Via (token) |
 | `-via_rule_name` | `str` | no | The name of the referenced VIARULE |
 | `-cut_size` | `Point` | no | The cut size, in database units (LEF CUTSIZE) - always set when a ViaRuleReference exists (is_optional=True only so create_via_rule_reference's flag can be genuinely omittable, per this schema's compound-field convention) |
 | `-bot_layer_name` | `str` | no | The bottom metal layer name (LEF LAYERS botLayer cutLayer topLayer) |
@@ -2185,5 +2857,28 @@ A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-i
 | `-cut_spacing` | `Point` | no | The cut spacing, in database units (LEF CUTSPACING) - is_optional=True per cut_size's own note |
 | `-bot_enclosure` | `Point` | no | The bottom layer enclosure, in database units (LEF ENCLOSURE, bottom pair) - is_optional=True per cut_size's own note |
 | `-top_enclosure` | `Point` | no | The top layer enclosure, in database units (LEF ENCLOSURE, top pair) - is_optional=True per cut_size's own note |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## zoom
+
+`zoom -factor <double> [-help]`
+
+Zooms the current view by a signed fractional step (new_scale = scale * (1 + factor), matching le_zoom's own semantics - positive zooms in, negative zooms out), anchored at the viewport's own center rather than a screen point - a script has no live mouse position to anchor on the way the GUI's own keyboard zoom shortcut does. That shortcut uses a fixed step of 0.3 (30%) per press.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-factor` | `double` | yes | Signed fractional zoom step - positive zooms in, negative zooms out (e.g. 0.3 zooms in 30%, matching the GUI's own per-keypress step) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## zoom_area
+
+`zoom_area {llx lly urx ury} [-padding <int>] [-help]`
+
+Fits the viewport's pan/scale to the given rectangle {llx lly urx ury}, in microns: uniform scale (no stretch) so it fills the current viewport (see set_viewport_size) with -padding pixels of margin on every side, pan centering it. Unlike zoom (a relative step from the current view), this jumps directly to an exact area - useful for reproducibly zooming to a specific location in a script.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<rect>` | `Rect` | yes | {llx lly urx ury}, in microns |
+| `-padding` | `int` | no | Margin in pixels on every side of the fitted rect - defaults to 0 |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 

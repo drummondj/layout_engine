@@ -478,6 +478,76 @@ TEST_F(ApiFixture, FitSceneFillsTheViewportWithThePinVisible)
     EXPECT_TRUE(region_has_opaque_pixel(buffer, 80, 80, 120, 120));
 }
 
+TEST_F(ApiFixture, FitRectWithNullHandleDoesNotCrash)
+{
+    le_fit_rect(nullptr, 0, 0, 1.0, 1.0, 10);
+}
+
+TEST_F(ApiFixture, FitRectWithADegenerateRectFallsBackToDefaultScaleAndPan)
+{
+    le_set_viewport_size(handle, 100, 100);
+    le_fit_rect(handle, 0.5, 0.5, 0.5, 0.5, 10); // zero-area (ll == ur)
+
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    EXPECT_EQ(buffer.width, 100);
+    EXPECT_EQ(buffer.height, 100);
+}
+
+TEST_F(ApiFixture, FitRectUsesTheGivenRectNotTheDesignsOwnBbox)
+{
+    // Same fixture as FitSceneFillsTheViewportWithThePinVisible (TESTCELL,
+    // PIN A's own (2,2)-(8,8)um local rect) - le_fit_rect takes microns
+    // directly (converted to dbu internally via this fixture's own
+    // 1000 dbu/um), not raw dbu - the point here is that it frames
+    // whatever rect the caller passes, not the whole macro's own
+    // declared bbox the way le_fit_scene does.
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+    le_set_viewport_size(handle, 200, 200);
+
+    // region_has_opaque_pixel alone can't tell PIN A's own M1 fill apart
+    // from the background dot/axis grid (both opaque) - at the tight
+    // zoom a 1000x1000 dbu rect into a 200x200px viewport produces, grid
+    // dots are dense enough to hit almost any region by chance, so this
+    // checks specifically for a *colored* (non-grayscale) pixel, the
+    // same r != g trick hierarchy_resolver_test.cpp's own
+    // pixel_buffer_region_has_opaque_pixel uses - M1 (a ROUTING layer)
+    // never gets a grayscale default color, so this reliably
+    // distinguishes real content from the grid.
+    auto region_has_colored_pixel = [](const LePixelBuffer &buffer, int x0, int y0, int x1, int y1)
+    {
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+            {
+                const uint8_t *p = buffer.data + static_cast<size_t>(y) * static_cast<size_t>(buffer.row_bytes) + static_cast<size_t>(x) * 4;
+                if (p[3] > 0 && p[0] != p[1])
+                    return true;
+            }
+        return false;
+    };
+
+    // A patch of the macro's own empty interior that PIN A's own rect
+    // never reaches - deliberately not touching the macro's own
+    // declared (0,0)-(10,10)um boundary edges either (a real,
+    // separately-drawn outline, not phantom grid, that a rect anchored
+    // right at the origin would pick up as a false positive here). If
+    // le_fit_rect silently fell back to the design's own full bbox (like
+    // le_fit_scene), the pin would still show up somewhere in the frame;
+    // it must not, since this rect doesn't include it at all.
+    le_fit_rect(handle, 0.1, 0.1, 1.1, 1.1, 0);
+    LePixelBuffer empty_corner = le_render_pixel_buffer(handle);
+    ASSERT_NE(empty_corner.data, nullptr);
+    EXPECT_FALSE(region_has_colored_pixel(empty_corner, 0, 0, 199, 199));
+
+    // Fitting exactly to PIN A's own rect (2,2)-(8,8)um should fill the
+    // viewport with it - a much tighter frame than le_fit_scene's own
+    // whole-macro view.
+    le_fit_rect(handle, 2, 2, 8, 8, 0);
+    LePixelBuffer pin_area = le_render_pixel_buffer(handle);
+    ASSERT_NE(pin_area.data, nullptr);
+    EXPECT_TRUE(region_has_colored_pixel(pin_area, 80, 80, 120, 120));
+}
+
 TEST_F(ApiFixture, FitSceneInLayoutViewFramesTheDiereaNotTheOrigin)
 {
     // Regression test: fit_scene_unlocked used to always call

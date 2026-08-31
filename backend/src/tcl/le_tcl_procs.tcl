@@ -641,6 +641,75 @@ register_command_help zoom \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+# --- zoom_area (backed by zoom_area_cmd -> le_fit_rect) ---
+proc zoom_area {rect args} {
+    if {$rect eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "zoom_area {llx lly urx ury} \[-padding <int>\] \[-help\] - Fits the viewport's pan/scale to a micron-space rectangle"
+    }
+    if {[llength $rect] != 4} {
+        error "zoom_area: rect must be a 4-element {llx lly urx ury} list, got \"$rect\""
+    }
+    array set opts {-padding 0}
+    foreach {flag value} $args {
+        if {![info exists opts($flag)]} {
+            error "zoom_area: unknown flag $flag"
+        }
+        set opts($flag) $value
+    }
+    lassign $rect llx lly urx ury
+    zoom_area_cmd $llx $lly $urx $ury $opts(-padding)
+    return ""
+}
+register_command_help zoom_area \
+    "zoom_area {llx lly urx ury} \[-padding <int>\] \[-help\] - Fits the viewport's pan/scale to a micron-space rectangle" \
+    "Fits the viewport's pan/scale to the given rectangle {llx lly urx ury}, in microns: uniform scale (no stretch) so it fills the current viewport (see set_viewport_size) with -padding pixels of margin on every side, pan centering it. Unlike zoom (a relative step from the current view), this jumps directly to an exact area - useful for reproducibly zooming to a specific location in a script." \
+    {
+        {<rect> {type Rect required 1 description {{llx lly urx ury}, in microns}}}
+        {-padding {type int required 0 description {Margin in pixels on every side of the fitted rect - defaults to 0}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- layer visibility (backed by set_layer_visible_cmd/get_layer_visible_cmd
+# -> le_set_layer_name_visible/le_is_layer_name_visible) ---
+proc set_layer_visible { layer_name visible } {
+    set_layer_visible_cmd $layer_name $visible
+    return ""
+}
+register_command_help set_layer_visible \
+    "set_layer_visible <layer_name> <visible>" \
+    "Sets whether every ViewLayer of the real Layer named layer_name (e.g. both its TERMINAL and OBSTRUCTION purposes, not one at a time - see le_set_layer_name_visible's own api.hpp comment) is visible. visible is 0 or 1. Visible by default until toggled." \
+    {
+        {<layer_name> {type str required 1 description {A real Layer's own name, e.g. "M1"}}}
+        {<visible> {type int required 1 description {0 to hide, 1 to show}}}
+    }
+
+proc get_layer_visible { layer_name } {
+    return [get_layer_visible_cmd $layer_name]
+}
+register_command_help get_layer_visible \
+    "get_layer_visible <layer_name>" \
+    "Returns whether every ViewLayer of the real Layer named layer_name is currently visible (0 or 1) - see set_layer_visible's own comment for the row-not-column granularity. Returns 1 for an unknown layer_name, matching Scene's own \"unknown name defaults to visible\" default." \
+    {
+        {<layer_name> {type str required 1 description {A real Layer's own name, e.g. "M1"}}}
+    }
+
+# --- dump_png (backed by dump_png_cmd -> le_render_pixel_buffer + SkPngEncoder) ---
+proc dump_png { path } {
+    if {$path eq "-help"} {
+        return "dump_png <path> \[-help\] - Writes the current render as a PNG file"
+    }
+    if {[dump_png_cmd $path] != 0} {
+        error "dump_png: failed to write PNG to \"$path\""
+    }
+    return ""
+}
+register_command_help dump_png \
+    "dump_png <path> \[-help\] - Writes the current render as a PNG file" \
+    "Renders the current view (the same le_render_pixel_buffer output the app's own Texture uses) and writes it as an RGBA8888 PNG (with transparency) at path - no GUI needed, works in le_shell too. Useful for visually inspecting a script-driven repro (zoom_area/set_layer_visible/set_hierarchy_depth/...) without the Flutter app." \
+    {
+        {<path> {type str required 1 description {Output PNG file path}}}
+    }
+
 # --- get_<type> (UPDATES.md item 19.1) ---
 #
 # `get_<type> [<name-expr>...] [-of <parent-token>...] [-filter <expr>]

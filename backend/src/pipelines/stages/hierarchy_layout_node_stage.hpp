@@ -114,11 +114,38 @@ namespace le
 
             wrap_ = std::make_unique<WrapNode>(
                 g, oneapi::tbb::flow::serial,
-                [options](std::vector<ResolvedInstanceSlot> v) -> StageData<std::vector<ResolvedInstanceSlot>, PipelineOptions>
-                { return {.data = std::move(v), .data_version = 1, .options = options}; });
+                [options](const std::vector<ResolvedInstanceSlot> &v, WrapNode::output_ports_type &out)
+                {
+                    // FanInCollectStage::execute() returns a default-
+                    // constructed (empty) OutputData on every round
+                    // except the one that completes accumulation (see
+                    // its own doc comment) - as a plain function_node,
+                    // the OLD wrap_ forwarded every one of those empty
+                    // intermediate results too, each tagged with the
+                    // SAME hardcoded data_version=1. This node's own
+                    // downstream MemoizingStage (node() below) only
+                    // recomputes when data_version changes, so it
+                    // locked onto the FIRST (empty, still-accumulating)
+                    // message as "the" version-1 result and silently
+                    // ignored every later message with that same
+                    // version - including the real, fully-accumulated
+                    // one - leaving `instances` permanently empty
+                    // whenever a Layout node had 2+ real edges. Skipping
+                    // the empty ones here (multifunction_node, not
+                    // function_node, so "produce no output this round"
+                    // is expressible) is what makes exactly one real
+                    // message ever reach node(). wire_fan_in's own
+                    // edges.empty() guard above means a genuinely
+                    // complete accumulation is never legitimately empty
+                    // here, so this is a safe "not ready yet" signal,
+                    // not a lossy heuristic.
+                    if (v.empty())
+                        return;
+                    std::get<0>(out).try_put({.data = v, .data_version = 1, .options = options});
+                });
 
             make_edge(fan_in_->node(), *wrap_);
-            make_edge(*wrap_, node());
+            make_edge(std::get<0>(wrap_->output_ports()), node());
 
             incoming_edges_.reserve(edges.size());
             for (const DiscoveredEdge &e : edges)
@@ -169,7 +196,7 @@ namespace le
             if (fan_in_ && wrap_)
                 oneapi::tbb::flow::remove_edge(fan_in_->node(), *wrap_);
             if (wrap_)
-                oneapi::tbb::flow::remove_edge(*wrap_, node());
+                oneapi::tbb::flow::remove_edge(std::get<0>(wrap_->output_ports()), node());
         }
 
     protected:
@@ -203,7 +230,11 @@ namespace le
 
     private:
         using AdapterNode = oneapi::tbb::flow::function_node<StageData<sk_sp<SkPicture>, PipelineOptions>, StageData<ResolvedInstanceSlot, PipelineOptions>>;
-        using WrapNode = oneapi::tbb::flow::function_node<std::vector<ResolvedInstanceSlot>, StageData<std::vector<ResolvedInstanceSlot>, PipelineOptions>>;
+        // multifunction_node, not function_node - see wire_fan_in's own
+        // comment on wrap_'s construction for why "produce no output
+        // this round" (for FanInCollectStage's own intermediate
+        // still-accumulating results) has to be expressible here.
+        using WrapNode = oneapi::tbb::flow::multifunction_node<std::vector<ResolvedInstanceSlot>, std::tuple<StageData<std::vector<ResolvedInstanceSlot>, PipelineOptions>>>;
 
         struct IncomingEdge
         {

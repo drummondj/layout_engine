@@ -419,7 +419,12 @@ if(SWIG_FOUND AND TCL_FOUND)
     )
     set_property(TARGET le_tcl PROPERTY SWIG_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/src/api ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl)
     target_include_directories(le_tcl PRIVATE src/api src/tcl ${TCL_INCLUDE_PATH})
-    target_link_libraries(le_tcl PRIVATE api ${TCL_LIBRARY})
+    # `skia` alongside `api` - api links pipelines (which owns Skia's own
+    # include path) PRIVATE, so it doesn't propagate this far; le_tcl_shim.cpp
+    # needs it directly now too (dump_png_cmd's own SkPngEncoder use, same
+    # reasoning pipelines.cpp's own direct Skia use has - skia is an
+    # INTERFACE library, just the include path, no separate binary to link).
+    target_link_libraries(le_tcl PRIVATE api skia ${TCL_LIBRARY})
     # Hide this target's own copy of the vendored LEF parser's symbols
     # (everything under the LefDefParser:: namespace -
     # src/tcl/le_tcl_unexported_symbols.txt). Without this, a process

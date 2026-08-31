@@ -1811,6 +1811,15 @@ extern "C"
         fit_scene_unlocked(handle, padding_px);
     }
 
+    void le_fit_rect(LeHandle *handle, double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int32_t padding_px)
+    {
+        if (!handle)
+            return;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+        const double dbu_per_um = display_dbu_per_um(handle->root);
+        handle->scene.fit_to_content(le::Rect{.ll = {.x = to_dbu(ll_x_um, dbu_per_um), .y = to_dbu(ll_y_um, dbu_per_um)}, .ur = {.x = to_dbu(ur_x_um, dbu_per_um), .y = to_dbu(ur_y_um, dbu_per_um)}}, padding_px);
+    }
+
     int64_t le_minor_grid_spacing(LeHandle *handle)
     {
         if (!handle)

@@ -579,6 +579,28 @@ extern "C"
     /// is selected or its Abstract has no shapes, rather than crashing.
     void le_fit_scene(LeHandle *handle, int32_t padding_px);
 
+    /// @brief Fit the viewport's pan/scale to an arbitrary caller-supplied
+    /// rectangle, in microns (ll_x_um, ll_y_um)-(ur_x_um, ur_y_um) -
+    /// converted to dbu via the shared Technology's own
+    /// database_units_microns (falling back to 1.0, i.e. treated as
+    /// already-dbu magnitudes, if no Technology has been read yet - same
+    /// "degrade gracefully" fallback display_dbu_per_um() uses elsewhere
+    /// in this file), matching every other `_um`-suffixed dbu field this
+    /// API takes rather than requiring the caller to pre-convert. Uniform
+    /// scale (no stretch) so it fills the viewport set via
+    /// le_set_viewport_size() with `padding_px` of margin on every side,
+    /// pan centering it. Mirrors Scene::fit_to_content directly - the
+    /// same "backend owns pan/scale entirely" fit-based approach
+    /// le_fit_scene/le_zoom's own comments describe, just with a
+    /// caller-supplied rect instead of a Design's own declared content
+    /// bbox. A no-op if handle is null. A single-line (one axis
+    /// zero-width) rect still fits correctly, using the other axis's own
+    /// scale - see Scene::fit_to_content's own comment; a zero-area or
+    /// inverted (ur_x_um < ll_x_um or ur_y_um < ll_y_um) rect, or a
+    /// non-positive viewport size, degrades to scale 1.0 / pan (0, 0)
+    /// instead, same as le_fit_scene's own empty-content fallback.
+    void le_fit_rect(LeHandle *handle, double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int32_t padding_px);
+
     /// @brief Spacing (dbu) between minor grid dots, drawn behind the
     /// design by le_render_pixel_buffer() - see Renderer::draw_grid.
     /// Mirrors Scene::minor_grid_spacing directly. Defaults to 5 (dbu),
