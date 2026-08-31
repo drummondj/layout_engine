@@ -195,6 +195,15 @@ namespace le
     inline constexpr float kTrackDashOnPx = 3.0f;
     inline constexpr float kTrackDashOffPx = 3.0f;
 
+    // FillPattern::CROSS (CUT/via layers - draw_cross below,
+    // BUGS_AND_ENHANCEMENTS.md E4) - the default hairline width every
+    // other outline in draw_group uses is only ever 1 device pixel
+    // regardless of scale, which disappears against a routing layer's
+    // own tiled fill pattern (e.g. FillPattern::DIAGONAL_STRIPES_NE/NW)
+    // drawn on the same or an adjacent layer; wide enough to stay
+    // visible on top of that without needing its own dedicated color.
+    inline constexpr float kViaCrossStrokeWidth = 3.0f;
+
     // Rubber-band drag-select rectangle (UPDATES.md 7.1 item 5) - a
     // translucent fill so covered shapes stay visible underneath, plus
     // a solid stroke for a crisp edge. Blue, a color family not
@@ -1023,6 +1032,17 @@ namespace le
         if (style.dashed)
             stroke.setPathEffect(SkDashPathEffect::Make({kTrackDashOnPx, kTrackDashOffPx}, 0.0f));
 
+        // Only the X itself (draw_cross below) uses this - the
+        // surrounding cut rect/polygon boundary still draws with the
+        // plain hairline `stroke` above, same as every other layer's
+        // outline.
+        SkPaint cross_stroke;
+        if (is_cross)
+        {
+            cross_stroke = stroke;
+            cross_stroke.setStrokeWidth(kViaCrossStrokeWidth);
+        }
+
         // Labels use the outline color (always opaque in every default
         // ViewLayerStyle, unlike fill) - there's no dedicated label
         // color yet, revisit if that turns out to matter visually.
@@ -1056,7 +1076,7 @@ namespace le
                 if (is_cross)
                 {
                     if (has_outline)
-                        draw_cross(canvas, rect, stroke);
+                        draw_cross(canvas, rect, cross_stroke);
                     if (has_outline)
                         canvas.drawRect(rect, stroke);
                     continue;
@@ -1099,7 +1119,7 @@ namespace le
                 if (is_cross)
                 {
                     if (has_outline)
-                        draw_cross(canvas, path.getBounds(), stroke);
+                        draw_cross(canvas, path.getBounds(), cross_stroke);
                 }
                 else if (has_fill)
                     canvas.drawPath(path, fill);
