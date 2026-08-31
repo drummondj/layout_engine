@@ -151,6 +151,28 @@ namespace le
             size_t other_index = 0;
             std::optional<Color> last_routing_color;
 
+            // ROW then BOUNDARY, both added before any physical Layer
+            // (BUGS_AND_ENHANCEMENTS.md E8) - draw (and rows()/purposes())
+            // order follows insertion order (see rows()'s own doc comment
+            // below), so this puts BOUNDARY between the two: above ROW's
+            // own placement-row scaffolding, but below every real
+            // technology layer that follows, so a die/macro's real
+            // routing/pin content is never tinted or obscured by it.
+            // boundary_style() itself derives its color from row_style()'s
+            // own, one shade lighter, so the two read as visually related
+            // background layers rather than boundary's former fixed white.
+            const ViewLayerId row_id = set.add("ROW", "ROW", ViewLayerPurpose::ROW, LayerId{}, row_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "ROW",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::ROW, .id = row_id}},
+            });
+
+            set.boundary_id_ = set.add("BOUNDARY", "BOUNDARY", ViewLayerPurpose::BOUNDARY, LayerId{}, boundary_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "BOUNDARY",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::BOUNDARY, .id = set.boundary_id_}},
+            });
+
             for (LayerId layer_id : root.get_technology_layers(technology_id))
             {
                 const LayerData *layer = root.get_layer(layer_id);
@@ -227,27 +249,21 @@ namespace le
                 });
             }
 
-            // ROW/GCELLGRID/PLACEMENT_BLOCKAGE aren't physical Layers at
-            // all - same treatment as BOUNDARY below (a Shape with
-            // purpose=BOUNDARY/PLACEMENT_BLOCKAGE instead - see Shape.
-            // layer/.purpose's own schema.py comments), so none of these
-            // are derived from the per-Layer loop above - always added,
-            // independent of what real Layers this Technology has.
-            // Row.site_name is an unresolved plain string and GCellGrid has
-            // no layer field whatsoever, so ROW/GCELLGRID get the same
+            // GCELLGRID/PLACEMENT_BLOCKAGE/REGION aren't physical Layers at
+            // all either (ROW/BOUNDARY, added before the loop above, are
+            // the same story - see that block's own comment) - a Shape
+            // with purpose=PLACEMENT_BLOCKAGE instead of a real Layer (see
+            // Shape.layer/.purpose's own schema.py comments), so none of
+            // these are derived from the per-Layer loop above - always
+            // added, independent of what real Layers this Technology has.
+            // GCellGrid has no layer field whatsoever, so it gets the same
             // no-physical-layer treatment; a ROUTING blockage's own Shape,
             // unlike a PLACEMENT blockage's, does sit on a real Layer and
             // so gets its ROUTING_BLOCKAGE column in the per-Layer loop
             // above instead, not here. Migration Step 2 only adds these
             // pseudo/per-layer categorizations - nothing here yet walks a
-            // Layout's actual Row/Track/GCellGrid/Blockage content into
+            // Layout's actual Track/GCellGrid/Blockage content into
             // drawable shapes on them (Migration Step 3's own job).
-            const ViewLayerId row_id = set.add("ROW", "ROW", ViewLayerPurpose::ROW, LayerId{}, row_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "ROW",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::ROW, .id = row_id}},
-            });
-
             const ViewLayerId gcellgrid_id = set.add("GCELLGRID", "GCELLGRID", ViewLayerPurpose::GCELLGRID, LayerId{}, gcellgrid_style());
             set.rows_.push_back(ViewLayerRow{
                 .name = "GCELLGRID",
@@ -264,14 +280,6 @@ namespace le
             set.rows_.push_back(ViewLayerRow{
                 .name = "REGION",
                 .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::REGION, .id = region_id}},
-            });
-
-            // BOUNDARY stays last (existing callers, e.g. rows().back(),
-            // rely on this - see BoundaryRowHasASingleBoundaryColumn).
-            set.boundary_id_ = set.add("BOUNDARY", "BOUNDARY", ViewLayerPurpose::BOUNDARY, LayerId{}, boundary_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "BOUNDARY",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::BOUNDARY, .id = set.boundary_id_}},
             });
 
             return set;
@@ -309,17 +317,27 @@ namespace le
         std::vector<ViewLayerId> all() const { return pool_.ids(); }
 
         /// @brief Every row of a layer visibility/selectability widget, in
-        /// declaration order (physical Layers in their LEF-declared
-        /// bottom-up stacking order, then BOUNDARY last) - see
+        /// declaration order (ROW, then BOUNDARY, then physical Layers in
+        /// their LEF-declared bottom-up stacking order, then GCELLGRID/
+        /// PLACEMENT_BLOCKAGE/REGION - BUGS_AND_ENHANCEMENTS.md E8) - see
         /// ViewLayerRow's own comment for why this is the API a caller
         /// should enumerate rather than going through Root's Technology
-        /// directly.
+        /// directly. This declaration order is also literally the picture-
+        /// building stages' own draw (z-)order, not just a widget listing
+        /// order - each stage groups shapes into a `std::map<ViewLayerId,
+        /// ...>` and iterates it in ascending ViewLayerId order, which
+        /// matches insertion order here one-to-one (ViewLayerId's own
+        /// `operator<=>` compares its pool `index` first, assigned in
+        /// strict call order by `add()` below) - so BOUNDARY sitting
+        /// between ROW and the physical layers here is exactly what puts
+        /// it "below every technology layer but above rows" on screen.
         const std::vector<ViewLayerRow> &rows() const { return rows_; }
 
         /// @brief Every distinct ViewLayerPurpose present across every row,
-        /// in first-encountered order (rows() order - LEF declaration order
-        /// then BOUNDARY last) with duplicates removed, e.g. {TERMINAL,
-        /// OBSTRUCTION, BOUNDARY} for a typical Technology. The "columns"
+        /// in first-encountered order (rows() order - ROW/BOUNDARY, then
+        /// LEF declaration order, then GCELLGRID/PLACEMENT_BLOCKAGE/REGION)
+        /// with duplicates removed, e.g. {ROW, BOUNDARY, TERMINAL,
+        /// OBSTRUCTION} for a typical Technology. The "columns"
         /// axis of a layer visibility/selectability widget - deliberately
         /// not scoped to any one row/layer, since Scene's own visibility/
         /// selectability model toggles a purpose across every layer at
@@ -467,15 +485,27 @@ namespace le
             return ViewLayerStyle{.outline_color = base, .fill_color = fill, .fill_pattern = pattern};
         }
 
-        static ViewLayerStyle boundary_style()
+        // Dark gray outline, no fill - rows are background scaffolding
+        // (DEF ROW), not something a user routes/edits, so kept visually
+        // recessive - darker than boundary_style()'s own color
+        // (BUGS_AND_ENHANCEMENTS.md E8) so the die/macro backdrop reads as
+        // a lighter surface sitting on top of the row scaffolding beneath
+        // it.
+        static ViewLayerStyle row_style()
         {
-            return ViewLayerStyle{.outline_color = {255, 255, 255, 255}, .fill_color = {0, 0, 0, 0}};
+            return ViewLayerStyle{.outline_color = {100, 100, 100, 255}, .fill_color = {0, 0, 0, 0}};
         }
 
-        // Light gray outline, no fill - rows are background scaffolding
-        // (DEF ROW), not something a user routes/edits, so kept visually
-        // recessive same as boundary_style()'s own plain-outline treatment.
-        static ViewLayerStyle row_style()
+        // BUGS_AND_ENHANCEMENTS.md E8 - draws below every technology layer
+        // but above ROW (see build_for_technology's own insertion-order
+        // comment) - row_style()'s own former color ({160, 160, 160},
+        // lighter than row_style()'s own new darker one), so the die/macro
+        // boundary outline reads as related to, but distinct from, the row
+        // scaffolding beneath it. No fill (plain outline, same as
+        // row_style()) - real technology-layer content draws over it
+        // afterward regardless, so a fill would only ever tint the gaps
+        // between real geometry, not add anything a user needs.
+        static ViewLayerStyle boundary_style()
         {
             return ViewLayerStyle{.outline_color = {160, 160, 160, 255}, .fill_color = {0, 0, 0, 0}};
         }

@@ -1037,7 +1037,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewSelectsARowWithNoBackingShape)
     // so this click-to-select test needs it made visible first; this
     // test is about the "origin set but no ShapeId" selection fork, not
     // about ROW's own default visibility.
-    ASSERT_EQ(le_purpose_at(handle, 6), 6); // ROW - see ViewLayerPurpose's own declaration order
+    ASSERT_EQ(le_purpose_at(handle, 0), 6); // ROW - see ViewLayerPurpose's own declaration order
     le_set_purpose_visible(handle, 6, 1);
 
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
@@ -1072,7 +1072,7 @@ TEST_F(ApiFixture, LayerAtOutOfRangeReturnsInvalidRow)
     EXPECT_EQ(row.name, nullptr);
 }
 
-TEST_F(ApiFixture, LayerAtIncludesBoundaryAsAnOrdinaryRowAfterEveryPhysicalLayer)
+TEST_F(ApiFixture, LayerAtListsRowThenBoundaryThenEveryPhysicalLayer)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
 
@@ -1080,10 +1080,16 @@ TEST_F(ApiFixture, LayerAtIncludesBoundaryAsAnOrdinaryRowAfterEveryPhysicalLayer
     // special-case BOUNDARY, it's just another row, so the count is
     // M1 + ROW + GCELLGRID + PLACEMENT_BLOCKAGE + REGION + BOUNDARY = 6
     // (Migration Step 2/3 - see view_style.hpp's ViewLayerSet::
-    // build_for_technology).
+    // build_for_technology). ROW then BOUNDARY come first
+    // (BUGS_AND_ENHANCEMENTS.md E8 - this declaration order is also the
+    // real draw z-order, see ViewLayerSet::rows()'s own doc comment).
     ASSERT_EQ(le_layer_count(handle), 6);
 
-    const LeLayerRow m1_row = le_layer_at(handle, 0);
+    const LeLayerRow boundary_row = le_layer_at(handle, 1);
+    ASSERT_NE(boundary_row.name, nullptr);
+    EXPECT_STREQ(boundary_row.name, "BOUNDARY");
+
+    const LeLayerRow m1_row = le_layer_at(handle, 2);
     ASSERT_NE(m1_row.name, nullptr);
     EXPECT_STREQ(m1_row.name, "M1");
 
@@ -1092,10 +1098,6 @@ TEST_F(ApiFixture, LayerAtIncludesBoundaryAsAnOrdinaryRowAfterEveryPhysicalLayer
     EXPECT_EQ(m1_row.color_r, 255);
     EXPECT_EQ(m1_row.color_g, 0);
     EXPECT_EQ(m1_row.color_b, 0);
-
-    const LeLayerRow boundary_row = le_layer_at(handle, 5);
-    ASSERT_NE(boundary_row.name, nullptr);
-    EXPECT_STREQ(boundary_row.name, "BOUNDARY");
 }
 
 TEST_F(ApiFixture, PurposeCountAndAtAreZeroOrInvalidForNullHandleOrNoViewLayerSetYet)
@@ -1115,7 +1117,7 @@ TEST_F(ApiFixture, PurposeAtOutOfRangeReturnsInvalid)
     EXPECT_EQ(le_purpose_at(handle, -1), -1);
 }
 
-TEST_F(ApiFixture, PurposeAtListsTerminalObstructionThenBoundary)
+TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
 
@@ -1124,22 +1126,25 @@ TEST_F(ApiFixture, PurposeAtListsTerminalObstructionThenBoundary)
     // Step 2 added TRACK_PREFERRED/TRACK_NON_PREFERRED/ROUTING_BLOCKAGE
     // (per-Layer, right after TERMINAL/OBSTRUCTION - BUGS_AND_ENHANCEMENTS.md
     // E2 split the original single TRACK purpose into the first two) and
-    // ROW/GCELLGRID/PLACEMENT_BLOCKAGE (their own pseudo-rows); Step 3
-    // added ROUTE (per-Layer, right after ROUTING_BLOCKAGE) and REGION
-    // (its own pseudo-row) - all before BOUNDARY, which stays last - see
-    // view_style.hpp's ViewLayerPurpose declaration order.
+    // GCELLGRID/PLACEMENT_BLOCKAGE (their own pseudo-rows); Step 3 added
+    // ROUTE (per-Layer, right after ROUTING_BLOCKAGE) and REGION (its own
+    // pseudo-row). E8 moved ROW then BOUNDARY to the front (this walks
+    // ViewLayerSet::rows() in its own declaration order, which is also the
+    // real draw z-order - see that method's own doc comment) - the raw
+    // ordinal values below (le::ViewLayerPurpose's own declaration order,
+    // unrelated to and unchanged by this traversal order) are unaffected.
     ASSERT_EQ(le_purpose_count(handle), 11);
-    EXPECT_EQ(le_purpose_at(handle, 0), 0);  // TERMINAL
-    EXPECT_EQ(le_purpose_at(handle, 1), 1);  // OBSTRUCTION
-    EXPECT_EQ(le_purpose_at(handle, 2), 3);  // TRACK_PREFERRED
-    EXPECT_EQ(le_purpose_at(handle, 3), 4);  // TRACK_NON_PREFERRED
-    EXPECT_EQ(le_purpose_at(handle, 4), 5);  // ROUTING_BLOCKAGE
-    EXPECT_EQ(le_purpose_at(handle, 5), 9);  // ROUTE
-    EXPECT_EQ(le_purpose_at(handle, 6), 6);  // ROW
-    EXPECT_EQ(le_purpose_at(handle, 7), 7);  // GCELLGRID
-    EXPECT_EQ(le_purpose_at(handle, 8), 8);  // PLACEMENT_BLOCKAGE
-    EXPECT_EQ(le_purpose_at(handle, 9), 10); // REGION
-    EXPECT_EQ(le_purpose_at(handle, 10), 2); // BOUNDARY
+    EXPECT_EQ(le_purpose_at(handle, 0), 6);   // ROW
+    EXPECT_EQ(le_purpose_at(handle, 1), 2);   // BOUNDARY
+    EXPECT_EQ(le_purpose_at(handle, 2), 0);   // TERMINAL
+    EXPECT_EQ(le_purpose_at(handle, 3), 1);   // OBSTRUCTION
+    EXPECT_EQ(le_purpose_at(handle, 4), 3);   // TRACK_PREFERRED
+    EXPECT_EQ(le_purpose_at(handle, 5), 4);   // TRACK_NON_PREFERRED
+    EXPECT_EQ(le_purpose_at(handle, 6), 5);   // ROUTING_BLOCKAGE
+    EXPECT_EQ(le_purpose_at(handle, 7), 9);   // ROUTE
+    EXPECT_EQ(le_purpose_at(handle, 8), 7);   // GCELLGRID
+    EXPECT_EQ(le_purpose_at(handle, 9), 8);   // PLACEMENT_BLOCKAGE
+    EXPECT_EQ(le_purpose_at(handle, 10), 10); // REGION
 }
 
 TEST_F(ApiFixture, LayerNameVisibilityDefaultsTrueAndRoundTrips)

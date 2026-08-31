@@ -302,10 +302,11 @@ extern "C"
     /// 4 = TRACK_NON_PREFERRED, 5 = ROUTING_BLOCKAGE, 6 = ROW,
     /// 7 = GCELLGRID, 8 = PLACEMENT_BLOCKAGE, 9 = ROUTE, 10 = REGION.
     /// `index` itself walks ViewLayerSet::purposes()'s own
-    /// first-encountered order instead (TERMINAL/OBSTRUCTION/
-    /// TRACK_PREFERRED/TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE from the
-    /// first physical Layer row, then ROW/GCELLGRID/PLACEMENT_BLOCKAGE/
-    /// REGION's own pseudo-rows, then BOUNDARY last) - a caller must
+    /// first-encountered order instead (ROW, then BOUNDARY, then
+    /// TERMINAL/OBSTRUCTION/TRACK_PREFERRED/TRACK_NON_PREFERRED/
+    /// ROUTING_BLOCKAGE/ROUTE from the first physical Layer row, then
+    /// GCELLGRID/PLACEMENT_BLOCKAGE/REGION's own pseudo-rows -
+    /// BUGS_AND_ENHANCEMENTS.md E8) - a caller must
     /// always pass `le_purpose_at`'s own return value back into
     /// `le_is_purpose_visible`/`le_set_purpose_visible`, never assume
     /// index equals ordinal.

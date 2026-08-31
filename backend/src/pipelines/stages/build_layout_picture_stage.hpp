@@ -75,17 +75,16 @@ namespace le
 
             draw_shape_groups(*canvas, own_shapes, view_layers, antialiasing_enabled);
 
-            for (const ResolvedInstance &instance : instances)
-            {
-                if (!instance.picture)
-                    continue;
-
-                canvas->save();
-                canvas->concat(instance.transform);
-                canvas->drawPicture(instance.picture);
-                canvas->restore();
-            }
-
+            // Drawn in the BOUNDARY ViewLayer's own outline_color, so it
+            // draws here too (BUGS_AND_ENHANCEMENTS.md E8 - between this
+            // Layout's own direct content and its real resolved child
+            // instances, not last/on top of everything): these rects are
+            // a placeholder standing in for a real Placement too small to
+            // recurse into, the same "boundary-ish, not real content"
+            // role BOUNDARY itself plays, so a genuinely resolved
+            // instance drawn afterward correctly covers one that
+            // overlaps it instead of this placeholder mark sitting on
+            // top of real geometry.
             if (!tiny_instance_rects.empty())
             {
                 const ViewLayerData *boundary_view_layer = view_layers.get(view_layers.boundary_view_layer());
@@ -102,6 +101,17 @@ namespace le
 
                     canvas->drawPath(builder.detach(), paint);
                 }
+            }
+
+            for (const ResolvedInstance &instance : instances)
+            {
+                if (!instance.picture)
+                    continue;
+
+                canvas->save();
+                canvas->concat(instance.transform);
+                canvas->drawPicture(instance.picture);
+                canvas->restore();
             }
 
             return recorder.finishRecordingAsPicture();
