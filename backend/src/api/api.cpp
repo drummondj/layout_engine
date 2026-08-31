@@ -1502,7 +1502,7 @@ extern "C"
 
     LeLayerRow le_layer_at(LeHandle *handle, int32_t row_index)
     {
-        const LeLayerRow invalid{.name = nullptr, .color_r = 0, .color_g = 0, .color_b = 0};
+        const LeLayerRow invalid{.name = nullptr, .color_r = 0, .color_g = 0, .color_b = 0, .has_physical_layer = 0};
         if (!handle || row_index < 0)
             return invalid;
         std::lock_guard<std::mutex> lock(handle->mutex_);
@@ -1519,6 +1519,7 @@ extern "C"
             .color_r = first_column ? first_column->style.outline_color.r : uint8_t{0},
             .color_g = first_column ? first_column->style.outline_color.g : uint8_t{0},
             .color_b = first_column ? first_column->style.outline_color.b : uint8_t{0},
+            .has_physical_layer = (first_column && first_column->layer.valid()) ? 1 : 0,
         };
     }
 

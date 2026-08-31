@@ -267,6 +267,7 @@ class LeLayer {
     required this.colorR,
     required this.colorG,
     required this.colorB,
+    required this.hasPhysicalLayer,
   });
 
   final String name;
@@ -276,6 +277,14 @@ class LeLayer {
   final int colorR;
   final int colorG;
   final int colorB;
+
+  /// False for a pseudo-row with no physical Technology Layer of its own
+  /// (ROW/BOUNDARY/GCELLGRID/PLACEMENT_BLOCKAGE/REGION) - each of those
+  /// already has its own single-purpose entry in [LeEditor.purposeAt]'s
+  /// own listing, so a layer-widget UI showing it *again* here as if it
+  /// were a whole extra layer is a redundant, confusing duplicate, not
+  /// useful extra information (BUGS_AND_ENHANCEMENTS.md E12).
+  final bool hasPhysicalLayer;
 }
 
 /// The current mouse position's coordinates in microns, snapped to the
@@ -575,6 +584,7 @@ class LeEditor implements LeEditorBase {
       colorR: row.color_r,
       colorG: row.color_g,
       colorB: row.color_b,
+      hasPhysicalLayer: row.has_physical_layer != 0,
     );
   }
 
@@ -604,7 +614,7 @@ class LeEditor implements LeEditorBase {
     _checkNotDisposed();
     final namePtr = layerName.toNativeUtf8();
     try {
-      return _bindings.le_is_layer_name_visible(_handle, namePtr.cast()) != 0;
+      return _bindings.le_is_layer_name_visible(_handle, namePtr.cast());
     } finally {
       pkg_ffi.calloc.free(namePtr);
     }
@@ -617,11 +627,7 @@ class LeEditor implements LeEditorBase {
     _checkNotDisposed();
     final namePtr = layerName.toNativeUtf8();
     try {
-      _bindings.le_set_layer_name_visible(
-        _handle,
-        namePtr.cast(),
-        visible ? 1 : 0,
-      );
+      _bindings.le_set_layer_name_visible(_handle, namePtr.cast(), visible);
     } finally {
       pkg_ffi.calloc.free(namePtr);
     }

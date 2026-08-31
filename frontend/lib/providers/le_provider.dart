@@ -448,7 +448,17 @@ class LeProvider extends ChangeNotifier {
 
     for (int i = 0; i < _editor.layerCount; i++) {
       var layer = _editor.layer(i);
-      if (layer != null) {
+      // Pseudo-rows with no physical Technology Layer of their own
+      // (ROW/BOUNDARY/GCELLGRID/PLACEMENT_BLOCKAGE/REGION) already have
+      // their own single-purpose entry below - showing them again here
+      // as if they were a whole extra layer is a redundant, confusing
+      // duplicate for the Layer Manager's own Layers section, not useful
+      // extra information (BUGS_AND_ENHANCEMENTS.md E12). Excluded from
+      // _allLayersSelectable/_allLayersVisible too, same reasoning -
+      // those aggregate the Layers section alone now, the Purposes
+      // section's own "All Purposes" toggle already covers this row via
+      // its one purpose.
+      if (layer != null && layer.hasPhysicalLayer) {
         bool isSelectable = _editor.isLayerNameSelectable(layer.name);
         bool isVisible = _editor.isLayerNameVisible(layer.name);
         var layerInfo = LeLayerInfo(

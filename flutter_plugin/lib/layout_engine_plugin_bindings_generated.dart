@@ -411,14 +411,25 @@ class LayoutEnginePluginBindings {
   /// @brief The purpose at `index` (0..le_purpose_count()-1) - the
   /// returned int is le::ViewLayerPurpose's own raw ordinal (its
   /// declaration order, not necessarily this index): 0 = TERMINAL,
-  /// 1 = OBSTRUCTION, 2 = BOUNDARY, 3 = TRACK, 4 = ROUTING_BLOCKAGE,
-  /// 5 = ROW, 6 = GCELLGRID, 7 = PLACEMENT_BLOCKAGE. `index` itself
-  /// walks ViewLayerSet::purposes()'s own first-encountered order
-  /// instead (TERMINAL/OBSTRUCTION/TRACK/ROUTING_BLOCKAGE from the first
-  /// physical Layer row, then ROW/GCELLGRID/PLACEMENT_BLOCKAGE's own
-  /// pseudo-rows, then BOUNDARY last) - a caller must always pass
-  /// `le_purpose_at`'s own return value back into `le_is_purpose_visible`/
-  /// `le_set_purpose_visible`, never assume index equals ordinal.
+  /// 1 = OBSTRUCTION, 2 = BOUNDARY, 3 = TRACK_PREFERRED,
+  /// 4 = TRACK_NON_PREFERRED, 5 = ROUTING_BLOCKAGE, 6 = ROW,
+  /// 7 = GCELLGRID, 8 = PLACEMENT_BLOCKAGE, 9 = ROUTE, 10 = REGION.
+  /// `index` itself walks ViewLayerSet::purposes()'s own
+  /// first-encountered order instead (ROW, then BOUNDARY, then
+  /// TERMINAL/OBSTRUCTION/TRACK_PREFERRED/TRACK_NON_PREFERRED/
+  /// ROUTING_BLOCKAGE/ROUTE from the first physical Layer row, then
+  /// GCELLGRID/PLACEMENT_BLOCKAGE/REGION's own pseudo-rows -
+  /// BUGS_AND_ENHANCEMENTS.md E8) - a caller must
+  /// always pass `le_purpose_at`'s own return value back into
+  /// `le_is_purpose_visible`/`le_set_purpose_visible`, never assume
+  /// index equals ordinal.
+  ///
+  /// NOTE: this ordinal list crosses into flutter_plugin/lib/
+  /// layout_engine_plugin.dart's own hand-synced `LeLayerPurpose` enum/
+  /// `fromValue` switch (no C-side named enum exists for it) - update
+  /// both together if le::ViewLayerPurpose's declaration order ever
+  /// changes again.
+  ///
   /// Returns -1 if handle is null or index is out of range, rather than
   /// crashing.
   int le_purpose_at(ffi.Pointer<LeHandle> handle, int index) {
@@ -439,9 +450,9 @@ class LayoutEnginePluginBindings {
   /// grid cell: see le_is_purpose_visible() for the other axis, and
   /// Scene::is_view_layer_visible for how a specific column's effective
   /// visibility combines both. Visible by default until toggled. Returns
-  /// nonzero (visible) if handle or layer_name is null, matching Scene's
+  /// true if handle or layer_name is null, matching Scene's
   /// own "unknown name defaults to visible" default.
-  int le_is_layer_name_visible(
+  bool le_is_layer_name_visible(
     ffi.Pointer<LeHandle> handle,
     ffi.Pointer<ffi.Char> layer_name,
   ) {
@@ -451,11 +462,13 @@ class LayoutEnginePluginBindings {
   late final _le_is_layer_name_visiblePtr =
       _lookup<
         ffi.NativeFunction<
-          ffi.Int32 Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+          ffi.Bool Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
         >
       >('le_is_layer_name_visible');
   late final _le_is_layer_name_visible = _le_is_layer_name_visiblePtr
-      .asFunction<int Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)>();
+      .asFunction<
+        bool Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>)
+      >();
 
   /// @brief Set the visibility of every ViewLayer whose LeLayerRow::name
   /// is `layer_name` - e.g. a layer-visibility widget's row-header
@@ -465,7 +478,7 @@ class LayoutEnginePluginBindings {
   void le_set_layer_name_visible(
     ffi.Pointer<LeHandle> handle,
     ffi.Pointer<ffi.Char> layer_name,
-    int visible,
+    bool visible,
   ) {
     return _le_set_layer_name_visible(handle, layer_name, visible);
   }
@@ -476,14 +489,43 @@ class LayoutEnginePluginBindings {
           ffi.Void Function(
             ffi.Pointer<LeHandle>,
             ffi.Pointer<ffi.Char>,
-            ffi.Int32,
+            ffi.Bool,
           )
         >
       >('le_set_layer_name_visible');
   late final _le_set_layer_name_visible = _le_set_layer_name_visiblePtr
       .asFunction<
-        void Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>, int)
+        void Function(ffi.Pointer<LeHandle>, ffi.Pointer<ffi.Char>, bool)
       >();
+
+  /// @brief Whether fill/stroke geometry paints antialias their own
+  /// edges (Scene::antialiasing_enabled() - grid/chrome/text paints are
+  /// unaffected, always antialiased). Off by default, matching most
+  /// commercial EDA tools' own default. Returns false if handle is null.
+  bool le_is_antialiasing_enabled(ffi.Pointer<LeHandle> handle) {
+    return _le_is_antialiasing_enabled(handle);
+  }
+
+  late final _le_is_antialiasing_enabledPtr =
+      _lookup<ffi.NativeFunction<ffi.Bool Function(ffi.Pointer<LeHandle>)>>(
+        'le_is_antialiasing_enabled',
+      );
+  late final _le_is_antialiasing_enabled = _le_is_antialiasing_enabledPtr
+      .asFunction<bool Function(ffi.Pointer<LeHandle>)>();
+
+  /// @brief Toggle antialiasing - e.g. a view-options checkbox. Mirrors
+  /// Scene::set_antialiasing_enabled directly (affects rendering). A
+  /// no-op if handle is null.
+  void le_set_antialiasing_enabled(ffi.Pointer<LeHandle> handle, bool enabled) {
+    return _le_set_antialiasing_enabled(handle, enabled);
+  }
+
+  late final _le_set_antialiasing_enabledPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<LeHandle>, ffi.Bool)>
+      >('le_set_antialiasing_enabled');
+  late final _le_set_antialiasing_enabled = _le_set_antialiasing_enabledPtr
+      .asFunction<void Function(ffi.Pointer<LeHandle>, bool)>();
 
   /// @brief Current visibility of every ViewLayer whose purpose is
   /// `purpose` (le::ViewLayerPurpose's own raw ordinal - see
@@ -1021,6 +1063,62 @@ class LayoutEnginePluginBindings {
       >('le_fit_scene');
   late final _le_fit_scene = _le_fit_scenePtr
       .asFunction<void Function(ffi.Pointer<LeHandle>, int)>();
+
+  /// @brief Fit the viewport's pan/scale to an arbitrary caller-supplied
+  /// rectangle, in microns (ll_x_um, ll_y_um)-(ur_x_um, ur_y_um) -
+  /// converted to dbu via the shared Technology's own
+  /// database_units_microns (falling back to 1.0, i.e. treated as
+  /// already-dbu magnitudes, if no Technology has been read yet - same
+  /// "degrade gracefully" fallback display_dbu_per_um() uses elsewhere
+  /// in this file), matching every other `_um`-suffixed dbu field this
+  /// API takes rather than requiring the caller to pre-convert. Uniform
+  /// scale (no stretch) so it fills the viewport set via
+  /// le_set_viewport_size() with `padding_px` of margin on every side,
+  /// pan centering it. Mirrors Scene::fit_to_content directly - the
+  /// same "backend owns pan/scale entirely" fit-based approach
+  /// le_fit_scene/le_zoom's own comments describe, just with a
+  /// caller-supplied rect instead of a Design's own declared content
+  /// bbox. A no-op if handle is null. A single-line (one axis
+  /// zero-width) rect still fits correctly, using the other axis's own
+  /// scale - see Scene::fit_to_content's own comment; a zero-area or
+  /// inverted (ur_x_um < ll_x_um or ur_y_um < ll_y_um) rect, or a
+  /// non-positive viewport size, degrades to scale 1.0 / pan (0, 0)
+  /// instead, same as le_fit_scene's own empty-content fallback.
+  void le_fit_rect(
+    ffi.Pointer<LeHandle> handle,
+    double ll_x_um,
+    double ll_y_um,
+    double ur_x_um,
+    double ur_y_um,
+    int padding_px,
+  ) {
+    return _le_fit_rect(handle, ll_x_um, ll_y_um, ur_x_um, ur_y_um, padding_px);
+  }
+
+  late final _le_fit_rectPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Pointer<LeHandle>,
+            ffi.Double,
+            ffi.Double,
+            ffi.Double,
+            ffi.Double,
+            ffi.Int32,
+          )
+        >
+      >('le_fit_rect');
+  late final _le_fit_rect = _le_fit_rectPtr
+      .asFunction<
+        void Function(
+          ffi.Pointer<LeHandle>,
+          double,
+          double,
+          double,
+          double,
+          int,
+        )
+      >();
 
   /// @brief Spacing (dbu) between minor grid dots, drawn behind the
   /// design by le_render_pixel_buffer() - see Renderer::draw_grid.
@@ -18019,10 +18117,11 @@ final class LeDesignInfo extends ffi.Struct {
 }
 
 /// @brief One row of le_layer_at(): a layer-visibility/selectability
-/// widget's row-header - a name plus a swatch color, *not* tied to a
-/// physical Layer existing - BOUNDARY is a row like any other, and any
-/// future non-Technology-derived ("extra") ViewLayer becomes a row the
-/// same way. Visibility/selectability are set by this name directly
+/// widget's row-header - a name plus a swatch color, *not necessarily*
+/// tied to a physical Layer existing - BOUNDARY is a row like any
+/// other, and any future non-Technology-derived ("extra") ViewLayer
+/// becomes a row the same way (see has_physical_layer below).
+/// Visibility/selectability are set by this name directly
 /// (le_set_layer_name_visible()/le_set_layer_name_selectable()), not
 /// by any id here - there's no per-row column list to address (see
 /// le_purpose_count()/le_purpose_at() for the other, row-independent
@@ -18044,6 +18143,20 @@ final class LeLayerRow extends ffi.Struct {
 
   @ffi.Uint8()
   external int color_b;
+
+  /// 1 if this row corresponds to a real Technology Layer (M1, V1,
+  /// ...), 0 for a pseudo-row with no physical Layer of its own
+  /// (ROW/BOUNDARY/GCELLGRID/PLACEMENT_BLOCKAGE/REGION) - each of
+  /// those already has its own single-purpose entry in
+  /// le_purpose_count()/le_purpose_at()'s own listing, so showing
+  /// it *again* here as if it were a whole extra layer is a
+  /// redundant, confusing duplicate for a layer-widget UI, not
+  /// useful extra information (BUGS_AND_ENHANCEMENTS.md E12) -
+  /// toggling either one already changes the exact same underlying
+  /// visibility/selectability flag, since a pseudo-row has exactly
+  /// one column.
+  @ffi.Int32()
+  external int has_physical_layer;
 }
 
 /// @brief Result of le_snapped_mouse_position(): the current mouse

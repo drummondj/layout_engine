@@ -99,7 +99,15 @@ void main() {
 
   testWidgets('Layer Manager shows layers the editor reports', (WidgetTester tester) async {
     final editor = FakeLeEditor()
-      ..layers = [const LeLayer(name: 'M1', colorR: 255, colorG: 0, colorB: 0)];
+      ..layers = [
+        const LeLayer(
+          name: 'M1',
+          colorR: 255,
+          colorG: 0,
+          colorB: 0,
+          hasPhysicalLayer: true,
+        ),
+      ];
     await pumpApp(tester, editor: editor);
 
     expect(find.text('M1'), findsOneWidget);

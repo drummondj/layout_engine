@@ -84,10 +84,11 @@ extern "C"
     } LeDesignInfo;
 
     /// @brief One row of le_layer_at(): a layer-visibility/selectability
-    /// widget's row-header - a name plus a swatch color, *not* tied to a
-    /// physical Layer existing - BOUNDARY is a row like any other, and any
-    /// future non-Technology-derived ("extra") ViewLayer becomes a row the
-    /// same way. Visibility/selectability are set by this name directly
+    /// widget's row-header - a name plus a swatch color, *not necessarily*
+    /// tied to a physical Layer existing - BOUNDARY is a row like any
+    /// other, and any future non-Technology-derived ("extra") ViewLayer
+    /// becomes a row the same way (see has_physical_layer below).
+    /// Visibility/selectability are set by this name directly
     /// (le_set_layer_name_visible()/le_set_layer_name_selectable()), not
     /// by any id here - there's no per-row column list to address (see
     /// le_purpose_count()/le_purpose_at() for the other, row-independent
@@ -104,6 +105,18 @@ extern "C"
         uint8_t color_r;
         uint8_t color_g;
         uint8_t color_b;
+        /// 1 if this row corresponds to a real Technology Layer (M1, V1,
+        /// ...), 0 for a pseudo-row with no physical Layer of its own
+        /// (ROW/BOUNDARY/GCELLGRID/PLACEMENT_BLOCKAGE/REGION) - each of
+        /// those already has its own single-purpose entry in
+        /// le_purpose_count()/le_purpose_at()'s own listing, so showing
+        /// it *again* here as if it were a whole extra layer is a
+        /// redundant, confusing duplicate for a layer-widget UI, not
+        /// useful extra information (BUGS_AND_ENHANCEMENTS.md E12) -
+        /// toggling either one already changes the exact same underlying
+        /// visibility/selectability flag, since a pseudo-row has exactly
+        /// one column.
+        int32_t has_physical_layer;
     } LeLayerRow;
 
     /// @brief Result of le_snapped_mouse_position(): the current mouse
