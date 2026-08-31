@@ -395,7 +395,10 @@ abstract interface class LeTextureBase {
 /// [LeTclConsole]'s public surface actually called by `LeProvider` - same
 /// rationale as [LeTextureBase].
 abstract interface class LeTclConsoleBase {
-  Future<String> eval(String command);
+  /// [onOutput], if given, is called with each chunk of `puts` text as
+  /// it's captured, before this returns - see [LeTclConsole.eval]'s own
+  /// doc comment.
+  Future<String> eval(String command, {void Function(String)? onOutput});
 }
 
 /// One editor instance: owns a native `LeHandle*` (a Root/ViewLayerSet/
@@ -1623,13 +1626,17 @@ class LeTexture implements LeTextureBase {
 }
 
 /// A live Tcl console backed by one [LeEditor]'s native handle - obtain via
-/// [LeEditor.createTclConsole]. Every [eval] call runs synchronously
-/// (from Tcl's own point of view) on the native platform thread, against
-/// an embedded `Tcl_Interp` sharing the source [LeEditor]'s own database
-/// (see TCL_EXPLORATION.md's show_gui design) - a command that mutates the
-/// database (`create_terminal`, `delete_shape`, ...) doesn't refresh the
-/// screen on its own; call [LeTexture.markFrameAvailable] afterward, same
-/// as any other mutating action.
+/// [LeEditor.createTclConsole]. Every [eval] call runs on its own native
+/// worker thread (see `flutter_plugin/src/le_tcl_bridge.hpp`'s `TclBridge`
+/// - BUGS_AND_ENHANCEMENTS.md item E3), not the platform thread, so a
+/// long-running command doesn't block the app; [eval] itself polls that
+/// thread until the command finishes, so from a Dart caller's point of
+/// view it still just looks like one non-blocking `Future`. It runs
+/// against an embedded `Tcl_Interp` sharing the source [LeEditor]'s own
+/// database (see TCL_EXPLORATION.md's show_gui design) - a command that
+/// mutates the database (`create_terminal`, `delete_shape`, ...) doesn't
+/// refresh the screen on its own; call [LeTexture.markFrameAvailable]
+/// afterward, same as any other mutating action.
 ///
 /// **Lifetime:** the source [LeEditor] must outlive this [LeTclConsole] -
 /// same constraint as [LeTexture], and for the same reason (native code
@@ -1640,26 +1647,48 @@ class LeTclConsole implements LeTclConsoleBase {
   final int _consoleId;
   bool _disposed = false;
 
-  /// Evaluates one Tcl command, returning the interpreter's string result
-  /// whether the command succeeded or failed - Tcl already puts the error
-  /// message in the same place on failure, so a caller checks the text
-  /// itself rather than a separate success flag, matching how a real
-  /// interactive Tcl shell prints either case. Also includes any text the
-  /// command wrote via `puts` (stdout or stderr), ahead of the
-  /// interpreter's own result - `puts` inside this console's interpreter
-  /// never reaches this app's real stdout/stderr (see macOS's
-  /// LeTclBridge.evalTcl:), so this is the only place a script's own
-  /// output is observable at all.
+  /// How often [eval] polls the native worker thread for new `puts`
+  /// output/completion while a command is running - frequent enough that
+  /// output feels immediate to a user, cheap enough (a plain method-channel
+  /// round trip) that polling for the length of a long-running script costs
+  /// nothing meaningful.
+  static const Duration _pollInterval = Duration(milliseconds: 50);
+
+  /// Evaluates one Tcl command, returning the interpreter's own string
+  /// result whether the command succeeded or failed - Tcl already puts the
+  /// error message in the same place on failure, so a caller checks the
+  /// text itself rather than a separate success flag, matching how a real
+  /// interactive Tcl shell prints either case. Unlike the interpreter's own
+  /// result, any text the command wrote via `puts` (stdout or stderr) is
+  /// *not* included here - it's delivered incrementally to [onOutput], as
+  /// soon as this console's native worker thread captures it, instead of
+  /// batched until the command finishes (see BUGS_AND_ENHANCEMENTS.md item
+  /// E3) - `puts` inside this console's interpreter never reaches this
+  /// app's real stdout/stderr, so [onOutput]/the returned result together
+  /// are the only place a script's own output is observable at all.
   @override
-  Future<String> eval(String command) async {
+  Future<String> eval(String command, {void Function(String)? onOutput}) async {
     if (_disposed) {
       throw StateError('eval called on a disposed LeTclConsole');
     }
-    final result = await _channel.invokeMethod<String>('evalTclCommand', {
+    await _channel.invokeMethod<void>('startTclEval', {
       'consoleId': _consoleId,
       'command': command,
     });
-    return result ?? '';
+
+    while (true) {
+      final poll = await _channel.invokeMapMethod<String, Object?>('pollTclEval', {
+        'consoleId': _consoleId,
+      });
+      final output = poll?['output'] as String? ?? '';
+      if (output.isNotEmpty) {
+        onOutput?.call(output);
+      }
+      if (poll?['hasResult'] == true) {
+        return poll?['result'] as String? ?? '';
+      }
+      await Future.delayed(_pollInterval);
+    }
   }
 
   /// Destroys the native Tcl interpreter. Safe to call more than once.

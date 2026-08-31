@@ -32,7 +32,7 @@ class FakeTclConsole implements LeTclConsoleBase {
   final List<String> evaluatedCommands = [];
 
   @override
-  Future<String> eval(String command) async {
+  Future<String> eval(String command, {void Function(String)? onOutput}) async {
     evaluatedCommands.add(command);
     return onEval == null ? '0' : await onEval!(command);
   }

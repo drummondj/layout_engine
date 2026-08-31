@@ -136,18 +136,42 @@ class LeProvider extends ChangeNotifier {
   // the next), not what a console/REPL experience wants.
   LeTclConsoleBase? _tclConsole;
 
+  // Drives the status bar's spinner (BUGS_AND_ENHANCEMENTS.md item E3) -
+  // true for the duration of any runTclCommand call, success or failure.
+  bool _isRunning = false;
+  bool get isRunning => _isRunning;
+
   /// Runs one Tcl command against this provider's own editor (see
   /// TCL_EXPLORATION.md's show_gui design - LeTclConsole shares the same
   /// LeHandle this provider's texture already renders), returning the
-  /// interpreter's result text. Refreshes everything refreshAndNotify()
-  /// already does afterward, same as any other mutating action - a Tcl
-  /// command can change anything from design content to layer names, so
-  /// there's no narrower refresh worth hand-picking here.
-  Future<String> runTclCommand(String command) async {
+  /// interpreter's result text. [onOutput], if given, is called with each
+  /// chunk of `puts` text as the command emits it, ahead of the final
+  /// result - see [LeTclConsoleBase.eval]'s own doc comment. Refreshes
+  /// everything refreshAndNotify() already does afterward, same as any
+  /// other mutating action - a Tcl command can change anything from design
+  /// content to layer names, so there's no narrower refresh worth
+  /// hand-picking here.
+  Future<String> runTclCommand(String command, {void Function(String)? onOutput}) async {
     _tclConsole ??= await _editor.createTclConsole();
-    final result = await _tclConsole!.eval(command);
-    refreshAndNotify();
-    return result;
+    _isRunning = true;
+    notifyListeners();
+    try {
+      final result = await _tclConsole!.eval(command, onOutput: onOutput);
+      // Set before refreshAndNotify() (rather than in a shared `finally`
+      // below) so that call's own notifyListeners() already reflects
+      // isRunning being false - same single notify, no extra one needed.
+      _isRunning = false;
+      refreshAndNotify();
+      return result;
+    } catch (e) {
+      // Deliberately not refreshAndNotify() here - same contract as
+      // before this method could throw partway through (see readLef's own
+      // comment on this), just with isRunning also reset so the spinner
+      // can't get stuck on.
+      _isRunning = false;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> refreshSnappedMousePosition() async {

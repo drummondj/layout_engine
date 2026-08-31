@@ -60,16 +60,21 @@ std::string ExecutableDir() {
 // Registers the "layout_engine_plugin" method channel used to bridge a
 // Dart-owned LeHandle* (see ../lib/layout_engine_plugin.dart's LeEditor) into
 // a native FlLeTexture (see lef_texture.h/.cc) and (see createTclConsole/
-// evalTclCommand/disposeTclConsole below) an embedded Tcl console. Dart FFI
-// can't reach the texture registrar itself - only platform embedder code
-// can - so this channel exists purely to hand ids back and forth; the
-// actual per-frame pixel pull and per-command Tcl eval never cross it.
+// startTclEval/pollTclEval/disposeTclConsole below) an embedded Tcl
+// console. Dart FFI can't reach the texture registrar itself - only
+// platform embedder code can - so this channel exists purely to hand ids
+// back and forth; the actual per-frame pixel pull and per-command Tcl eval
+// never cross it - eval runs on le::TclBridge's own worker thread (see
+// le_tcl_bridge.hpp), polled incrementally rather than blocking this
+// channel's own handler thread for a command's whole duration (see
+// BUGS_AND_ENHANCEMENTS.md item E3).
 // Mirrors ../macos/Classes/LayoutEnginePlugin.swift's protocol exactly:
 //   createTexture({handleAddress: int}) -> int textureId
 //   markTextureFrameAvailable({textureId: int}) -> null
 //   disposeTexture({textureId: int}) -> null
 //   createTclConsole({handleAddress: int}) -> int consoleId
-//   evalTclCommand({consoleId: int, command: string}) -> string
+//   startTclEval({consoleId: int, command: string}) -> null
+//   pollTclEval({consoleId: int}) -> {running: bool, output: string, hasResult: bool, result: string}
 //   disposeTclConsole({consoleId: int}) -> null
 
 #define LEF_EDITOR_PLUGIN(obj) \
@@ -191,26 +196,69 @@ static FlMethodResponse* handle_create_tcl_console(LayoutEnginePlugin* self, FlV
 #endif
 }
 
-static FlMethodResponse* handle_eval_tcl_command(LayoutEnginePlugin* self, FlValue* args) {
+// Looks up the TclBridge* for `consoleId` in `args`, or returns an error
+// response via `*response` and a null bridge - shared by
+// handle_start_tcl_eval/handle_poll_tcl_eval below so both report the same
+// bad_args/unknown_console errors the same way.
 #ifdef LE_LINK_BACKEND_ENABLED
+static le::TclBridge* lookup_tcl_bridge(LayoutEnginePlugin* self, FlValue* args,
+                                         FlMethodResponse** error_response) {
+  *error_response = nullptr;
   FlValue* console_id_value = fl_value_lookup_string(args, "consoleId");
-  FlValue* command_value = fl_value_lookup_string(args, "command");
-  if (console_id_value == nullptr || fl_value_get_type(console_id_value) != FL_VALUE_TYPE_INT ||
-      command_value == nullptr || fl_value_get_type(command_value) != FL_VALUE_TYPE_STRING) {
-    return FL_METHOD_RESPONSE(fl_method_error_response_new(
-        "bad_args", "evalTclCommand requires consoleId and command", nullptr));
+  if (console_id_value == nullptr || fl_value_get_type(console_id_value) != FL_VALUE_TYPE_INT) {
+    *error_response = FL_METHOD_RESPONSE(
+        fl_method_error_response_new("bad_args", "requires consoleId", nullptr));
+    return nullptr;
   }
 
   int64_t console_id = fl_value_get_int(console_id_value);
   le::TclBridge* bridge =
       reinterpret_cast<le::TclBridge*>(g_hash_table_lookup(self->tcl_consoles, GINT_TO_POINTER(console_id)));
   if (bridge == nullptr) {
-    return FL_METHOD_RESPONSE(fl_method_error_response_new(
-        "unknown_console", "no Tcl console with that id", nullptr));
+    *error_response = FL_METHOD_RESPONSE(
+        fl_method_error_response_new("unknown_console", "no Tcl console with that id", nullptr));
+  }
+  return bridge;
+}
+#endif
+
+static FlMethodResponse* handle_start_tcl_eval(LayoutEnginePlugin* self, FlValue* args) {
+#ifdef LE_LINK_BACKEND_ENABLED
+  FlMethodResponse* error_response = nullptr;
+  le::TclBridge* bridge = lookup_tcl_bridge(self, args, &error_response);
+  if (bridge == nullptr) {
+    return error_response;
   }
 
-  const std::string eval_result = bridge->evalTcl(fl_value_get_string(command_value));
-  g_autoptr(FlValue) result = fl_value_new_string(eval_result.c_str());
+  FlValue* command_value = fl_value_lookup_string(args, "command");
+  if (command_value == nullptr || fl_value_get_type(command_value) != FL_VALUE_TYPE_STRING) {
+    return FL_METHOD_RESPONSE(
+        fl_method_error_response_new("bad_args", "startTclEval requires command", nullptr));
+  }
+
+  bridge->startEval(fl_value_get_string(command_value));
+  return FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+#else
+  return FL_METHOD_RESPONSE(fl_method_error_response_new(
+      "backend_not_linked", "built without LE_LINK_BACKEND - see this plugin's CLAUDE.md",
+      nullptr));
+#endif
+}
+
+static FlMethodResponse* handle_poll_tcl_eval(LayoutEnginePlugin* self, FlValue* args) {
+#ifdef LE_LINK_BACKEND_ENABLED
+  FlMethodResponse* error_response = nullptr;
+  le::TclBridge* bridge = lookup_tcl_bridge(self, args, &error_response);
+  if (bridge == nullptr) {
+    return error_response;
+  }
+
+  const le::TclBridge::PollResult poll = bridge->poll();
+  g_autoptr(FlValue) result = fl_value_new_map();
+  fl_value_set_string_take(result, "running", fl_value_new_bool(poll.running));
+  fl_value_set_string_take(result, "output", fl_value_new_string(poll.output.c_str()));
+  fl_value_set_string_take(result, "hasResult", fl_value_new_bool(poll.has_result));
+  fl_value_set_string_take(result, "result", fl_value_new_string(poll.result.c_str()));
   return FL_METHOD_RESPONSE(fl_method_success_response_new(result));
 #else
   return FL_METHOD_RESPONSE(fl_method_error_response_new(
@@ -255,8 +303,10 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
     response = handle_dispose_texture(self, args);
   } else if (strcmp(method, "createTclConsole") == 0) {
     response = handle_create_tcl_console(self, args);
-  } else if (strcmp(method, "evalTclCommand") == 0) {
-    response = handle_eval_tcl_command(self, args);
+  } else if (strcmp(method, "startTclEval") == 0) {
+    response = handle_start_tcl_eval(self, args);
+  } else if (strcmp(method, "pollTclEval") == 0) {
+    response = handle_poll_tcl_eval(self, args);
   } else if (strcmp(method, "disposeTclConsole") == 0) {
     response = handle_dispose_tcl_console(self, args);
   } else {

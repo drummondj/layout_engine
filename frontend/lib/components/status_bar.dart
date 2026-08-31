@@ -14,12 +14,29 @@ class StatusBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<LeProvider>(
       builder: (context, provider, child) {
-        final Widget mode = SelectableText(
-          "Mode: ${switch (provider.mode) {
-            LeMode.LE_MODE_SELECT => 'Select',
-            LeMode.LE_MODE_EDIT => 'Edit',
-            LeMode.LE_MODE_RULER => 'Ruler',
-          }}",
+        final Widget mode = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SelectableText(
+              "Mode: ${switch (provider.mode) {
+                LeMode.LE_MODE_SELECT => 'Select',
+                LeMode.LE_MODE_EDIT => 'Edit',
+                LeMode.LE_MODE_RULER => 'Ruler',
+              }}",
+            ),
+            // A small spinner while LeProvider is running any Tcl command
+            // (BUGS_AND_ENHANCEMENTS.md item E3) - long-running commands no
+            // longer block the UI, so there needs to be some indication
+            // one is still in flight.
+            if (provider.isRunning) ...[
+              const SizedBox(width: 8),
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ],
+          ],
         );
         final Widget tooltip = Expanded(
           child: SelectableText(

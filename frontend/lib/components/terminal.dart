@@ -132,14 +132,33 @@ class _TerminalState extends State<Terminal> {
         _running = true;
       });
 
+      // Holds back whatever's been streamed in via onOutput that doesn't
+      // yet end in a newline (e.g. a `puts -nonewline` call, or a chunk
+      // arriving mid-line) - flushed a completed line at a time into
+      // _lines as soon as one is available, rather than waiting for the
+      // whole command to finish (BUGS_AND_ENHANCEMENTS.md item E3), and
+      // flushed outright once the command completes either way.
+      var pendingLine = '';
+      void onOutput(String chunk) {
+        pendingLine += chunk;
+        final parts = pendingLine.split('\n');
+        pendingLine = parts.removeLast();
+        if (parts.isEmpty) return;
+        setState(() {
+          _lines.addAll(parts);
+          _scrollToEnd();
+        });
+      }
+
       String result;
       try {
-        result = await _provider.runTclCommand(command);
+        result = await _provider.runTclCommand(command, onOutput: onOutput);
       } catch (error) {
         result = 'error: $error';
       }
 
       setState(() {
+        if (pendingLine.isNotEmpty) _lines.add(pendingLine);
         if (result.isNotEmpty) _lines.add(_truncateForDisplay(result));
         _running = false;
       });

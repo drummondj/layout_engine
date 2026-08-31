@@ -18,6 +18,24 @@
 #error "LE_TCL_PROCS_PATH must be set by layout_engine_plugin.podspec"
 #endif
 
+@implementation LeTclPollResult
+
+- (instancetype)initWithRunning:(BOOL)running
+                          output:(NSString *)output
+                       hasResult:(BOOL)hasResult
+                          result:(NSString *)result {
+  self = [super init];
+  if (self) {
+    _running = running;
+    _output = output;
+    _hasResult = hasResult;
+    _result = result;
+  }
+  return self;
+}
+
+@end
+
 @implementation LeTclBridge {
   std::unique_ptr<le::TclBridge> _bridge;
 }
@@ -30,9 +48,16 @@
   return self;
 }
 
-- (NSString *)evalTcl:(NSString *)command {
-  const std::string result = _bridge->evalTcl(command.UTF8String);
-  return [NSString stringWithUTF8String:result.c_str()];
+- (void)startEval:(NSString *)command {
+  _bridge->startEval(command.UTF8String);
+}
+
+- (LeTclPollResult *)poll {
+  const le::TclBridge::PollResult r = _bridge->poll();
+  return [[LeTclPollResult alloc] initWithRunning:r.running
+                                            output:[NSString stringWithUTF8String:r.output.c_str()]
+                                         hasResult:r.has_result
+                                            result:[NSString stringWithUTF8String:r.result.c_str()]];
 }
 
 @end

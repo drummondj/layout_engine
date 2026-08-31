@@ -79,18 +79,36 @@ public class LayoutEnginePlugin: NSObject, FlutterPlugin {
       tclConsoles[consoleId] = LeTclBridge(handleAddress: handleAddress)
       result(consoleId)
 
-    case "evalTclCommand":
+    case "startTclEval":
       guard let consoleId = (args["consoleId"] as? NSNumber)?.int64Value,
             let command = args["command"] as? String
       else {
-        result(FlutterError(code: "bad_args", message: "evalTclCommand requires consoleId and command", details: nil))
+        result(FlutterError(code: "bad_args", message: "startTclEval requires consoleId and command", details: nil))
         return
       }
       guard let bridge = tclConsoles[consoleId] else {
         result(FlutterError(code: "unknown_console", message: "no Tcl console with id \(consoleId)", details: nil))
         return
       }
-      result(bridge.evalTcl(command))
+      bridge.startEval(command)
+      result(nil)
+
+    case "pollTclEval":
+      guard let consoleId = (args["consoleId"] as? NSNumber)?.int64Value else {
+        result(FlutterError(code: "bad_args", message: "pollTclEval requires consoleId", details: nil))
+        return
+      }
+      guard let bridge = tclConsoles[consoleId] else {
+        result(FlutterError(code: "unknown_console", message: "no Tcl console with id \(consoleId)", details: nil))
+        return
+      }
+      let poll = bridge.poll()
+      result([
+        "running": poll.running,
+        "output": poll.output,
+        "hasResult": poll.hasResult,
+        "result": poll.result,
+      ])
 
     case "disposeTclConsole":
       guard let consoleId = (args["consoleId"] as? NSNumber)?.int64Value else {
