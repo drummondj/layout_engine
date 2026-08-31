@@ -29,6 +29,17 @@ class _TerminalState extends State<Terminal> {
   bool _running = false;
   int _nextCommandNumber = 1;
   int _currentHistoryIndex = -1;
+
+  // Whatever was typed (possibly empty) right before the current recall
+  // session started - only meaningful while _currentHistoryIndex != -1;
+  // always freshly overwritten at the start of the next session before
+  // it's ever read, so it doesn't need clearing anywhere recall isn't
+  // already resetting _currentHistoryIndex itself. Restored by _history
+  // on a Down press past the most recent entry (BUGS_AND_ENHANCEMENTS.md
+  // E9), the same way a real shell's own history recall returns you to
+  // your own in-progress line rather than leaving the last-recalled
+  // command stuck in the input.
+  String _draftBeforeRecall = '';
   late StreamSubscription<String> _messageSubscription;
 
   // Multiple Tab-completion candidates (see _completeCommand) - a
@@ -294,14 +305,31 @@ class _TerminalState extends State<Terminal> {
     if (history.isEmpty) {
       return;
     }
-    int index = -1;
+
     if (_currentHistoryIndex == -1) {
-      index = history.length + by;
-    } else {
-      index = _currentHistoryIndex + by;
+      // Not currently recalling - Down has nothing to return to, so
+      // stays a no-op (matches Up also doing nothing on an empty
+      // history above). Up starts a fresh recall session: remember
+      // whatever's already typed (possibly empty) so a later Down past
+      // the most recent entry can restore it (BUGS_AND_ENHANCEMENTS.md
+      // E9) instead of leaving the last-recalled command stuck in the
+      // input.
+      if (by > 0) return;
+      _draftBeforeRecall = _inputController.text;
     }
 
-    if (index < 0 || index > history.length - 1) {
+    final index = _currentHistoryIndex == -1
+        ? history.length + by
+        : _currentHistoryIndex + by;
+
+    if (index > history.length - 1) {
+      _inputController.clear();
+      _inputController.text = _draftBeforeRecall;
+      _currentHistoryIndex = -1;
+      _inputFocusNode.requestFocus();
+      return;
+    }
+    if (index < 0) {
       return;
     }
 
