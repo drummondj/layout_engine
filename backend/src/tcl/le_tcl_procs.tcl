@@ -21,6 +21,31 @@
 
 set kInvalidId 4294967295
 
+# --- Display truncation (BUGS_AND_ENHANCEMENTS.md E6) ---
+#
+# A single misbehaving typed command (e.g. a bare get_shapes on a design
+# with thousands of shapes) shouldn't be able to dump megabytes of text
+# into a console's scrollback - truncates what le_repl_eval (below)
+# returns for *display*, not the value itself: a script that calls
+# get_shapes/get_properties/etc. directly (not through le_repl_eval)
+# always gets the real, untruncated result. Previously done in Dart
+# (frontend/lib/components/terminal.dart's own kMaxResultDisplayLength/
+# _truncateForDisplay) - moved here (not into le_shell.cpp) so it's not
+# duplicated per-frontend and the Flutter console no longer needs to
+# know about it at all; le_shell's own interactive prompt isn't wired
+# through le_repl_eval (see that proc's own comment) and echoes results
+# via Tcl_Main's own hardcoded C runtime behavior, which has no
+# script-level hook to apply this to - same as a real tclsh, not a
+# regression this change introduces.
+set kMaxResultDisplayLength 10000
+proc truncate_for_display {text} {
+    global kMaxResultDisplayLength
+    if {[string length $text] <= $kMaxResultDisplayLength} {
+        return $text
+    }
+    return "[string range $text 0 [expr {$kMaxResultDisplayLength - 1}]]..truncated"
+}
+
 # --- Editing / undo-redo (UPDATES.md item 21) ---
 #
 # Wraps one user-typed command with undo/redo transaction recording +
@@ -29,20 +54,29 @@ set kInvalidId 4294967295
 # exactly as undoable (Ctrl-Z/Ctrl-Shift-Z) as a GUI edit like Move.
 # Every command, successful or not, gets added to command_history
 # (BUGS_AND_ENHANCEMENTS.md E5 - a failed command is exactly the one a
-# user most wants back, to recall and edit into a working one).
-# `uplevel #0` runs $command in the *global* scope, not nested inside
-# this proc's own local one - matching how a real interactive shell
-# evaluates each line at toplevel (a bare `set x 5` lands in global
-# scope, not thrown away when this proc returns).
+# user most wants back, to recall and edit into a working one). The
+# returned result is truncate_for_display()'d (E6) before it comes back
+# here - what a script gets from evaluating the *same command text*
+# itself, bypassing le_repl_eval, is unaffected. `uplevel #0` runs
+# $command in the *global* scope, not nested inside this proc's own
+# local one - matching how a real interactive shell evaluates each line
+# at toplevel (a bare `set x 5` lands in global scope, not thrown away
+# when this proc returns).
 #
 # complete_command (Tab-completion's own backing command, see below) is
-# the one exception - skipped entirely, not just excluded from the
-# recall log afterward, since it's a pure read with nothing to undo:
+# the one command skipped entirely - not just excluded from the recall
+# log/truncation afterward, since it's a pure read with nothing to undo:
 # every Tab press would otherwise pollute command_history with its own
 # "complete_command ..." entry (BUGS_AND_ENHANCEMENTS.md E5's other
-# half). `[lindex $command 0]` reads the command name the same way Tcl
-# itself would dispatch it, so this catches "complete_command foo" and
-# "complete_command {foo bar}" alike regardless of quoting.
+# half), and its own result is a candidate list Dart's _completeCommand
+# parses programmatically, not display text - silently truncating it
+# mid-candidate would corrupt that list, not just shorten a printout.
+# help/man/generate_command_docs are still recorded normally (a user
+# typing `help` may well want it back via Up-arrow) but are exempted
+# from truncation alone, right below - see that check's own comment.
+# `[lindex $command 0]` reads the command name the same way Tcl itself
+# would dispatch it, so both checks catch e.g. "complete_command foo"
+# and "complete_command {foo bar}" alike regardless of quoting.
 #
 # `flutter_plugin`'s LeTclBridge.mm is the only caller (every typed
 # console command goes through it) - le_shell.cpp's own interactive REPL
@@ -53,14 +87,26 @@ set kInvalidId 4294967295
 # just not batched into one transaction/recall entry per line the way a
 # Flutter-console command is.
 proc le_repl_eval {command} {
-    if {[lindex $command 0] eq "complete_command"} {
+    set command_name [lindex $command 0]
+    if {$command_name eq "complete_command"} {
         catch {uplevel #0 $command} result
         return $result
     }
     begin_command $command
     set code [catch {uplevel #0 $command} result]
     end_command [expr {$code == 0}]
-    return $result
+    # help/man/generate_command_docs build and *return* their own listing
+    # as a plain string rather than printing it via `puts`, so mechanically
+    # they look just like a risky get_<type> query's own return value -
+    # but they're bounded, deliberately-readable reference text (sized by
+    # how many commands are registered, not by database content), not the
+    # "single misbehaving command dumps megabytes" case truncation exists
+    # for, so they're exempt the same way complete_command is (just still
+    # recorded in command_history, unlike complete_command).
+    if {$command_name in {help man generate_command_docs}} {
+        return $result
+    }
+    return [truncate_for_display $result]
 }
 
 # --- Help system (UPDATES.md item 20) ---

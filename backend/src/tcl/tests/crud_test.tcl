@@ -641,6 +641,28 @@ set count_before_completion [command_history_count]
 le_repl_eval {complete_command get_t}
 check "command_history is unchanged after a complete_command call" $count_before_completion [command_history_count]
 
+# le_repl_eval truncates a long result for display (BUGS_AND_ENHANCEMENTS.md
+# E6) - a script evaluating the same command directly (not through
+# le_repl_eval) still gets the full, untruncated value.
+set long_result [le_repl_eval {string repeat x 20000}]
+check "a long le_repl_eval result is truncated to kMaxResultDisplayLength plus the suffix" \
+    10011 [string length $long_result]
+check_true "the truncated result ends with the ..truncated suffix" \
+    [expr {[string range $long_result end-10 end] eq "..truncated"}]
+check "evaluating the same command directly (not via le_repl_eval) is not truncated" \
+    20000 [string length [string repeat x 20000]]
+
+# help/man/generate_command_docs are exempt from truncation even via
+# le_repl_eval (BUGS_AND_ENHANCEMENTS.md E6) - bounded, deliberately-
+# readable reference text, not a risky database query's own return
+# value; `help` (no pattern - every registered command) is comfortably
+# past kMaxResultDisplayLength with this many commands registered.
+set help_via_repl [le_repl_eval {help}]
+check "help via le_repl_eval matches the direct (untruncated) result exactly" \
+    [help] $help_via_repl
+check_true "help via le_repl_eval is long enough that it would have been truncated otherwise" \
+    [expr {[string length $help_via_repl] > $kMaxResultDisplayLength}]
+
 # delete_terminal round trip - undo recreates the terminal (at a new id,
 # not necessarily $delete_target - see Transaction's own id-cell doc
 # comment), which get_terminals (name-scoped, not id-scoped) still finds.
