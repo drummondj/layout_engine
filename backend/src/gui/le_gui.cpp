@@ -1,6 +1,7 @@
 #include "le_gui.hpp"
 
 #include "api.hpp"
+#include "components/status_bar.hpp"
 
 // Apple deprecated the whole OpenGL framework in favor of Metal (10.14+)
 // but still fully implements it - every desktop-GL ImGui backend still
@@ -199,6 +200,18 @@ namespace le::gui
         // pinning a whole CPU core at 100% while idle for no benefit.
         constexpr auto kRenderThreadIdleInterval = std::chrono::milliseconds(33);
 
+        // Logical (window/point, not framebuffer-pixel) height reserved
+        // at the bottom of the window for draw_status_bar
+        // (components/status_bar.hpp) - the ImGui port of
+        // frontend/lib/components/status_bar.dart, which sits directly
+        // below the design view the same way in home.dart's own layout.
+        // A fixed constant, not measured, since this prototype's status
+        // bar is one fixed-height row (Separator + one line of text) -
+        // ImGui itself only reports an item's actual size *after*
+        // drawing it, so getting this exactly without a fixed guess
+        // would need drawing the whole frame twice.
+        constexpr float kStatusBarHeight = 36.0f;
+
         // The one slot a background render thread publishes into and the
         // main/GUI thread reads from - decouples le_render_pixel_buffer()
         // (which can take anywhere from microseconds to over a second for
@@ -308,13 +321,40 @@ namespace le::gui
             // already set) - this dedicated render thread is the first to
             // start calling it immediately, before this GUI's own first
             // frame would otherwise set one.
+            // The design view's own viewport is shorter than the full
+            // window - draw_status_bar (components/status_bar.hpp)
+            // reserves kStatusBarHeight logical points at the bottom -
+            // so the pixel height handed to le_set_viewport_size has to
+            // be the design view's own framebuffer-pixel height, not the
+            // whole window's, or the rendered frame would be scaled/
+            // cropped against the smaller ImGui::Image below rather than
+            // matching it. `initial_scale_y` (framebuffer pixels per
+            // logical point - a HiDPI/Retina ratio) is what converts
+            // between the two; the per-frame loop below recomputes both
+            // every frame since either can change independently (window
+            // resize, or the window moving to a display with a different
+            // pixel ratio).
+            int initial_win_width = 0;
+            int initial_win_height = 0;
+            glfwGetWindowSize(window, &initial_win_width, &initial_win_height);
             int initial_fb_width = 0;
             int initial_fb_height = 0;
             glfwGetFramebufferSize(window, &initial_fb_width, &initial_fb_height);
-            le_set_viewport_size(handle, initial_fb_width, initial_fb_height);
+            const float initial_scale_y = initial_win_height > 0
+                ? static_cast<float>(initial_fb_height) / static_cast<float>(initial_win_height)
+                : 1.0f;
+            const float initial_image_win_height =
+                (static_cast<float>(initial_win_height) - kStatusBarHeight) > 1.0f
+                    ? static_cast<float>(initial_win_height) - kStatusBarHeight
+                    : 1.0f;
+            const int initial_viewport_height =
+                static_cast<int>(initial_image_win_height * initial_scale_y + 0.5f) > 0
+                    ? static_cast<int>(initial_image_win_height * initial_scale_y + 0.5f)
+                    : 1;
+            le_set_viewport_size(handle, initial_fb_width, initial_viewport_height);
 
             int last_fb_width = initial_fb_width;
-            int last_fb_height = initial_fb_height;
+            int last_viewport_height = initial_viewport_height;
             ActiveGesture gesture = ActiveGesture::kNone;
 
             RenderMailbox mailbox;
@@ -340,11 +380,25 @@ namespace le::gui
                 const float scale_x = static_cast<float>(fb_width) / static_cast<float>(win_width);
                 const float scale_y = static_cast<float>(fb_height) / static_cast<float>(win_height);
 
-                if (fb_width != last_fb_width || fb_height != last_fb_height)
+                // See the matching initial_image_win_height/
+                // initial_viewport_height comment above - the design
+                // view's own framebuffer-pixel height, not the whole
+                // window's, since draw_status_bar reserves
+                // kStatusBarHeight logical points at the bottom.
+                const float image_win_height =
+                    (static_cast<float>(win_height) - kStatusBarHeight) > 1.0f
+                        ? static_cast<float>(win_height) - kStatusBarHeight
+                        : 1.0f;
+                const int viewport_height =
+                    static_cast<int>(image_win_height * scale_y + 0.5f) > 0
+                        ? static_cast<int>(image_win_height * scale_y + 0.5f)
+                        : 1;
+
+                if (fb_width != last_fb_width || viewport_height != last_viewport_height)
                 {
-                    le_set_viewport_size(handle, fb_width, fb_height);
+                    le_set_viewport_size(handle, fb_width, viewport_height);
                     last_fb_width = fb_width;
-                    last_fb_height = fb_height;
+                    last_viewport_height = viewport_height;
                 }
 
                 ImGui_ImplOpenGL3_NewFrame();
@@ -353,6 +407,18 @@ namespace le::gui
 
                 forward_keyboard_input(handle);
 
+                // Zero window padding - image_win_height/the status bar's
+                // own table width below both budget against the *full*
+                // win_width/win_height (see the matching comments above),
+                // not against win_width/win_height minus whatever the
+                // default ~8px WindowPadding would otherwise eat into on
+                // every edge; without this, the image + status bar
+                // together overflow the window's own true bottom/right
+                // edges by exactly that padding amount, clipping the
+                // status bar row's own text there. A full-bleed canvas
+                // window (nothing else shares it yet) has no other
+                // content that would benefit from padding anyway.
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
                 ImGui::SetNextWindowPos(ImVec2(0, 0));
                 ImGui::SetNextWindowSize(ImVec2(static_cast<float>(win_width), static_cast<float>(win_height)));
                 ImGui::Begin(
@@ -399,7 +465,7 @@ namespace le::gui
                 {
                     ImGui::Image(
                         static_cast<ImTextureID>(static_cast<intptr_t>(texture_id)),
-                        ImVec2(static_cast<float>(win_width), static_cast<float>(win_height)));
+                        ImVec2(static_cast<float>(win_width), image_win_height));
                     forward_mouse_input(handle, gesture, scale_x, scale_y);
 
                     // A render actually in progress (le_is_rendering, E17's
@@ -417,10 +483,22 @@ namespace le::gui
                 }
                 else
                 {
+                    // Dummy fills the same reserved area the Image above
+                    // would otherwise occupy, so draw_status_bar below
+                    // always lands at the same fixed spot at the bottom
+                    // of the window regardless of whether a design is
+                    // loaded yet.
+                    const float dummy_height = image_win_height > ImGui::GetTextLineHeight()
+                        ? image_win_height - ImGui::GetTextLineHeight()
+                        : 0.0f;
+                    ImGui::Dummy(ImVec2(static_cast<float>(win_width), dummy_height));
                     ImGui::TextUnformatted("No design loaded yet - read_lef/open_design from the console.");
                 }
 
+                draw_status_bar(handle, static_cast<float>(win_width));
+
                 ImGui::End();
+                ImGui::PopStyleVar();
 
                 ImGui::Render();
                 glViewport(0, 0, fb_width, fb_height);

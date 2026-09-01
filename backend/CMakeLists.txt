@@ -441,7 +441,10 @@ target_include_directories(imgui_lib PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_D
 # the FetchContent fallback above.
 target_link_libraries(imgui_lib PUBLIC glfw)
 
-add_library(gui STATIC src/gui/le_gui.cpp)
+add_library(gui STATIC
+    src/gui/le_gui.cpp
+    src/gui/components/status_bar.cpp
+)
 target_include_directories(gui PUBLIC src/gui)
 target_link_libraries(gui PUBLIC api imgui_lib)
 if(APPLE)
