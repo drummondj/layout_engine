@@ -279,6 +279,7 @@ namespace le::gui
         // panel's own on-screen tab text.
         constexpr const char *kBrowserWindowTitle = "Browser";
         constexpr const char *kPropertiesWindowTitle = "Properties";
+        constexpr const char *kLayersWindowTitle = "Layers";
         constexpr const char *kLayoutWindowTitle = "Layout";
 
         // Draws the always-present, fullscreen invisible host window +
@@ -344,7 +345,17 @@ namespace le::gui
                 const ImGuiID right_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Right, 0.28f, nullptr, &center_id);
 
                 ImGui::DockBuilderDockWindow(kBrowserWindowTitle, left_id);
+                // Docked into the same node as Properties, not a
+                // BeginTabBar/BeginTabItem pair inside one shared window
+                // - a real ImGui tab bar can't be dragged apart, but two
+                // separate windows docked into the same node still show
+                // as tabs of one panel by default while staying fully
+                // dockable - the user can drag "Layers" out to its own
+                // split/area, matching home.dart's own DockingTabs
+                // grouping (a real docking construct there too, not a
+                // fixed in-panel tab strip).
                 ImGui::DockBuilderDockWindow(kPropertiesWindowTitle, right_id);
+                ImGui::DockBuilderDockWindow(kLayersWindowTitle, right_id);
                 ImGui::DockBuilderDockWindow(kLayoutWindowTitle, center_id);
                 ImGui::DockBuilderFinish(dockspace_id);
             }
@@ -469,25 +480,20 @@ namespace le::gui
                 draw_library_browser(handle);
                 ImGui::End();
 
-                // Right sidebar - two tabs, mirroring home.dart's own
-                // DockingTabs([layers, properties]) grouping: property_viewer.hpp
+                // Right sidebar - two separate dockable panels docked
+                // into the same node by default (see
+                // draw_dockspace_and_default_layout's own comment on
+                // why not a single BeginTabBar/BeginTabItem pair),
+                // mirroring home.dart's own DockingTabs([layers,
+                // properties]) grouping: property_viewer.hpp
                 // (frontend/lib/components/property_viewer.dart) and
                 // layer_manager.hpp (frontend/lib/components/layer_manager.dart).
                 ImGui::Begin(kPropertiesWindowTitle);
-                if (ImGui::BeginTabBar("properties_tabs"))
-                {
-                    if (ImGui::BeginTabItem("Properties"))
-                    {
-                        draw_property_viewer(handle);
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("Layers"))
-                    {
-                        draw_layer_manager(handle);
-                        ImGui::EndTabItem();
-                    }
-                    ImGui::EndTabBar();
-                }
+                draw_property_viewer(handle);
+                ImGui::End();
+
+                ImGui::Begin(kLayersWindowTitle);
+                draw_layer_manager(handle);
                 ImGui::End();
 
                 // Zero window padding - the design view/status bar sizing
