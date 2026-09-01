@@ -1167,4 +1167,74 @@ static void BM_DrawGroup_ThinPaths(benchmark::State &state)
 }
 BENCHMARK(BM_DrawGroup_ThinPaths)->Unit(benchmark::kMillisecond);
 
+// BUGS_AND_ENHANCEMENTS.md E19 - "text render is quite expensive, so it
+// would be good to benchmark if this helps or not". Real per-shape
+// design-content text (terminal/route/placement labels) used to always
+// antialias its own glyphs regardless of antialiasing_enabled - two real
+// bugs, not one: text_paint's own setAntiAlias was hardcoded true (fixed
+// by threading antialiasing_enabled through, matching fill/stroke just
+// above in draw_group), and even after that, glyph edges are controlled
+// by SkFont::setEdging, not SkPaint::setAntiAlias at all - the paint fix
+// alone was a no-op for the actual glyph rasterization (found by writing
+// DrawGroupAntiAliasing.DisablingAntiAliasingAlsoProducesHardEdgesForText
+// first and watching it fail even with the paint fix already in place).
+// This is the "does it actually help" half of that same item: a
+// realistic dense-design terminal-label population (20,000 short labels
+// - real designs commonly have many thousands of pins), antialiasing on
+// vs. off, both through draw_group directly (the one function E19
+// touches), a permanent pair rather than a one-off git-stash A/B since
+// this is a live, user-toggleable runtime flag, not a one-time change.
+namespace
+{
+    constexpr int kTextLabelCount = 20'000;
+
+    std::vector<PixelShape> text_label_group()
+    {
+        std::vector<PixelShape> group;
+        group.reserve(kTextLabelCount);
+        constexpr int kCols = 200;
+        for (int i = 0; i < kTextLabelCount; ++i)
+        {
+            PixelShape shape;
+            shape.texts.push_back(PixelText{
+                .label = "P" + std::to_string(i % 1000),
+                .location = {.x = static_cast<double>(i % kCols) * 12.0, .y = static_cast<double>(i / kCols) * 12.0},
+                .size = 10.0,
+            });
+            group.push_back(std::move(shape));
+        }
+        return group;
+    }
+}
+
+static void BM_DrawGroup_TextLabels_AntialiasingOn(benchmark::State &state)
+{
+    const std::vector<PixelShape> group = text_label_group();
+    const ViewLayerStyle style = thin_wire_style();
+    sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(2400, 1200));
+
+    for (auto _ : state)
+    {
+        surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+        draw_group(*surface->getCanvas(), group, style, /*antialiasing_enabled=*/true);
+    }
+    state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kTextLabelCount));
+}
+BENCHMARK(BM_DrawGroup_TextLabels_AntialiasingOn)->Unit(benchmark::kMillisecond);
+
+static void BM_DrawGroup_TextLabels_AntialiasingOff(benchmark::State &state)
+{
+    const std::vector<PixelShape> group = text_label_group();
+    const ViewLayerStyle style = thin_wire_style();
+    sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(2400, 1200));
+
+    for (auto _ : state)
+    {
+        surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+        draw_group(*surface->getCanvas(), group, style, /*antialiasing_enabled=*/false);
+    }
+    state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kTextLabelCount));
+}
+BENCHMARK(BM_DrawGroup_TextLabels_AntialiasingOff)->Unit(benchmark::kMillisecond);
+
 BENCHMARK_MAIN();

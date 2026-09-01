@@ -215,6 +215,49 @@ TEST(DrawGroupAntiAliasing, DisablingAntiAliasingProducesAHardEdgeInsteadOfAFrac
     EXPECT_TRUE(aa_off_alpha == 0 || aa_off_alpha == 255) << "got " << static_cast<int>(aa_off_alpha);
 }
 
+// BUGS_AND_ENHANCEMENTS.md E19 - text_paint/label_origin_paint used to be
+// hardcoded setAntiAlias(true), unlike fill/stroke just above (which
+// already respected antialiasing_enabled) - a real, accidental
+// inconsistency (draw_placement_labels' own text_paint already got this
+// right; draw_group's own terminal/route-label text_paint, in the same
+// function, didn't) rather than a deliberate design boundary. Same
+// "fractional vs. binary coverage" observable effect as the rect case
+// above, applied to glyph edges instead of a rect edge: counts pixels
+// with strictly-fractional alpha (neither fully transparent nor fully
+// opaque) across the whole label's own bounding region - AA-on text has
+// many (smoothed glyph curves/diagonals), AA-off text should have none
+// (every pixel is either in or out of the rasterized glyph outline).
+TEST(DrawGroupAntiAliasing, DisablingAntiAliasingAlsoProducesHardEdgesForText)
+{
+    le::PixelShape shape;
+    shape.texts.push_back(le::PixelText{.label = "AV", .location = {.x = 10, .y = 10}, .size = 40.0});
+
+    le::ViewLayerStyle style;
+    style.fill_color = le::Color{.r = 0, .g = 0, .b = 0, .a = 0};
+    style.outline_color = le::Color{.r = 0, .g = 0, .b = 0, .a = 255};
+
+    const SkBitmap aa_on = draw_group_to_bitmap({shape}, style, 60, 60, /*antialiasing_enabled=*/true);
+    const SkBitmap aa_off = draw_group_to_bitmap({shape}, style, 60, 60, /*antialiasing_enabled=*/false);
+
+    auto count_fractional_alpha_pixels = [](const SkBitmap &bitmap)
+    {
+        int count = 0;
+        for (int y = 0; y < bitmap.height(); ++y)
+            for (int x = 0; x < bitmap.width(); ++x)
+            {
+                const uint8_t a = SkColorGetA(bitmap.getColor(x, y));
+                if (a > 0 && a < 255)
+                    ++count;
+            }
+        return count;
+    };
+
+    const int aa_on_fractional = count_fractional_alpha_pixels(aa_on);
+    const int aa_off_fractional = count_fractional_alpha_pixels(aa_off);
+    EXPECT_GT(aa_on_fractional, 0) << "AA-on text should have real fractional-coverage edge pixels";
+    EXPECT_EQ(aa_off_fractional, 0) << "AA-off text should have no fractional-coverage pixels at all";
+}
+
 // BUGS_AND_ENHANCEMENTS.md E16 - the small "+" marker drawn at each
 // label's own anchor point (kLabelOriginMarkerSizeRatio) used to be a
 // fixed pixel size regardless of the label's own text size; now it

@@ -874,7 +874,7 @@ proc set_antialiasing_enabled { enabled } {
 }
 register_command_help set_antialiasing_enabled \
     "set_antialiasing_enabled <enabled> \[-help\]" \
-    "Sets whether fill/stroke geometry paints antialias their own edges (grid/chrome/text paints are unaffected, always antialiased - see draw_group's own comment). Off by default, matching most commercial EDA tools' own default." \
+    "Sets whether fill/stroke geometry paints antialias their own edges - also covers per-shape/per-placement design-content text (terminal/route/placement labels and their own anchor-point cross markers - BUGS_AND_ENHANCEMENTS.md E19), since those can appear as often as real geometry in a dense design. Fixed, small-count interactive chrome (grid, cursor/hover/selection overlays, ruler labels) is unaffected, always antialiased - see draw_group's own comment. Off by default, matching most commercial EDA tools' own default." \
     {
         {<enabled> {type bool required 1 description {0/1 or true/false}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}

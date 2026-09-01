@@ -1421,3 +1421,67 @@ changed), a materially larger, separate undertaking - flagged as a
 follow-up, not attempted in this pass. Full 657-test suite passes
 (including the 30x concurrency stress-repeat above); `build_release`
 rebuilt clean.
+
+## 2026-09-01 — text antialiasing: two real bugs fixed, but disabling it barely helps (E19)
+
+The user reported the antialiasing toggle "doesn't work on all text -
+some are hardcoded as true" and asked for a benchmark to see whether
+fixing it would even be worth it performance-wise ("text render is
+quite expensive... would be good to benchmark if this helps or not").
+
+**Two real, independent bugs**, not one - both found the hard way, by
+writing a real test first and watching it fail even after the first fix:
+
+1. `draw_group`'s own `text_paint`/`label_origin_paint` (terminal/route
+   label text and its own anchor-point cross marker) had `setAntiAlias(true)`
+   hardcoded, unlike `fill`/`stroke` just above in the same function,
+   which already correctly respected `antialiasing_enabled` - a real,
+   accidental inconsistency, not a deliberate design boundary (contrary
+   to what `Scene::antialiasing_enabled()`'s own doc comment claimed -
+   corrected alongside this fix, along with `api.hpp`'s
+   `le_is_antialiasing_enabled` and the matching TCL `register_command_help`
+   text, all three previously saying "text paints... always antialiased").
+2. **Even after fixing (1), glyph edges didn't change** - confirmed by
+   writing `DrawGroupAntiAliasing.DisablingAntiAliasingAlsoProducesHardEdgesForText`
+   first and watching it fail (260 fractional-alpha pixels present with
+   `antialiasing_enabled=false`, expected 0). Root cause: Skia's modern
+   API controls glyph antialiasing via `SkFont::setEdging()`, not
+   `SkPaint::setAntiAlias()` at all - the paint's own AA flag still
+   matters for everything else about a text paint (color, etc.), but is
+   a complete no-op for the actual glyph rasterization `canvas.drawString()`
+   does. Every `SkFont` construction in `draw_helpers.hpp` used the
+   default edging (`kAntiAlias`) regardless of the paint - including
+   `draw_placement_labels`' own text (E13), which *looked* already
+   correct (it did thread `antialiasing_enabled` into its own
+   `text_paint`) but was silently still always-antialiased at the glyph
+   level, exactly matching the user's own "some are hardcoded as true"
+   report. Fixed both `draw_group` and `draw_placement_labels` with an
+   explicit `font.setEdging(antialiasing_enabled ? kAntiAlias : kAlias)`.
+   `draw_ruler_label`'s own text (fixed, small-count interactive chrome -
+   one label per user-drawn ruler segment) is deliberately left
+   always-antialiased, matching the corrected doc comments' own
+   "low-volume chrome stays AA'd" distinction.
+
+**The benchmark** (the user's own second ask): `BM_DrawGroup_TextLabels_AntialiasingOn`/
+`_Off` - 20,000 short terminal-style labels (a realistic dense-design pin
+count) through `draw_group` directly, antialiasing on vs. off, kept as a
+permanent pair (a live runtime toggle, not a one-time change worth only
+a git-stash A/B):
+
+| Benchmark | Result |
+| --- | --- |
+| `BM_DrawGroup_TextLabels_AntialiasingOn` (20,000 labels) | 28.1 ms (cv 1.16%) |
+| `BM_DrawGroup_TextLabels_AntialiasingOff` | 27.5 ms (cv 0.44%) |
+
+**~2% difference - noise, not a meaningful win.** This actually confirms
+what a much older comment on this same code already guessed ("text
+labels are a small minority of draw calls relative to shapes/rects/paths...
+a non-issue") - text-drawing cost here is dominated by per-label
+`SkFont`/glyph-shaping overhead, not by the AA-vs-non-AA rasterization
+step itself, unlike real fill/stroke geometry (where disabling AA *does*
+measurably help at scale - see this file's own hairline-simplification
+entries). So: the bug was real and worth fixing for correctness (a user
+who disables AA should see it applied consistently, not silently
+excluded from some text), but not for the performance reason originally
+suspected. Full 658-test suite passes; both `build`/`build_release`
+rebuilt clean.

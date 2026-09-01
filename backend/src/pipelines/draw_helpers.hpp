@@ -896,6 +896,13 @@ namespace le
 
             const SkScalar font_size = static_cast<SkScalar>(std::max(height_px * kPlacementLabelHeightRatio, kMinLabelPixelSize));
             SkFont font(default_typeface(), font_size);
+            // BUGS_AND_ENHANCEMENTS.md E19 - glyph antialiasing is
+            // controlled by SkFont::setEdging, not SkPaint::setAntiAlias
+            // (which drawString still honors for anything else about the
+            // paint, e.g. color, but not the glyph rasterization itself) -
+            // text_paint's own setAntiAlias(antialiasing_enabled) alone is
+            // a no-op for glyph edges without this.
+            font.setEdging(antialiasing_enabled ? SkFont::Edging::kAntiAlias : SkFont::Edging::kAlias);
 
             const std::string text = truncate_text_to_width(label.name, font, static_cast<SkScalar>(available_width_px));
             if (text.empty())
@@ -1167,16 +1174,26 @@ namespace le
         // below) - not a hot path, text labels are a small minority of
         // draw calls relative to shapes/rects/paths, so the extra
         // per-label SkFont construction is a non-issue.
+        // BUGS_AND_ENHANCEMENTS.md E19 - respects antialiasing_enabled
+        // the same as fill/stroke above, not hardcoded true - a real,
+        // accidental inconsistency (draw_placement_labels' own
+        // text_paint already did this correctly; this one, drawing
+        // terminal/route labels, didn't, despite antialiasing_enabled
+        // being right there in scope) rather than a deliberate "text is
+        // chrome, always antialiased" choice - see api.hpp's own
+        // le_is_antialiasing_enabled doc comment, corrected alongside
+        // this fix.
         SkPaint text_paint;
-        text_paint.setAntiAlias(true);
+        text_paint.setAntiAlias(antialiasing_enabled);
         text_paint.setColor(to_sk_color(style.outline_color));
 
         // UPDATES.md item 8.3 - a small cross at each label's own
         // anchor point (see the text loop below), same color as the
         // label text itself and hoisted the same way for the same
-        // reason.
+        // reason. Same E19 fix as text_paint above - this is per-label
+        // decoration, not fixed interactive chrome.
         SkPaint label_origin_paint;
-        label_origin_paint.setAntiAlias(true);
+        label_origin_paint.setAntiAlias(antialiasing_enabled);
         label_origin_paint.setStyle(SkPaint::kStroke_Style);
         label_origin_paint.setStrokeWidth(kLabelOriginMarkerStrokeWidth);
         label_origin_paint.setColor(to_sk_color(style.outline_color));
@@ -1342,6 +1359,11 @@ namespace le
                     canvas.drawLine(0, -half, 0, half, label_origin_paint);
 
                     SkFont font(default_typeface(), static_cast<SkScalar>(t.size));
+                    // BUGS_AND_ENHANCEMENTS.md E19 - see
+                    // draw_placement_labels' own comment on this same
+                    // line shape: text_paint's own setAntiAlias above is
+                    // a no-op for glyph edges without this.
+                    font.setEdging(antialiasing_enabled ? SkFont::Edging::kAntiAlias : SkFont::Edging::kAlias);
                     canvas.drawString(t.label.c_str(), 0, 0, font, text_paint);
                     canvas.restore();
                 }

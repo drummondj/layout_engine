@@ -927,17 +927,24 @@ namespace le
         uint64_t visibility_version() const { return visibility_version_; }
 
         // --- Design-content anti-aliasing (draw_group's own fill/stroke
-        // paints only - grid, cursor, selection/hover/move-ghost outlines,
-        // ruler, and text labels stay AA'd regardless, all low-volume UI
-        // chrome where AA costs nothing meaningful and turning it off
-        // would just look worse). Off by default, matching commercial EDA
-        // tool convention - real IC layout content is overwhelmingly
-        // Manhattan/orthogonal, so AA buys little visually there while
-        // costing real rasterization time at scale; a user who wants it
-        // can turn it back on. Reuses visibility_version_ rather than a
-        // dedicated counter, same "a Scene-level render-config change"
-        // category set_layer_name_visible/set_purpose_visible already
-        // are, not a separate concern.
+        // paints, plus its own per-shape/per-placement text paints -
+        // terminal/route/placement labels and their own anchor-point
+        // cross markers, BUGS_AND_ENHANCEMENTS.md E19 - since those can
+        // appear as often as real geometry in a dense design, not the
+        // low-volume category below. Fixed, small-count interactive
+        // chrome - grid, cursor, selection/hover/move-ghost outlines,
+        // ruler labels, the Abstract origin marker - stays AA'd
+        // regardless, drawn once or a handful of times per frame
+        // regardless of design size, where turning it off would just
+        // look worse for no real cost saved). Off by default, matching
+        // commercial EDA tool convention - real IC layout content is
+        // overwhelmingly Manhattan/orthogonal, so AA buys little
+        // visually there while costing real rasterization time at
+        // scale; a user who wants it can turn it back on. Reuses
+        // visibility_version_ rather than a dedicated counter, same "a
+        // Scene-level render-config change" category
+        // set_layer_name_visible/set_purpose_visible already are, not a
+        // separate concern.
         bool antialiasing_enabled() const { return antialiasing_enabled_; }
         void set_antialiasing_enabled(bool enabled)
         {

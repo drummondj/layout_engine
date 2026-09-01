@@ -360,9 +360,18 @@ extern "C"
     void le_set_layer_name_visible(LeHandle *handle, const char *layer_name, bool visible);
 
     /// @brief Whether fill/stroke geometry paints antialias their own
-    /// edges (Scene::antialiasing_enabled() - grid/chrome/text paints are
-    /// unaffected, always antialiased). Off by default, matching most
-    /// commercial EDA tools' own default. Returns false if handle is null.
+    /// edges (Scene::antialiasing_enabled()) - this also covers
+    /// per-shape/per-placement design-content text (terminal/route labels,
+    /// placement name labels, and their own small anchor-point cross
+    /// markers - draw_group/draw_placement_labels, BUGS_AND_ENHANCEMENTS.md
+    /// E19) and their own hairline-mode paints, since those can appear
+    /// as often as real geometry in a dense design. Fixed, small-count
+    /// interactive chrome (the background grid, cursor/hover/selection
+    /// overlays, ruler labels, the Abstract origin marker) is unaffected,
+    /// always antialiased - drawn once or a handful of times per frame
+    /// regardless of design size, not a meaningful cost either way. Off
+    /// by default, matching most commercial EDA tools' own default.
+    /// Returns false if handle is null.
     bool le_is_antialiasing_enabled(LeHandle *handle);
 
     /// @brief Toggle antialiasing - e.g. a view-options checkbox. Mirrors
