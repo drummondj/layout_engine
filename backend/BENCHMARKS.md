@@ -1255,3 +1255,169 @@ design" one; folding aes_5x5 into that shared fixture instead would have
 lost the pure-scaling signal entirely. Full 652-test suite passes
 unchanged (this only touches benchmark-only files, not `pipelines`
 itself).
+
+## 2026-09-01 — HierarchyResolver: tolerate small scale drift instead of discarding the whole epoch (E23)
+
+The user asked (E23) whether re-recording an `SkPicture` per zoom level
+was efficient, and separately reported "a warm-cache zoom is still quite
+slow." Investigation found the real bug: `HierarchyResolver::Epoch`
+(`hierarchy_resolver.hpp`) included `scale` under exact `operator==`
+comparison, so *any* scale change - however small - discarded the entire
+per-node graph (`graph_ = std::make_unique<HierarchyGraph>()`) and every
+`SkPicture` cached in it, forcing a full rediscovery/re-record of the
+whole hierarchy on the very next call. In practice this meant zoom was
+*never* actually warm: a real scroll-wheel/trackpad zoom changes scale by
+design (`layout_engine_input.dart`'s own `kScrollZoomFactor` is a flat
+10% per scroll signal, and one continuous trackpad gesture fires many of
+those in quick succession).
+
+Confirmed directly with a new benchmark
+(`BM_HierarchyResolver_RenderLayoutFrame_WarmCache_RealDesign_OneScaleTick`
+- warms the resolver once, nudges scale by 1%, times only the next call):
+a single 1% scale change on the real aes_5x5 design cost 1187 ms, cv
+2.44% - indistinguishable from `ColdCache_RealDesign`'s own 1245-1287 ms.
+A "warm-cache zoom" was cold in every way that mattered.
+
+The user's own original suggestion (drop `SkPicture` caching, render
+directly to canvas, reuse the canvas across Placements) was considered
+and rejected: the dominant cost isn't replaying a cached picture, it's
+*regenerating the shape data* (viewport/layer filtering, pixel-space
+transform, hairline decisions, tiny-instance discovery) that happens
+whether or not the result also gets recorded into an `SkPicture`
+afterward - removing `SkPicture` caching would only shave the marginal
+recording cost, not the dominant regeneration cost, while losing the
+reason it exists at all: it's what lets 1,000,000 placements of the same
+Design share *one* recorded picture instead of regenerating shape data
+1,000,000 times (`layout_stress_data.hpp`'s own ~14 ms `ColdCache_FullDepth`
+number depends entirely on this).
+
+**Fix**: `ensure_epoch` now tolerates scale drift up to
+`kScaleDriftTolerance` (1.25, i.e. +/-25%) without rebuilding - two or
+three consecutive real scroll-wheel ticks (10% each) stay within
+tolerance before one real rebuild is needed, not one rebuild per tick.
+`epoch_.scale` (and everything built from it while the epoch lives: node
+construction, hairline/tiny-instance-collapse thresholds, baked-in local
+pixel positions) stays frozen at whatever it was on the last real
+rebuild; `render_layout_frame` applies a cheap final corrective canvas
+scale (`scene.scale() / epoch_.scale`) around the whole composed picture,
+so on-screen position/size still track the true live scale exactly
+regardless of the drift - proven algebraically (position math is
+`(dbu - live_pan) * epoch_scale`, pan was never frozen, only scale, so
+multiplying the whole picture by `live_scale/epoch_scale` yields
+`(dbu - live_pan) * live_scale`, exactly what a fresh build at the live
+scale would have produced) and confirmed by a new pixel-level test,
+`RenderLayoutFrameToleratesSmallScaleDriftStayingPixelAccurateAndReusingTheEpoch`.
+Only the *simplification* decisions (hairline-vs-fill,
+tiny-instance-dot-vs-recurse) lag slightly behind live scale during a
+drift window, self-correcting the moment drift exceeds tolerance and a
+real rebuild happens.
+
+**Scoped deliberately to `render_layout_frame` only**, not the shared
+`ensure_epoch` helper's other two callers (`resolve_design_picture`/
+`build_layout_picture`, both used directly by tests/benchmarks with an
+"exact caller-supplied scale" contract and no corrective wrapper of their
+own) - an `allow_scale_drift` parameter (default `false`) gates it,
+passed `true` only from `render_layout_frame`. Caught during review: the
+first draft applied the tolerance unconditionally inside `ensure_epoch`
+itself, which would have silently broken that contract for every other
+caller (returning content baked at a stale scale with no way to know) -
+none of the existing tests caught it since they all happen to use scale
+deltas well outside the tolerance band.
+
+Release build, `--benchmark_repetitions=5 --benchmark_report_aggregates_only=true`:
+
+| Benchmark | Before | After | Δ |
+| --- | --- | --- | --- |
+| One real scale tick (1%), real aes_5x5 design, warm resolver | 1187-1245 ms (cv ~2%) | 570-572 ms (cv <1%) | **~2.2x faster** |
+
+Diagnosed with `design_picture_recompute_count()` before landing the
+fix: a zero-drift control (`scene.set_scale(scene.scale())`, forcing the
+same code path with no actual scale change) showed the *same* ~570 ms
+and the *same* `+1` recompute delta - proving the remaining 570 ms is
+`build_top_layout_picture`'s own unconditional per-call work (it
+increments `recompute_count_` once at its own top on every call,
+regardless of whether any child node needed real recomputation), not
+child-node re-resolution. The fix is working exactly as intended (child
+nodes are fully reused, confirmed by the `+1` delta staying flat whether
+or not scale actually drifted); the remaining ~570 ms - a separate,
+pre-existing cost disproportionate to aes_5x5.def's own nearly-empty
+top-level direct content (one DIEAREA, no ROW/TRACK/GCELLGRID, 25
+placements, no labels drawn per-child) - is a real, distinct follow-up
+worth its own investigation (likely `discover_layout_children`'s own
+per-placement work or `run_pending()`'s own unconditional `wait_for_all()`
+call), not something this change attempted to fix. Full 657-test suite
+passes; `build_release` rebuilt clean.
+
+### Follow-up (same day): the `wait_for_all()` cost was real - and separately fixed
+
+Direct `std::chrono` bracketing (not the recompute-count proxy above)
+found the actual answer: `run_pending()`'s own `wait_for_all()` call cost
+**690 ms** on a warm resolver with a real design's larger graph, even
+though `discover_layout_children` (0.7 ms), the resolved-instance loops
+(~0 ms), and `record_local_picture` (14-16 ms) were all cheap - the
+comment on `run_pending()` claiming "`wait_for_all()` on an already-
+quiescent graph returns immediately, so this costs nothing extra on the
+warm path" was **empirically false** at real-design scale (a real AES
+macro places 41,344 real standard cells - `test_data/ISPD22__final_benchmarks/AES_1/design_original.def`'s
+own `COMPONENTS 41344`; TBB's own per-call graph-traversal/
+synchronization overhead apparently scales with the graph's node/edge
+count, not with genuine pending work).
+
+Reading `HierarchyLayoutNodeStage::wire_fan_in`'s own body confirmed the
+one and only source of async work not already tracked by
+`pending_leaf_triggers_`/`pending_layout_triggers_` (a manual
+`fan_in_->try_put(...)` for an already-computed child, seeded when wiring
+a **brand-new** node) is reachable *only* from `ensure_node_built`'s
+"must create" branch - the same branch that's the *only* way anything is
+ever added to `graph_->nodes`. So `graph_->nodes.size()` before vs. after
+discovery (captured by the caller, no graph traversal needed) is a
+precise, cheap proxy for "could `wire_fan_in` have seeded untracked async
+work this call" - not a heuristic. `run_pending()` now skips
+`wait_for_all()` when neither that *nor* an explicit pending-trigger
+try_put happened this call - the two are the *only* sources of
+outstanding work the original bug-fix comment (and a real, historically-
+found use-after-free/data-race, ThreadSanitizer-found: a "Pure virtual
+function called" abort at teardown, flaky recompute-count/null-picture
+failures) was protecting against.
+
+Verified the historically-buggy scenario is still safe: 30 consecutive
+runs of the four tests most directly exercising `wire_fan_in`'s own
+already-computed shortcut
+(`ConcurrencySmokeTestManyDistinctReferenceDesignsResolveCorrectly`,
+`IncrementalMultiRootDiscoverySharesAChildAcrossTwoRootsWithinOneEpoch`,
+`PruningRemovesStaleDepthOnlyNodesButKeepsStillSharedNodesLiveAndUncomputed`,
+`InterleavedRootsAlternatingEveryCallAreNeverPruned`) all passed clean.
+
+**Confirmed with direct phase timing** (not the recompute-count proxy):
+on the same warm-tick scenario, `run_pending()` dropped from 690 ms to
+0.003-0.015 ms, and `build_top_layout_picture`'s own total dropped to
+0.1-0.2 ms (was ~570 ms via the recompute-count proxy's own indirect
+attribution) - the fix is real and complete for everything this
+`HierarchyResolver` node-graph layer owns.
+
+**But the overall `BM_..._OneScaleTick` benchmark number did not move**
+(still ~570-573 ms) - because a *third*, separate cost dominates:
+`render_layout_frame`'s own `rasterize_compose_.run(...)` call (actual
+Skia rasterization of the composed picture into pixels) costs ~563 ms on
+the identical warm tick, confirmed by the same direct phase timing.
+This is genuine, largely unavoidable work - converting real, dense
+routing/net geometry into actual pixels - not a caching bug; it already
+uses `TiledRasterizePictureStage` (row-band-parallel rasterize, a prior
+optimization pass - see this file's own 2026-08-30 entries). Consistent
+with the original Tracy capture that started this whole investigation
+(BUGS_AND_ENHANCEMENTS.md E13's own trace): `TiledRasterizePictureStage:
+rasterize_tile` was already the single largest item in that capture,
+47.2% of total time.
+
+**Net result**: two real, independently-verified bugs fixed in the
+`HierarchyResolver` node-graph layer (epoch-scale-drift, unconditional
+`wait_for_all()`) - both now cost effectively nothing on a warm tick,
+proven by direct measurement, not inference. The `BM_..._OneScaleTick`
+number itself stays ~570 ms because rasterization - a fundamentally
+different kind of cost (raster-level, not picture/node-cache-level) -
+now dominates instead. Further improvement here would mean partial/
+dirty-region raster caching (only re-rasterizing pixels that actually
+changed), a materially larger, separate undertaking - flagged as a
+follow-up, not attempted in this pass. Full 657-test suite passes
+(including the 30x concurrency stress-repeat above); `build_release`
+rebuilt clean.

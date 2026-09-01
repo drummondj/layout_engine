@@ -132,9 +132,10 @@ namespace le
             }
             else
             {
+                const size_t nodes_before = graph_->nodes.size();
                 const NodeKey key = node_key_for_target(target, remaining_depth);
                 HierarchyNodeBase *node = ensure_node_built(key, root, view_layers, scene, scale);
-                run_pending(root, view_layers, scene);
+                run_pending(root, view_layers, scene, nodes_before);
                 result = node->last_picture();
             }
 
@@ -153,9 +154,10 @@ namespace le
             ensure_epoch(root, view_layers, scene, scale);
             graph_->current_generation++;
 
+            const size_t nodes_before = graph_->nodes.size();
             const NodeKey key{.kind = NodeKey::Kind::Layout, .abstract_id = {}, .layout_id = layout_id, .remaining_depth = remaining_depth};
             HierarchyNodeBase *node = ensure_node_built(key, root, view_layers, scene, scale);
-            run_pending(root, view_layers, scene);
+            run_pending(root, view_layers, scene, nodes_before);
             sk_sp<SkPicture> result = node->last_picture();
 
             sweep_stale_nodes();
@@ -232,19 +234,41 @@ namespace le
             ZoneScopedN("HierarchyResolver: render_layout_frame");
 
             const int remaining_depth = std::max(0, hierarchy_depth - 1);
-            ensure_epoch(root, view_layers, scene, scene.scale());
+            ensure_epoch(root, view_layers, scene, scene.scale(), /*allow_scale_drift=*/true);
             graph_->current_generation++;
+            const size_t nodes_before = graph_->nodes.size();
 
             const auto top_picture_key = std::tuple{layout_id, remaining_depth, root.mutation_version(), view_layers.generation(), scene.visibility_version(), scene.viewport_version()};
             const sk_sp<SkPicture> &local_picture = top_layout_picture_stage_.get(top_picture_key, [&]
-                                                                                  { return build_top_layout_picture(root, layout_id, remaining_depth, view_layers, scene); });
+                                                                                  { return build_top_layout_picture(root, layout_id, remaining_depth, view_layers, scene, nodes_before); });
             const uint64_t design_version = top_layout_picture_stage_.version();
 
             SkPictureRecorder recorder;
             SkCanvas *canvas = recorder.beginRecording(SkRect::MakeWH(static_cast<SkScalar>(scene.viewport_width_px()), static_cast<SkScalar>(scene.viewport_height_px())));
             draw_grid(*canvas, scene);
             if (local_picture)
+            {
+                // BUGS_AND_ENHANCEMENTS.md E23 - local_picture's own
+                // content (and every embedded child picture within it) is
+                // baked at epoch_.scale, which the live scene.scale() may
+                // have drifted from within ensure_epoch's own tolerance
+                // (see that method's own comment) - this residual scale
+                // is exact algebraically regardless of how much drift:
+                // every position inside local_picture is already
+                // (dbu - live_pan) * epoch_.scale (pan itself was never
+                // frozen, only scale - see build_top_layout_picture's own
+                // comment), so multiplying the whole picture by
+                // live_scale/epoch_.scale here yields
+                // (dbu - live_pan) * live_scale, exactly what a fresh
+                // build at the live scale would have produced. A ratio of
+                // 1.0 (the common case: no drift, or the first-ever call)
+                // is a no-op scale, cheap to apply unconditionally rather
+                // than special-cased away.
+                canvas->save();
+                canvas->scale(static_cast<SkScalar>(scene.scale() / epoch_.scale), static_cast<SkScalar>(scene.scale() / epoch_.scale));
                 canvas->drawPicture(local_picture);
+                canvas->restore();
+            }
             const sk_sp<SkPicture> design_picture = recorder.finishRecordingAsPicture();
 
             PipelineOptions options;
@@ -295,6 +319,17 @@ namespace le
             bool operator==(const Epoch &) const = default;
         };
 
+        // BUGS_AND_ENHANCEMENTS.md E23 - how far the live scale is allowed
+        // to drift from the epoch it was last built at before a real
+        // rebuild is forced (see ensure_epoch's own comment for the full
+        // reasoning). A ratio, not a percentage: live/epoch or epoch/live
+        // both must stay <= this. 1.25 means +/-25% - two or three
+        // consecutive real scroll-wheel ticks (layout_engine_input.dart's
+        // own kScrollZoomFactor, 10% each) stay within tolerance before
+        // one real rebuild is needed, not one rebuild per tick. Placeholder
+        // default, easily tuned.
+        static constexpr double kScaleDriftTolerance = 1.25;
+
         /// @brief The persistent, epoch-scoped flow::graph plus every
         /// live NodeKey's own graph node - see HierarchyResolver's own
         /// class doc comment. No graph-global plumbing list: each Layout
@@ -317,13 +352,58 @@ namespace le
             return NodeKey{.kind = NodeKey::Kind::Abstract, .abstract_id = target.abstract_id, .layout_id = {}, .remaining_depth = 0};
         }
 
-        void ensure_epoch(const Root &root, const ViewLayerSet &view_layers, const Scene &scene, double scale)
+        // BUGS_AND_ENHANCEMENTS.md E23 - `scale` used to be compared for
+        // exact equality here, same as every other Epoch field, meaning
+        // *any* scale change - however small - discarded the entire
+        // per-node graph (every cached SkPicture in it), forcing a full
+        // rediscovery/re-record of the whole hierarchy from scratch on
+        // the very next call. Measured: a single 1% scale nudge on a real
+        // dense design (aes_5x5.def) cost ~1.19s, indistinguishable from
+        // a fully cold render (~1.29s) - see BENCHMARKS.md's own dated
+        // entry. In practice this meant zoom was *never* actually warm:
+        // a real scroll-wheel/trackpad zoom changes scale by design
+        // (layout_engine_input.dart's own kScrollZoomFactor is a flat 10%
+        // per scroll signal, and one continuous trackpad gesture fires
+        // many of those in quick succession).
+        //
+        // Fix: tolerate drift up to kScaleDriftTolerance without
+        // rebuilding - substitute the *existing* epoch_.scale into
+        // `current` when live `scale` is within tolerance of it, so the
+        // operator== comparison below naturally keeps the current epoch
+        // (every other field still compares exactly - only scale has this
+        // "many small, real-world-compounding deltas" characteristic).
+        // epoch_.scale (and everything built from it while this epoch
+        // lives: node construction/scale_, hairline/tiny-instance-collapse
+        // thresholds, baked-in local pixel positions) then stays frozen
+        // until a real rebuild happens - render_layout_frame's own caller
+        // applies a cheap final corrective canvas scale
+        // (scene.scale() / epoch_.scale) around the whole composed
+        // picture, so on-screen position/size still track the true live
+        // scale exactly regardless of the drift; only the *simplification*
+        // decisions (hairline-vs-fill, tiny-instance-dot-vs-recurse) lag
+        // slightly behind live scale during a drift window, self-
+        // correcting the moment drift exceeds tolerance and a real
+        // rebuild happens.
+        //
+        // `allow_scale_drift` scopes this tolerance to render_layout_frame
+        // specifically (the only caller that also applies the corrective
+        // transform) - resolve_design_picture/build_layout_picture keep
+        // their own documented "exact caller-supplied scale" contract
+        // (default false) for every other caller (tests, benchmarks, any
+        // future direct caller) that has no corrective wrapper of its own
+        // and would otherwise silently get back content baked at a stale
+        // scale with no way to know.
+        void ensure_epoch(const Root &root, const ViewLayerSet &view_layers, const Scene &scene, double scale, bool allow_scale_drift = false)
         {
+            const bool scale_within_tolerance = allow_scale_drift && graph_ && epoch_.scale > 0.0 &&
+                                                 scale / epoch_.scale >= 1.0 / kScaleDriftTolerance &&
+                                                 scale / epoch_.scale <= kScaleDriftTolerance;
+
             const Epoch current{
                 .root_mutation_version = root.mutation_version(),
                 .view_layers_generation = view_layers.generation(),
                 .visibility_version = scene.visibility_version(),
-                .scale = scale,
+                .scale = scale_within_tolerance ? epoch_.scale : scale,
                 .min_visible_instance_pixels = min_visible_instance_pixels_,
             };
             if (graph_ && current == epoch_)
@@ -549,25 +629,46 @@ namespace le
         // trigger here, since its own fan-in fires automatically once its
         // own children's outputs propagate up to it.
         //
-        // wait_for_all() runs UNCONDITIONALLY, even when both pending-
-        // trigger lists are empty: HierarchyLayoutNodeStage::wire_fan_in's
-        // own "already computed" shortcut (a child node reused from an
-        // earlier, already-settled top-level call this epoch) seeds work
-        // via a manual fan_in_->try_put(...) call that is never recorded
-        // in either pending list - a top-level request resolved entirely
-        // through already-cached children (e.g. two roots sharing a
-        // child, see IncrementalMultiRootDiscoverySharesAChildAcrossTwoRootsWithinOneEpoch)
+        // wait_for_all() used to run UNCONDITIONALLY, even when both
+        // pending-trigger lists were empty: HierarchyLayoutNodeStage::
+        // wire_fan_in's own "already computed" shortcut (a child node
+        // reused from an earlier, already-settled top-level call this
+        // epoch) seeds work via a manual fan_in_->try_put(...) call that
+        // is never recorded in either pending list - a top-level request
+        // resolved entirely through already-cached children (e.g. two
+        // roots sharing a child, see
+        // IncrementalMultiRootDiscoverySharesAChildAcrossTwoRootsWithinOneEpoch)
         // can therefore have real in-flight async work with nothing
-        // pending. Skipping wait_for_all() in that case used to race
-        // node->last_picture() and sweep_stale_nodes()'s own node
-        // destruction against that still-running task - a genuine
+        // pending. Skipping wait_for_all() unconditionally in that case
+        // used to race node->last_picture() and sweep_stale_nodes()'s own
+        // node destruction against that still-running task - a genuine
         // use-after-free/data-race bug (found via ThreadSanitizer-style
         // debugging: a "Pure virtual function called" abort at teardown,
         // plus flaky recompute-count/null-picture failures), not merely
-        // theoretical. wait_for_all() on an already-quiescent graph
-        // returns immediately, so this costs nothing extra on the warm
-        // (nothing-changed) path.
-        void run_pending(const Root &root, const ViewLayerSet &view_layers, const Scene &scene)
+        // theoretical.
+        //
+        // BUGS_AND_ENHANCEMENTS.md E23: "wait_for_all() on an already-
+        // quiescent graph returns immediately, so this costs nothing
+        // extra on the warm path" turned out to be false at real-design
+        // scale - measured 690ms for a single call on a warm resolver
+        // with nothing pending (aes_5x5.def; see BENCHMARKS.md's own
+        // dated entry), apparently TBB's own per-call graph-traversal/
+        // synchronization overhead scaling with node/edge count for a
+        // real design's larger internal graph, not with genuine pending
+        // work. wire_fan_in's own untracked-async-seed shortcut (the
+        // ONLY source of async work not already covered by
+        // pending_leaf_triggers_/pending_layout_triggers_ - confirmed by
+        // reading its own body) is reachable *only* from
+        // ensure_node_built's "must create" branch, which is the only
+        // path that ever grows graph_->nodes - so `nodes_before !=
+        // graph_->nodes.size()` (captured by the caller, before any
+        // discovery/ensure_node_built call this request) is a precise,
+        // cheap (no graph traversal) proxy for "could wire_fan_in have
+        // seeded untracked async work this call" - not a heuristic
+        // guess. Skip wait_for_all() only when NEITHER source could have
+        // produced outstanding work: nothing just explicitly triggered,
+        // AND no new node was constructed (so wire_fan_in never ran).
+        void run_pending(const Root &root, const ViewLayerSet &view_layers, const Scene &scene, size_t nodes_before)
         {
             const PipelineOptions options = options_for(root, view_layers, scene);
             for (HierarchyNodeBase *n : pending_leaf_triggers_)
@@ -575,9 +676,13 @@ namespace le
             for (HierarchyNodeBase *n : pending_layout_triggers_)
                 n->trigger(options);
 
+            const bool had_pending_triggers = !pending_leaf_triggers_.empty() || !pending_layout_triggers_.empty();
+            const bool any_new_node_wired = graph_->nodes.size() != nodes_before;
             pending_leaf_triggers_.clear();
             pending_layout_triggers_.clear();
-            graph_->flow_graph.wait_for_all();
+
+            if (had_pending_triggers || any_new_node_wired)
+                graph_->flow_graph.wait_for_all();
         }
 
         // "Not touched by this call or the previous one" - a node
@@ -625,13 +730,20 @@ namespace le
         // own doc comment. Not a graph node itself: only its *children*
         // need to be real graph nodes, since this top-level picture's
         // own pan-baked content is never reused by anything else.
-        sk_sp<SkPicture> build_top_layout_picture(const Root &root, LayoutId layout_id, int remaining_depth, const ViewLayerSet &view_layers, const Scene &scene)
+        sk_sp<SkPicture> build_top_layout_picture(const Root &root, LayoutId layout_id, int remaining_depth, const ViewLayerSet &view_layers, const Scene &scene, size_t nodes_before)
         {
             ZoneScopedN("HierarchyResolver: build_top_layout_picture");
             recompute_count_.fetch_add(1, std::memory_order_relaxed);
 
-            DiscoverResult disc = discover_layout_children(layout_id, remaining_depth, root, view_layers, scene, scene.scale(), scene.pan());
-            run_pending(root, view_layers, scene);
+            // epoch_.scale, not scene.scale() (BUGS_AND_ENHANCEMENTS.md
+            // E23) - this whole call, and every already-cached child node
+            // it discovers, must stay internally consistent at the scale
+            // the current epoch was actually built at; the live scale may
+            // have drifted from that within ensure_epoch's own tolerance.
+            // render_layout_frame's own caller applies the residual
+            // correction on top.
+            DiscoverResult disc = discover_layout_children(layout_id, remaining_depth, root, view_layers, scene, epoch_.scale, scene.pan());
+            run_pending(root, view_layers, scene, nodes_before);
 
             std::vector<ResolvedInstanceSlot> resolved;
             resolved.reserve(disc.edges.size());
@@ -650,7 +762,7 @@ namespace le
             const uint64_t geometry_data_version = LayoutGeometryStage::data_version_for(layout_id, top_options);
             const std::vector<RenderedShape> dbu_shapes = top_geometry_runner_.run(layout_id, geometry_data_version, top_options);
 
-            return record_local_picture(dbu_shapes, geometry_data_version, top_viewport_runner_, top_layer_runner_, view_layers, scene, scene.scale(), instances, disc.tiny_instance_rects, disc.content_bbox, scene.pan(), disc.placement_labels);
+            return record_local_picture(dbu_shapes, geometry_data_version, top_viewport_runner_, top_layer_runner_, view_layers, scene, epoch_.scale, instances, disc.tiny_instance_rects, disc.content_bbox, scene.pan(), disc.placement_labels);
         }
 
         double min_visible_instance_pixels_ = 100.0;

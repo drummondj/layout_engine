@@ -1042,6 +1042,39 @@ static void BM_HierarchyResolver_RenderLayoutFrame_ColdCache_RealDesign(benchmar
 }
 BENCHMARK(BM_HierarchyResolver_RenderLayoutFrame_ColdCache_RealDesign)->Unit(benchmark::kMillisecond);
 
+// BUGS_AND_ENHANCEMENTS.md E23 - the interactive-zoom case: an already-
+// warm resolver (same design, same everything) receiving one small scale
+// change, the same shape as a single mouse-wheel tick during real
+// interactive use. HierarchyResolver::ensure_epoch's own Epoch struct
+// includes `scale` under exact operator== comparison, so *any* scale
+// change - not just a large one - discards the entire node graph
+// (graph_ = std::make_unique<HierarchyGraph>()) and every SkPicture
+// cached in it, forcing the next call to rediscover and re-record the
+// whole hierarchy from scratch. This measures exactly that: warm the
+// resolver once at one scale (untimed), nudge the scale by 1%, then
+// time only the following render_layout_frame call - repeated every
+// iteration via PauseTiming/ResumeTiming so the re-warm itself is never
+// counted.
+static void BM_HierarchyResolver_RenderLayoutFrame_WarmCache_RealDesign_OneScaleTick(benchmark::State &state)
+{
+    const RealDesignData &data = real_design_data();
+    HierarchyResolver resolver;
+
+    for (auto _ : state)
+    {
+        state.PauseTiming();
+        Scene scene = make_real_design_scene(data, /*hierarchy_depth=*/2);
+        resolver.render_layout_frame(data.root, data.layout_id, scene.hierarchy_depth(), data.view_layers, scene);
+        scene.set_scale(scene.scale() * 1.01);
+        state.ResumeTiming();
+
+        const auto &buffer = resolver.render_layout_frame(data.root, data.layout_id, scene.hierarchy_depth(), data.view_layers, scene);
+        const auto *buffer_ptr = &buffer;
+        benchmark::DoNotOptimize(buffer_ptr);
+    }
+}
+BENCHMARK(BM_HierarchyResolver_RenderLayoutFrame_WarmCache_RealDesign_OneScaleTick)->Unit(benchmark::kMillisecond);
+
 // Direct benchmark of draw_group's own hairline-simplification branch
 // (BENCHMARKS.md's dated entry for this) - stress_data.hpp's existing
 // 1M-shape fixture deliberately can't exercise it: its RECT/PATH

@@ -530,6 +530,66 @@ TEST_F(HierarchyResolverFixture, RenderLayoutFramePanShiftsTheDrawnPosition)
     EXPECT_FALSE(pixel_buffer_region_has_opaque_pixel(panned, 520, 220, 580, 280));
 }
 
+// BUGS_AND_ENHANCEMENTS.md E23 - a small scale change (within
+// kScaleDriftTolerance) used to discard the *entire* per-node graph,
+// forcing a full rediscovery/re-record of the whole hierarchy on the
+// very next call, even though scroll-wheel/trackpad zoom changes scale
+// by design (a single real scroll event is a 10% change - see
+// layout_engine_input.dart's own kScrollZoomFactor). Confirms the fix
+// two ways: (1) content still lands at the *correct*, fully-scaled
+// on-screen position (not stuck rendering at the old, pre-drift scale -
+// the corrective transform render_layout_frame applies on top of the
+// reused, frozen-scale picture is doing real, exact work, not just
+// "happens not to crash"), and (2) design_picture_recompute_count only
+// grows by 1 (build_top_layout_picture's own unconditional per-call
+// counter - see its own comment) across the drifted-scale call, not by
+// a full-tree rebuild's worth - contrasted directly against a genuinely
+// large scale jump (well past tolerance), which must still recompute
+// for real.
+TEST_F(HierarchyResolverFixture, RenderLayoutFrameToleratesSmallScaleDriftStayingPixelAccurateAndReusingTheEpoch)
+{
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{400, 400});
+    add_placement(sub_layout, leaf, le::Point{500, 500}, le::Orientation::N, "U1");
+
+    scene.set_pan(le::Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(800, 800);
+
+    resolver.render_layout_frame(root, sub_layout, /*hierarchy_depth=*/1, view_layers, scene);
+    const uint64_t after_first = resolver.design_picture_recompute_count();
+    ASSERT_GT(after_first, 0u);
+
+    // +10% - one real scroll-wheel tick's worth, well within
+    // kScaleDriftTolerance (1.25).
+    scene.set_scale(1.1);
+    const le::PixelBuffer &drifted = resolver.render_layout_frame(root, sub_layout, /*hierarchy_depth=*/1, view_layers, scene);
+    ASSERT_TRUE(drifted.data);
+
+    // World rect (500,500)-(600,600) at scale=1.1, pan=0 -> pre-flip pixel
+    // (550,550)-(660,660) -> post-flip (height - y, height still 800):
+    // (550,140)-(660,250). The old scale=1.0 position, (500,200)-(600,300),
+    // must now be empty - proving this is a real, correctly-scaled
+    // re-render, not the stale scale=1.0 picture replayed unchanged.
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(drifted, 610, 180, 640, 210))
+        << "expected content at the new, correctly-scaled position";
+    EXPECT_FALSE(pixel_buffer_region_has_opaque_pixel(drifted, 505, 255, 535, 285))
+        << "old scale=1.0 position should be empty now, not still showing the stale-scale picture";
+
+    EXPECT_EQ(resolver.design_picture_recompute_count() - after_first, 1u)
+        << "a small in-tolerance scale drift should reuse the whole per-node graph - "
+           "only build_top_layout_picture's own unconditional per-call counter should fire";
+    const uint64_t after_drift = resolver.design_picture_recompute_count();
+
+    // Contrast: a genuinely large scale jump (3x - well past 1.25x
+    // tolerance) must still force a real rebuild, not be silently
+    // absorbed the same way.
+    scene.set_scale(3.0);
+    resolver.render_layout_frame(root, sub_layout, /*hierarchy_depth=*/1, view_layers, scene);
+    EXPECT_GT(resolver.design_picture_recompute_count() - after_drift, 1u)
+        << "a large out-of-tolerance scale jump should still force a real rebuild";
+}
+
 TEST_F(HierarchyResolverFixture, RenderLayoutFrameReusesCacheUntilSceneChanges)
 {
     le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
