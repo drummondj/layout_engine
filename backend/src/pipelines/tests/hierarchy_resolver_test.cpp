@@ -725,9 +725,11 @@ TEST_F(HierarchyResolverFixture, PruningRemovesStaleDepthOnlyNodesButKeepsStillS
     // (Kind::Layout keys are depth-sensitive), sharing only LEAF's own
     // Abstract node (Kind::Abstract keys collapse depth away) with the
     // depth-2 subtree above. Enough repeats to cross
-    // kStaleGenerationWindow so the depth-2-only nodes go untouched long
-    // enough to be pruned.
-    for (int i = 0; i < 3; ++i)
+    // kStaleGenerationWindow (stale_generation_window_for_test() - widened
+    // for the Dear ImGui prototype's own continuous-polling render thread,
+    // see that constant's own doc comment) so the depth-2-only nodes go
+    // untouched long enough to be pruned.
+    for (uint64_t i = 0; i < resolver.stale_generation_window_for_test() + 2; ++i)
         resolver.build_layout_picture(root, top_layout, /*remaining_depth=*/1, view_layers, scene, 1.0);
 
     // (a) the depth-2-only nodes are gone.

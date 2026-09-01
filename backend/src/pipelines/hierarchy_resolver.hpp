@@ -172,6 +172,15 @@ namespace le
         // Test-only accessor (verification's pruning-correctness fixture)
         // - the number of graph nodes currently live this epoch.
         std::size_t node_count_for_test() const { return graph_ ? graph_->nodes.size() : 0; }
+
+        // Test-only accessor - how many consecutive top-level calls
+        // (touching a given node) it takes before an untouched node
+        // becomes eligible for sweep_stale_nodes() to prune it. Lets a
+        // pruning-correctness test derive "enough repeats to cross the
+        // window" symbolically instead of duplicating the constant as a
+        // magic number that could silently drift out of sync.
+        static constexpr uint64_t stale_generation_window_for_test() { return kStaleGenerationWindow; }
+
         bool has_node_for_test(LayoutId layout_id, int remaining_depth) const
         {
             if (!graph_)
@@ -685,13 +694,29 @@ namespace le
                 graph_->flow_graph.wait_for_all();
         }
 
-        // "Not touched by this call or the previous one" - a node
-        // survives being touched in either of the last kStaleGenerationWindow+1
-        // generations (including the current one), so two callers
-        // alternating between two roots every other call don't thrash
-        // each other's nodes out; it's pruned once that many full calls
-        // have passed with no touch at all.
-        static constexpr uint64_t kStaleGenerationWindow = 1;
+        // A node survives being touched in any of the last
+        // kStaleGenerationWindow+1 generations (including the current
+        // one); it's pruned once that many full top-level calls have
+        // passed with no touch at all. Originally 1 ("not touched by this
+        // call or the previous one"), sized for two callers alternating
+        // between two roots every other call not thrashing each other's
+        // nodes out - correct for infrequent, human/Flutter-paced calls,
+        // but far too tight for a caller that polls continuously (the
+        // Dear ImGui prototype's own render thread, src/gui/le_gui.cpp,
+        // ~30/sec): `current_generation` advances on *every* top-level
+        // call regardless of whether anything changed, but a real, deep
+        // design's own hierarchy (e.g. aes_5x5 at hierarchy_depth 2, 86
+        // nodes) takes several calls' worth of async discovery to fully
+        // resolve - at window=1 the freshly-built graph was found getting
+        // entirely pruned (86 of 86 nodes) within 2-3 generations of
+        // finishing, before ever being touched again, forcing every
+        // later pan/zoom past epoch tolerance to rebuild the whole
+        // hierarchy from scratch instead of reusing it (confirmed via
+        // direct instrumentation, not inferred). 30 gives roughly a
+        // second of grace at that polling rate - enough for discovery to
+        // settle, short enough that switching to a genuinely different
+        // design still reclaims its old nodes promptly.
+        static constexpr uint64_t kStaleGenerationWindow = 30;
 
         // Reachability-based pruning, run after every top-level public
         // call's own run_pending()/wait_for_all() settles. Two passes,
