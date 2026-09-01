@@ -680,6 +680,30 @@ register_command_help command_history \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+# Real Tcl core `history` (autoloaded from $tcl_library/history.tcl) stays
+# installed (nothing renames/removes it - unlike `source` above, nothing
+# else here depends on calling it with alternate args) but is never
+# actually useful in this shell: it only records anything via its own
+# `history add`, which Tcl_Main's interactive loop calls after every typed
+# line - this shell's own run_interactive (le_shell.cpp) doesn't use
+# Tcl_Main at all, so that never fires, and a user typing plain `history`
+# out of habit gets a permanently empty listing instead of an error.
+# Redefined as a thin alias for command_history - this shell's own real
+# recall log - instead, since that's what a user typing `history` actually
+# wants here.
+proc history {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "history \[-help\] - Alias for command_history - lists every typed command, in order"
+    }
+    return [command_history {*}$args]
+}
+register_command_help history \
+    "history \[-help\] - Alias for command_history - lists every typed command, in order" \
+    "Alias for command_history: Tcl's own built-in history command is never populated in this shell (nothing calls its own history add - see this proc's own comment), so this redefines the name a user reasonably expects to work to just forward to command_history instead." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 proc set_viewport_size {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "set_viewport_size -width <int> -height <int> \[-help\] - Sets the render viewport's pixel size"
@@ -1183,11 +1207,21 @@ register_command_help read_def \
     }
 
 rename ::source ::_source_real
-proc source {path} {
-    if {$path eq "-help"} {
+# `args`, not a fixed `{path}`, and forwarded through as-is (not just
+# `path`) - Tcl's own standard library autoloading calls the real
+# `source` with its own extra flags (e.g. `source -encoding utf-8
+# <path>`, `tclIndex`'s own auto_index entry for `history` and every
+# other not-yet-loaded core library command), and a fixed single-`path`
+# signature broke every one of those the moment this wrapper's own
+# `-help` support was added - `history` (a real user-visible regression,
+# not a naming collision with this project's own unrelated
+# command_history recall log) surfaced this first, but the bug would
+# have hit any other autoloaded stdlib proc too.
+proc source {args} {
+    if {[llength $args] == 1 && [lindex $args 0] eq "-help"} {
         return "source <path> \[-help\] - Evaluates a Tcl script file"
     }
-    return [uplevel 1 [list _source_real $path]]
+    return [uplevel 1 [linsert $args 0 _source_real]]
 }
 register_command_help source \
     "source <path> \[-help\] - Evaluates a Tcl script file" \
@@ -1558,7 +1592,6 @@ register_command_help remove_shape_path \
 # this session's current view - fire-and-forget (request_show_gui_cmd
 # just sets a flag and returns), so the console prompt keeps working
 # immediately, not blocked on the window actually appearing. A no-op if
-# le_shell wasn't built with GUI support (LE_BUILD_GUI_SHELL=OFF) or is
 # running under a caller (e.g. a test harness) with no such thread
 # polling for the request - the flag is simply never consumed, and this
 # command still returns successfully either way.

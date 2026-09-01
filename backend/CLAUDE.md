@@ -452,18 +452,19 @@ none of these are duplicated here.
   a script's own zoom/pan/select/mode commands would use — replacing
   Flutter for a CPU-only-Linux-VM deploy target Flutter's own GPU-
   oriented rendering performs poorly on. Depends only on `api` plus GLFW/
-  Dear ImGui (`LE_BUILD_GUI_SHELL`, default `ON`) — no Tcl/SWIG
-  dependency, and no knowledge that `le_shell` (its only caller) exists.
+  Dear ImGui (unconditional, always fetched/built — not an optional
+  build feature; same for readline, below) — no Tcl/SWIG dependency, and
+  no knowledge that `le_shell` (its only caller) exists.
   `le_shell.cpp` is the only place Tcl and `gui` meet: its own `main()`
-  creates one `LeHandle`, spawns the interactive Tcl console
-  (`Tcl_Main`) on a background thread (injecting that same handle via
+  creates one `LeHandle`, spawns the interactive Tcl console on a
+  background thread (injecting that same handle via
   `set_session_handle`, the same mechanism the Flutter plugin's own
   `LeTclBridge` uses), and calls `le::gui::run_main_thread_loop` on the
   process's own true main thread — required there since GLFW only
   allows window/context creation on the main thread on macOS (harmless
   on Linux, which has no such restriction); this is also why the console
-  can no longer run directly via `Tcl_Main` on the process's own main
-  thread, the way it did before this existed. `show_gui`'s own signal
+  can no longer run directly on the process's own main thread the way it
+  did before this existed. `show_gui`'s own signal
   (`LeHandle::gui_show_requested_`/`le_request_show_gui`/
   `le_take_show_gui_request`, `api.hpp`) is a one-shot atomic flag,
   mirroring `is_rendering_`/`le_is_rendering`'s own established shape —
@@ -473,16 +474,19 @@ none of these are duplicated here.
   upload) is OpenGL 1.1 core, declared by the system GL headers on both
   target platforms without one, and Dear ImGui's own opengl3 backend
   bundles its own minimal loader for its internal GL 3.2 core-profile
-  calls. `LE_BUILD_GUI_SHELL=OFF` builds `le_shell` exactly as it worked
-  before this existed (no GLFW/ImGui dependency at all, `show_gui`
-  degrades to setting a flag nobody ever reads) — for a from-scratch/
-  rootless environment without X11/GL dev packages available (e.g. the
-  Rocky Linux 8 bootstrap effort, see Open gaps below). No automated test
-  coverage of the render/input loop itself (inherently interactive/
-  visual) — verified manually only, on macOS, as of this writing; Linux
-  packaging (`Dockerfile.linux-ci` system packages, confirming the
-  configure+build itself succeeds there) is a known, tracked next step,
-  not yet done.
+  calls. `le_shell`'s own interactive prompt also links GNU readline
+  unconditionally (real line editing, recall history, Tab completion via
+  `complete_command` — see this file's `src/tcl/` bullet) — both this
+  and the GUI window are mandatory dependencies now, since `le_shell` is
+  the only user-facing way to run Tcl commands or open a design window;
+  a machine missing either fails configure with a clear CMake error
+  rather than silently degrading (e.g. the Rocky Linux 8 bootstrap
+  effort, see Open gaps below, needs to provision both, not route around
+  them). No automated test coverage of the render/input loop itself
+  (inherently interactive/visual) — verified manually only, on macOS, as
+  of this writing; Linux packaging (`Dockerfile.linux-ci` system
+  packages, confirming the configure+build itself succeeds there) is a
+  known, tracked next step, not yet done.
 - `src/lefdef/` — vendored LEF/DEF 6.0.62-p004 C parser source (Si2 distribution).
   Both `lef/` and `def/` are built by their own `Makefile`s via separate
   `ExternalProject_Add` steps (`lef_lib`/`def_lib`) in the top-level

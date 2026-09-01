@@ -1,56 +1,76 @@
 // Phase 6 batch shell (UPDATES.md item 15 / TCL_EXPLORATION.md): "run a
-// TCL shell from the terminal" - not a modified tclsh, but built exactly
-// the way tclsh/wish/OpenROAD's own shell are: a small
-// Tcl_AppInitProc handed to Tcl_Main(). Tcl_Main already supplies both
-// modes item 15 asks for, for free: no script argument (and stdin is a
-// terminal) drops into an interactive REPL with a "% " prompt; a script
-// argument runs it non-interactively then exits (batch mode) - this
-// binary doesn't implement either mode itself.
+// TCL shell from the terminal" - originally a small Tcl_AppInitProc
+// handed to Tcl_Main(), which supplied both modes item 15 asked for out
+// of the box: no script argument (and stdin is a terminal) dropped into
+// an interactive REPL with a "% " prompt; a script argument ran it
+// non-interactively then exited (batch mode).
 //
-// The AppInitProc's own job is just bootstrapping: `load` the SWIG-
-// wrapped le_tcl module (built by the le_tcl CMake target - a shared
-// library, not linked into this binary, same as any other Tcl
+// The AppInitProc's own job is still just bootstrapping: `load` the
+// SWIG-wrapped le_tcl module (built by the le_tcl CMake target - a
+// shared library, not linked into this binary, same as any other Tcl
 // extension) and source le_tcl_procs.tcl, so every CRUD/search command
 // (create_terminal, get_terminal_ports, ...) is ready to type the
 // moment the shell starts, without the caller sourcing anything
 // themselves.
 //
-// `show_gui` (see le_tcl_procs.tcl) opens a Dear ImGui window (LE_BUILD_GUI_SHELL,
-// src/gui/le_gui.hpp) sharing this same process's session state -
-// replacing the earlier "deliberate stub" this comment used to describe
-// (see git history/TCL_EXPLORATION.md's Phase 6 section for that earlier
-// exploration and why it went a different direction for the Flutter
-// plugin's own Tcl console first). Getting there means restructuring
-// this binary's own thread ownership: Tcl_Main's own blocking stdin/
-// event loop and a native GUI's own event loop (GLFW/Cocoa's
-// NSApplication in particular) can't share one thread - the same
-// conflict TCL_EXPLORATION.md already hit and steered around for the
-// Flutter plugin (Tcl embedded as a library on its own worker thread
-// there, instead of Tcl_Main). Here it's the mirror image: with
-// LE_SHELL_HAS_GUI, this process's own true main thread is reserved for
-// le::gui::run_main_thread_loop() (GLFW requires window/context creation
-// only there on macOS), and Tcl_Main runs on a spawned thread instead -
-// unchanged in every other respect, injecting the LeHandle this main
-// thread already created via set_session_handle (le_tcl_shim.hpp) right
-// after `load`-ing le_tcl, so a `show_gui` window and this console
-// mutate the exact same state. Without LE_BUILD_GUI_SHELL, this binary
-// keeps today's original single-threaded shape entirely (Tcl_Main
-// directly on this process's own main thread, no handle of its own to
-// inject - le_tcl_shim.cpp lazily self-creates one as it always has).
+// This binary no longer calls Tcl_Main() at all, though (see
+// run_interactive() below for the full reasoning) - its own hardcoded
+// interactive loop never routed a typed command through le_repl_eval
+// (le_tcl_procs.tcl), the single bracket point that makes a command
+// undoable, recorded into the recall log, and truncated for display
+// (UPDATES.md item 21, BUGS_AND_ENHANCEMENTS.md E5/E6) - only
+// flutter_plugin's own LeTclBridge ever exercised that, since the
+// Flutter Terminal widget used to be the primary interactive surface.
+// Now that `le_shell` is the *only* user-facing way to run Tcl commands
+// interactively (the Dear ImGui prototype's own window has no console
+// of its own - see src/gui/le_gui.hpp), it needed everything that
+// widget's own hand-rolled Dart implementation provided: real line
+// editing/recall history and Tab completion (GNU readline - see
+// CMakeLists.txt's own comment for why not libedit), plus the same
+// undo/recording/truncation behavior batch scripts and the Flutter
+// bridge already got. Batch mode (a script path given) is unchanged in
+// observable behavior - still Tcl_EvalFile, still sets up
+// $argv0/$argv/$argc the same way Tcl_Main's own convention did
+// (shell_test.tcl relies on this for its own $argv), and still exits
+// nonzero on a script error.
+//
+// `show_gui` (see le_tcl_procs.tcl) opens a Dear ImGui window
+// (src/gui/le_gui.hpp) sharing this same process's session state - see
+// TCL_EXPLORATION.md's Phase 6 section for the earlier exploration of
+// this and why it went a different direction for the Flutter plugin's
+// own Tcl console first. Getting there means restructuring this
+// binary's own thread ownership: a blocking stdin-reading interactive
+// loop and a native GUI's own event loop (GLFW/Cocoa's NSApplication in
+// particular) can't share one thread - the same conflict
+// TCL_EXPLORATION.md already hit and steered around for the Flutter
+// plugin (Tcl embedded as a library on its own worker thread there,
+// instead of Tcl_Main). Here it's the mirror image: this process's own
+// true main thread is reserved for le::gui::run_main_thread_loop()
+// (GLFW requires window/context creation only there on macOS), and the
+// interactive console runs on a spawned thread instead - injecting the
+// LeHandle this main thread already created via set_session_handle
+// (le_tcl_shim.hpp) right after `load`-ing le_tcl, so a `show_gui`
+// window and this console mutate the exact same state. Both the GUI
+// window and readline-based editing are mandatory, unconditional
+// dependencies of this binary, not optional build features - `le_shell`
+// is the only user-facing way to run Tcl commands or open a design
+// window now, so a degraded build without either isn't a shape this
+// binary supports; see CMakeLists.txt's own `le_shell` target comment.
 
 #include <tcl.h>
 
 #include "api.hpp"
-
-#ifdef LE_SHELL_HAS_GUI
 #include "le_gui.hpp"
 
-#include <thread>
-#endif
+#include <readline/history.h>
+#include <readline/readline.h>
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -58,9 +78,7 @@ namespace
     std::string g_module_path;
     std::string g_procs_path;
 
-#ifdef LE_SHELL_HAS_GUI
     LeHandle *g_injected_handle = nullptr;
-#endif
 
     std::string resolve_path(const char *cli_value, const char *env_var, const char *what)
     {
@@ -76,13 +94,12 @@ namespace
         std::exit(2);
     }
 
-    // Handed to Tcl_Main as its Tcl_AppInitProc - called once, on the
-    // interpreter Tcl_Main itself creates, before it decides whether to
-    // run a script or start the interactive loop. Loading le_tcl and
-    // sourcing le_tcl_procs.tcl here (rather than via a startup script
-    // argument) means both the interactive and batch-script paths get
-    // the full command surface identically - a batch script never needs
-    // its own `load`/`source` preamble.
+    // Bootstrapping, same job this used to do as Tcl_Main's own
+    // Tcl_AppInitProc callback: `load` le_tcl and source
+    // le_tcl_procs.tcl, so both the interactive and batch-script paths
+    // get the full command surface identically - a batch script never
+    // needs its own `load`/`source` preamble. Called directly now
+    // (run_shell below), not handed to Tcl_Main.
     int app_init(Tcl_Interp *interp)
     {
         if (Tcl_Init(interp) == TCL_ERROR)
@@ -96,7 +113,6 @@ namespace
             return TCL_ERROR;
         }
 
-#ifdef LE_SHELL_HAS_GUI
         // Must happen before le_tcl_procs.tcl is sourced below - see
         // set_session_handle's own doc comment (le_tcl_shim.hpp) for why:
         // it only redirects future session()-touching calls, not ones
@@ -110,7 +126,6 @@ namespace
         {
             return TCL_ERROR;
         }
-#endif
 
         if (Tcl_EvalFile(interp, g_procs_path.c_str()) != TCL_OK)
         {
@@ -118,6 +133,202 @@ namespace
         }
 
         return TCL_OK;
+    }
+
+    // Runs one already-assembled command string through le_repl_eval and
+    // prints whatever it returns - passed through Tcl_SetVar/a variable
+    // reference, not substituted directly into the eval'd string, to
+    // avoid re-escaping arbitrary user-typed text (same pattern
+    // flutter_plugin/src/le_tcl_bridge.cpp's own worker thread already
+    // uses for the identical reason). Tcl_Eval's own return code isn't
+    // checked - le_repl_eval already catches the wrapped command's own
+    // error internally and always returns TCL_OK itself, the
+    // interpreter's own string result holding the (successful or error)
+    // text either way, exactly what a real interactive Tcl shell prints.
+    void eval_and_print(Tcl_Interp *interp, const std::string &command)
+    {
+        Tcl_SetVar(interp, "le_pending_command", command.c_str(), TCL_GLOBAL_ONLY);
+        Tcl_Eval(interp, "le_repl_eval $le_pending_command");
+        const char *result = Tcl_GetStringResult(interp);
+        if (result != nullptr && result[0] != '\0')
+        {
+            std::fputs(result, stdout);
+            std::fputc('\n', stdout);
+        }
+    }
+
+    // rl_attempted_completion_function has no userdata slot to carry the
+    // interpreter through, unlike every other callback in this file.
+    Tcl_Interp *g_completion_interp = nullptr;
+
+    // Classic readline "generator" idiom (called repeatedly with
+    // state=0,1,2,... until it returns nullptr) - state==0 computes and
+    // caches the whole candidate list via complete_command once
+    // (le_tcl_procs.tcl), the same command Tab completion already went
+    // through for the Flutter Terminal widget
+    // (frontend/lib/components/terminal.dart's own _completeCommand) -
+    // complete_command does its own, richer whole-line analysis (command
+    // name/flag/dot-path context, bracket nesting) rather than
+    // readline's default "just the last word in isolation" model, so
+    // `text` itself (readline's own idea of the word being completed) is
+    // unused here; readline still needs it for rl_completion_matches'
+    // own bookkeeping, and for its [start,end) replacement span to
+    // actually line up with what complete_command's candidates expect,
+    // rl_completer_word_break_characters is narrowed to whitespace-only
+    // below (run_interactive) to match complete_command's own \S+
+    // tokenization exactly.
+    char *completion_generator(const char *text, int state)
+    {
+        static std::vector<std::string> candidates;
+        static std::size_t index = 0;
+        (void)text;
+        if (state == 0)
+        {
+            candidates.clear();
+            index = 0;
+            const std::string line(rl_line_buffer, static_cast<std::size_t>(rl_point));
+            Tcl_SetVar(g_completion_interp, "le_pending_completion_line", line.c_str(), TCL_GLOBAL_ONLY);
+            if (Tcl_Eval(g_completion_interp, "complete_command $le_pending_completion_line") == TCL_OK)
+            {
+                const char *result = Tcl_GetStringResult(g_completion_interp);
+                std::istringstream stream(result != nullptr ? result : "");
+                std::string token;
+                while (stream >> token)
+                {
+                    candidates.push_back(token);
+                }
+            }
+
+            // Readline only ever auto-appends its completion character
+            // (a space, by default) for an *unambiguous* match - one
+            // candidate, no list shown - the case relevant here.
+            // _filename_candidates (le_tcl_procs.tcl) already appends a
+            // trailing "/" itself for a directory match, matching real
+            // shells' own convention so a caller can keep tabbing
+            // deeper without retyping the separator; without this,
+            // readline (which has no idea this candidate is a
+            // filename - rl_filename_completion_desired is never set,
+            // since most completions here aren't file paths at all)
+            // still appends its own space after that "/" too, leaving
+            // "somedir/ " instead of "somedir/". rl_completion_suppress_append
+            // isn't reset by readline itself between completion
+            // attempts, so it's set explicitly every time, not just
+            // when suppressing.
+            rl_completion_suppress_append =
+                (candidates.size() == 1 && !candidates[0].empty() && candidates[0].back() == '/') ? 1 : 0;
+        }
+        if (index >= candidates.size())
+        {
+            return nullptr;
+        }
+        return strdup(candidates[index++].c_str());
+    }
+
+    char **attempted_completion(const char *text, int start, int end)
+    {
+        (void)start;
+        (void)end;
+        rl_attempted_completion_over = 1; // no filename-completion fallback
+        return rl_completion_matches(text, completion_generator);
+    }
+
+    // Replaces Tcl_Main's own hardcoded interactive loop - see this
+    // file's own header comment for why. Multi-line commands (an
+    // unbalanced brace/quote/bracket) keep reading further lines -
+    // Tcl_CommandComplete is the same check Tcl_Main's own loop used
+    // internally for this, so a script pasted across several lines (or a
+    // deliberately multi-line `if`/`foreach`) still works exactly the
+    // same way.
+    void run_interactive(Tcl_Interp *interp)
+    {
+        g_completion_interp = interp;
+        rl_attempted_completion_function = attempted_completion;
+        rl_completer_word_break_characters = const_cast<char *>(" \t\n");
+
+        std::string buffer;
+        for (;;)
+        {
+            const char *prompt = buffer.empty() ? "% " : "";
+            char *raw = readline(prompt);
+            if (raw == nullptr)
+            {
+                std::fputc('\n', stdout);
+                return;
+            }
+            std::string line = raw;
+            std::free(raw);
+
+            if (!buffer.empty())
+            {
+                buffer += '\n';
+            }
+            buffer += line;
+
+            if (!Tcl_CommandComplete(buffer.c_str()))
+            {
+                continue;
+            }
+
+            // A blank line (or one that only ever had whitespace across
+            // however many continuation lines it took) is a well-formed
+            // empty command - evaluating it is a harmless no-op, but
+            // routing it through le_repl_eval would still record a
+            // pointless empty entry into command_history
+            // (BUGS_AND_ENHANCEMENTS.md E5's own recall log), unlike a
+            // real interactive tclsh, which does nothing at all for one.
+            const bool blank = buffer.find_first_not_of(" \t\n\r") == std::string::npos;
+            if (!blank)
+            {
+                add_history(buffer.c_str());
+                eval_and_print(interp, buffer);
+            }
+            buffer.clear();
+        }
+    }
+
+    // Replaces Tcl_Main(argc, argv, app_init) - same $argv0/$argv/$argc
+    // convention for a batch script's own extra arguments
+    // (shell_test.tcl's own `lassign $argv lef_path` relies on this),
+    // same nonzero exit on a script error, same "no script argument"
+    // dispatch to the interactive loop instead. `args` is
+    // [executable_path, script_path?, script_args...] - exactly the argv
+    // shape main() already trims -module/-procs out of.
+    void run_shell(std::vector<char *> &args)
+    {
+        Tcl_FindExecutable(args[0]);
+        Tcl_Interp *interp = Tcl_CreateInterp();
+
+        if (app_init(interp) != TCL_OK)
+        {
+            std::fprintf(stderr, "le_shell: initialization failed: %s\n", Tcl_GetStringResult(interp));
+            std::exit(1);
+        }
+
+        if (args.size() > 1)
+        {
+            Tcl_SetVar(interp, "argv0", args[1], TCL_GLOBAL_ONLY);
+            Tcl_Obj *script_args = Tcl_NewListObj(0, nullptr);
+            for (std::size_t i = 2; i < args.size(); ++i)
+            {
+                Tcl_ListObjAppendElement(interp, script_args, Tcl_NewStringObj(args[i], -1));
+            }
+            Tcl_SetVar2Ex(interp, "argv", nullptr, script_args, TCL_GLOBAL_ONLY);
+            Tcl_SetVar(interp, "argc", std::to_string(args.size() - 2).c_str(), TCL_GLOBAL_ONLY);
+
+            if (Tcl_EvalFile(interp, args[1]) != TCL_OK)
+            {
+                std::fprintf(stderr, "%s\n", Tcl_GetStringResult(interp));
+                std::exit(1);
+            }
+            std::exit(0);
+        }
+
+        Tcl_SetVar(interp, "argv0", args[0], TCL_GLOBAL_ONLY);
+        Tcl_SetVar2Ex(interp, "argv", nullptr, Tcl_NewListObj(0, nullptr), TCL_GLOBAL_ONLY);
+        Tcl_SetVar(interp, "argc", "0", TCL_GLOBAL_ONLY);
+
+        run_interactive(interp);
+        std::exit(0);
     }
 }
 
@@ -127,10 +338,11 @@ int main(int argc, char **argv)
     const char *procs_arg = nullptr;
 
     // -module/-procs are this shell's own bootstrap flags, consumed here
-    // (only as a fixed leading run, before anything Tcl_Main itself
+    // (only as a fixed leading run, before anything run_shell itself
     // needs to see) rather than passed through - what's left (a script
-    // path, or nothing at all for interactive mode) is exactly the argv
-    // shape Tcl_Main already knows how to handle unchanged.
+    // path plus its own arguments, or nothing at all for interactive
+    // mode) is exactly the argv shape run_shell expects, matching
+    // Tcl_Main's own original convention.
     std::vector<char *> remaining;
     remaining.push_back(argv[0]);
 
@@ -161,30 +373,23 @@ int main(int argc, char **argv)
     g_module_path = resolve_path(module_arg, "LE_TCL_MODULE", "the le_tcl module path (-module)");
     g_procs_path = resolve_path(procs_arg, "LE_TCL_PROCS_PATH", "the le_tcl_procs.tcl path (-procs)");
 
-#ifdef LE_SHELL_HAS_GUI
     g_injected_handle = le_create();
 
-    // Tcl_Main "never returns" (calls Tcl_Exit()/exit() itself once the
+    // run_shell() "never returns" (calls std::exit() itself once the
     // script (batch mode) or the interactive loop (EOF/`exit`) ends) -
     // runs on its own thread here instead of this process's main one,
     // which le::gui::run_main_thread_loop() below needs for itself (see
     // this file's own header comment). Detached, not joined: the whole
-    // process exits from inside this thread's own Tcl_Main() call, so
-    // there's no normal path where joining it would ever return either -
-    // `remaining` is captured by value (a cheap copy of a vector of
-    // pointers into argv's own persistent strings) so this thread's own
-    // copy stays valid regardless of main()'s local variables, even
-    // though main() also never returns before process exit here.
+    // process exits from inside this thread's own call, so there's no
+    // normal path where joining it would ever return either - `remaining`
+    // is captured by value (a cheap copy of a vector of pointers into
+    // argv's own persistent strings) so this thread's own copy stays
+    // valid regardless of main()'s local variables, even though main()
+    // also never returns before process exit here.
     std::thread tcl_thread([remaining]() mutable
-                            { Tcl_Main(static_cast<int>(remaining.size()), remaining.data(), app_init); });
+                            { run_shell(remaining); });
     tcl_thread.detach();
 
     le::gui::run_main_thread_loop(g_injected_handle);
     return 0;
-#else
-    // Never returns - Tcl_Main calls Tcl_Exit()/exit() itself once the
-    // script (batch mode) or the interactive loop (EOF/`exit`) ends.
-    Tcl_Main(static_cast<int>(remaining.size()), remaining.data(), app_init);
-    return 0;
-#endif
 }
