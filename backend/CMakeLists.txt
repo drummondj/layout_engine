@@ -686,6 +686,7 @@ add_executable(pipeline_benchmarks src/pipelines/benchmarks/pipeline_benchmark.c
 target_link_libraries(pipeline_benchmarks PRIVATE database geometry scene pipelines io api benchmark::benchmark)
 target_compile_definitions(pipeline_benchmarks PRIVATE
     BENCHMARK_DATA_DIR="${CMAKE_BINARY_DIR}/benchmark_data"
+    REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_data"
 )
 # Not instrumented for its own coverage (benchmarks aren't run under the
 # `coverage` target) - but it links `io`, which IS instrumented when

@@ -47,6 +47,21 @@ namespace le
         double size = 0.0;
     };
 
+    /// @brief One real (non-culled - see HierarchyResolver::
+    /// discover_layout_children's own tiny_instance_rects branch)
+    /// Placement's own name label, drawn along its bottom edge
+    /// (BUGS_AND_ENHANCEMENTS.md E13) - `rect` is the placement's own
+    /// world bbox already converted to parent-local pixel space, the
+    /// exact same convention tiny_instance_rects uses, so draw_helpers.hpp's
+    /// draw_placement_labels needs no further transform: font size scales
+    /// with `rect`'s own pixel height, and `name` is truncated (replacing
+    /// leading characters with "...") to fit `rect`'s own pixel width.
+    struct PlacementLabel
+    {
+        std::string name;
+        PixelRect rect;
+    };
+
     /// @brief A Shape transformed from dbu-space to pixel-space (Scene's
     /// `pixel = (dbu - pan) * scale`), mirroring Shape's own
     /// rects/polygons/paths/texts structure with double coordinates instead

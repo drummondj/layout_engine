@@ -214,3 +214,40 @@ TEST(DrawGroupAntiAliasing, DisablingAntiAliasingProducesAHardEdgeInsteadOfAFrac
     EXPECT_LT(aa_on_alpha, 255);
     EXPECT_TRUE(aa_off_alpha == 0 || aa_off_alpha == 255) << "got " << static_cast<int>(aa_off_alpha);
 }
+
+// BUGS_AND_ENHANCEMENTS.md E13 - truncate_text_to_width backs Placement
+// name labels (replaces characters at the *beginning* with "...", unlike
+// a typical trailing-ellipsis truncation).
+TEST(TruncateTextToWidth, TextThatAlreadyFitsIsReturnedUnchanged)
+{
+    const SkFont font(le::default_typeface(), 20.0f);
+    const SkScalar full_width = font.measureText("U1", 2, SkTextEncoding::kUTF8);
+
+    EXPECT_EQ(le::truncate_text_to_width("U1", font, full_width + 10.0f), "U1");
+}
+
+TEST(TruncateTextToWidth, TooLongTextIsTruncatedFromTheFrontWithAnEllipsisPrefix)
+{
+    const SkFont font(le::default_typeface(), 20.0f);
+    const std::string name = "some_very_long_hierarchical_instance_name_42";
+    const SkScalar full_width = font.measureText(name.c_str(), name.size(), SkTextEncoding::kUTF8);
+
+    // Half the full width - definitely too narrow for the whole name,
+    // definitely wide enough for a real (non-empty) truncated remainder.
+    const SkScalar target_width = full_width / 2.0f;
+    const std::string truncated = le::truncate_text_to_width(name, font, target_width);
+
+    ASSERT_FALSE(truncated.empty());
+    EXPECT_EQ(truncated.substr(0, 3), "...");
+    // The *end* of the original name survives - the whole point of
+    // front-truncation is keeping a shared-prefix name's own
+    // distinguishing suffix visible.
+    EXPECT_EQ(truncated.substr(truncated.size() - 2), "42");
+    EXPECT_LE(font.measureText(truncated.c_str(), truncated.size(), SkTextEncoding::kUTF8), target_width);
+}
+
+TEST(TruncateTextToWidth, WidthTooNarrowForEvenTheEllipsisReturnsEmpty)
+{
+    const SkFont font(le::default_typeface(), 20.0f);
+    EXPECT_EQ(le::truncate_text_to_width("U1", font, 0.5f), "");
+}

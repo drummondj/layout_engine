@@ -361,6 +361,7 @@ namespace le
             Rect content_bbox;
             std::vector<DiscoveredEdge> edges;
             std::vector<PixelRect> tiny_instance_rects;
+            std::vector<PlacementLabel> placement_labels;
             std::vector<NodeKey> children; // deduped, for touch_children
         };
 
@@ -434,6 +435,19 @@ namespace le
                     continue;
                 }
 
+                // BUGS_AND_ENHANCEMENTS.md E13 - only real (non-tiny)
+                // placements get a label, computed in the same
+                // parent-local pixel space tiny_instance_rects already
+                // uses above, so BuildLayoutPictureStage::run needs no
+                // further transform to draw either one.
+                result.placement_labels.push_back(PlacementLabel{
+                    .name = placement->name,
+                    .rect = PixelRect{
+                        .ll = PixelPoint{.x = static_cast<double>(world_bbox.ll.x - local_origin.x) * scale, .y = static_cast<double>(world_bbox.ll.y - local_origin.y) * scale},
+                        .ur = PixelPoint{.x = static_cast<double>(world_bbox.ur.x - local_origin.x) * scale, .y = static_cast<double>(world_bbox.ur.y - local_origin.y) * scale},
+                    },
+                });
+
                 const NodeKey child_key = node_key_for_target(target, remaining_depth);
                 HierarchyNodeBase *child_node = ensure_node_built(child_key, root, view_layers, scene, scale);
                 if (seen_children.insert(child_key).second)
@@ -489,6 +503,11 @@ namespace le
             // already has a real graph node to wire from.
             DiscoverResult disc = discover_layout_children(key.layout_id, key.remaining_depth, root, view_layers, scene, scale);
 
+            // disc.placement_labels is deliberately dropped here, not
+            // forwarded - see HierarchyLayoutNodeStage's own constructor
+            // comment for why (BUGS_AND_ENHANCEMENTS.md E13 - only
+            // build_top_layout_picture's own one-off, never-cached
+            // picture draws placement labels).
             auto owned = std::make_unique<HierarchyLayoutNodeStage>(graph_->flow_graph, key.layout_id, recompute_count_, scale, disc.content_bbox, std::move(disc.tiny_instance_rects), "hierarchy_layout_node");
             owned->children = std::move(disc.children);
             const bool needs_trigger = disc.edges.empty();
@@ -631,7 +650,7 @@ namespace le
             const uint64_t geometry_data_version = LayoutGeometryStage::data_version_for(layout_id, top_options);
             const std::vector<RenderedShape> dbu_shapes = top_geometry_runner_.run(layout_id, geometry_data_version, top_options);
 
-            return record_local_picture(dbu_shapes, geometry_data_version, top_viewport_runner_, top_layer_runner_, view_layers, scene, scene.scale(), instances, disc.tiny_instance_rects, disc.content_bbox, scene.pan());
+            return record_local_picture(dbu_shapes, geometry_data_version, top_viewport_runner_, top_layer_runner_, view_layers, scene, scene.scale(), instances, disc.tiny_instance_rects, disc.content_bbox, scene.pan(), disc.placement_labels);
         }
 
         double min_visible_instance_pixels_ = 100.0;

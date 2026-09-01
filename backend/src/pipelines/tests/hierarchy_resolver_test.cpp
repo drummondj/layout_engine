@@ -82,6 +82,29 @@ namespace
             return false;
         }
 
+        // Same region-scan reasoning as region_has_opaque_pixel above,
+        // but checks for a *colored* (non-grayscale) opaque pixel
+        // specifically - a Placement's own name label (BUGS_AND_ENHANCEMENTS.md
+        // E13) draws unconditionally (grayscale, BOUNDARY's own outline
+        // color - it's placement-level chrome, not real technology-layer
+        // content, so it isn't gated by any layer's own visibility, same
+        // as tiny_instance_rects' own placeholder marks), so a caller
+        // specifically checking that some real *layer* content is/isn't
+        // there needs to see past it. M1 (a ROUTING layer) never gets a
+        // grayscale default color, so r != g reliably distinguishes real
+        // M1 content from the label drawn over/near it.
+        bool region_has_colored_opaque_pixel(const SkBitmap &bitmap, int x0, int y0, int x1, int y1)
+        {
+            for (int y = y0; y <= y1; ++y)
+                for (int x = x0; x <= x1; ++x)
+                {
+                    const SkColor c = bitmap.getColor(x, y);
+                    if (SkColorGetA(c) > 0 && SkColorGetR(c) != SkColorGetG(c))
+                        return true;
+                }
+            return false;
+        }
+
         // Same region-scan reasoning as region_has_opaque_pixel above, but
         // reading a raw PixelBuffer (render_layout_frame's own return
         // type) directly - checks for a *colored* (non-grayscale) opaque
@@ -97,6 +120,24 @@ namespace
                 {
                     const uint8_t *p = buffer.data + static_cast<size_t>(y) * buffer.row_bytes + static_cast<size_t>(x) * 4;
                     if (p[3] > 0 && p[0] != p[1])
+                        return true;
+                }
+            return false;
+        }
+
+        // Finds a Placement's own name label specifically (BUGS_AND_ENHANCEMENTS.md
+        // E13, grayscale - BOUNDARY's own outline color) in render_layout_frame's
+        // own output, distinguishing it from the background dot/axis grid
+        // (also grayscale, but alpha capped at kMajorGridColor's own 230 -
+        // draw_helpers.hpp) via a stricter alpha floor a real glyph's own
+        // solid interior pixels comfortably clear.
+        bool pixel_buffer_region_has_grayscale_opaque_pixel(const le::PixelBuffer &buffer, int x0, int y0, int x1, int y1)
+        {
+            for (int y = y0; y <= y1; ++y)
+                for (int x = x0; x <= x1; ++x)
+                {
+                    const uint8_t *p = buffer.data + static_cast<size_t>(y) * buffer.row_bytes + static_cast<size_t>(x) * 4;
+                    if (p[3] > 240 && p[0] == p[1] && p[1] == p[2])
                         return true;
                 }
             return false;
@@ -298,7 +339,11 @@ TEST_F(HierarchyResolverFixture, LayerVisibilityAppliesInsideACachedInstancePict
     ASSERT_TRUE(picture);
 
     const SkBitmap bitmap = rasterize(picture, 800, 800);
-    EXPECT_FALSE(region_has_opaque_pixel(bitmap, 510, 510, 590, 590)); // M1 hidden - the leaf's own content must not draw
+    // region_has_colored_opaque_pixel (not region_has_opaque_pixel) -
+    // the leaf's own Placement still gets its name label (E13, grayscale,
+    // unconditional) even with M1 hidden; this checks M1's own content
+    // specifically.
+    EXPECT_FALSE(region_has_colored_opaque_pixel(bitmap, 510, 510, 590, 590)); // M1 hidden - the leaf's own content must not draw
 }
 
 // --- render_layout_frame (Phase C) ---
@@ -704,4 +749,68 @@ TEST_F(HierarchyResolverFixture, ConcurrencySmokeTestManyDistinctReferenceDesign
     // race on the recompute counter), this count would be unstable
     // across runs rather than exactly kDesignCount + 1 every time.
     EXPECT_EQ(resolver.design_picture_recompute_count() - before, static_cast<uint64_t>(kDesignCount) + 1);
+}
+
+TEST_F(HierarchyResolverFixture, TopLevelRealPlacementGetsANameLabelSomewhereWithinItsOwnBbox)
+{
+    // Goes through render_layout_frame (not build_layout_picture, which
+    // most other tests in this file use) deliberately - placement name
+    // labels (BUGS_AND_ENHANCEMENTS.md E13) are only drawn for the one
+    // true top-level, never-cached picture render_layout_frame's own
+    // build_top_layout_picture builds, not baked into any recursively-
+    // cached Layout node's own picture build_layout_picture may return
+    // (see HierarchyLayoutNodeStage's own constructor comment for why -
+    // confirmed the hard way, by first writing this test against
+    // build_layout_picture and finding it never saw a label at all).
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{200, 200});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{400, 400});
+    add_placement(sub_layout, leaf, le::Point{100, 100}, le::Orientation::N, "MY_INSTANCE_NAME");
+
+    scene.set_pan(le::Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(400, 400);
+
+    const le::PixelBuffer &buffer = resolver.render_layout_frame(root, sub_layout, /*hierarchy_depth=*/1, view_layers, scene);
+    ASSERT_TRUE(buffer.data);
+
+    // Pre-flip world bbox (100,100)-(300,300); post-flip y = height - y
+    // maps this symmetric rect's own y range right back onto itself
+    // (400-300, 400-100) = (100,300) - same window either way.
+    //
+    // LEAF's own M1 obstruction fill is a real (non-grayscale) palette
+    // color (BRICK pattern, red - the first ROUTING layer's own palette
+    // slot, view_style.hpp's kRoutingCutColors); the placement's own
+    // name label draws in PLACEMENT_NAME's own grayscale outline color
+    // instead, on top of it. pixel_buffer_region_has_grayscale_opaque_pixel
+    // (not pixel_buffer_region_has_opaque_pixel) finds the label
+    // specifically, distinguishing it from both LEAF's own colored fill
+    // and the background grid's own fainter grayscale dots.
+    EXPECT_TRUE(pixel_buffer_region_has_grayscale_opaque_pixel(buffer, 100, 100, 300, 300))
+        << "expected to find the placement's own name label somewhere within its own bbox";
+}
+
+TEST_F(HierarchyResolverFixture, HidingThePlacementNamePurposeHidesTheLabel)
+{
+    // Regression test: labels aren't real Shapes, so they never flowed
+    // through LayerVisibilityFilterStage the way TERMINAL/OBSTRUCTION/etc.
+    // do - draw_placement_labels used to only consult the PLACEMENT_NAME
+    // ViewLayer's own static style alpha, never the user's actual
+    // show/hide toggle, so switching the PLACEMENT_NAME row off in the
+    // Layer Manager silently did nothing. record_local_picture now also
+    // passes scene.is_view_layer_visible("PLACEMENT_NAME", PLACEMENT_NAME)
+    // through explicitly.
+    le::DesignId leaf = create_leaf_design("LEAF", le::Point{200, 200});
+    auto [sub_design, sub_layout] = create_layout_design("SUB", le::Point{400, 400});
+    add_placement(sub_layout, leaf, le::Point{100, 100}, le::Orientation::N, "MY_INSTANCE_NAME");
+
+    scene.set_pan(le::Point{0, 0});
+    scene.set_scale(1.0);
+    scene.set_viewport_size(400, 400);
+    scene.set_purpose_visible(le::ViewLayerPurpose::PLACEMENT_NAME, false);
+
+    const le::PixelBuffer &buffer = resolver.render_layout_frame(root, sub_layout, /*hierarchy_depth=*/1, view_layers, scene);
+    ASSERT_TRUE(buffer.data);
+
+    EXPECT_FALSE(pixel_buffer_region_has_grayscale_opaque_pixel(buffer, 100, 100, 300, 300))
+        << "expected no placement name label once PLACEMENT_NAME's own visibility is toggled off";
 }

@@ -52,6 +52,12 @@ namespace le
         REGION,             // DEF REGIONS - own pseudo-row, no Layer (Region has no color/
                              // style field of its own, same "no physical Layer" treatment as
                              // ROW/GCELLGRID)
+        PLACEMENT_NAME,     // A Placement's own name label (BUGS_AND_ENHANCEMENTS.md E13) -
+                             // own pseudo-row, no Layer, same "no physical Layer" treatment
+                             // as ROW/GCELLGRID/REGION - split out from BOUNDARY (which it
+                             // used to borrow its color from) so a label's own color/
+                             // visibility can be tuned independently of the boundary outline
+                             // itself.
     };
 
     struct Color
@@ -171,6 +177,18 @@ namespace le
             set.rows_.push_back(ViewLayerRow{
                 .name = "BOUNDARY",
                 .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::BOUNDARY, .id = set.boundary_id_}},
+            });
+
+            // Own row right after BOUNDARY, one shade lighter (same
+            // "derives from the row above it, one shade lighter" relation
+            // BOUNDARY itself has to ROW - see this block's own opening
+            // comment) - placement labels used to just borrow BOUNDARY's
+            // own color/alpha (BUGS_AND_ENHANCEMENTS.md E13); this gives
+            // them their own row instead.
+            set.placement_name_id_ = set.add("PLACEMENT_NAME", "PLACEMENT_NAME", ViewLayerPurpose::PLACEMENT_NAME, LayerId{}, placement_name_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "PLACEMENT_NAME",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PLACEMENT_NAME, .id = set.placement_name_id_}},
             });
 
             for (LayerId layer_id : root.get_technology_layers(technology_id))
@@ -297,6 +315,7 @@ namespace le
         }
 
         ViewLayerId boundary_view_layer() const { return boundary_id_; }
+        ViewLayerId placement_name_view_layer() const { return placement_name_id_; }
 
         /// @brief Identifies *which* built ViewLayerSet this is - distinct
         /// from every other one build_for_technology() has ever produced,
@@ -317,27 +336,36 @@ namespace le
         std::vector<ViewLayerId> all() const { return pool_.ids(); }
 
         /// @brief Every row of a layer visibility/selectability widget, in
-        /// declaration order (ROW, then BOUNDARY, then physical Layers in
-        /// their LEF-declared bottom-up stacking order, then GCELLGRID/
-        /// PLACEMENT_BLOCKAGE/REGION - BUGS_AND_ENHANCEMENTS.md E8) - see
-        /// ViewLayerRow's own comment for why this is the API a caller
-        /// should enumerate rather than going through Root's Technology
-        /// directly. This declaration order is also literally the picture-
-        /// building stages' own draw (z-)order, not just a widget listing
-        /// order - each stage groups shapes into a `std::map<ViewLayerId,
-        /// ...>` and iterates it in ascending ViewLayerId order, which
-        /// matches insertion order here one-to-one (ViewLayerId's own
-        /// `operator<=>` compares its pool `index` first, assigned in
-        /// strict call order by `add()` below) - so BOUNDARY sitting
-        /// between ROW and the physical layers here is exactly what puts
-        /// it "below every technology layer but above rows" on screen.
+        /// declaration order (ROW, then BOUNDARY, then PLACEMENT_NAME, then
+        /// physical Layers in their LEF-declared bottom-up stacking order,
+        /// then GCELLGRID/PLACEMENT_BLOCKAGE/REGION -
+        /// BUGS_AND_ENHANCEMENTS.md E8/E13) - see ViewLayerRow's own
+        /// comment for why this is the API a caller should enumerate
+        /// rather than going through Root's Technology directly. This
+        /// declaration order is also literally the picture-building
+        /// stages' own draw (z-)order for every purpose a real Shape can
+        /// ever be tagged with - each stage groups shapes into a
+        /// `std::map<ViewLayerId, ...>` and iterates it in ascending
+        /// ViewLayerId order, which matches insertion order here one-to-one
+        /// (ViewLayerId's own `operator<=>` compares its pool `index`
+        /// first, assigned in strict call order by `add()` below) - so
+        /// BOUNDARY sitting between ROW and the physical layers here is
+        /// exactly what puts it "below every technology layer but above
+        /// rows" on screen. PLACEMENT_NAME is the one exception: no real
+        /// Shape is ever tagged with it (a Placement has no ViewLayer/
+        /// purpose of its own to draw real geometry in), so this insertion
+        /// position only governs its listing position in this row list
+        /// (and le_purpose_at's own index order) - its actual draw order
+        /// is decided separately, by draw_placement_labels's own call site
+        /// in BuildLayoutPictureStage::run.
         const std::vector<ViewLayerRow> &rows() const { return rows_; }
 
         /// @brief Every distinct ViewLayerPurpose present across every row,
-        /// in first-encountered order (rows() order - ROW/BOUNDARY, then
-        /// LEF declaration order, then GCELLGRID/PLACEMENT_BLOCKAGE/REGION)
-        /// with duplicates removed, e.g. {ROW, BOUNDARY, TERMINAL,
-        /// OBSTRUCTION} for a typical Technology. The "columns"
+        /// in first-encountered order (rows() order - ROW/BOUNDARY/
+        /// PLACEMENT_NAME, then LEF declaration order, then GCELLGRID/
+        /// PLACEMENT_BLOCKAGE/REGION) with duplicates removed, e.g. {ROW,
+        /// BOUNDARY, PLACEMENT_NAME, TERMINAL, OBSTRUCTION} for a typical
+        /// Technology. The "columns"
         /// axis of a layer visibility/selectability widget - deliberately
         /// not scoped to any one row/layer, since Scene's own visibility/
         /// selectability model toggles a purpose across every layer at
@@ -510,6 +538,17 @@ namespace le
             return ViewLayerStyle{.outline_color = {160, 160, 160, 255}, .fill_color = {0, 0, 0, 0}};
         }
 
+        // BUGS_AND_ENHANCEMENTS.md E13 - one shade lighter than
+        // boundary_style()'s own color (same "derives from the row above
+        // it, one shade lighter" relation boundary_style() itself has to
+        // row_style()), so a placement's own name label reads as related
+        // to, but distinct from, the boundary outline it sits inside. No
+        // fill (plain text, same as row_style()/boundary_style()).
+        static ViewLayerStyle placement_name_style()
+        {
+            return ViewLayerStyle{.outline_color = {220, 220, 220, 255}, .fill_color = {0, 0, 0, 0}};
+        }
+
         // Faint translucent blue outline, no fill - DEF GCELLGRID is a
         // global-routing planning aid, meant to stay unobtrusive relative
         // to real routing-layer content drawn on top of it. Dashed
@@ -542,6 +581,7 @@ namespace le
         Pool<ViewLayerData, ViewLayerId> pool_;
         std::vector<LookupEntry> lookup_;
         ViewLayerId boundary_id_;
+        ViewLayerId placement_name_id_;
         std::vector<ViewLayerRow> rows_;
         uint64_t generation_ = 0;
     };

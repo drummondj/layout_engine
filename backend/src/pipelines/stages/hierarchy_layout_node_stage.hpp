@@ -44,6 +44,23 @@ namespace le
     class HierarchyLayoutNodeStage : public MemoizingStage<std::vector<ResolvedInstanceSlot>, sk_sp<SkPicture>, PipelineOptions>, public HierarchyNodeBase
     {
     public:
+        // No placement_labels parameter, unlike tiny_instance_rects -
+        // BUGS_AND_ENHANCEMENTS.md E13's own name labels are deliberately
+        // *not* baked into a recursively-cached Layout node's own picture
+        // (this class's whole reason to exist): that picture is reused
+        // wholesale, via a plain canvas->drawPicture(), by every parent
+        // that places this same Design - baking a Layout's own *internal*
+        // placements' labels into it would recurse arbitrarily deep
+        // (confirmed empirically: a real 5x5 aes_5x5.def preview at
+        // hierarchy_depth 2 rendered as unreadable noise, one label per
+        // *every* standard-cell placement inside every instance, not just
+        // the 25 top-level ones). Only build_top_layout_picture
+        // (hierarchy_resolver.hpp) - the one true top-level, never-cached
+        // picture - passes real placement_labels into record_local_picture;
+        // every node here always passes its own default (empty, see
+        // record_local_picture's own default argument) - the same "only
+        // the top level of hierarchy" scoping E1 already applies to
+        // selectability.
         HierarchyLayoutNodeStage(oneapi::tbb::flow::graph &g, LayoutId layout_id, std::atomic<uint64_t> &recompute_count, double scale,
                                   Rect content_bbox, std::vector<PixelRect> tiny_instance_rects, std::string label = {})
             : MemoizingStage(g, std::move(label)), layout_id_(layout_id), recompute_count_(recompute_count), scale_(scale),
@@ -247,6 +264,7 @@ namespace le
         double scale_;
         Rect content_bbox_;
         std::vector<PixelRect> tiny_instance_rects_;
+        std::vector<PlacementLabel> placement_labels_;
         sk_sp<SkPicture> last_picture_;
 
         std::vector<IncomingEdge> incoming_edges_;

@@ -18,6 +18,7 @@
 #include "../stages/tiny_viewport_filter_stage.hpp"
 #include "../stages/viewport_filter_stage.hpp"
 #include "layout_stress_data.hpp"
+#include "real_design_data.hpp"
 #include "stress_data.hpp"
 #include <benchmark/benchmark.h>
 
@@ -1012,6 +1013,34 @@ static void BM_HierarchyResolver_RenderLayoutFrame_ColdCache_ShallowDepth(benchm
     state.SetItemsProcessed(state.iterations() * kTopPlacementCount);
 }
 BENCHMARK(BM_HierarchyResolver_RenderLayoutFrame_ColdCache_ShallowDepth)->Unit(benchmark::kMillisecond);
+
+// The counterpart the three benchmarks above can't stand in for: a real
+// design (real_design_data.hpp's aes_5x5.def - 25 real instances of a full
+// AES crypto macro, real dense M1/M2/via standard-cell geometry) instead of
+// layout_stress_data.hpp's own deliberately-trivial-geometry, huge-
+// instance-count fixture. Added while investigating a real tracy capture
+// (BUGS_AND_ENHANCEMENTS.md E13) that showed a ~1.4s cold render_layout_frame
+// for this exact design/depth - two full orders of magnitude past
+// BM_..._ColdCache_FullDepth's own number despite 160,000x fewer
+// placements, because that other benchmark's own trivial per-leaf geometry
+// never exercises real shape-generation/SkPicture-recording cost at all -
+// see that fixture's own file-level comment. hierarchy_depth=2 matches the
+// minimum depth at which this design shows any content (see
+// make_real_design_scene's own comment).
+static void BM_HierarchyResolver_RenderLayoutFrame_ColdCache_RealDesign(benchmark::State &state)
+{
+    const RealDesignData &data = real_design_data();
+    Scene scene = make_real_design_scene(data, /*hierarchy_depth=*/2);
+
+    for (auto _ : state)
+    {
+        HierarchyResolver resolver;
+        const auto &buffer = resolver.render_layout_frame(data.root, data.layout_id, scene.hierarchy_depth(), data.view_layers, scene);
+        const auto *buffer_ptr = &buffer;
+        benchmark::DoNotOptimize(buffer_ptr);
+    }
+}
+BENCHMARK(BM_HierarchyResolver_RenderLayoutFrame_ColdCache_RealDesign)->Unit(benchmark::kMillisecond);
 
 // Direct benchmark of draw_group's own hairline-simplification branch
 // (BENCHMARKS.md's dated entry for this) - stress_data.hpp's existing

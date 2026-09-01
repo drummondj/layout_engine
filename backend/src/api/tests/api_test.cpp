@@ -1068,7 +1068,7 @@ TEST_F(ApiFixture, LayerAtOutOfRangeReturnsInvalidRow)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
 
-    const LeLayerRow row = le_layer_at(handle, 6);
+    const LeLayerRow row = le_layer_at(handle, 7);
     EXPECT_EQ(row.name, nullptr);
 }
 
@@ -1078,18 +1078,23 @@ TEST_F(ApiFixture, LayerAtListsRowThenBoundaryThenEveryPhysicalLayer)
 
     // testcell.lef declares one physical Layer (M1) - the API doesn't
     // special-case BOUNDARY, it's just another row, so the count is
-    // M1 + ROW + GCELLGRID + PLACEMENT_BLOCKAGE + REGION + BOUNDARY = 6
-    // (Migration Step 2/3 - see view_style.hpp's ViewLayerSet::
-    // build_for_technology). ROW then BOUNDARY come first
-    // (BUGS_AND_ENHANCEMENTS.md E8 - this declaration order is also the
-    // real draw z-order, see ViewLayerSet::rows()'s own doc comment).
-    ASSERT_EQ(le_layer_count(handle), 6);
+    // M1 + ROW + GCELLGRID + PLACEMENT_BLOCKAGE + REGION + BOUNDARY +
+    // PLACEMENT_NAME = 7 (Migration Step 2/3 plus BUGS_AND_ENHANCEMENTS.md
+    // E13 - see view_style.hpp's ViewLayerSet::build_for_technology). ROW
+    // then BOUNDARY then PLACEMENT_NAME come first (BUGS_AND_ENHANCEMENTS.md
+    // E8/E13 - this declaration order is also the real draw z-order, see
+    // ViewLayerSet::rows()'s own doc comment).
+    ASSERT_EQ(le_layer_count(handle), 7);
 
     const LeLayerRow boundary_row = le_layer_at(handle, 1);
     ASSERT_NE(boundary_row.name, nullptr);
     EXPECT_STREQ(boundary_row.name, "BOUNDARY");
 
-    const LeLayerRow m1_row = le_layer_at(handle, 2);
+    const LeLayerRow placement_name_row = le_layer_at(handle, 2);
+    ASSERT_NE(placement_name_row.name, nullptr);
+    EXPECT_STREQ(placement_name_row.name, "PLACEMENT_NAME");
+
+    const LeLayerRow m1_row = le_layer_at(handle, 3);
     ASSERT_NE(m1_row.name, nullptr);
     EXPECT_STREQ(m1_row.name, "M1");
 
@@ -1113,7 +1118,7 @@ TEST_F(ApiFixture, PurposeAtOutOfRangeReturnsInvalid)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
 
-    EXPECT_EQ(le_purpose_at(handle, 11), -1);
+    EXPECT_EQ(le_purpose_at(handle, 12), -1);
     EXPECT_EQ(le_purpose_at(handle, -1), -1);
 }
 
@@ -1130,21 +1135,23 @@ TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
     // ROUTE (per-Layer, right after ROUTING_BLOCKAGE) and REGION (its own
     // pseudo-row). E8 moved ROW then BOUNDARY to the front (this walks
     // ViewLayerSet::rows() in its own declaration order, which is also the
-    // real draw z-order - see that method's own doc comment) - the raw
+    // real draw z-order - see that method's own doc comment); E13 added
+    // PLACEMENT_NAME right after BOUNDARY, its own pseudo-row. The raw
     // ordinal values below (le::ViewLayerPurpose's own declaration order,
     // unrelated to and unchanged by this traversal order) are unaffected.
-    ASSERT_EQ(le_purpose_count(handle), 11);
+    ASSERT_EQ(le_purpose_count(handle), 12);
     EXPECT_EQ(le_purpose_at(handle, 0), 6);   // ROW
     EXPECT_EQ(le_purpose_at(handle, 1), 2);   // BOUNDARY
-    EXPECT_EQ(le_purpose_at(handle, 2), 0);   // TERMINAL
-    EXPECT_EQ(le_purpose_at(handle, 3), 1);   // OBSTRUCTION
-    EXPECT_EQ(le_purpose_at(handle, 4), 3);   // TRACK_PREFERRED
-    EXPECT_EQ(le_purpose_at(handle, 5), 4);   // TRACK_NON_PREFERRED
-    EXPECT_EQ(le_purpose_at(handle, 6), 5);   // ROUTING_BLOCKAGE
-    EXPECT_EQ(le_purpose_at(handle, 7), 9);   // ROUTE
-    EXPECT_EQ(le_purpose_at(handle, 8), 7);   // GCELLGRID
-    EXPECT_EQ(le_purpose_at(handle, 9), 8);   // PLACEMENT_BLOCKAGE
-    EXPECT_EQ(le_purpose_at(handle, 10), 10); // REGION
+    EXPECT_EQ(le_purpose_at(handle, 2), 11);  // PLACEMENT_NAME
+    EXPECT_EQ(le_purpose_at(handle, 3), 0);   // TERMINAL
+    EXPECT_EQ(le_purpose_at(handle, 4), 1);   // OBSTRUCTION
+    EXPECT_EQ(le_purpose_at(handle, 5), 3);   // TRACK_PREFERRED
+    EXPECT_EQ(le_purpose_at(handle, 6), 4);   // TRACK_NON_PREFERRED
+    EXPECT_EQ(le_purpose_at(handle, 7), 5);   // ROUTING_BLOCKAGE
+    EXPECT_EQ(le_purpose_at(handle, 8), 9);   // ROUTE
+    EXPECT_EQ(le_purpose_at(handle, 9), 7);   // GCELLGRID
+    EXPECT_EQ(le_purpose_at(handle, 10), 8);  // PLACEMENT_BLOCKAGE
+    EXPECT_EQ(le_purpose_at(handle, 11), 10); // REGION
 }
 
 TEST_F(ApiFixture, LayerNameVisibilityDefaultsTrueAndRoundTrips)

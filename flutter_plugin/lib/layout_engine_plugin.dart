@@ -237,7 +237,8 @@ enum LeLayerPurpose {
   gcellgrid,
   placementBlockage,
   route,
-  region;
+  region,
+  placementName;
 
   static LeLayerPurpose? fromValue(int value) => switch (value) {
     0 => LeLayerPurpose.terminal,
@@ -251,6 +252,7 @@ enum LeLayerPurpose {
     8 => LeLayerPurpose.placementBlockage,
     9 => LeLayerPurpose.route,
     10 => LeLayerPurpose.region,
+    11 => LeLayerPurpose.placementName,
     _ => null,
   };
 }

@@ -103,12 +103,27 @@ namespace le
     // labeled geometry is - keeps labels legible at any zoom level
     // instead of shrinking to unreadable specks on hair-thin paths/
     // polygon arms. Placeholder default, easily tuned.
-    inline constexpr double kMinLabelPixelSize = 8.0;
+    inline constexpr double kMinLabelPixelSize = 10.0;
 
     // Fraction of the local geometry width actually used for text
     // size, so a label doesn't touch/overflow the edges of the shape
     // it's on. Placeholder default, easily tuned.
     inline constexpr double kLabelWidthRatio = 0.6;
+
+    // A Placement's own name label (BUGS_AND_ENHANCEMENTS.md E13) - font
+    // size is a fraction of the placement's own on-screen *height*
+    // (unlike kLabelWidthRatio above, which scales terminal text off
+    // local width), same "shrinks/grows with the cell, floored at
+    // kMinLabelPixelSize" idea, just driven by the other axis since a
+    // Placement's own on-screen box (not a label anchored to one
+    // shape's own local geometry) is what E13 asks the font to track.
+    inline constexpr double kPlacementLabelHeightRatio = 0.025;
+
+    // Small inset (px) so the label text doesn't visually touch the
+    // placement's own left/right/bottom edges - subtracted from both
+    // sides of the available width before truncating to fit, and added
+    // to the baseline's own position above the bottom edge.
+    inline constexpr double kPlacementLabelPaddingPx = 2.0;
 
     // Below this on-screen pixel spacing, a grid dot tier (minor or
     // major, checked independently) is hidden entirely rather than
@@ -795,6 +810,100 @@ namespace le
         const SkScalar x0 = perp_x < 0.0 ? -text_width : 0.0f;
         canvas.drawString(text.c_str(), x0, 0, font, text_paint);
         canvas.restore();
+    }
+
+    // Truncates `text` to fit within `max_width_px` when rendered with
+    // `font`, replacing characters at the *beginning* with "..." rather
+    // than the end (BUGS_AND_ENHANCEMENTS.md E13) - keeps a long
+    // hierarchical/suffixed instance name's own more-distinguishing tail
+    // visible instead of a shared prefix. Binary search over how many
+    // leading characters to drop instead of a linear scan - measureText
+    // is monotonically non-increasing as more leading characters are
+    // dropped (the remaining substring only ever gets shorter), and this
+    // runs once per real (non-culled) Placement in the whole design,
+    // which can run into the thousands. Returns `text` unchanged if it
+    // already fits, or "" if even "..." alone doesn't fit within
+    // max_width_px.
+    inline std::string truncate_text_to_width(const std::string &text, const SkFont &font, SkScalar max_width_px)
+    {
+        if (font.measureText(text.c_str(), text.size(), SkTextEncoding::kUTF8) <= max_width_px)
+            return text;
+
+        static const std::string kEllipsis = "...";
+        if (font.measureText(kEllipsis.c_str(), kEllipsis.size(), SkTextEncoding::kUTF8) > max_width_px)
+            return "";
+
+        std::size_t lo = 0, hi = text.size();
+        while (lo < hi)
+        {
+            const std::size_t mid = lo + (hi - lo) / 2;
+            const std::string candidate = kEllipsis + text.substr(mid);
+            if (font.measureText(candidate.c_str(), candidate.size(), SkTextEncoding::kUTF8) <= max_width_px)
+                hi = mid;
+            else
+                lo = mid + 1;
+        }
+        return kEllipsis + text.substr(lo);
+    }
+
+    // Draws every real (non-culled) Placement's own name along its
+    // bottom edge (BUGS_AND_ENHANCEMENTS.md E13), font size scaled to
+    // the placement's own on-screen height (kPlacementLabelHeightRatio,
+    // floored at kMinLabelPixelSize - the same idea terminal text's own
+    // kLabelWidthRatio already uses, just off the other axis), truncated
+    // to fit its own on-screen width via truncate_text_to_width above.
+    // Called from BuildLayoutPictureStage::run *after* (on top of) the
+    // real resolved instances - unlike tiny_instance_rects (drawn before
+    // them) - a placement's own label should stay legible over its own
+    // child content, not be the thing that content covers.
+    //
+    // Uses the PLACEMENT_NAME ViewLayer's own outline color (its own
+    // purpose, split out from BOUNDARY - BUGS_AND_ENHANCEMENTS.md E13) -
+    // same "chrome annotation, not real geometry" precedent
+    // tiny_instance_rects already set for placement-level (as opposed to
+    // shape-level) markup, just its own row/color now instead of
+    // borrowing BOUNDARY's. `placement_names_visible` is the caller's own
+    // `scene.is_view_layer_visible("PLACEMENT_NAME", PLACEMENT_NAME)` -
+    // labels aren't real Shapes, so they never flow through
+    // LayerVisibilityFilterStage the way TERMINAL/OBSTRUCTION/etc. do;
+    // this is what makes the PLACEMENT_NAME row's own visibility checkbox
+    // actually do something instead of being purely cosmetic/unwired.
+    inline void draw_placement_labels(SkCanvas &canvas, const std::vector<PlacementLabel> &labels, const ViewLayerSet &view_layers, bool antialiasing_enabled, bool placement_names_visible)
+    {
+        if (labels.empty() || !placement_names_visible)
+            return;
+
+        const ViewLayerData *placement_name_view_layer = view_layers.get(view_layers.placement_name_view_layer());
+        if (!placement_name_view_layer || placement_name_view_layer->style.outline_color.a == 0)
+            return;
+
+        SkPaint text_paint;
+        text_paint.setAntiAlias(antialiasing_enabled);
+        text_paint.setColor(to_sk_color(placement_name_view_layer->style.outline_color));
+
+        for (const PlacementLabel &label : labels)
+        {
+            const double height_px = label.rect.ur.y - label.rect.ll.y;
+            const double width_px = label.rect.ur.x - label.rect.ll.x;
+            const double available_width_px = width_px - 2.0 * kPlacementLabelPaddingPx;
+            if (available_width_px <= 0.0)
+                continue;
+
+            const SkScalar font_size = static_cast<SkScalar>(std::max(height_px * kPlacementLabelHeightRatio, kMinLabelPixelSize));
+            SkFont font(default_typeface(), font_size);
+
+            const std::string text = truncate_text_to_width(label.name, font, static_cast<SkScalar>(available_width_px));
+            if (text.empty())
+                continue;
+
+            canvas.save();
+            canvas.translate(
+                static_cast<SkScalar>(label.rect.ll.x + kPlacementLabelPaddingPx),
+                static_cast<SkScalar>(label.rect.ll.y + kPlacementLabelPaddingPx));
+            canvas.scale(1, -1);
+            canvas.drawString(text.c_str(), 0, 0, font, text_paint);
+            canvas.restore();
+        }
     }
 
     // Draws one ruler segment (UPDATES.md item 13): the line itself, a

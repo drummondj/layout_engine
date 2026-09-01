@@ -1211,3 +1211,47 @@ faster)**. Directionally consistent with the synthetic numbers on both
 entries; the exact split between the two changes' own contributions on
 this specific design isn't known, since they weren't measured separately
 against this fixture.
+
+## 2026-09-01 — new fixture: `BM_HierarchyResolver_RenderLayoutFrame_ColdCache_RealDesign`
+
+While investigating BUGS_AND_ENHANCEMENTS.md E13 (placement name labels),
+a real Tracy capture of the live app rendering `aes_5x5.def` at
+`hierarchy_depth=2` showed `HierarchyResolver::render_layout_frame` taking
+~1.4 s cold - two orders of magnitude past
+`BM_HierarchyResolver_RenderLayoutFrame_ColdCache_FullDepth`'s own ~14 ms
+on this machine, despite that benchmark's fixture having 160,000x more
+placements (4,000,000 vs. aes_5x5's 25 top-level instances). Not a
+regression or a benchmark bug - `layout_stress_data.hpp`'s fixture (see
+its own file-level comment) is deliberately built with trivial per-leaf
+geometry specifically to isolate hierarchy-*node*-count scaling from real
+per-shape drawing cost; it was never meant to stand in for a real dense
+design, and nothing before this entry actually benchmarked that axis.
+
+Added `real_design_data.hpp` (mirrors `layout_stress_data.hpp`'s own
+singleton-fixture shape) - reads the real ISPD22 AES benchmark's NANGATE
+tech/cell LEF, `design_original.def` (defines the real "aes" Layout
+aes_5x5.def instances 25 times), and `aes_5x5.def` itself, from a new
+`REAL_DESIGN_TEST_DATA_DIR` pointing at the repo's own `test_data/` (not
+generated on the fly, unlike `stress_data.hpp`'s synthetic LEF - these are
+real, already-committed fixture files). `make_real_design_scene` fits the
+viewport to the real diearea and uses `hierarchy_depth=2` - the minimum
+depth at which this design shows any content at all ("aes" is a real
+Layout with no Abstract fallback, so depth 0 and 1 both render blank -
+found the hard way while verifying E13).
+
+Release build, `--benchmark_repetitions=5 --benchmark_report_aggregates_only=true`:
+
+| Benchmark | Result |
+| --- | --- |
+| `BM_HierarchyResolver_RenderLayoutFrame_ColdCache_RealDesign` (aes_5x5, 25 real AES macro instances, `hierarchy_depth=2`) | 1287 ms (cv 9.09%) |
+
+Consistent with both the live Tracy capture (~1.4 s) and this file's own
+2026-08-30 entry's real-design confirmation (~1.47 s post-tiling/hairline
+optimization, self-reported). `layout_stress_data.hpp`'s existing three
+`RenderLayoutFrame` benchmarks are kept as-is alongside this one - they
+still validly measure hierarchy-node-count scaling with cheap geometry, a
+real and distinct concern from this new benchmark's own "real dense
+design" one; folding aes_5x5 into that shared fixture instead would have
+lost the pure-scaling signal entirely. Full 652-test suite passes
+unchanged (this only touches benchmark-only files, not `pipelines`
+itself).

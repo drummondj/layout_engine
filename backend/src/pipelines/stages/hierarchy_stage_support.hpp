@@ -34,7 +34,14 @@ namespace le
         SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> &viewport_runner,
         SynchronousStageRunner<LayerVisibilityFilterStage, std::vector<RenderedShape>, std::map<ViewLayerId, std::vector<RenderedShape>>> &layer_runner,
         const ViewLayerSet &view_layers, const Scene &scene, double scale,
-        const std::vector<BuildLayoutPictureStage::ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, Rect declared_bbox, Point local_origin = Point{0, 0})
+        const std::vector<BuildLayoutPictureStage::ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, Rect declared_bbox, Point local_origin = Point{0, 0},
+        // Empty for every caller except build_top_layout_picture
+        // (hierarchy_resolver.hpp) - see HierarchyLayoutNodeStage's own
+        // constructor comment for why placement name labels
+        // (BUGS_AND_ENHANCEMENTS.md E13) are deliberately not threaded
+        // through any recursively-cached node the way tiny_instance_rects
+        // is.
+        const std::vector<PlacementLabel> &placement_labels = {})
     {
         ZoneScopedN("HierarchyResolver: record_local_picture");
         Rect content_bbox = declared_bbox;
@@ -89,6 +96,13 @@ namespace le
             static_cast<SkScalar>(static_cast<double>(content_bbox.ll.x - local_origin.x) * scale), static_cast<SkScalar>(static_cast<double>(content_bbox.ll.y - local_origin.y) * scale),
             static_cast<SkScalar>(static_cast<double>(content_bbox.ur.x - local_origin.x) * scale), static_cast<SkScalar>(static_cast<double>(content_bbox.ur.y - local_origin.y) * scale));
 
-        return BuildLayoutPictureStage::run(bounds, pixel_shapes, instances, tiny_instance_rects, view_layers, scene.antialiasing_enabled());
+        // Labels aren't real Shapes (see placement_labels's own default-
+        // argument comment above), so they never reach
+        // LayerVisibilityFilterStage the way layer_filtered above did -
+        // this is the PLACEMENT_NAME row's own visibility checkbox
+        // actually taking effect, using the real `scene` (not cull_scene,
+        // same reasoning as layer_options above).
+        const bool placement_names_visible = scene.is_view_layer_visible("PLACEMENT_NAME", ViewLayerPurpose::PLACEMENT_NAME);
+        return BuildLayoutPictureStage::run(bounds, pixel_shapes, instances, tiny_instance_rects, placement_labels, view_layers, scene.antialiasing_enabled(), placement_names_visible);
     }
 }
