@@ -240,9 +240,8 @@ check "complete_command never offers filename completion for an unrelated comman
 file delete -force $scratch_dir
 
 # --- -help / help-system integration for read_lef/read_def/source
-# (BUGS_AND_ENHANCEMENTS.md E14 - a down payment specifically for the
-# three commands E11 needed a real command_help registration for
-# anyway, not a full audit of every other command) ---
+# (BUGS_AND_ENHANCEMENTS.md E11 - the three commands E11 needed a real
+# command_help registration for anyway) ---
 
 check_contains "read_lef -help returns its own usage text" [read_lef -help] "read_lef <path>"
 check_contains "read_def -help returns its own usage text" [read_def -help] "read_def <path>"
@@ -250,6 +249,76 @@ check_contains "source -help returns its own usage text" [source -help] "source 
 check_contains "help r* now includes read_lef" [help r*] "read_lef"
 check_contains "help r* now includes read_def" [help r*] "read_def"
 check_contains "man read_lef documents its own <path> argument" [man read_lef] "LEF file to read"
+
+# --- -help / help-system integration audit (BUGS_AND_ENHANCEMENTS.md
+# E14 - the full audit E11's own comment above deferred). Two real bug
+# classes found: (1) three raw SWIG-bound commands
+# (remove_shape_rect/_polygon/_path) had no Tcl-level wrapper at all -
+# not registered, no -help, not even listed by `help` - and (2) several
+# already-registered hand-written commands with a fixed-arity Tcl `proc`
+# signature (2+ required positionals, or 0) either errored with a
+# generic "wrong # args" instead of returning their own usage text, or
+# (worse) silently treated the literal string "-help" as a real
+# argument value with no error at all (get_layer_visible's own
+# pre-fix behavior - a genuinely wrong, non-obvious failure mode, not
+# just a missing nicety).
+
+foreach {cmd expect_substr} {
+    set_layer_visible          "set_layer_visible <layer_name> <visible>"
+    get_layer_visible          "get_layer_visible <layer_name>"
+    set_antialiasing_enabled   "set_antialiasing_enabled <enabled>"
+    get_antialiasing_enabled   "get_antialiasing_enabled"
+    shape_rects                "shape_rects <id>"
+    shape_polygons              "shape_polygons <id>"
+    shape_paths                "shape_paths <id>"
+    set_hierarchy_depth        "set_hierarchy_depth <depth>"
+    get_hierarchy_depth        "get_hierarchy_depth"
+    remove_shape_rect          "remove_shape_rect <id> <index>"
+    remove_shape_polygon       "remove_shape_polygon <id> <polygon_index>"
+    remove_shape_path          "remove_shape_path <id> <path_index>"
+} {
+    if {[catch {$cmd -help} result]} {
+        puts stderr "FAIL: $cmd -help raised an error instead of returning usage text: $result"
+        exit 1
+    }
+    check_contains "$cmd -help returns its own usage text" $result $expect_substr
+    check_contains "help lists $cmd" [help $cmd] $cmd
+    check_contains "man $cmd documents -help" [man $cmd] "-help"
+}
+
+# get_layer_visible's own pre-fix bug specifically: "-help" used to be
+# silently accepted as a real layer_name (no error, wrong answer) rather
+# than being intercepted - confirm it's now the usage string, not 1/0.
+if {[get_layer_visible -help] eq "1" || [get_layer_visible -help] eq "0"} {
+    puts stderr "FAIL: get_layer_visible -help silently treated -help as a layer name again"
+    exit 1
+}
+puts "ok: get_layer_visible -help no longer silently misparses -help as a layer name"
+
+# Regression for the fixed-arity-proc "-help alone doesn't fit the
+# required argument count" class of bug (set_layer_visible/
+# remove_shape_rect/_polygon/_path all used to have this exact shape,
+# 2 required positionals with no `args` catch-all) - -help must work
+# with *zero* other arguments supplied, not just alongside a full,
+# otherwise-valid argument list.
+check_contains "set_layer_visible -help works with no other arguments at all" \
+    [set_layer_visible -help] "set_layer_visible"
+check_contains "remove_shape_rect -help works with no other arguments at all" \
+    [remove_shape_rect -help] "remove_shape_rect"
+
+# A too-long argument list still errors (not silently ignored/truncated)
+# now that these take `args` instead of fixed positionals.
+if {![catch {set_layer_visible M1 1 extra} err]} {
+    puts stderr "FAIL: set_layer_visible accepted a 3rd argument without error"
+    exit 1
+}
+check_contains "set_layer_visible with too many arguments still errors" $err "expected exactly 2 arguments"
+if {![catch {remove_shape_rect shape:0 0 extra} err]} {
+    puts stderr "FAIL: remove_shape_rect accepted a 3rd argument without error"
+    exit 1
+}
+check_contains "remove_shape_rect with too many arguments still errors" $err "expected exactly 2 arguments"
+puts "ok: over-long argument lists still error correctly on the newly args-based commands"
 
 # --- generate_command_docs ---
 

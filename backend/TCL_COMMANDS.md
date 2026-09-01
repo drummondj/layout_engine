@@ -1398,9 +1398,13 @@ One LEF ANTENNAMODEL OXIDE1-4 block within a LAYER - each scalar-or-PWL pair is 
 
 ## get_antialiasing_enabled
 
-`get_antialiasing_enabled`
+`get_antialiasing_enabled [-help]`
 
 Returns whether fill/stroke geometry paints currently antialias their own edges (0 or 1).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## get_array_spacings
 
@@ -1477,9 +1481,13 @@ A global-routing gcell grid line (DEF GCELLGRID)
 
 ## get_hierarchy_depth
 
-`get_hierarchy_depth`
+`get_hierarchy_depth [-help]`
 
 Return the visible hierarchy depth
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## get_influence_spacing_entries
 
@@ -1518,13 +1526,14 @@ One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is a
 
 ## get_layer_visible
 
-`get_layer_visible <layer_name>`
+`get_layer_visible <layer_name> [-help]`
 
 Returns whether every ViewLayer of the real Layer named layer_name is currently visible (0 or 1) - see set_layer_visible's own comment for the row-not-column granularity. Returns 1 for an unknown layer_name, matching Scene's own "unknown name defaults to visible" default.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<layer_name>` | `str` | yes | A real Layer's own name, e.g. "M1" |
+| `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## get_layers
 
@@ -2010,6 +2019,42 @@ Redoes the most recently undone transaction, if any. Returns 1 if something was 
 | --- | --- | --- | --- |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## remove_shape_path
+
+`remove_shape_path <id> <path_index> [-help]`
+
+Removes the path at <path_index> (0..[shape_path_count <id>]-1) from the Shape at <id>, same position-shifts-down semantics as remove_shape_rect. Returns 0 on success, nonzero if id doesn't name a Shape or path_index is out of range.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | A shape: friendly-id token |
+| `<path_index>` | `int` | yes | Path index, 0..[shape_path_count <id>]-1 |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## remove_shape_polygon
+
+`remove_shape_polygon <id> <polygon_index> [-help]`
+
+Removes the polygon at <polygon_index> (0..[shape_polygon_count <id>]-1) from the Shape at <id>, same position-shifts-down semantics as remove_shape_rect. Returns 0 on success, nonzero if id doesn't name a Shape or polygon_index is out of range.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | A shape: friendly-id token |
+| `<polygon_index>` | `int` | yes | Polygon index, 0..[shape_polygon_count <id>]-1 |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## remove_shape_rect
+
+`remove_shape_rect <id> <index> [-help]`
+
+Removes the rect at <index> (0..[shape_rect_count <id>]-1) from the Shape at <id>, shifting every later rect's own index down by one. Returns 0 on success, nonzero if id doesn't name a Shape or index is out of range.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | A shape: friendly-id token |
+| `<index>` | `int` | yes | Rect index, 0..[shape_rect_count <id>]-1 |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## report_properties
 
 `report_properties <tokens>`
@@ -2022,27 +2067,29 @@ Pretty-prints every property of every given friendly-id token to stdout, one ali
 
 ## set_antialiasing_enabled
 
-`set_antialiasing_enabled <enabled>`
+`set_antialiasing_enabled <enabled> [-help]`
 
 Sets whether fill/stroke geometry paints antialias their own edges (grid/chrome/text paints are unaffected, always antialiased - see draw_group's own comment). Off by default, matching most commercial EDA tools' own default.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<enabled>` | `bool` | yes | 0/1 or true/false |
+| `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## set_hierarchy_depth
 
-`set_hierarchy_depth <depth>`
+`set_hierarchy_depth <depth> [-help]`
 
 Set the visible hierarchy depth
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<depth>` | `int` | yes | The hierarchy depth, 1 or larger |
+| `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## set_layer_visible
 
-`set_layer_visible <layer_name> <visible>`
+`set_layer_visible <layer_name> <visible> [-help]`
 
 Sets whether every ViewLayer of the real Layer named layer_name (e.g. both its TERMINAL and OBSTRUCTION purposes, not one at a time - see le_set_layer_name_visible's own api.hpp comment) is visible. Visible by default until toggled.
 
@@ -2050,6 +2097,7 @@ Sets whether every ViewLayer of the real Layer named layer_name (e.g. both its T
 | --- | --- | --- | --- |
 | `<layer_name>` | `str` | yes | A real Layer's own name, e.g. "M1" |
 | `<visible>` | `bool` | yes | 0/1 or true/false - hide/show |
+| `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## set_viewport_size
 
@@ -2065,33 +2113,36 @@ Sets the render viewport's pixel size (used by le_render_pixel_buffer).
 
 ## shape_paths
 
-`shape_paths <id>`
+`shape_paths <id> [-help]`
 
 Every path on the given Shape, as a list of {width_um <double> points <flat x/y list, microns>} dicts.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | A shape: friendly-id token |
+| `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## shape_polygons
 
-`shape_polygons <id>`
+`shape_polygons <id> [-help]`
 
 Every polygon on the given Shape, as a list of point lists (each a flat {x y x y ...} list, microns).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | A shape: friendly-id token |
+| `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## shape_rects
 
-`shape_rects <id>`
+`shape_rects <id> [-help]`
 
 Every rect on the given Shape, as a list of {ll_x ll_y ur_x ur_y} coordinate lists in microns.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | A shape: friendly-id token |
+| `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## show_gui
 

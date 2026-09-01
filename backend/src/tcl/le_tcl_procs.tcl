@@ -829,49 +829,69 @@ register_command_help zoom_area \
 
 # --- layer visibility (backed by set_layer_visible_cmd/get_layer_visible_cmd
 # -> le_set_layer_name_visible/le_is_layer_name_visible) ---
-proc set_layer_visible { layer_name visible } {
-    set_layer_visible_cmd $layer_name $visible
+proc set_layer_visible { layer_name args } {
+    if {$layer_name eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_layer_visible <layer_name> <visible> \[-help\] - Sets a layer row's own visibility"
+    }
+    if {[llength $args] != 1} {
+        error "set_layer_visible: expected exactly 2 arguments (layer_name, visible), got [expr {1 + [llength $args]}]"
+    }
+    set_layer_visible_cmd $layer_name [lindex $args 0]
     return ""
 }
 register_command_help set_layer_visible \
-    "set_layer_visible <layer_name> <visible>" \
+    "set_layer_visible <layer_name> <visible> \[-help\]" \
     "Sets whether every ViewLayer of the real Layer named layer_name (e.g. both its TERMINAL and OBSTRUCTION purposes, not one at a time - see le_set_layer_name_visible's own api.hpp comment) is visible. Visible by default until toggled." \
     {
         {<layer_name> {type str required 1 description {A real Layer's own name, e.g. "M1"}}}
         {<visible> {type bool required 1 description {0/1 or true/false - hide/show}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
 proc get_layer_visible { layer_name } {
+    if {$layer_name eq "-help"} {
+        return "get_layer_visible <layer_name> \[-help\] - Returns a layer row's own current visibility"
+    }
     return [get_layer_visible_cmd $layer_name]
 }
 register_command_help get_layer_visible \
-    "get_layer_visible <layer_name>" \
+    "get_layer_visible <layer_name> \[-help\]" \
     "Returns whether every ViewLayer of the real Layer named layer_name is currently visible (0 or 1) - see set_layer_visible's own comment for the row-not-column granularity. Returns 1 for an unknown layer_name, matching Scene's own \"unknown name defaults to visible\" default." \
     {
         {<layer_name> {type str required 1 description {A real Layer's own name, e.g. "M1"}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
 # --- antialiasing (backed by set_antialiasing_enabled_cmd/
 # get_antialiasing_enabled_cmd -> le_set_antialiasing_enabled/
 # le_is_antialiasing_enabled) ---
 proc set_antialiasing_enabled { enabled } {
+    if {$enabled eq "-help"} {
+        return "set_antialiasing_enabled <enabled> \[-help\] - Sets whether fill/stroke paints antialias"
+    }
     set_antialiasing_enabled_cmd $enabled
     return ""
 }
 register_command_help set_antialiasing_enabled \
-    "set_antialiasing_enabled <enabled>" \
+    "set_antialiasing_enabled <enabled> \[-help\]" \
     "Sets whether fill/stroke geometry paints antialias their own edges (grid/chrome/text paints are unaffected, always antialiased - see draw_group's own comment). Off by default, matching most commercial EDA tools' own default." \
     {
         {<enabled> {type bool required 1 description {0/1 or true/false}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-proc get_antialiasing_enabled {} {
+proc get_antialiasing_enabled {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_antialiasing_enabled \[-help\] - Returns whether fill/stroke paints currently antialias"
+    }
     return [get_antialiasing_enabled_cmd]
 }
 register_command_help get_antialiasing_enabled \
-    "get_antialiasing_enabled" \
+    "get_antialiasing_enabled \[-help\]" \
     "Returns whether fill/stroke geometry paints currently antialias their own edges (0 or 1)." \
-    {}
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
 
 # --- read_lef/read_def/source/dump_png - BUGS_AND_ENHANCEMENTS.md E11/
 # E14. read_lef/read_def were previously raw SWIG-bound commands with no
@@ -1194,6 +1214,9 @@ register_command_help report_properties \
 # "replace-the-whole-list" flags don't do more conveniently) ---
 
 proc shape_rects {id} {
+    if {$id eq "-help"} {
+        return "shape_rects <id> \[-help\] - Every rect on Shape <id>, as a list of {ll_x ll_y ur_x ur_y} (microns)"
+    }
     set result {}
     set n [shape_rect_count $id]
     for {set i 0} {$i < $n} {incr i} {
@@ -1202,13 +1225,17 @@ proc shape_rects {id} {
     return $result
 }
 register_command_help shape_rects \
-    "shape_rects <id> - Every rect on Shape <id>, as a list of {ll_x ll_y ur_x ur_y} (microns)" \
+    "shape_rects <id> \[-help\] - Every rect on Shape <id>, as a list of {ll_x ll_y ur_x ur_y} (microns)" \
     "Every rect on the given Shape, as a list of {ll_x ll_y ur_x ur_y} coordinate lists in microns." \
     {
         {<id> {type token required 1 description {A shape: friendly-id token}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
 proc shape_polygons {id} {
+    if {$id eq "-help"} {
+        return "shape_polygons <id> \[-help\] - Every polygon on Shape <id>, as a list of point lists (microns)"
+    }
     set result {}
     set polygon_count [shape_polygon_count $id]
     for {set p 0} {$p < $polygon_count} {incr p} {
@@ -1222,10 +1249,76 @@ proc shape_polygons {id} {
     return $result
 }
 register_command_help shape_polygons \
-    "shape_polygons <id> - Every polygon on Shape <id>, as a list of point lists (microns)" \
+    "shape_polygons <id> \[-help\] - Every polygon on Shape <id>, as a list of point lists (microns)" \
     "Every polygon on the given Shape, as a list of point lists (each a flat {x y x y ...} list, microns)." \
     {
         {<id> {type token required 1 description {A shape: friendly-id token}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# remove_shape_rect/_polygon/_path (BUGS_AND_ENHANCEMENTS.md E14) - the
+# last raw SWIG-bound commands left with no Tcl-level wrapper at all
+# (unlike every other command in this file, hand-written or generated) -
+# same `rename` + re-wrap trick read_lef/read_def use above, needed here
+# purely to intercept -help before it reaches the raw command's own fixed
+# 2-argument arity (id, index) and errors out. Return code/error
+# semantics are untouched - still an int, 0 on success, matching
+# le_remove_shape_rect/_polygon/_path's own doc comment.
+rename remove_shape_rect _remove_shape_rect_cmd
+proc remove_shape_rect {id args} {
+    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "remove_shape_rect <id> <index> \[-help\] - Removes the rect at <index> from Shape <id>"
+    }
+    if {[llength $args] != 1} {
+        error "remove_shape_rect: expected exactly 2 arguments (id, index), got [expr {1 + [llength $args]}]"
+    }
+    return [_remove_shape_rect_cmd $id [lindex $args 0]]
+}
+register_command_help remove_shape_rect \
+    "remove_shape_rect <id> <index> \[-help\]" \
+    "Removes the rect at <index> (0..\[shape_rect_count <id>\]-1) from the Shape at <id>, shifting every later rect's own index down by one. Returns 0 on success, nonzero if id doesn't name a Shape or index is out of range." \
+    {
+        {<id> {type token required 1 description {A shape: friendly-id token}}}
+        {<index> {type int required 1 description {Rect index, 0..[shape_rect_count <id>]-1}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+rename remove_shape_polygon _remove_shape_polygon_cmd
+proc remove_shape_polygon {id args} {
+    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "remove_shape_polygon <id> <polygon_index> \[-help\] - Removes the polygon at <polygon_index> from Shape <id>"
+    }
+    if {[llength $args] != 1} {
+        error "remove_shape_polygon: expected exactly 2 arguments (id, polygon_index), got [expr {1 + [llength $args]}]"
+    }
+    return [_remove_shape_polygon_cmd $id [lindex $args 0]]
+}
+register_command_help remove_shape_polygon \
+    "remove_shape_polygon <id> <polygon_index> \[-help\]" \
+    "Removes the polygon at <polygon_index> (0..\[shape_polygon_count <id>\]-1) from the Shape at <id>, same position-shifts-down semantics as remove_shape_rect. Returns 0 on success, nonzero if id doesn't name a Shape or polygon_index is out of range." \
+    {
+        {<id> {type token required 1 description {A shape: friendly-id token}}}
+        {<polygon_index> {type int required 1 description {Polygon index, 0..[shape_polygon_count <id>]-1}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+rename remove_shape_path _remove_shape_path_cmd
+proc remove_shape_path {id args} {
+    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "remove_shape_path <id> <path_index> \[-help\] - Removes the path at <path_index> from Shape <id>"
+    }
+    if {[llength $args] != 1} {
+        error "remove_shape_path: expected exactly 2 arguments (id, path_index), got [expr {1 + [llength $args]}]"
+    }
+    return [_remove_shape_path_cmd $id [lindex $args 0]]
+}
+register_command_help remove_shape_path \
+    "remove_shape_path <id> <path_index> \[-help\]" \
+    "Removes the path at <path_index> (0..\[shape_path_count <id>\]-1) from the Shape at <id>, same position-shifts-down semantics as remove_shape_rect. Returns 0 on success, nonzero if id doesn't name a Shape or path_index is out of range." \
+    {
+        {<id> {type token required 1 description {A shape: friendly-id token}}}
+        {<path_index> {type int required 1 description {Path index, 0..[shape_path_count <id>]-1}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
 # --- GUI (Phase 6 - see TCL_EXPLORATION.md) ---
@@ -1253,6 +1346,9 @@ register_command_help show_gui \
     }
 
 proc shape_paths {id} {
+    if {$id eq "-help"} {
+        return "shape_paths <id> \[-help\] - Every path on Shape <id>, as a list of {width_um <um> points <list>} dicts"
+    }
     set result {}
     set path_count [shape_path_count $id]
     for {set p 0} {$p < $path_count} {incr p} {
@@ -1266,26 +1362,36 @@ proc shape_paths {id} {
     return $result
 }
 register_command_help shape_paths \
-    "shape_paths <id> - Every path on Shape <id>, as a list of {width_um <um> points <list>} dicts" \
+    "shape_paths <id> \[-help\] - Every path on Shape <id>, as a list of {width_um <um> points <list>} dicts" \
     "Every path on the given Shape, as a list of {width_um <double> points <flat x/y list, microns>} dicts." \
     {
         {<id> {type token required 1 description {A shape: friendly-id token}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
 proc set_hierarchy_depth { depth } {
+    if {$depth eq "-help"} {
+        return "set_hierarchy_depth <depth> \[-help\] - Sets the visible hierarchy depth"
+    }
     set_hierarchy_depth_command $depth
 }
 register_command_help set_hierarchy_depth \
-    "set_hierarchy_depth <depth>" \
+    "set_hierarchy_depth <depth> \[-help\]" \
     "Set the visible hierarchy depth" \
     {
         {<depth> {type int required 1 description {The hierarchy depth, 1 or larger}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-proc get_hierarchy_depth {} {
+proc get_hierarchy_depth {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_hierarchy_depth \[-help\] - Returns the visible hierarchy depth"
+    }
     return [get_hierarchy_depth_command]
 }
 register_command_help get_hierarchy_depth \
-    "get_hierarchy_depth" \
+    "get_hierarchy_depth \[-help\]" \
     "Return the visible hierarchy depth" \
-    {}
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
