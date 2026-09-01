@@ -59,20 +59,13 @@ namespace le::gui
 
         ImGui::TableSetColumnIndex(0);
         ImGui::Text("Mode: %s", mode_label(le_get_mode(handle)));
-        // Flutter's own CircularProgressIndicator has no direct ImGui
-        // equivalent worth building for a prototype - a plain text
-        // marker conveys the same "something is happening" signal
-        // status_bar.dart's own isRunning||isRendering spinner does.
-        // le_is_rendering is the only half of that pair with a backend
-        // signal today (see le_gui.cpp's own render-overlay comment) -
-        // isRunning (a long-running console-thread Tcl command, as
-        // opposed to a render) has no equivalent flag yet, so this only
-        // reflects renders for now.
-        if (le_is_rendering(handle))
-        {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(rendering...)");
-        }
+        // status_bar.dart's own isRunning||isRendering spinner has no
+        // ImGui equivalent here - a text marker toggling in and out
+        // every render (rather than a real animated spinner) read as
+        // distracting flicker rather than useful feedback, so this was
+        // dropped rather than kept as a text stand-in; le_gui.cpp's own
+        // "rendering..." corner overlay on the design view itself still
+        // covers the same signal.
 
         ImGui::TableSetColumnIndex(1);
         const char *tooltip = le_tooltip_message(handle);

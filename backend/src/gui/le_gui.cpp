@@ -2,6 +2,7 @@
 
 #include "api.hpp"
 #include "components/status_bar.hpp"
+#include "components/library_browser.hpp"
 
 // Apple deprecated the whole OpenGL framework in favor of Metal (10.14+)
 // but still fully implements it - every desktop-GL ImGui backend still
@@ -460,12 +461,10 @@ namespace le::gui
 
                 const bool dock_layout_just_built = draw_dockspace_and_default_layout(dockspace_built);
 
-                // Left/right sidebars - placeholders until the Flutter
-                // frontend's own LibraryBrowser/LayerManager/
-                // PropertyViewer components are ported here (this
-                // session's own next step after docking itself works).
+                // Left sidebar - components/library_browser.hpp, the
+                // ImGui port of frontend/lib/components/library_browser.dart.
                 ImGui::Begin(kBrowserWindowTitle);
-                ImGui::TextDisabled("(browser panel - not ported yet)");
+                draw_library_browser(handle);
                 ImGui::End();
 
                 ImGui::Begin(kPropertiesWindowTitle);
@@ -618,7 +617,33 @@ namespace le::gui
             }
 
             stop_render_thread.store(true, std::memory_order_relaxed);
-            // May never have been spawned at all - a window closed within
+
+            // Tear the window/GL/ImGui resources down *before* waiting
+            // for the render thread to actually exit, not after - it
+            // never touches any of them (only le_render_pixel_buffer()
+            // on `handle` and its own mailbox, under mailbox.mutex), so
+            // there's no ordering hazard in destroying them first.
+            // Joining first was a real, reproduced bug: the render
+            // thread's own last in-flight le_render_pixel_buffer() call
+            // can take several real seconds for a large design
+            // (BENCHMARKS.md) - blocking here *before* the window was
+            // destroyed left a live window on screen that stopped
+            // responding to window-server events for that whole
+            // duration, which macOS reports as "Application Not
+            // Responding" (the spinning beachball cursor). Destroying
+            // the window first makes it disappear immediately regardless
+            // of how long the trailing render still has left to run.
+            glDeleteTextures(1, &texture_id);
+            ImGui_ImplOpenGL3_Shutdown();
+            ImGui_ImplGlfw_Shutdown();
+            ImGui::DestroyContext();
+            glfwDestroyWindow(window);
+
+            // Still joined (not detached) before this function returns -
+            // `mailbox` is this function's own stack storage, and the
+            // thread writes into it right up until it observes `stop`,
+            // so it has to be reaped before that storage goes away. May
+            // never have been spawned at all - a window closed within
             // its very first couple of frames, before docking's own
             // layout ever settled enough to compute a real viewport size
             // (see this thread's own declaration comment above).
@@ -626,12 +651,6 @@ namespace le::gui
             {
                 render_thread.join();
             }
-
-            glDeleteTextures(1, &texture_id);
-            ImGui_ImplOpenGL3_Shutdown();
-            ImGui_ImplGlfw_Shutdown();
-            ImGui::DestroyContext();
-            glfwDestroyWindow(window);
         }
     }
 
