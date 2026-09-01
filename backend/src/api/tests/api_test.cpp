@@ -860,15 +860,29 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutWithZeroHierarchyDepthStillRendersOwnPl
 // ClickSelectingAShapeReportsExactlyTheSamePropertiesAsGetPropertiesOnItsShapeId
 // already does for the Abstract path.
 
-TEST_F(ApiFixture, MouseClickInLayoutViewPrefersATopmostPlacementOverContentBehindIt)
+TEST_F(ApiFixture, MouseClickInLayoutViewPrefersAnOwnShapeOverAPlacementsBoundingBoxAtTheSamePoint)
 {
     // TESTCELL (testcell.lef) is exactly 10x10 um - placed at (0,0) N,
-    // its own world bbox is (0,0)-(10,10) um, fully inside a 20x20 um
-    // routing blockage sharing the same origin. (5,5) um falls inside
-    // both - a Placement is always drawn topmost (BuildLayoutPictureStage::
-    // run draws own_shapes, then instances, on top) - so a click there
-    // must select the Placement, not the Blockage behind it. (15,15) um
-    // falls inside only the (larger) blockage.
+    // its own world bbox is (0,0)-(10,10) um. A smaller 6x6 um routing
+    // blockage shares the same origin, so it only partially overlaps
+    // that bbox - (3,3) um falls inside both; (8,8) um falls inside only
+    // the placement's own bbox.
+    //
+    // BUGS_AND_ENHANCEMENTS.md B2: hit_test_placements_point (src/core/
+    // placement_geometry.hpp) is a pure bounding-box test, not real
+    // per-pixel/geometry hit-testing - a click used to unconditionally
+    // prefer a Placement whose bbox covered the point, even where the
+    // placement's own painted content was actually transparent there and
+    // an own_shape (a Blockage/Route/PhysicalPort/Row/Region belonging
+    // directly to this Layout) was visibly the thing under the cursor -
+    // disagreeing with what mouse-hover already showed there
+    // (le_set_mouse_position only ever hit-tests own_shapes, never a
+    // Placement - see its own comment). (3,3) um is exactly that case:
+    // a click there must now select the Blockage's own Shape, not the
+    // Placement whose bbox merely happens to also cover that point.
+    // (8,8) um - inside the placement's own bbox, away from the
+    // blockage entirely - still falls through to the Placement exactly
+    // as before, confirming the fallback wasn't broken by this fix.
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
     const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
 
@@ -891,7 +905,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersATopmostPlacementOverContentBehi
     // creates, which is harmless for what this test actually checks.
     const LeBlockageId blockage_id = le_create_blockage(handle, top_layout, placement_id, "ROUTING", "M1", 0, 0.0, 0, 0.0, 0, 0, 0.0);
     ASSERT_NE(blockage_id.index, UINT32_MAX);
-    const double blockage_rect_um[4] = {0.0, 0.0, 20.0, 20.0};
+    const double blockage_rect_um[4] = {0.0, 0.0, 6.0, 6.0};
     const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
     ASSERT_NE(m1_layer.index, UINT32_MAX);
     const LeShapeId blockage_shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, blockage_id, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, blockage_rect_um, 4, 0, 0.0, 0, 0.0, 0);
@@ -936,14 +950,9 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersATopmostPlacementOverContentBehi
     // scale-0.01 setup already relies on, just a different target scale.
     le_zoom(handle, 0.005 - 1.0, 0, 100);
 
-    le_mouse_down(handle, 25, 75); // dbu (5000,5000) = (5,5) um - inside both
-    le_mouse_up(handle, 25, 75);
+    le_mouse_down(handle, 15, 85); // dbu (3000,3000) = (3,3) um - inside both the blockage and the placement's own bbox
+    le_mouse_up(handle, 15, 85);
     ASSERT_EQ(le_selection_count(handle), 1);
-    EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_PLACEMENT);
-
-    le_mouse_down(handle, 75, 25); // dbu (15000,15000) = (15,15) um - inside only the blockage
-    le_mouse_up(handle, 75, 25);
-    ASSERT_EQ(le_selection_count(handle), 1); // no shift held - replaces the previous selection
 
     // Blockage has a real backing Shape (unlike Row/Region), so it rides
     // the same ShapePiece alternative Terminal/Obstruction already do -
@@ -959,6 +968,11 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersATopmostPlacementOverContentBehi
     const LeObjectRef parent_ref = le_object_parent(handle, shape_ref);
     EXPECT_EQ(parent_ref.kind, LE_OBJECT_KIND_BLOCKAGE);
     EXPECT_EQ(parent_ref.index, blockage_id.index);
+
+    le_mouse_down(handle, 40, 60); // dbu (8000,8000) = (8,8) um - inside the placement's own bbox only
+    le_mouse_up(handle, 40, 60);
+    ASSERT_EQ(le_selection_count(handle), 1); // no shift held - replaces the previous selection
+    EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_PLACEMENT);
 }
 
 TEST_F(ApiFixture, UnsetOptionalReferenceFieldDisplaysAsEmptyStringNotADanglingToken)

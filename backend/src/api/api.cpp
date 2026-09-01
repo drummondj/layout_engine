@@ -2302,20 +2302,34 @@ extern "C"
     // BUGS_AND_ENHANCEMENTS.md) - top-level Layout content only, never
     // recursing into a Placement's own reference_design (matches this
     // codebase's own existing, documented "whole-placement only"
-    // deferral - see InstanceRenderer's own class comment). Placement
-    // hit-testing (hit_test_placements_point/_rect, src/core/
-    // placement_geometry.hpp) is checked first/unioned first since a
-    // Placement is always drawn topmost (BuildLayoutPictureStage::run
-    // draws own_shapes - Blockage/Route/PhysicalPort/Row/Region - first,
-    // then instances on top of them) - a click only ever selects the one
-    // topmost object, a drag unions everything enclosed regardless of
-    // stacking. Blockage/Route/PhysicalPort share the exact same
-    // ShapeId+piece re-resolution as the Abstract branch above (they
-    // have real backing Shapes); Row/Region have no Shape at all, so a
-    // hit with `origin` set but `shape_id` unset gets its own small fork
-    // straight into scene.select(RowId)/scene.select(RegionId) - there's
-    // no separate Root-owned geometry to re-validate a piece against, the
-    // synthesized rect *is* the geometry.
+    // deferral - see InstanceRenderer's own class comment). A click
+    // checks own_shapes (hit_test_point - Blockage/Route/PhysicalPort/
+    // Row/Region) *before* Placement (hit_test_placements_point,
+    // src/core/placement_geometry.hpp) - BUGS_AND_ENHANCEMENTS.md B2:
+    // hit_test_placements_point is a pure bounding-box test, not real
+    // per-pixel/geometry hit-testing, so a click that lands within a
+    // placement's own bbox but over a point where its own painted
+    // content is actually transparent there (leaving an own_shape like a
+    // Route visible underneath - exactly what mouse-hover's own
+    // hit_test_point-only path, le_set_mouse_position, already shows)
+    // used to still claim the click for the Placement regardless,
+    // disagreeing with whatever was actually highlighted. Falling
+    // through to the Placement bbox test only when own_shapes has no hit
+    // at all fixes that while keeping every other case unchanged (a
+    // click genuinely inside a placement's own content, away from any
+    // own_shape, still finds nothing via hit_test_point and falls
+    // through to it exactly as before). Blockage/Route/PhysicalPort
+    // share the exact same ShapeId+piece re-resolution as the Abstract
+    // branch above (they have real backing Shapes); Row/Region have no
+    // Shape at all, so a hit with `origin` set but `shape_id` unset gets
+    // its own small fork straight into scene.select(RowId)/
+    // scene.select(RegionId) - there's no separate Root-owned geometry
+    // to re-validate a piece against, the synthesized rect *is* the
+    // geometry. A drag (the `else` branch below) has no such ordering
+    // concern - it unions both hit_test_placements_rect and
+    // hit_test_rect's own results independently rather than picking one
+    // topmost target, so the same set of ids ends up selected regardless
+    // of which is checked first.
     void select_in_layout_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
     {
         const le::LayoutId layout_id = handle->scene.current_layout();
@@ -2326,30 +2340,28 @@ extern "C"
         {
             const le::Point dbu_point = handle->scene.pixel_to_dbu(x, y);
 
-            if (const auto placement_id = le::hit_test_placements_point(handle->root, layout_id, remaining_depth, dbu_point))
-            {
-                handle->scene.select(*placement_id);
-                return;
-            }
-
             const auto hit = le::hit_test_point(shapes, handle->view_layers, handle->scene, dbu_point);
-            if (!hit)
-                return;
-
-            if (hit->shape_id)
+            if (hit)
             {
-                if (const le::ShapeData *data = handle->root.get_shape(*hit->shape_id))
+                if (hit->shape_id)
                 {
-                    if (const auto raw_piece = le::Geometry::find_hit_piece(*data, dbu_point))
-                        handle->scene.select(*hit->shape_id, raw_piece->kind, raw_piece->index);
-                    else
-                        handle->scene.select(*hit->shape_id);
+                    if (const le::ShapeData *data = handle->root.get_shape(*hit->shape_id))
+                    {
+                        if (const auto raw_piece = le::Geometry::find_hit_piece(*data, dbu_point))
+                            handle->scene.select(*hit->shape_id, raw_piece->kind, raw_piece->index);
+                        else
+                            handle->scene.select(*hit->shape_id);
+                    }
                 }
+                else if (const auto *row_id = std::get_if<le::RowId>(&hit->origin))
+                    handle->scene.select(*row_id);
+                else if (const auto *region_id = std::get_if<le::RegionId>(&hit->origin))
+                    handle->scene.select(*region_id);
+                return;
             }
-            else if (const auto *row_id = std::get_if<le::RowId>(&hit->origin))
-                handle->scene.select(*row_id);
-            else if (const auto *region_id = std::get_if<le::RegionId>(&hit->origin))
-                handle->scene.select(*region_id);
+
+            if (const auto placement_id = le::hit_test_placements_point(handle->root, layout_id, remaining_depth, dbu_point))
+                handle->scene.select(*placement_id);
         }
         else
         {
