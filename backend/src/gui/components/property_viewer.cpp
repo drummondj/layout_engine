@@ -342,6 +342,32 @@ namespace le::gui
             return children;
         }
 
+        // A read-only, click-and-drag-selectable, Ctrl+C-copyable text
+        // field - ImGui's own idiom for this (there's no plain-text
+        // "selectable label" widget), matching property_viewer.dart's
+        // own SelectableText for each property name/value cell. `id`
+        // must be unique per call (e.g. "##prop_name_3") - ImGui widgets
+        // are identified by id, not position. A `std::vector<char>`
+        // sized to `text`'s own length (not a fixed-size stack buffer)
+        // since a property value has no fixed bound worth guessing at.
+        void draw_selectable_text(const char *id, const std::string &text)
+        {
+            std::vector<char> buf(text.begin(), text.end());
+            buf.push_back('\0');
+            ImGui::SetNextItemWidth(-1.0f);
+            // Transparent frame background - an ordinary input field's
+            // own filled/bordered look (blue by default) reads as an
+            // editable field sitting inside a property table, not
+            // selectable text; the table's own row striping shows
+            // through instead, closer to how SelectableText looked
+            // against DataTable's own row background in property_viewer.dart.
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+            ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+            ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+            ImGui::InputText(id, buf.data(), buf.size(), ImGuiInputTextFlags_ReadOnly);
+            ImGui::PopStyleColor(3);
+        }
+
         // Rebuilds `hierarchy` as `ref`'s own ancestor chain (root first)
         // and makes `ref` the currently-displayed node - property_viewer.dart's
         // own _jumpTo, called both when the outer selection/pager changes
@@ -442,10 +468,12 @@ namespace le::gui
                     }
                 }
                 ImGui::TableNextRow();
+                ImGui::PushID(i);
                 ImGui::TableSetColumnIndex(0);
-                ImGui::TextUnformatted(property.name);
+                draw_selectable_text("##prop_name", property.name);
                 ImGui::TableSetColumnIndex(1);
-                ImGui::TextUnformatted(value.c_str());
+                draw_selectable_text("##prop_value", value);
+                ImGui::PopID();
             }
 
             // objectChildren can mix kinds in one list (an Abstract's own
