@@ -160,8 +160,13 @@ namespace le
     // and drawn in the label's own layer color (see draw_group), not
     // a new global color, so it visually reads as "belonging to"
     // that label - color, not size, is what keeps the two from being
-    // confused. Placeholder defaults, easily tuned.
-    inline constexpr float kLabelOriginMarkerSizePx = 16.0f;
+    // confused. Scales with the label's own on-screen text size
+    // (BUGS_AND_ENHANCEMENTS.md E16 - was a fixed pixel size before,
+    // so a marker sized for small text looked oversized next to large
+    // text and vice versa) - see the text loop in draw_group for
+    // kLabelOriginMarkerSizeRatio's own use (PixelText::size * this
+    // ratio). Placeholder stroke width, easily tuned.
+    inline constexpr float kLabelOriginMarkerSizeRatio = 0.5f;
     inline constexpr float kLabelOriginMarkerStrokeWidth = 2.0f;
 
     // Grid-snap indicator box (UPDATES.md 5.2) - fully opaque so it
@@ -1332,7 +1337,7 @@ namespace le
                     // doesn't need to counter-flip anything itself -
                     // drawn in the same local, already-translated
                     // coordinate system so it tracks the label exactly.
-                    const SkScalar half = kLabelOriginMarkerSizePx / 2.0f;
+                    const SkScalar half = static_cast<SkScalar>(t.size) * kLabelOriginMarkerSizeRatio / 2.0f;
                     canvas.drawLine(-half, 0, half, 0, label_origin_paint);
                     canvas.drawLine(0, -half, 0, half, label_origin_paint);
 

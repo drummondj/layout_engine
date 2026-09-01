@@ -215,6 +215,36 @@ TEST(DrawGroupAntiAliasing, DisablingAntiAliasingProducesAHardEdgeInsteadOfAFrac
     EXPECT_TRUE(aa_off_alpha == 0 || aa_off_alpha == 255) << "got " << static_cast<int>(aa_off_alpha);
 }
 
+// BUGS_AND_ENHANCEMENTS.md E16 - the small "+" marker drawn at each
+// label's own anchor point (kLabelOriginMarkerSizeRatio) used to be a
+// fixed pixel size regardless of the label's own text size; now it
+// scales with it (half the text's own pixel height/size). Two labels
+// with very different PixelText::size, anchored far enough apart that
+// their own crosses can't overlap - the larger text's cross must reach
+// noticeably farther from its own anchor than the smaller text's does.
+TEST(DrawGroupLabelOriginMarker, CrossMarkerSizeScalesWithTheLabelsOwnTextSize)
+{
+    le::PixelShape small_text_shape;
+    small_text_shape.texts.push_back(le::PixelText{.label = "", .location = {.x = 50, .y = 50}, .size = 20.0});
+
+    le::PixelShape large_text_shape;
+    large_text_shape.texts.push_back(le::PixelText{.label = "", .location = {.x = 150, .y = 150}, .size = 100.0});
+
+    le::ViewLayerStyle style;
+    style.fill_color = le::Color{.r = 0, .g = 0, .b = 0, .a = 0};
+    style.outline_color = le::Color{.r = 0, .g = 0, .b = 0, .a = 255};
+
+    const SkBitmap bitmap = draw_group_to_bitmap({small_text_shape, large_text_shape}, style, 200, 200);
+
+    // Half-length is size * kLabelOriginMarkerSizeRatio / 2 = size / 4:
+    // small (20px) -> 5px, large (100px) -> 25px.
+    EXPECT_TRUE(region_has_opaque_pixel(bitmap, 46, 50, 54, 50)) << "small label's own cross should be present near its anchor";
+    EXPECT_FALSE(region_has_opaque_pixel(bitmap, 65, 50, 65, 50)) << "small label's own cross should not reach 15px out";
+
+    EXPECT_TRUE(region_has_opaque_pixel(bitmap, 146, 150, 154, 150)) << "large label's own cross should be present near its anchor";
+    EXPECT_TRUE(region_has_opaque_pixel(bitmap, 165, 150, 165, 150)) << "large label's own cross should reach 15px out (half-length 25px)";
+}
+
 // BUGS_AND_ENHANCEMENTS.md E13 - truncate_text_to_width backs Placement
 // name labels (replaces characters at the *beginning* with "...", unlike
 // a typical trailing-ellipsis truncation).
