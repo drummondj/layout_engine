@@ -1,5 +1,6 @@
 #include "../api.hpp"
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -3358,6 +3359,48 @@ TEST_F(ApiFixture, ConcurrentRenderAndMousePositionCallsOnTheSameHandleDoNotCras
         le_set_mouse_position(handle, i % 200, (i * 7) % 200);
 
     render_thread.join();
+}
+
+TEST_F(ApiFixture, IsRenderingReflectsWhetherARenderIsActuallyInProgress)
+{
+    // BUGS_AND_ENHANCEMENTS.md E17 - a status-bar spinner also driven by
+    // interactive zoom/pan (not just a running Tcl command like the
+    // existing one) needs to observe a render actually in progress from a
+    // different thread, without blocking behind it (see le_is_rendering's
+    // own doc comment for why it deliberately doesn't take handle's own
+    // mutex). Same concurrency-stress fixture as
+    // ConcurrentRenderAndMousePositionCallsOnTheSameHandleDoNotCrash
+    // above, reused here specifically because its own render takes real,
+    // observable time: a render_thread does the actual render while this
+    // thread tight-spin-polls le_is_rendering concurrently, expecting to
+    // catch it true at least once before the render finishes.
+    ASSERT_EQ(le_read_lef(handle, generate_concurrency_stress_lef(3000).c_str()), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+    le_set_viewport_size(handle, 200, 200);
+
+    EXPECT_EQ(le_is_rendering(handle), 0);
+    EXPECT_EQ(le_is_rendering(nullptr), 0);
+
+    std::atomic<bool> render_done{false};
+    std::thread render_thread([&]
+                               {
+        const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+        EXPECT_NE(buffer.data, nullptr);
+        render_done.store(true, std::memory_order_relaxed); });
+
+    bool observed_rendering = false;
+    while (!render_done.load(std::memory_order_relaxed))
+    {
+        if (le_is_rendering(handle))
+        {
+            observed_rendering = true;
+            break;
+        }
+    }
+
+    render_thread.join();
+    EXPECT_TRUE(observed_rendering) << "expected to observe le_is_rendering() true at least once during a real render";
+    EXPECT_EQ(le_is_rendering(handle), 0) << "should be false again once the render has finished";
 }
 
 // --- Terminal CRUD + filter-search (UPDATES.md item 15 / TCL_EXPLORATION.md

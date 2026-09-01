@@ -128,6 +128,111 @@ class LeProvider extends ChangeNotifier {
 
   Future<void> refreshTexture() async {
     await _texture?.markFrameAvailable();
+    _watchForRendering();
+  }
+
+  // Drives the same status bar spinner as _isRunning below, for a render
+  // actually in progress (BUGS_AND_ENHANCEMENTS.md item E17) - zoom/pan/
+  // etc. never go through runTclCommand (LeEditor.zoom()/pan() are
+  // direct, synchronous FFI calls that just update Scene state and mark
+  // a frame available; the actual render happens later, asynchronously,
+  // when the native texture callback next pulls a frame - see
+  // LeEditor.isRendering's own doc comment), so this needs its own
+  // signal, polled the same way LeTclConsole.eval polls for command
+  // completion.
+  bool _isRendering = false;
+  bool get isRendering => _isRendering;
+  bool _watchingForRendering = false;
+
+  // Tighter than LeTclConsole.eval's own 50ms _pollInterval - a real
+  // render is usually done within a frame or two (~8-16ms), not the
+  // "as long as a user is willing to wait for a script" timescale that
+  // interval was tuned for; polling itself is trivially cheap (a single
+  // atomic read across FFI, no lock - see le_is_rendering's own doc
+  // comment), so there's no real cost to sampling more often.
+  static const Duration _renderPollInterval = Duration(milliseconds: 8);
+
+  // How many consecutive polls to keep watching for a render to even
+  // *start* before giving up - markFrameAvailable() only signals that a
+  // new frame is wanted; the native platform pulls it asynchronously, on
+  // its own schedule (typically the next vsync), not synchronously with
+  // this call. A first-draft version of this method bailed out on its
+  // own very first poll if that read false - which it always did, since
+  // the native pull hasn't had a chance to even begin yet - so it could
+  // only ever "catch" a render by accident (e.g. a burst of rapid mouse-
+  // move events happening to overlap a previous move's own still-running
+  // render), never a real one triggered by a single action like toggling
+  // every layer's own visibility. This grace window is what actually
+  // waits for the render to start, not just checks once whether it
+  // already has.
+  static const int _maxTicksWaitingForRenderToStart = 25; // ~200ms
+
+  // Set by dispose() so a still-running watch loop stops on its own next
+  // check instead of outliving this provider - without this, a real
+  // Timer object (see _renderPollTimer below - not a plain
+  // Future.delayed, which offers no way to actually cancel the
+  // underlying timer once started) would keep firing after disposal,
+  // which flutter_test's own AutomatedTestWidgetsFlutterBinding
+  // correctly flags as a leaked pending timer at the end of any widget
+  // test that tears down its own ChangeNotifierProvider<LeProvider>
+  // mid-grace-window (i.e. most of them, given this window is ~200ms).
+  bool _disposed = false;
+  Timer? _renderPollTimer;
+  Completer<void>? _renderPollCompleter;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _renderPollTimer?.cancel();
+    _renderPollTimer = null;
+    if (_renderPollCompleter case final completer? when !completer.isCompleted) {
+      completer.complete();
+    }
+    super.dispose();
+  }
+
+  // Fire-and-forget (refreshTexture doesn't await this) - polls
+  // LeEditor.isRendering, updating _isRendering/notifying listeners only
+  // on an actual change. _watchingForRendering guards against piling up
+  // a second concurrent loop when refreshTexture is called again (e.g. a
+  // rapid zoom/pan burst, or a loop toggling every layer's own
+  // visibility one at a time) while one is already running.
+  Future<void> _watchForRendering() async {
+    if (_watchingForRendering || _disposed) return;
+    _watchingForRendering = true;
+    try {
+      bool everObservedRendering = false;
+      int ticksWithoutRendering = 0;
+      while (!_disposed) {
+        final bool rendering = _editor.isRendering;
+        if (rendering) everObservedRendering = true;
+        if (rendering != _isRendering) {
+          _isRendering = rendering;
+          notifyListeners();
+        }
+        if (everObservedRendering) {
+          if (!rendering) return; // seen it start, now seen it finish
+        } else {
+          ticksWithoutRendering++;
+          if (ticksWithoutRendering >= _maxTicksWaitingForRenderToStart) {
+            return; // gave it a real chance; nothing ever started
+          }
+        }
+        if (_disposed) return;
+        // A real, cancelable Timer (not Future.delayed - see dispose()'s
+        // own comment) bridged back to an awaitable Future via a
+        // Completer, so dispose() can both cancel the timer itself and
+        // unblock this await immediately instead of leaving it hanging.
+        final completer = Completer<void>();
+        _renderPollCompleter = completer;
+        _renderPollTimer = Timer(_renderPollInterval, () {
+          if (!completer.isCompleted) completer.complete();
+        });
+        await completer.future;
+      }
+    } finally {
+      _watchingForRendering = false;
+    }
   }
 
   // Lazily created on first use, reused across every runTclCommand call -

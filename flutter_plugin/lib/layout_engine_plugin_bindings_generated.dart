@@ -500,9 +500,18 @@ class LayoutEnginePluginBindings {
       >();
 
   /// @brief Whether fill/stroke geometry paints antialias their own
-  /// edges (Scene::antialiasing_enabled() - grid/chrome/text paints are
-  /// unaffected, always antialiased). Off by default, matching most
-  /// commercial EDA tools' own default. Returns false if handle is null.
+  /// edges (Scene::antialiasing_enabled()) - this also covers
+  /// per-shape/per-placement design-content text (terminal/route labels,
+  /// placement name labels, and their own small anchor-point cross
+  /// markers - draw_group/draw_placement_labels, BUGS_AND_ENHANCEMENTS.md
+  /// E19) and their own hairline-mode paints, since those can appear
+  /// as often as real geometry in a dense design. Fixed, small-count
+  /// interactive chrome (the background grid, cursor/hover/selection
+  /// overlays, ruler labels, the Abstract origin marker) is unaffected,
+  /// always antialiased - drawn once or a handful of times per frame
+  /// regardless of design size, not a meaningful cost either way. Off
+  /// by default, matching most commercial EDA tools' own default.
+  /// Returns false if handle is null.
   bool le_is_antialiasing_enabled(ffi.Pointer<LeHandle> handle) {
     return _le_is_antialiasing_enabled(handle);
   }
@@ -1738,6 +1747,30 @@ class LayoutEnginePluginBindings {
       >('le_render_pixel_buffer');
   late final _le_render_pixel_buffer = _le_render_pixel_bufferPtr
       .asFunction<LePixelBuffer Function(ffi.Pointer<LeHandle>)>();
+
+  /// @brief Whether le_render_pixel_buffer() is doing real work on this
+  /// handle right now, on whatever thread called it (BUGS_AND_ENHANCEMENTS.md
+  /// E17 - a status-bar spinner also driven by interactive zoom/pan, not
+  /// just a running Tcl command like the existing one). Meant to be
+  /// polled (e.g. every ~50ms) from a different thread than the one
+  /// calling le_render_pixel_buffer() itself - deliberately does NOT
+  /// take the same lock le_render_pixel_buffer() holds for its own
+  /// entire duration, so this never blocks behind the very render it's
+  /// reporting on. Most renders are well under a millisecond (see
+  /// le_render_pixel_buffer's own comment) and will never be observed
+  /// as "rendering" by a poll at that interval - this only matters for
+  /// the rare case a real, dense design takes long enough to notice.
+  /// Returns 0 (not rendering) if handle is null.
+  int le_is_rendering(ffi.Pointer<LeHandle> handle) {
+    return _le_is_rendering(handle);
+  }
+
+  late final _le_is_renderingPtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<LeHandle>)>>(
+        'le_is_rendering',
+      );
+  late final _le_is_rendering = _le_is_renderingPtr
+      .asFunction<int Function(ffi.Pointer<LeHandle>)>();
 
   /// @brief Find the Terminal named `name` (exact match) within the
   /// currently selected Abstract (le_set_current_abstract/

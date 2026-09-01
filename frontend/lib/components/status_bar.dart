@@ -27,8 +27,12 @@ class StatusBar extends StatelessWidget {
             // A small spinner while LeProvider is running any Tcl command
             // (BUGS_AND_ENHANCEMENTS.md item E3) - long-running commands no
             // longer block the UI, so there needs to be some indication
-            // one is still in flight.
-            if (provider.isRunning) ...[
+            // one is still in flight. Also shown while a frame is actually
+            // rendering (BUGS_AND_ENHANCEMENTS.md item E17) - interactive
+            // zoom/pan/etc. never go through a Tcl command at all, so
+            // isRunning alone would miss them; isRendering is LeProvider's
+            // own separate signal for that (see its own doc comment).
+            if (provider.isRunning || provider.isRendering) ...[
               const SizedBox(width: 8),
               const SizedBox(
                 width: 14,

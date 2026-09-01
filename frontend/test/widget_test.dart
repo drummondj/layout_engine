@@ -54,8 +54,30 @@ Future<void> pumpApp(WidgetTester tester, {FakeLeEditor? editor}) async {
   };
   addTearDown(() => FlutterError.onError = previousOnError);
 
-  await tester.pumpWidget(MyApp(provider: LeProvider(editor: editor ?? FakeLeEditor())));
+  // MyApp(provider: ...) uses ChangeNotifierProvider<LeProvider>.value
+  // (main.dart), not the plain `create:` constructor - .value()
+  // deliberately never disposes the value itself, since the *caller*
+  // (here, this helper) retains ownership - without this, LeProvider's
+  // own background render-poll Timer (BUGS_AND_ENHANCEMENTS.md E17)
+  // would outlive the test, which flutter_test's own
+  // AutomatedTestWidgetsFlutterBinding correctly flags as a leaked
+  // pending timer.
+  final LeProvider provider = LeProvider(editor: editor ?? FakeLeEditor());
+  addTearDown(provider.dispose);
+  await tester.pumpWidget(MyApp(provider: provider));
   await tester.pumpAndSettle();
+
+  // pumpAndSettle() only advances the fake clock far enough to settle
+  // scheduled *frames* - LeProvider's own render-poll loop (E17) doesn't
+  // request one on every tick (only when isRendering actually changes,
+  // which it never does here - FakeLeEditor.isRenderingValue defaults
+  // false), so it wouldn't otherwise keep pumpAndSettle() going long
+  // enough to let that loop reach its own natural "gave it a real
+  // chance, nothing ever started" exit. An explicit, unconditional pump
+  // past the grace window (~200ms - see _maxTicksWaitingForRenderToStart)
+  // ensures the loop has genuinely finished, not just merely disposed
+  // out from under a still-scheduled Timer, before any test body runs.
+  await tester.pump(const Duration(milliseconds: 250));
 }
 
 void main() {

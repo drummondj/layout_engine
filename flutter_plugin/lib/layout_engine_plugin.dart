@@ -354,6 +354,7 @@ abstract interface class LeEditorBase {
   bool isLayerNameSelectable(String layerName);
   bool isLayerNameVisible(String layerName);
   bool get isMoveArmed;
+  bool get isRendering;
   bool isPurposeSelectable(LeLayerPurpose purpose);
   bool isPurposeVisible(LeLayerPurpose purpose);
   LeLayer? layer(int rowIndex);
@@ -875,6 +876,19 @@ class LeEditor implements LeEditorBase {
   bool get isMoveArmed {
     _checkNotDisposed();
     return _bindings.le_is_move_armed(_handle) != 0;
+  }
+
+  /// True if [renderPixelBuffer]/the native texture's own pull-based
+  /// render callback is doing real work on this handle right now, on
+  /// whatever thread called it (BUGS_AND_ENHANCEMENTS.md E17) - meant to
+  /// be polled periodically (see [LeProvider]'s own poll timer, mirroring
+  /// [LeTclConsole]'s), not read once. Most renders are well under a
+  /// millisecond and will never be observed true by a poll - see
+  /// `le_is_rendering`'s own doc comment (api.hpp).
+  @override
+  bool get isRendering {
+    _checkNotDisposed();
+    return _bindings.le_is_rendering(_handle) != 0;
   }
 
   /// Whether every ViewLayer named [layerName] is currently selectable -

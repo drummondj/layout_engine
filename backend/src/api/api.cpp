@@ -24,6 +24,7 @@
 #include "generated_tcl/snapshot_appliers.hpp"
 #include <fmt/format.h>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <deque>
 #include <filesystem>
@@ -86,6 +87,22 @@ struct LeHandle
     // callers that bracket one with begin()/end().
     le::editing::CommandHistory command_history;
     std::mutex mutex_;
+
+    // BUGS_AND_ENHANCEMENTS.md E17 - whether le_render_pixel_buffer is
+    // currently doing real work on this handle, for a caller (a Dart-side
+    // poll driving the status bar's own spinner) that wants to know
+    // without blocking behind the render itself. Deliberately a plain
+    // std::atomic<bool>, read/written with no lock - le_is_rendering()
+    // must NOT take mutex_ (that's the exact mutex the render itself
+    // holds for its own entire duration - see mutex_'s own doc comment -
+    // so a lock-taking getter would just block until the render it's
+    // reporting on already finished, defeating the whole point). Safe
+    // without one: mutex_ already serializes every real le_* call
+    // including le_render_pixel_buffer itself, so at most one thread is
+    // ever writing this for a given handle at a time; a plain atomic is
+    // exactly the right tool for "one writer under a different lock,
+    // arbitrary lock-free readers".
+    std::atomic<bool> is_rendering_{false};
 
     // Single-slot cache backing le_object_property_count/le_object_
     // property_at - rebuilt whenever a different LeObjectRef is
@@ -3007,6 +3024,19 @@ extern "C"
             return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
+        // BUGS_AND_ENHANCEMENTS.md E17 - is_rendering_'s own doc comment
+        // (LeHandle) explains why this is a plain atomic, not mutex_-
+        // guarded. RAII, not a manual reset-before-every-return, so a
+        // future early return (or a real exception, however unlikely
+        // given this codebase's own "no exceptions for expected-missing-
+        // data paths" convention) can't leave this stuck true.
+        handle->is_rendering_.store(true, std::memory_order_relaxed);
+        struct RenderingGuard
+        {
+            LeHandle *handle;
+            ~RenderingGuard() { handle->is_rendering_.store(false, std::memory_order_relaxed); }
+        } rendering_guard{handle};
+
         // FrameMarkStart/End (named), not plain FrameMark - a frame here
         // only ever happens on demand (whenever something changed and the
         // native texture callback next pulls a frame), not once per
@@ -3045,5 +3075,14 @@ extern "C"
             .height = buffer->height,
             .row_bytes = static_cast<int64_t>(buffer->row_bytes),
         };
+    }
+
+    int32_t le_is_rendering(LeHandle *handle)
+    {
+        // No lock - see this function's own doc comment (api.hpp) and
+        // is_rendering_'s own doc comment (LeHandle) for why not.
+        if (!handle)
+            return 0;
+        return handle->is_rendering_.load(std::memory_order_relaxed) ? 1 : 0;
     }
 }

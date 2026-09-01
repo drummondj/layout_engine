@@ -200,6 +200,10 @@ class FakeLeEditor implements LeEditorBase {
   @override
   void armMove() => _isMoveArmed = true;
 
+  bool isRenderingValue = false;
+  @override
+  bool get isRendering => isRenderingValue;
+
   bool undoCalled = false;
   @override
   bool undo() {

@@ -1225,6 +1225,21 @@ extern "C"
     /// gracefully for an unset AbstractId (see pipeline.hpp).
     LePixelBuffer le_render_pixel_buffer(LeHandle *handle);
 
+    /// @brief Whether le_render_pixel_buffer() is doing real work on this
+    /// handle right now, on whatever thread called it (BUGS_AND_ENHANCEMENTS.md
+    /// E17 - a status-bar spinner also driven by interactive zoom/pan, not
+    /// just a running Tcl command like the existing one). Meant to be
+    /// polled (e.g. every ~50ms) from a different thread than the one
+    /// calling le_render_pixel_buffer() itself - deliberately does NOT
+    /// take the same lock le_render_pixel_buffer() holds for its own
+    /// entire duration, so this never blocks behind the very render it's
+    /// reporting on. Most renders are well under a millisecond (see
+    /// le_render_pixel_buffer's own comment) and will never be observed
+    /// as "rendering" by a poll at that interval - this only matters for
+    /// the rare case a real, dense design takes long enough to notice.
+    /// Returns 0 (not rendering) if handle is null.
+    int32_t le_is_rendering(LeHandle *handle);
+
     // --- CRUD + filter-search (UPDATES.md item 15 / TCL_EXPLORATION.md
     // Phase 4) - Terminal only so far; TerminalPort/Obstruction/Abstract-
     // boundary follow the same shape in a later pass. Layered on top of
