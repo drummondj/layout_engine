@@ -3,6 +3,7 @@
 #include "api.hpp"
 #include "components/status_bar.hpp"
 #include "components/library_browser.hpp"
+#include "components/property_viewer.hpp"
 
 // Apple deprecated the whole OpenGL framework in favor of Metal (10.14+)
 // but still fully implements it - every desktop-GL ImGui backend still
@@ -467,8 +468,12 @@ namespace le::gui
                 draw_library_browser(handle);
                 ImGui::End();
 
+                // Right sidebar - components/property_viewer.hpp, the
+                // ImGui port of frontend/lib/components/property_viewer.dart.
+                // LayerManager (also destined for this panel, as a
+                // separate tab/section) isn't ported yet.
                 ImGui::Begin(kPropertiesWindowTitle);
-                ImGui::TextDisabled("(layers/properties panel - not ported yet)");
+                draw_property_viewer(handle);
                 ImGui::End();
 
                 // Zero window padding - the design view/status bar sizing

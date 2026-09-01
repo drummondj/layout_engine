@@ -460,6 +460,7 @@ add_library(gui STATIC
     src/gui/le_gui.cpp
     src/gui/components/status_bar.cpp
     src/gui/components/library_browser.cpp
+    src/gui/components/property_viewer.cpp
 )
 target_include_directories(gui PUBLIC src/gui)
 target_link_libraries(gui PUBLIC api imgui_lib)
