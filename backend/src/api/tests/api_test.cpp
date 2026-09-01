@@ -655,6 +655,24 @@ TEST_F(ApiFixture, LibraryDesignAtReturnsTheDesignAndItsAbstractId)
     EXPECT_EQ(design.library_id.generation, library.id.generation);
     EXPECT_NE(design.id.index, UINT32_MAX);
     EXPECT_NE(design.abstract_id.index, UINT32_MAX); // every read Design gets an Abstract view
+    EXPECT_EQ(design.layout_id.index, UINT32_MAX);   // a plain LEF macro has no Layout view
+}
+
+TEST_F(ApiFixture, LibraryDesignAtReturnsAValidLayoutIdOnceADefIsReadIntoTheSameDesign)
+{
+    // testcell.def's own DESIGN name (TESTCELL) matches testcell.lef's own
+    // macro name exactly, so DEFReader::get_design_by_name reuses the same
+    // Design a LEF-only read already created (BUGS_AND_ENHANCEMENTS.md
+    // E15 - a Design can carry both an Abstract and a Layout view at
+    // once, not just one or the other).
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+
+    ASSERT_EQ(le_library_design_count(handle, 0), 1);
+    const LeDesignInfo design = le_library_design_at(handle, 0, 0);
+
+    EXPECT_NE(design.abstract_id.index, UINT32_MAX);
+    EXPECT_NE(design.layout_id.index, UINT32_MAX);
 }
 
 TEST_F(ApiFixture, SetCurrentDesignByIdWithNullHandleOrUnknownIdReturnsNonzero)

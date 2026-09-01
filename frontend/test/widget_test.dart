@@ -10,11 +10,12 @@
 // merely constructing a real LeEditor crashes under plain `flutter test`
 // in the first place (see LeEditorBase's own doc comment).
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:layout_engine_plugin/layout_engine_plugin.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:layout_engine/components/library_browser.dart';
 import 'package:layout_engine/main.dart';
 import 'package:layout_engine/providers/le_provider.dart';
 
@@ -111,5 +112,72 @@ void main() {
     await pumpApp(tester, editor: editor);
 
     expect(find.text('M1'), findsOneWidget);
+  });
+
+  // BUGS_AND_ENHANCEMENTS.md E15 - a design node's own children are the
+  // views that actually exist for it, each independently clickable to
+  // open that specific view, distinct from the design node's own tap
+  // (still opens the Abstract view, unchanged).
+  testWidgets('Library Browser shows a design\'s Abstract/Layout view children, each opening that view', (
+    WidgetTester tester,
+  ) async {
+    const libraryRef = LeLibraryRef(0, 0);
+    const designRef = LeDesignRef(0, 0);
+    final editor = FakeLeEditor()
+      ..libraries = [const LeLibrary(id: libraryRef, name: 'MYLIB')]
+      ..designsByLibraryIndex = {
+        0: [
+          const LeDesignEntry(
+            libraryId: libraryRef,
+            id: designRef,
+            abstractId: LeAbstractRef(0, 0),
+            layoutId: LeLayoutRef(0, 0),
+            name: 'MYDESIGN',
+          ),
+        ],
+      };
+    await pumpApp(tester, editor: editor);
+
+    // "Browser" is tabbed alongside "File" (home.dart) - only the active
+    // tab of a group is built (see pumpApp's own header comment), so
+    // LibraryBrowser doesn't exist in the tree until switched to.
+    await tester.tap(find.text('Browser'));
+    await tester.pumpAndSettle();
+
+    // Every finder below is scoped to inside LibraryBrowser itself -
+    // "Layout" (unlike "Abstract") is also the always-visible Layout
+    // docking-panel tab's own title (home.dart), so a bare find.text
+    // would match that unrelated widget too.
+    Finder inBrowser(String text) => find.descendant(
+      of: find.byType(LibraryBrowser),
+      matching: find.text(text),
+    );
+
+    // Library node is a root (always visible); its own ExpandIcon reveals
+    // the design node underneath.
+    expect(inBrowser('MYLIB'), findsOneWidget);
+    await tester.tap(find.byType(ExpandIcon).first);
+    await tester.pumpAndSettle();
+
+    expect(inBrowser('MYDESIGN'), findsOneWidget);
+    expect(inBrowser('Abstract'), findsNothing);
+    expect(inBrowser('Layout'), findsNothing);
+
+    // Design node's own ExpandIcon (now the second one in the tree)
+    // reveals its Abstract/Layout view children.
+    await tester.tap(find.byType(ExpandIcon).at(1));
+    await tester.pumpAndSettle();
+
+    expect(inBrowser('Abstract'), findsOneWidget);
+    expect(inBrowser('Layout'), findsOneWidget);
+
+    await tester.tap(inBrowser('Layout'));
+    await tester.pumpAndSettle();
+    expect(editor.currentLayoutDesignId, designRef);
+    expect(editor.currentDesignId, isNull);
+
+    await tester.tap(inBrowser('Abstract'));
+    await tester.pumpAndSettle();
+    expect(editor.currentDesignId, designRef);
   });
 }

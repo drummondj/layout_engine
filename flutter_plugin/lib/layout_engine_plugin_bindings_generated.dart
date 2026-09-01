@@ -413,13 +413,14 @@ class LayoutEnginePluginBindings {
   /// declaration order, not necessarily this index): 0 = TERMINAL,
   /// 1 = OBSTRUCTION, 2 = BOUNDARY, 3 = TRACK_PREFERRED,
   /// 4 = TRACK_NON_PREFERRED, 5 = ROUTING_BLOCKAGE, 6 = ROW,
-  /// 7 = GCELLGRID, 8 = PLACEMENT_BLOCKAGE, 9 = ROUTE, 10 = REGION.
+  /// 7 = GCELLGRID, 8 = PLACEMENT_BLOCKAGE, 9 = ROUTE, 10 = REGION,
+  /// 11 = PLACEMENT_NAME.
   /// `index` itself walks ViewLayerSet::purposes()'s own
   /// first-encountered order instead (ROW, then BOUNDARY, then
-  /// TERMINAL/OBSTRUCTION/TRACK_PREFERRED/TRACK_NON_PREFERRED/
-  /// ROUTING_BLOCKAGE/ROUTE from the first physical Layer row, then
-  /// GCELLGRID/PLACEMENT_BLOCKAGE/REGION's own pseudo-rows -
-  /// BUGS_AND_ENHANCEMENTS.md E8) - a caller must
+  /// PLACEMENT_NAME, then TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
+  /// TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE from the first physical
+  /// Layer row, then GCELLGRID/PLACEMENT_BLOCKAGE/REGION's own
+  /// pseudo-rows - BUGS_AND_ENHANCEMENTS.md E8/E13) - a caller must
   /// always pass `le_purpose_at`'s own return value back into
   /// `le_is_purpose_visible`/`le_set_purpose_visible`, never assume
   /// index equals ordinal.
@@ -18105,10 +18106,17 @@ final class LeDesignInfo extends ffi.Struct {
   external LeDesignId id;
 
   /// Invalid (index == UINT32_MAX) if this Design has no Abstract
-  /// view yet - no DEF/placement-driven Design exists in this
-  /// project yet, so every Design read via le_read_lef() has one,
-  /// but the field degrades gracefully rather than assume that.
+  /// view - every Design read via le_read_lef() has one, but the
+  /// field degrades gracefully rather than assume that.
   external LeAbstractId abstract_id;
+
+  /// Invalid (index == UINT32_MAX) if this Design has no Layout
+  /// view - a DEF-defined Design (le_read_def()) has one; a plain
+  /// LEF macro (le_read_lef() only) does not (BUGS_AND_ENHANCEMENTS.md
+  /// E15 - a Design can have either, both, or neither of these two
+  /// independent views, same as Root::get_design_abstract/
+  /// get_design_layout's own "may return an invalid id" contract).
+  external LeLayoutId layout_id;
 
   /// Owned by the handle's Root - valid until the handle is
   /// destroyed, never owned by the caller. Null if this row is

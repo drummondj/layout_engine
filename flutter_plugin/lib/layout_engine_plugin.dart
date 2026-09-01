@@ -124,6 +124,11 @@ class LeAbstractRef extends _LeRef {
   const LeAbstractRef(super.index, super.generation);
 }
 
+/// Identifies one Design's Layout (DEF-defined hierarchy) view.
+class LeLayoutRef extends _LeRef {
+  const LeLayoutRef(super.index, super.generation);
+}
+
 /// A stable identity for one database object of any of the seven
 /// [LeObjectKind] classes (Library/Design/Abstract/Terminal/TerminalPort/
 /// Obstruction/Shape) - the Dart-facing wrapper for api.hpp's
@@ -205,15 +210,22 @@ class LeDesignEntry {
     required this.libraryId,
     required this.id,
     required this.abstractId,
+    required this.layoutId,
     required this.name,
   });
 
   final LeLibraryRef libraryId;
   final LeDesignRef id;
 
-  /// Null if this Design has no Abstract view yet (see api.hpp's
+  /// Null if this Design has no Abstract view (see api.hpp's
   /// `LeDesignInfo::abstract_id`).
   final LeAbstractRef? abstractId;
+
+  /// Null if this Design has no Layout view - only a DEF-defined Design
+  /// has one (BUGS_AND_ENHANCEMENTS.md E15; see api.hpp's
+  /// `LeDesignInfo::layout_id`). A Design can have either, both, or
+  /// neither of [abstractId]/[layoutId].
+  final LeLayoutRef? layoutId;
   final String name;
 }
 
@@ -365,6 +377,7 @@ abstract interface class LeEditorBase {
   int get selectionCount;
   int get selectionVersion;
   bool setCurrentDesignById(LeDesignRef designId);
+  bool setCurrentDesignByIdLayout(LeDesignRef designId);
   void setHierarchyDepth(int depth);
   void setLayerNameSelectable(String layerName, bool selectable);
   void setLayerNameVisible(String layerName, bool visible);
@@ -535,6 +548,9 @@ class LeEditor implements LeEditorBase {
     final abstractId = info.abstract_id.index == 0xFFFFFFFF
         ? null
         : LeAbstractRef(info.abstract_id.index, info.abstract_id.generation);
+    final layoutId = info.layout_id.index == 0xFFFFFFFF
+        ? null
+        : LeLayoutRef(info.layout_id.index, info.layout_id.generation);
     return LeDesignEntry(
       libraryId: LeLibraryRef(
         info.library_id.index,
@@ -542,16 +558,17 @@ class LeEditor implements LeEditorBase {
       ),
       id: LeDesignRef(info.id.index, info.id.generation),
       abstractId: abstractId,
+      layoutId: layoutId,
       name: info.name.cast<pkg_ffi.Utf8>().toDartString(),
     );
   }
 
-  /// Selects a Design by its stable [LeDesignRef] (e.g. one read from
-  /// [libraryDesign]'s [LeDesignEntry.id]) as the one [renderPixelBuffer]
-  /// renders - same effect as [setCurrentDesign] but addressed by identity
-  /// instead of a position in the flat [designCount] list, the natural fit
-  /// for a browser widget's row click. Returns true on success; the
-  /// current selection is left unchanged on failure.
+  /// Selects a Design's Abstract view by its stable [LeDesignRef] (e.g.
+  /// one read from [libraryDesign]'s [LeDesignEntry.id]) as the one
+  /// [renderPixelBuffer] renders - same effect as [setCurrentDesign] but
+  /// addressed by identity instead of a position in the flat [designCount]
+  /// list, the natural fit for a browser widget's row click. Returns true
+  /// on success; the current selection is left unchanged on failure.
   @override
   bool setCurrentDesignById(LeDesignRef designId) {
     _checkNotDisposed();
@@ -560,6 +577,26 @@ class LeEditor implements LeEditorBase {
       idPtr.ref.index = designId.index;
       idPtr.ref.generation = designId.generation;
       return _bindings.le_set_current_design_abstract_by_id(_handle, idPtr.ref) == 0;
+    } finally {
+      pkg_ffi.calloc.free(idPtr);
+    }
+  }
+
+  /// Selects a Design's Layout view by its stable [LeDesignRef] instead of
+  /// its Abstract view - mirror image of [setCurrentDesignById]
+  /// (BUGS_AND_ENHANCEMENTS.md E15), same "only one view open at a time"
+  /// semantics as `le_set_current_design_layout_by_id`'s own doc comment.
+  /// Only meaningful when [LeDesignEntry.layoutId] is non-null for this
+  /// Design - returns false (current selection unchanged) otherwise, same
+  /// as any other unknown/invalid id.
+  @override
+  bool setCurrentDesignByIdLayout(LeDesignRef designId) {
+    _checkNotDisposed();
+    final idPtr = pkg_ffi.calloc<LeDesignId>();
+    try {
+      idPtr.ref.index = designId.index;
+      idPtr.ref.generation = designId.generation;
+      return _bindings.le_set_current_design_layout_by_id(_handle, idPtr.ref) == 0;
     } finally {
       pkg_ffi.calloc.free(idPtr);
     }

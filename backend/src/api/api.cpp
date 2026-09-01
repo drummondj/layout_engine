@@ -1369,7 +1369,7 @@ extern "C"
 
     LeDesignInfo le_library_design_at(LeHandle *handle, int32_t library_index, int32_t design_index)
     {
-        const LeDesignInfo invalid{.library_id = {UINT32_MAX, 0}, .id = {UINT32_MAX, 0}, .abstract_id = {UINT32_MAX, 0}, .name = nullptr};
+        const LeDesignInfo invalid{.library_id = {UINT32_MAX, 0}, .id = {UINT32_MAX, 0}, .abstract_id = {UINT32_MAX, 0}, .layout_id = {UINT32_MAX, 0}, .name = nullptr};
         if (!handle || library_index < 0 || design_index < 0)
             return invalid;
         std::lock_guard<std::mutex> lock(handle->mutex_);
@@ -1389,6 +1389,7 @@ extern "C"
             .library_id = to_c(library_id),
             .id = to_c(design_id),
             .abstract_id = to_c(handle->root.get_design_abstract(design_id)),
+            .layout_id = to_c(handle->root.get_design_layout(design_id)),
             .name = design ? design->name.c_str() : nullptr,
         };
     }

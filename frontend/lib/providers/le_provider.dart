@@ -432,8 +432,19 @@ class LeProvider extends ChangeNotifier {
     return designs;
   }
 
+  /// Opens `designRef`'s Abstract view (BUGS_AND_ENHANCEMENTS.md E15 - see
+  /// [openDesignLayout] for the mirror-image Layout-view opener).
   Future<void> openDesign(LeDesignRef designRef) async {
     _editor.setCurrentDesignById(designRef);
+    _editor.fitScene(10);
+    refreshAndNotify();
+  }
+
+  /// Opens `designRef`'s Layout view instead of its Abstract view - only
+  /// meaningful when [LeDesignEntry.layoutId] is non-null for this Design
+  /// (BUGS_AND_ENHANCEMENTS.md E15).
+  Future<void> openDesignLayout(LeDesignRef designRef) async {
+    _editor.setCurrentDesignByIdLayout(designRef);
     _editor.fitScene(10);
     refreshAndNotify();
   }

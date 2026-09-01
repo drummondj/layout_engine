@@ -140,6 +140,7 @@ class FakeLeEditor implements LeEditorBase {
   List<LeLibrary> libraries = [];
   Map<int, List<LeDesignEntry>> designsByLibraryIndex = {};
   LeDesignRef? currentDesignId;
+  LeDesignRef? currentLayoutDesignId;
 
   @override
   int get libraryCount => libraries.length;
@@ -161,6 +162,12 @@ class FakeLeEditor implements LeEditorBase {
   @override
   bool setCurrentDesignById(LeDesignRef designId) {
     currentDesignId = designId;
+    return true;
+  }
+
+  @override
+  bool setCurrentDesignByIdLayout(LeDesignRef designId) {
+    currentLayoutDesignId = designId;
     return true;
   }
 

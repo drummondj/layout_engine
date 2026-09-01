@@ -73,10 +73,16 @@ extern "C"
         LeLibraryId library_id;
         LeDesignId id;
         /// Invalid (index == UINT32_MAX) if this Design has no Abstract
-        /// view yet - no DEF/placement-driven Design exists in this
-        /// project yet, so every Design read via le_read_lef() has one,
-        /// but the field degrades gracefully rather than assume that.
+        /// view - every Design read via le_read_lef() has one, but the
+        /// field degrades gracefully rather than assume that.
         LeAbstractId abstract_id;
+        /// Invalid (index == UINT32_MAX) if this Design has no Layout
+        /// view - a DEF-defined Design (le_read_def()) has one; a plain
+        /// LEF macro (le_read_lef() only) does not (BUGS_AND_ENHANCEMENTS.md
+        /// E15 - a Design can have either, both, or neither of these two
+        /// independent views, same as Root::get_design_abstract/
+        /// get_design_layout's own "may return an invalid id" contract).
+        LeLayoutId layout_id;
         /// Owned by the handle's Root - valid until the handle is
         /// destroyed, never owned by the caller. Null if this row is
         /// invalid (out-of-range index or null handle).

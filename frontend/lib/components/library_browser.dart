@@ -11,30 +11,48 @@ class LibraryBrowser extends StatefulWidget {
   State<LibraryBrowser> createState() => _LibraryBrowserState();
 }
 
+// A design node's own two possible child views (BUGS_AND_ENHANCEMENTS.md
+// E15) - not named `abstract`/`layout` directly since the former is a
+// reserved word in Dart.
+enum DesignView { abstractView, layoutView }
+
 class Node {
   Node({
     required this.title,
     this.libraryId,
     this.designId,
+    this.designView,
     Iterable<Node>? children,
-  }) : children = <Node>[...?children];
+  }) : assert(
+         designView == null || designId != null,
+         'designView is only meaningful alongside a designId',
+       ),
+       children = <Node>[...?children];
 
   final String title;
   final LeLibraryRef? libraryId;
   final LeDesignRef? designId;
+
+  // Null for the design node itself (which groups both of its own
+  // possible view children); set to distinguish a design's own Abstract
+  // child node from its Layout child node, since both otherwise share
+  // the same designId - see operator== below.
+  final DesignView? designView;
   final List<Node> children;
 
   // buildTree() rebuilds fresh Node instances every time the provider
   // notifies, so expansion state (tracked by TreeController as a Set<Node>)
   // would otherwise reset on every rebuild. Value equality keyed on the
-  // stable library/design ref lets a rebuilt node be recognized as "the
-  // same" node the user previously expanded.
+  // stable library/design ref (plus designView, so a design's own two view
+  // children and their own parent design node - all three sharing the same
+  // designId - don't collide with each other) lets a rebuilt node be
+  // recognized as "the same" node the user previously expanded.
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     if (other is! Node) return false;
     if (designId != null || other.designId != null) {
-      return designId == other.designId;
+      return designId == other.designId && designView == other.designView;
     }
     if (libraryId != null || other.libraryId != null) {
       return libraryId == other.libraryId;
@@ -43,8 +61,10 @@ class Node {
   }
 
   @override
-  int get hashCode =>
-      designId?.hashCode ?? libraryId?.hashCode ?? identityHashCode(this);
+  int get hashCode {
+    if (designId != null) return Object.hash(designId, designView);
+    return libraryId?.hashCode ?? identityHashCode(this);
+  }
 }
 
 class _LibraryBrowserState extends State<LibraryBrowser> {
@@ -146,7 +166,32 @@ class _LibraryBrowserState extends State<LibraryBrowser> {
     for (final (index, library) in (await _provider.getLibraries()).indexed) {
       final libraryNode = Node(title: library.name, libraryId: library.id);
       for (final design in await _provider.getDesigns(index)) {
-        libraryNode.children.add(Node(title: design.name, designId: design.id));
+        // BUGS_AND_ENHANCEMENTS.md E15: a design node's own children are
+        // the views that actually exist for it (a plain LEF macro has
+        // only an Abstract; a DEF-defined design that also reused an
+        // existing macro's own Design can have both) - each opened by
+        // tapping it directly, distinct from the design node's own tap
+        // (still opens the Abstract view, unchanged).
+        final designNode = Node(title: design.name, designId: design.id);
+        if (design.abstractId != null) {
+          designNode.children.add(
+            Node(
+              title: 'Abstract',
+              designId: design.id,
+              designView: DesignView.abstractView,
+            ),
+          );
+        }
+        if (design.layoutId != null) {
+          designNode.children.add(
+            Node(
+              title: 'Layout',
+              designId: design.id,
+              designView: DesignView.layoutView,
+            ),
+          );
+        }
+        libraryNode.children.add(designNode);
       }
       newChildren.add(libraryNode);
     }
@@ -208,8 +253,15 @@ class _LibraryBrowserState extends State<LibraryBrowser> {
                     entry: entry,
                     match: _filter?.matchOf(entry.node),
                     searchPattern: _searchPattern,
-                    onDesignTap: (LeDesignRef designId) =>
-                        provider.openDesign(designId),
+                    onDesignTap: (LeDesignRef designId, DesignView? view) {
+                      switch (view) {
+                        case DesignView.layoutView:
+                          provider.openDesignLayout(designId);
+                        case DesignView.abstractView:
+                        case null:
+                          provider.openDesign(designId);
+                      }
+                    },
                   );
                 },
                 duration: Duration(milliseconds: 300),
@@ -234,7 +286,7 @@ class TreeTile extends StatefulWidget {
   final TreeEntry<Node> entry;
   final TreeSearchMatch? match;
   final Pattern? searchPattern;
-  final ValueChanged<LeDesignRef> onDesignTap;
+  final void Function(LeDesignRef designId, DesignView? view) onDesignTap;
 
   @override
   State<TreeTile> createState() => _TreeTileState();
@@ -276,7 +328,10 @@ class _TreeTileState extends State<TreeTile> {
             child: InkWell(
               onTap: designId == null
                   ? null
-                  : () => widget.onDesignTap(designId),
+                  : () => widget.onDesignTap(
+                      designId,
+                      widget.entry.node.designView,
+                    ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Text.rich(titleSpan),
