@@ -862,6 +862,237 @@ register_command_help get_layer_visible \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+proc set_layer_selectable { layer_name args } {
+    if {$layer_name eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_layer_selectable <layer_name> <selectable> \[-help\] - Sets a layer row's own selectability"
+    }
+    if {[llength $args] != 1} {
+        error "set_layer_selectable: expected exactly 2 arguments (layer_name, selectable), got [expr {1 + [llength $args]}]"
+    }
+    set_layer_selectable_cmd $layer_name [lindex $args 0]
+    return ""
+}
+register_command_help set_layer_selectable \
+    "set_layer_selectable <layer_name> <selectable> \[-help\]" \
+    "Sets whether every ViewLayer of the real Layer named layer_name (same row-not-column granularity as set_layer_visible) is selectable. Selectable by default until toggled." \
+    {
+        {<layer_name> {type str required 1 description {A real Layer's own name, e.g. "M1"}}}
+        {<selectable> {type bool required 1 description {0/1 or true/false}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_layer_selectable { layer_name } {
+    if {$layer_name eq "-help"} {
+        return "get_layer_selectable <layer_name> \[-help\] - Returns a layer row's own current selectability"
+    }
+    return [get_layer_selectable_cmd $layer_name]
+}
+register_command_help get_layer_selectable \
+    "get_layer_selectable <layer_name> \[-help\]" \
+    "Returns whether every ViewLayer of the real Layer named layer_name is currently selectable (0 or 1)." \
+    {
+        {<layer_name> {type str required 1 description {A real Layer's own name, e.g. "M1"}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- purpose visibility/selectability (backed by set_purpose_visible_cmd/
+# get_purpose_visible_cmd/set_purpose_selectable_cmd/
+# get_purpose_selectable_cmd -> le_set_purpose_visible/le_is_purpose_visible/
+# le_set_purpose_selectable/le_is_purpose_selectable). A purpose is the
+# other axis from a layer row - see set_layer_visible's own comment - one
+# column (e.g. just a layer's own OBSTRUCTION shapes) rather than a whole
+# row. Takes a friendly keyword, not le_purpose_at's own raw ordinal
+# directly - ::purpose_names below mirrors le_purpose_at's own api.hpp
+# comment (the ordinal list, not its per-Technology *index*) and must be
+# kept in sync with it and with flutter_plugin/lib/layout_engine_plugin.dart's
+# own LeLayerPurpose enum (whose lowerCamelCase .name the GUI side sends
+# verbatim as this same keyword - see LeProvider's own purpose command
+# helpers).
+array set ::purpose_names {
+    terminal 0
+    obstruction 1
+    boundary 2
+    trackPreferred 3
+    trackNonPreferred 4
+    routingBlockage 5
+    row 6
+    gcellgrid 7
+    placementBlockage 8
+    route 9
+    region 10
+    placementName 11
+}
+
+proc _resolve_purpose_name {command purpose} {
+    if {![info exists ::purpose_names($purpose)]} {
+        error "$command: unknown purpose \"$purpose\" - expected one of [lsort [array names ::purpose_names]]"
+    }
+    return $::purpose_names($purpose)
+}
+
+proc set_purpose_visible { purpose args } {
+    if {$purpose eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_purpose_visible <purpose> <visible> \[-help\] - Sets one purpose column's own visibility"
+    }
+    if {[llength $args] != 1} {
+        error "set_purpose_visible: expected exactly 2 arguments (purpose, visible), got [expr {1 + [llength $args]}]"
+    }
+    set_purpose_visible_cmd [_resolve_purpose_name set_purpose_visible $purpose] [lindex $args 0]
+    return ""
+}
+register_command_help set_purpose_visible \
+    "set_purpose_visible <purpose> <visible> \[-help\]" \
+    "Sets whether one purpose column (e.g. every Layer's own obstruction shapes) is visible, across every real Layer - the other axis from set_layer_visible's own whole-row toggle. <purpose> is one of: [lsort [array names ::purpose_names]]. Visible by default until toggled." \
+    {
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placementName}}}
+        {<visible> {type bool required 1 description {0/1 or true/false - hide/show}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_purpose_visible { purpose } {
+    if {$purpose eq "-help"} {
+        return "get_purpose_visible <purpose> \[-help\] - Returns one purpose column's own current visibility"
+    }
+    return [get_purpose_visible_cmd [_resolve_purpose_name get_purpose_visible $purpose]]
+}
+register_command_help get_purpose_visible \
+    "get_purpose_visible <purpose> \[-help\]" \
+    "Returns whether one purpose column is currently visible (0 or 1) - see set_purpose_visible's own comment." \
+    {
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placementName}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_purpose_selectable { purpose args } {
+    if {$purpose eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_purpose_selectable <purpose> <selectable> \[-help\] - Sets one purpose column's own selectability"
+    }
+    if {[llength $args] != 1} {
+        error "set_purpose_selectable: expected exactly 2 arguments (purpose, selectable), got [expr {1 + [llength $args]}]"
+    }
+    set_purpose_selectable_cmd [_resolve_purpose_name set_purpose_selectable $purpose] [lindex $args 0]
+    return ""
+}
+register_command_help set_purpose_selectable \
+    "set_purpose_selectable <purpose> <selectable> \[-help\]" \
+    "Sets whether one purpose column is selectable, across every real Layer - see set_purpose_visible's own comment for the axis. Selectable by default until toggled." \
+    {
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placementName}}}
+        {<selectable> {type bool required 1 description {0/1 or true/false}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_purpose_selectable { purpose } {
+    if {$purpose eq "-help"} {
+        return "get_purpose_selectable <purpose> \[-help\] - Returns one purpose column's own current selectability"
+    }
+    return [get_purpose_selectable_cmd [_resolve_purpose_name get_purpose_selectable $purpose]]
+}
+register_command_help get_purpose_selectable \
+    "get_purpose_selectable <purpose> \[-help\]" \
+    "Returns whether one purpose column is currently selectable (0 or 1) - see set_purpose_visible's own comment." \
+    {
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placementName}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- mode (backed by set_mode_cmd/get_mode_cmd -> le_set_mode/le_get_mode).
+# Takes/returns a friendly keyword, not LeMode's own raw ordinal - mirrors
+# open_design's own -view abstract|layout keyword style.
+array set ::mode_names {select 0 edit 1 ruler 2}
+array set ::mode_names_reverse {0 select 1 edit 2 ruler}
+
+proc set_mode { mode } {
+    if {$mode eq "-help"} {
+        return "set_mode <mode> \[-help\] - Switches the current interaction mode"
+    }
+    if {![info exists ::mode_names($mode)]} {
+        error "set_mode: unknown mode \"$mode\" - expected one of [lsort [array names ::mode_names]]"
+    }
+    set_mode_cmd $::mode_names($mode)
+    return ""
+}
+register_command_help set_mode \
+    "set_mode <mode> \[-help\]" \
+    "Switches the current interaction mode - select (default), edit, or ruler. Also reachable via the 's'/'e'/'r' keyboard shortcuts in the GUI." \
+    {
+        {<mode> {type str required 1 description {One of select, edit, ruler}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_mode {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_mode \[-help\] - Returns the current interaction mode"
+    }
+    return $::mode_names_reverse([get_mode_cmd])
+}
+register_command_help get_mode \
+    "get_mode \[-help\]" \
+    "Returns the current interaction mode - select, edit, or ruler." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- rulers/selection/move (backed by clear_rulers_cmd/select_all_cmd/
+# deselect_all_cmd/arm_move_cmd -> le_clear_rulers/le_select_all/
+# le_deselect_all/le_arm_move) ---
+
+proc clear_rulers {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "clear_rulers \[-help\] - Removes every ruler, finished or not"
+    }
+    clear_rulers_cmd
+    return ""
+}
+register_command_help clear_rulers \
+    "clear_rulers \[-help\]" \
+    "Removes every ruler, finished or not." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc select_all {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "select_all \[-help\] - Selects every currently selectable shape in the current Abstract"
+    }
+    select_all_cmd
+    return ""
+}
+register_command_help select_all \
+    "select_all \[-help\]" \
+    "Selects every currently selectable shape in the current Abstract." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc deselect_all {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "deselect_all \[-help\] - Clears the current selection"
+    }
+    deselect_all_cmd
+    return ""
+}
+register_command_help deselect_all \
+    "deselect_all \[-help\]" \
+    "Clears the current selection." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc arm_move {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "arm_move \[-help\] - Arms Move for the current selection"
+    }
+    arm_move_cmd
+    return ""
+}
+register_command_help arm_move \
+    "arm_move \[-help\]" \
+    "Arms Move (UPDATES.md item 21) - only meaningful in Edit mode with a non-empty selection, a no-op otherwise. Also reachable via Ctrl-M in the GUI." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 # --- antialiasing (backed by set_antialiasing_enabled_cmd/
 # get_antialiasing_enabled_cmd -> le_set_antialiasing_enabled/
 # le_is_antialiasing_enabled) ---

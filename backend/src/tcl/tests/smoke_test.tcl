@@ -66,4 +66,60 @@ if {[catch {zoom -bogus 1} err]} {
     exit 1
 }
 
+# --- BUGS_AND_ENHANCEMENTS.md E20: LeProvider-facing TCL commands for
+# discrete UI actions previously only reachable via a direct API call
+# (layer/purpose selectability, mode, rulers, selection, move) - real
+# round-trip checks, not just -help presence (that's help_test.tcl's own
+# job), since these are genuinely new wiring, not already-tested
+# pass-throughs.
+
+check "layer selectable defaults to visible/selectable" 1 [get_layer_selectable M1]
+set_layer_selectable M1 0
+check "set_layer_selectable false round-trips" 0 [get_layer_selectable M1]
+set_layer_selectable M1 1
+check "set_layer_selectable true round-trips" 1 [get_layer_selectable M1]
+
+check "purpose visible defaults to visible" 1 [get_purpose_visible obstruction]
+set_purpose_visible obstruction 0
+check "set_purpose_visible false round-trips" 0 [get_purpose_visible obstruction]
+set_purpose_visible obstruction 1
+check "set_purpose_visible true round-trips" 1 [get_purpose_visible obstruction]
+
+check "purpose selectable defaults to selectable" 1 [get_purpose_selectable terminal]
+set_purpose_selectable terminal 0
+check "set_purpose_selectable false round-trips" 0 [get_purpose_selectable terminal]
+set_purpose_selectable terminal 1
+check "set_purpose_selectable true round-trips" 1 [get_purpose_selectable terminal]
+
+if {[catch {set_purpose_visible not_a_real_purpose 1} err]} {
+    puts "ok: set_purpose_visible rejects an unknown purpose keyword ($err)"
+} else {
+    puts stderr "FAIL: set_purpose_visible accepted an unknown purpose keyword"
+    exit 1
+}
+
+check "mode defaults to select" "select" [get_mode]
+set_mode edit
+check "set_mode edit round-trips" "edit" [get_mode]
+set_mode ruler
+check "set_mode ruler round-trips" "ruler" [get_mode]
+set_mode select
+check "set_mode select round-trips" "select" [get_mode]
+
+if {[catch {set_mode not_a_real_mode} err]} {
+    puts "ok: set_mode rejects an unknown mode keyword ($err)"
+} else {
+    puts stderr "FAIL: set_mode accepted an unknown mode keyword"
+    exit 1
+}
+
+clear_rulers
+puts "ok: clear_rulers"
+select_all
+puts "ok: select_all"
+deselect_all
+puts "ok: deselect_all"
+arm_move
+puts "ok: arm_move"
+
 puts "le_tcl smoke test passed"

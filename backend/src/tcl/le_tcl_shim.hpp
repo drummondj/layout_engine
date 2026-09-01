@@ -215,6 +215,61 @@ void set_layer_visible_cmd(const char *layer_name, bool visible);
 /// "unknown name" fallback).
 bool get_layer_visible_cmd(const char *layer_name);
 
+/// @brief Backing for the `set_layer_selectable <layer_name> <selectable>`
+/// Tcl command - mirrors le_set_layer_name_selectable directly (whole real-
+/// Layer's worth, same row-not-column granularity as set_layer_visible_cmd).
+void set_layer_selectable_cmd(const char *layer_name, bool selectable);
+
+/// @brief Backing for the `get_layer_selectable <layer_name>` Tcl command -
+/// mirrors le_is_layer_name_selectable directly.
+bool get_layer_selectable_cmd(const char *layer_name);
+
+/// @brief Backing for the `set_purpose_visible <purpose> <visible>` Tcl
+/// command - mirrors le_set_purpose_visible directly. `purpose` is the raw
+/// ordinal le_purpose_at()/le_tcl_procs.tcl's own ::purpose_names dict
+/// resolves a friendly keyword (e.g. "OBSTRUCTION") to - see le_purpose_at's
+/// own api.hpp comment for the full ordinal list and why it must be passed
+/// through opaquely rather than re-derived.
+void set_purpose_visible_cmd(int32_t purpose, bool visible);
+
+/// @brief Backing for the `get_purpose_visible <purpose>` Tcl command -
+/// mirrors le_is_purpose_visible directly.
+bool get_purpose_visible_cmd(int32_t purpose);
+
+/// @brief Backing for the `set_purpose_selectable <purpose> <selectable>`
+/// Tcl command - mirrors le_set_purpose_selectable directly.
+void set_purpose_selectable_cmd(int32_t purpose, bool selectable);
+
+/// @brief Backing for the `get_purpose_selectable <purpose>` Tcl command -
+/// mirrors le_is_purpose_selectable directly.
+bool get_purpose_selectable_cmd(int32_t purpose);
+
+/// @brief Backing for the `set_mode <mode>` Tcl command - mirrors
+/// le_set_mode directly. `mode` is LeMode's own raw ordinal (0=SELECT,
+/// 1=EDIT, 2=RULER) - le_tcl_procs.tcl's own set_mode wrapper resolves a
+/// friendly keyword ("select"/"edit"/"ruler") to it.
+void set_mode_cmd(int32_t mode);
+
+/// @brief Backing for the `get_mode` Tcl command - mirrors le_get_mode
+/// directly, returned as the same raw ordinal set_mode_cmd takes.
+int32_t get_mode_cmd();
+
+/// @brief Backing for the `clear_rulers` Tcl command - mirrors
+/// le_clear_rulers directly.
+void clear_rulers_cmd();
+
+/// @brief Backing for the `select_all` Tcl command - mirrors le_select_all
+/// directly.
+void select_all_cmd();
+
+/// @brief Backing for the `deselect_all` Tcl command - mirrors
+/// le_deselect_all directly.
+void deselect_all_cmd();
+
+/// @brief Backing for the `arm_move` Tcl command - mirrors le_arm_move
+/// directly.
+void arm_move_cmd();
+
 /// @brief Backing for the `set_antialiasing_enabled <enabled>` Tcl
 /// command - mirrors le_set_antialiasing_enabled directly.
 void set_antialiasing_enabled_cmd(bool enabled);

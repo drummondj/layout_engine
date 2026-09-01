@@ -487,6 +487,66 @@ bool get_layer_visible_cmd(const char *layer_name)
     return le_is_layer_name_visible(session(), layer_name);
 }
 
+void set_layer_selectable_cmd(const char *layer_name, bool selectable)
+{
+    le_set_layer_name_selectable(session(), layer_name, selectable);
+}
+
+bool get_layer_selectable_cmd(const char *layer_name)
+{
+    return le_is_layer_name_selectable(session(), layer_name);
+}
+
+void set_purpose_visible_cmd(int32_t purpose, bool visible)
+{
+    le_set_purpose_visible(session(), purpose, visible);
+}
+
+bool get_purpose_visible_cmd(int32_t purpose)
+{
+    return le_is_purpose_visible(session(), purpose);
+}
+
+void set_purpose_selectable_cmd(int32_t purpose, bool selectable)
+{
+    le_set_purpose_selectable(session(), purpose, selectable);
+}
+
+bool get_purpose_selectable_cmd(int32_t purpose)
+{
+    return le_is_purpose_selectable(session(), purpose);
+}
+
+void set_mode_cmd(int32_t mode)
+{
+    le_set_mode(session(), mode);
+}
+
+int32_t get_mode_cmd()
+{
+    return le_get_mode(session());
+}
+
+void clear_rulers_cmd()
+{
+    le_clear_rulers(session());
+}
+
+void select_all_cmd()
+{
+    le_select_all(session());
+}
+
+void deselect_all_cmd()
+{
+    le_deselect_all(session());
+}
+
+void arm_move_cmd()
+{
+    le_arm_move(session());
+}
+
 void set_antialiasing_enabled_cmd(bool enabled)
 {
     le_set_antialiasing_enabled(session(), enabled);

@@ -95,6 +95,18 @@ void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_u
 void set_layer_visible_cmd(const char *layer_name, bool visible);
 int dump_png_cmd(const char *path);
 bool get_layer_visible_cmd(const char *layer_name);
+void set_layer_selectable_cmd(const char *layer_name, bool selectable);
+bool get_layer_selectable_cmd(const char *layer_name);
+void set_purpose_visible_cmd(int purpose, bool visible);
+bool get_purpose_visible_cmd(int purpose);
+void set_purpose_selectable_cmd(int purpose, bool selectable);
+bool get_purpose_selectable_cmd(int purpose);
+void set_mode_cmd(int mode);
+int get_mode_cmd();
+void clear_rulers_cmd();
+void select_all_cmd();
+void deselect_all_cmd();
+void arm_move_cmd();
 void set_antialiasing_enabled_cmd(bool enabled);
 bool get_antialiasing_enabled_cmd();
 void set_session_handle(long long handle_address);

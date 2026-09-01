@@ -401,62 +401,83 @@ class LeProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // The Tcl-facing keyword each LeMode value maps to (le_tcl_procs.tcl's
+  // own ::mode_names dict, kept in sync by hand - see set_mode's own
+  // register_command_help) - not LeMode's own enum name (LE_MODE_SELECT),
+  // which the Tcl side never sees.
+  static const Map<LeMode, String> _modeTclKeywords = {
+    LeMode.LE_MODE_SELECT: 'select',
+    LeMode.LE_MODE_EDIT: 'edit',
+    LeMode.LE_MODE_RULER: 'ruler',
+  };
+
+  static String _tclBool(bool value) => value ? '1' : '0';
+
   /// Sets how many further levels of Placement -> Design a Layout view
   /// recurses into before a placed instance falls back to its own
   /// Abstract (see LeEditorBase.hierarchyDepth) - the HierarchyRow field.
+  /// Goes through the Tcl `set_hierarchy_depth` command
+  /// (BUGS_AND_ENHANCEMENTS.md E20 - see runTclCommand's own doc comment
+  /// for why: one entry point per mutating action, visible in the
+  /// console's own command history).
   Future<void> setHierDepth(int depth) async {
-    _editor.setHierarchyDepth(depth);
-    refreshAndNotify();
+    await runTclCommand('set_hierarchy_depth $depth');
   }
 
-  /// Switches the current interaction mode (UPDATES.md item 11) - also
-  /// reachable via the 's'/'e'/'r' keyboard shortcuts (see handleKeyEvent).
+  /// Switches the current interaction mode (UPDATES.md item 11) - the
+  /// toolbox button's own handler, going through the Tcl `set_mode`
+  /// command (BUGS_AND_ENHANCEMENTS.md E20). The 's'/'e'/'r' keyboard
+  /// shortcuts (see handleKeyEvent) stay a direct, low-latency native call
+  /// instead - same reasoning as mouse/pointer handling below, a keypress
+  /// can't afford a Tcl round trip's own polling latency.
   Future<void> setMode(LeMode mode) async {
-    _editor.setMode(mode);
-    refreshAndNotify();
+    await runTclCommand('set_mode ${_modeTclKeywords[mode]}');
   }
 
-  /// Removes every ruler, finished or not (UPDATES.md item 13).
+  /// Removes every ruler, finished or not (UPDATES.md item 13) - goes
+  /// through the Tcl `clear_rulers` command (BUGS_AND_ENHANCEMENTS.md E20).
   Future<void> clearRulers() async {
-    _editor.clearRulers();
-    refreshAndNotify();
+    await runTclCommand('clear_rulers');
   }
 
   /// Undoes the most recently recorded transaction, if any - a typed Tcl
-  /// command or a GUI edit like Move (UPDATES.md item 21). Also reachable
-  /// via Ctrl-Z (see handleKeyEvent).
+  /// command or a GUI edit like Move (UPDATES.md item 21) - the toolbox/
+  /// menu button's own handler, going through the Tcl `undo` command
+  /// (BUGS_AND_ENHANCEMENTS.md E20). Ctrl-Z (see handleKeyEvent) stays a
+  /// direct native call, same reasoning as setMode's own keyboard shortcut.
   Future<void> undo() async {
-    _editor.undo();
-    refreshAndNotify();
+    await runTclCommand('undo');
   }
 
-  /// Redoes the most recently undone transaction, if any. Also reachable
-  /// via Ctrl-Shift-Z.
+  /// Redoes the most recently undone transaction, if any - the toolbox/
+  /// menu button's own handler, going through the Tcl `redo` command.
+  /// Ctrl-Shift-Z stays a direct native call.
   Future<void> redo() async {
-    _editor.redo();
-    refreshAndNotify();
+    await runTclCommand('redo');
   }
 
   /// Arms Move (UPDATES.md item 21) - the Move toolbox button's own
-  /// handler. Only meaningful in Edit mode with a non-empty selection;
-  /// a no-op otherwise. Also reachable via Ctrl-M.
+  /// handler, going through the Tcl `arm_move` command
+  /// (BUGS_AND_ENHANCEMENTS.md E20). Only meaningful in Edit mode with a
+  /// non-empty selection; a no-op otherwise. Ctrl-M stays a direct native
+  /// call.
   Future<void> armMove() async {
-    _editor.armMove();
-    refreshAndNotify();
+    await runTclCommand('arm_move');
   }
 
   /// Selects every currently selectable shape in the current Abstract -
-  /// the Select-mode toolbox button's own handler (UPDATES.md item 21).
+  /// the Select-mode toolbox button's own handler (UPDATES.md item 21),
+  /// going through the Tcl `select_all` command (BUGS_AND_ENHANCEMENTS.md
+  /// E20).
   Future<void> selectAll() async {
-    _editor.selectAll();
-    refreshAndNotify();
+    await runTclCommand('select_all');
   }
 
   /// Clears the current selection - the Select-mode toolbox button's own
-  /// handler.
+  /// handler, going through the Tcl `deselect_all` command
+  /// (BUGS_AND_ENHANCEMENTS.md E20).
   Future<void> deselectAll() async {
-    _editor.deselectAll();
-    refreshAndNotify();
+    await runTclCommand('deselect_all');
   }
 
   Future<void> init() async {
@@ -617,57 +638,95 @@ class LeProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Goes through the Tcl `set_layer_visible`/`set_layer_selectable`/
+  // `set_purpose_visible`/`set_purpose_selectable` commands
+  // (BUGS_AND_ENHANCEMENTS.md E20) - the Layer Manager's own row/column
+  // checkboxes. Braces around the layer name guard against Tcl word-
+  // splitting the same way readLef's own `{$path}` does; a purpose crosses
+  // as LeLayerPurpose's own .name (e.g. "trackPreferred"), matching
+  // le_tcl_procs.tcl's own ::purpose_names dict keys exactly (kept in sync
+  // by hand - see set_purpose_visible's own register_command_help).
   Future<void> setLayerVisibility(LeLayerInfo layerInfo, bool? visible) async {
-    _editor.setLayerNameVisible(layerInfo.layer.name, visible ?? false);
-    refreshAndNotify();
+    await runTclCommand(
+      'set_layer_visible {${layerInfo.layer.name}} ${_tclBool(visible ?? false)}',
+    );
   }
 
   Future<void> setLayerSelectable(
     LeLayerInfo layerInfo,
     bool? selectable,
   ) async {
-    _editor.setLayerNameSelectable(layerInfo.layer.name, selectable ?? false);
-    refreshAndNotify();
+    await runTclCommand(
+      'set_layer_selectable {${layerInfo.layer.name}} ${_tclBool(selectable ?? false)}',
+    );
   }
 
   Future<void> setPurposeVisible(
     LePurposeInfo purposeInfo,
     bool? visible,
   ) async {
-    _editor.setPurposeVisible(purposeInfo.purpose, visible ?? false);
-    refreshAndNotify();
+    await runTclCommand(
+      'set_purpose_visible ${purposeInfo.purpose.name} ${_tclBool(visible ?? false)}',
+    );
   }
 
   Future<void> setPurposeSelectable(
     LePurposeInfo purposeInfo,
     bool? visible,
   ) async {
-    _editor.setPurposeSelectable(purposeInfo.purpose, visible ?? false);
-    refreshAndNotify();
+    await runTclCommand(
+      'set_purpose_selectable ${purposeInfo.purpose.name} ${_tclBool(visible ?? false)}',
+    );
   }
 
+  // The "All ..." checkboxes each toggle every row/column at once, which
+  // can mean dozens of real Layers/purposes - looping runTclCommand (each
+  // its own eval + LeTclConsole.eval's own ~50ms poll cycle - see that
+  // method's own doc comment) would serialize a long, visibly laggy chain
+  // of round trips for what's really one user action. Instead this builds
+  // one semicolon-joined Tcl script covering every row and submits it as a
+  // single runTclCommand call - one command-history entry (still fully
+  // readable/scriptable - a literal, if long, sequence of the exact same
+  // set_layer_visible/set_purpose_visible commands a script would issue
+  // one at a time) and one isRunning cycle, not N.
   Future<void> setAllLayersVisible(bool? visible) async {
-    for (var layerInfo in _layers) {
-      await setLayerVisibility(layerInfo, visible);
-    }
+    if (_layers.isEmpty) return;
+    final bool value = visible ?? false;
+    await runTclCommand(
+      _layers
+          .map((l) => 'set_layer_visible {${l.layer.name}} ${_tclBool(value)}')
+          .join('; '),
+    );
   }
 
   Future<void> setAllLayersSelectable(bool? selectable) async {
-    for (var layerInfo in _layers) {
-      await setLayerSelectable(layerInfo, selectable);
-    }
+    if (_layers.isEmpty) return;
+    final bool value = selectable ?? false;
+    await runTclCommand(
+      _layers
+          .map((l) => 'set_layer_selectable {${l.layer.name}} ${_tclBool(value)}')
+          .join('; '),
+    );
   }
 
   Future<void> setAllPurposesVisible(bool? visible) async {
-    for (var purposeInfo in _layerPurposes) {
-      await setPurposeVisible(purposeInfo, visible);
-    }
+    if (_layerPurposes.isEmpty) return;
+    final bool value = visible ?? false;
+    await runTclCommand(
+      _layerPurposes
+          .map((p) => 'set_purpose_visible ${p.purpose.name} ${_tclBool(value)}')
+          .join('; '),
+    );
   }
 
   Future<void> setAllPurposesSelectable(bool? selectable) async {
-    for (var purposeInfo in _layerPurposes) {
-      await setPurposeSelectable(purposeInfo, selectable);
-    }
+    if (_layerPurposes.isEmpty) return;
+    final bool value = selectable ?? false;
+    await runTclCommand(
+      _layerPurposes
+          .map((p) => 'set_purpose_selectable ${p.purpose.name} ${_tclBool(value)}')
+          .join('; '),
+    );
   }
 
   Future<void> setAllVisible(bool? visible) async {
