@@ -107,6 +107,7 @@ void clear_rulers_cmd();
 void select_all_cmd();
 void deselect_all_cmd();
 void arm_move_cmd();
+void request_show_gui_cmd();
 void set_antialiasing_enabled_cmd(bool enabled);
 bool get_antialiasing_enabled_cmd();
 void set_session_handle(long long handle_address);

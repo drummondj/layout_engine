@@ -15,18 +15,38 @@
 // moment the shell starts, without the caller sourcing anything
 // themselves.
 //
-// `show_gui` (see le_tcl_procs.tcl) is a deliberate stub for now, not a
-// missing feature quietly deferred - see TCL_EXPLORATION.md's Phase 6
-// section for why real GUI integration is out of scope for this pass:
-// this project's only GUI is the Flutter app, a separate Dart/Flutter
-// runtime consuming api/render/io via FFI, not something this C++/Tcl
-// process can "just start rendering" in-process without embedding a
-// full FlutterEngine (a substantial, separate integration effort - see
-// OpenROAD's own gui_start for what the real version of this looks
-// like, and why it needs its own pass rather than being folded into
-// this one).
+// `show_gui` (see le_tcl_procs.tcl) opens a Dear ImGui window (LE_BUILD_GUI_SHELL,
+// src/gui/le_gui.hpp) sharing this same process's session state -
+// replacing the earlier "deliberate stub" this comment used to describe
+// (see git history/TCL_EXPLORATION.md's Phase 6 section for that earlier
+// exploration and why it went a different direction for the Flutter
+// plugin's own Tcl console first). Getting there means restructuring
+// this binary's own thread ownership: Tcl_Main's own blocking stdin/
+// event loop and a native GUI's own event loop (GLFW/Cocoa's
+// NSApplication in particular) can't share one thread - the same
+// conflict TCL_EXPLORATION.md already hit and steered around for the
+// Flutter plugin (Tcl embedded as a library on its own worker thread
+// there, instead of Tcl_Main). Here it's the mirror image: with
+// LE_SHELL_HAS_GUI, this process's own true main thread is reserved for
+// le::gui::run_main_thread_loop() (GLFW requires window/context creation
+// only there on macOS), and Tcl_Main runs on a spawned thread instead -
+// unchanged in every other respect, injecting the LeHandle this main
+// thread already created via set_session_handle (le_tcl_shim.hpp) right
+// after `load`-ing le_tcl, so a `show_gui` window and this console
+// mutate the exact same state. Without LE_BUILD_GUI_SHELL, this binary
+// keeps today's original single-threaded shape entirely (Tcl_Main
+// directly on this process's own main thread, no handle of its own to
+// inject - le_tcl_shim.cpp lazily self-creates one as it always has).
 
 #include <tcl.h>
+
+#include "api.hpp"
+
+#ifdef LE_SHELL_HAS_GUI
+#include "le_gui.hpp"
+
+#include <thread>
+#endif
 
 #include <cstdio>
 #include <cstdlib>
@@ -37,6 +57,10 @@ namespace
 {
     std::string g_module_path;
     std::string g_procs_path;
+
+#ifdef LE_SHELL_HAS_GUI
+    LeHandle *g_injected_handle = nullptr;
+#endif
 
     std::string resolve_path(const char *cli_value, const char *env_var, const char *what)
     {
@@ -71,6 +95,22 @@ namespace
         {
             return TCL_ERROR;
         }
+
+#ifdef LE_SHELL_HAS_GUI
+        // Must happen before le_tcl_procs.tcl is sourced below - see
+        // set_session_handle's own doc comment (le_tcl_shim.hpp) for why:
+        // it only redirects future session()-touching calls, not ones
+        // that already ran. Shares the exact LeHandle main() already
+        // created (and le::gui::run_main_thread_loop() is about to drive
+        // on the other thread), so a `show_gui` window and this console
+        // mutate the same state.
+        const std::string inject_command = "set_session_handle " +
+            std::to_string(reinterpret_cast<int64_t>(g_injected_handle));
+        if (Tcl_Eval(interp, inject_command.c_str()) != TCL_OK)
+        {
+            return TCL_ERROR;
+        }
+#endif
 
         if (Tcl_EvalFile(interp, g_procs_path.c_str()) != TCL_OK)
         {
@@ -121,8 +161,30 @@ int main(int argc, char **argv)
     g_module_path = resolve_path(module_arg, "LE_TCL_MODULE", "the le_tcl module path (-module)");
     g_procs_path = resolve_path(procs_arg, "LE_TCL_PROCS_PATH", "the le_tcl_procs.tcl path (-procs)");
 
+#ifdef LE_SHELL_HAS_GUI
+    g_injected_handle = le_create();
+
+    // Tcl_Main "never returns" (calls Tcl_Exit()/exit() itself once the
+    // script (batch mode) or the interactive loop (EOF/`exit`) ends) -
+    // runs on its own thread here instead of this process's main one,
+    // which le::gui::run_main_thread_loop() below needs for itself (see
+    // this file's own header comment). Detached, not joined: the whole
+    // process exits from inside this thread's own Tcl_Main() call, so
+    // there's no normal path where joining it would ever return either -
+    // `remaining` is captured by value (a cheap copy of a vector of
+    // pointers into argv's own persistent strings) so this thread's own
+    // copy stays valid regardless of main()'s local variables, even
+    // though main() also never returns before process exit here.
+    std::thread tcl_thread([remaining]() mutable
+                            { Tcl_Main(static_cast<int>(remaining.size()), remaining.data(), app_init); });
+    tcl_thread.detach();
+
+    le::gui::run_main_thread_loop(g_injected_handle);
+    return 0;
+#else
     // Never returns - Tcl_Main calls Tcl_Exit()/exit() itself once the
     // script (batch mode) or the interactive loop (EOF/`exit`) ends.
     Tcl_Main(static_cast<int>(remaining.size()), remaining.data(), app_init);
     return 0;
+#endif
 }

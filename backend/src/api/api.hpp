@@ -1240,6 +1240,25 @@ extern "C"
     /// Returns 0 (not rendering) if handle is null.
     int32_t le_is_rendering(LeHandle *handle);
 
+    /// @brief Signals that a window showing this handle's own rendered
+    /// content should be opened - the backing for the Tcl `show_gui`
+    /// command. Fire-and-forget: sets a flag and returns immediately, so
+    /// the Tcl console thread that called it keeps working while a
+    /// separate, dedicated GUI thread (src/gui/le_gui.hpp - not this
+    /// process's Tcl console thread) notices the request (via
+    /// le_take_show_gui_request()) and actually creates the window. A
+    /// no-op if handle is null.
+    void le_request_show_gui(LeHandle *handle);
+
+    /// @brief Atomically reads and clears the pending-show-gui flag
+    /// le_request_show_gui() sets - "was a request made since the last
+    /// time this was called", not "is one currently pending" (there is
+    /// no currently, it's a one-shot edge, not a level - see this
+    /// function's own gui_show_requested_ backing field in api.cpp).
+    /// Meant to be polled from the one thread that owns opening/showing
+    /// the GUI window. Returns 0 if handle is null.
+    int32_t le_take_show_gui_request(LeHandle *handle);
+
     // --- CRUD + filter-search (UPDATES.md item 15 / TCL_EXPLORATION.md
     // Phase 4) - Terminal only so far; TerminalPort/Obstruction/Abstract-
     // boundary follow the same shape in a later pass. Layered on top of

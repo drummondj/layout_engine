@@ -444,6 +444,45 @@ none of these are duplicated here.
   for fields still deliberately deferred. Fully covered by
   `src/tcl/tests/smoke_test.tcl`/`crud_test.tcl`/`shell_test.tcl` (run via
   `tclsh8.6`, not the generic `tclsh` — see the `build-test` skill).
+- `src/gui/` — Dear ImGui prototype: `le_gui.hpp`'s one public function,
+  `run_main_thread_loop(LeHandle*)`, opens a GLFW + Dear ImGui window on
+  `show_gui` (a Tcl command, `le_tcl_procs.tcl`), rendering the handle's
+  own `le_render_pixel_buffer` output into a GL texture each frame and
+  translating GLFW/ImGui mouse/keyboard input into the same `le_*` calls
+  a script's own zoom/pan/select/mode commands would use — replacing
+  Flutter for a CPU-only-Linux-VM deploy target Flutter's own GPU-
+  oriented rendering performs poorly on. Depends only on `api` plus GLFW/
+  Dear ImGui (`LE_BUILD_GUI_SHELL`, default `ON`) — no Tcl/SWIG
+  dependency, and no knowledge that `le_shell` (its only caller) exists.
+  `le_shell.cpp` is the only place Tcl and `gui` meet: its own `main()`
+  creates one `LeHandle`, spawns the interactive Tcl console
+  (`Tcl_Main`) on a background thread (injecting that same handle via
+  `set_session_handle`, the same mechanism the Flutter plugin's own
+  `LeTclBridge` uses), and calls `le::gui::run_main_thread_loop` on the
+  process's own true main thread — required there since GLFW only
+  allows window/context creation on the main thread on macOS (harmless
+  on Linux, which has no such restriction); this is also why the console
+  can no longer run directly via `Tcl_Main` on the process's own main
+  thread, the way it did before this existed. `show_gui`'s own signal
+  (`LeHandle::gui_show_requested_`/`le_request_show_gui`/
+  `le_take_show_gui_request`, `api.hpp`) is a one-shot atomic flag,
+  mirroring `is_rendering_`/`le_is_rendering`'s own established shape —
+  the Tcl console thread sets it and returns immediately, the GUI
+  thread's own idle loop polls and consumes it. No GL loader dependency
+  (glad/gl3w/GLEW): every GL call this module makes directly (texture
+  upload) is OpenGL 1.1 core, declared by the system GL headers on both
+  target platforms without one, and Dear ImGui's own opengl3 backend
+  bundles its own minimal loader for its internal GL 3.2 core-profile
+  calls. `LE_BUILD_GUI_SHELL=OFF` builds `le_shell` exactly as it worked
+  before this existed (no GLFW/ImGui dependency at all, `show_gui`
+  degrades to setting a flag nobody ever reads) — for a from-scratch/
+  rootless environment without X11/GL dev packages available (e.g. the
+  Rocky Linux 8 bootstrap effort, see Open gaps below). No automated test
+  coverage of the render/input loop itself (inherently interactive/
+  visual) — verified manually only, on macOS, as of this writing; Linux
+  packaging (`Dockerfile.linux-ci` system packages, confirming the
+  configure+build itself succeeds there) is a known, tracked next step,
+  not yet done.
 - `src/lefdef/` — vendored LEF/DEF 6.0.62-p004 C parser source (Si2 distribution).
   Both `lef/` and `def/` are built by their own `Makefile`s via separate
   `ExternalProject_Add` steps (`lef_lib`/`def_lib`) in the top-level

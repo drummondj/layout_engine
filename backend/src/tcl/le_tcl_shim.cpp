@@ -547,6 +547,11 @@ void arm_move_cmd()
     le_arm_move(session());
 }
 
+void request_show_gui_cmd()
+{
+    le_request_show_gui(session());
+}
+
 void set_antialiasing_enabled_cmd(bool enabled)
 {
     le_set_antialiasing_enabled(session(), enabled);

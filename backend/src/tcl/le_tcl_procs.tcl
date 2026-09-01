@@ -1552,26 +1552,26 @@ register_command_help remove_shape_path \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# --- GUI (Phase 6 - see TCL_EXPLORATION.md) ---
+# --- GUI (Dear ImGui prototype - see src/gui/le_gui.hpp) ---
 
-# Deliberate stub, not a silently missing feature: this project's only
-# GUI is the Flutter app, a separate Dart/Flutter runtime consuming
-# api/render/io via FFI - this Tcl shell can't "just start rendering" on
-# the same in-process state without embedding a full FlutterEngine
-# alongside its own Tcl event loop (OpenROAD's actual gui_start model),
-# a substantial, separate integration effort TCL_EXPLORATION.md's Phase
-# 6 section explicitly defers rather than fakes. Prints instead of
-# silently no-op-ing so a caller typing `show_gui` learns why nothing
-# happened, not just that nothing did.
+# Requests that le_shell's own dedicated GUI thread open a window showing
+# this session's current view - fire-and-forget (request_show_gui_cmd
+# just sets a flag and returns), so the console prompt keeps working
+# immediately, not blocked on the window actually appearing. A no-op if
+# le_shell wasn't built with GUI support (LE_BUILD_GUI_SHELL=OFF) or is
+# running under a caller (e.g. a test harness) with no such thread
+# polling for the request - the flag is simply never consumed, and this
+# command still returns successfully either way.
 proc show_gui {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
-        return "show_gui \[-help\] - Deliberate stub; this Tcl shell doesn't embed the Flutter GUI in-process"
+        return "show_gui \[-help\] - Opens a window showing this session's current view"
     }
-    puts "show_gui: not implemented - this Tcl shell doesn't embed the Flutter GUI in-process yet. See TCL_EXPLORATION.md's Phase 6 section for why and what real support would take."
+    request_show_gui_cmd
+    puts "show_gui: opening window..."
 }
 register_command_help show_gui \
-    "show_gui \[-help\] - Deliberate stub; this Tcl shell doesn't embed the Flutter GUI in-process" \
-    "Deliberate stub, not a missing feature: this project's only GUI is the separate Flutter app, which this Tcl process can't start rendering in-process without embedding a full FlutterEngine - see TCL_EXPLORATION.md's Phase 6 section." \
+    "show_gui \[-help\] - Opens a window showing this session's current view" \
+    "Requests that le_shell's own dedicated GUI thread open a window showing this session's current view (Dear ImGui - see src/gui/le_gui.hpp), sharing this same session's state - mouse/keyboard in that window drive the same le_* calls a script's own zoom/pan/select commands would. Fire-and-forget: returns immediately, before the window necessarily exists yet." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }

@@ -3403,6 +3403,23 @@ TEST_F(ApiFixture, IsRenderingReflectsWhetherARenderIsActuallyInProgress)
     EXPECT_EQ(le_is_rendering(handle), 0) << "should be false again once the render has finished";
 }
 
+TEST_F(ApiFixture, TakeShowGuiRequestConsumesTheRequestExactlyOnce)
+{
+    // Dear ImGui prototype's own show_gui signal - a one-shot edge (a Tcl
+    // console thread requesting the window open), not a level, so
+    // le_take_show_gui_request() must clear it as part of reading it -
+    // a second poll with no intervening le_request_show_gui() call must
+    // not see a stale true.
+    EXPECT_EQ(le_take_show_gui_request(handle), 0) << "no request made yet";
+
+    le_request_show_gui(handle);
+    EXPECT_EQ(le_take_show_gui_request(handle), 1) << "the just-made request should be observed";
+    EXPECT_EQ(le_take_show_gui_request(handle), 0) << "the request was already consumed by the previous call";
+
+    le_request_show_gui(nullptr);
+    EXPECT_EQ(le_take_show_gui_request(nullptr), 0) << "both functions should degrade gracefully for a null handle";
+}
+
 // --- Terminal CRUD + filter-search (UPDATES.md item 15 / TCL_EXPLORATION.md
 // Phase 4) ---
 

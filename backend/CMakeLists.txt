@@ -43,6 +43,16 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(ENABLE_COVERAGE "Instrument io/backend_tests with Clang source-based line+branch coverage" OFF)
 
+# Dear ImGui prototype (le_shell's own `show_gui` command, src/gui/) -
+# fetches GLFW + Dear ImGui and links le_shell against a new `gui`
+# library target. Default ON, but a from-scratch/rootless environment
+# with no X11/GL dev packages available (e.g. the Rocky Linux 8 bootstrap
+# effort, see backend/CLAUDE.md's Open gaps) can turn this OFF to keep
+# building le_shell (with `show_gui` falling back to a plain "not
+# available" message at runtime, not a build failure) without needing
+# those packages at all.
+option(LE_BUILD_GUI_SHELL "Fetch GLFW/Dear ImGui and build le_shell's own show_gui window support" ON)
+
 if(ENABLE_COVERAGE)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         message(FATAL_ERROR "ENABLE_COVERAGE uses -fprofile-instr-generate, which requires Clang; found ${CMAKE_CXX_COMPILER_ID}. On GCC/Linux use --coverage + gcov/lcov instead.")
@@ -221,6 +231,31 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tracy)
 
+# --- GLFW + Dear ImGui (Dear ImGui prototype, LE_BUILD_GUI_SHELL) - a
+# native window showing le_shell's own rendered pixel buffer, replacing
+# Flutter for the CPU-only-Linux-VM deploy target this was prototyped
+# for (Flutter's own GPU-oriented rendering assumptions perform poorly
+# there; ImGui's own per-frame draw-call count is tiny by comparison).
+# GLFW is a normal CMake package (find_package fallback to FetchContent,
+# same pattern as fmt/spdlog above); Dear ImGui ships no CMake project of
+# its own, so it's fetched as plain source and given a hand-declared
+# library target (imgui_lib) near the rest of this project's own library
+# targets below, not here. ---
+if(LE_BUILD_GUI_SHELL)
+    find_package(glfw3 3.3 CONFIG QUIET)
+    if(NOT glfw3_FOUND)
+        set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+        set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+        FetchContent_Declare(glfw URL https://github.com/glfw/glfw/archive/refs/tags/3.5.1.zip)
+        FetchContent_MakeAvailable(glfw)
+    endif()
+
+    FetchContent_Declare(imgui URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9.zip)
+    FetchContent_MakeAvailable(imgui)
+endif()
+
 enable_testing()
 include(GoogleTest)
 
@@ -387,6 +422,46 @@ add_library(api STATIC src/api/api.cpp)
 target_include_directories(api PUBLIC src/api)
 target_link_libraries(api PRIVATE database geometry scene editing view_style pipelines io)
 le_enable_coverage_instrumentation(api)
+
+# --- gui: Dear ImGui prototype (LE_BUILD_GUI_SHELL) - le_shell's own
+# `show_gui` window. Depends on `api` (LeHandle*/le_* calls) plus GLFW/
+# Dear ImGui - deliberately no dependency on Tcl/SWIG at all, and no
+# knowledge that le_shell exists (see src/gui/le_gui.hpp's own doc
+# comment for the module boundary/threading rationale). Dear ImGui ships
+# no CMake project of its own (fetched as plain source above), so
+# imgui_lib is a small hand-declared static library wrapping its core
+# sources plus the glfw/opengl3 backend files - the standard way projects
+# consume it. No external GL loader dependency: every GL function this
+# needs (texture upload) is part of OpenGL 1.1's core spec, declared
+# directly by the system GL headers on both target platforms, and Dear
+# ImGui's own opengl3 backend bundles its own minimal loader for the
+# handful of GL3.2 core-profile calls it needs internally (no GLEW/GLAD/
+# gl3w dependency needed either, unlike many older ImGui integrations). ---
+if(LE_BUILD_GUI_SHELL)
+    add_library(imgui_lib STATIC
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    )
+    target_include_directories(imgui_lib PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+    # Same target name (`glfw`) whether it came from find_package(glfw3)
+    # or the FetchContent fallback above.
+    target_link_libraries(imgui_lib PUBLIC glfw)
+
+    add_library(gui STATIC src/gui/le_gui.cpp)
+    target_include_directories(gui PUBLIC src/gui)
+    target_link_libraries(gui PUBLIC api imgui_lib)
+    if(APPLE)
+        target_link_libraries(gui PRIVATE "-framework Cocoa" "-framework IOKit" "-framework OpenGL")
+    else()
+        find_package(OpenGL REQUIRED)
+        target_link_libraries(gui PRIVATE OpenGL::GL)
+    endif()
+endif()
 
 # --- le_tcl: Phase 0 SWIG toolchain spike (UPDATES.md item 15 /
 # TCL_EXPLORATION.md) - SWIG-wraps src/tcl/le_tcl_shim.{hpp,cpp} (a thin
@@ -611,10 +686,20 @@ if(SWIG_FOUND AND TCL_FOUND)
     # Phase 6 batch shell (src/tcl/le_shell.cpp) - a small Tcl_Main-based
     # binary, not linked against le_tcl (it dynamically `load`s the built
     # shared module at startup, same as tclsh would) - only needs Tcl
-    # itself.
+    # itself for that. It links `api` directly too (unconditionally, not
+    # gated by LE_BUILD_GUI_SHELL) to call le_create()/le_destroy() itself
+    # and own the LeHandle it injects into the Tcl console via
+    # set_session_handle - see le_shell.cpp's own comment. `gui`
+    # (LE_BUILD_GUI_SHELL only) adds real window support for `show_gui`;
+    # without it, LE_SHELL_HAS_GUI is left undefined and le_shell.cpp
+    # falls back to today's plain Tcl_Main()-on-the-main-thread behavior.
     add_executable(le_shell src/tcl/le_shell.cpp)
     target_include_directories(le_shell PRIVATE ${TCL_INCLUDE_PATH})
-    target_link_libraries(le_shell PRIVATE ${TCL_LIBRARY})
+    target_link_libraries(le_shell PRIVATE ${TCL_LIBRARY} api)
+    if(LE_BUILD_GUI_SHELL)
+        target_link_libraries(le_shell PRIVATE gui)
+        target_compile_definitions(le_shell PRIVATE LE_SHELL_HAS_GUI)
+    endif()
 
     # Batch-mode regression check (src/tcl/tests/shell_test.tcl) - runs
     # through the real compiled le_shell binary (not tclsh directly

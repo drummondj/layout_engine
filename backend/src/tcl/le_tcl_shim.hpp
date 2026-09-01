@@ -270,6 +270,14 @@ void deselect_all_cmd();
 /// directly.
 void arm_move_cmd();
 
+/// @brief Backing for the `show_gui` Tcl command - mirrors
+/// le_request_show_gui directly. Fire-and-forget: the actual window is
+/// opened by a separate, dedicated GUI thread (src/gui/le_gui.hpp) that
+/// polls for this request - see that header's own doc comment for the
+/// full threading story (Tcl_Main's own blocking event loop can't share
+/// a thread with a native GUI's own event loop).
+void request_show_gui_cmd();
+
 /// @brief Backing for the `set_antialiasing_enabled <enabled>` Tcl
 /// command - mirrors le_set_antialiasing_enabled directly.
 void set_antialiasing_enabled_cmd(bool enabled);

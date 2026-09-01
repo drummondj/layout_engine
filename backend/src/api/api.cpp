@@ -104,6 +104,22 @@ struct LeHandle
     // arbitrary lock-free readers".
     std::atomic<bool> is_rendering_{false};
 
+    // BUGS_AND_ENHANCEMENTS.md "Dear ImGui prototype" - a Tcl console's
+    // own `show_gui` command sets this to signal the process's dedicated
+    // GUI-owning thread (see src/gui/le_gui.hpp) that it should open its
+    // window now, then returns immediately so the console prompt keeps
+    // working - the console thread and the GUI thread are two different
+    // OS threads sharing this same LeHandle, exactly the split
+    // is_rendering_ above already documents (Flutter's raster thread vs
+    // platform thread), just with `show_gui`'s own request as the payload
+    // instead of a render-in-progress bit. Same reasoning for staying a
+    // lock-free std::atomic<bool>, test-and-cleared by
+    // le_take_show_gui_request rather than read via a separate getter -
+    // a request is a one-shot edge, not a level, so whichever thread
+    // observes it first (there's only ever one GUI-thread reader) should
+    // consume it, not leave it for a second poll to see stale.
+    std::atomic<bool> gui_show_requested_{false};
+
     // Single-slot cache backing le_object_property_count/le_object_
     // property_at - rebuilt whenever a different LeObjectRef is
     // requested. le::PropertyValue (generated/property.hpp) doubles as
@@ -3084,5 +3100,23 @@ extern "C"
         if (!handle)
             return 0;
         return handle->is_rendering_.load(std::memory_order_relaxed) ? 1 : 0;
+    }
+
+    void le_request_show_gui(LeHandle *handle)
+    {
+        // No lock - see gui_show_requested_'s own doc comment (LeHandle).
+        if (!handle)
+            return;
+        handle->gui_show_requested_.store(true, std::memory_order_relaxed);
+    }
+
+    int32_t le_take_show_gui_request(LeHandle *handle)
+    {
+        // exchange(false), not load() - see gui_show_requested_'s own doc
+        // comment for why this consumes the request rather than just
+        // peeking at it.
+        if (!handle)
+            return 0;
+        return handle->gui_show_requested_.exchange(false, std::memory_order_relaxed) ? 1 : 0;
     }
 }
