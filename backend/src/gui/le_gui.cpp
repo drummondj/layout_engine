@@ -9,6 +9,13 @@
 #define GL_SILENCE_DEPRECATION
 
 #include "imgui.h"
+// DockBuilder* (imgui_internal.h, "internal" API - not exported from
+// imgui.h) is the standard, documented way to script a *default* dock
+// layout the first time a window opens (left/center/right, mirroring
+// the Flutter frontend's own default docking layout in home.dart's
+// _buildDefaultLayout) - see setup_default_dock_layout below. Everything
+// else this file uses comes from imgui.h alone.
+#include "imgui_internal.h"
 #include "imgui_impl_glfw.h"
 // Declares every GL function this file calls (glGenTextures/glTexImage2D/
 // etc - all part of OpenGL 1.1's core spec, so no external loader library
@@ -264,6 +271,85 @@ namespace le::gui
             }
         }
 
+        // Window titles used both as the ImGui window label (must match
+        // exactly what DockBuilderDockWindow below targets) and as the
+        // panel's own on-screen tab text.
+        constexpr const char *kBrowserWindowTitle = "Browser";
+        constexpr const char *kPropertiesWindowTitle = "Properties";
+        constexpr const char *kLayoutWindowTitle = "Layout";
+
+        // Draws the always-present, fullscreen invisible host window +
+        // dockspace every frame (cheap - ImGui's own recommended
+        // "DockSpace over main viewport" pattern, see imgui_demo.cpp's
+        // ShowExampleAppDockSpace), and - the first time only, since
+        // there's no persisted layout to restore (io.IniFilename is null,
+        // see its own comment above) - programmatically splits it into a
+        // left/center/right layout mirroring the Flutter frontend's own
+        // default docking layout (home.dart's _buildDefaultLayout:
+        // browser/file on the left, layout+console in the center,
+        // layers/properties on the right) - minus the console (this
+        // prototype's Tcl console is le_shell's own terminal now, not a
+        // panel of its own - see this file's own header comment) and
+        // collapsed to one placeholder tab per side rather than
+        // per-panel tabs, since there's no real content to split between
+        // multiple tabs yet. `dockspace_built` is owned by (and reset
+        // once per) open_and_run_window's own window-open/close cycle,
+        // not a function-static - a fresh ImGui context (and so a fresh,
+        // empty dock layout) is created every time show_gui reopens the
+        // window, so the split has to be rebuilt every time too.
+        // Returns true on exactly the one frame that (re)built the split
+        // (dockspace_built's own false->true transition) - see the
+        // "Layout" panel's own viewport-size-setting code below (its
+        // caller) for why that one frame's own ImGui::GetContentRegionAvail()
+        // reading needs to be distrusted rather than acted on: a
+        // freshly-split dock node's own child windows don't actually
+        // report their final, corrected size until the *following*
+        // frame (a well-known one-frame lag in ImGui's own docking
+        // system for newly created nodes) - "Layout" still reports the
+        // *whole* dockspace's own width on this frame, not yet the
+        // ~50% split width, since "Browser"/"Properties" haven't been
+        // drawn (and so haven't claimed their own share of it) yet
+        // either.
+        bool draw_dockspace_and_default_layout(bool &dockspace_built)
+        {
+            const ImGuiViewport *viewport = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(viewport->WorkPos);
+            ImGui::SetNextWindowSize(viewport->WorkSize);
+            ImGui::SetNextWindowViewport(viewport->ID);
+
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::Begin(
+                "DockSpaceHost", nullptr,
+                ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+                    ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                    ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground);
+            ImGui::PopStyleVar(3);
+
+            const ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
+            const bool just_built = !dockspace_built;
+            if (just_built)
+            {
+                dockspace_built = true;
+                ImGui::DockBuilderRemoveNode(dockspace_id);
+                ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+                ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->WorkSize);
+
+                ImGuiID center_id = dockspace_id;
+                const ImGuiID left_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Left, 0.22f, nullptr, &center_id);
+                const ImGuiID right_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Right, 0.28f, nullptr, &center_id);
+
+                ImGui::DockBuilderDockWindow(kBrowserWindowTitle, left_id);
+                ImGui::DockBuilderDockWindow(kPropertiesWindowTitle, right_id);
+                ImGui::DockBuilderDockWindow(kLayoutWindowTitle, center_id);
+                ImGui::DockBuilderFinish(dockspace_id);
+            }
+            ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
+            ImGui::End();
+            return just_built;
+        }
+
         // Creates one window, runs its own frame loop until closed, then
         // tears everything back down - GLFW's own top-level state
         // (glfwInit, called once by run_main_thread_loop) stays alive
@@ -288,10 +374,17 @@ namespace le::gui
             ImGui::CreateContext();
             ImGuiIO &io = ImGui::GetIO();
             io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-            // Nothing worth persisting yet - one fixed, non-movable/
-            // non-resizable window (see the ImGuiWindowFlags below) -
-            // without this, ImGui writes an "imgui.ini" into whatever
-            // directory le_shell happens to be run from by default.
+            io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+            // Nothing worth persisting yet - every open_and_run_window()
+            // call rebuilds the same default left/center/right split from
+            // scratch (setup_default_dock_layout below) rather than
+            // restoring a user's own rearranged layout, the ImGui-side
+            // equivalent of Flutter's own docking_layout_v1 SharedPreferences
+            // persistence (home.dart) - without this, ImGui writes an
+            // "imgui.ini" into whatever directory le_shell happens to be
+            // run from by default. Worth revisiting once real panel
+            // content (not placeholders) makes a stable layout worth
+            // keeping across window close/reopen.
             io.IniFilename = nullptr;
             ImGui_ImplGlfw_InitForOpenGL(window, true);
             ImGui_ImplOpenGL3_Init("#version 150");
@@ -304,62 +397,34 @@ namespace le::gui
             int uploaded_width = 0;
             int uploaded_height = 0;
 
-            // Set synchronously, before the render thread below ever makes
-            // its first call - le_render_pixel_buffer() degrades
-            // gracefully (an empty buffer) when called with an unset/0x0
-            // viewport, but at least one of this handle's rasterize
-            // stages caches a "nothing to rasterize" result keyed on a
-            // constant that never changes for a Layout view (there's no
-            // real tiny-shapes content there yet, so nothing to version) -
-            // meaning if its own *first-ever* call happens to catch the
-            // viewport still unset, that empty result is what gets cached
-            // forever, never revisited even once the viewport becomes
-            // valid on every later call. No prior caller of
-            // le_render_pixel_buffer ever raced this (a single Tcl
-            // dump_png call, or Flutter's own occasional texture pull,
-            // both only ever call it after a real viewport size was
-            // already set) - this dedicated render thread is the first to
-            // start calling it immediately, before this GUI's own first
-            // frame would otherwise set one.
-            // The design view's own viewport is shorter than the full
-            // window - draw_status_bar (components/status_bar.hpp)
-            // reserves kStatusBarHeight logical points at the bottom -
-            // so the pixel height handed to le_set_viewport_size has to
-            // be the design view's own framebuffer-pixel height, not the
-            // whole window's, or the rendered frame would be scaled/
-            // cropped against the smaller ImGui::Image below rather than
-            // matching it. `initial_scale_y` (framebuffer pixels per
-            // logical point - a HiDPI/Retina ratio) is what converts
-            // between the two; the per-frame loop below recomputes both
-            // every frame since either can change independently (window
-            // resize, or the window moving to a display with a different
-            // pixel ratio).
-            int initial_win_width = 0;
-            int initial_win_height = 0;
-            glfwGetWindowSize(window, &initial_win_width, &initial_win_height);
-            int initial_fb_width = 0;
-            int initial_fb_height = 0;
-            glfwGetFramebufferSize(window, &initial_fb_width, &initial_fb_height);
-            const float initial_scale_y = initial_win_height > 0
-                ? static_cast<float>(initial_fb_height) / static_cast<float>(initial_win_height)
-                : 1.0f;
-            const float initial_image_win_height =
-                (static_cast<float>(initial_win_height) - kStatusBarHeight) > 1.0f
-                    ? static_cast<float>(initial_win_height) - kStatusBarHeight
-                    : 1.0f;
-            const int initial_viewport_height =
-                static_cast<int>(initial_image_win_height * initial_scale_y + 0.5f) > 0
-                    ? static_cast<int>(initial_image_win_height * initial_scale_y + 0.5f)
-                    : 1;
-            le_set_viewport_size(handle, initial_fb_width, initial_viewport_height);
-
-            int last_fb_width = initial_fb_width;
-            int last_viewport_height = initial_viewport_height;
+            // The render thread below is deliberately *not* started here
+            // (unlike before docking existed, when the whole window was
+            // the design view and its size was known immediately) - it
+            // isn't spawned until the main loop has computed a real,
+            // dock-panel-aware viewport size (see dock_layout_just_built
+            // below), not a guess. A guessed bootstrap size used to be
+            // needed here (le_render_pixel_buffer() degrades gracefully
+            // to an empty buffer for an unset/0x0 viewport, but at least
+            // one rasterize stage caches a "nothing to rasterize" result
+            // keyed on a constant that never changes for a Layout view,
+            // so a 0x0 *first-ever* call would cache that forever - see
+            // BUGS_AND_ENHANCEMENTS.md's own history of this bug) only
+            // because the render thread used to start immediately, before
+            // anything else had a chance to set a real size; deferring
+            // its start instead sidesteps that bug more directly (the
+            // very first call this thread ever makes now already has a
+            // correct size) and also avoids wasting a real, potentially
+            // multi-second synchronous cold rasterize (BENCHMARKS.md) on
+            // a guessed size about to be immediately superseded once
+            // docking's own geometry settles a frame or two later.
+            int last_viewport_width = 0;
+            int last_viewport_height = 0;
+            bool dockspace_built = false;
             ActiveGesture gesture = ActiveGesture::kNone;
 
             RenderMailbox mailbox;
             std::atomic<bool> stop_render_thread{false};
-            std::thread render_thread(render_thread_loop, handle, std::ref(mailbox), std::ref(stop_render_thread));
+            std::thread render_thread;
             uint64_t displayed_generation = 0;
             bool have_content = false;
 
@@ -377,29 +442,15 @@ namespace le::gui
                     win_width = 1;
                 if (win_height < 1)
                     win_height = 1;
+                // Framebuffer pixels per logical/window point (a HiDPI/
+                // Retina ratio) - uniform across the whole window
+                // regardless of how docking splits it into panels, so
+                // this stays derived from the *whole* window's own
+                // logical/framebuffer size, unlike the design view's own
+                // pixel dimensions below (which now depend on however
+                // large the user has left the "Layout" dock panel).
                 const float scale_x = static_cast<float>(fb_width) / static_cast<float>(win_width);
                 const float scale_y = static_cast<float>(fb_height) / static_cast<float>(win_height);
-
-                // See the matching initial_image_win_height/
-                // initial_viewport_height comment above - the design
-                // view's own framebuffer-pixel height, not the whole
-                // window's, since draw_status_bar reserves
-                // kStatusBarHeight logical points at the bottom.
-                const float image_win_height =
-                    (static_cast<float>(win_height) - kStatusBarHeight) > 1.0f
-                        ? static_cast<float>(win_height) - kStatusBarHeight
-                        : 1.0f;
-                const int viewport_height =
-                    static_cast<int>(image_win_height * scale_y + 0.5f) > 0
-                        ? static_cast<int>(image_win_height * scale_y + 0.5f)
-                        : 1;
-
-                if (fb_width != last_fb_width || viewport_height != last_viewport_height)
-                {
-                    le_set_viewport_size(handle, fb_width, viewport_height);
-                    last_fb_width = fb_width;
-                    last_viewport_height = viewport_height;
-                }
 
                 ImGui_ImplOpenGL3_NewFrame();
                 ImGui_ImplGlfw_NewFrame();
@@ -407,26 +458,77 @@ namespace le::gui
 
                 forward_keyboard_input(handle);
 
-                // Zero window padding - image_win_height/the status bar's
-                // own table width below both budget against the *full*
-                // win_width/win_height (see the matching comments above),
-                // not against win_width/win_height minus whatever the
-                // default ~8px WindowPadding would otherwise eat into on
-                // every edge; without this, the image + status bar
-                // together overflow the window's own true bottom/right
-                // edges by exactly that padding amount, clipping the
-                // status bar row's own text there. A full-bleed canvas
-                // window (nothing else shares it yet) has no other
-                // content that would benefit from padding anyway.
+                const bool dock_layout_just_built = draw_dockspace_and_default_layout(dockspace_built);
+
+                // Left/right sidebars - placeholders until the Flutter
+                // frontend's own LibraryBrowser/LayerManager/
+                // PropertyViewer components are ported here (this
+                // session's own next step after docking itself works).
+                ImGui::Begin(kBrowserWindowTitle);
+                ImGui::TextDisabled("(browser panel - not ported yet)");
+                ImGui::End();
+
+                ImGui::Begin(kPropertiesWindowTitle);
+                ImGui::TextDisabled("(layers/properties panel - not ported yet)");
+                ImGui::End();
+
+                // Zero window padding - the design view/status bar sizing
+                // below budgets against this panel's own *full* content
+                // region (panel_width/panel_height), not that region
+                // minus whatever the default ~8px WindowPadding would
+                // otherwise eat into on every edge; without this, the
+                // image + status bar together overflow the panel's own
+                // true bottom/right edges by exactly that padding amount,
+                // clipping the status bar row's own text there.
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-                ImGui::SetNextWindowPos(ImVec2(0, 0));
-                ImGui::SetNextWindowSize(ImVec2(static_cast<float>(win_width), static_cast<float>(win_height)));
-                ImGui::Begin(
-                    "Layout Engine",
-                    nullptr,
-                    ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-                        ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
-                        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+                ImGui::Begin(kLayoutWindowTitle, nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+                // This panel's own content area, in logical/window
+                // points - however large docking has left it (the user
+                // can resize/rearrange the left/right sidebars freely),
+                // not the whole GLFW window - converted to framebuffer
+                // pixels via scale_x/scale_y for le_set_viewport_size,
+                // which (like every other le_* pixel-space call) works in
+                // real framebuffer pixels, not logical points.
+                const ImVec2 panel_avail = ImGui::GetContentRegionAvail();
+                const float panel_width = panel_avail.x > 1.0f ? panel_avail.x : 1.0f;
+                const float panel_height = panel_avail.y > 1.0f ? panel_avail.y : 1.0f;
+                const float image_win_height =
+                    (panel_height - kStatusBarHeight) > 1.0f ? panel_height - kStatusBarHeight : 1.0f;
+                const int viewport_width =
+                    static_cast<int>(panel_width * scale_x + 0.5f) > 0
+                        ? static_cast<int>(panel_width * scale_x + 0.5f)
+                        : 1;
+                const int viewport_height =
+                    static_cast<int>(image_win_height * scale_y + 0.5f) > 0
+                        ? static_cast<int>(image_win_height * scale_y + 0.5f)
+                        : 1;
+
+                // dock_layout_just_built: skip acting on this frame's own
+                // size (draw_dockspace_and_default_layout's own doc
+                // comment on why panel_avail can't be trusted yet on
+                // this one frame) - real cost, not just cosmetic: this
+                // handle's render pipeline does a full synchronous
+                // rasterize of whatever's currently loaded on every
+                // viewport-size change (a real design can take seconds
+                // cold, see BENCHMARKS.md), so acting on a known-wrong
+                // width here would burn a real render on a size that's
+                // about to be thrown away one frame later anyway. The
+                // render thread itself is spawned right here too, on
+                // this same first trustworthy frame - see its own
+                // declaration's comment for why waiting is better than
+                // guessing a starting size.
+                if (!dock_layout_just_built &&
+                    (viewport_width != last_viewport_width || viewport_height != last_viewport_height))
+                {
+                    le_set_viewport_size(handle, viewport_width, viewport_height);
+                    last_viewport_width = viewport_width;
+                    last_viewport_height = viewport_height;
+                    if (!render_thread.joinable())
+                    {
+                        render_thread = std::thread(render_thread_loop, handle, std::ref(mailbox), std::ref(stop_render_thread));
+                    }
+                }
 
                 // Only upload a new GL texture when the background render
                 // thread has actually published something newer than what
@@ -463,9 +565,15 @@ namespace le::gui
 
                 if (have_content)
                 {
+                    // Captured before drawing the Image, not a fixed
+                    // (8,8) window-relative offset - this panel can now
+                    // sit anywhere within the GLFW window (docking, not
+                    // always the top-left corner), and AddText below
+                    // draws in absolute screen coordinates.
+                    const ImVec2 image_screen_pos = ImGui::GetCursorScreenPos();
                     ImGui::Image(
                         static_cast<ImTextureID>(static_cast<intptr_t>(texture_id)),
-                        ImVec2(static_cast<float>(win_width), image_win_height));
+                        ImVec2(panel_width, image_win_height));
                     forward_mouse_input(handle, gesture, scale_x, scale_y);
 
                     // A render actually in progress (le_is_rendering, E17's
@@ -478,7 +586,8 @@ namespace le::gui
                     if (le_is_rendering(handle))
                     {
                         ImGui::GetWindowDrawList()->AddText(
-                            ImVec2(8, 8), IM_COL32(255, 255, 255, 220), "rendering...");
+                            ImVec2(image_screen_pos.x + 8, image_screen_pos.y + 8),
+                            IM_COL32(255, 255, 255, 220), "rendering...");
                     }
                 }
                 else
@@ -486,16 +595,16 @@ namespace le::gui
                     // Dummy fills the same reserved area the Image above
                     // would otherwise occupy, so draw_status_bar below
                     // always lands at the same fixed spot at the bottom
-                    // of the window regardless of whether a design is
+                    // of this panel regardless of whether a design is
                     // loaded yet.
                     const float dummy_height = image_win_height > ImGui::GetTextLineHeight()
                         ? image_win_height - ImGui::GetTextLineHeight()
                         : 0.0f;
-                    ImGui::Dummy(ImVec2(static_cast<float>(win_width), dummy_height));
+                    ImGui::Dummy(ImVec2(panel_width, dummy_height));
                     ImGui::TextUnformatted("No design loaded yet - read_lef/open_design from the console.");
                 }
 
-                draw_status_bar(handle, static_cast<float>(win_width));
+                draw_status_bar(handle, panel_width);
 
                 ImGui::End();
                 ImGui::PopStyleVar();
@@ -509,7 +618,14 @@ namespace le::gui
             }
 
             stop_render_thread.store(true, std::memory_order_relaxed);
-            render_thread.join();
+            // May never have been spawned at all - a window closed within
+            // its very first couple of frames, before docking's own
+            // layout ever settled enough to compute a real viewport size
+            // (see this thread's own declaration comment above).
+            if (render_thread.joinable())
+            {
+                render_thread.join();
+            }
 
             glDeleteTextures(1, &texture_id);
             ImGui_ImplOpenGL3_Shutdown();

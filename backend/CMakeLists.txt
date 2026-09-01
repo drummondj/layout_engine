@@ -242,7 +242,22 @@ if(NOT glfw3_FOUND)
     FetchContent_MakeAvailable(glfw)
 endif()
 
-FetchContent_Declare(imgui URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9.zip)
+# The `docking` branch, not a tagged mainline release - window docking
+# (drag a panel to split/tab/rearrange it, matching the Flutter frontend's
+# own `docking` package-based layout - see src/gui/le_gui.cpp's own
+# dockspace comment) is a long-lived, actively-maintained feature branch
+# upstream, not yet merged to master as of this writing, and is what this
+# prototype needs to mirror the Flutter UI's left/center/right panel
+# layout. Pinned to a specific commit (not a moving branch ref) for
+# reproducible builds, same as every other FetchContent dependency above
+# being pinned to a specific tag/version - bump this by hand (check
+# https://github.com/ocornut/imgui/commits/docking) when a newer commit
+# is wanted, same as bumping any other pinned dependency version.
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG fd13a1e8923a0a7077b404fc36fd063b25a0c0b5 # docking branch, 2026-09-01
+)
 FetchContent_MakeAvailable(imgui)
 
 enable_testing()
