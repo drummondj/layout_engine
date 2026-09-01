@@ -260,6 +260,39 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)
 
+# Lucide icon font (src/gui/components/ - ModeSelector/ModeToolbar and
+# any later toolbar button) - Dear ImGui has no icon-widget concept of
+# its own; the standard technique is merging a small icon font's glyphs
+# into the same font atlas as the regular text font (ImFontConfig::MergeMode,
+# see le_gui.cpp's own font-setup code) and drawing an icon as plain text
+# via its own Unicode codepoint. Lucide (MIT) rather than the more common
+# Font Awesome: its outline/stroke icon style matches the Flutter
+# frontend's own HugeIcons "strokeRounded" look far more closely than
+# Font Awesome's free tier, which is mostly filled "Solid" glyphs.
+# IconsLucide.h (juliettef/IconFontCppHeaders - ICON_LC_* codepoint
+# constants for C/C++) has to be pinned to the *exact* commit that
+# generated it against a specific lucide-static release - its own
+# generated header comment names the version each regeneration was built
+# from (here, "Lucide 1.17.0"); an unpinned `main`/`@latest` fetch of
+# either half alone risks the two drifting out of sync (a later Lucide
+# release renumbering/removing codepoints this header's own constants
+# still point at). DOWNLOAD_NO_EXTRACT - both are a single loose file,
+# not an archive with a build system inside like every other
+# FetchContent dependency above.
+FetchContent_Declare(
+    icon_font_header
+    URL https://raw.githubusercontent.com/juliettef/IconFontCppHeaders/780f04406084230c1b034c2c34c0c0b8b9b1829b/IconsLucide.h
+    DOWNLOAD_NO_EXTRACT TRUE
+)
+FetchContent_MakeAvailable(icon_font_header)
+
+FetchContent_Declare(
+    lucide_font
+    URL https://unpkg.com/lucide-static@1.17.0/font/lucide.ttf
+    DOWNLOAD_NO_EXTRACT TRUE
+)
+FetchContent_MakeAvailable(lucide_font)
+
 enable_testing()
 include(GoogleTest)
 
@@ -462,8 +495,17 @@ add_library(gui STATIC
     src/gui/components/library_browser.cpp
     src/gui/components/property_viewer.cpp
     src/gui/components/layer_manager.cpp
+    src/gui/components/mode_selector.cpp
+    src/gui/components/mode_toolbar.cpp
 )
 target_include_directories(gui PUBLIC src/gui)
+target_include_directories(gui PRIVATE ${icon_font_header_SOURCE_DIR})
+# le_gui.cpp's own font-setup code loads this from disk at runtime
+# (ImGui merges icon glyphs into the text font atlas by loading a real
+# .ttf file, not compiling one in) - a build-tree path is fine for this
+# local-dev prototype, same as this project's own fixture-path compile
+# definitions elsewhere (e.g. API_TEST_FIXTURES_DIR).
+target_compile_definitions(gui PRIVATE LE_LUCIDE_FONT_PATH="${lucide_font_SOURCE_DIR}/lucide.ttf")
 target_link_libraries(gui PUBLIC api imgui_lib)
 if(APPLE)
     target_link_libraries(gui PRIVATE "-framework Cocoa" "-framework IOKit" "-framework OpenGL")

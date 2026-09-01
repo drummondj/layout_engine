@@ -5,6 +5,8 @@
 #include "components/library_browser.hpp"
 #include "components/property_viewer.hpp"
 #include "components/layer_manager.hpp"
+#include "components/mode_selector.hpp"
+#include "components/mode_toolbar.hpp"
 
 // Apple deprecated the whole OpenGL framework in favor of Metal (10.14+)
 // but still fully implements it - every desktop-GL ImGui backend still
@@ -20,6 +22,11 @@
 // else this file uses comes from imgui.h alone.
 #include "imgui_internal.h"
 #include "imgui_impl_glfw.h"
+// ICON_LC_*/ICON_MIN_LC/ICON_MAX_LC - see this file's own font-merge
+// setup below (open_and_run_window) and CMakeLists.txt's own comment on
+// why this exact header is pinned to the Lucide release it was
+// generated from.
+#include "IconsLucide.h"
 // Declares every GL function this file calls (glGenTextures/glTexImage2D/
 // etc - all part of OpenGL 1.1's core spec, so no external loader library
 // is needed) via its own bundled minimal loader on platforms that need
@@ -400,6 +407,37 @@ namespace le::gui
             // content (not placeholders) makes a stable layout worth
             // keeping across window close/reopen.
             io.IniFilename = nullptr;
+
+            // Icon font (components/mode_selector.cpp, mode_toolbar.cpp,
+            // and any later toolbar button) - Dear ImGui draws an icon as
+            // plain text via its own Unicode codepoint, so the icon
+            // font's own glyphs need to be merged into the same atlas as
+            // the regular text font first (ImFontConfig::MergeMode) -
+            // AddFontDefault() has to run first to give the merge
+            // something to merge *into* (an empty atlas with nothing
+            // added yet can't merge). Both calls have to happen before
+            // ImGui_ImplOpenGL3_Init below, which builds/uploads the
+            // atlas texture from whatever's in it at that point - a font
+            // added afterward would never make it into the uploaded
+            // texture this session.
+            // An explicit SizePixels, not a bare AddFontDefault() - this
+            // pinned ImGui commit asserts when merging a font with an
+            // explicit reference size (AddFontFromFileTTF always needs
+            // one, a scalable TTF has no size of its own) into a
+            // destination font that used an *implicit* one
+            // (AddFontDefault()'s own default when given no config at
+            // all) - 13.0f is ProggyClean.ttf's own established default
+            // size in Dear ImGui, unchanged from every prior version.
+            ImFontConfig default_font_config;
+            default_font_config.SizePixels = 13.0f;
+            io.Fonts->AddFontDefault(&default_font_config);
+            ImFontConfig icon_font_config;
+            icon_font_config.MergeMode = true;
+            icon_font_config.PixelSnapH = true;
+            icon_font_config.GlyphMinAdvanceX = 16.0f;
+            static const ImWchar icon_ranges[] = {ICON_MIN_LC, ICON_MAX_LC, 0};
+            io.Fonts->AddFontFromFileTTF(LE_LUCIDE_FONT_PATH, 16.0f, &icon_font_config, icon_ranges);
+
             ImGui_ImplGlfw_InitForOpenGL(window, true);
             ImGui_ImplOpenGL3_Init("#version 150");
 
@@ -497,23 +535,67 @@ namespace le::gui
                 ImGui::End();
 
                 // Zero window padding - the design view/status bar sizing
-                // below budgets against this panel's own *full* content
-                // region (panel_width/panel_height), not that region
-                // minus whatever the default ~8px WindowPadding would
-                // otherwise eat into on every edge; without this, the
-                // image + status bar together overflow the panel's own
-                // true bottom/right edges by exactly that padding amount,
-                // clipping the status bar row's own text there.
+                // below budgets against its own content region's *full*
+                // width/height, not that region minus whatever the
+                // default ~8px WindowPadding would otherwise eat into on
+                // every edge; without this, the image + status bar
+                // together overflow their own true bottom/right edges by
+                // exactly that padding amount, clipping the status bar
+                // row's own text there. ModeSelector/ModeToolbar below
+                // push their own, real padding back in just for
+                // themselves (BeginChild captures whatever WindowPadding
+                // is active *at the moment it's called*, not
+                // retroactively - safe to toggle around each one).
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
                 ImGui::Begin(kLayoutWindowTitle, nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
+                const ImVec2 full_panel_avail = ImGui::GetContentRegionAvail();
+                const float full_panel_height = full_panel_avail.y > 1.0f ? full_panel_avail.y : 1.0f;
+
+                // ModeSelector (mode_selector.hpp) - a fixed-width column
+                // to the left of everything else, matching home.dart's
+                // own Row(ModeSelector, Column(ModeToolbar, LayoutEngine,
+                // StatusBar)) layout: it's a plain child of this same
+                // "Layout" panel, not a separate dock panel of its own,
+                // so it moves/resizes with the design view rather than
+                // being independently dockable like Browser/Properties/
+                // Layers.
+                constexpr float kModeSelectorWidth = 72.0f;
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
+                ImGui::BeginChild("mode_selector_column", ImVec2(kModeSelectorWidth, full_panel_height));
+                draw_mode_selector(handle);
+                ImGui::EndChild();
+                ImGui::PopStyleVar();
+
+                ImGui::SameLine();
+
+                // Everything else - ModeToolbar, the design view, and
+                // the status bar - shares the remaining width, stacked
+                // in one child so panel_width/panel_height below are
+                // this child's own content region, not the whole
+                // "Layout" panel's (which still includes ModeSelector's
+                // own column).
+                ImGui::BeginChild("layout_content_column", ImVec2(0.0f, full_panel_height));
+
+                // ModeToolbar (mode_toolbar.hpp) - a fixed-height row
+                // above the design view, same "plain child, not its own
+                // dock panel" reasoning as ModeSelector above.
+                constexpr float kModeToolbarHeight = 44.0f;
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
+                ImGui::BeginChild("mode_toolbar_row", ImVec2(0.0f, kModeToolbarHeight));
+                draw_mode_toolbar(handle);
+                ImGui::EndChild();
+                ImGui::PopStyleVar();
+
                 // This panel's own content area, in logical/window
                 // points - however large docking has left it (the user
-                // can resize/rearrange the left/right sidebars freely),
-                // not the whole GLFW window - converted to framebuffer
-                // pixels via scale_x/scale_y for le_set_viewport_size,
-                // which (like every other le_* pixel-space call) works in
-                // real framebuffer pixels, not logical points.
+                // can resize/rearrange the left/right sidebars freely)
+                // and now also ModeSelector/ModeToolbar's own fixed
+                // sizes above - not the whole GLFW window - converted to
+                // framebuffer pixels via scale_x/scale_y for
+                // le_set_viewport_size, which (like every other le_*
+                // pixel-space call) works in real framebuffer pixels,
+                // not logical points.
                 const ImVec2 panel_avail = ImGui::GetContentRegionAvail();
                 const float panel_width = panel_avail.x > 1.0f ? panel_avail.x : 1.0f;
                 const float panel_height = panel_avail.y > 1.0f ? panel_avail.y : 1.0f;
@@ -629,6 +711,8 @@ namespace le::gui
                 }
 
                 draw_status_bar(handle, panel_width);
+
+                ImGui::EndChild(); // layout_content_column
 
                 ImGui::End();
                 ImGui::PopStyleVar();

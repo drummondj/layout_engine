@@ -2,6 +2,7 @@
 
 #include "api.hpp"
 #include "imgui.h"
+#include "tcl_command_queue.hpp"
 
 #include <cstdint>
 #include <string>
@@ -57,27 +58,13 @@ namespace le::gui
 
         // Layer/purpose visibility+selectability and hierarchy depth are
         // exactly the actions the Flutter frontend's own LeProvider
-        // routes through a Tcl command instead of a direct FFI call (see
-        // le_provider.dart's own runTclCommand call sites) - purely so
-        // the action leaves a command-history entry a user can scroll
-        // back through (`history`/`command_history` in this shell),
-        // matching what a typed `set_layer_visible ...` line would.
-        // This GUI has no Tcl interpreter of its own to evaluate one
-        // directly (src/gui/'s own no-Tcl-dependency design - see
-        // le_gui.hpp), so it queues the command text for le_shell.cpp's
-        // own console thread to evaluate shortly after instead (see
-        // le_enqueue_tcl_command's own doc comment, api.hpp) - real
-        // per-frame interaction (mouse/keyboard) stays a direct le_*
-        // call, unaffected.
-        void enqueue(LeHandle *handle, const std::string &command)
-        {
-            le_enqueue_tcl_command(handle, command.c_str());
-        }
+        // routes through a Tcl command instead of a direct FFI call - see
+        // enqueue_tcl_command's own doc comment (tcl_command_queue.hpp).
 
         // A checkbox bound to a value this GUI doesn't own the truth
         // for - `backend_value` is only current as of the *last* frame's
         // own le_is_layer_name_visible()/etc. read, and a click here
-        // enqueues a Tcl command (see enqueue() above) that won't
+        // enqueues a Tcl command (see enqueue_tcl_command, tcl_command_queue.hpp) that won't
         // actually land on the backend for up to ~100ms (le_shell.cpp's
         // own readline event-hook poll interval) rather than applying
         // immediately. Without this, the checkbox would visibly toggle
@@ -191,7 +178,7 @@ namespace le::gui
         {
             if (depth_buf >= 0)
             {
-                enqueue(handle, "set_hierarchy_depth " + std::to_string(depth_buf));
+                enqueue_tcl_command(handle, "set_hierarchy_depth " + std::to_string(depth_buf));
                 has_pending_depth = true;
                 pending_depth_value = depth_buf;
             }
@@ -285,7 +272,7 @@ namespace le::gui
                     script += std::string("set_purpose_visible ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
-                    enqueue(handle, script);
+                    enqueue_tcl_command(handle, script);
             },
             [&](bool value)
             {
@@ -303,7 +290,7 @@ namespace le::gui
                     script += std::string("set_purpose_selectable ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
-                    enqueue(handle, script);
+                    enqueue_tcl_command(handle, script);
             });
 
         draw_spacer_row();
@@ -320,7 +307,7 @@ namespace le::gui
                     script += std::string("set_purpose_visible ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
-                    enqueue(handle, script);
+                    enqueue_tcl_command(handle, script);
             },
             [&](bool value)
             {
@@ -332,7 +319,7 @@ namespace le::gui
                     script += std::string("set_purpose_selectable ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
-                    enqueue(handle, script);
+                    enqueue_tcl_command(handle, script);
             });
         for (const PurposeEntry &purpose : purposes)
         {
@@ -341,11 +328,11 @@ namespace le::gui
                 purpose.visible, purpose.selectable,
                 [&](bool value)
                 {
-                    enqueue(handle, std::string("set_purpose_visible ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value));
+                    enqueue_tcl_command(handle, std::string("set_purpose_visible ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value));
                 },
                 [&](bool value)
                 {
-                    enqueue(
+                    enqueue_tcl_command(
                         handle, std::string("set_purpose_selectable ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value));
                 });
         }
@@ -364,7 +351,7 @@ namespace le::gui
                     script += std::string("set_layer_visible {") + layer.row.name + "} " + tcl_bool(value);
                 }
                 if (!script.empty())
-                    enqueue(handle, script);
+                    enqueue_tcl_command(handle, script);
             },
             [&](bool value)
             {
@@ -376,7 +363,7 @@ namespace le::gui
                     script += std::string("set_layer_selectable {") + layer.row.name + "} " + tcl_bool(value);
                 }
                 if (!script.empty())
-                    enqueue(handle, script);
+                    enqueue_tcl_command(handle, script);
             });
         for (const LayerEntry &layer : layers)
         {
@@ -396,9 +383,9 @@ namespace le::gui
                 },
                 layer.visible, layer.selectable,
                 [&](bool value)
-                { enqueue(handle, std::string("set_layer_visible {") + layer.row.name + "} " + tcl_bool(value)); },
+                { enqueue_tcl_command(handle, std::string("set_layer_visible {") + layer.row.name + "} " + tcl_bool(value)); },
                 [&](bool value)
-                { enqueue(handle, std::string("set_layer_selectable {") + layer.row.name + "} " + tcl_bool(value)); });
+                { enqueue_tcl_command(handle, std::string("set_layer_selectable {") + layer.row.name + "} " + tcl_bool(value)); });
         }
 
         ImGui::EndTable();
