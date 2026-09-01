@@ -232,6 +232,66 @@ namespace
         return rl_completion_matches(text, completion_generator);
     }
 
+    // Cross-thread bridge into readline's own event loop - rl_event_hook
+    // has no userdata slot either, same constraint as
+    // rl_attempted_completion_function above, so this reaches
+    // g_injected_handle/g_completion_interp the same way completion_generator
+    // does. See le_enqueue_tcl_command's own doc comment (api.hpp) for
+    // why a GUI component (src/gui/components/ - no Tcl interpreter of
+    // its own) needs this at all: some of its own actions (layer/purpose
+    // visibility, hierarchy depth - the same subset the Flutter
+    // frontend's own LeProvider already routes through a Tcl command
+    // instead of a direct FFI call) should leave the same command-
+    // history trail a typed command would, but this thread's own
+    // readline() call is the only place that can actually evaluate one.
+    // Readline calls this periodically (its own ~0.1s select() timeout)
+    // while blocked waiting for terminal input - the standard readline
+    // idiom for draining another thread's own work queue without a real
+    // Tcl event loop of this thread's own. Each drained command goes
+    // through the exact same eval_and_print (le_repl_eval) a typed line
+    // does - same command_history/undo recording - just not added to
+    // readline's own separate up-arrow *editing* history (add_history),
+    // since a GUI-originated action isn't something a user would expect
+    // to recall by pressing Up at the prompt the way a line they
+    // actually typed is.
+    int drain_pending_gui_commands()
+    {
+        for (;;)
+        {
+            const char *command = le_take_next_pending_tcl_command(g_injected_handle);
+            if (command == nullptr)
+            {
+                break;
+            }
+            // le_take_next_pending_tcl_command's own return is only
+            // valid until the *next* call to it (api.hpp's own doc
+            // comment) - this loop's own next iteration is exactly
+            // that, so copy out first.
+            const std::string command_copy = command;
+
+            // Readline owns the terminal's current line/cursor while
+            // this hook runs (the user may be mid-edit) - printing
+            // eval_and_print's own output directly here, without this
+            // save/clear/restore dance, would visually corrupt whatever
+            // they've typed so far. The standard readline idiom for
+            // asynchronous output during an active readline() call.
+            const int saved_point = rl_point;
+            char *saved_line = rl_copy_text(0, rl_end);
+            rl_save_prompt();
+            rl_replace_line("", 0);
+            rl_redisplay();
+
+            eval_and_print(g_completion_interp, command_copy);
+
+            rl_restore_prompt();
+            rl_replace_line(saved_line, 0);
+            rl_point = saved_point;
+            rl_redisplay();
+            std::free(saved_line);
+        }
+        return 0;
+    }
+
     // Replaces Tcl_Main's own hardcoded interactive loop - see this
     // file's own header comment for why. Multi-line commands (an
     // unbalanced brace/quote/bracket) keep reading further lines -
@@ -244,6 +304,7 @@ namespace
         g_completion_interp = interp;
         rl_attempted_completion_function = attempted_completion;
         rl_completer_word_break_characters = const_cast<char *>(" \t\n");
+        rl_event_hook = drain_pending_gui_commands;
 
         std::string buffer;
         for (;;)

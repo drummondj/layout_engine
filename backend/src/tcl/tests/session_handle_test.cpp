@@ -205,3 +205,67 @@ TEST(SessionHandle, DirectReadThenSingleTclInterpReadBothSucceed)
 
     Tcl_DeleteInterp(interp);
 }
+
+// Regression check for src/gui/components/layer_manager.cpp's own
+// enqueue() (and the broader le_enqueue_tcl_command/
+// le_take_next_pending_tcl_command mechanism, api.hpp) - the whole
+// reason a GUI component queues a Tcl command instead of calling the
+// matching le_* function directly is so the action leaves a
+// command_history entry a user can see, same as a typed line would (see
+// le_enqueue_tcl_command's own doc comment). This drives the queue +
+// drain + le_repl_eval chain exactly like le_shell.cpp's own
+// drain_pending_gui_commands does (minus its own readline terminal-
+// display bookkeeping, irrelevant here - readline itself isn't under
+// test, just that draining actually applies the command and records it).
+TEST(SessionHandle, EnqueuedTclCommandDrainsThroughLeReplEvalAndRecordsHistory)
+{
+    LeHandle *handle = le_create();
+    ASSERT_NE(handle, nullptr);
+    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef"), 0);
+
+    Tcl_FindExecutable(nullptr);
+    Tcl_Interp *interp = Tcl_CreateInterp();
+    ASSERT_NE(interp, nullptr);
+    ASSERT_EQ(Tcl_Init(interp), TCL_OK) << Tcl_GetStringResult(interp);
+
+    const std::string load_command = std::string("load {") + LE_TCL_MODULE_PATH + "} le_tcl";
+    ASSERT_EQ(Tcl_Eval(interp, load_command.c_str()), TCL_OK) << Tcl_GetStringResult(interp);
+
+    const std::string inject_command =
+        "set_session_handle " + std::to_string(reinterpret_cast<int64_t>(handle));
+    ASSERT_EQ(Tcl_Eval(interp, inject_command.c_str()), TCL_OK) << Tcl_GetStringResult(interp);
+
+    ASSERT_EQ(Tcl_Eval(interp, "source " LE_TCL_PROCS_PATH), TCL_OK) << Tcl_GetStringResult(interp);
+
+    EXPECT_EQ(le_take_next_pending_tcl_command(handle), nullptr) << "nothing queued yet";
+
+    // Simulates what a GUI component does (layer_manager.cpp's own
+    // enqueue()) - queues the same command text a typed line would use
+    // instead of evaluating it directly.
+    le_enqueue_tcl_command(handle, "set_layer_visible {M1} 0");
+
+    // Simulates le_shell.cpp's own drain_pending_gui_commands - drains
+    // the queue and evaluates through le_repl_eval, same as a typed line.
+    const char *command = le_take_next_pending_tcl_command(handle);
+    ASSERT_NE(command, nullptr);
+    const std::string command_copy = command;
+    Tcl_SetVar(interp, "le_pending_command", command_copy.c_str(), TCL_GLOBAL_ONLY);
+    ASSERT_EQ(Tcl_Eval(interp, "le_repl_eval $le_pending_command"), TCL_OK) << Tcl_GetStringResult(interp);
+
+    EXPECT_EQ(le_take_next_pending_tcl_command(handle), nullptr) << "queue should be drained";
+
+    // The queued command actually took effect...
+    EXPECT_FALSE(le_is_layer_name_visible(handle, "M1"));
+
+    // ...and left a command_history entry, same as if it had been typed
+    // directly at the prompt - the entire point of routing this action
+    // through Tcl at all instead of a direct le_set_layer_name_visible()
+    // call.
+    ASSERT_EQ(Tcl_Eval(interp, "command_history_count"), TCL_OK) << Tcl_GetStringResult(interp);
+    EXPECT_STREQ(Tcl_GetStringResult(interp), "1");
+    ASSERT_EQ(Tcl_Eval(interp, "command_history_at 0"), TCL_OK) << Tcl_GetStringResult(interp);
+    EXPECT_STREQ(Tcl_GetStringResult(interp), "set_layer_visible {M1} 0");
+
+    Tcl_DeleteInterp(interp);
+    le_destroy(handle);
+}

@@ -120,6 +120,36 @@ struct LeHandle
     // consume it, not leave it for a second poll to see stale.
     std::atomic<bool> gui_show_requested_{false};
 
+    // GUI components (src/gui/components/) mutate state two different
+    // ways: a direct le_* call (mouse pan/zoom/select/move - the same
+    // shape layout_engine_plugin.dart's own LeEditorInput uses, and the
+    // right choice for anything needing per-frame responsiveness), or -
+    // for the subset of actions the Flutter frontend's own LeProvider
+    // routes through a Tcl command instead of a direct FFI call (layer/
+    // purpose visibility+selectability, hierarchy depth - see
+    // le_provider.dart's own runTclCommand call sites) - a *queued* Tcl
+    // command string instead, so the action leaves the same command-
+    // history trail a typed command would (this codebase's whole reason
+    // those particular actions go through Tcl at all - see
+    // BUGS_AND_ENHANCEMENTS.md). The GUI thread has no Tcl interpreter of
+    // its own to evaluate one directly (src/gui/ deliberately has no
+    // Tcl/SWIG dependency - see le_gui.hpp's own doc comment), so it can
+    // only leave the command here for whichever thread *does* own one -
+    // le_shell.cpp's own console thread, via its readline event hook
+    // (run_interactive's own comment) - to pick up and evaluate through
+    // le_repl_eval shortly after, same as it would a typed line. A real
+    // mutex (not lock-free, unlike is_rendering_/gui_show_requested_
+    // above) since this is a genuine multi-item FIFO, not a single flag/
+    // bit; contention is a non-issue (pushed only on a user click,
+    // popped only a few times a second at most).
+    std::mutex pending_tcl_commands_mutex_;
+    std::deque<std::string> pending_tcl_commands_;
+    // Backing storage for le_take_next_pending_tcl_command()'s own
+    // returned pointer - the popped std::string itself would otherwise
+    // be destroyed the moment it's removed from pending_tcl_commands_
+    // above, before the caller ever reads through the pointer.
+    std::string last_popped_tcl_command_;
+
     // Single-slot cache backing le_object_property_count/le_object_
     // property_at - rebuilt whenever a different LeObjectRef is
     // requested. le::PropertyValue (generated/property.hpp) doubles as
@@ -3118,5 +3148,25 @@ extern "C"
         if (!handle)
             return 0;
         return handle->gui_show_requested_.exchange(false, std::memory_order_relaxed) ? 1 : 0;
+    }
+
+    void le_enqueue_tcl_command(LeHandle *handle, const char *command)
+    {
+        if (!handle || !command)
+            return;
+        std::lock_guard<std::mutex> lock(handle->pending_tcl_commands_mutex_);
+        handle->pending_tcl_commands_.emplace_back(command);
+    }
+
+    const char *le_take_next_pending_tcl_command(LeHandle *handle)
+    {
+        if (!handle)
+            return nullptr;
+        std::lock_guard<std::mutex> lock(handle->pending_tcl_commands_mutex_);
+        if (handle->pending_tcl_commands_.empty())
+            return nullptr;
+        handle->last_popped_tcl_command_ = std::move(handle->pending_tcl_commands_.front());
+        handle->pending_tcl_commands_.pop_front();
+        return handle->last_popped_tcl_command_.c_str();
     }
 }

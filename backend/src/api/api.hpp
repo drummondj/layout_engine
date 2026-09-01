@@ -1259,6 +1259,36 @@ extern "C"
     /// the GUI window. Returns 0 if handle is null.
     int32_t le_take_show_gui_request(LeHandle *handle);
 
+    /// @brief Queues `command` (a plain Tcl command string, e.g.
+    /// "set_layer_visible {M1} 1") to be evaluated by whichever caller
+    /// drains this queue via le_take_next_pending_tcl_command() below -
+    /// le_shell.cpp's own console thread, through le_repl_eval, the same
+    /// bracket point a typed command goes through (recording it into
+    /// command_history/undo). Meant for a caller that has no Tcl
+    /// interpreter of its own to evaluate a command directly (src/gui/'s
+    /// components - see le_gui.hpp's own doc comment for why that
+    /// module has no Tcl/SWIG dependency at all) but still wants an
+    /// action to leave the same command-history trail a typed command
+    /// would, for the specific subset of actions the Flutter frontend's
+    /// own LeProvider already routes through a Tcl command instead of a
+    /// direct FFI call (see le_provider.dart's own runTclCommand call
+    /// sites) - mouse/keyboard interaction stays a direct le_* call
+    /// either way, same as LeEditorInput's own shape. Thread-safe,
+    /// fire-and-forget: queues and returns immediately, not evaluated
+    /// synchronously by this call. A no-op if handle or command is null.
+    void le_enqueue_tcl_command(LeHandle *handle, const char *command);
+
+    /// @brief Pops and returns the oldest command queued via
+    /// le_enqueue_tcl_command(), or null if none is pending. The
+    /// returned pointer refers to storage owned by the handle - valid
+    /// only until the *next* le_take_next_pending_tcl_command() call on
+    /// the same handle (same "valid until the next call" convention as
+    /// le_message_at()/LeProperty's string fields) - copy it out (e.g.
+    /// into a Tcl_Eval call) before then. Thread-safe: meant to be
+    /// polled from whichever thread owns evaluating these (le_shell.cpp's
+    /// own console thread).
+    const char *le_take_next_pending_tcl_command(LeHandle *handle);
+
     // --- CRUD + filter-search (UPDATES.md item 15 / TCL_EXPLORATION.md
     // Phase 4) - Terminal only so far; TerminalPort/Obstruction/Abstract-
     // boundary follow the same shape in a later pass. Layered on top of

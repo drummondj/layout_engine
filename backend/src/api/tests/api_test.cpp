@@ -3420,6 +3420,35 @@ TEST_F(ApiFixture, TakeShowGuiRequestConsumesTheRequestExactlyOnce)
     EXPECT_EQ(le_take_show_gui_request(nullptr), 0) << "both functions should degrade gracefully for a null handle";
 }
 
+TEST_F(ApiFixture, PendingTclCommandQueueIsFifoAndDrainsToEmpty)
+{
+    // GUI components' own queued-Tcl-command mechanism (le_gui.hpp's own
+    // doc comment on why some actions go this route instead of a direct
+    // le_* call) - a real multi-item FIFO, not a one-shot edge like
+    // gui_show_requested_ above, so this covers ordering and full
+    // drainage instead of just "consumed exactly once".
+    EXPECT_EQ(le_take_next_pending_tcl_command(handle), nullptr) << "nothing queued yet";
+
+    le_enqueue_tcl_command(handle, "set_layer_visible {M1} 1");
+    le_enqueue_tcl_command(handle, "set_hierarchy_depth 2");
+
+    const char *first = le_take_next_pending_tcl_command(handle);
+    ASSERT_NE(first, nullptr);
+    EXPECT_STREQ(first, "set_layer_visible {M1} 1") << "FIFO order, not LIFO";
+
+    const char *second = le_take_next_pending_tcl_command(handle);
+    ASSERT_NE(second, nullptr);
+    EXPECT_STREQ(second, "set_hierarchy_depth 2");
+
+    EXPECT_EQ(le_take_next_pending_tcl_command(handle), nullptr) << "queue should be empty after draining both";
+
+    le_enqueue_tcl_command(nullptr, "set_hierarchy_depth 3");
+    le_enqueue_tcl_command(handle, nullptr);
+    EXPECT_EQ(le_take_next_pending_tcl_command(handle), nullptr)
+        << "both a null handle and a null command should be no-ops, not queue anything";
+    EXPECT_EQ(le_take_next_pending_tcl_command(nullptr), nullptr) << "a null handle should degrade gracefully too";
+}
+
 // --- Terminal CRUD + filter-search (UPDATES.md item 15 / TCL_EXPLORATION.md
 // Phase 4) ---
 
