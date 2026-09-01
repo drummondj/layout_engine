@@ -585,6 +585,40 @@ class Klass:
         leaf_tk = only._type_klass
         return leaf_tk is not None and not leaf_tk.is_enum and not leaf_tk.has_pool and leaf_tk.embedded_scalar_leaves() is not None
 
+    def is_composed_of_records(self) -> Optional[List["Field"]]:
+        """
+        BUGS_AND_ENHANCEMENTS.md E21: whether this embedded_scalar_leaves()-
+        eligible Klass's own *direct* fields are themselves each a
+        flattenable record (e.g. Rect -> [ll: Point, ur: Point]), as
+        opposed to being direct scalar leaves itself (e.g. Point -> [x:
+        dbu, y: dbu], DensityCheckWindow -> [length: dbu, width: dbu]).
+        Drives the Tcl wire format's own nesting depth for a single-struct
+        "numeric" compound create/update flag (Field.cmd_tcl_preamble()) -
+        one bracketed sub-list per direct field when this returns non-None
+        (e.g. -bbox {{llx lly} {urx ury}}), a single flat lassign
+        otherwise (e.g. -size {x y}) - matching the SAME nesting depth
+        wrap_with_to_display_property() already produces for the same
+        field, structurally, without either side needing to agree via a
+        shared table (both simply mirror the schema's own record nesting).
+
+        Returns the qualifying direct fields (every one, in declaration
+        order) if every direct field qualifies, else None - a mix of
+        record and plain-scalar direct fields doesn't occur anywhere in
+        today's schema and has no generated wire format designed for it,
+        so this deliberately doesn't half-nest.
+        """
+        if not self.fields:
+            return None
+        record_fields = [
+            f
+            for f in self.fields
+            if f._type_klass is not None
+            and not f._type_klass.is_enum
+            and not f._type_klass.has_pool
+            and f._type_klass.embedded_scalar_leaves() is not None
+        ]
+        return record_fields if len(record_fields) == len(self.fields) else None
+
     def get_create_fields(self) -> List["Field"]:
         """
         Every field that gets its own flag on this class's generated
@@ -2476,18 +2510,23 @@ class Field:
           (embedded_scalar_leaves() - e.g. Shape.rects: List[Rect], each
           Rect always exactly 4 scalar leaves) - every record has the
           same fixed arity, so the Tcl wire format needs no per-record
-          length prefix, just `{{ll_x ll_y ur_x ur_y} ...}`.
+          length prefix, just `{{{ll_x ll_y} {ur_x ur_y}} ...}`
+          (BUGS_AND_ENHANCEMENTS.md E21 - one bracketed point per Rect's
+          own direct ll/ur field, matching Klass.is_composed_of_records()'s
+          same nesting the single-struct case already uses for -bbox).
         - "points": the element Klass is itself a point-list wrapper
           (Klass.is_point_list_wrapper() - e.g. Shape.polygons:
           List[Polygon], each Polygon a variable-length list of Points) -
           each record's own length varies, so the wire format needs a
-          per-record point-count prefix.
+          per-record point-count prefix: `{{{x0 y0} {x1 y1} ...} ...}`,
+          one bracketed point per Point.
         - "points_plus_scalars": the element Klass has exactly one
           point-list-wrapper-typed field (e.g. Path.polygon) plus one or
           more other flattenable scalar/compound fields (e.g. Path.width)
           - see list_compound_point_field()/list_compound_scalar_fields().
           The wire format prefixes each record's scalar field(s) (in
-          declaration order) before its own point-count/coordinates.
+          declaration order) before its own point-count/coordinates:
+          `{{width {{x0 y0} {x1 y1} ...}} ...}`.
 
         None for a plain scalar list (e.g. Shape.rect_masks - already
         excluded from is_create_field() the same way it always was), an
@@ -3113,6 +3152,18 @@ class Field:
         own point count (and, for "points_plus_scalars", its scalar
         field(s) first, in declaration order) - see list_compound_kind()'s
         own docstring for the full per-kind wire format.
+
+        BUGS_AND_ENHANCEMENTS.md E21: each entry's own coordinates are
+        nested one level per point (e.g. a Rect entry is
+        {{llx lly} {urx ury}}, a Polygon/Path entry's own point list is
+        {{x0 y0} {x1 y1} ...}) - matching Klass.is_composed_of_records()'s
+        same per-point bracing convention used by the single-struct
+        "numeric" branch above and by the property-table display side.
+        The underlying flat `<field>_flat` wire list this builds (what
+        Field.list_compound_parse_lines() actually reads apart api.cpp-
+        side) is unchanged either way - only how much bracing a caller
+        types is different, all of it stripped back out to flat numbers
+        here in Tcl before the _cmd call.
         """
         kind = self.list_compound_kind()
         element_klass = self._type_klass
@@ -3125,46 +3176,88 @@ class Field:
             f"    set {flat_var} {{}}",
         ]
         if kind == "flat":
-            n = len(element_klass.embedded_scalar_leaves())
-            lines.append(f"    foreach entry ${vals_var} {{")
-            lines.append(f"        if {{[llength $entry] != {n}}} {{")
-            lines.append(f'            error "{cmd_name}: -{self.name}: each entry needs {n} coordinates, got [llength $entry]"')
-            lines.append("        }")
-            lines.append(f"        foreach c $entry {{ lappend {flat_var} $c }}")
-            lines.append("    }")
+            record_fields = element_klass.is_composed_of_records()
+            if record_fields is not None:
+                # e.g. Shape.rects/Region.rects: each entry is a Rect,
+                # {{llx lly} {urx ury}} - one bracketed point per direct
+                # field, mirroring the single-struct "numeric" branch
+                # above (Klass.is_composed_of_records()) one level deeper.
+                n = len(record_fields)
+                sub_leaf_lists = [f._type_klass.embedded_scalar_leaves() for f in record_fields]
+                point_vars = [f"pt{i}" for i in range(n)]
+                example = " ".join("{" + " ".join(flat for flat, _ in sub) + "}" for sub in sub_leaf_lists)
+                lines.append(f"    foreach entry ${vals_var} {{")
+                lines.append(f"        if {{[llength $entry] != {n}}} {{")
+                lines.append(f'            error "{cmd_name}: -{self.name}: each entry must be {{{example}}}"')
+                lines.append("        }")
+                lines.append(f"        lassign $entry {' '.join(point_vars)}")
+                for sub, pv in zip(sub_leaf_lists, point_vars):
+                    n_sub = len(sub)
+                    lines.append(f"        if {{[llength ${pv}] != {n_sub}}} {{")
+                    lines.append(
+                        f'            error "{cmd_name}: -{self.name}: each point needs {n_sub} coordinates, '
+                        f'got [llength ${pv}]"'
+                    )
+                    lines.append("        }")
+                    lines.append(f"        foreach c ${pv} {{ lappend {flat_var} $c }}")
+                lines.append("    }")
+            else:
+                # e.g. a flat scalar-record element with nothing further to
+                # nest (Point/DensityCheckWindow-shaped) - not exercised by
+                # any current list_compound_kind() field, kept for
+                # completeness/symmetry with the single-struct branch.
+                n = len(element_klass.embedded_scalar_leaves())
+                lines.append(f"    foreach entry ${vals_var} {{")
+                lines.append(f"        if {{[llength $entry] != {n}}} {{")
+                lines.append(f'            error "{cmd_name}: -{self.name}: each entry needs {n} coordinates, got [llength $entry]"')
+                lines.append("        }")
+                lines.append(f"        foreach c $entry {{ lappend {flat_var} $c }}")
+                lines.append("    }")
         elif kind == "points":
+            # e.g. Shape.polygons: each entry (a Polygon) is its own point
+            # list, {{x0 y0} {x1 y1} ...} - each point individually
+            # brace-checked (2 coordinates), rather than the old flat
+            # "even number of numbers" check, since a caller now nests.
             lines.append(f"    lappend {flat_var} [llength ${vals_var}]")
             lines.append(f"    foreach entry ${vals_var} {{")
-            lines.append("        if {[llength $entry] % 2 != 0} {")
+            lines.append(f"        lappend {flat_var} [llength $entry]")
+            lines.append("        foreach point $entry {")
+            lines.append("            if {[llength $point] != 2} {")
             lines.append(
-                f'            error "{cmd_name}: -{self.name}: each entry needs an even number of x/y '
-                'coordinates, got [llength $entry]"'
+                f'                error "{cmd_name}: -{self.name}: each point needs 2 coordinates '
+                '{x y}, got [llength $point]"'
             )
+            lines.append("            }")
+            lines.append(f"            foreach c $point {{ lappend {flat_var} $c }}")
             lines.append("        }")
-            lines.append(f"        lappend {flat_var} [expr {{[llength $entry] / 2}}]")
-            lines.append(f"        foreach c $entry {{ lappend {flat_var} $c }}")
             lines.append("    }")
         else:  # "points_plus_scalars"
+            # e.g. Shape.paths: each entry is {width {{x0 y0} {x1 y1} ...}} -
+            # scalar field(s) first (unchanged), then a nested point list
+            # instead of a flat one, same per-point bracing as "points"
+            # above.
             scalar_fields = self.list_compound_scalar_fields()
             scalar_names = " ".join(sf.name for sf in scalar_fields)
             arity = len(scalar_fields) + 1
-            example = " ".join(f"<{sf.name}>" for sf in scalar_fields) + " {x y x y ...}"
+            example = " ".join(f"<{sf.name}>" for sf in scalar_fields) + " { {x y} {x y} ...}"
             lines.append(f"    lappend {flat_var} [llength ${vals_var}]")
             lines.append(f"    foreach entry ${vals_var} {{")
             lines.append(f"        if {{[llength $entry] != {arity}}} {{")
             lines.append(f'            error "{cmd_name}: -{self.name}: each entry must be {{{example}}}"')
             lines.append("        }")
             lines.append(f"        lassign $entry {scalar_names} points")
-            lines.append("        if {[llength $points] % 2 != 0} {")
-            lines.append(
-                f'            error "{cmd_name}: -{self.name}: each entry\'s point list needs an even number '
-                'of x/y coordinates, got [llength $points]"'
-            )
-            lines.append("        }")
             for sf in scalar_fields:
                 lines.append(f"        lappend {flat_var} ${sf.name}")
-            lines.append(f"        lappend {flat_var} [expr {{[llength $points] / 2}}]")
-            lines.append(f"        foreach c $points {{ lappend {flat_var} $c }}")
+            lines.append(f"        lappend {flat_var} [llength $points]")
+            lines.append("        foreach point $points {")
+            lines.append("            if {[llength $point] != 2} {")
+            lines.append(
+                f'                error "{cmd_name}: -{self.name}: each point needs 2 coordinates '
+                '{x y}, got [llength $point]"'
+            )
+            lines.append("            }")
+            lines.append(f"            foreach c $point {{ lappend {flat_var} $c }}")
+            lines.append("        }")
             lines.append("    }")
         return "\n".join(lines)
 
@@ -3179,6 +3272,16 @@ class Field:
         _list_compound_tcl_preamble() for that branch). `cmd_name` (e.g.
         "create_abstract") is only used to make an arity/keyword error
         message name the actual command.
+
+        The "numeric" branch (Point/Rect/DensityCheckWindow) itself
+        splits in two, per Klass.is_composed_of_records() (E21): a plain
+        record of scalar leaves (Point, DensityCheckWindow) still parses
+        one flat lassign (e.g. -size {x y}); a record composed of further
+        records (Rect -> ll/ur, each a Point) parses one bracketed
+        sub-list per direct field instead (-bbox {{llx lly} {urx ury}}),
+        each recursed into its own flat lassign - matching the same
+        nesting depth the property-table display side already produces
+        for the same field.
         """
         if self.list_compound_kind() is not None:
             return self._list_compound_tcl_preamble(cmd_name)
@@ -3193,19 +3296,52 @@ class Field:
             f"    set {has_var} [expr {{[llength ${vals_var}] > 0 ? 1 : 0}}]",
         ]
         if ck.compound_leaf_kind() == "numeric":
-            n = len(leaves)
-            names = " ".join(flat for flat, _ in leaves)
-            lines.append(f"    if {{${has_var} && [llength ${vals_var}] != {n}}} {{")
-            lines.append(
-                f'        error "{cmd_name}: -{self.name} expects {n} values '
-                + "{" + names + "}"
-                + ', got [llength $' + vals_var + ']"'
-            )
-            lines.append("    }")
-            zeros = " ".join("0" for _ in leaves)
-            lines.append(f"    if {{!${has_var}}} {{ set {vals_var} {{{zeros}}} }}")
-            params = " ".join(_leaf_param_name(self.name, flat, leaf) for flat, leaf in leaves)
-            lines.append(f"    lassign ${vals_var} {params}")
+            record_fields = ck.is_composed_of_records()
+            if record_fields is not None:
+                # BUGS_AND_ENHANCEMENTS.md E21 - e.g. Rect: one bracketed
+                # sub-list per direct field (-bbox {{llx lly} {urx ury}}),
+                # not one flat lassign - see Klass.is_composed_of_records()'s
+                # own doc comment.
+                n = len(record_fields)
+                names = " ".join(f.name for f in record_fields)
+                lines.append(f"    if {{${has_var} && [llength ${vals_var}] != {n}}} {{")
+                lines.append(
+                    f'        error "{cmd_name}: -{self.name} expects {n} values '
+                    + "{" + names + "}"
+                    + ', got [llength $' + vals_var + ']"'
+                )
+                lines.append("    }")
+                sub_leaf_lists = [f._type_klass.embedded_scalar_leaves() for f in record_fields]
+                zeros = " ".join("{" + " ".join("0" for _ in sub) + "}" for sub in sub_leaf_lists)
+                lines.append(f"    if {{!${has_var}}} {{ set {vals_var} {{{zeros}}} }}")
+                sub_vars = [f"{self.name}_{f.name}_vals" for f in record_fields]
+                lines.append(f"    lassign ${vals_var} {' '.join(sub_vars)}")
+                for f, sub, sub_var in zip(record_fields, sub_leaf_lists, sub_vars):
+                    n_sub = len(sub)
+                    lines.append(f"    if {{[llength ${sub_var}] != {n_sub}}} {{")
+                    lines.append(
+                        f'        error "{cmd_name}: -{self.name} {f.name} expects {n_sub} values, '
+                        f'got [llength ${sub_var}]"'
+                    )
+                    lines.append("    }")
+                    sub_params = " ".join(
+                        _leaf_param_name(self.name, f"{f.name}_{flat}", leaf) for flat, leaf in sub
+                    )
+                    lines.append(f"    lassign ${sub_var} {sub_params}")
+            else:
+                n = len(leaves)
+                names = " ".join(flat for flat, _ in leaves)
+                lines.append(f"    if {{${has_var} && [llength ${vals_var}] != {n}}} {{")
+                lines.append(
+                    f'        error "{cmd_name}: -{self.name} expects {n} values '
+                    + "{" + names + "}"
+                    + ', got [llength $' + vals_var + ']"'
+                )
+                lines.append("    }")
+                zeros = " ".join("0" for _ in leaves)
+                lines.append(f"    if {{!${has_var}}} {{ set {vals_var} {{{zeros}}} }}")
+                params = " ".join(_leaf_param_name(self.name, flat, leaf) for flat, leaf in leaves)
+                lines.append(f"    lassign ${vals_var} {params}")
         else:  # "flags" - Symmetry, keyword-set syntax mirroring LEF's own SYMMETRY X Y R90 ;
             for flat, leaf in leaves:
                 lines.append(f"    set {_leaf_param_name(self.name, flat, leaf)} 0")

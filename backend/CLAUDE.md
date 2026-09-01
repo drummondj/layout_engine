@@ -424,8 +424,10 @@ none of these are duplicated here.
   three for those classes today, but it costs nothing extra to generate
   uniformly). `create_<type>`/`update_<type>` also cover a *list* of
   flattenable embedded structs (`Field.list_compound_kind()`, e.g.
-  `Shape.rects`/`.polygons`/`.paths` — a `-rects {{ll_x ll_y ur_x ur_y}
-  ...}`-shaped flag per field), not just a single one — the former
+  `Shape.rects`/`.polygons`/`.paths` — a `-rects {{{ll_x ll_y} {ur_x ur_y}}
+  ...}`-shaped flag per field, brace-nested per point since
+  BUGS_AND_ENHANCEMENTS.md E21, matching the same convention
+  `get_properties`'s own display already used), not just a single one — the former
   hand-written `add_shape_rect`/`_polygon`/`_path` are gone, superseded by
   `create_shape`/`update_shape`'s own generated flags (`update_shape`'s
   own flag replaces the *whole* list, it doesn't append — a script

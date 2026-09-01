@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.38.0",
+    version="0.39.0",
     classes=[
         Klass(
             name="Technology",
@@ -1251,16 +1251,27 @@ schema = Schema(
             description="A path",
             has_pool=False,
             fields=[
-                Field(
-                    name="polygon",
-                    description="Polygon representing the center line of the path",
-                    type="Polygon",
-                ),
+                # width declared before polygon (BUGS_AND_ENHANCEMENTS.md
+                # E21) so every generated surface that walks a Klass's own
+                # fields in declaration order - property-table display
+                # (get_properties/report_properties/Property Viewer) in
+                # particular - shows {width {points}}, matching the
+                # target convention (width first) rather than the reverse.
+                # The create/update Tcl flag's own scalar-before-points
+                # ordering (Field._list_compound_tcl_preamble's
+                # "points_plus_scalars" branch) is independent of this -
+                # it already puts scalar fields first unconditionally, so
+                # this reorder only affects display.
                 Field(
                     name="width",
                     description="Width of the path in database units",
                     type="dbu",
                     example=10,
+                ),
+                Field(
+                    name="polygon",
+                    description="Polygon representing the center line of the path",
+                    type="Polygon",
                 ),
             ],
         ),

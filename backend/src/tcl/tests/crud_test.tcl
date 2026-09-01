@@ -279,11 +279,11 @@ puts "ok: update_shape -terminal_port is an unknown flag (no reparenting for mul
 # have set all three at creation time too, see the compound-flag tests
 # further down for that path).
 check "update_shape geometry return code" $shape \
-    [update_shape $shape -rects {{2 2 8 8}} -polygons {{0 0 5 0 5 5 0 5}} -paths {{0.5 {0 0 10 10 20 0}}}]
+    [update_shape $shape -rects {{{2 2} {8 8}}} -polygons {{{0 0} {5 0} {5 5} {0 5}}} -paths {{0.5 {{0 0} {10 10} {20 0}}}}]
 
 set rects [shape_rects $shape]
 check "shape_rects count" 1 [llength $rects]
-check "shape_rects contents" {2 2 8 8} [lindex $rects 0]
+check "shape_rects contents" {{2 2} {8 8}} [lindex $rects 0]
 
 set polygons [shape_polygons $shape]
 check "shape_polygons count" 1 [llength $polygons]
@@ -292,8 +292,8 @@ check "shape_polygons first point" {0 0} [lindex [lindex $polygons 0] 0]
 
 set paths [shape_paths $shape]
 check "shape_paths count" 1 [llength $paths]
-check "shape_paths width" 0.5 [dict get [lindex $paths 0] width_um]
-check "shape_paths point count" 3 [llength [dict get [lindex $paths 0] points]]
+check "shape_paths width" 0.5 [lindex [lindex $paths 0] 0]
+check "shape_paths point count" 3 [llength [lindex [lindex $paths 0] 1]]
 
 check "terminal_port_shapes lists the created shape" $shape [terminal_port_shapes $port]
 
@@ -318,11 +318,12 @@ check "get_properties on a shape token" M1 [get_properties $shape .layer.name]
 # ("{{ll_x ll_y} {ur_x ur_y}}" per rect), generated generically for every
 # class (codegen/codegen/schema.py's `dbu` field type + Field.wrap_with_*
 # methods - see backend/CLAUDE.md's Database codegen section), not a
-# Shape-only hand-written override anymore. A Path's own "polygon" field
-# is itself a reference to an embedded Polygon, so it gets its own
-# wrapping brace group like any other embedded-klass reference (Polygon's
-# points list nested one level inside that, width a sibling alongside
-# it) - not flattened flush with width. ---
+# Shape-only hand-written override anymore. A Path's own width is listed
+# before its own "polygon" field (BUGS_AND_ENHANCEMENTS.md E21 - Path's
+# own fields are declared width-then-polygon in schema.py specifically so
+# this display order comes out that way), the polygon itself getting its
+# own wrapping brace group like any other embedded-klass reference
+# (Polygon's points list nested one level inside that). ---
 
 set shape_props [get_properties $shape]
 check "get_properties rects is a clean micron-converted list, not a count" \
@@ -331,8 +332,8 @@ check "get_properties rects is a clean micron-converted list, not a count" \
 check "get_properties polygons is a clean micron-converted point list" \
     {{{0 0} {5 0} {5 5} {0 5}}} \
     [dict get $shape_props polygons]
-check "get_properties paths is a clean micron-converted point list plus width" \
-    {{{{0 0} {10 10} {20 0}} 0.500}} \
+check "get_properties paths is a clean micron-converted width plus point list" \
+    {{0.500 {{0 0} {10 10} {20 0}}}} \
     [dict get $shape_props paths]
 check_true "rects_count is no longer a property (removed, confusing once the list itself is available)" \
     [expr {![dict exists $shape_props rects_count]}]
@@ -350,7 +351,7 @@ check "rect_masks_count is unaffected (list of a plain int, not an object)" \
 # below (remove_shape_rect still works by index after create_shape/
 # update_shape - it's just the incremental add that's gone).
 check "update_shape -rects with two entries return code" $shape \
-    [update_shape $shape -rects {{2 2 8 8} {10 10 20 20}}]
+    [update_shape $shape -rects {{{2 2} {8 8}} {{10 10} {20 20}}}]
 set two_rects [dict get [get_properties $shape] rects]
 check "get_properties rects keeps each rect as its own list element" 2 [llength $two_rects]
 check "get_properties rects first element" {{2 2} {8 8}} [lindex $two_rects 0]
@@ -376,9 +377,9 @@ check "get_properties single-segment .rects (not just the bare-token dict form)"
 check "get_properties single-segment .polygons" \
     {{{0 0} {5 0} {5 5} {0 5}}} [get_properties $shape .polygons]
 check "get_properties single-segment .paths" \
-    {{{{0 0} {10 10} {20 0}} 0.500}} [get_properties $shape .paths]
+    {{0.500 {{0 0} {10 10} {20 0}}}} [get_properties $shape .paths]
 check "get_properties many single-segment object-list names together" \
-    [list {{{2 2} {8 8}}} {{{0 0} {5 0} {5 5} {0 5}}} {{{{0 0} {10 10} {20 0}} 0.500}} M1] \
+    [list {{{2 2} {8 8}}} {{{0 0} {5 0} {5 5} {0 5}}} {{0.500 {{0 0} {10 10} {20 0}}}} M1] \
     [get_properties $shape {.rects .polygons .paths .layer.name}]
 
 check "remove_shape_rect return code" 0 [remove_shape_rect $shape 0]
@@ -392,9 +393,9 @@ check_true "create_obstruction returned a valid friendly id" [expr {$obstruction
 # -rects (and -polygons/-paths) work directly on create_shape too, not
 # just update_shape - a rect provided at creation time, not added
 # afterward.
-set obstruction_shape [create_shape -obstruction $obstruction -layer layer:M1 -rects {{0 0 1 1}}]
+set obstruction_shape [create_shape -obstruction $obstruction -layer layer:M1 -rects {{{0 0} {1 1}}}]
 check_true "create_shape (-obstruction, with -rects) returned a valid friendly id" [expr {$obstruction_shape ne {}}]
-check "create_shape -rects took effect immediately" {0 0 1 1} [lindex [shape_rects $obstruction_shape] 0]
+check "create_shape -rects took effect immediately" {{0 0} {1 1}} [lindex [shape_rects $obstruction_shape] 0]
 check "obstruction_shapes lists the created shape" $obstruction_shape [obstruction_shapes $obstruction]
 
 set obstruction_matches [get_obstructions -filter {.shapes.layer.name == M1}]
@@ -412,7 +413,7 @@ check "get_obstructions after delete" {} [get_obstructions -filter {.shapes.laye
 # other Shape owner), not a bare polygon list, so it needs no bespoke
 # update command at all. ---
 
-set updated_abstract [update_abstract $abstract_token -size {2.0 3.0} -origin {0.5 0.5} -bbox {0 0 10 10} -symmetry {X R90}]
+set updated_abstract [update_abstract $abstract_token -size {2.0 3.0} -origin {0.5 0.5} -bbox {{0 0} {10 10}} -symmetry {X R90}]
 check "update_abstract returns the (unchanged, non-name-based) friendly id" $abstract_token $updated_abstract
 set abstract_props [get_properties $abstract_token]
 # Every one of these is an is_optional field - its property value is a
@@ -580,9 +581,9 @@ check_true "create_terminal (from-scratch flow) returned a valid friendly id" [e
 set scratch_port [create_terminal_port -terminal $scratch_in]
 check_true "create_terminal_port successfully resolved the just-created Terminal by name" [expr {$scratch_port ne {}}]
 
-set scratch_shape [create_shape -terminal_port $scratch_port -layer layer:M1 -rects {{0 0 10 10}}]
+set scratch_shape [create_shape -terminal_port $scratch_port -layer layer:M1 -rects {{{0 0} {10 10}}}]
 check_true "create_shape on the from-scratch TerminalPort returned a valid friendly id" [expr {$scratch_shape ne {}}]
-check "the from-scratch shape's rect round-trips" {0 0 10 10} [lindex [shape_rects $scratch_shape] 0]
+check "the from-scratch shape's rect round-trips" {{0 0} {10 10}} [lindex [shape_rects $scratch_shape] 0]
 
 # --- Undo/redo (UPDATES.md item 21) - via le_repl_eval, the same bracket
 # point a typed console command goes through, exercising the real

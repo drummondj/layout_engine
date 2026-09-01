@@ -322,8 +322,9 @@ void set_session_handle(long long handle_address);
 const char *shape_layer_name(const char *id);
 
 int shape_rect_count(const char *id);
-/// @brief The rect at `index`, as a 4-element "ll_x ll_y ur_x ur_y"
-/// microns string (already a well-formed Tcl list of 4 numbers).
+/// @brief The rect at `index`, as a brace-nested "{ll_x ll_y} {ur_x
+/// ur_y}" microns string (BUGS_AND_ENHANCEMENTS.md E21 - matches every
+/// other Rect-shaped value's own convention).
 const char *shape_rect_at(const char *id, int index);
 int remove_shape_rect(const char *id, int index);
 

@@ -2245,7 +2245,7 @@ Sets the render viewport's pixel size (used by le_render_pixel_buffer).
 
 `shape_paths <id> [-help]`
 
-Every path on the given Shape, as a list of {width_um <double> points <flat x/y list, microns>} dicts.
+Every path on the given Shape, as a list of {width {{x y} {x y} ...}} pairs, microns - width first (BUGS_AND_ENHANCEMENTS.md E21 - same convention as create_shape's own -paths flag and get_properties' paths display; previously a {width_um <val> points <list>} dict with flat, unbraced points).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2256,7 +2256,7 @@ Every path on the given Shape, as a list of {width_um <double> points <flat x/y 
 
 `shape_polygons <id> [-help]`
 
-Every polygon on the given Shape, as a list of point lists (each a flat {x y x y ...} list, microns).
+Every polygon on the given Shape, as a list of point lists - each point itself a {x y} pair, microns (BUGS_AND_ENHANCEMENTS.md E21 - same brace-nested convention as create_shape's own -polygons flag and get_properties' polygons display).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2267,7 +2267,7 @@ Every polygon on the given Shape, as a list of point lists (each a flat {x y x y
 
 `shape_rects <id> [-help]`
 
-Every rect on the given Shape, as a list of {ll_x ll_y ur_x ur_y} coordinate lists in microns.
+Every rect on the given Shape, as a list of {{ll_x ll_y} {ur_x ur_y}} coordinate lists in microns (BUGS_AND_ENHANCEMENTS.md E21 - same brace-nested convention as create_shape's own -rects flag and get_properties' rects display).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |

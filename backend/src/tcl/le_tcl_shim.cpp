@@ -583,9 +583,13 @@ int shape_rect_count(const char *id)
 
 const char *shape_rect_at(const char *id, int index)
 {
+    // BUGS_AND_ENHANCEMENTS.md E21 - brace-nested {{ll_x ll_y} {ur_x
+    // ur_y}}, matching every other Rect-shaped value's own convention
+    // (create_shape's own -rects flag, get_properties' rects display) -
+    // not the flat 4-number string this returned before.
     LeRectUm rect = le_shape_rect_at(session(), resolve_shape_id(id), index);
     std::ostringstream out;
-    out << rect.ll_x_um << ' ' << rect.ll_y_um << ' ' << rect.ur_x_um << ' ' << rect.ur_y_um;
+    out << '{' << rect.ll_x_um << ' ' << rect.ll_y_um << "} {" << rect.ur_x_um << ' ' << rect.ur_y_um << '}';
     return return_string(out.str());
 }
 
