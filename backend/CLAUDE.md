@@ -153,7 +153,21 @@ none of these are duplicated here.
   factored out standalone, for a caller that needs one stage's own cached
   result without a full pipeline graph around it (`HierarchyResolver`'s
   own persistent shape-generation/overlay stages; `api.cpp`'s few
-  standalone-filter call sites). `hit_test.hpp`'s `hit_test_point`/
+  standalone-filter call sites). `SynchronousStageChain<Stage1, InputData1,
+  Mid, Stage2, OutputData>` (same file) is the two-stage sibling — wires
+  `stage1 → stage2` via a real `make_edge` so the second stage's own
+  `data_version` is always exactly the first stage's own bumped
+  `version()`, never a value a caller threads through by hand (an
+  internal adapter node still lets the two stages take genuinely
+  different `PipelineOptions`, e.g. `record_local_picture`'s own
+  `ViewportThenLayerVisibilityChain` — `hierarchy_stage_support.hpp` —
+  needs a throwaway enclosing-viewport `Scene` for culling but the real
+  `Scene` for layer visibility). Added after a real bug
+  (BUGS_AND_ENHANCEMENTS.md B3's own postmortem): two independent
+  `SynchronousStageRunner`s called back to back, fed the same upstream
+  `data_version` by hand instead of chaining through `.last_version()`,
+  let a sub-pixel cull decision go stale across a live scale change and
+  never recover. `hit_test.hpp`'s `hit_test_point`/
   `hit_test_rect` are plain free functions (not stages — the query point/
   rect changes every call, nothing to memoize), ported verbatim from the
   original `Pipeline` class's own static methods.

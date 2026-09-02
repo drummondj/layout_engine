@@ -240,7 +240,7 @@ namespace le
             // class (see HierarchyAbstractLeafStage's own comment).
             const std::vector<RenderedShape> dbu_shapes = generate_layout_stage_.run(layout_id_, geometry_data_version, options);
 
-            last_picture_ = record_local_picture(dbu_shapes, geometry_data_version, viewport_runner_, layer_runner_, view_layers, *options.ctx.scene, scale_, instances, tiny_instance_rects_, content_bbox_, Point{0, 0});
+            last_picture_ = record_local_picture(dbu_shapes, geometry_data_version, viewport_then_layer_chain_, view_layers, *options.ctx.scene, scale_, instances, tiny_instance_rects_, content_bbox_, Point{0, 0});
             computed = true;
             return last_picture_;
         }
@@ -271,8 +271,7 @@ namespace le
         std::unique_ptr<FanInCollectStage<ResolvedInstanceSlot, std::vector<ResolvedInstanceSlot>, PipelineOptions>> fan_in_;
         std::unique_ptr<WrapNode> wrap_;
 
-        SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> viewport_runner_{"hierarchy_viewport_filter"};
-        SynchronousStageRunner<LayerVisibilityFilterStage, std::vector<RenderedShape>, std::map<ViewLayerId, std::vector<RenderedShape>>> layer_runner_{"hierarchy_layer_visibility_filter"};
+        ViewportThenLayerVisibilityChain viewport_then_layer_chain_{"hierarchy_viewport_filter", "hierarchy_layer_visibility_filter"};
         SynchronousStageRunner<LayoutGeometryStage, LayoutId, std::vector<RenderedShape>> generate_layout_stage_{"hierarchy_generate_layout"};
     };
 }

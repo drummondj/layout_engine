@@ -18,6 +18,18 @@
 
 namespace le
 {
+    /// @brief record_local_picture's own two-stage cull/filter tail,
+    /// wired via a real make_edge (SynchronousStageChain,
+    /// synchronous_stage_runner.hpp) so LayerVisibilityFilterStage
+    /// always receives exactly ViewportFilterStage's own bumped
+    /// version() as its data_version - see that class's own doc comment
+    /// for the real bug (BUGS_AND_ENHANCEMENTS.md B3's own postmortem)
+    /// this replaced: two independent SynchronousStageRunners with the
+    /// caller hand-threading a data_version between them.
+    using ViewportThenLayerVisibilityChain = SynchronousStageChain<
+        ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>,
+        LayerVisibilityFilterStage, std::map<ViewLayerId, std::vector<RenderedShape>>>;
+
     /// @brief Shared core of "cull already-generated dbu-space content to
     /// an enclosing viewport, filter by real layer visibility, transform
     /// to pixel space, draw own-content + instances + tiny-instance
@@ -31,8 +43,7 @@ namespace le
     /// same two-Scene cull-vs-visibility trick below.
     inline sk_sp<SkPicture> record_local_picture(
         const std::vector<RenderedShape> &dbu_shapes, uint64_t geometry_data_version,
-        SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> &viewport_runner,
-        SynchronousStageRunner<LayerVisibilityFilterStage, std::vector<RenderedShape>, std::map<ViewLayerId, std::vector<RenderedShape>>> &layer_runner,
+        ViewportThenLayerVisibilityChain &viewport_then_layer_chain,
         const ViewLayerSet &view_layers, const Scene &scene, double scale,
         const std::vector<BuildLayoutPictureStage::ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, Rect declared_bbox, Point local_origin = Point{0, 0},
         // Empty for every caller except build_top_layout_picture
@@ -77,29 +88,10 @@ namespace le
         // using cull_scene here would silently ignore every real
         // visibility toggle for anything drawn inside a cached instance
         // picture. Two different Scenes for two different purposes, not
-        // a copy-paste slip.
+        // a copy-paste slip - this is exactly why the chain below still
+        // takes two separate PipelineOptions rather than one shared set.
         PipelineOptions viewport_options;
         viewport_options.ctx.scene = &cull_scene;
-        // scene.viewport_version() (the REAL Scene passed in), not
-        // cull_scene's own - cull_scene is a fresh Scene constructed
-        // every single call, mutated via the exact same three set_scale/
-        // set_pan/set_viewport_size calls in the same order every time,
-        // so its own viewport_version() is a CONSTANT across every call
-        // to record_local_picture regardless of how much the real scale
-        // actually changed. ViewportFilterStage::options_did_change
-        // compares this value specifically to decide whether to re-cull
-        // at the new scale (see its own doc comment: "recomputing
-        // whenever [data_version or scene.viewport_version()] moves") -
-        // with the constant from cull_scene, that check always saw "no
-        // change" after the first call for a given data_version, so the
-        // sub-pixel cull decision made on the very first render of a
-        // Layout got permanently frozen at whatever scale was active
-        // then, never revisited on any later zoom/pan - a real bug (not
-        // hypothetical: reproduced by zooming in 15x past the original
-        // scale within one session and the culled content still didn't
-        // reappear), only escaping notice because it only bites content
-        // near the sub-pixel threshold when the FIRST render after a
-        // design/database change happens at an unusually small scale.
         viewport_options.viewport.viewport_version = scene.viewport_version();
         viewport_options.viewport.scale = scale;
 
@@ -108,23 +100,14 @@ namespace le
         layer_options.ctx.view_layers = &view_layers;
         layer_options.viewport.visibility_version = scene.visibility_version();
 
-        const std::vector<RenderedShape> &viewport_filtered = viewport_runner.run(dbu_shapes, geometry_data_version, viewport_options);
-        // viewport_runner.last_version() (bumped only when ViewportFilterStage
-        // actually recomputed - see its own doc comment: "its own
-        // data_version arrives automatically as whatever ViewportFilterStage's
-        // node last emitted"), not geometry_data_version again - the two
-        // runners aren't wired via a real make_edge here (SynchronousStageRunner,
-        // not a graph edge), so layer_runner has no way to know
-        // viewport_filtered's own content changed unless told via its
-        // own data_version input. Passing geometry_data_version straight
-        // through (unchanged whenever only the live scale/viewport
-        // changed, not the underlying database) made LayerVisibilityFilterStage
-        // treat every later scale change as a no-op cache hit, silently
-        // re-serving the FIRST scale's own filtered/culled shape set
-        // forever after - the second half of the same bug class as
-        // viewport_options.viewport.viewport_version above, one stage
-        // further downstream.
-        const std::map<ViewLayerId, std::vector<RenderedShape>> &layer_filtered = layer_runner.run(viewport_filtered, viewport_runner.last_version(), layer_options);
+        // viewport_then_layer_chain wires ViewportFilterStage -> LayerVisibilityFilterStage
+        // via a real make_edge (SynchronousStageChain), so
+        // LayerVisibilityFilterStage always receives exactly
+        // ViewportFilterStage's own bumped version() as its data_version -
+        // see that class's own doc comment (synchronous_stage_runner.hpp)
+        // for the real bug (BUGS_AND_ENHANCEMENTS.md B3's own postmortem)
+        // this replaced.
+        const std::map<ViewLayerId, std::vector<RenderedShape>> &layer_filtered = viewport_then_layer_chain.run(dbu_shapes, geometry_data_version, viewport_options, layer_options);
         const auto pixel_shapes = transform_shapes_to_pixel_space(layer_filtered, local_origin, scale);
 
         const SkRect bounds = SkRect::MakeLTRB(

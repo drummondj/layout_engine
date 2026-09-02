@@ -23,21 +23,21 @@ namespace le
     /// comment) - resolves and caches that Abstract's own local-pixel-space
     /// SkPicture. compute()'s own body is the old
     /// HierarchyResolver::build_abstract_picture's body, moved verbatim,
-    /// except generate_abstract_stage_/viewport_runner_/layer_runner_ are
-    /// now permanent, per-node members instead of a HierarchyResolver-wide
-    /// shared member (generate_abstract_stage_) plus fresh-per-call locals
-    /// (viewport_runner/layer_runner).
+    /// except generate_abstract_stage_/viewport_then_layer_chain_ are now
+    /// permanent, per-node members instead of a HierarchyResolver-wide
+    /// shared member (generate_abstract_stage_) plus fresh-per-call locals.
     ///
-    /// Why per-node-permanent runners are safe here (this revises the
-    /// *justification* for the old fresh-per-call rule, not the rule
-    /// itself): that rule existed because one shared runner was being
-    /// reused across *many different* ids within a frame, and a throwaway
-    /// cull_scene's viewport_version() is a call-count proxy, not a value
-    /// proxy - reusing it across two different ids could alias stale
-    /// culled output. Each node here is permanently and exclusively bound
-    /// to one AbstractId for its entire lifetime, so that aliasing hazard
-    /// cannot occur by construction - per-node ownership is *strictly
-    /// safer* than fresh-per-call, not merely "still safe." This node's
+    /// Per-node-permanent runners are safe to reuse across many calls to
+    /// this same node's own compute() (this node is permanently and
+    /// exclusively bound to one AbstractId for its entire lifetime, so
+    /// there's no risk of aliasing a DIFFERENT id's own stale output the
+    /// way a single shared-across-many-ids runner once could) - but reuse
+    /// across calls at *different scales* for the SAME id needed its own
+    /// real fix: see ViewportThenLayerVisibilityChain's own doc comment
+    /// (synchronous_stage_runner.hpp) for the sub-pixel-cull staleness
+    /// bug a hand-threaded data_version between two separate
+    /// SynchronousStageRunners used to allow, and BUGS_AND_ENHANCEMENTS.md
+    /// B3's own postmortem for how it actually manifested. This node's
     /// own MemoizingStage runs at tbb::flow::serial concurrency, so its
     /// own compute() never runs concurrently with itself; its private
     /// nested-graph runners are therefore only ever exercised one at a
@@ -84,7 +84,7 @@ namespace le
             // through this specific node's own compute() body itself
             // (kept for consistency/defense-in-depth, cheap either way).
             const std::vector<RenderedShape> dbu_shapes = generate_abstract_stage_.run(abstract_id_, geometry_data_version, options);
-            last_picture_ = record_local_picture(dbu_shapes, geometry_data_version, viewport_runner_, layer_runner_, view_layers, *options.ctx.scene, scale_, {}, {}, abstract_declared_bbox(root, abstract_id_));
+            last_picture_ = record_local_picture(dbu_shapes, geometry_data_version, viewport_then_layer_chain_, view_layers, *options.ctx.scene, scale_, {}, {}, abstract_declared_bbox(root, abstract_id_));
             computed = true;
             return last_picture_;
         }
@@ -95,8 +95,7 @@ namespace le
         double scale_;
         sk_sp<SkPicture> last_picture_;
 
-        SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> viewport_runner_{"hierarchy_viewport_filter"};
-        SynchronousStageRunner<LayerVisibilityFilterStage, std::vector<RenderedShape>, std::map<ViewLayerId, std::vector<RenderedShape>>> layer_runner_{"hierarchy_layer_visibility_filter"};
+        ViewportThenLayerVisibilityChain viewport_then_layer_chain_{"hierarchy_viewport_filter", "hierarchy_layer_visibility_filter"};
         SynchronousStageRunner<AbstractGeometryStage, AbstractId, std::vector<RenderedShape>> generate_abstract_stage_{"hierarchy_generate_abstract"};
     };
 }

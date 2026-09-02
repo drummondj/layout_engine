@@ -823,7 +823,7 @@ namespace le
             const uint64_t geometry_data_version = LayoutGeometryStage::data_version_for(layout_id, top_options);
             const std::vector<RenderedShape> dbu_shapes = top_geometry_runner_.run(layout_id, geometry_data_version, top_options);
 
-            return record_local_picture(dbu_shapes, geometry_data_version, top_viewport_runner_, top_layer_runner_, view_layers, scene, epoch_.scale, instances, disc.tiny_instance_rects, disc.content_bbox, scene.pan(), disc.placement_labels);
+            return record_local_picture(dbu_shapes, geometry_data_version, top_viewport_then_layer_chain_, view_layers, scene, epoch_.scale, instances, disc.tiny_instance_rects, disc.content_bbox, scene.pan(), disc.placement_labels);
         }
 
         double min_visible_instance_pixels_ = 100.0;
@@ -852,9 +852,14 @@ namespace le
         // render_layout_frame's own top-level geometry/filter runners -
         // persistent members, safe for the same "never invoked
         // concurrently with itself" reason as the old design's own
-        // equivalents.
-        SynchronousStageRunner<ViewportFilterStage, std::vector<RenderedShape>, std::vector<RenderedShape>> top_viewport_runner_{"hierarchy_top_viewport_filter"};
-        SynchronousStageRunner<LayerVisibilityFilterStage, std::vector<RenderedShape>, std::map<ViewLayerId, std::vector<RenderedShape>>> top_layer_runner_{"hierarchy_top_layer_visibility_filter"};
+        // equivalents. top_viewport_then_layer_chain_ wires its own two
+        // stages via a real make_edge (ViewportThenLayerVisibilityChain,
+        // hierarchy_stage_support.hpp) rather than two independent
+        // SynchronousStageRunners with a hand-threaded data_version
+        // between them - see that alias's own doc comment for the real
+        // bug (BUGS_AND_ENHANCEMENTS.md B3's own postmortem) this
+        // replaced.
+        ViewportThenLayerVisibilityChain top_viewport_then_layer_chain_{"hierarchy_top_viewport_filter", "hierarchy_top_layer_visibility_filter"};
         SynchronousStageRunner<LayoutGeometryStage, LayoutId, std::vector<RenderedShape>> top_geometry_runner_{"hierarchy_top_generate_layout"};
 
         // render_layout_frame's own build-stage trio - separate, second
