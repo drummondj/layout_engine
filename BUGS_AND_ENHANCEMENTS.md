@@ -60,13 +60,19 @@ I already have an old script (before ImGui) I was using the build the backend: s
 
 - [x] E27. Change le_shell prompt from "%" to "le_shell > "
 
-- [ ] E28. Add write_lef and write_def TCL commands:
+- [x] E28. Add write_lef and write_def TCL commands:
 
 write_lef [-abstract <token>] [-include_tech] [-tech_only] <filename> - writes a LEF file for the specified -abstract ID, or uses current_abstract. If current_abstract is not set and -abstract is not provided, then error. By default, technology information is not included. Use the -include_tech to include technology layers and -tech_only to just write technology layers. Some updates the the write_lef C++ will be required to support these extra options.
 write_def [-layout <token>] <filename> - writes a DEF file for the specified -layout ID, or uses current_layout. If current_layout is not set and -layout is not provided, then error.
 
+- [ ] E29. Schema description cleanup. Decriptions in the schema are used for TCL command help. So they shouldn't contain lengthy or information about internals of the program. Just short susinct help messages intended for the user. Also, most of the error messages reference an le_ command but the user runs commands without the le_ prefix, so that would be confusing. For example, le_read_lef vs read_lef.
+
+- [ ] E30. More TCL commands for selection modification:
+    get_selection - returns a list of selected object tokens
+    select <tokens> - adds <tokens> to the selection
+
 # QUESTIONS
 
-Q1. At the same zoom level and orientation, each placement of the same design will be identical. Do we re-use RasterizedFrames or re-draw from the SkPitcure recording?
+Q1. At the same zoom level and orientation, each placement of the same design will be identical. Do we re-use RasterizedFrames or re-draw from the SkPicture recording?
 
 

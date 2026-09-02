@@ -7,6 +7,8 @@
 #include "../core/row_geometry.hpp"
 #include "../io/lef_reader.hpp"
 #include "../io/def_reader.hpp"
+#include "../io/lef_writer.hpp"
+#include "../io/def_writer.hpp"
 #include "../pipelines/abstract_shape_pipeline.hpp"
 #include "../pipelines/frame_render_pipeline.hpp"
 #include "../pipelines/hierarchy_resolver.hpp"
@@ -1339,6 +1341,95 @@ extern "C"
             handle->current_technology_id = technology_ids.front();
 
         return 0;
+    }
+
+    int le_write_lef(LeHandle *handle, const char *path, LeAbstractId abstract_id_c, int32_t layer_write_mode)
+    {
+        if (!handle)
+            return 1;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        if (!path)
+        {
+            handle->messages.push_back("ERROR: le_write_lef: path is null");
+            return 1;
+        }
+
+        le::LEFWriter::LayerWriteMode mode;
+        switch (layer_write_mode)
+        {
+        case LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT:
+            mode = le::LEFWriter::LayerWriteMode::IncludeWithAbstract;
+            break;
+        case LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY:
+            mode = le::LEFWriter::LayerWriteMode::TechnologyOnly;
+            break;
+        default:
+            mode = le::LEFWriter::LayerWriteMode::None;
+            break;
+        }
+
+        // Invalid/default abstract_id (index == UINT32_MAX) means "use
+        // the current Abstract" - handle->current_abstract_id already
+        // defaults to the same invalid sentinel when none is set, so this
+        // collapses to a single check below regardless of which path led
+        // here. Read the field directly rather than calling
+        // le_current_abstract(handle) - that function takes handle->mutex_
+        // itself, and this function already holds it (non-recursive
+        // std::mutex, so re-locking here would deadlock). Skipped entirely
+        // in TechnologyOnly mode - see this function's own api.hpp doc
+        // comment for why abstract_id/current_abstract are irrelevant
+        // there.
+        le::AbstractId abstract_id{.index = abstract_id_c.index, .generation = abstract_id_c.generation};
+        if (abstract_id.index == UINT32_MAX && mode != le::LEFWriter::LayerWriteMode::TechnologyOnly)
+        {
+            abstract_id = handle->current_abstract_id;
+        }
+        if (abstract_id.index == UINT32_MAX && mode != le::LEFWriter::LayerWriteMode::TechnologyOnly)
+        {
+            handle->messages.push_back("ERROR: le_write_lef: no Abstract given and no current Abstract set");
+            return 1;
+        }
+
+        le::LEFWriter writer;
+        const int result = writer.write_lef(path, handle->root, abstract_id, mode);
+        for (const auto &msg : writer.messages())
+            handle->messages.push_back(msg);
+        return result;
+    }
+
+    int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id_c)
+    {
+        if (!handle)
+            return 1;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        if (!path)
+        {
+            handle->messages.push_back("ERROR: le_write_def: path is null");
+            return 1;
+        }
+
+        // Same "invalid id means use current" convention as le_write_lef
+        // above - read handle->current_layout_id directly rather than
+        // calling le_current_layout(handle), which would re-lock
+        // handle->mutex_ and deadlock (see le_write_lef's own comment).
+        le::LayoutId layout_id{.index = layout_id_c.index, .generation = layout_id_c.generation};
+        if (layout_id.index == UINT32_MAX)
+        {
+            layout_id = handle->current_layout_id;
+        }
+        if (layout_id.index == UINT32_MAX)
+        {
+            handle->messages.push_back("ERROR: le_write_def: no Layout given and no current Layout set");
+            return 1;
+        }
+
+        le::DEFWriter writer;
+        const int result = writer.write_def(path, handle->root, layout_id);
+        for (const auto &msg : writer.messages())
+            handle->messages.push_back(msg);
+        return result;
     }
 
     int32_t le_message_count(LeHandle *handle)

@@ -94,6 +94,8 @@ void zoom_cmd(double factor);
 void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int padding_px);
 void set_layer_visible_cmd(const char *layer_name, bool visible);
 int dump_png_cmd(const char *path);
+int write_lef_cmd(const char *path, const char *abstract_token, int32_t layer_write_mode);
+int write_def_cmd(const char *path, const char *layout_token);
 bool get_layer_visible_cmd(const char *layer_name);
 void set_layer_selectable_cmd(const char *layer_name, bool selectable);
 bool get_layer_selectable_cmd(const char *layer_name);

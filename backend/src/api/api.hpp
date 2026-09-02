@@ -184,6 +184,44 @@ extern "C"
     /// even when no LEF has been read into this handle yet.
     int le_read_def(LeHandle *handle, const char *path);
 
+    /// @brief What Technology layer content le_write_lef() also includes
+    /// alongside (or instead of) the written Abstract's own MACRO -
+    /// crosses the FFI boundary as a plain int32_t like every other small
+    /// enum here. Mirrors LEFWriter::LayerWriteMode 1:1 - see that
+    /// class's own doc comment (backend/src/io/lef_writer.hpp) for full
+    /// per-value semantics.
+    typedef enum
+    {
+        LE_LEF_LAYER_WRITE_MODE_NONE = 0,
+        LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT = 1,
+        LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY = 2,
+    } LeLefLayerWriteMode;
+
+    /// @brief Writes a LEF file for `abstract_id` via LEFWriter - see that
+    /// class's own doc comment for exact scope/phase coverage. `abstract_id`
+    /// may be the invalid/default id (index == UINT32_MAX, e.g. a
+    /// default-constructed LeAbstractId{}) to mean "use
+    /// le_current_abstract(handle)" instead - if that's also unset, this
+    /// fails with an ERROR message rather than silently writing an empty
+    /// MACRO-less file (unlike le_read_lef, write_lef always needs a real
+    /// Abstract to center around unless `layer_write_mode` is
+    /// LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY, which ignores
+    /// abstract_id/current_abstract entirely - mirrors
+    /// LEFWriter::LayerWriteMode::TechnologyOnly's own doc comment).
+    /// Returns 0 on success, matching le_read_lef's own convention
+    /// (nonzero otherwise, including if handle or path is null);
+    /// LEFWriter's own messages are appended to handle->messages either
+    /// way, same as le_read_lef.
+    int le_write_lef(LeHandle *handle, const char *path, LeAbstractId abstract_id, int32_t layer_write_mode);
+
+    /// @brief Writes a DEF file for `layout_id` via DEFWriter - see that
+    /// class's own doc comment for exact scope. `layout_id` may be the
+    /// invalid/default id to mean "use le_current_layout(handle)" instead -
+    /// if that's also unset, fails with an ERROR message. Returns 0 on
+    /// success, matching le_read_def's own convention; DEFWriter's own
+    /// messages are appended to handle->messages either way.
+    int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id);
+
     /// @brief Total number of error/warning/info messages produced by
     /// this handle's backend operations so far (currently just
     /// le_read_lef() - file-open/parse errors, parser warnings, parser

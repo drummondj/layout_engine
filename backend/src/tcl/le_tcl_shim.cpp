@@ -487,6 +487,29 @@ bool get_layer_visible_cmd(const char *layer_name)
     return le_is_layer_name_visible(session(), layer_name);
 }
 
+// abstract_token/layout_token empty means "use le_write_lef/le_write_def's
+// own current-Abstract/current-Layout fallback" - resolve_abstract_id/
+// resolve_layout_id (generated, this file's own anonymous namespace)
+// would otherwise happily "resolve" an empty string to the same invalid
+// sentinel anyway, but skipping the call entirely when there's nothing to
+// resolve keeps this from looking like it's doing real lookup work for a
+// deliberately-omitted flag.
+int write_lef_cmd(const char *path, const char *abstract_token, int32_t layer_write_mode)
+{
+    const LeAbstractId abstract_id = (abstract_token && abstract_token[0])
+                                          ? resolve_abstract_id(abstract_token)
+                                          : LeAbstractId{.index = UINT32_MAX, .generation = 0};
+    return le_write_lef(session(), path, abstract_id, layer_write_mode);
+}
+
+int write_def_cmd(const char *path, const char *layout_token)
+{
+    const LeLayoutId layout_id = (layout_token && layout_token[0])
+                                      ? resolve_layout_id(layout_token)
+                                      : LeLayoutId{.index = UINT32_MAX, .generation = 0};
+    return le_write_def(session(), path, layout_id);
+}
+
 void set_layer_selectable_cmd(const char *layer_name, bool selectable)
 {
     le_set_layer_name_selectable(session(), layer_name, selectable);

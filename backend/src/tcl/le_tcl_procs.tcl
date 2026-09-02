@@ -1206,6 +1206,129 @@ register_command_help read_def \
         {<path> {type file required 1 description {DEF file to read}}}
     }
 
+# write_lef/write_def (BUGS_AND_ENHANCEMENTS.md E28) - no `rename` dance
+# needed here unlike read_lef/read_def above: write_lef_cmd/write_def_cmd
+# (le_tcl_shim.cpp) are already distinctly named from the write_lef/
+# write_def proc names below, so there's no real command to shadow.
+# Hand-rolled flag parsing (not the generated get_<type>/create_<type>
+# machinery, which is per-class CRUD, not a plain action command) -
+# mirrors zoom_area's own {flag value} loop shape just above, extended
+# with a couple of bare (no-value) flags.
+proc write_lef {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "write_lef \[-abstract <token>\] \[-include_tech\] \[-tech_only\] <filename> \[-help\] - Writes a LEF file"
+    }
+    array set opts {-abstract "" -include_tech 0 -tech_only 0}
+    set positional {}
+    set i 0
+    set n [llength $args]
+    while {$i < $n} {
+        set arg [lindex $args $i]
+        switch -- $arg {
+            -abstract {
+                incr i
+                if {$i >= $n} {
+                    error "write_lef: -abstract requires a value"
+                }
+                set opts(-abstract) [lindex $args $i]
+                incr i
+            }
+            -include_tech {
+                set opts(-include_tech) 1
+                incr i
+            }
+            -tech_only {
+                set opts(-tech_only) 1
+                incr i
+            }
+            default {
+                lappend positional $arg
+                incr i
+            }
+        }
+    }
+    if {[llength $positional] != 1} {
+        error "write_lef: expected exactly one <filename> argument, got \"$args\""
+    }
+    if {$opts(-include_tech) && $opts(-tech_only)} {
+        error "write_lef: -include_tech and -tech_only are mutually exclusive"
+    }
+    # Matches LeLefLayerWriteMode (api.hpp): 0=None, 1=IncludeWithAbstract,
+    # 2=TechnologyOnly.
+    set mode 0
+    if {$opts(-tech_only)} {
+        set mode 2
+    } elseif {$opts(-include_tech)} {
+        set mode 1
+    }
+    set filename [lindex $positional 0]
+    set messages_before [message_count]
+    if {[write_lef_cmd $filename $opts(-abstract) $mode] != 0} {
+        if {[message_count] > $messages_before} {
+            error "write_lef: [message_at [expr {[message_count] - 1}]]"
+        }
+        error "write_lef: failed to write LEF to \"$filename\""
+    }
+    return ""
+}
+register_command_help write_lef \
+    "write_lef \[-abstract <token>\] \[-include_tech\] \[-tech_only\] <filename> \[-help\] - Writes a LEF file" \
+    "Writes a LEF file for -abstract's own Abstract (or the current Abstract if -abstract is omitted - error if neither is set). By default, no Technology layer information is included - -include_tech writes every Technology layer alongside the Abstract's own MACRO; -tech_only writes just the Technology layers (no MACRO at all, and -abstract/the current Abstract are then ignored entirely). -include_tech and -tech_only are mutually exclusive." \
+    {
+        {-abstract {type token required 0 description {Abstract to write - defaults to the current Abstract}}}
+        {-include_tech {type flag required 0 description {Also write every Technology layer alongside the MACRO}}}
+        {-tech_only {type flag required 0 description {Write only Technology layers, no MACRO at all}}}
+        {<filename> {type file required 1 description {Output LEF file path}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc write_def {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "write_def \[-layout <token>\] <filename> \[-help\] - Writes a DEF file"
+    }
+    array set opts {-layout ""}
+    set positional {}
+    set i 0
+    set n [llength $args]
+    while {$i < $n} {
+        set arg [lindex $args $i]
+        switch -- $arg {
+            -layout {
+                incr i
+                if {$i >= $n} {
+                    error "write_def: -layout requires a value"
+                }
+                set opts(-layout) [lindex $args $i]
+                incr i
+            }
+            default {
+                lappend positional $arg
+                incr i
+            }
+        }
+    }
+    if {[llength $positional] != 1} {
+        error "write_def: expected exactly one <filename> argument, got \"$args\""
+    }
+    set filename [lindex $positional 0]
+    set messages_before [message_count]
+    if {[write_def_cmd $filename $opts(-layout)] != 0} {
+        if {[message_count] > $messages_before} {
+            error "write_def: [message_at [expr {[message_count] - 1}]]"
+        }
+        error "write_def: failed to write DEF to \"$filename\""
+    }
+    return ""
+}
+register_command_help write_def \
+    "write_def \[-layout <token>\] <filename> \[-help\] - Writes a DEF file" \
+    "Writes a DEF file for -layout's own Layout (or the current Layout if -layout is omitted - error if neither is set)." \
+    {
+        {-layout {type token required 0 description {Layout to write - defaults to the current Layout}}}
+        {<filename> {type file required 1 description {Output DEF file path}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 rename ::source ::_source_real
 # `args`, not a fixed `{path}`, and forwarded through as-is (not just
 # `path`) - Tcl's own standard library autoloading calls the real

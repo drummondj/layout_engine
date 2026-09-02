@@ -674,4 +674,38 @@ check "delete_terminal via le_repl_eval removed the terminal" {} [get_terminals 
 check "undo recreates the deleted terminal" 1 [undo]
 check_true "get_terminals sees the recreated terminal" [expr {[get_terminals DELETETEST] ne {}}]
 
+# --- write_lef/write_def (BUGS_AND_ENHANCEMENTS.md E28) - reuses
+# scratch_abstract (still the current Abstract from the from-scratch
+# section above) and a from-scratch Layout on scratch_design, so this
+# needs no extra fixture file. ---
+
+set write_scratch_dir [file join [expr {
+    [info exists ::env(TMPDIR)] ? $::env(TMPDIR) : "/tmp"
+}] "le_tcl_crud_test_write_scratch"]
+file delete -force $write_scratch_dir
+file mkdir $write_scratch_dir
+
+set scratch_lef_path [file join $write_scratch_dir "scratch.lef"]
+check "write_lef -abstract writes a real, non-empty LEF file" "" [write_lef -abstract $scratch_abstract $scratch_lef_path]
+check_true "write_lef -abstract's output file is non-empty" [expr {[file size $scratch_lef_path] > 0}]
+
+check "current_abstract still reflects the from-scratch Abstract" $scratch_abstract [current_abstract]
+set scratch_lef_current_path [file join $write_scratch_dir "scratch_current.lef"]
+check "write_lef with no -abstract falls back to current_abstract" "" [write_lef $scratch_lef_current_path]
+check_true "write_lef's current-Abstract-fallback output file is non-empty" [expr {[file size $scratch_lef_current_path] > 0}]
+
+set scratch_layout [create_layout -design $scratch_design]
+check_true "create_layout (from-scratch flow) returned a valid friendly id" [expr {$scratch_layout ne {}}]
+
+set scratch_def_path [file join $write_scratch_dir "scratch.def"]
+check "write_def -layout writes a real, non-empty DEF file" "" [write_def -layout $scratch_layout $scratch_def_path]
+check_true "write_def -layout's output file is non-empty" [expr {[file size $scratch_def_path] > 0}]
+
+check "current_layout $scratch_layout selects it and returns it" $scratch_layout [current_layout $scratch_layout]
+set scratch_def_current_path [file join $write_scratch_dir "scratch_current.def"]
+check "write_def with no -layout falls back to current_layout" "" [write_def $scratch_def_current_path]
+check_true "write_def's current-Layout-fallback output file is non-empty" [expr {[file size $scratch_def_current_path] > 0}]
+
+file delete -force $write_scratch_dir
+
 puts "le_tcl CRUD test passed"

@@ -4537,3 +4537,127 @@ TEST_F(ApiFixture, DragSelectEnclosingTwoPiecesOfTheSameShapeSelectsBothAsSepara
 
     EXPECT_EQ(le_selection_count(handle), 2);
 }
+
+// --- le_write_lef/le_write_def (BUGS_AND_ENHANCEMENTS.md E28) ---
+
+namespace
+{
+    std::string scratch_path(const std::string &name)
+    {
+        return (std::filesystem::temp_directory_path() / name).string();
+    }
+
+    bool file_is_nonempty(const std::string &path)
+    {
+        std::error_code ec;
+        return std::filesystem::exists(path, ec) && std::filesystem::file_size(path, ec) > 0;
+    }
+}
+
+TEST_F(ApiFixture, WriteLefWithNullHandleOrPathReturnsNonzero)
+{
+    EXPECT_NE(le_write_lef(nullptr, scratch_path("le_write_lef_null_handle.lef").c_str(),
+                            LeAbstractId{.index = UINT32_MAX, .generation = 0}, LE_LEF_LAYER_WRITE_MODE_NONE),
+              0);
+
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    EXPECT_NE(le_write_lef(handle, nullptr, testcell_abstract_id(handle), LE_LEF_LAYER_WRITE_MODE_NONE), 0);
+}
+
+TEST_F(ApiFixture, WriteLefWithAnExplicitAbstractSucceedsAndProducesARealFile)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeAbstractId abstract_id = testcell_abstract_id(handle);
+    ASSERT_NE(abstract_id.index, UINT32_MAX);
+
+    const std::string out_path = scratch_path("le_write_lef_explicit.lef");
+    EXPECT_EQ(le_write_lef(handle, out_path.c_str(), abstract_id, LE_LEF_LAYER_WRITE_MODE_NONE), 0);
+    EXPECT_TRUE(file_is_nonempty(out_path));
+}
+
+TEST_F(ApiFixture, WriteLefWithNoAbstractGivenAndNoCurrentAbstractSetFailsWithAMessage)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    EXPECT_EQ(le_current_abstract(handle).index, UINT32_MAX); // nothing selected yet
+
+    const int32_t messages_before = le_message_count(handle);
+    EXPECT_NE(le_write_lef(handle, scratch_path("le_write_lef_no_current.lef").c_str(),
+                            LeAbstractId{.index = UINT32_MAX, .generation = 0}, LE_LEF_LAYER_WRITE_MODE_NONE),
+              0);
+    ASSERT_GT(le_message_count(handle), messages_before);
+    EXPECT_NE(std::string(le_message_at(handle, le_message_count(handle) - 1)).find("no current Abstract"), std::string::npos);
+}
+
+TEST_F(ApiFixture, WriteLefFallsBackToTheCurrentAbstractWhenNoneIsGiven)
+{
+    // The exact scenario BUGS_AND_ENHANCEMENTS.md E28 itself asks for:
+    // "uses current_abstract" when -abstract is omitted.
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeDesignInfo design = le_library_design_at(handle, 0, 0);
+    ASSERT_EQ(le_set_current_design_abstract_by_id(handle, design.id), 0);
+    ASSERT_NE(le_current_abstract(handle).index, UINT32_MAX);
+
+    const std::string out_path = scratch_path("le_write_lef_current_fallback.lef");
+    EXPECT_EQ(le_write_lef(handle, out_path.c_str(), LeAbstractId{.index = UINT32_MAX, .generation = 0}, LE_LEF_LAYER_WRITE_MODE_NONE), 0);
+    EXPECT_TRUE(file_is_nonempty(out_path));
+}
+
+TEST_F(ApiFixture, WriteLefTechnologyOnlyModeSucceedsWithNoAbstractAndNoCurrentAbstractAtAll)
+{
+    // LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY ignores abstract_id/current
+    // Abstract entirely (LEFWriter::LayerWriteMode::TechnologyOnly's own
+    // doc comment) - the one mode that doesn't need either set.
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    EXPECT_EQ(le_current_abstract(handle).index, UINT32_MAX);
+
+    const std::string out_path = scratch_path("le_write_lef_tech_only.lef");
+    EXPECT_EQ(le_write_lef(handle, out_path.c_str(), LeAbstractId{.index = UINT32_MAX, .generation = 0}, LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY), 0);
+    EXPECT_TRUE(file_is_nonempty(out_path));
+}
+
+TEST_F(ApiFixture, WriteDefWithNullHandleOrPathReturnsNonzero)
+{
+    EXPECT_NE(le_write_def(nullptr, scratch_path("le_write_def_null_handle.def").c_str(), LeLayoutId{.index = UINT32_MAX, .generation = 0}), 0);
+
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    const LeLayoutId layout_id = le_library_design_at(handle, 0, 0).layout_id;
+    EXPECT_NE(le_write_def(handle, nullptr, layout_id), 0);
+}
+
+TEST_F(ApiFixture, WriteDefWithAnExplicitLayoutSucceedsAndProducesARealFile)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    const LeLayoutId layout_id = le_library_design_at(handle, 0, 0).layout_id;
+    ASSERT_NE(layout_id.index, UINT32_MAX);
+
+    const std::string out_path = scratch_path("le_write_def_explicit.def");
+    EXPECT_EQ(le_write_def(handle, out_path.c_str(), layout_id), 0);
+    EXPECT_TRUE(file_is_nonempty(out_path));
+}
+
+TEST_F(ApiFixture, WriteDefWithNoLayoutGivenAndNoCurrentLayoutSetFailsWithAMessage)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    EXPECT_EQ(le_current_layout(handle).index, UINT32_MAX); // nothing selected yet
+
+    const int32_t messages_before = le_message_count(handle);
+    EXPECT_NE(le_write_def(handle, scratch_path("le_write_def_no_current.def").c_str(), LeLayoutId{.index = UINT32_MAX, .generation = 0}), 0);
+    ASSERT_GT(le_message_count(handle), messages_before);
+    EXPECT_NE(std::string(le_message_at(handle, le_message_count(handle) - 1)).find("no current Layout"), std::string::npos);
+}
+
+TEST_F(ApiFixture, WriteDefFallsBackToTheCurrentLayoutWhenNoneIsGiven)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    const LeDesignInfo design = le_library_design_at(handle, 0, 0);
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, design.id), 0);
+    ASSERT_NE(le_current_layout(handle).index, UINT32_MAX);
+
+    const std::string out_path = scratch_path("le_write_def_current_fallback.def");
+    EXPECT_EQ(le_write_def(handle, out_path.c_str(), LeLayoutId{.index = UINT32_MAX, .generation = 0}), 0);
+    EXPECT_TRUE(file_is_nonempty(out_path));
+}
