@@ -215,6 +215,18 @@ namespace
             bool is_array = false;
             int num_x = 0, num_y = 0;
             int64_t space_x = 0, space_y = 0;
+            // The enclosing path's own current_width at this via's own
+            // point (BUGS_AND_ENHANCEMENTS.md B3 follow-up) - the routing-
+            // width context via_shapes.hpp's own VIARULE GENERATE fit
+            // algorithm needs when a via reference resolves only to a
+            // top-level GENERATE rule, with no explicit CUTSIZE/ROWCOL
+            // anywhere to fall back on. Always set here (current_width
+            // defaults to the current LAYER's own declared LEF width even
+            // with no DEFIPATH_WIDTH override - see the DEFIPATH_LAYER
+            // case below), unlike ShapeVia.width's own is_optional=True
+            // (which also covers the LEF PORT/OBS VIA case, with no
+            // enclosing routed path at all).
+            int64_t width = 0;
         };
         std::optional<PendingVia> pending_via;
 
@@ -233,6 +245,7 @@ namespace
                         .space_x = pending_via->space_x,
                         .space_y = pending_via->space_y,
                         .mask = pending_via->mask,
+                        .width = pending_via->width,
                     });
                 }
                 else
@@ -242,6 +255,7 @@ namespace
                         .origin = pending_via->origin,
                         .orientation = pending_via->orientation,
                         .mask = pending_via->mask,
+                        .width = pending_via->width,
                     });
                 }
             }
@@ -304,7 +318,7 @@ namespace
                 break;
             }
             case DEFIPATH_VIA:
-                pending_via = PendingVia{.via_name = path->getVia(), .origin = last_point};
+                pending_via = PendingVia{.via_name = path->getVia(), .origin = last_point, .width = current_width};
                 break;
             case DEFIPATH_VIAROTATION:
                 if (pending_via)
@@ -871,6 +885,24 @@ namespace le
                 via_rule_data.num_cut_rows = num_cut_rows;
                 via_rule_data.num_cut_cols = num_cut_cols;
             }
+            // ORIGIN/OFFSET/PATTERN (B3 follow-up) - DEF VIAS VIARULE's
+            // own mirror of LEF's ORIGIN/OFFSET/PATTERN clauses, same
+            // meaning - see lef_reader.cpp's own matching comment.
+            if (via->hasOrigin())
+            {
+                int x_origin = 0, y_origin = 0;
+                via->origin(&x_origin, &y_origin);
+                via_rule_data.origin = Point{.x = scale_dbu(x_origin, reader->unit_scale_), .y = scale_dbu(y_origin, reader->unit_scale_)};
+            }
+            if (via->hasOffset())
+            {
+                int x_bot_offset = 0, y_bot_offset = 0, x_top_offset = 0, y_top_offset = 0;
+                via->offset(&x_bot_offset, &y_bot_offset, &x_top_offset, &y_top_offset);
+                via_rule_data.bot_offset = Point{.x = scale_dbu(x_bot_offset, reader->unit_scale_), .y = scale_dbu(y_bot_offset, reader->unit_scale_)};
+                via_rule_data.top_offset = Point{.x = scale_dbu(x_top_offset, reader->unit_scale_), .y = scale_dbu(y_top_offset, reader->unit_scale_)};
+            }
+            if (via->hasCutPattern())
+                log_warning("VIA {} has a PATTERN clause on its VIARULE (cut presence bitmap {}) - not supported, rendering every grid cell as a real cut instead of respecting the pattern's own gaps.", via->name(), via->cutPattern());
             reader->root_->create_via_rule_reference(std::move(via_rule_data));
         }
         return 0;

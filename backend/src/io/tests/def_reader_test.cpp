@@ -844,4 +844,114 @@ namespace le
         ASSERT_TRUE(with_width.has_value());
         EXPECT_EQ(*with_width, 50); // explicit PATHWIDTH still overrides the default
     }
+
+    // BUGS_AND_ENHANCEMENTS.md B3 follow-up - DEF's own mirror of
+    // lef_reader_test.cpp's LEFReaderViaRuleReferenceFixture tests:
+    // ROWCOL/ORIGIN/OFFSET/PATTERN on a DEF VIAS VIARULE entry, plus
+    // ShapeVia.width capture from a routed path's own current width at
+    // each via's own point.
+    class DEFReaderViaRuleReferenceFixture : public ::testing::Test
+    {
+    protected:
+        void SetUp() override
+        {
+            technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING", .width = 300});
+            root.create_layer(LayerData{.technology = technology_id, .name = "M2", .type = "ROUTING", .width = 300});
+            root.create_layer(LayerData{.technology = technology_id, .name = "V1", .type = "CUT"});
+            ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/via_rule_reference.def", root, "test_lib"), 0);
+
+            design_id = root.get_design_by_name("via_rule_reference_test");
+            layout_id = design_id.valid() ? root.get_design_layout(design_id) : LayoutId{};
+        }
+
+        std::optional<int64_t> width_of_via_in_route(const std::string &route_name, const std::string &via_name)
+        {
+            for (const RouteId route_id : root.get_layout_routes(layout_id))
+            {
+                const RouteData *route = root.get_route(route_id);
+                if (!route || route->name != route_name)
+                    continue;
+                for (const ShapeId shape_id : root.get_route_shapes(route_id))
+                {
+                    const Shape *shape = root.get_shape(shape_id);
+                    if (!shape)
+                        continue;
+                    for (const ShapeVia &via : shape->vias)
+                        if (via.via_name == via_name)
+                            return via.width;
+                }
+            }
+            return std::nullopt;
+        }
+
+        Root root;
+        TechnologyId technology_id;
+        DesignId design_id;
+        LayoutId layout_id;
+        DEFReader reader;
+    };
+
+    TEST_F(DEFReaderViaRuleReferenceFixture, ReadsAViaWithRowColOriginAndOffsetClauses)
+    {
+        ASSERT_TRUE(layout_id.valid());
+        const LayoutViaId via_id = root.get_layout_via_by_name(layout_id, "VIA_ARRAY_1");
+        ASSERT_TRUE(via_id.valid());
+        const ViaRuleReferenceData *vr = root.get_via_rule_reference(root.get_layout_via_via_rule(via_id));
+        ASSERT_TRUE(vr != nullptr);
+
+        ASSERT_TRUE(vr->num_cut_rows.has_value());
+        EXPECT_EQ(*vr->num_cut_rows, 2);
+        EXPECT_EQ(*vr->num_cut_cols, 3);
+
+        ASSERT_TRUE(vr->origin.has_value());
+        EXPECT_EQ(vr->origin->x, 20);
+        EXPECT_EQ(vr->origin->y, -30);
+
+        ASSERT_TRUE(vr->bot_offset.has_value());
+        EXPECT_EQ(vr->bot_offset->x, 10);
+        EXPECT_EQ(vr->bot_offset->y, 20);
+        ASSERT_TRUE(vr->top_offset.has_value());
+        EXPECT_EQ(vr->top_offset->x, -10);
+        EXPECT_EQ(vr->top_offset->y, -20);
+    }
+
+    TEST_F(DEFReaderViaRuleReferenceFixture, ReadsAViaWithAPatternClauseWithoutCrashingOrModelingIt)
+    {
+        ASSERT_TRUE(layout_id.valid());
+        const LayoutViaId via_id = root.get_layout_via_by_name(layout_id, "VIA_PATTERN_1");
+        ASSERT_TRUE(via_id.valid());
+        const ViaRuleReferenceData *vr = root.get_via_rule_reference(root.get_layout_via_via_rule(via_id));
+        ASSERT_TRUE(vr != nullptr);
+        ASSERT_TRUE(vr->num_cut_rows.has_value());
+        EXPECT_EQ(*vr->num_cut_rows, 2);
+        EXPECT_EQ(*vr->num_cut_cols, 3);
+    }
+
+    TEST_F(DEFReaderViaRuleReferenceFixture, CapturesTheEnclosingPathsCurrentWidthAtEachViasOwnPoint)
+    {
+        ASSERT_TRUE(layout_id.valid());
+
+        // "+ ROUTED M1 500 (0 0) (1000 0) VIA_ARRAY_1" - explicit PATHWIDTH
+        // 500 still in effect when VIA_ARRAY_1 is placed.
+        const std::optional<int64_t> width_with_override = width_of_via_in_route("NET_VIA_WITH_WIDTH", "VIA_ARRAY_1");
+        ASSERT_TRUE(width_with_override.has_value());
+        EXPECT_EQ(*width_with_override, 500);
+
+        // "NEW M1 250 + SHAPE STRIPE (2000 0) (3000 0) VIA_PATTERN_1" - a
+        // SPECIALNETS NEW sub-path requires its own explicit width token
+        // (unlike ordinary NETS, where it's optional) - 250 here, not
+        // the 500 the PRECEDING ROUTED segment used, confirming this
+        // isn't just inherited from the first segment.
+        const std::optional<int64_t> width_after_new = width_of_via_in_route("NET_VIA_WITH_WIDTH", "VIA_PATTERN_1");
+        ASSERT_TRUE(width_after_new.has_value());
+        EXPECT_EQ(*width_after_new, 250);
+
+        // "+ ROUTED M1 (0 1000) (1000 1000) VIA_ARRAY_1" - no PATHWIDTH
+        // token anywhere on this path at all, so this also defaults to
+        // M1's own declared LEF width.
+        const std::optional<int64_t> width_no_override = width_of_via_in_route("NET_VIA_NO_WIDTH", "VIA_ARRAY_1");
+        ASSERT_TRUE(width_no_override.has_value());
+        EXPECT_EQ(*width_no_override, 300);
+    }
 }

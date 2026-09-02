@@ -1065,6 +1065,26 @@ namespace le
                 pending_via_rule->num_cut_rows = lef_via->numCutRows();
                 pending_via_rule->num_cut_cols = lef_via->numCutCols();
             }
+            // ORIGIN/OFFSET (B3 follow-up) - lefiVia's own accessor names
+            // (xOffset/yOffset for ORIGIN; xBotOffset/yBotOffset/xTopOffset/
+            // yTopOffset for OFFSET) don't match the LEF keyword names
+            // directly - ORIGIN shifts the cut array's own center, OFFSET
+            // shifts each metal layer's own enclosure-rect center
+            // separately, see ViaRuleReference's own field comments.
+            if (lef_via->hasOrigin())
+                pending_via_rule->origin = Point{.x = reader->microns_to_dbu(lef_via->xOffset()), .y = reader->microns_to_dbu(lef_via->yOffset())};
+            if (lef_via->hasOffset())
+            {
+                pending_via_rule->bot_offset = Point{.x = reader->microns_to_dbu(lef_via->xBotOffset()), .y = reader->microns_to_dbu(lef_via->yBotOffset())};
+                pending_via_rule->top_offset = Point{.x = reader->microns_to_dbu(lef_via->xTopOffset()), .y = reader->microns_to_dbu(lef_via->yTopOffset())};
+            }
+            // PATTERN (a sparse cut-presence bitmap) - deliberately not
+            // modeled (see ViaRuleReference's own doc comment), but
+            // silently ignoring it would mean the rendered array shows
+            // MORE cuts than the design actually has wherever a real
+            // gap exists - loud enough to notice, not just a debug log.
+            if (lef_via->hasCutPattern())
+                log_warning("Via {} has a PATTERN clause on its VIARULE-inside-VIA (cut presence bitmap {}) - not supported, rendering every grid cell as a real cut instead of respecting the pattern's own gaps.", via_name, lef_via->cutPattern());
         }
 
         // lefiVia's own accessor is numProperties(), not numProps() -

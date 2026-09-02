@@ -437,6 +437,157 @@ TEST_F(AbstractShapePipelineFixture, RunSynthesizesASingleCutForAViaRuleReferenc
     EXPECT_EQ(cut_rect_count, 1u);
 }
 
+// BUGS_AND_ENHANCEMENTS.md B3 follow-up - ORIGIN shifts the whole cut
+// array's own center away from the via's own placement point; OFFSET
+// separately shifts each metal layer's own enclosure-rect center on top
+// of that. rows=cols=1 (a single 2x2 cut) keeps the arithmetic small
+// enough to hand-verify exactly, matching via_shapes.hpp's own
+// synthesize_cut_array formulas: local start = -total/2 + origin, each
+// enclosure rect = [start - enc + layer_offset, start + total + enc +
+// layer_offset], both transformed by the via's own placement point (50,50).
+TEST_F(AbstractShapePipelineFixture, RunAppliesOriginAndOffsetToAViaRuleReferencesCutArray)
+{
+    root.create_layer(le::LayerData{.technology = technology_id, .name = "V1", .type = "CUT"});
+
+    const le::ViaId via_id = root.create_via(le::ViaData{.technology = technology_id, .name = "VIAORIGIN"});
+    root.create_via_rule_reference(le::ViaRuleReferenceData{
+        .via = via_id,
+        .via_rule_name = "ViaRule1",
+        .cut_size = le::Point{.x = 2, .y = 2},
+        .bot_layer_name = "M1",
+        .cut_layer_name = "V1",
+        .top_layer_name = "M2",
+        .bot_enclosure = le::Point{.x = 1, .y = 1},
+        .top_enclosure = le::Point{.x = 1, .y = 1},
+        .origin = le::Point{.x = 5, .y = -5},
+        .bot_offset = le::Point{.x = 2, .y = 0},
+        .top_offset = le::Point{.x = -2, .y = 0},
+    });
+
+    le::Shape shape{.layer = m1, .rects = {le::Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    shape.vias.push_back(le::ShapeVia{.via_name = "VIAORIGIN", .origin = le::Point{50, 50}});
+    add_terminal_shape(shape);
+
+    const auto &grouped = pipeline.run(abstract_id, options());
+
+    const le::ViewLayerId cut_view_layer = view_layers.find(root.get_layer_by_name("V1"), le::ViewLayerPurpose::TERMINAL);
+    const auto cut_it = grouped.find(cut_view_layer);
+    ASSERT_NE(cut_it, grouped.end());
+    ASSERT_EQ(cut_it->second.size(), 1u);
+    ASSERT_EQ(cut_it->second.front().shape.rects.size(), 1u);
+    // ORIGIN (5,-5): local start = (-1+5, -1-5) = (4,-6); cut spans local
+    // (4,-6)-(6,-4); + placement (50,50) -> world (54,44)-(56,46).
+    const le::Rect &cut_rect = cut_it->second.front().shape.rects[0];
+    EXPECT_EQ(cut_rect.ll.x, 54);
+    EXPECT_EQ(cut_rect.ll.y, 44);
+    EXPECT_EQ(cut_rect.ur.x, 56);
+    EXPECT_EQ(cut_rect.ur.y, 46);
+
+    const le::ViewLayerId bot_view_layer = view_layers.find(m1, le::ViewLayerPurpose::TERMINAL);
+    const auto bot_it = grouped.find(bot_view_layer);
+    ASSERT_NE(bot_it, grouped.end());
+    const le::RenderedShape *bot_enclosure = nullptr;
+    for (const auto &rendered : bot_it->second)
+        if (rendered.shape.rects.size() == 1 && rendered.shape.rects[0].ll.x != 0)
+            bot_enclosure = &rendered;
+    ASSERT_NE(bot_enclosure, nullptr);
+    // bot_offset (2,0): local (5,-7)-(9,-3) -> world (55,43)-(59,47).
+    EXPECT_EQ(bot_enclosure->shape.rects[0].ll.x, 55);
+    EXPECT_EQ(bot_enclosure->shape.rects[0].ll.y, 43);
+    EXPECT_EQ(bot_enclosure->shape.rects[0].ur.x, 59);
+    EXPECT_EQ(bot_enclosure->shape.rects[0].ur.y, 47);
+
+    const le::ViewLayerId top_view_layer = view_layers.find(m2, le::ViewLayerPurpose::TERMINAL);
+    const auto top_it = grouped.find(top_view_layer);
+    ASSERT_NE(top_it, grouped.end());
+    ASSERT_EQ(top_it->second.size(), 1u);
+    // top_offset (-2,0): local (1,-7)-(5,-3) -> world (51,43)-(55,47).
+    EXPECT_EQ(top_it->second.front().shape.rects[0].ll.x, 51);
+    EXPECT_EQ(top_it->second.front().shape.rects[0].ll.y, 43);
+    EXPECT_EQ(top_it->second.front().shape.rects[0].ur.x, 55);
+    EXPECT_EQ(top_it->second.front().shape.rects[0].ur.y, 47);
+}
+
+// BUGS_AND_ENHANCEMENTS.md B3 follow-up - a via_name resolving only to a
+// top-level VIARULE ... GENERATE rule (no Via/LayoutVia, no
+// ViaRuleReference anywhere) synthesizes a cut array fit to the
+// available routing width (ShapeVia.width) - via_shapes.hpp's own
+// append_generate_via_array. cut_w=cut_h=2 (RECT -1 -1 1 1), spacing=1,
+// margin=1 on both metal layers (bot/top both ENCLOSURE 1 1, so
+// margin_x=margin_y=max(1,1)=1) and width=13 is chosen so the fit is
+// exact: floor((13 - 2*1 + 1) / (2+1)) = floor(12/3) = 4 cuts per axis,
+// consuming exactly 4*2 + 3*1 + 2*1 = 13 of the available width - no
+// slack, so this also confirms the fit isn't off-by-one in either
+// direction.
+TEST_F(AbstractShapePipelineFixture, RunFitsAGenerateViaRulesCutArrayToTheAvailableRoutingWidth)
+{
+    const le::LayerId cut_layer = root.create_layer(le::LayerData{.technology = technology_id, .name = "V1", .type = "CUT"});
+
+    const le::ViaRuleId via_rule_id = root.create_via_rule(le::ViaRuleData{.technology = technology_id, .name = "GENRULE", .is_generate = true});
+    root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "M1", .enclosure_overhang1 = 1, .enclosure_overhang2 = 1});
+    root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "M2", .enclosure_overhang1 = 1, .enclosure_overhang2 = 1});
+    root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "V1", .rect = le::Rect{.ll = {-1, -1}, .ur = {1, 1}}, .spacing_step_x = 1, .spacing_step_y = 1});
+
+    le::Shape shape{.layer = m1, .rects = {le::Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    shape.vias.push_back(le::ShapeVia{.via_name = "GENRULE", .origin = le::Point{50, 50}, .width = 13});
+    add_terminal_shape(shape);
+
+    const auto &grouped = pipeline.run(abstract_id, options());
+
+    const le::ViewLayerId cut_view_layer = view_layers.find(cut_layer, le::ViewLayerPurpose::TERMINAL);
+    const auto cut_it = grouped.find(cut_view_layer);
+    ASSERT_NE(cut_it, grouped.end());
+    ASSERT_EQ(cut_it->second.size(), 1u);
+    EXPECT_EQ(cut_it->second.front().shape.rects.size(), 16u); // 4 rows x 4 cols
+
+    const le::ViewLayerId bot_view_layer = view_layers.find(m1, le::ViewLayerPurpose::TERMINAL);
+    ASSERT_NE(grouped.find(bot_view_layer), grouped.end());
+    const le::ViewLayerId top_view_layer = view_layers.find(m2, le::ViewLayerPurpose::TERMINAL);
+    ASSERT_NE(grouped.find(top_view_layer), grouped.end());
+}
+
+// No routing-width context at all (ShapeVia.width unset - e.g. a LEF
+// PORT/OBS VIA, which has no enclosing routed path) falls back to a
+// single cut, the same "nothing to size an array from" meaning a
+// ViaRuleReference with no ROWCOL clause already uses.
+TEST_F(AbstractShapePipelineFixture, RunFallsBackToASingleCutForAGenerateViaRuleWithNoWidthContext)
+{
+    root.create_layer(le::LayerData{.technology = technology_id, .name = "V1", .type = "CUT"});
+
+    const le::ViaRuleId via_rule_id = root.create_via_rule(le::ViaRuleData{.technology = technology_id, .name = "GENRULE", .is_generate = true});
+    root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "M1", .enclosure_overhang1 = 1, .enclosure_overhang2 = 1});
+    root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "M2", .enclosure_overhang1 = 1, .enclosure_overhang2 = 1});
+    root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "V1", .rect = le::Rect{.ll = {-1, -1}, .ur = {1, 1}}, .spacing_step_x = 1, .spacing_step_y = 1});
+
+    le::Shape shape{.layer = m1, .rects = {le::Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    shape.vias.push_back(le::ShapeVia{.via_name = "GENRULE", .origin = le::Point{50, 50}}); // width left unset
+    add_terminal_shape(shape);
+
+    const auto &grouped = pipeline.run(abstract_id, options());
+    size_t cut_rect_count = 0;
+    for (const auto &[view_layer_id, shapes] : grouped)
+        for (const auto &rendered : shapes)
+            if (rendered.shape.layer.valid() && root.get_layer(rendered.shape.layer) != nullptr &&
+                root.get_layer(rendered.shape.layer)->name == "V1")
+                cut_rect_count += rendered.shape.rects.size();
+    EXPECT_EQ(cut_rect_count, 1u);
+}
+
+// A via_name resolving to neither an explicit Via/LayoutVia, nor a
+// ViaRuleReference, nor a GENERATE ViaRule is still skipped, not an
+// error - the pre-existing "no explicit geometry to draw" behavior for
+// every other case must survive tier 3's own addition.
+TEST_F(AbstractShapePipelineFixture, RunSkipsAViaNameResolvingToNothingAtAll)
+{
+    le::Shape shape{.layer = m1, .rects = {le::Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    shape.vias.push_back(le::ShapeVia{.via_name = "NO_SUCH_VIA_OR_RULE", .origin = le::Point{50, 50}});
+    add_terminal_shape(shape);
+
+    // Only the Shape's own 10x10 rect should show up - nothing extra
+    // from the unresolved via.
+    EXPECT_EQ(total_shapes(pipeline.run(abstract_id, options())), 1u);
+}
+
 TEST_F(AbstractShapePipelineFixture, RunDropsShapesOutsideViewportAndOnHiddenLayers)
 {
     add_terminal_shape(le::Shape{.layer = m1, .rects = {le::Rect{.ll = {10, 10}, .ur = {20, 20}}}});

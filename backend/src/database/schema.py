@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.40.0",
+    version="0.41.0",
     classes=[
         Klass(
             name="Technology",
@@ -893,7 +893,7 @@ schema = Schema(
         ),
         Klass(
             name="ViaRuleReference",
-            description="A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). ROWCOL (num_cut_rows/num_cut_cols below) is modeled - BUGS_AND_ENHANCEMENTS.md B3, a via *array* is exactly a ROWCOL clause with more than one row/col of cuts, synthesized into concrete cut rects by via_shapes.hpp at render time rather than stored as one rect per cut. Rarer sub-fields (ORIGIN/OFFSET/PATTERN) still aren't modeled - real, narrower LEF constructs than plain ROWCOL (a caller-supplied grid origin/offset override and a sparse cut-presence bitmap, respectively), deferred the same documented way Field.create_excluded fields are elsewhere in this schema. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)",
+            description="A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). ROWCOL (num_cut_rows/num_cut_cols below) is modeled - BUGS_AND_ENHANCEMENTS.md B3, a via *array* is exactly a ROWCOL clause with more than one row/col of cuts, synthesized into concrete cut rects by via_shapes.hpp at render time rather than stored as one rect per cut. ORIGIN/OFFSET (origin/bot_offset/top_offset below) are also modeled (B3 follow-up) - real caller-supplied overrides for where the cut array's own center (ORIGIN) and each metal layer's own enclosure-rect center (OFFSET) land, relative to the via's own placement point, used e.g. when a via needs to sit off-center from its own connection point. PATTERN (a sparse cut-presence bitmap - which grid cells in a rows x cols array actually have a cut, vs. the simpler always-fully-populated grid this schema assumes) is deliberately still not modeled - the reader logs a warning when one is present rather than silently ignoring it, the same documented-gap convention as everywhere else in this schema. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)",
             fields=[
                 Field(
                     name="via",
@@ -967,6 +967,24 @@ schema = Schema(
                     description="Number of cut columns (LEF VIARULE-inside-VIA ROWCOL numCols) - is_optional=True per num_cut_rows' own note",
                     type="int",
                     example=2,
+                    is_optional=True,
+                ),
+                Field(
+                    name="origin",
+                    description="Offset of the cut array's own center from the via's own placement point, in database units (LEF VIARULE-inside-VIA ORIGIN) - unset means the array is centered exactly on the placement point (this schema's own prior default, still correct when ORIGIN is omitted)",
+                    type="Point",
+                    is_optional=True,
+                ),
+                Field(
+                    name="bot_offset",
+                    description="Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in database units (LEF VIARULE-inside-VIA OFFSET, bottom pair) - unset means no offset (the enclosure rect stays centered on the cut array, this schema's own prior default)",
+                    type="Point",
+                    is_optional=True,
+                ),
+                Field(
+                    name="top_offset",
+                    description="Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair)",
+                    type="Point",
                     is_optional=True,
                 ),
             ],
@@ -1592,6 +1610,7 @@ schema = Schema(
                 Field(name="origin", description="In database units", type="Point"),
                 Field(name="orientation", description="DEF routed-path VIA placements can carry an explicit orientation (e.g. \"M1_M2 FN\") - unset if omitted (always unset for LEF, which has no such syntax here)", type="Orientation", is_optional=True),
                 Field(name="mask", description="MASK color (5.8) - a combined up-to-3-digit number (top*100 + cut*10 + bottom), matching both how the vendored reader reports it (three separate topMaskNum/cutMaskNum/bottomMaskNum digits, recombined - see lef_reader.cpp's combine_via_mask) and the single combined value the vendored writer accepts back", type="int", example=0, is_optional=True),
+                Field(name="width", description="The enclosing DEF routed path's own current width at this via's own point (DEFIPATH_WIDTH, or the LAYER's own declared LEF width if the path never overrides it), in database units - unset for a LEF PORT/OBS VIA placement, which has no enclosing routed path to inherit a width from. This is the routing-width context BUGS_AND_ENHANCEMENTS.md B3's own VIARULE GENERATE support needs to size a cut array when no explicit ROWCOL/CUTSIZE is given anywhere (an unnamed via reference resolving only to a top-level VIARULE ... GENERATE rule) - see via_shapes.hpp's own fit-to-width algorithm.", type="dbu", is_optional=True),
             ],
         ),
         Klass(
@@ -1607,6 +1626,7 @@ schema = Schema(
                 Field(name="space_x", description="LEF STEP x, in database units", type="dbu"),
                 Field(name="space_y", description="LEF STEP y, in database units", type="dbu"),
                 Field(name="mask", description="MASK color (5.8) - same combined-digit convention as ShapeVia.mask", type="int", example=0, is_optional=True),
+                Field(name="width", description="Same meaning as ShapeVia.width - the enclosing DEF routed path's own current width at this via array's own point, unset for a LEF VIA ITERATE (no enclosing routed path)", type="dbu", is_optional=True),
             ],
         ),
         Klass(

@@ -487,4 +487,94 @@ This is **not yet committed** - given how much this turned out to touch
 (a real caching-correctness bug, not just the original B3 scope), I
 wanted you to see it before I push anything.
 
+Update: shown, confirmed working (after rebuilding `build_release/le_shell`/
+`le_tcl.so`, which I'd initially forgotten - only `build/` had picked up
+the fix), committed, and pushed.
+
+## 2026-09-02 (mid-morning): B3's own remaining LEF/DEF gaps - ORIGIN/OFFSET/PATTERN, VIARULE GENERATE
+
+You asked to revisit the three sub-clauses B3's own via-array work
+deliberately deferred: ORIGIN/OFFSET (required), PATTERN (not required,
+but should warn instead of silently ignoring), and top-level
+`VIARULE ... GENERATE` rules (required - "quite common syntax").
+
+**ORIGIN/OFFSET/PATTERN** - straightforward extensions of B3's existing
+`ViaRuleReference` machinery. `origin`/`bot_offset`/`top_offset` added
+to the schema (LEF `lefiVia::hasOrigin/xOffset/yOffset` +
+`hasOffset/xBotOffset/...`, DEF `defiVia::hasOrigin/origin` +
+`hasOffset/offset` - both readers). ORIGIN shifts the whole cut array's
+own center away from the via's own placement point; OFFSET separately
+shifts each metal layer's own enclosure-rect center on top of that -
+`via_shapes.hpp`'s `synthesize_cut_array` now applies both. PATTERN (a
+sparse cut-presence bitmap) still isn't modeled - both readers now log
+a warning naming the via and the pattern string when one is present,
+instead of silently ignoring it.
+
+**VIARULE GENERATE** - the bigger piece, and worth documenting the real
+back-and-forth on: I found that *parsing* this already existed
+(`ViaRule`/`ViaRuleLayer`, apparently from earlier work) but nothing in
+`src/pipelines/` ever consumed it - zero rendering wiring. I checked
+whether any of our test DEFs reference a GENERATE rule directly (no
+DEF `VIAS` entry providing an explicit override) - none do, all go
+through the already-working explicit-entry path - and found `ShapeVia`
+carries no routing-width field at all, which a real row/col-fit
+(LEF/DEF spec ties this to the wire width at that point) needs. I
+proposed a documented single-cut fallback given no fixture to validate
+a real fit algorithm against; you asked for the real thing instead, so:
+
+- Added `ShapeVia.width`/`ShapeViaIterate.width` (dbu, optional) -
+  turned out `def_reader.cpp`'s own path walk already tracks
+  `current_width` at every point (defaulting to the LAYER's own
+  declared LEF width, overridable via `DEFIPATH_WIDTH`) for path
+  rendering - just had to thread the already-computed value into each
+  via placement too, no new tracking logic needed.
+- `via_shapes.hpp` gained a third resolution tier: a `via_name`
+  resolving to neither explicit layers nor a `ViaRuleReference`, but to
+  a top-level GENERATE `ViaRule` directly, fits as many cut rows/cols
+  as the available width allows - respecting each metal layer's own
+  enclosure/overhang margin (taking whichever of the two layers needs
+  more) and the cut layer's own spacing - falling back to a single 1x1
+  cut when no width is known, same convention as tier 2's own
+  no-ROWCOL case.
+- Refactored the actual rect-construction math (cut grid + bottom/top
+  enclosure rects) into one shared `synthesize_cut_array` helper both
+  tier 2 and the new tier 3 call, rather than duplicating it.
+
+**Known, documented approximation, not silently assumed correct**: the
+fit uses ONE scalar width symmetrically for both axes, since
+`ShapeVia` only carries the enclosing path's own single current width,
+not separate per-layer/per-axis wire geometry a real router might use
+(e.g. differently-widthed bottom/top layers, or a layer whose own
+preferred DIRECTION makes one axis length-unconstrained). Called out in
+`via_shapes.hpp`'s own header comment, not hidden.
+
+New test coverage: `lef_reader_test.cpp` (ORIGIN/OFFSET, PATTERN-doesn't-
+crash, a GENERATE rule's own LAYER/ENCLOSURE/RECT/SPACING parsing -
+`via_rule_reference.lef` extended with VIA4/VIA5/a `Via6Array-0
+GENERATE` block), `def_reader_test.cpp` (same, plus `ShapeVia.width`
+capture from a routed path - new fixture `via_rule_reference.def`,
+including confirming a `NEW` sub-path's own required width token
+doesn't inherit the previous segment's), `pipelines_test.cpp` (ORIGIN/
+OFFSET applied to real rendered rect positions - hand-verified
+arithmetic, passed first try; the fit algorithm at an exact-fit width
+with no slack, to catch an off-by-one in either direction; the
+no-width fallback; an unresolvable via name still just skipped, not an
+error). Full 681-test suite passes (up from 670); both `build`/
+`build_release` rebuilt and PTY-smoke-tested against the same real AES
+via6 corner from the caching-bug fix above - unchanged, confirming no
+regression to the already-working case.
+
+**A build-hygiene note for future me**: hit the exact same "forgot to
+rebuild `le_tcl`/`le_tcl.so` alongside `backend_tests`" mistake as
+above, a second time, mid-session - three `SessionHandle` tests failed
+with the same "Unknown C++ exception" symptom from a stale module ABI
+mismatch after the schema regen. Caught it the same way (rebuilding
+`le_tcl`/`le_tcl_session_test` explicitly fixed it), but this is
+clearly a recurring trap worth remembering: any schema.py change
+needs `le_tcl`/`le_shell` rebuilt in *both* `build` and `build_release`
+explicitly, not just whatever target I happened to ask for.
+
+Not yet committed - want your sign-off given the GENERATE fit
+algorithm's own approximation, same as the caching fix above.
+
 

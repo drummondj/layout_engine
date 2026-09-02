@@ -787,6 +787,99 @@ TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAViaWithARowColClauseAsARealArray)
     EXPECT_EQ(*vr_ptr->num_cut_cols, 3);
 }
 
+// BUGS_AND_ENHANCEMENTS.md B3 follow-up - ORIGIN/OFFSET on a
+// VIARULE-inside-VIA.
+TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAViaWithOriginAndOffsetClauses)
+{
+    const ViaId via_id = root.get_via_by_name("VIA4");
+    ASSERT_TRUE(via_id.valid());
+
+    const ViaRuleReferenceData *vr_ptr = root.get_via_rule_reference(root.get_via_via_rule(via_id));
+    ASSERT_TRUE(vr_ptr != nullptr);
+
+    // ORIGIN 0.02 -0.03
+    ASSERT_TRUE(vr_ptr->origin.has_value());
+    EXPECT_EQ(vr_ptr->origin->x, 20);
+    EXPECT_EQ(vr_ptr->origin->y, -30);
+
+    // OFFSET 0.01 0.02 -0.01 -0.02 -> xBotOffset yBotOffset xTopOffset yTopOffset
+    ASSERT_TRUE(vr_ptr->bot_offset.has_value());
+    EXPECT_EQ(vr_ptr->bot_offset->x, 10);
+    EXPECT_EQ(vr_ptr->bot_offset->y, 20);
+    ASSERT_TRUE(vr_ptr->top_offset.has_value());
+    EXPECT_EQ(vr_ptr->top_offset->x, -10);
+    EXPECT_EQ(vr_ptr->top_offset->y, -20);
+}
+
+TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAViaWithNoOriginOrOffsetClausesAsUnset)
+{
+    // VIA3 (already covered by ReadsAViaWithARowColClauseAsARealArray
+    // above) has no ORIGIN/OFFSET clause at all - confirms they default
+    // to unset, not some implicit {0,0}, matching every other
+    // is_optional field on this Klass.
+    const ViaId via_id = root.get_via_by_name("VIA3");
+    ASSERT_TRUE(via_id.valid());
+    const ViaRuleReferenceData *vr_ptr = root.get_via_rule_reference(root.get_via_via_rule(via_id));
+    ASSERT_TRUE(vr_ptr != nullptr);
+    EXPECT_FALSE(vr_ptr->origin.has_value());
+    EXPECT_FALSE(vr_ptr->bot_offset.has_value());
+    EXPECT_FALSE(vr_ptr->top_offset.has_value());
+}
+
+// BUGS_AND_ENHANCEMENTS.md B3 follow-up - PATTERN isn't modeled (see
+// ViaRuleReference's own doc comment); this confirms reading a VIA with
+// one doesn't crash or corrupt the rest of that VIA's own fields (the
+// reader logs a warning - see lef_reader.cpp's own lefrViaCbkFn - not
+// asserted here, matching this codebase's convention of not testing log
+// message content directly).
+TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAViaWithAPatternClauseWithoutCrashingOrModelingIt)
+{
+    const ViaId via_id = root.get_via_by_name("VIA5");
+    ASSERT_TRUE(via_id.valid());
+    const ViaRuleReferenceData *vr_ptr = root.get_via_rule_reference(root.get_via_via_rule(via_id));
+    ASSERT_TRUE(vr_ptr != nullptr);
+    ASSERT_TRUE(vr_ptr->num_cut_rows.has_value());
+    EXPECT_EQ(*vr_ptr->num_cut_rows, 2);
+    EXPECT_EQ(*vr_ptr->num_cut_cols, 3);
+}
+
+// BUGS_AND_ENHANCEMENTS.md B3 follow-up - a top-level VIARULE ... GENERATE
+// rule (via_shapes.hpp's own tier-3 resolution target), distinct from
+// VIARULE2's own non-GENERATE via-name-list form above.
+TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAGenerateViaRuleWithLayerEnclosureAndCutSpacing)
+{
+    const ViaRuleId via_rule_id = root.get_via_rule_by_name("Via6Array-0");
+    ASSERT_TRUE(via_rule_id.valid());
+    const ViaRuleData *via_rule = root.get_via_rule(via_rule_id);
+    ASSERT_TRUE(via_rule != nullptr);
+    EXPECT_TRUE(via_rule->is_generate);
+    EXPECT_TRUE(via_rule->via_names.empty()); // GENERATE rules don't list vias
+
+    const std::vector<ViaRuleLayerId> &layer_ids = root.get_via_rule_layers(via_rule_id);
+    ASSERT_EQ(layer_ids.size(), 3u);
+
+    const ViaRuleLayerData *bot = root.get_via_rule_layer(layer_ids[0]);
+    EXPECT_EQ(bot->layer_name, "M1");
+    ASSERT_TRUE(bot->enclosure_overhang1.has_value());
+    ASSERT_TRUE(bot->enclosure_overhang2.has_value());
+    EXPECT_EQ(*bot->enclosure_overhang1, 20);
+    EXPECT_EQ(*bot->enclosure_overhang2, 20);
+
+    const ViaRuleLayerData *top = root.get_via_rule_layer(layer_ids[1]);
+    EXPECT_EQ(top->layer_name, "M1");
+    ASSERT_TRUE(top->enclosure_overhang1.has_value());
+    EXPECT_EQ(*top->enclosure_overhang1, 30);
+
+    const ViaRuleLayerData *cut = root.get_via_rule_layer(layer_ids[2]);
+    EXPECT_EQ(cut->layer_name, "V1");
+    ASSERT_TRUE(cut->rect.has_value());
+    EXPECT_EQ(cut->rect->ll.x, -50);
+    EXPECT_EQ(cut->rect->ur.x, 50);
+    ASSERT_TRUE(cut->spacing_step_x.has_value());
+    EXPECT_EQ(*cut->spacing_step_x, 60);
+    EXPECT_EQ(*cut->spacing_step_y, 60);
+}
+
 TEST_F(LEFReaderViaFixture, ReadsSiteDefinitionsWithClassSizeSymmetryAndRowPattern)
 {
     const SiteId core_id = root.get_site_by_name("CORE");
