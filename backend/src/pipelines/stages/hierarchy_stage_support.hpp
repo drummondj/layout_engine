@@ -80,7 +80,27 @@ namespace le
         // a copy-paste slip.
         PipelineOptions viewport_options;
         viewport_options.ctx.scene = &cull_scene;
-        viewport_options.viewport.viewport_version = cull_scene.viewport_version();
+        // scene.viewport_version() (the REAL Scene passed in), not
+        // cull_scene's own - cull_scene is a fresh Scene constructed
+        // every single call, mutated via the exact same three set_scale/
+        // set_pan/set_viewport_size calls in the same order every time,
+        // so its own viewport_version() is a CONSTANT across every call
+        // to record_local_picture regardless of how much the real scale
+        // actually changed. ViewportFilterStage::options_did_change
+        // compares this value specifically to decide whether to re-cull
+        // at the new scale (see its own doc comment: "recomputing
+        // whenever [data_version or scene.viewport_version()] moves") -
+        // with the constant from cull_scene, that check always saw "no
+        // change" after the first call for a given data_version, so the
+        // sub-pixel cull decision made on the very first render of a
+        // Layout got permanently frozen at whatever scale was active
+        // then, never revisited on any later zoom/pan - a real bug (not
+        // hypothetical: reproduced by zooming in 15x past the original
+        // scale within one session and the culled content still didn't
+        // reappear), only escaping notice because it only bites content
+        // near the sub-pixel threshold when the FIRST render after a
+        // design/database change happens at an unusually small scale.
+        viewport_options.viewport.viewport_version = scene.viewport_version();
         viewport_options.viewport.scale = scale;
 
         PipelineOptions layer_options;
@@ -89,7 +109,22 @@ namespace le
         layer_options.viewport.visibility_version = scene.visibility_version();
 
         const std::vector<RenderedShape> &viewport_filtered = viewport_runner.run(dbu_shapes, geometry_data_version, viewport_options);
-        const std::map<ViewLayerId, std::vector<RenderedShape>> &layer_filtered = layer_runner.run(viewport_filtered, geometry_data_version, layer_options);
+        // viewport_runner.last_version() (bumped only when ViewportFilterStage
+        // actually recomputed - see its own doc comment: "its own
+        // data_version arrives automatically as whatever ViewportFilterStage's
+        // node last emitted"), not geometry_data_version again - the two
+        // runners aren't wired via a real make_edge here (SynchronousStageRunner,
+        // not a graph edge), so layer_runner has no way to know
+        // viewport_filtered's own content changed unless told via its
+        // own data_version input. Passing geometry_data_version straight
+        // through (unchanged whenever only the live scale/viewport
+        // changed, not the underlying database) made LayerVisibilityFilterStage
+        // treat every later scale change as a no-op cache hit, silently
+        // re-serving the FIRST scale's own filtered/culled shape set
+        // forever after - the second half of the same bug class as
+        // viewport_options.viewport.viewport_version above, one stage
+        // further downstream.
+        const std::map<ViewLayerId, std::vector<RenderedShape>> &layer_filtered = layer_runner.run(viewport_filtered, viewport_runner.last_version(), layer_options);
         const auto pixel_shapes = transform_shapes_to_pixel_space(layer_filtered, local_origin, scale);
 
         const SkRect bounds = SkRect::MakeLTRB(

@@ -616,6 +616,72 @@ TEST_F(HierarchyResolverFixture, RenderLayoutFrameToleratesSmallScaleDriftStayin
         << "a large out-of-tolerance scale jump should still force a real rebuild";
 }
 
+TEST_F(HierarchyResolverFixture, RenderLayoutFrameRecullsOwnDirectContentOnScaleDriftNotJustResolvedInstancePosition)
+{
+    // Regression for a real bug (found investigating a live user report
+    // that via arrays sometimes render, sometimes don't, for what looked
+    // like the same design/view): record_local_picture's own
+    // sub-pixel-cull-and-layer-visibility tail
+    // (hierarchy_stage_support.hpp) is shared by both a nested
+    // HierarchyLayoutNodeStage node AND render_layout_frame's own
+    // top-level (never-nodeified) path - but the TOP-level path's own
+    // viewport_runner_/layer_runner_ (top_viewport_runner_/
+    // top_layer_runner_, persistent HierarchyResolver members, never
+    // reset by ensure_epoch the way a nested node's own graph_ entry is
+    // on a large scale jump) fed ViewportFilterStage a viewport_version
+    // taken from a throwaway per-call Scene (cull_scene) - a CONSTANT
+    // across every call, not a real change signal - so a genuinely
+    // sub-pixel shape culled on the very first render of a Layout's own
+    // direct content stayed culled forever after, even across a real,
+    // in-tolerance scale increase that should have brought it back
+    // above the 1-device-pixel threshold. A second, analogous bug one
+    // stage downstream (LayerVisibilityFilterStage fed geometry_data_version
+    // again instead of viewport_runner's own last_version()) meant even
+    // fixing the first one alone wasn't enough. This test's own 1x1 dbu
+    // blockage shape only exists directly on TOP's own Layout (top-level
+    // direct content, not reached via a nested Placement), specifically
+    // to exercise the persistent top_viewport_runner_/top_layer_runner_
+    // path a nested-node test (see ...ToleratesSmallScaleDrift... above)
+    // doesn't.
+    auto [top_design, top_layout] = create_layout_design("TOP", le::Point{100, 100});
+
+    const le::BlockageId blockage_id = root.create_blockage(le::BlockageData{.layout = top_layout, .kind = le::BlockageKind::ROUTING});
+    le::Shape blockage_shape;
+    blockage_shape.blockage = blockage_id;
+    blockage_shape.layer = m1;
+    blockage_shape.rects.push_back(le::Rect{.ll = {50, 50}, .ur = {51, 51}}); // 1x1 dbu
+    root.create_shape(std::move(blockage_shape));
+
+    scene.set_pan(le::Point{0, 0});
+    scene.set_viewport_size(800, 800);
+
+    // scale=0.85: 1 dbu * 0.85 = 0.85 device px in both dimensions -
+    // genuinely sub-pixel, culled.
+    scene.set_scale(0.85);
+    const le::PixelBuffer &culled = resolver.render_layout_frame(root, top_layout, /*hierarchy_depth=*/0, view_layers, scene);
+    ASSERT_TRUE(culled.data);
+    EXPECT_FALSE(pixel_buffer_region_has_opaque_pixel(culled, 40, 740, 60, 755));
+
+    // scale=1.5 (1.5/0.85 = 1.76x - past kScaleDriftTolerance's own
+    // 1.25x, so ensure_epoch DOES advance epoch_.scale to the live
+    // value this time, unlike a small in-tolerance drift): 1 dbu * 1.5 =
+    // 1.5 device px - no longer sub-pixel, must now actually draw.
+    // World rect (50,50)-(51,51) at scale=1.5 -> pre-flip pixel
+    // (75,75)-(76.5,76.5) -> post-flip (height=800): y in [723.5,725].
+    // Without the fix, top_viewport_runner_/top_layer_runner_'s own
+    // stale cache (keyed on a constant, not a real change signal) kept
+    // serving the scale=0.85 cull decision even though epoch_.scale -
+    // and record_local_picture's own `scale` parameter - genuinely did
+    // change here.
+    scene.set_scale(1.5);
+    const le::PixelBuffer &recovered = resolver.render_layout_frame(root, top_layout, /*hierarchy_depth=*/0, view_layers, scene);
+    ASSERT_TRUE(recovered.data);
+    EXPECT_TRUE(pixel_buffer_region_has_opaque_pixel(recovered, 70, 719, 82, 730))
+        << "a shape that was genuinely sub-pixel at the epoch's original scale must reappear "
+           "once a later, out-of-tolerance scale change brings it back above 1 device pixel - "
+           "not stay frozen at the first render's own cull decision";
+}
+
 TEST_F(HierarchyResolverFixture, RenderLayoutFrameReusesCacheUntilSceneChanges)
 {
     le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});
