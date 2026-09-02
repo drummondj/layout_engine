@@ -111,18 +111,31 @@ ENV BOOST_ROOT=/opt/boost
 # dev machine's own Homebrew tbb version for parity, same reasoning as
 # Skia's own pinned-commit comment below. TBB_TEST=OFF skips building its
 # own test suite (not needed, meaningfully faster).
-# CMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF - gcc-toolset-13's LTO pass hits
-# a real internal compiler error building oneTBB's own Release
-# configuration on this base ("lto1: internal compiler error: in
-# return_token, at opts-common.cc:2135" - confirmed by hitting it
-# directly). Not a correctness concern for us either way - LTO is a
-# performance optimization for oneTBB's own internal code, not something
-# this project depends on, and disabling it is the standard, low-risk
-# workaround for a GCC LTO ICE regardless of root cause. ----
+#
+# -DTBB_ENABLE_IPO=OFF, not -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF (an
+# earlier version of this stage set only the latter) - oneTBB's own
+# CMakeLists.txt (cmake/utils.cmake) gates IPO/LTO through its own
+# TBB_ENABLE_IPO option (default ON), entirely independent of CMake's
+# global CMAKE_INTERPROCEDURAL_OPTIMIZATION variable, so the global-only
+# form was a complete no-op for oneTBB's own targets the whole time - real
+# GitHub Actions release runs still got IPO-enabled TBB regardless (and
+# apparently never hit the failure below there, only in local
+# verification - see the QEMU note). Confirmed while verifying the fixes
+# below (BUGS_AND_ENHANCEMENTS.md B8-adjacent runtime report: shipped
+# le_shell missing libtbb.so.12/generated Tcl procs): a local
+# x86_64-under-QEMU-on-arm64 rebuild of this stage with only the old
+# global flag hit `lto1: internal compiler error: in return_token, at
+# opts-common.cc:2135` linking libtbb.so.12 - the same GCC LTO ICE
+# signature this repo has already flagged elsewhere as QEMU-prone, so
+# quite possibly still QEMU-only rather than something GitHub's own
+# native x86_64 runners would ever have hit either way. Passing the real,
+# TBB-specific flag fixes the local repro either way and costs nothing -
+# LTO is a performance optimization for oneTBB's own internal code, not
+# something this project depends on. ----
 FROM boost AS tbb
 WORKDIR /tbb
 RUN git clone --branch v2023.1.0 --depth 1 https://github.com/uxlfoundation/oneTBB.git . \
- && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DTBB_TEST=OFF -DCMAKE_INSTALL_PREFIX=/opt/tbb -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF \
+ && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DTBB_TEST=OFF -DCMAKE_INSTALL_PREFIX=/opt/tbb -DTBB_ENABLE_IPO=OFF \
  && cmake --build build -j"$(nproc)" \
  && cmake --install build
 # CMAKE_PREFIX_PATH (not a guessed TBB_DIR) - find_package's own config-mode
@@ -248,15 +261,24 @@ RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug -DSKIA_DIR=${SKIA_DIR} -D
 
 # ---- bundle: the release asset's actual content, nothing else - just the
 # Release-tree le_shell binary, the le_tcl.so module it `load`s at
-# startup, the Tcl procs it sources, and the bundled font directory
-# Linux's own default_typeface() reads from (backend/CLAUDE.md's Open
-# gaps) - not the raw build tree/CMake cache. ----
+# startup, the Tcl procs it sources (both the hand-written file and its
+# generated companion - le_tcl_procs.tcl's own "flat layout" fallback,
+# added for exactly this bundle, looks for
+# le_tcl_procs_generated.tcl right alongside itself when no generated/
+# subdirectory exists - see that file's own comment), the shared libtbb.so.12
+# every one of api/pipelines/le_shell/le_tcl.so links dynamically (`find`,
+# not a hardcoded lib/lib64 path - GNUInstallDirs' own choice between the
+# two isn't worth pinning down by hand here), and the bundled font
+# directory Linux's own default_typeface() reads from (backend/CLAUDE.md's
+# Open gaps) - not the raw build tree/CMake cache. ----
 FROM backend AS bundle
 RUN mkdir -p /bundle/fonts \
  && cp build_release-linux/le_shell /bundle/ \
  && cp build_release-linux/le_tcl.so /bundle/ \
  && cp src/tcl/le_tcl_procs.tcl /bundle/ \
- && cp -r assets/fonts/. /bundle/fonts/
+ && cp src/tcl/generated/le_tcl_procs_generated.tcl /bundle/ \
+ && cp -r assets/fonts/. /bundle/fonts/ \
+ && find /opt/tbb -name 'libtbb.so*' -exec cp -P {} /bundle/ \;
 
 # ---- export: `docker buildx build --target export --output
 # type=local,dest=./dist` (see .github/workflows/release.yml) exports this

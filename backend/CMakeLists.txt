@@ -849,6 +849,36 @@ if(SWIG_FOUND AND TCL_FOUND)
     target_include_directories(le_shell PRIVATE ${READLINE_INCLUDE_DIR})
     target_link_libraries(le_shell PRIVATE ${READLINE_LIBRARY} ${READLINE_HISTORY_LIBRARY})
 
+    # Both le_shell and le_tcl (its dynamically `load`ed Tcl module) link
+    # TBB::tbb (via api -> pipelines) as a real shared library, not a
+    # static one - on Linux this means libtbb.so.12 has to be findable at
+    # runtime, not just link time. CMake's own default build-tree RPATH
+    # already covers that inside this build tree (an absolute path to
+    # wherever find_package(TBB) resolved it, e.g. /opt/tbb/lib64 in the
+    # release Docker image - which is why ctest/le_shell both already work
+    # fine *inside* that image) - but Dockerfile.linux-release's own
+    # `bundle` stage copies just the le_shell/le_tcl.so binaries (plus a
+    # copy of libtbb.so.12 itself) into one flat directory, and a plain
+    # user checkout on another machine (e.g. the Rocky 8 target machine
+    # BUILD.md describes) has no /opt/tbb at all - confirmed via a real
+    # "error while loading shared libraries: libtbb.so.12: cannot open
+    # shared object file" report running that bundle's own le_shell.
+    # BUILD_RPATH (not INSTALL_RPATH/BUILD_WITH_INSTALL_RPATH) ADDS
+    # "$ORIGIN" (an ELF/ld.so token, expanded to whichever directory the
+    # referencing binary itself lives in, not cwd) to that default
+    # build-tree rpath rather than replacing it - so both the in-tree
+    # /opt/tbb/lib64 entry ctest still needs today and the bundle's own
+    # "look next to me" fallback stay intact simultaneously. $ORIGIN is a
+    # Linux/ELF-only token (macOS's Mach-O equivalent is @loader_path,
+    # spelled differently), and macOS dev builds never need this at all
+    # (le_shell always runs straight from the build tree there) - Apple
+    # gated accordingly.
+    if(NOT APPLE)
+        set_target_properties(le_shell le_tcl PROPERTIES
+            BUILD_RPATH "$ORIGIN"
+        )
+    endif()
+
     # Batch-mode regression check (src/tcl/tests/shell_test.tcl) - runs
     # through the real compiled le_shell binary (not tclsh directly
     # loading le_tcl, which smoke_test.tcl/crud_test.tcl already cover),
