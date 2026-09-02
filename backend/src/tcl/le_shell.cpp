@@ -479,6 +479,18 @@ int main(int argc, char **argv)
     // argv's own persistent strings) so this thread's own copy stays
     // valid regardless of main()'s local variables, even though main()
     // also never returns before process exit here.
+    //
+    // Joining instead of detaching was tried as a fix for the real
+    // glfwInit()-failure race below (see run_main_thread_loop's own
+    // comment) and reverted - it broke the normal interactive/GUI path
+    // outright (show_gui stopped opening a window at all, confirmed live)
+    // for reasons that don't reduce to anything in this file's own code -
+    // std::thread's own join/detach state is pure userspace bookkeeping,
+    // it has no business affecting GLFW/window-server behavior, but it
+    // empirically did. Left detached, matching the original design; the
+    // race is fixed on the other side instead (run_main_thread_loop
+    // itself never returns now, even on glfwInit failure), which doesn't
+    // touch this file at all.
     std::thread tcl_thread([remaining]() mutable
                             { run_shell(remaining); });
     tcl_thread.detach();

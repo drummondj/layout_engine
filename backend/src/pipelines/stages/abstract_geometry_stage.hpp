@@ -103,7 +103,7 @@ namespace le
                         for (int iy = 0; iy < it.num_y; iy++)
                         {
                             const Point offset{.x = ix * it.space_x, .y = iy * it.space_y};
-                            shape.paths.push_back(Path{.polygon = Geometry::transform(it.path.polygon, offset), .width = it.path.width});
+                            shape.paths.push_back(Path{.width = it.path.width, .polygon = Geometry::transform(it.path.polygon, offset)});
                         }
                 }
                 shape.path_iterates.clear();

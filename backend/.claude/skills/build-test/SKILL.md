@@ -23,20 +23,22 @@ allowed-tools:
    ```
 
 3. **Also keep `build_release/` (Release) up to date**, not just `build/`
-   (Debug) - `flutter_plugin/macos/layout_engine_plugin.podspec` links
-   `build_release`'s `api`/`pipelines`/`io` output directly (a real running
-   Flutter app needs actual optimized performance, not debug-build
-   timings - see the podspec's own comment), so it's a persistent tree
-   now, not a throwaway benchmarking artifact:
+   (Debug) - `le_shell` is the real user-facing binary (a real running
+   session needs actual optimized performance, not debug-build timings),
+   and `Dockerfile.linux-release`'s own `export` stage bundles its Release
+   build for every GitHub Release, so it's a persistent tree now, not a
+   throwaway benchmarking artifact:
 
    ```
    cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release
-   cmake --build build_release --target api pipelines io -j3
+   cmake --build build_release --target api pipelines io le_shell le_tcl -j3
    ```
 
-   Rebuild both trees after a backend source change if `flutter_plugin`/
-   `frontend` work is in play, the same way `build/` gets rebuilt before
-   `ctest`. `build_release/` is `.gitignore`d, same as `build/`.
+   Rebuild both trees after any backend source change that touches
+   `le_shell`/`le_gui`, the same way `build/` gets rebuilt before `ctest`
+   - a recurring mistake this session's own history has hit more than
+   once (stale `le_shell`/`le_tcl.so` in one tree while the other was
+   rebuilt). `build_release/` is `.gitignore`d, same as `build/`.
 
 5. **Dependencies**: `spdlog`, `fmt`, `Boost` via `find_package` (installed
    via Homebrew on this dev machine); GoogleTest via CMake `FetchContent`

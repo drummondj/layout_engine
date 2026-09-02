@@ -120,7 +120,7 @@ namespace le
         lefrSetAntennaInputCbk(lefrAntennaInputCbkFn);
         lefrSetAntennaInoutCbk(lefrAntennaInoutCbkFn);
         lefrSetAntennaOutputCbk(lefrAntennaOutputCbkFn);
-        lefrSetRegisterUnusedCallbacks();
+        // lefrSetRegisterUnusedCallbacks();
         lefrSetLogFunction(&LEFReader::lefrLogFn);
         lefrSetWarningLogFunction(&LEFReader::lefrLogFn);
 
@@ -162,7 +162,7 @@ namespace le
             spdlog::error("Could not parse LEF file {}.", filename);
             return 2;
         }
-        lefrPrintUnusedCallbacks(stdout);
+        // lefrPrintUnusedCallbacks(stdout);
 
         // Checked once here, same not-aborted-mid-parse convention as
         // used_dbu_before_units_declared_ below - this project only
@@ -2067,7 +2067,7 @@ namespace le
                 }
                 auto lef_path = geometries->getPath(j);
                 auto polygon = polygon_from_parser(reader, lef_path->numPoints, lef_path->x, lef_path->y);
-                auto path = Path{.polygon = polygon, .width = width};
+                auto path = Path{.width = width, .polygon = polygon};
                 shape.value().paths.push_back(path);
                 shape.value().path_masks.push_back(lef_path->colorMask);
                 geo_count++;
@@ -2086,7 +2086,7 @@ namespace le
 
                 auto polygon = polygon_from_parser(reader, lef_path_iter->numPoints, lef_path_iter->x, lef_path_iter->y);
                 PathIterate path_iter{
-                    .path = Path{.polygon = polygon, .width = width},
+                    .path = Path{.width = width, .polygon = polygon},
                     .num_x = static_cast<int>(lef_path_iter->xStart),
                     .num_y = static_cast<int>(lef_path_iter->yStart),
                     .space_x = reader->microns_to_dbu(lef_path_iter->xStep),

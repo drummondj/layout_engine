@@ -134,7 +134,7 @@ namespace le
                     const int64_t coord = track->start + static_cast<int64_t>(i) * track->step;
                     const Point p1 = track->is_x ? Point{.x = coord, .y = die_bbox->ll.y} : Point{.x = die_bbox->ll.x, .y = coord};
                     const Point p2 = track->is_x ? Point{.x = coord, .y = die_bbox->ur.y} : Point{.x = die_bbox->ur.x, .y = coord};
-                    lines.paths.push_back(Path{.polygon = Polygon{.points = {p1, p2}}, .width = 0});
+                    lines.paths.push_back(Path{.width = 0, .polygon = Polygon{.points = {p1, p2}}});
                 }
 
                 for (const std::string &layer_name : track->layer_names)
@@ -187,7 +187,7 @@ namespace le
                     const int64_t coord = grid->start + static_cast<int64_t>(i) * grid->step;
                     const Point p1 = grid->is_x ? Point{.x = coord, .y = die_bbox->ll.y} : Point{.x = die_bbox->ll.x, .y = coord};
                     const Point p2 = grid->is_x ? Point{.x = coord, .y = die_bbox->ur.y} : Point{.x = die_bbox->ur.x, .y = coord};
-                    lines.paths.push_back(Path{.polygon = Polygon{.points = {p1, p2}}, .width = 0});
+                    lines.paths.push_back(Path{.width = 0, .polygon = Polygon{.points = {p1, p2}}});
                 }
             }
             if (!lines.paths.empty())

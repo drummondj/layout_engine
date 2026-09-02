@@ -498,9 +498,12 @@ none of these are duplicated here.
   effort, see Open gaps below, needs to provision both, not route around
   them). No automated test coverage of the render/input loop itself
   (inherently interactive/visual) — verified manually only, on macOS, as
-  of this writing; Linux packaging (`Dockerfile.linux-ci` system
-  packages, confirming the configure+build itself succeeds there) is a
-  known, tracked next step, not yet done.
+  of this writing; Linux packaging is done for the two Docker paths
+  (`Dockerfile.linux-ci`/`Dockerfile.linux-release` both provision GLFW's
+  X11 dev headers + `readline-devel`) but not yet for the rootless Rocky
+  Linux 8 bootstrap (`scripts/rocky8-bootstrap.sh` only stages
+  `mesa-*-devel` so far, not the X11/readline packages `le_gui`/`le_shell`
+  also need — see `BUILD.md`'s own step 5 note) — see Open gaps below.
 - `src/lefdef/` — vendored LEF/DEF 6.0.62-p004 C parser source (Si2 distribution).
   Both `lef/` and `def/` are built by their own `Makefile`s via separate
   `ExternalProject_Add` steps (`lef_lib`/`def_lib`) in the top-level
@@ -825,7 +828,15 @@ because the mechanism can't reach them; this has no bearing on
   RPM extraction (`rpm2cpio`/`cpio`, no `dnf install`) and upstream
   release tarballs into `~/.local/layout_engine_toolchain`. Unverified
   against a real Rocky 8 machine as of this writing — expect real
-  iteration, same as the Docker/Ubuntu path needed.
+  iteration, same as the Docker/Ubuntu path needed. Its own GTK3
+  provisioning predates `le_gui` (GLFW-based, no GTK dependency at all)
+  and is now dead weight from the since-removed Flutter frontend; it also
+  doesn't yet stage the X11 dev packages (`libX11`/`libXrandr`/
+  `libXinerama`/`libXcursor`/`libXi`) or `readline` `le_gui`/`le_shell`
+  need, nor oneTBB (`api`'s own hard `find_package(TBB REQUIRED CONFIG)`
+  dependency, see `CMakeLists.txt`'s own TBB comment) — all real,
+  not-yet-done follow-ups, same shape as the Docker paths' own
+  X11/readline/TBB additions but not done here yet.
 
 ## Build
 
@@ -836,13 +847,11 @@ ctest --test-dir build --output-on-failure
 ```
 
 A second tree, `build_release` (`-DCMAKE_BUILD_TYPE=Release`), is also
-expected to exist and be kept up to date alongside `build` —
-`flutter_plugin/macos/layout_engine_plugin.podspec` links `build_release`'s
-`api`/`render`/`io` output directly (a real running Flutter app needs
-actual optimized performance, not debug-build timings), so it's a
-persistent tree, not a throwaway benchmarking artifact. See the
-`build-test` skill and `flutter_plugin/CLAUDE.md`'s Native linking
-section.
+expected to exist and be kept up to date alongside `build` — `le_shell`
+(the real user-facing binary, `Dockerfile.linux-release`'s own `export`
+stage bundles its Release build for every GitHub Release) needs actual
+optimized performance, not debug-build timings, so it's a persistent
+tree, not a throwaway benchmarking artifact. See the `build-test` skill.
 
 Dependencies: `spdlog`, `fmt`, `Boost` (headers only, for `geometry`) via
 `find_package` — installed on this dev machine via Homebrew, falling back to

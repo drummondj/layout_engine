@@ -2779,8 +2779,17 @@ class Field:
             )
             add("            i += 2;", d)
             add("        }", d)
-            ctor_parts = [f".{point_field.name} = std::move({name}_points)"]
-            ctor_parts += [f".{sf.name} = {name}_{sf.name}" for sf in scalar_fields]
+            # Built in element_klass's own declaration order (e.g. Path's
+            # width before polygon - BUGS_AND_ENHANCEMENTS.md E21's own
+            # display-convention reason for that order), not
+            # point-field-first - C++20 designated initializers must
+            # appear in declaration order, and GCC (unlike Clang, which
+            # accepts out-of-order designators as a silent extension)
+            # rejects a mismatch outright.
+            ctor_parts = [
+                f".{point_field.name} = std::move({name}_points)" if f is point_field else f".{f.name} = {name}_{f.name}"
+                for f in element_klass.fields
+            ]
             add(f"        {name}_value.push_back(le::{element_klass.name}{{" + ", ".join(ctor_parts) + "});", d)
             add("    }", d)
             add("}", d)

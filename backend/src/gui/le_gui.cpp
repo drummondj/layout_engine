@@ -848,12 +848,28 @@ namespace le::gui
         }
     }
 
+    // Never returns, deliberately, in every case - le_shell.cpp's own
+    // main() relies on that (see its own comment on tcl_thread, detached
+    // not joined: the whole process exits from inside that thread's own
+    // std::exit() call, and main() falling through to `return 0` while
+    // it's still mid-flight is a real, reproduced race/segfault, not a
+    // theoretical one). glfwInit() failing (e.g. no DISPLAY - a real
+    // case on a headless CI/Docker container with no Xvfb, confirmed by
+    // hitting this in Dockerfile.linux-ci's own `ctest` run) used to
+    // return here instead, breaking that invariant for exactly this one
+    // case; idling forever below keeps it true unconditionally, so
+    // show_gui simply never opens a window on such a machine (the
+    // originally-intended degraded behavior) rather than the process
+    // racing its own teardown.
     void run_main_thread_loop(LeHandle *handle)
     {
         if (!glfwInit())
         {
             std::fprintf(stderr, "gui: glfwInit failed - show_gui will never be able to open a window\n");
-            return;
+            for (;;)
+            {
+                std::this_thread::sleep_for(kIdlePollInterval);
+            }
         }
 
         for (;;)

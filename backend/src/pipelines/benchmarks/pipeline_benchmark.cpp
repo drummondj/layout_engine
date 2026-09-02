@@ -983,7 +983,7 @@ static void BM_PathToPolygonsSingleCall(benchmark::State &state)
     // A 2-point path matching the stress design's own size formula
     // (roughly - see stress_data.hpp's item_geometry), not a degenerate
     // zero-length one.
-    const Path path{.polygon = Polygon{.points = {Point{0, 0}, Point{50'000, 0}}}, .width = 4'000};
+    const Path path{.width = 4'000, .polygon = Polygon{.points = {Point{0, 0}, Point{50'000, 0}}}};
 
     for (auto _ : state)
     {

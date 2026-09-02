@@ -201,7 +201,7 @@ namespace le
         const DesignId design_id = root.create_design(DesignData{.library = library_id, .name = "widthtest"});
         const LayoutId layout_id = root.create_layout(LayoutData{.design = design_id});
         const RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "VDD", .is_special = true, .width = 200});
-        root.create_shape(ShapeData{.route = route_id, .layer = layer_id, .paths = {Path{.polygon = Polygon{.points = {Point{.x = 0, .y = 0}, Point{.x = 100, .y = 0}}}, .width = 200}}});
+        root.create_shape(ShapeData{.route = route_id, .layer = layer_id, .paths = {Path{.width = 200, .polygon = Polygon{.points = {Point{.x = 0, .y = 0}, Point{.x = 100, .y = 0}}}}}});
 
         const std::string written_path = scratch_output_path("le_def_writer_special_net_width.def");
         DEFWriter writer;

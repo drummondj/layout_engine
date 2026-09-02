@@ -275,7 +275,7 @@ namespace le
 
         static Path transform(const Path &path, const Point &offset)
         {
-            return Path{.polygon = transform(path.polygon, offset), .width = path.width};
+            return Path{.width = path.width, .polygon = transform(path.polygon, offset)};
         }
 
         // Translates every rect/polygon/path in `data` by `offset` -

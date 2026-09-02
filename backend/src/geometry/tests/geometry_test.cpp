@@ -57,7 +57,7 @@ TEST(Geometry, BboxOfShapeCoversPolygonsAndPaths)
     Shape shape;
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}});
     // Centerline (20,0)-(20,10), width 4 -> half-width 2 expands the bbox by 2 on every side.
-    shape.paths.push_back(Path{.polygon = Polygon{.points = {{20, 0}, {20, 10}}}, .width = 4});
+    shape.paths.push_back(Path{.width = 4, .polygon = Polygon{.points = {{20, 0}, {20, 10}}}});
 
     std::optional<Rect> box = Geometry::bbox(shape);
     ASSERT_TRUE(box.has_value());
@@ -130,7 +130,7 @@ TEST(Geometry, TransformTranslatesRect)
 
 TEST(Geometry, TransformTranslatesPath)
 {
-    Path path{.polygon = Polygon{.points = {{0, 0}, {10, 0}}}, .width = 4};
+    Path path{.width = 4, .polygon = Polygon{.points = {{0, 0}, {10, 0}}}};
     Path moved = Geometry::transform(path, Point{5, -5});
 
     EXPECT_EQ(moved.width, 4);
@@ -145,7 +145,7 @@ TEST(Geometry, TransformTranslatesEveryRectPolygonAndPathInAShapeAndLeavesOtherF
     ShapeData shape{.layer = m1};
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {10, 0}, {10, 10}}});
-    shape.paths.push_back(Path{.polygon = Polygon{.points = {{0, 0}, {10, 0}}}, .width = 4});
+    shape.paths.push_back(Path{.width = 4, .polygon = Polygon{.points = {{0, 0}, {10, 0}}}});
     shape.spacing = 7;
 
     ShapeData moved = Geometry::transform(shape, Point{5, -5});
@@ -193,7 +193,7 @@ TEST(Geometry, PathToPolygonsBuffersCenterlineBySymmetricHalfWidth)
     // the DEF/LEF default end-cap convention, see
     // extend_path_ends_for_buffering's own comment - not left flush to
     // the raw centerline coordinates.
-    Path path{.polygon = Polygon{.points = {{0, 0}, {100, 0}}}, .width = 20};
+    Path path{.width = 20, .polygon = Polygon{.points = {{0, 0}, {100, 0}}}};
     auto polygons = Geometry::path_to_polygons(path);
 
     ASSERT_EQ(polygons.size(), 1u);
@@ -214,7 +214,7 @@ TEST(Geometry, PathToPolygonsLeavesInteriorVerticesOfAMultiPointPathUnextended)
     // (110,-10) (the buffered strips' own outer/right-side edges: y=-10
     // from the horizontal arm, x=110 from the vertical arm). Together
     // these three points bound the whole outline exactly.
-    Path path{.polygon = Polygon{.points = {{0, 0}, {100, 0}, {100, 100}}}, .width = 20};
+    Path path{.width = 20, .polygon = Polygon{.points = {{0, 0}, {100, 0}, {100, 100}}}};
     auto polygons = Geometry::path_to_polygons(path);
 
     ASSERT_EQ(polygons.size(), 1u);
@@ -258,7 +258,7 @@ TEST(Geometry, UnionShapesIncludesPolygonsAndPathsNotJustRects)
     Shape shape;
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {10, 0}, {10, 10}}});
     // Centerline (20,0)-(20,10), width 4 -> buffers to x:[18,22] - disjoint from the triangle.
-    shape.paths.push_back(Path{.polygon = Polygon{.points = {{20, 0}, {20, 10}}}, .width = 4});
+    shape.paths.push_back(Path{.width = 4, .polygon = Polygon{.points = {{20, 0}, {20, 10}}}});
 
     auto result = Geometry::union_shapes({&shape});
     ASSERT_TRUE(result.has_value());
@@ -304,7 +304,7 @@ TEST(Geometry, LabelLocationIncludesPolygonsAndPathsNotJustRects)
     // much smaller rect) - the polygon's slab wins.
     Shape shape;
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {100, 0}, {100, 100}, {0, 100}}});
-    shape.paths.push_back(Path{.polygon = Polygon{.points = {{40, 40}, {60, 40}}}, .width = 4});
+    shape.paths.push_back(Path{.width = 4, .polygon = Polygon{.points = {{40, 40}, {60, 40}}}});
 
     Point label = Geometry::get_label_location(shape);
     expect_point_eq(label, Point{50, 50});
@@ -345,7 +345,7 @@ TEST(Geometry, LabelLocationOnAStraightPathReturnsItsBufferedCenter)
     // this mainly confirms Paths flow through the same fracture pipeline
     // as Polygons, landing at the path's own centerline midpoint.
     Shape shape;
-    shape.paths.push_back(Path{.polygon = Polygon{.points = {{10, 50}, {90, 50}}}, .width = 20});
+    shape.paths.push_back(Path{.width = 20, .polygon = Polygon{.points = {{10, 50}, {90, 50}}}});
 
     Point label = Geometry::get_label_location(shape);
     expect_point_eq(label, Point{50, 50});
@@ -418,7 +418,7 @@ TEST(Geometry, LocalWidthAtPathReturnsPathWidthDirectly)
     // read path.width directly rather than derive anything from its
     // (much larger) buffered bbox.
     Shape shape;
-    shape.paths.push_back(Path{.polygon = Polygon{.points = {{0, 0}, {100, 0}}}, .width = 6});
+    shape.paths.push_back(Path{.width = 6, .polygon = Polygon{.points = {{0, 0}, {100, 0}}}});
 
     EXPECT_DOUBLE_EQ(Geometry::local_width_at(shape, Point{50, 0}), 6.0);
 }
@@ -518,7 +518,7 @@ TEST(Geometry, ContainsUsesThePathsBufferedOutlineNotItsCenterline)
     // centerline is inside the buffered/drawn outline (half-width 5) but
     // would miss a naive "on the centerline" test.
     Shape shape;
-    shape.paths.push_back(Path{.polygon = Polygon{.points = {{0, 0}, {100, 0}}}, .width = 10});
+    shape.paths.push_back(Path{.width = 10, .polygon = Polygon{.points = {{0, 0}, {100, 0}}}});
 
     EXPECT_TRUE(Geometry::contains(shape, Point{50, 3}));
     EXPECT_FALSE(Geometry::contains(shape, Point{50, 20})); // well outside the buffered width

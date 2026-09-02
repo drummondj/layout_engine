@@ -4,7 +4,7 @@
 x86_64 release (glibc 2.28+, no build toolchain needed) is published on
 this repo's [GitHub Releases](../../releases) page — see
 `.github/workflows/release.yml`/`Dockerfile.linux-release` for how it's
-built. It still needs a desktop Linux system with GTK3/X11/Mesa/Tcl-Tk
+built. It still needs a desktop Linux system with X11/Mesa/Tcl-Tk/readline
 installed (see that workflow's own release notes) but skips everything
 below entirely, and — being built against the same glibc generation as
 Rocky 8 — will very likely run directly on this same locked-down machine.
@@ -39,10 +39,10 @@ its own log file.
 
 You'll need outbound network access to: your configured `dnf` repos
 (including `crb`/CodeReady-Builder — see step 1), `github.com`, a Boost
-download mirror, `skia.googlesource.com`, and Flutter's engine-artifact CDN
-(`storage.googleapis.com`). If any of these are blocked, later steps will
-fail with a clear "download failed" — check reachability for that
-specific one rather than assuming it's something else.
+download mirror, and `skia.googlesource.com`. If any of these are
+blocked, later steps will fail with a clear "download failed" — check
+reachability for that specific one rather than assuming it's something
+else.
 
 ## 1. Bootstrap the toolchain
 
@@ -148,7 +148,7 @@ ctest --test-dir build-linux --output-on-failure \
 cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release -DSKIA_DIR="${SKIA_DIR}" -DLE_SKIA_VENDORS_THIRD_PARTY=ON \
     2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/backend-configure-release.log"
 
-cmake --build build_release-linux --target api render io -j \
+cmake --build build_release-linux --target api pipelines io le_shell le_tcl -j \
     2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/backend-build-release.log"
 ```
 
@@ -162,10 +162,10 @@ link failure, found via the new GitHub Releases build path (see
 `.github/workflows/release.yml`) hitting exactly this.
 
 Two trees on purpose: `build-linux` (Debug) is what `ctest` runs against;
-`build_release-linux` (Release) is what the actual GUI app links — see
-`backend/CLAUDE.md`'s Build section. `flutter_plugin`/`frontend` (steps 5-6
-below) need `build_release-linux` to already exist, so don't skip it even
-though `ctest` doesn't touch it.
+`build_release-linux` (Release) is what the actual `le_shell` binary
+links — see `backend/CLAUDE.md`'s Build section. Step 5 below needs
+`build_release-linux` to already exist, so don't skip it even though
+`ctest` doesn't touch it.
 
 **Expect real test failures here** — beyond the "does it link at all"
 question, `ctest`'s actual pass/fail results are the first real signal
@@ -177,55 +177,24 @@ actually hold up. `ctest`'s own `--output-on-failure` output goes into
 specifically (not the configure/build logs, unless the failure is a build
 error rather than a test result).
 
-## 5. Build and test the Flutter plugin (Dart side only)
+## 5. Run it
 
 ```
-cd ../flutter_plugin
-
-flutter pub get 2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/flutter-plugin-pub-get.log"
-dart analyze 2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/flutter-plugin-analyze.log"
-flutter test 2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/flutter-plugin-test.log"
+./build_release-linux/le_shell -module build_release-linux/le_tcl.so -procs src/tcl/le_tcl_procs.tcl
 ```
 
-This doesn't build the native Linux plugin standalone — see this
-package's own `build-test` skill/CLAUDE.md for why that's not a real,
-buildable configuration on its own (`apply_standard_settings` only exists
-inside a real consuming app's own build). The native link is verified for
-real in step 6.
-
-## 6. Build the actual app
-
-```
-cd ../frontend
-
-flutter pub get 2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/frontend-pub-get.log"
-flutter build linux 2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/frontend-build-linux.log"
-```
-
-This is the real end-to-end check: it configures and builds
-`layout_engine_plugin_plugin` (the GTK/method-channel/texture native library)
-against everything steps 1-4 produced, and `layout_engine_plugin` (the FFI
-shared library) alongside it. A clean run ends with
-`✓ Built build/linux/<arch>/release/bundle/layout_engine`.
-
-**If this fails at the link step** specifically (not a Dart compile
-error), `flutter build linux`'s own error output is often truncated to a
-one-line summary (`clang++: error: linker command failed ...` with no
-detail) — if that happens, re-run with `-v` and send the fuller log:
-
-```
-flutter build linux -v 2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/frontend-build-linux-verbose.log"
-```
-
-## 7. Run it
-
-```
-./build/linux/*/release/bundle/layout_engine
-```
-
-You confirmed this machine has a real display, so no `Xvfb`/VNC setup
-should be needed (unlike the Docker path's `frontend-gui` stage, which
-exists specifically for a headless container).
+Drops into the interactive `le_shell` console. `le_shell`/`le_gui` link
+GLFW (X11 backend) and GNU readline unconditionally now — this rootless
+path (step 1) doesn't yet provision either's system dev packages
+(`libX11-devel`/`libXrandr-devel`/`libXinerama-devel`/`libXcursor-devel`/
+`libXi-devel`/`readline-devel` — only `mesa-*-devel` is staged today), so
+step 4's own configure will likely fail to find them until
+`rocky8-bootstrap.sh` is extended to match — a known, tracked gap, not
+yet done (see `backend/CLAUDE.md`'s own Open gaps section). The two
+Docker-based Linux paths (`docker-compose.yml`/`Dockerfile.linux-ci`, and
+the GitHub Releases build/`Dockerfile.linux-release`) already provision
+these and are the more reliable Linux paths for `le_shell`/`show_gui`
+today.
 
 ## After a source change
 
@@ -234,14 +203,13 @@ After editing backend C++ source, re-run step 4's `cmake --build`/`ctest`
 lines (no need to reconfigure unless `CMakeLists.txt` itself changed).
 After editing `backend/src/database/schema.py`, re-run step 3 (both
 `cmg` targets) before step 4 — see the `regen-database`/`regen-tcl`
-skills for the fuller regeneration workflow. After editing Dart/plugin
-source, re-run step 6. If a build ever looks
+skills for the fuller regeneration workflow. If a build ever looks
 inexplicably wrong after switching between this path and something else
 (e.g. macOS, or Docker) on the *same* checkout, suspect stale
-cross-environment build artifacts in `build*/`, `.dart_tool/`, or
-`backend/src/lefdef/lef/lib/` before anything else — `flutter clean`
-(Dart-side) or deleting the relevant `build*` directory (CMake-side) is
-the fix. This bit us for real during development: a debug build already
-compiled by GCC on Linux, or an `.a` archive built by macOS's `ar`, is not
-usable by the other platform's toolchain, and the symptom is a confusing
-build/link error that has nothing obviously to do with the real cause.
+cross-environment build artifacts in `build*/` or
+`backend/src/lefdef/lef/lib/` before anything else — deleting the
+relevant `build*` directory is the fix. This bit us for real during
+development: a debug build already compiled by GCC on Linux, or an `.a`
+archive built by macOS's `ar`, is not usable by the other platform's
+toolchain, and the symptom is a confusing build/link error that has
+nothing obviously to do with the real cause.

@@ -22,16 +22,16 @@
 # Bonus: since this uses the same base OS as the user's own locked-down
 # Rocky 8 work machine (see BUILD.md), the resulting binary is
 # glibc/ABI-matched to it too - plausibly runnable there directly without
-# needing the full rootless bootstrap+build, once GTK3/Tcl-Tk are
+# needing the full rootless bootstrap+build, once X11/Tcl-Tk/readline are
 # confirmed present.
 
 # ---- base: gcc-toolset-13 (RHEL8's stock GCC 8.5 can't do C++20/23) plus
-# every -devel package needed to build/test backend, flutter_plugin, and
-# frontend - dnf install, not rootless RPM extraction, since this
+# every -devel package needed to build/test the backend (le_shell/le_tcl
+# included) - dnf install, not rootless RPM extraction, since this
 # container has real root. Package names confirmed real via
 # backend/scripts/rocky8-bootstrap.sh's own real run logs against a real
-# Rocky 8 machine this session (tcl-devel/tk-devel/gtk3-devel/mesa-*/
-# zlib-devel/libpng-devel/libjpeg-turbo-devel/freetype-devel all showed as
+# Rocky 8 machine this session (tcl-devel/tk-devel/mesa-*/zlib-devel/
+# libpng-devel/libjpeg-turbo-devel/freetype-devel all showed as
 # already-installed there; the gcc-toolset-13-* packages downloaded
 # successfully). ----
 FROM rockylinux:8 AS base
@@ -40,17 +40,17 @@ RUN dnf install -y dnf-plugins-core \
  && dnf install -y \
     gcc-toolset-13-gcc-c++ gcc-toolset-13-libstdc++-devel gcc-toolset-13-binutils make \
     tcl-devel tk-devel \
-    gtk3-devel mesa-libGL-devel mesa-libEGL-devel mesa-dri-drivers mesa-libgbm xz-devel \
+    mesa-libGL-devel mesa-libEGL-devel mesa-dri-drivers mesa-libgbm xz-devel \
     zlib-devel libpng-devel libjpeg-turbo-devel freetype-devel pcre2-devel \
-    clang \
-    # ^ Flutter's own `flutter build linux` step (frontend stage below)
-    # hardcodes CXX=clang++/CC=clang for its native plugin build regardless
-    # of this image's own CXX/CC env vars (gcc-toolset-13, used for the
-    # backend/Skia builds above, which don't go through Flutter's own
-    # tooling at all) - confirmed by hitting "Could not find compiler set
-    # in environment variable CXX: clang++" without this. Matches
-    # Dockerfile.linux-ci's own Ubuntu recipe, which uses clang throughout
-    # for the same reason.
+    # GLFW's own Linux/X11 backend (backend/src/gui/, le_shell's `show_gui`) -
+    # CMakeLists.txt's own find_package(glfw3)/FetchContent fallback builds
+    # GLFW from source here, which needs these dev headers present to
+    # configure its X11 backend at all.
+    libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
+    libXext-devel \
+    # le_shell links GNU readline unconditionally now (real line editing/
+    # history/Tab completion) - see backend/CLAUDE.md's src/tcl/ bullet.
+    readline-devel \
     git curl tar gzip unzip which python3 python3.12 python3.12-pip pkgconfig \
     autoconf automake libtool gettext-devel texinfo m4 \
  && dnf clean all
@@ -101,6 +101,37 @@ RUN curl -fL -o /tmp/boost.tar.gz \
  && rm /tmp/boost.tar.gz
 ENV BOOST_ROOT=/opt/boost
 
+# ---- tbb: oneTBB built from source - backend/CMakeLists.txt's
+# find_package(TBB REQUIRED CONFIG) has no source-build fallback (unlike
+# GLFW below), and RHEL8's own dnf package (`tbb-devel`, checked directly:
+# 2018.2) predates oneTBB's own CMake-config support entirely (that
+# 2018-era API isn't the oneapi::tbb:: surface this project's own
+# tbb_core.hpp uses either) - genuinely "NOT-yet-solved" until this stage,
+# per CMakeLists.txt's own TBB_DIR comment. v2023.1.0 matches the macOS
+# dev machine's own Homebrew tbb version for parity, same reasoning as
+# Skia's own pinned-commit comment below. TBB_TEST=OFF skips building its
+# own test suite (not needed, meaningfully faster).
+# CMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF - gcc-toolset-13's LTO pass hits
+# a real internal compiler error building oneTBB's own Release
+# configuration on this base ("lto1: internal compiler error: in
+# return_token, at opts-common.cc:2135" - confirmed by hitting it
+# directly). Not a correctness concern for us either way - LTO is a
+# performance optimization for oneTBB's own internal code, not something
+# this project depends on, and disabling it is the standard, low-risk
+# workaround for a GCC LTO ICE regardless of root cause. ----
+FROM boost AS tbb
+WORKDIR /tbb
+RUN git clone --branch v2023.1.0 --depth 1 https://github.com/uxlfoundation/oneTBB.git . \
+ && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DTBB_TEST=OFF -DCMAKE_INSTALL_PREFIX=/opt/tbb -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF \
+ && cmake --build build -j"$(nproc)" \
+ && cmake --install build
+# CMAKE_PREFIX_PATH (not a guessed TBB_DIR) - find_package's own config-mode
+# search checks both <prefix>/lib/cmake/<name>* and
+# <prefix>/lib64/cmake/<name>* under every CMAKE_PREFIX_PATH entry, so this
+# doesn't need to guess which one GNUInstallDirs picked for this install
+# prefix.
+ENV CMAKE_PREFIX_PATH=/opt/tbb
+
 # ---- skia: raster-only static Skia build, same pinned commit as this
 # project's other two Linux build paths (Dockerfile.linux-ci,
 # rocky8-bootstrap.sh) - keep in sync by hand if that commit is ever
@@ -113,7 +144,7 @@ ENV BOOST_ROOT=/opt/boost
 # split applies. Uses gcc-toolset-13 (CC/CXX from the base stage), not
 # clang - avoids pulling in EPEL/LLVM for no benefit, matching
 # rocky8-bootstrap.sh's own choice. ----
-FROM boost AS skia
+FROM tbb AS skia
 WORKDIR /skia
 RUN git clone https://skia.googlesource.com/skia.git . \
  && git checkout 9f330f1704305686dafa9eeef11de77caa5314b1 \
@@ -164,7 +195,7 @@ COPY . .
 # regen-tcl skills. Dockerfile.linux-ci/rocky8-bootstrap.sh never needed
 # this step because they operate on an already-bootstrapped host checkout
 # where these were generated once, ages ago, and left on disk; a COPY'd-in
-# fresh checkout has no such history, so backend/render.cpp's #include
+# fresh checkout has no such history, so backend/pipelines.cpp's #include
 # "generated/property.hpp" fails outright without this - confirmed by
 # hitting exactly that failure before adding this stage. codegen's own
 # pyproject.toml requires Python >=3.11 (RHEL8's stock `python3` is 3.6) -
@@ -181,9 +212,9 @@ RUN cmg --schema /workspace/backend/src/database/schema.py \
 
 # ---- backend: build + test. ctest gates the whole release - a failing
 # test here fails this `docker build`, so nothing downstream ever runs.
-# Debug tree for ctest, Release tree for what the app actually links -
-# same two-tree split as every other build path in this repo, see
-# backend/CLAUDE.md's Build section. ----
+# Debug tree for ctest, Release tree for what the shipped le_shell/le_tcl
+# actually link - same two-tree split as every other build path in this
+# repo, see backend/CLAUDE.md's Build section. ----
 FROM codegen AS backend
 WORKDIR /workspace/backend
 # -DLE_SKIA_VENDORS_THIRD_PARTY=ON must be passed explicitly here, not
@@ -204,41 +235,33 @@ WORKDIR /workspace/backend
 # program cc1plus") under full parallelism on this Mac's Docker Desktop
 # VM. Override via --build-arg BACKEND_BUILD_JOBS=N on a machine/runner
 # with more memory available.
+#
+# -DLE_ENABLE_TRACY=OFF on the Release-tree configure only (not the
+# Debug/ctest tree, which isn't shipped either way) - a shipped release
+# binary shouldn't carry Tracy's own profiling instrumentation.
 ARG BACKEND_BUILD_JOBS=2
 RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug -DSKIA_DIR=${SKIA_DIR} -DLE_SKIA_VENDORS_THIRD_PARTY=ON \
  && cmake --build build-linux -j ${BACKEND_BUILD_JOBS} \
  && ctest --test-dir build-linux --output-on-failure \
- && cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release -DSKIA_DIR=${SKIA_DIR} -DLE_SKIA_VENDORS_THIRD_PARTY=ON \
- && cmake --build build_release-linux --target api render io -j ${BACKEND_BUILD_JOBS}
+ && cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release -DSKIA_DIR=${SKIA_DIR} -DLE_SKIA_VENDORS_THIRD_PARTY=ON -DLE_ENABLE_TRACY=OFF \
+ && cmake --build build_release-linux --target api pipelines io le_shell le_tcl -j ${BACKEND_BUILD_JOBS}
 
-# ---- flutter-plugin: adds the Flutter SDK - Dart-level checks only,
-# matching Dockerfile.linux-ci's own reasoning (apply_standard_settings
-# only exists inside a real consuming app's build, so there's no
-# standalone native build of this plugin's own linux/ folder - the real
-# link/texture verification happens in the frontend stage below). Same
-# Flutter version as Dockerfile.linux-ci (`flutter --version` on the dev
-# machine) - keep these in sync by hand. ----
-FROM backend AS flutter-plugin
-RUN git clone --branch 3.44.9 --depth 1 https://github.com/flutter/flutter.git /flutter
-ENV PATH="/flutter/bin:${PATH}"
-RUN flutter config --enable-linux-desktop --no-analytics && flutter precache --linux
-WORKDIR /workspace/flutter_plugin
-# No `&& flutter test` - this package has no test/ directory (all its real
-# coverage is exercised via frontend/test/'s FakeLeEditor injection
-# instead) - confirmed by hitting "Test directory "test" not found" as a
-# hard error, not a no-op, when this line included it.
-RUN flutter pub get && dart analyze
+# ---- bundle: the release asset's actual content, nothing else - just the
+# Release-tree le_shell binary, the le_tcl.so module it `load`s at
+# startup, the Tcl procs it sources, and the bundled font directory
+# Linux's own default_typeface() reads from (backend/CLAUDE.md's Open
+# gaps) - not the raw build tree/CMake cache. ----
+FROM backend AS bundle
+RUN mkdir -p /bundle/fonts \
+ && cp build_release-linux/le_shell /bundle/ \
+ && cp build_release-linux/le_tcl.so /bundle/ \
+ && cp src/tcl/le_tcl_procs.tcl /bundle/ \
+ && cp -r assets/fonts/. /bundle/fonts/
 
-# ---- frontend: the actual Flutter app - pub get/analyze/test, then a
-# real `flutter build linux`, gated the same way as flutter-plugin above. ----
-FROM flutter-plugin AS frontend
-WORKDIR /workspace/frontend
-RUN flutter pub get && flutter analyze && flutter test && flutter build linux
-
-# ---- export: the release asset's actual content, nothing else - `docker
-# buildx build --target export --output type=local,dest=./dist` (see
-# .github/workflows/release.yml) exports this stage's root filesystem
-# directly, so keeping it to just the bundle means ./dist *is* the bundle,
-# no docker create/cp step needed. ----
+# ---- export: `docker buildx build --target export --output
+# type=local,dest=./dist` (see .github/workflows/release.yml) exports this
+# stage's root filesystem directly, so keeping it to just /bundle's
+# contents means ./dist *is* the release payload, no docker create/cp
+# step needed. ----
 FROM scratch AS export
-COPY --from=frontend /workspace/frontend/build/linux/x64/release/bundle /
+COPY --from=bundle /bundle /

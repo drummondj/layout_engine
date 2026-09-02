@@ -526,7 +526,7 @@ TEST_F(AbstractShapePipelineFixture, RunFitsAGenerateViaRulesCutArrayToTheAvaila
     const le::ViaRuleId via_rule_id = root.create_via_rule(le::ViaRuleData{.technology = technology_id, .name = "GENRULE", .is_generate = true});
     root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "M1", .enclosure_overhang1 = 1, .enclosure_overhang2 = 1});
     root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "M2", .enclosure_overhang1 = 1, .enclosure_overhang2 = 1});
-    root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "V1", .rect = le::Rect{.ll = {-1, -1}, .ur = {1, 1}}, .spacing_step_x = 1, .spacing_step_y = 1});
+    root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "V1", .spacing_step_x = 1, .spacing_step_y = 1, .rect = le::Rect{.ll = {-1, -1}, .ur = {1, 1}}});
 
     le::Shape shape{.layer = m1, .rects = {le::Rect{.ll = {0, 0}, .ur = {10, 10}}}};
     shape.vias.push_back(le::ShapeVia{.via_name = "GENRULE", .origin = le::Point{50, 50}, .width = 13});
@@ -557,7 +557,7 @@ TEST_F(AbstractShapePipelineFixture, RunFallsBackToASingleCutForAGenerateViaRule
     const le::ViaRuleId via_rule_id = root.create_via_rule(le::ViaRuleData{.technology = technology_id, .name = "GENRULE", .is_generate = true});
     root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "M1", .enclosure_overhang1 = 1, .enclosure_overhang2 = 1});
     root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "M2", .enclosure_overhang1 = 1, .enclosure_overhang2 = 1});
-    root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "V1", .rect = le::Rect{.ll = {-1, -1}, .ur = {1, 1}}, .spacing_step_x = 1, .spacing_step_y = 1});
+    root.create_via_rule_layer(le::ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "V1", .spacing_step_x = 1, .spacing_step_y = 1, .rect = le::Rect{.ll = {-1, -1}, .ur = {1, 1}}});
 
     le::Shape shape{.layer = m1, .rects = {le::Rect{.ll = {0, 0}, .ur = {10, 10}}}};
     shape.vias.push_back(le::ShapeVia{.via_name = "GENRULE", .origin = le::Point{50, 50}}); // width left unset

@@ -66,12 +66,12 @@ jobs:
           files: ${{ env.ASSET_PATH }}
           body: |
             Portable Linux x86_64 build (glibc 2.28+, built against Rocky Linux 8).
+            Includes le_shell, le_tcl.so, le_tcl_procs.tcl, and bundled fonts.
 
-            **Runtime requirements**: a desktop Linux system with GTK3, X11,
-            Mesa GL/EGL, and Tcl/Tk installed - these can't be bundled into
-            the release (GTK's own ecosystem assumes dynamic linking
-            throughout). Any reasonably current desktop distro already has
-            them.
+            **Runtime requirements**: a desktop Linux system with X11, Mesa
+            GL/EGL, Tcl/Tk, and GNU readline installed - these can't be
+            bundled into the release (dynamic linking throughout). Any
+            reasonably current desktop distro already has them.
 
       - name: Upload build artifact
         if: "!startsWith(github.ref, 'refs/tags/')"

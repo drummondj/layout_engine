@@ -60,6 +60,10 @@ I already have an old script (before ImGui) I was using the build the backend: s
 
 - [x] E27. Change le_shell prompt from "%" to "le_shell > "
 
+- [ ] E28. Add write_lef and write_def TCL commands:
+
+write_lef [-abstract <token>] [-include_tech] [-tech_only] <filename> - writes a LEF file for the specified -abstract ID, or uses current_abstract. If current_abstract is not set and -abstract is not provided, then error. By default, technology information is not included. Use the -include_tech to include technology layers and -tech_only to just write technology layers. Some updates the the write_lef C++ will be required to support these extra options.
+write_def [-layout <token>] <filename> - writes a DEF file for the specified -layout ID, or uses current_layout. If current_layout is not set and -layout is not provided, then error.
 
 # QUESTIONS
 

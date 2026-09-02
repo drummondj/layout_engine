@@ -20,8 +20,6 @@
 **/build_release
 **/build-linux
 **/build_release-linux
-**/.dart_tool
-**/.pub-cache
 **/generated
 **/generated_tcl
 **/__pycache__
@@ -40,5 +38,3 @@ backend/src/lefdef/**/*.a
 backend/src/lefdef/**/lef.tab.cpp
 backend/src/lefdef/**/lef.tab.h
 backend/src/lefdef/**/lef.output
-frontend/.flutter-plugins-dependencies
-flutter_plugin/.flutter-plugins-dependencies

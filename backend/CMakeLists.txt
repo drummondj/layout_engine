@@ -184,13 +184,18 @@ FetchContent_MakeAvailable(googlebenchmark)
 # now depends on it unconditionally - see api.cpp's own LeHandle comment).
 # TBB_DIR is a Homebrew-macOS-specific hint, matching the sibling
 # oneTBB_test project's own CMakeLists.txt. REQUIRED (not QUIET/optional
-# as it was pre-cutover): api - and therefore le_tcl, the Flutter plugin,
-# backend_tests - can no longer build without it. Linux/Rocky8 TBB
-# acquisition (the rootless-build target, see the Rocky 8 bullet in
-# CLAUDE.md's Open gaps) remains a real, tracked, NOT-yet-solved
-# prerequisite for a Linux configure of this project from this point
-# forward - a deliberate, accepted consequence of the cutover (see the
-# migration plan's decision 3), not an oversight. ---
+# as it was pre-cutover): api - and therefore le_tcl, le_shell,
+# backend_tests - can no longer build without it. Both Docker-based Linux
+# paths now provide it too (Dockerfile.linux-ci's own `libtbb-dev`
+# package - Ubuntu 24.04's is modern enough to have real CMake config
+# support; Dockerfile.linux-release's own `tbb` stage, oneTBB built from
+# source, since Rocky 8's own dnf `tbb-devel` is a 2018-era package
+# predating that support entirely) - found the hard way, by actually
+# running `docker compose run --rm backend` and hitting the exact
+# `find_package(TBB)` failure this comment used to only warn about.
+# `scripts/rocky8-bootstrap.sh` (the separate rootless-build target, see
+# the Rocky 8 bullet in CLAUDE.md's Open gaps) still doesn't provision
+# TBB at all - that one remains real, tracked, NOT-yet-solved. ---
 if(APPLE)
     set(TBB_DIR "/opt/homebrew/opt/tbb/lib/cmake/TBB" CACHE PATH
         "Path to a oneTBB CMake package config (Homebrew tbb keg)")
@@ -214,7 +219,12 @@ find_package(TBB REQUIRED CONFIG)
 # actual app binary it links into, not a real Tracy bug or a reason to
 # keep it disabled. Re-enabled once CMAKE_OSX_DEPLOYMENT_TARGET pinned
 # both to the same target.
-set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
+# LE_ENABLE_TRACY: defaults ON everywhere (unchanged behavior for local
+# dev builds), overridable to OFF for a build that shouldn't carry
+# profiling instrumentation - Dockerfile.linux-release's own Release-tree
+# configure passes -DLE_ENABLE_TRACY=OFF for exactly this.
+option(LE_ENABLE_TRACY "Enable Tracy profiling instrumentation" ON)
+set(TRACY_ENABLE ${LE_ENABLE_TRACY} CACHE BOOL "" FORCE)
 FetchContent_Declare(
     tracy
     URL https://github.com/wolfpld/tracy/archive/refs/tags/v0.13.1.zip
@@ -238,6 +248,16 @@ if(NOT glfw3_FOUND)
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
     set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+    # GLFW_BUILD_WAYLAND OFF - on Linux, GLFW's own CMake unconditionally
+    # tries to configure a Wayland backend alongside X11 and hard-errors
+    # ("Failed to find wayland-scanner") if wayland-scanner isn't on the
+    # system, even though this project only ever needs X11 (le_gui's own
+    # GLFW usage has no Wayland-specific code) - confirmed by hitting
+    # exactly that configure failure on a minimal X11-only Linux image
+    # (Dockerfile.linux-ci/Dockerfile.linux-release, neither of which
+    # installs Wayland dev packages on purpose, matching le_gui's own
+    # X11-only scope). GLFW_BUILD_X11 stays at its own default (ON).
+    set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(glfw URL https://github.com/glfw/glfw/archive/refs/tags/3.5.1.zip)
     FetchContent_MakeAvailable(glfw)
 endif()

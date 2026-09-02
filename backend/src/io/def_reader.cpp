@@ -265,7 +265,7 @@ namespace
         auto flush_path = [&]()
         {
             if (current_shape && current_points.size() >= 2)
-                current_shape->paths.push_back(le::Path{.polygon = le::Polygon{.points = current_points}, .width = current_width});
+                current_shape->paths.push_back(le::Path{.width = current_width, .polygon = le::Polygon{.points = current_points}});
             current_points.clear();
         };
 
