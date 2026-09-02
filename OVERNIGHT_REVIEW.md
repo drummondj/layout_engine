@@ -225,3 +225,49 @@ smoke checks) and `crud_test.tcl` (a real Shape/Row/Region round trip
 through `get_selection`/`select`, including the additive and rejected-
 token cases). Full 706-test suite passes; both `build`/`build_release`
 rebuilt.
+
+## Q1. Same-design/same-zoom/same-orientation placements: RasterizedFrame reuse or SkPicture re-draw?
+
+**Investigated, no code change** (this is a question, not a task with a
+checkbox) - answer, confirmed by reading `HierarchyResolver`
+(`hierarchy_resolver.hpp`) and `RasterizePictureStage`/
+`TiledRasterizePictureStage` directly, not guessed:
+
+**Re-draw from the SkPicture recording, not RasterizedFrame reuse.**
+`HierarchyResolver` memoizes one `sk_sp<SkPicture>` per unique `NodeKey`
+(one per distinct Abstract, or `{Layout, remaining_depth}` pair) - so a
+Design placed 25 times (`aes_5x5.def`'s own shape) only ever gets
+*recorded* once, regardless of placement count. Every one of those 25
+placements then replays that *same* cached picture into the parent's own
+composed picture via `concat(instance_transform); canvas->drawPicture(local_picture)`
+(`hierarchy_resolver.hpp:278`) - a real per-instance vector-draw-command
+replay, not a pixel copy. `RasterizedFrame` (`pixel_types.hpp`) only
+exists at the *whole-frame* level - `RasterizePictureStage`/
+`TiledRasterizePictureStage` both take one `sk_sp<SkPicture>` (the fully
+composed picture, every instance's own `drawPicture` replay already baked
+in) and produce one `RasterizedFrame` for the *entire* frame in one pass;
+there's no per-instance rasterized-pixel cache anywhere in this chain
+(confirmed against `BENCHMARKS.md`'s own 2026-08-30 `TiledRasterizePictureStage`
+entry: "a Layout view's `design_picture` is one already-composited
+`SkPicture` with no per-layer structure left to split").
+
+Net effect: identical placements at the same zoom/orientation avoid
+*recording* cost (building the SkPicture - real geometry/tree-construction
+work) but not *rasterization replay* cost (Skia still walks the same
+recorded draw ops once per instance during the single top-level rasterize
+pass).
+
+**Possible follow-up, not attempted tonight:** a true pixel-level cache
+(rasterize each distinct Design once at a given zoom/orientation, blit
+that buffer into every instance's own screen position instead of
+replaying vector ops) could in principle turn O(instances) rasterize work
+into O(distinct designs) + O(instances) cheap blits for a design
+repeated many times at one scale - but this is a real architectural
+change (subpixel-alignment/antialiasing correctness at fractional offsets
+needs real thought, not just "cache the pixels"), and per this project's
+own rule, needs a benchmark showing the *current* approach is actually a
+bottleneck before it's worth pursuing - `BENCHMARKS.md`'s existing
+`RenderLayoutFrame_ColdCache_FullDepth` numbers (483-486 ms, largely
+rasterize-dominated per its own writeup) are the place to start if this
+becomes worth a closer look. Not adding as a new `BUGS_AND_ENHANCEMENTS.md`
+item unprompted - flagging here for you to decide if it's worth pursuing.
