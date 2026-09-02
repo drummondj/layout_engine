@@ -63,11 +63,21 @@ namespace le
         /// @brief Writes `path`, returning 0 on success (matches
         /// LEFReader::read_lef's own convention) or a nonzero lefw* error
         /// code (or 1 for a local failure, e.g. the file couldn't be
-        /// opened) otherwise. An unknown/invalid `abstract_id` (with a
-        /// LayerWriteMode that would write a MACRO) writes just the
-        /// Technology layers (if requested) and no MACRO, rather than
-        /// failing - Root's own lookups already degrade gracefully for
-        /// that, matching this codebase's stated convention.
+        /// opened) otherwise. Writes one MACRO per entry in `abstract_ids`,
+        /// in order, all into the same file (LEF's own MACRO grammar is a
+        /// repeatable top-level statement - this is how a real multi-MACRO
+        /// library LEF file is shaped, see BUGS_AND_ENHANCEMENTS.md E28.b).
+        /// An unknown/invalid entry (with a LayerWriteMode that would write
+        /// a MACRO) writes nothing for that one entry rather than failing -
+        /// Root's own lookups already degrade gracefully for that, matching
+        /// this codebase's stated convention; an empty `abstract_ids` list
+        /// writes just the Technology layers (if requested) and no MACRO at
+        /// all - not an error, e.g. a Library with no Abstracts yet.
+        int write_lef(const std::string &path, const Root &root, const std::vector<AbstractId> &abstract_ids, LayerWriteMode mode);
+
+        /// @brief Single-Abstract convenience overload - equivalent to
+        /// calling the vector overload with a one-element list (or an empty
+        /// one, if `abstract_id` is itself invalid).
         int write_lef(const std::string &path, const Root &root, AbstractId abstract_id, LayerWriteMode mode);
 
         // Messages produced by the most recent write_lef() call - this

@@ -203,13 +203,16 @@ void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_u
 int dump_png_cmd(const char *path);
 
 /// @brief Backing for the `write_lef` Tcl command (BUGS_AND_ENHANCEMENTS.md
-/// E28) - mirrors le_write_lef directly. `abstract_token`, if non-empty,
-/// is resolved via the generated resolve_abstract_id (le_tcl_shim.cpp's
-/// own anonymous namespace); an empty/null token passes through the
-/// invalid sentinel, which le_write_lef reads as "use the current
-/// Abstract instead" (see that function's own api.hpp comment).
+/// E28/E28.b) - mirrors le_write_lef directly. `abstract_tokens` is a
+/// space-separated list of zero or more friendly Abstract ids (see this
+/// function's own .cpp comment for why a plain word split is safe);
+/// `library_token`, if non-empty, is resolved via the generated
+/// resolve_library_id. An empty/null `abstract_tokens` with an empty/null
+/// `library_token` passes both through as "give le_write_lef nothing",
+/// which it reads as "use the current Abstract instead" (see that
+/// function's own api.hpp comment for its full 4-step resolution order).
 /// `layer_write_mode` is one of the LeLefLayerWriteMode values.
-int write_lef_cmd(const char *path, const char *abstract_token, int32_t layer_write_mode);
+int write_lef_cmd(const char *path, const char *abstract_tokens, const char *library_token, int32_t layer_write_mode);
 
 /// @brief Backing for the `write_def` Tcl command (BUGS_AND_ENHANCEMENTS.md
 /// E28) - mirrors le_write_def directly, same empty-token-means-"use

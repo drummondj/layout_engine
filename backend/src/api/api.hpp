@@ -197,22 +197,35 @@ extern "C"
         LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY = 2,
     } LeLefLayerWriteMode;
 
-    /// @brief Writes a LEF file for `abstract_id` via LEFWriter - see that
-    /// class's own doc comment for exact scope/phase coverage. `abstract_id`
-    /// may be the invalid/default id (index == UINT32_MAX, e.g. a
-    /// default-constructed LeAbstractId{}) to mean "use
-    /// le_current_abstract(handle)" instead - if that's also unset, this
-    /// fails with an ERROR message rather than silently writing an empty
-    /// MACRO-less file (unlike le_read_lef, write_lef always needs a real
-    /// Abstract to center around unless `layer_write_mode` is
-    /// LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY, which ignores
-    /// abstract_id/current_abstract entirely - mirrors
+    /// @brief Writes a LEF file for one or more Abstracts via LEFWriter -
+    /// see that class's own doc comment for exact scope/phase coverage.
+    /// BUGS_AND_ENHANCEMENTS.md E28.b - one call can now write a whole
+    /// Library's worth of MACROs into a single file, not just one, per this
+    /// resolution order:
+    ///   1. `abstract_id_count > 0` - write exactly those Abstracts, in
+    ///      order (their own owning Library is irrelevant here - an
+    ///      explicit list always wins outright).
+    ///   2. Else, `library_id` valid - write every Abstract belonging to
+    ///      every Design in that Library (LE_LEF_LAYER_WRITE_MODE_NONE/
+    ///      _INCLUDE_WITH_ABSTRACT only - a Library with no Abstracts yet
+    ///      writes zero MACROs, not an error).
+    ///   3. Else, `le_current_abstract(handle)` is valid - write just that
+    ///      one (the original E28 single-Abstract convenience, unchanged).
+    ///   4. Else - fails with an ERROR message rather than silently writing
+    ///      an empty MACRO-less file.
+    /// All four steps are skipped entirely when `layer_write_mode` is
+    /// LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY, which ignores every
+    /// Abstract/Library argument (mirrors
     /// LEFWriter::LayerWriteMode::TechnologyOnly's own doc comment).
-    /// Returns 0 on success, matching le_read_lef's own convention
-    /// (nonzero otherwise, including if handle or path is null);
-    /// LEFWriter's own messages are appended to handle->messages either
-    /// way, same as le_read_lef.
-    int le_write_lef(LeHandle *handle, const char *path, LeAbstractId abstract_id, int32_t layer_write_mode);
+    /// `abstract_ids` may be null when `abstract_id_count` is 0.
+    /// `library_id` may be the invalid/default id (a default-constructed
+    /// LeLibraryId{}) to skip step 2 entirely. Returns 0 on success,
+    /// matching le_read_lef's own convention (nonzero otherwise, including
+    /// if handle or path is null); LEFWriter's own messages are appended to
+    /// handle->messages either way, same as le_read_lef.
+    int le_write_lef(LeHandle *handle, const char *path,
+                      const LeAbstractId *abstract_ids, int32_t abstract_id_count,
+                      LeLibraryId library_id, int32_t layer_write_mode);
 
     /// @brief Writes a DEF file for `layout_id` via DEFWriter - see that
     /// class's own doc comment for exact scope. `layout_id` may be the

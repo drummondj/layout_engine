@@ -814,9 +814,9 @@ One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd bei
 
 ## create_via_rule_reference
 
-`create_via_rule_reference [-via <token>] [-layout_via <token>] -via_rule_name <str> [-cut_size <Point>] -bot_layer_name <str> -cut_layer_name <str> -top_layer_name <str> [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-help]`
+`create_via_rule_reference [-via <token>] [-layout_via <token>] -via_rule_name <str> [-cut_size <Point>] -bot_layer_name <str> -cut_layer_name <str> -top_layer_name <str> [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-num_cut_rows <int>] [-num_cut_cols <int>] [-origin <Point>] [-bot_offset <Point>] [-top_offset <Point>] [-help]`
 
-A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
+A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). ROWCOL (num_cut_rows/num_cut_cols below) is modeled - BUGS_AND_ENHANCEMENTS.md B3, a via *array* is exactly a ROWCOL clause with more than one row/col of cuts, synthesized into concrete cut rects by via_shapes.hpp at render time rather than stored as one rect per cut. ORIGIN/OFFSET (origin/bot_offset/top_offset below) are also modeled (B3 follow-up) - real caller-supplied overrides for where the cut array's own center (ORIGIN) and each metal layer's own enclosure-rect center (OFFSET) land, relative to the via's own placement point, used e.g. when a via needs to sit off-center from its own connection point. PATTERN (a sparse cut-presence bitmap - which grid cells in a rows x cols array actually have a cut, vs. the simpler always-fully-populated grid this schema assumes) is deliberately still not modeled - the reader logs a warning when one is present rather than silently ignoring it, the same documented-gap convention as everywhere else in this schema. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -830,6 +830,11 @@ A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-i
 | `-cut_spacing` | `Point` | no | The cut spacing, in database units (LEF CUTSPACING) - is_optional=True per cut_size's own note |
 | `-bot_enclosure` | `Point` | no | The bottom layer enclosure, in database units (LEF ENCLOSURE, bottom pair) - is_optional=True per cut_size's own note |
 | `-top_enclosure` | `Point` | no | The top layer enclosure, in database units (LEF ENCLOSURE, top pair) - is_optional=True per cut_size's own note |
+| `-num_cut_rows` | `int` | no | Number of cut rows (LEF VIARULE-inside-VIA ROWCOL numRows) - unset (no ROWCOL clause on this via) means a single cut at cut_size, same as num_cut_rows==1/num_cut_cols==1 would; is_optional=True per cut_size's own note |
+| `-num_cut_cols` | `int` | no | Number of cut columns (LEF VIARULE-inside-VIA ROWCOL numCols) - is_optional=True per num_cut_rows' own note |
+| `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in database units (LEF VIARULE-inside-VIA ORIGIN) - unset means the array is centered exactly on the placement point (this schema's own prior default, still correct when ORIGIN is omitted) |
+| `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in database units (LEF VIARULE-inside-VIA OFFSET, bottom pair) - unset means no offset (the enclosure rect stays centered on the cut array, this schema's own prior default) |
+| `-top_offset` | `Point` | no | Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair) |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## current_abstract
@@ -1375,7 +1380,7 @@ One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd bei
 
 `delete_via_rule_reference <id> [-help]`
 
-A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
+A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). ROWCOL (num_cut_rows/num_cut_cols below) is modeled - BUGS_AND_ENHANCEMENTS.md B3, a via *array* is exactly a ROWCOL clause with more than one row/col of cuts, synthesized into concrete cut rects by via_shapes.hpp at render time rather than stored as one rect per cut. ORIGIN/OFFSET (origin/bot_offset/top_offset below) are also modeled (B3 follow-up) - real caller-supplied overrides for where the cut array's own center (ORIGIN) and each metal layer's own enclosure-rect center (OFFSET) land, relative to the via's own placement point, used e.g. when a via needs to sit off-center from its own connection point. PATTERN (a sparse cut-presence bitmap - which grid cells in a rows x cols array actually have a cut, vs. the simpler always-fully-populated grid this schema assumes) is deliberately still not modeled - the reader logs a warning when one is present rather than silently ignoring it, the same documented-gap convention as everywhere else in this schema. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1648,6 +1653,16 @@ One LEF MACRO SITE array placement (Abstract.site_placements) - a macro can have
 | --- | --- | --- | --- |
 | `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_max_concurrency
+
+`get_max_concurrency [-help]`
+
+Return the maximum number of threads the backend's rendering pipelines may use at once
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## get_min_steps
@@ -2016,7 +2031,7 @@ One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd bei
 
 `get_via_rule_references [-of <token>...] [-filter <expr>] [-help]`
 
-A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
+A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). ROWCOL (num_cut_rows/num_cut_cols below) is modeled - BUGS_AND_ENHANCEMENTS.md B3, a via *array* is exactly a ROWCOL clause with more than one row/col of cuts, synthesized into concrete cut rects by via_shapes.hpp at render time rather than stored as one rect per cut. ORIGIN/OFFSET (origin/bot_offset/top_offset below) are also modeled (B3 follow-up) - real caller-supplied overrides for where the cut array's own center (ORIGIN) and each metal layer's own enclosure-rect center (OFFSET) land, relative to the via's own placement point, used e.g. when a via needs to sit off-center from its own connection point. PATTERN (a sparse cut-presence bitmap - which grid cells in a rows x cols array actually have a cut, vs. the simpler always-fully-populated grid this schema assumes) is deliberately still not modeled - the reader logs a warning when one is present rather than silently ignoring it, the same documented-gap convention as everywhere else in this schema. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2048,6 +2063,16 @@ A fixed/default via definition (LEF VIA)
 | `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
 | `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## history
+
+`history [-help]`
+
+Alias for command_history: Tcl's own built-in history command is never populated in this shell (nothing calls its own history add - see this proc's own comment), so this redefines the name a user reasonably expects to work to just forward to command_history instead.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## open_design
@@ -2194,6 +2219,17 @@ Sets whether every ViewLayer of the real Layer named layer_name (e.g. both its T
 | `<visible>` | `bool` | yes | 0/1 or true/false - hide/show |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## set_max_concurrency
+
+`set_max_concurrency <max_concurrency> [-help]`
+
+Set the maximum number of threads the backend's rendering pipelines may use at once (BUGS_AND_ENHANCEMENTS.md E10) - useful to cap CPU usage on machines with many cores. Clamped to a minimum of 2.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<max_concurrency>` | `int` | yes | Max threads, clamped to 2 or larger |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## set_mode
 
 `set_mode <mode> [-help]`
@@ -2278,7 +2314,7 @@ Every rect on the given Shape, as a list of {{ll_x ll_y} {ur_x ur_y}} coordinate
 
 `show_gui [-help]`
 
-Deliberate stub, not a missing feature: this project's only GUI is the separate Flutter app, which this Tcl process can't start rendering in-process without embedding a full FlutterEngine - see TCL_EXPLORATION.md's Phase 6 section.
+Requests that le_shell's own dedicated GUI thread open a window showing this session's current view (Dear ImGui - see src/gui/le_gui.hpp), sharing this same session's state - mouse/keyboard in that window drive the same le_* calls a script's own zoom/pan/select commands would. Fire-and-forget: returns immediately, before the window necessarily exists yet.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3070,9 +3106,9 @@ One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd bei
 
 ## update_via_rule_reference
 
-`update_via_rule_reference <id> [-via_rule_name <str>] [-cut_size <Point>] [-bot_layer_name <str>] [-cut_layer_name <str>] [-top_layer_name <str>] [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-help]`
+`update_via_rule_reference <id> [-via_rule_name <str>] [-cut_size <Point>] [-bot_layer_name <str>] [-cut_layer_name <str>] [-top_layer_name <str>] [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-num_cut_rows <int>] [-num_cut_cols <int>] [-origin <Point>] [-bot_offset <Point>] [-top_offset <Point>] [-help]`
 
-A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
+A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). ROWCOL (num_cut_rows/num_cut_cols below) is modeled - BUGS_AND_ENHANCEMENTS.md B3, a via *array* is exactly a ROWCOL clause with more than one row/col of cuts, synthesized into concrete cut rects by via_shapes.hpp at render time rather than stored as one rect per cut. ORIGIN/OFFSET (origin/bot_offset/top_offset below) are also modeled (B3 follow-up) - real caller-supplied overrides for where the cut array's own center (ORIGIN) and each metal layer's own enclosure-rect center (OFFSET) land, relative to the via's own placement point, used e.g. when a via needs to sit off-center from its own connection point. PATTERN (a sparse cut-presence bitmap - which grid cells in a rows x cols array actually have a cut, vs. the simpler always-fully-populated grid this schema assumes) is deliberately still not modeled - the reader logs a warning when one is present rather than silently ignoring it, the same documented-gap convention as everywhere else in this schema. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3084,6 +3120,39 @@ A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-i
 | `-cut_spacing` | `Point` | no | The cut spacing, in database units (LEF CUTSPACING) - is_optional=True per cut_size's own note |
 | `-bot_enclosure` | `Point` | no | The bottom layer enclosure, in database units (LEF ENCLOSURE, bottom pair) - is_optional=True per cut_size's own note |
 | `-top_enclosure` | `Point` | no | The top layer enclosure, in database units (LEF ENCLOSURE, top pair) - is_optional=True per cut_size's own note |
+| `-num_cut_rows` | `int` | no | Number of cut rows (LEF VIARULE-inside-VIA ROWCOL numRows) - unset (no ROWCOL clause on this via) means a single cut at cut_size, same as num_cut_rows==1/num_cut_cols==1 would; is_optional=True per cut_size's own note |
+| `-num_cut_cols` | `int` | no | Number of cut columns (LEF VIARULE-inside-VIA ROWCOL numCols) - is_optional=True per num_cut_rows' own note |
+| `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in database units (LEF VIARULE-inside-VIA ORIGIN) - unset means the array is centered exactly on the placement point (this schema's own prior default, still correct when ORIGIN is omitted) |
+| `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in database units (LEF VIARULE-inside-VIA OFFSET, bottom pair) - unset means no offset (the enclosure rect stays centered on the cut array, this schema's own prior default) |
+| `-top_offset` | `Point` | no | Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair) |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## write_def
+
+`write_def [-layout <token>] <filename> [-help]`
+
+Writes a DEF file for -layout's own Layout (or the current Layout if -layout is omitted - error if neither is set).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Layout to write - defaults to the current Layout |
+| `<filename>` | `file` | yes | Output DEF file path |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## write_lef
+
+`write_lef [-abstract <token>] [-library <token>] [-abstracts <tokens>] [-include_tech] [-tech_only] <filename> [-help]`
+
+Writes a LEF file. -abstract writes just that one Abstract's own MACRO (or the current Abstract if -abstract/-library/-abstracts are all omitted - error if the current Abstract isn't set either). -library writes a MACRO for every Abstract in every Design of that Library; -abstracts narrows that down to just the given Abstracts (also usable on its own, without -library). -abstract is mutually exclusive with -library/-abstracts. By default, no Technology layer information is included - -include_tech writes every Technology layer alongside the MACRO(s); -tech_only writes just the Technology layers (no MACRO at all, and every Abstract/Library argument is then ignored entirely). -include_tech and -tech_only are mutually exclusive.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-abstract` | `token` | no | A single Abstract to write - defaults to the current Abstract if this, -library, and -abstracts are all omitted |
+| `-library` | `token` | no | Write a MACRO for every Abstract in every Design of this Library |
+| `-abstracts` | `token` | no | A list of Abstracts to write - narrows -library's own full list, or usable standalone |
+| `-include_tech` | `flag` | no | Also write every Technology layer alongside the MACRO(s) |
+| `-tech_only` | `flag` | no | Write only Technology layers, no MACRO at all |
+| `<filename>` | `file` | yes | Output LEF file path |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## zoom

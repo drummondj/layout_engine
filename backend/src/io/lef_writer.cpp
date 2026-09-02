@@ -2174,6 +2174,11 @@ namespace le
 
     int LEFWriter::write_lef(const std::string &path, const Root &root, AbstractId abstract_id, LayerWriteMode mode)
     {
+        return write_lef(path, root, std::vector<AbstractId>{abstract_id}, mode);
+    }
+
+    int LEFWriter::write_lef(const std::string &path, const Root &root, const std::vector<AbstractId> &abstract_ids, LayerWriteMode mode)
+    {
         messages_.clear();
 
         std::unique_ptr<FILE, int (*)(FILE *)> file(fopen(path.c_str(), "w"), &fclose);
@@ -2384,11 +2389,14 @@ namespace le
 
         if (mode != LayerWriteMode::TechnologyOnly)
         {
-            status = write_macro(root, abstract_id, dbu_per_micron);
-            if (status)
+            for (AbstractId abstract_id : abstract_ids)
             {
-                messages_.push_back(fmt::format("ERROR: Writing MACRO failed with status {}.", status));
-                return status;
+                status = write_macro(root, abstract_id, dbu_per_micron);
+                if (status)
+                {
+                    messages_.push_back(fmt::format("ERROR: Writing MACRO failed with status {}.", status));
+                    return status;
+                }
             }
         }
 

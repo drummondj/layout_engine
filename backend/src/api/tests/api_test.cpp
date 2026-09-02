@@ -4554,14 +4554,19 @@ namespace
     }
 }
 
+namespace
+{
+    const LeLibraryId kInvalidLibraryId{.index = UINT32_MAX, .generation = 0};
+}
+
 TEST_F(ApiFixture, WriteLefWithNullHandleOrPathReturnsNonzero)
 {
     EXPECT_NE(le_write_lef(nullptr, scratch_path("le_write_lef_null_handle.lef").c_str(),
-                            LeAbstractId{.index = UINT32_MAX, .generation = 0}, LE_LEF_LAYER_WRITE_MODE_NONE),
+                            nullptr, 0, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_NONE),
               0);
 
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    EXPECT_NE(le_write_lef(handle, nullptr, testcell_abstract_id(handle), LE_LEF_LAYER_WRITE_MODE_NONE), 0);
+    EXPECT_NE(le_write_lef(handle, nullptr, nullptr, 0, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_NONE), 0);
 }
 
 TEST_F(ApiFixture, WriteLefWithAnExplicitAbstractSucceedsAndProducesARealFile)
@@ -4571,18 +4576,18 @@ TEST_F(ApiFixture, WriteLefWithAnExplicitAbstractSucceedsAndProducesARealFile)
     ASSERT_NE(abstract_id.index, UINT32_MAX);
 
     const std::string out_path = scratch_path("le_write_lef_explicit.lef");
-    EXPECT_EQ(le_write_lef(handle, out_path.c_str(), abstract_id, LE_LEF_LAYER_WRITE_MODE_NONE), 0);
+    EXPECT_EQ(le_write_lef(handle, out_path.c_str(), &abstract_id, 1, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_NONE), 0);
     EXPECT_TRUE(file_is_nonempty(out_path));
 }
 
-TEST_F(ApiFixture, WriteLefWithNoAbstractGivenAndNoCurrentAbstractSetFailsWithAMessage)
+TEST_F(ApiFixture, WriteLefWithNoAbstractOrLibraryGivenAndNoCurrentAbstractSetFailsWithAMessage)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
     EXPECT_EQ(le_current_abstract(handle).index, UINT32_MAX); // nothing selected yet
 
     const int32_t messages_before = le_message_count(handle);
     EXPECT_NE(le_write_lef(handle, scratch_path("le_write_lef_no_current.lef").c_str(),
-                            LeAbstractId{.index = UINT32_MAX, .generation = 0}, LE_LEF_LAYER_WRITE_MODE_NONE),
+                            nullptr, 0, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_NONE),
               0);
     ASSERT_GT(le_message_count(handle), messages_before);
     EXPECT_NE(std::string(le_message_at(handle, le_message_count(handle) - 1)).find("no current Abstract"), std::string::npos);
@@ -4598,7 +4603,7 @@ TEST_F(ApiFixture, WriteLefFallsBackToTheCurrentAbstractWhenNoneIsGiven)
     ASSERT_NE(le_current_abstract(handle).index, UINT32_MAX);
 
     const std::string out_path = scratch_path("le_write_lef_current_fallback.lef");
-    EXPECT_EQ(le_write_lef(handle, out_path.c_str(), LeAbstractId{.index = UINT32_MAX, .generation = 0}, LE_LEF_LAYER_WRITE_MODE_NONE), 0);
+    EXPECT_EQ(le_write_lef(handle, out_path.c_str(), nullptr, 0, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_NONE), 0);
     EXPECT_TRUE(file_is_nonempty(out_path));
 }
 
@@ -4611,8 +4616,82 @@ TEST_F(ApiFixture, WriteLefTechnologyOnlyModeSucceedsWithNoAbstractAndNoCurrentA
     EXPECT_EQ(le_current_abstract(handle).index, UINT32_MAX);
 
     const std::string out_path = scratch_path("le_write_lef_tech_only.lef");
-    EXPECT_EQ(le_write_lef(handle, out_path.c_str(), LeAbstractId{.index = UINT32_MAX, .generation = 0}, LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY), 0);
+    EXPECT_EQ(le_write_lef(handle, out_path.c_str(), nullptr, 0, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY), 0);
     EXPECT_TRUE(file_is_nonempty(out_path));
+}
+
+// --- BUGS_AND_ENHANCEMENTS.md E28.b: -library/-abstracts (multiple
+// MACROs in one file) ---
+
+TEST_F(ApiFixture, WriteLefWithALibraryWritesAMacroForEveryAbstractInEveryDesign)
+{
+    // testcell.lef/othercell.lef each read into their *own* Library
+    // (le_read_lef's own library name is the LEF file's stem - see
+    // api.cpp) - not useful here, this test needs two Designs sharing one
+    // real Library, so it builds both from scratch instead (still needs
+    // testcell.lef read first, purely to establish a real Technology -
+    // le_create_abstract fails with no Technology present).
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+
+    const LeLibraryId library_id = le_create_library(handle, "MULTI_LIB");
+    ASSERT_NE(library_id.index, UINT32_MAX);
+    const LeDesignId design1_id = le_create_design(handle, library_id, "DESIGN_ONE");
+    ASSERT_NE(design1_id.index, UINT32_MAX);
+    const LeAbstractId abstract1_id = le_create_abstract(handle, design1_id, nullptr, 0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, nullptr, nullptr, nullptr, 0, 0.0, nullptr, 0);
+    ASSERT_NE(abstract1_id.index, UINT32_MAX);
+    const LeDesignId design2_id = le_create_design(handle, library_id, "DESIGN_TWO");
+    ASSERT_NE(design2_id.index, UINT32_MAX);
+    const LeAbstractId abstract2_id = le_create_abstract(handle, design2_id, nullptr, 0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, nullptr, nullptr, nullptr, 0, 0.0, nullptr, 0);
+    ASSERT_NE(abstract2_id.index, UINT32_MAX);
+
+    const std::string out_path = scratch_path("le_write_lef_library.lef");
+    ASSERT_EQ(le_write_lef(handle, out_path.c_str(), nullptr, 0, library_id, LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT), 0);
+    ASSERT_TRUE(file_is_nonempty(out_path));
+
+    // Both DESIGN_ONE and DESIGN_TWO's own MACRO should be present - a
+    // real read-back is a stronger check than counting "MACRO" substrings
+    // (also survives the file happening to have neither string spelled
+    // that way for some unrelated reason).
+    LeHandle *reread = le_create();
+    ASSERT_EQ(le_read_lef(reread, out_path.c_str()), 0);
+    EXPECT_EQ(le_design_count(reread), 2);
+    le_destroy(reread);
+}
+
+TEST_F(ApiFixture, WriteLefWithAnExplicitAbstractListWritesOnlyThoseAbstracts)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("othercell.lef").c_str()), 0);
+    const LeAbstractId testcell_id = testcell_abstract_id(handle);
+    ASSERT_NE(testcell_id.index, UINT32_MAX);
+
+    const std::string out_path = scratch_path("le_write_lef_explicit_list.lef");
+    ASSERT_EQ(le_write_lef(handle, out_path.c_str(), &testcell_id, 1, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT), 0);
+    ASSERT_TRUE(file_is_nonempty(out_path));
+
+    LeHandle *reread = le_create();
+    ASSERT_EQ(le_read_lef(reread, out_path.c_str()), 0);
+    EXPECT_EQ(le_design_count(reread), 1); // only TESTCELL, not OTHERCELL
+    le_destroy(reread);
+}
+
+TEST_F(ApiFixture, WriteLefWithALibraryThatHasNoAbstractsWritesNoMacrosAndIsNotAnError)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeLibraryId library_id = le_library_at(handle, 0).id;
+    ASSERT_NE(library_id.index, UINT32_MAX);
+    // A hand-built Design with no Abstract at all yet - the case
+    // le_write_lef's own api.hpp doc comment says isn't an error.
+    const LeDesignId empty_design_id = le_create_design(handle, library_id, "EMPTY_DESIGN");
+    ASSERT_NE(empty_design_id.index, UINT32_MAX);
+
+    const std::string out_path = scratch_path("le_write_lef_library_partial.lef");
+    ASSERT_EQ(le_write_lef(handle, out_path.c_str(), nullptr, 0, library_id, LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT), 0);
+
+    LeHandle *reread = le_create();
+    ASSERT_EQ(le_read_lef(reread, out_path.c_str()), 0);
+    EXPECT_EQ(le_design_count(reread), 1); // only TESTCELL - EMPTY_DESIGN has no Abstract to write a MACRO from
+    le_destroy(reread);
 }
 
 TEST_F(ApiFixture, WriteDefWithNullHandleOrPathReturnsNonzero)

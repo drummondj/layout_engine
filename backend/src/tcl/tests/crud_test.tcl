@@ -706,6 +706,39 @@ set scratch_def_current_path [file join $write_scratch_dir "scratch_current.def"
 check "write_def with no -layout falls back to current_layout" "" [write_def $scratch_def_current_path]
 check_true "write_def's current-Layout-fallback output file is non-empty" [expr {[file size $scratch_def_current_path] > 0}]
 
+# --- write_lef -library/-abstracts (BUGS_AND_ENHANCEMENTS.md E28.b) - a
+# second from-scratch Design/Abstract under the same $scratch_library,
+# so -library has two real Abstracts to write MACROs for. ---
+
+set scratch_design2 [create_design -library $scratch_library -name SCRATCH_DESIGN2]
+check_true "create_design (second design, same library) returned a valid friendly id" [expr {$scratch_design2 ne {}}]
+set scratch_abstract2 [create_abstract -design $scratch_design2]
+check_true "create_abstract (second design's own Abstract) returned a valid friendly id" [expr {$scratch_abstract2 ne {}}]
+
+set scratch_lef_library_path [file join $write_scratch_dir "scratch_library.lef"]
+check "write_lef -library writes a real, non-empty LEF file" "" [write_lef -library $scratch_library $scratch_lef_library_path]
+check_true "write_lef -library's output file is non-empty" [expr {[file size $scratch_lef_library_path] > 0}]
+set scratch_lef_library_text [read [set f [open $scratch_lef_library_path r]]]
+close $f
+check_true "write_lef -library's output has both Designs' own MACRO" \
+    [expr {[string first "MACRO SCRATCH_DESIGN\n" $scratch_lef_library_text] >= 0 && [string first "MACRO SCRATCH_DESIGN2\n" $scratch_lef_library_text] >= 0}]
+
+set scratch_lef_abstracts_path [file join $write_scratch_dir "scratch_abstracts.lef"]
+check "write_lef -abstracts (narrowed to one) writes a real, non-empty LEF file" "" \
+    [write_lef -library $scratch_library -abstracts $scratch_abstract2 $scratch_lef_abstracts_path]
+set scratch_lef_abstracts_text [read [set f [open $scratch_lef_abstracts_path r]]]
+close $f
+check_true "write_lef -abstracts wrote only SCRATCH_DESIGN2's own MACRO, not SCRATCH_DESIGN's" \
+    [expr {[string first "MACRO SCRATCH_DESIGN2\n" $scratch_lef_abstracts_text] >= 0 && [string first "MACRO SCRATCH_DESIGN\n" $scratch_lef_abstracts_text] < 0}]
+
+if {[catch {write_lef -abstract $scratch_abstract -library $scratch_library [file join $write_scratch_dir "scratch_conflict.lef"]} err]} {
+    check_true "write_lef -abstract combined with -library raises a Tcl error" \
+        [expr {[string first "write_lef" $err] >= 0}]
+} else {
+    puts stderr "FAIL: write_lef -abstract combined with -library did not raise a Tcl error"
+    exit 1
+}
+
 file delete -force $write_scratch_dir
 
 puts "le_tcl CRUD test passed"

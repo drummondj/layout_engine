@@ -98,3 +98,73 @@ verified to fail against the pre-fix code (`git checkout HEAD --` on each
 writer file in turn, confirmed `num_cut_rows.has_value()` was `false` when
 it shouldn't be) and pass with the fix restored. Full suite passes; both
 `build`/`build_release` rebuilt.
+
+## E28.b. write_lef -library/-abstracts (write MACROs for a whole Library, or an explicit subset).
+
+**Done.** Reworked `le_write_lef` (and the underlying `LEFWriter::write_lef`)
+to write one MACRO per Abstract in a list, not just one, so a single call
+can now cover a whole Library. Resolution order (documented in `api.hpp`'s
+own doc comment):
+
+1. An explicit Abstract list, if given (via `-abstract` or `-abstracts`) -
+   always wins outright, regardless of which Library any of them belong to.
+2. Else a `-library` token, if given - every Abstract in every Design of
+   that Library (a Library with no Abstracts yet writes zero MACROs, not
+   an error).
+3. Else the current Abstract (the original E28 behavior, unchanged).
+4. Else - error, same message shape as before.
+
+**Judgment calls (not asked, both seemed like the most useful reading of
+the spec without over-restricting it):**
+- Kept the original single `-abstract` flag working exactly as it did
+  under E28 (mutually exclusive with `-library`/`-abstracts`) rather than
+  removing it in favor of always requiring `-library`/`-abstracts` -
+  the item's own text reads as "add this new capability", not "replace
+  the old one", and the single-Abstract case is common enough to be worth
+  keeping the more convenient dedicated flag for.
+- Made `-abstracts` usable *standalone*, without requiring `-library` -
+  the item's own text frames it as a filter nested under `-library`
+  ("-library argument, then an -abstracts argument"), but an explicit
+  token list already fully determines what to write on its own, so
+  requiring `-library` too would just be an arbitrary extra restriction
+  with no real benefit. `-library` alone (no `-abstracts`) still means
+  exactly what the item asks: every Abstract in the Library.
+
+**Real bugs found and fixed along the way, not just the new feature
+itself:**
+- My own first attempt at `ApiFixture.WriteLefWithALibraryWritesAMacroForEveryAbstractInEveryDesign`
+  read `testcell.lef` then `othercell.lef` into one handle and assumed
+  both designs landed in the same Library - `le_read_lef`'s own Library
+  name is the LEF file's stem (`api.cpp`), so they're actually two
+  separate Libraries. Fixed by building two Designs from scratch under
+  one real Library instead (`le_create_library`/`le_create_design`/
+  `le_create_abstract` directly) - a test-only mistake, not a product bug,
+  but the kind of thing worth recording since I initially had it backwards.
+- The three round-trip variants of this test initially used
+  `LE_LEF_LAYER_WRITE_MODE_NONE`, which never writes `UNITS`/`DATABASE
+  MICRONS` - re-reading that output into a *fresh* handle then fails
+  ("used geometry that required DATABASE MICRONS before it was ever
+  declared"). Also a test-only mistake (the original single-Abstract E28
+  tests never re-read their own output, so this gap was never exercised)
+  - fixed by using `INCLUDE_WITH_ABSTRACT` for every test that re-reads.
+- `crud_test.tcl`'s own new checks searched for `"MACRO SCRATCH_DESIGN "`
+  (trailing space) to disambiguate from `"MACRO SCRATCH_DESIGN2 "` - the
+  vendored writer's real output has a newline right after the MACRO name,
+  not a space, so the search always failed to match. Fixed to search for
+  `"MACRO SCRATCH_DESIGN\n"` instead. Caught immediately by actually
+  running the test rather than assuming the string shape - a good
+  reminder to check the *real* written bytes instead of guessing writer
+  formatting from memory.
+
+**Also regenerated `TCL_COMMANDS.md`** (`generate-tcl-docs` skill) -
+it hadn't been rebuilt since before `write_lef`/`write_def` (E28) were
+even added, so `write_lef`'s entry there was completely missing, not just
+stale. Fixed for both E28 and E28.b's usage text in one pass.
+
+New/updated tests: `api_test.cpp` (`WriteLefWithALibraryWritesAMacroForEveryAbstractInEveryDesign`,
+`WriteLefWithAnExplicitAbstractListWritesOnlyThoseAbstracts`,
+`WriteLefWithALibraryThatHasNoAbstractsWritesNoMacrosAndIsNotAnError`,
+plus every existing E28 test updated for the new `le_write_lef` signature)
+and `crud_test.tcl` (`-library`, `-abstracts`, and the `-abstract`/
+`-library` mutual-exclusion error). Full 700-test suite passes; both
+`build`/`build_release` rebuilt.

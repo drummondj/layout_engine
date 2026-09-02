@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace
 {
@@ -494,12 +495,26 @@ bool get_layer_visible_cmd(const char *layer_name)
 // sentinel anyway, but skipping the call entirely when there's nothing to
 // resolve keeps this from looking like it's doing real lookup work for a
 // deliberately-omitted flag.
-int write_lef_cmd(const char *path, const char *abstract_token, int32_t layer_write_mode)
+// abstract_tokens is a space-separated list of zero or more friendly
+// Abstract ids (e.g. "abstract:1 abstract:5 abstract:9") - a plain word
+// split, not a real Tcl list parse, is safe here since no friendly id
+// this codebase generates ever contains whitespace (see le_tcl_shim.hpp's
+// own "IDs" comment); write_lef (le_tcl_procs.tcl) builds this from its
+// own -abstracts flag's Tcl list value via [join ...] on the way in.
+int write_lef_cmd(const char *path, const char *abstract_tokens, const char *library_token, int32_t layer_write_mode)
 {
-    const LeAbstractId abstract_id = (abstract_token && abstract_token[0])
-                                          ? resolve_abstract_id(abstract_token)
-                                          : LeAbstractId{.index = UINT32_MAX, .generation = 0};
-    return le_write_lef(session(), path, abstract_id, layer_write_mode);
+    std::vector<LeAbstractId> abstract_ids;
+    if (abstract_tokens)
+    {
+        std::istringstream stream(abstract_tokens);
+        std::string token;
+        while (stream >> token)
+            abstract_ids.push_back(resolve_abstract_id(token.c_str()));
+    }
+    const LeLibraryId library_id = (library_token && library_token[0])
+                                        ? resolve_library_id(library_token)
+                                        : LeLibraryId{.index = UINT32_MAX, .generation = 0};
+    return le_write_lef(session(), path, abstract_ids.empty() ? nullptr : abstract_ids.data(), static_cast<int32_t>(abstract_ids.size()), library_id, layer_write_mode);
 }
 
 int write_def_cmd(const char *path, const char *layout_token)

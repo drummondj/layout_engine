@@ -1343,7 +1343,9 @@ extern "C"
         return 0;
     }
 
-    int le_write_lef(LeHandle *handle, const char *path, LeAbstractId abstract_id_c, int32_t layer_write_mode)
+    int le_write_lef(LeHandle *handle, const char *path,
+                      const LeAbstractId *abstract_ids_c, int32_t abstract_id_count,
+                      LeLibraryId library_id_c, int32_t layer_write_mode)
     {
         if (!handle)
             return 1;
@@ -1369,30 +1371,48 @@ extern "C"
             break;
         }
 
-        // Invalid/default abstract_id (index == UINT32_MAX) means "use
-        // the current Abstract" - handle->current_abstract_id already
-        // defaults to the same invalid sentinel when none is set, so this
-        // collapses to a single check below regardless of which path led
-        // here. Read the field directly rather than calling
-        // le_current_abstract(handle) - that function takes handle->mutex_
-        // itself, and this function already holds it (non-recursive
-        // std::mutex, so re-locking here would deadlock). Skipped entirely
-        // in TechnologyOnly mode - see this function's own api.hpp doc
-        // comment for why abstract_id/current_abstract are irrelevant
-        // there.
-        le::AbstractId abstract_id{.index = abstract_id_c.index, .generation = abstract_id_c.generation};
-        if (abstract_id.index == UINT32_MAX && mode != le::LEFWriter::LayerWriteMode::TechnologyOnly)
+        // BUGS_AND_ENHANCEMENTS.md E28.b resolution order - see this
+        // function's own api.hpp doc comment for the full 4-step
+        // rationale. Skipped entirely in TechnologyOnly mode. Reads
+        // handle->current_abstract_id directly rather than calling
+        // le_current_abstract(handle) - that function takes
+        // handle->mutex_ itself, and this function already holds it
+        // (non-recursive std::mutex, so re-locking here would deadlock).
+        std::vector<le::AbstractId> abstract_ids;
+        if (mode != le::LEFWriter::LayerWriteMode::TechnologyOnly)
         {
-            abstract_id = handle->current_abstract_id;
-        }
-        if (abstract_id.index == UINT32_MAX && mode != le::LEFWriter::LayerWriteMode::TechnologyOnly)
-        {
-            handle->messages.push_back("ERROR: le_write_lef: no Abstract given and no current Abstract set");
-            return 1;
+            if (abstract_id_count > 0)
+            {
+                abstract_ids.reserve(static_cast<size_t>(abstract_id_count));
+                for (int32_t i = 0; i < abstract_id_count; i++)
+                    abstract_ids.push_back(le::AbstractId{.index = abstract_ids_c[i].index, .generation = abstract_ids_c[i].generation});
+            }
+            else
+            {
+                const le::LibraryId library_id{.index = library_id_c.index, .generation = library_id_c.generation};
+                if (library_id.index != UINT32_MAX)
+                {
+                    for (const le::DesignId design_id : handle->root.get_library_designs(library_id))
+                    {
+                        const le::AbstractId design_abstract_id = handle->root.get_design_abstract(design_id);
+                        if (design_abstract_id.index != UINT32_MAX)
+                            abstract_ids.push_back(design_abstract_id);
+                    }
+                }
+                else if (handle->current_abstract_id.index != UINT32_MAX)
+                {
+                    abstract_ids.push_back(handle->current_abstract_id);
+                }
+                else
+                {
+                    handle->messages.push_back("ERROR: le_write_lef: no Abstract or Library given and no current Abstract set");
+                    return 1;
+                }
+            }
         }
 
         le::LEFWriter writer;
-        const int result = writer.write_lef(path, handle->root, abstract_id, mode);
+        const int result = writer.write_lef(path, handle->root, abstract_ids, mode);
         for (const auto &msg : writer.messages())
             handle->messages.push_back(msg);
         return result;
