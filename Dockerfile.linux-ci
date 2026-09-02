@@ -12,7 +12,7 @@
 FROM ubuntu:24.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential clang cmake ninja-build git python3 pkg-config \
+    build-essential clang cmake ninja-build git python3 python3-pip pkg-config \
     ca-certificates curl unzip xz-utils bison flex \
     libboost-dev libspdlog-dev libfmt-dev \
     tcl8.6-dev tk8.6-dev swig \
@@ -142,12 +142,33 @@ WORKDIR /workspace/backend
 # says "already built" regardless of whether the artifacts above were
 # just deleted, so without this the build step is silently skipped and
 # io/pipelines fail on a missing src/lefdef/{lef,def}/include/*.hpp instead.
+#
+# codegen step (pip install + cmg, both targets): src/database/generated/,
+# src/api/generated_tcl/, and src/tcl/generated/ are all .gitignore'd
+# build artifacts (see the regen-database/regen-tcl skills) - this
+# Dockerfile's own header comment used to assume "an already-bootstrapped
+# host checkout where these were generated once, ages ago, and left on
+# disk", true for a long-lived local dev bind-mount but never true for a
+# fresh CI checkout (confirmed by hitting exactly "Unable to find
+# 'generated/le_api_generated.i'" the first time this image actually ran
+# against one, via .github/workflows/ci.yml). Reinstalling+regenerating
+# on every run (not just once) is deliberate, mirroring
+# Dockerfile.linux-release's own codegen stage - both this project's
+# own codegen/ source and backend/src/database/schema.py are bind-mounted
+# source that can change between runs, and `pip install .` of a small
+# pure-Python package is cheap enough not to matter. --break-system-packages:
+# Ubuntu 24.04's system Python is PEP 668-protected; this is an ephemeral,
+# single-purpose container, not a shared system, so the usual venv
+# reasoning for avoiding it doesn't apply.
 CMD ["bash", "-c", "\
     find src/lefdef/lef src/lefdef/def \\( -name '*.o' -o -name '*.a' -o -name 'lef.tab.cpp' -o -name 'lef.tab.h' -o -name 'lef.output' -o -name 'def.tab.cpp' -o -name 'def.tab.h' -o -name 'def.output' \\) -delete && \
     rm -rf src/lefdef/lef/lib src/lefdef/lef/include src/lefdef/lef/bin && \
     rm -rf src/lefdef/def/lib src/lefdef/def/include src/lefdef/def/bin && \
     rm -rf build-linux/lef_lib-prefix build_release-linux/lef_lib-prefix && \
     rm -rf build-linux/def_lib-prefix build_release-linux/def_lib-prefix && \
+    python3 -m pip install --no-cache-dir --break-system-packages ../codegen && \
+    cmg --schema src/database/schema.py --output src/database/generated && \
+    cmg --schema src/database/schema.py --output src --target tcl && \
     cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug -DSKIA_DIR=${SKIA_DIR} && \
     cmake --build build-linux -j ${BACKEND_BUILD_JOBS} && \
     ctest --test-dir build-linux --output-on-failure && \
