@@ -4,7 +4,7 @@
 - [x] B2. When hovering the mouse in select mode, it highlights the route under the mouse, but when I clock to select, it selects the placement underneath the route. Whatever is highlighted should be selected and routes should hit before the placements underneath.
 - [x] B3. Via arrays are not being rendered.
 - [x] B4. Running a zoom command before show_gui causes the layout viewer to hang.
-- [ ] B5. Resizing a sidebar should wait until the resize is finished before rendering a new frame in the layout window.
+- [x] B5. Resizing a sidebar should wait until the resize is finished before rendering a new frame in the layout window.
 - [ ] B6. Closing the GUI window still causes a never ending beachball. Force quiting window results in B6_trace.txt report. 
 
 

@@ -86,3 +86,33 @@ commands (and whether it's every time or intermittent) would help a lot -
 please reopen B4 (leave the checkbox unchecked again) if so, with
 whatever repro you can capture.
 
+## B5. Resizing a sidebar should wait until the resize is finished before rendering a new frame in the layout window.
+
+**Fixed.** Dragging a dock splitter changes the "Layout" panel's own
+content region *every single frame* for the whole drag - previously this
+called `le_set_viewport_size` (and so a full synchronous rasterize -
+potentially seconds for a real design, see BENCHMARKS.md) on every one
+of those frames, which would visibly stall the drag itself rather than
+just following it smoothly.
+
+`le_gui.cpp`'s main loop now debounces: a still-changing size resets a
+150ms timer every frame it changes, and is only actually applied once
+it's held steady for that long - i.e. once the drag has actually
+stopped, not on every intermediate frame of it. The very first size
+application (right after the dock layout settles, not a user drag at
+all) still applies immediately, unchanged - it's also what starts the
+render thread, so debouncing it would delay every single window open by
+150ms for no benefit.
+
+**Judgment call:** picked 150ms for the debounce window - long enough to
+comfortably outlast a frame-to-frame render/resize hitch during a drag,
+short enough that the design view still updates promptly (~1/7th of a
+second) once you actually stop dragging. No existing precedent in this
+codebase to match against; happy to tune if it feels off in practice.
+
+Couldn't verify visually (no way to simulate a real mouse-drag on a dock
+splitter in this sandbox) - the logic itself is straightforward and
+doesn't change behavior for the non-resizing steady-state case (verified
+via a PTY smoke test: window still opens and renders correctly). Worth a
+quick manual drag-a-sidebar check on your end.
+

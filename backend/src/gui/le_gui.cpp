@@ -471,6 +471,22 @@ namespace le::gui
             // docking's own geometry settles a frame or two later.
             int last_viewport_width = 0;
             int last_viewport_height = 0;
+            // BUGS_AND_ENHANCEMENTS.md B5 - dragging a dock splitter
+            // (resizing a sidebar) changes this panel's own content
+            // region *every single frame* for the whole drag, and acting
+            // on each one immediately would mean a full synchronous
+            // rasterize per frame (le_set_viewport_size's own cost - a
+            // real design can take seconds cold, see BENCHMARKS.md),
+            // stalling the drag itself rather than just following it.
+            // pending_viewport_width/height/pending_viewport_change_time
+            // debounce this: a still-changing size keeps resetting the
+            // timer (see the main loop's own viewport-size block below)
+            // and is never applied until it's held steady for
+            // kResizeDebounceSeconds - i.e. "wait until the resize is
+            // finished", not react to every intermediate frame of it.
+            int pending_viewport_width = 0;
+            int pending_viewport_height = 0;
+            double pending_viewport_change_time = 0.0;
             bool dockspace_built = false;
             ActiveGesture gesture = ActiveGesture::kNone;
 
@@ -619,20 +635,35 @@ namespace le::gui
                 // viewport-size change (a real design can take seconds
                 // cold, see BENCHMARKS.md), so acting on a known-wrong
                 // width here would burn a real render on a size that's
-                // about to be thrown away one frame later anyway. The
-                // render thread itself is spawned right here too, on
-                // this same first trustworthy frame - see its own
-                // declaration's comment for why waiting is better than
-                // guessing a starting size.
+                // about to be thrown away one frame later anyway.
                 if (!dock_layout_just_built &&
                     (viewport_width != last_viewport_width || viewport_height != last_viewport_height))
                 {
-                    le_set_viewport_size(handle, viewport_width, viewport_height);
-                    last_viewport_width = viewport_width;
-                    last_viewport_height = viewport_height;
-                    if (!render_thread.joinable())
+                    // BUGS_AND_ENHANCEMENTS.md B5 - debounced (see
+                    // pending_viewport_width's own declaration comment
+                    // above), except for the very first-ever apply (the
+                    // render thread hasn't started yet - this is initial
+                    // sizing right after the dock layout settled, not a
+                    // user drag, and the render thread's own startup is
+                    // itself gated on a real size being applied at least
+                    // once - see its own declaration comment).
+                    const bool is_first_ever_apply = !render_thread.joinable();
+                    if (viewport_width != pending_viewport_width || viewport_height != pending_viewport_height)
                     {
-                        render_thread = std::thread(render_thread_loop, handle, std::ref(mailbox), std::ref(stop_render_thread));
+                        pending_viewport_width = viewport_width;
+                        pending_viewport_height = viewport_height;
+                        pending_viewport_change_time = glfwGetTime();
+                    }
+                    constexpr double kResizeDebounceSeconds = 0.15;
+                    if (is_first_ever_apply || (glfwGetTime() - pending_viewport_change_time) >= kResizeDebounceSeconds)
+                    {
+                        le_set_viewport_size(handle, viewport_width, viewport_height);
+                        last_viewport_width = viewport_width;
+                        last_viewport_height = viewport_height;
+                        if (is_first_ever_apply)
+                        {
+                            render_thread = std::thread(render_thread_loop, handle, std::ref(mailbox), std::ref(stop_render_thread));
+                        }
                     }
                 }
 
