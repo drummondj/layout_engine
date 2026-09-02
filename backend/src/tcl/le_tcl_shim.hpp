@@ -368,6 +368,9 @@ const char *command_history_at(int index);
 int get_hierarchy_depth_command();
 void set_hierarchy_depth_command(int depth);
 
+int get_max_concurrency_command();
+void set_max_concurrency_command(int max_concurrency);
+
 // --- Generated TCL property-reading surface (see backend/CLAUDE.md's
 // TCL section) - bare property-table accessors and is_child-field
 // enumeration for every TCL-readable class not already covered above.

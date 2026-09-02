@@ -653,6 +653,36 @@ if(SWIG_FOUND AND TCL_FOUND)
     # nested inside the same `tracy` namespace, which needs covering too)
     # closes this the same way the other two entries do.
     #
+    # A fourth instance (BUGS_AND_ENHANCEMENTS.md E10) - oneapi::tbb::
+    # global_control (LeHandle's own concurrency_control_, api.cpp).
+    # Unlike tracy:: above, oneTBB's actual runtime state genuinely IS a
+    # single shared instance across images (libtbb is a real dylib, not a
+    # static library baked into `api` - see this comment block's own
+    # opening paragraph) - but tbb::detail::d1::global_control's own
+    # constructor/destructor bodies are header-inline (oneapi/tbb/
+    # global_control.h), so they still get compiled separately into this
+    # target's own object code AND into whatever else statically links
+    # `api`, the exact "duplicated code, coalescable across the dylib
+    # boundary" shape every entry above shares - confirmed via `nm
+    # build/libapi.a`: __ZN3tbb6detail2d114global_controlC1/C2/D1/D2 (and
+    # the std::optional<global_control> wrapper functions LeHandle's own
+    # std::optional<global_control> member needs) are all default-
+    # visibility (T) symbols baked directly into this archive, not merely
+    # forwarding calls to libtbb.dylib. This one WAS reproduced as a real
+    # crash (not just closed preemptively like le::Root above):
+    # SessionHandle.InjectedHandleIsSharedNotFresh/GetShapesThroughTclDoesNotCrash
+    # (session_handle_test.cpp, the same "this module + a directly-linked
+    # copy of `api` in one process" shape every entry here needs) SIGTRAP'd/
+    # segfaulted the moment LeHandle's constructor ran through this
+    # module's own copy of global_control's constructor with the other
+    # image's copy already live - fixed by adding this pattern here,
+    # confirmed clean (5/5) afterward. `2d114global_control` (not e.g.
+    # `14global_control` alone) is the exact Itanium mangling substring
+    # for the `tbb::detail::d1::global_control` scope prefix - narrow
+    # enough to leave `tbb::detail::r1::` (the genuinely-shared-across-
+    # images runtime entry points every d1:: call forwards into) and
+    # every other tbb:: symbol coalescable as normal.
+    #
     # Second gotcha: editing le_tcl_unexported_symbols.txt alone does not
     # reliably trigger a relink - it's passed to the linker as a raw path
     # inside a string here, so CMake/ninja/make don't know to treat it as

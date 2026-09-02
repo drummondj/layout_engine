@@ -232,3 +232,64 @@ tile-rasterized with a narrower-than-viewport clip, so a BBH would only
 add recording cost there with nothing to accelerate. Full 666-test
 suite passes; both `build`/`build_release` rebuilt.
 
+## E10. Max CPU control.
+
+**Done.** Added `le_max_concurrency`/`le_set_max_concurrency` (`api.hpp`/
+`api.cpp`) - `LeHandle` now owns a process-wide
+`oneapi::tbb::global_control` capping how many threads oneTBB's default
+arena may use, which every pipeline's own `tbb::flow::graph` shares
+(each pipeline/`HierarchyResolver` node owns a private graph, but they
+all run against the same implicit default arena - no need to thread a
+handle through each one separately). Defaults to 8 as you asked;
+`set_max_concurrency` clamps below 2 up to 2 rather than rejecting -
+1 would starve the process's own background render thread against
+whatever else is using TBB concurrently, which seemed like the wrong
+failure mode for a setting whose whole point is "don't let this process
+hog a shared 128-core machine." Wired through to Tcl as
+`set_max_concurrency <n>`/`get_max_concurrency`, mirroring
+`set_hierarchy_depth`/`get_hierarchy_depth`'s own three-layer shape
+(`le_tcl_shim`, `le_api.i`, `le_tcl_procs.tcl` with `-help` support).
+
+**A real crash found and fixed along the way, not just a feature add:**
+the first version of this (identical in every way except a plain
+`oneapi::tbb::global_control` member with no further changes) made two
+of `session_handle_test`'s own tests (`InjectedHandleIsSharedNotFresh`,
+`GetShapesThroughTclDoesNotCrash`) SIGTRAP/segfault. Bisected by
+temporarily stripping the `global_control` construction back out (kept
+everything else) and confirming that alone restored all 5/5 passing -
+then `nm`'d `libapi.a` and found the actual cause: this is the *exact*
+same "duplicated static-library code, coalescable across a dylib
+boundary" bug class `le_tcl_unexported_symbols.txt` already has three
+entries for (`LefDefParser::`, `le::Root`, `tracy::` - see
+`CMakeLists.txt`'s own long comment above that file). oneTBB's real
+runtime state is genuinely shared correctly (`libtbb` is a dylib, not a
+static lib), but `tbb::detail::d1::global_control`'s own constructor/
+destructor are header-inline, so they get compiled separately into both
+`session_handle_test`'s own directly-linked copy of `api` AND
+`le_tcl.so`'s own separate copy - dyld's flat-namespace symbol
+coalescing was binding one image's constructor call to the other
+image's differently-initialized copy. Fixed the same way as the other
+three: added `__Z*2d114global_control*` to
+`le_tcl_unexported_symbols.txt`, with a matching explanatory paragraph
+in `CMakeLists.txt`. Confirmed via `nm`: the symbol goes from `T`
+(exported, coalescable) to `t` (local) in `le_tcl.so`, and all 5
+`SessionHandle` tests pass afterward.
+
+New test coverage: `api_test.cpp`'s `MaxConcurrencyDefaultsToEightAndRoundTrips`/
+`SetMaxConcurrencyClampsBelowTwoUpToTwoRatherThanRejecting`/
+`MaxConcurrencyFunctionsWithNullHandleDoNotCrash`, plus `help_test.tcl`'s
+registration check. Also PTY-smoke-tested through a real `le_shell`
+session (`set_max_concurrency`/`get_max_concurrency`/clamping/`-help`
+all behave as expected). Full 669-test suite passes; both
+`build`/`build_release` rebuilt.
+
+**Note for your morning review:** I did not attempt to verify the
+*actual OS thread count* TBB spawns under a lowered limit (e.g. via
+Activity Monitor or a thread-count syscall) - `global_control`'s own
+documented semantics (a process-wide cap on TBB's own worker pool,
+independent of this app's fixed OS threads - the Tcl console, the GUI/
+render thread, etc., none of which are TBB-scheduled) are what's
+implemented and tested, but a live "does this actually reduce CPU usage
+on a many-core machine" check would need a machine with enough cores to
+observe a difference, which isn't available in this sandbox.
+

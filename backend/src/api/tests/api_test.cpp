@@ -760,6 +760,31 @@ TEST_F(ApiFixture, HierarchyDepthFunctionsWithNullHandleDoNotCrash)
     le_set_hierarchy_depth(nullptr, 5); // no crash
 }
 
+// --- Max concurrency (BUGS_AND_ENHANCEMENTS.md E10) ---
+
+TEST_F(ApiFixture, MaxConcurrencyDefaultsToEightAndRoundTrips)
+{
+    EXPECT_EQ(le_max_concurrency(handle), 8);
+    le_set_max_concurrency(handle, 4);
+    EXPECT_EQ(le_max_concurrency(handle), 4);
+}
+
+TEST_F(ApiFixture, SetMaxConcurrencyClampsBelowTwoUpToTwoRatherThanRejecting)
+{
+    le_set_max_concurrency(handle, 1);
+    EXPECT_EQ(le_max_concurrency(handle), 2);
+    le_set_max_concurrency(handle, 0);
+    EXPECT_EQ(le_max_concurrency(handle), 2);
+    le_set_max_concurrency(handle, -5);
+    EXPECT_EQ(le_max_concurrency(handle), 2);
+}
+
+TEST_F(ApiFixture, MaxConcurrencyFunctionsWithNullHandleDoNotCrash)
+{
+    EXPECT_EQ(le_max_concurrency(nullptr), 0);
+    le_set_max_concurrency(nullptr, 5); // no crash
+}
+
 TEST_F(ApiFixture, SetCurrentDesignLayoutRendersThePlacedInstancesOwnContent)
 {
     // TOP's own Layout places TESTCELL (read via LEF, real M1 pin

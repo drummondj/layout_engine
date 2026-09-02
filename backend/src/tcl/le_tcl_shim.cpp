@@ -697,3 +697,13 @@ void set_hierarchy_depth_command(int depth)
 {
     le_set_hierarchy_depth(session(), depth);
 }
+
+int get_max_concurrency_command()
+{
+    return le_max_concurrency(session());
+}
+
+void set_max_concurrency_command(int max_concurrency)
+{
+    le_set_max_concurrency(session(), max_concurrency);
+}

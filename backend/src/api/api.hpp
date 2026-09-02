@@ -379,6 +379,22 @@ extern "C"
     /// no-op if handle is null.
     void le_set_antialiasing_enabled(LeHandle *handle, bool enabled);
 
+    /// @brief Max number of threads this handle's oneTBB-backed pipelines
+    /// (BUGS_AND_ENHANCEMENTS.md E10) may use at once - a process-wide
+    /// oneapi::tbb::global_control cap, not a per-pipeline setting, since
+    /// every pipeline/HierarchyResolver graph shares the same implicit
+    /// default TBB arena. Defaults to 8. Returns 0 if handle is null.
+    int32_t le_max_concurrency(LeHandle *handle);
+
+    /// @brief Sets le_max_concurrency(). Clamped to a minimum of 2 (not
+    /// rejected below it, unlike le_set_hierarchy_depth's own negative-
+    /// value convention) - a machine with 128+ CPUs is the whole reason
+    /// this exists, and 1 would starve the process's own background
+    /// render thread against whatever else is using TBB concurrently,
+    /// leaving nothing for the interactive Tcl console/GUI threads this
+    /// runs alongside. A no-op if handle is null.
+    void le_set_max_concurrency(LeHandle *handle, int32_t max_concurrency);
+
     /// @brief Current visibility of every ViewLayer whose purpose is
     /// `purpose` (le::ViewLayerPurpose's own raw ordinal - see
     /// le_purpose_at's own doc comment for the full list and why a caller

@@ -1659,3 +1659,30 @@ register_command_help get_hierarchy_depth \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
+
+proc set_max_concurrency { max_concurrency } {
+    if {$max_concurrency eq "-help"} {
+        return "set_max_concurrency <max_concurrency> \[-help\] - Sets the max number of threads the backend may use"
+    }
+    set_max_concurrency_command $max_concurrency
+}
+register_command_help set_max_concurrency \
+    "set_max_concurrency <max_concurrency> \[-help\]" \
+    "Set the maximum number of threads the backend's rendering pipelines may use at once (BUGS_AND_ENHANCEMENTS.md E10) - useful to cap CPU usage on machines with many cores. Clamped to a minimum of 2." \
+    {
+        {<max_concurrency> {type int required 1 description {Max threads, clamped to 2 or larger}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_max_concurrency {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_max_concurrency \[-help\] - Returns the max number of threads the backend may use"
+    }
+    return [get_max_concurrency_command]
+}
+register_command_help get_max_concurrency \
+    "get_max_concurrency \[-help\]" \
+    "Return the maximum number of threads the backend's rendering pipelines may use at once" \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }

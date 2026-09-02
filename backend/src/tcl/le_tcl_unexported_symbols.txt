@@ -1,3 +1,4 @@
 __ZN12LefDefParser*
 __Z*2le4Root*
 __ZN5tracy*
+__Z*2d114global_control*

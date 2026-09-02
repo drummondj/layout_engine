@@ -23,6 +23,7 @@
 // directly - regenerate via the regen-tcl skill.
 #include "generated_tcl/snapshot_appliers.hpp"
 #include <fmt/format.h>
+#include <oneapi/tbb/global_control.h>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -103,6 +104,26 @@ struct LeHandle
     // exactly the right tool for "one writer under a different lock,
     // arbitrary lock-free readers".
     std::atomic<bool> is_rendering_{false};
+
+    // BUGS_AND_ENHANCEMENTS.md E10 - process-wide cap on how many threads
+    // oneTBB's default arena may use for this handle's pipeline flow
+    // graphs (AbstractShapePipeline/LayoutShapePipeline/FrameRenderPipeline/
+    // HierarchyResolver each own their own private tbb::flow::graph - see
+    // their own class comments - but all of them run on the SAME implicit
+    // default TBB arena unless told otherwise, so one process-wide
+    // oneapi::tbb::global_control is enough to cap every one of them
+    // without threading a reference through each pipeline). global_control
+    // has no setter of its own - only construction/destruction sets its
+    // limit for as long as it's alive - so le_set_max_concurrency
+    // destroys and reconstructs this in place under a new limit rather
+    // than mutating it; std::optional makes that destroy-then-reconstruct
+    // possible. max_concurrency_ mirrors the limit currently in effect so
+    // le_max_concurrency() doesn't need to ask oneapi::tbb::global_control
+    // (which has no public getter) what it's currently set to. Defaults
+    // to 8, the user's own requested default.
+    int32_t max_concurrency_ = 8;
+    std::optional<oneapi::tbb::global_control> concurrency_control_{
+        std::in_place, oneapi::tbb::global_control::max_allowed_parallelism, 8};
 
     // BUGS_AND_ENHANCEMENTS.md "Dear ImGui prototype" - a Tcl console's
     // own `show_gui` command sets this to signal the process's dedicated
@@ -1638,6 +1659,32 @@ extern "C"
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
         handle->scene.set_antialiasing_enabled(enabled);
+    }
+
+    int32_t le_max_concurrency(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+        return handle->max_concurrency_;
+    }
+
+    void le_set_max_concurrency(LeHandle *handle, int32_t max_concurrency)
+    {
+        if (!handle)
+            return;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+        const int32_t clamped = std::max(2, max_concurrency);
+        if (clamped == handle->max_concurrency_)
+            return;
+        handle->max_concurrency_ = clamped;
+        // No setter on global_control itself - destroy the old limit
+        // before constructing the new one (a live global_control's own
+        // limit is the min across every currently-constructed instance,
+        // so leaving the old one alive while constructing a new one could
+        // never raise the effective limit, only lower it).
+        handle->concurrency_control_.reset();
+        handle->concurrency_control_.emplace(oneapi::tbb::global_control::max_allowed_parallelism, static_cast<size_t>(clamped));
     }
 
     int32_t le_is_purpose_visible(LeHandle *handle, int32_t purpose)

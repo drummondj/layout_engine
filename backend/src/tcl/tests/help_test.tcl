@@ -285,6 +285,8 @@ foreach {cmd expect_substr} {
     shape_paths                "shape_paths <id>"
     set_hierarchy_depth        "set_hierarchy_depth <depth>"
     get_hierarchy_depth        "get_hierarchy_depth"
+    set_max_concurrency        "set_max_concurrency <max_concurrency>"
+    get_max_concurrency        "get_max_concurrency"
     remove_shape_rect          "remove_shape_rect <id> <index>"
     remove_shape_polygon       "remove_shape_polygon <id> <polygon_index>"
     remove_shape_path          "remove_shape_path <id> <path_index>"
