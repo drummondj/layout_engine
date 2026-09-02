@@ -349,6 +349,94 @@ TEST_F(AbstractShapePipelineFixture, RunResolvesAViaReferencedByATerminalOntoIts
     EXPECT_EQ(it->second.front().shape.rects[0].ll.y, 45);
 }
 
+// BUGS_AND_ENHANCEMENTS.md B3 - a via with no explicit ViaLayer rects
+// (a LEF 5.6 VIARULE-inside-VIA reference) but a real ROWCOL clause is a
+// via *array*, synthesized into a real grid of cut rects rather than
+// skipped entirely (via_shapes.hpp's own append_via_rule_array).
+TEST_F(AbstractShapePipelineFixture, RunSynthesizesAViaRuleReferencesRowColIntoARealCutArray)
+{
+    const le::LayerId cut_layer = root.create_layer(le::LayerData{.technology = technology_id, .name = "V1", .type = "CUT"});
+
+    const le::ViaId via_id = root.create_via(le::ViaData{.technology = technology_id, .name = "VIAARRAY"});
+    root.create_via_rule_reference(le::ViaRuleReferenceData{
+        .via = via_id,
+        .via_rule_name = "ViaRule1",
+        .cut_size = le::Point{.x = 2, .y = 2},
+        .bot_layer_name = "M1",
+        .cut_layer_name = "V1",
+        .top_layer_name = "M2",
+        .cut_spacing = le::Point{.x = 1, .y = 1},
+        .bot_enclosure = le::Point{.x = 1, .y = 1},
+        .top_enclosure = le::Point{.x = 1, .y = 1},
+        .num_cut_rows = 2,
+        .num_cut_cols = 3,
+    });
+
+    le::Shape shape{.layer = m1, .rects = {le::Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    shape.vias.push_back(le::ShapeVia{.via_name = "VIAARRAY", .origin = le::Point{50, 50}});
+    add_terminal_shape(shape);
+
+    const auto &grouped = pipeline.run(abstract_id, options());
+
+    const le::ViewLayerId cut_view_layer = view_layers.find(cut_layer, le::ViewLayerPurpose::TERMINAL);
+    const auto cut_it = grouped.find(cut_view_layer);
+    ASSERT_NE(cut_it, grouped.end());
+    ASSERT_EQ(cut_it->second.size(), 1u); // one RenderedShape...
+    EXPECT_EQ(cut_it->second.front().shape.rects.size(), 6u); // ...holding all 2 rows x 3 cols = 6 cuts
+
+    // Bottom/top metal each get their own single enclosure rect (not
+    // per-cut) - both layers are ordinary routing layers here (m1/m2,
+    // the fixture's own), so both show up as real TERMINAL-purpose
+    // RenderedShapes too.
+    const le::ViewLayerId bot_view_layer = view_layers.find(m1, le::ViewLayerPurpose::TERMINAL);
+    const auto bot_it = grouped.find(bot_view_layer);
+    ASSERT_NE(bot_it, grouped.end());
+    // The Shape's own rect (10x10 at origin) plus the via's own bottom
+    // enclosure rect both land on M1/TERMINAL - the enclosure one is
+    // whichever entry isn't the original 0,0-10,10 rect.
+    bool found_enclosure = false;
+    for (const auto &rendered : bot_it->second)
+        if (rendered.shape.rects.size() == 1 && rendered.shape.rects[0].ll.x != 0)
+            found_enclosure = true;
+    EXPECT_TRUE(found_enclosure);
+
+    const le::ViewLayerId top_view_layer = view_layers.find(m2, le::ViewLayerPurpose::TERMINAL);
+    const auto top_it = grouped.find(top_view_layer);
+    ASSERT_NE(top_it, grouped.end());
+    ASSERT_EQ(top_it->second.size(), 1u);
+}
+
+// A ViaRuleReference with no ROWCOL clause at all still means something
+// real in LEF - a single cut at cut_size - not "nothing to draw" the way
+// it was skipped before this fix.
+TEST_F(AbstractShapePipelineFixture, RunSynthesizesASingleCutForAViaRuleReferenceWithNoRowCol)
+{
+    root.create_layer(le::LayerData{.technology = technology_id, .name = "V1", .type = "CUT"});
+
+    const le::ViaId via_id = root.create_via(le::ViaData{.technology = technology_id, .name = "VIASINGLE"});
+    root.create_via_rule_reference(le::ViaRuleReferenceData{
+        .via = via_id,
+        .via_rule_name = "ViaRule1",
+        .cut_size = le::Point{.x = 2, .y = 2},
+        .bot_layer_name = "M1",
+        .cut_layer_name = "V1",
+        .top_layer_name = "M2",
+    });
+
+    le::Shape shape{.layer = m1, .rects = {le::Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    shape.vias.push_back(le::ShapeVia{.via_name = "VIASINGLE", .origin = le::Point{50, 50}});
+    add_terminal_shape(shape);
+
+    const auto &grouped = pipeline.run(abstract_id, options());
+    size_t cut_rect_count = 0;
+    for (const auto &[view_layer_id, shapes] : grouped)
+        for (const auto &rendered : shapes)
+            if (rendered.shape.layer.valid() && root.get_layer(rendered.shape.layer) != nullptr &&
+                root.get_layer(rendered.shape.layer)->name == "V1")
+                cut_rect_count += rendered.shape.rects.size();
+    EXPECT_EQ(cut_rect_count, 1u);
+}
+
 TEST_F(AbstractShapePipelineFixture, RunDropsShapesOutsideViewportAndOnHiddenLayers)
 {
     add_terminal_shape(le::Shape{.layer = m1, .rects = {le::Rect{.ll = {10, 10}, .ur = {20, 20}}}});

@@ -763,6 +763,28 @@ TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAViaReferencingAViaRuleWithCutGeom
     ASSERT_TRUE(vr.top_enclosure.has_value());
     EXPECT_EQ(vr.top_enclosure->x, 10);
     EXPECT_EQ(vr.top_enclosure->y, 50);
+
+    // VIA2 has no ROWCOL clause at all - BUGS_AND_ENHANCEMENTS.md B3's
+    // own "no ROWCOL means a single cut, not nothing to draw" case
+    // (via_shapes.hpp) relies on this staying unset here, not some
+    // implicit 0/0 or 1/1 default.
+    EXPECT_FALSE(vr.num_cut_rows.has_value());
+    EXPECT_FALSE(vr.num_cut_cols.has_value());
+}
+
+// BUGS_AND_ENHANCEMENTS.md B3 - a real via *array*: same VIARULE-inside-VIA
+// shape as VIA2 above, plus a ROWCOL clause.
+TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAViaWithARowColClauseAsARealArray)
+{
+    const ViaId via_id = root.get_via_by_name("VIA3");
+    ASSERT_TRUE(via_id.valid());
+
+    const ViaRuleReferenceData *vr_ptr = root.get_via_rule_reference(root.get_via_via_rule(via_id));
+    ASSERT_TRUE(vr_ptr != nullptr);
+    ASSERT_TRUE(vr_ptr->num_cut_rows.has_value());
+    ASSERT_TRUE(vr_ptr->num_cut_cols.has_value());
+    EXPECT_EQ(*vr_ptr->num_cut_rows, 2);
+    EXPECT_EQ(*vr_ptr->num_cut_cols, 3);
 }
 
 TEST_F(LEFReaderViaFixture, ReadsSiteDefinitionsWithClassSizeSymmetryAndRowPattern)

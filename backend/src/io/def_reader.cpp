@@ -849,7 +849,7 @@ namespace le
             int x_bot_enc = 0, y_bot_enc = 0, x_top_enc = 0, y_top_enc = 0;
             via->viaRule(&via_rule_name, &x_size, &y_size, &bot_layer, &cut_layer, &top_layer,
                          &x_cut_spacing, &y_cut_spacing, &x_bot_enc, &y_bot_enc, &x_top_enc, &y_top_enc);
-            reader->root_->create_via_rule_reference(ViaRuleReferenceData{
+            ViaRuleReferenceData via_rule_data{
                 .layout_via = layout_via_id,
                 .via_rule_name = via_rule_name,
                 .cut_size = Point{.x = scale_dbu(x_size, reader->unit_scale_), .y = scale_dbu(y_size, reader->unit_scale_)},
@@ -859,7 +859,19 @@ namespace le
                 .cut_spacing = Point{.x = scale_dbu(x_cut_spacing, reader->unit_scale_), .y = scale_dbu(y_cut_spacing, reader->unit_scale_)},
                 .bot_enclosure = Point{.x = scale_dbu(x_bot_enc, reader->unit_scale_), .y = scale_dbu(y_bot_enc, reader->unit_scale_)},
                 .top_enclosure = Point{.x = scale_dbu(x_top_enc, reader->unit_scale_), .y = scale_dbu(y_top_enc, reader->unit_scale_)},
-            });
+            };
+            // ROWCOL (BUGS_AND_ENHANCEMENTS.md B3) - DEF VIAS VIARULE's
+            // own mirror of LEF's ROWCOL clause, same "a real via array"
+            // meaning - see lef_reader.cpp's own matching comment.
+            if (via->hasRowCol())
+            {
+                int num_cut_rows = 0;
+                int num_cut_cols = 0;
+                via->rowCol(&num_cut_rows, &num_cut_cols);
+                via_rule_data.num_cut_rows = num_cut_rows;
+                via_rule_data.num_cut_cols = num_cut_cols;
+            }
+            reader->root_->create_via_rule_reference(std::move(via_rule_data));
         }
         return 0;
     }

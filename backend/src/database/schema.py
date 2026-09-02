@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.39.0",
+    version="0.40.0",
     classes=[
         Klass(
             name="Technology",
@@ -893,7 +893,7 @@ schema = Schema(
         ),
         Klass(
             name="ViaRuleReference",
-            description="A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). Rarer sub-fields (ROWCOL/ORIGIN/OFFSET/PATTERN) aren't modeled yet. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)",
+            description="A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). ROWCOL (num_cut_rows/num_cut_cols below) is modeled - BUGS_AND_ENHANCEMENTS.md B3, a via *array* is exactly a ROWCOL clause with more than one row/col of cuts, synthesized into concrete cut rects by via_shapes.hpp at render time rather than stored as one rect per cut. Rarer sub-fields (ORIGIN/OFFSET/PATTERN) still aren't modeled - real, narrower LEF constructs than plain ROWCOL (a caller-supplied grid origin/offset override and a sparse cut-presence bitmap, respectively), deferred the same documented way Field.create_excluded fields are elsewhere in this schema. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)",
             fields=[
                 Field(
                     name="via",
@@ -953,6 +953,20 @@ schema = Schema(
                     name="top_enclosure",
                     description="The top layer enclosure, in database units (LEF ENCLOSURE, top pair) - is_optional=True per cut_size's own note",
                     type="Point",
+                    is_optional=True,
+                ),
+                Field(
+                    name="num_cut_rows",
+                    description="Number of cut rows (LEF VIARULE-inside-VIA ROWCOL numRows) - unset (no ROWCOL clause on this via) means a single cut at cut_size, same as num_cut_rows==1/num_cut_cols==1 would; is_optional=True per cut_size's own note",
+                    type="int",
+                    example=2,
+                    is_optional=True,
+                ),
+                Field(
+                    name="num_cut_cols",
+                    description="Number of cut columns (LEF VIARULE-inside-VIA ROWCOL numCols) - is_optional=True per num_cut_rows' own note",
+                    type="int",
+                    example=2,
                     is_optional=True,
                 ),
             ],

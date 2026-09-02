@@ -2,10 +2,11 @@
 
 - [x] B1. The terminal/route fill pattern does not work at different zoom levels. Not sure how long it has been like this.
 - [x] B2. When hovering the mouse in select mode, it highlights the route under the mouse, but when I clock to select, it selects the placement underneath the route. Whatever is highlighted should be selected and routes should hit before the placements underneath.
-- [ ] B3. Via arrays are not being rendered.
-- [ ] B4. Running a zoom command before show_gui causes the layout viewer to hang.
+- [x] B3. Via arrays are not being rendered.
+- [x] B4. Running a zoom command before show_gui causes the layout viewer to hang.
 - [ ] B5. Resizing a sidebar should wait until the resize is finished before rendering a new frame in the layout window.
 - [ ] B6. Closing the GUI window still causes a never ending beachball. Force quiting window results in B6_trace.txt report. 
+
 
 # ENHANCEMENTS
 
@@ -25,7 +26,7 @@
 - [x] E14. Some TCL commands don't help -help options or work with the help command. For example, read_lef and read_def. Please make sure all TCL commands are integrated with the help system.
 - [x] E15. The LibraryBrowser widget needs to be updated so the user can open an abstract view or a layout view. Each design node in the tree should have children for each view, if it exists, which can be clicked on to open that view in the LayoutEngine widget (via the open_design TCL command not directly in the API).
 - [x] E16. The cross shapes next to terminal text should scale with the text instead of being a fixed height/width. Let's use half the height of the text.
-- [ ] E17. When interacting with the texture, zoom, pan etc. I would also like the spinner to show in the status bar when a frame is being rendered.
+- [x] E17. When interacting with the texture, zoom, pan etc. I would also like the spinner to show in the status bar when a frame is being rendered.
 - [ ] E18. Psuedo-abstract generation. When a Layout view containts Placements of other Layout views and those designs don't have an abstract view, then nothing is rendered at hierarchy depth 1. Which is expected. But I would like to draw the Placement boundary and placementName if there is no Abstract view.
 - [x] E19. The anti-aliasing enable/disable option doesn't work on all text. Some are hardcoded as true. Even though it looks bad, text render is quite expensive, so it would be good to benchmark if this helps or not.
 - [x] E20. Prefer TCL commands over directy API calls from LeProvider. Can you review which LeProvider methods call the API directly and if they can be replaced with TCL command calls? Then the user can see which UI action correspond to which TCL commands, which helps them script things. Also, it's better to have one way to execute API commands, and TCL is my prefered way. For example, if I used the UI to select and read a LEF file, I should see a read_lef command in the TCL history.

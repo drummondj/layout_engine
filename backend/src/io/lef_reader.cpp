@@ -1056,6 +1056,15 @@ namespace le
                     .y = reader->microns_to_dbu(lef_via->yTopEnc()),
                 },
             };
+            // ROWCOL (BUGS_AND_ENHANCEMENTS.md B3) - a real via *array*,
+            // as opposed to a single cut at cut_size - left unset (no
+            // ROWCOL clause on this via) when hasRowCol() is false,
+            // matching every other is_optional field here.
+            if (lef_via->hasRowCol())
+            {
+                pending_via_rule->num_cut_rows = lef_via->numCutRows();
+                pending_via_rule->num_cut_cols = lef_via->numCutCols();
+            }
         }
 
         // lefiVia's own accessor is numProperties(), not numProps() -
