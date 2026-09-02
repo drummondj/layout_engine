@@ -40,7 +40,7 @@
 - [x] E23. I'm wondering if it is efficent to create a SkPicture and replay it each time the zoom level changes. Would it be better to just directly render to the canvas and re-use the canvas across Placements? Is this even possible? Please investigate.
 - [x] E24. PlacementNames should be rendered for sub-layout placements in the same way terminal text is for placement abstracts.
 - [x] E25. Test raster performance when recording SkPitcures with a SkRTreeFactory
-- [ ] E26. le_shell header with version number, should get version number and build date automatically:
+- [x] E26. le_shell header with version number, should get version number and build date automatically:
 
 ```
 ┌┐    ┌┬──┐ ┌┐ ┌┐ ┌┬──┐ ┌┐  ┐ ┌─┬┬─┐      ┌┬──┐ ┌┬─┐ ┐ ┌┬──  ┌┐ ┌┬─┐ ┐ ┌┬──┐
@@ -58,7 +58,7 @@ If not an offical github release then the release version is the current short g
 
 I already have an old script (before ImGui) I was using the build the backend: scripts/build.sh so maybe reuse that to generate the version number and date? Unless there is an industry standard way of doing this for C++ programs. Like in the CMakeLists.txt file.
 
-- [ ] E27. Change le_shell prompt from "%" to "le_shell > "
+- [x] E27. Change le_shell prompt from "%" to "le_shell > "
 
 
 # QUESTIONS

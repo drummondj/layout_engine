@@ -788,8 +788,25 @@ if(SWIG_FOUND AND TCL_FOUND)
     # commands now that the Flutter Terminal widget isn't the primary
     # interactive surface, so it needs the real window and the real
     # console experience every time, not a degraded fallback.
+    # BUGS_AND_ENHANCEMENTS.md E26 - le_shell's own version/build-date
+    # banner (le_shell.cpp's own run_interactive()), regenerated fresh on
+    # every build (not just every configure) - see
+    # cmake/generate_le_shell_version.cmake's own header comment for why
+    # this is a custom target (always out of date) rather than a plain
+    # configure_file() call.
+    add_custom_target(generate_le_shell_version ALL
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -DPROJECT_VERSION=${PROJECT_VERSION}
+            -DOUTPUT_FILE=${CMAKE_BINARY_DIR}/generated/le_shell_version.hpp
+            -P ${CMAKE_SOURCE_DIR}/cmake/generate_le_shell_version.cmake
+        BYPRODUCTS ${CMAKE_BINARY_DIR}/generated/le_shell_version.hpp
+        COMMENT "Generating le_shell version header"
+    )
+
     add_executable(le_shell src/tcl/le_shell.cpp)
-    target_include_directories(le_shell PRIVATE ${TCL_INCLUDE_PATH})
+    add_dependencies(le_shell generate_le_shell_version)
+    target_include_directories(le_shell PRIVATE ${TCL_INCLUDE_PATH} ${CMAKE_BINARY_DIR})
     target_link_libraries(le_shell PRIVATE ${TCL_LIBRARY} api gui)
 
     # GNU readline (GPL - this project carries no LICENSE file/

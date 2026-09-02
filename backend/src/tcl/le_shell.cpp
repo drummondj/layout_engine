@@ -61,6 +61,7 @@
 
 #include "api.hpp"
 #include "le_gui.hpp"
+#include "generated/le_shell_version.hpp"
 
 #include <readline/history.h>
 #include <readline/readline.h>
@@ -292,6 +293,33 @@ namespace
         return 0;
     }
 
+    // BUGS_AND_ENHANCEMENTS.md E26 - printed once, only in interactive
+    // mode (run_shell's own script-argument branch never calls
+    // run_interactive at all - a batch script's stdout shouldn't gain
+    // unexpected banner noise). LE_SHELL_VERSION/LE_SHELL_BUILD_DATE come
+    // from generated/le_shell_version.hpp, regenerated fresh on every
+    // build by cmake/generate_le_shell_version.cmake (CMakeLists.txt's
+    // own le_shell target) - see that script's own header comment for
+    // why a build-time custom target, not a configure-time
+    // configure_file().
+    void print_banner()
+    {
+        std::fputs(
+            "\n"
+            "┌┐    ┌┬──┐ ┌┐ ┌┐ ┌┬──┐ ┌┐  ┐ ┌─┬┬─┐      ┌┬──┐ ┌┬─┐ ┐ ┌┬──  ┌┐ ┌┬─┐ ┐ ┌┬──┐\n"
+            "├┤    ├┼──┤ └┴─┼┤ ├┤  │ ├┤  │   ├┤        ├┼─   ├┤ │ │ ├┤ ┬┐ ├┤ ├┤ │ │ ├┼─  \n"
+            "└┴──┘ └┘  ┘ └──┴┘ └┴──┘ └┴──┘   └┘        └┴──┘ └┘ └─┘ └┴─┴┘ └┘ └┘ └─┘ └┴──┘\n"
+            "\n",
+            stdout);
+        std::printf("Version  : %s\n", LE_SHELL_VERSION);
+        std::printf("Built on : %s\n", LE_SHELL_BUILD_DATE);
+        std::fputs(
+            "\n"
+            "HINT: Use help [wildcard] for help on the various TCL commands. Use man <command> for details.\n"
+            "\n",
+            stdout);
+    }
+
     // Replaces Tcl_Main's own hardcoded interactive loop - see this
     // file's own header comment for why. Multi-line commands (an
     // unbalanced brace/quote/bracket) keep reading further lines -
@@ -301,6 +329,8 @@ namespace
     // same way.
     void run_interactive(Tcl_Interp *interp)
     {
+        print_banner();
+
         g_completion_interp = interp;
         rl_attempted_completion_function = attempted_completion;
         rl_completer_word_break_characters = const_cast<char *>(" \t\n");
@@ -309,7 +339,9 @@ namespace
         std::string buffer;
         for (;;)
         {
-            const char *prompt = buffer.empty() ? "% " : "";
+            // BUGS_AND_ENHANCEMENTS.md E27 - was "% ", Tcl_Main's own
+            // default prompt.
+            const char *prompt = buffer.empty() ? "le_shell > " : "";
             char *raw = readline(prompt);
             if (raw == nullptr)
             {
