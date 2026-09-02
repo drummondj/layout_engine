@@ -6,7 +6,7 @@
 - [x] B4. Running a zoom command before show_gui causes the layout viewer to hang.
 - [x] B5. Resizing a sidebar should wait until the resize is finished before rendering a new frame in the layout window.
 - [ ] B6. Closing the GUI window still causes a never ending beachball. Force quiting window results in B6_trace.txt report. 
-- [ ] B7. Keyboard shorrtcuts should only trigger when the mouse is over the layout window. Changing the hierarchy depth by entering 1, 2 etc also changes the layer visibility.
+- [x] B7. Keyboard shorrtcuts should only trigger when the mouse is over the layout window. Changing the hierarchy depth by entering 1, 2 etc also changes the layer visibility.
 
 # ENHANCEMENTS
 
@@ -47,7 +47,7 @@
 ├┤    ├┼──┤ └┴─┼┤ ├┤  │ ├┤  │   ├┤        ├┼─   ├┤ │ │ ├┤ ┬┐ ├┤ ├┤ │ │ ├┼─  
 └┴──┘ └┘  ┘ └──┴┘ └┴──┘ └┴──┘   └┘        └┴──┘ └┘ └─┘ └┴─┴┘ └┘ └┘ └─┘ └┴──┘
 
-Version  : x.x.x
+Version  : x.y.z
 Built on : <build date>
 
 HINT: Use help [wildcard] for help on the various TCL commands. Use man <command> for details.

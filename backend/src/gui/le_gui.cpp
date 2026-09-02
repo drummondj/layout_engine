@@ -106,11 +106,52 @@ namespace le::gui
         // key-down *and* key-repeat" contract for the canvas-navigation
         // codes (zoom/fit/pan keep re-triggering while held, same as a
         // real keyboard's own repeat).
-        void forward_keyboard_input(LeHandle *handle)
+        //
+        // `active` (BUGS_AND_ENHANCEMENTS.md B7) - the caller passes
+        // `layout view hovered && !io.WantTextInput`, so this only
+        // forwards while the mouse is actually over the layout/design
+        // view AND no ImGui text-editing widget currently has focus.
+        // `io.WantCaptureKeyboard` (tried first) is the wrong flag here
+        // despite the similar name - its own doc comment says it's also
+        // set whenever "an imgui window is focused and navigation is
+        // enabled", true for this whole docked app almost all the time,
+        // not just while actively typing - gating on it broke every
+        // shortcut outright. `io.WantTextInput` is the narrower one,
+        // "set by Dear ImGui when it wants textual keyboard input to
+        // happen (e.g. when an InputText widget is active)" - exactly
+        // "is some text field actively capturing keystrokes right now".
+        // Without this check at all, typing "1"/"2" into
+        // layer_manager.hpp's own "Hierarchy Depth" InputInt field also
+        // reached this function unconditionally - LE_KEY_1/LE_KEY_2 mean
+        // "toggle a ROUTING layer's visibility" to the backend
+        // (LeKeyCode's own doc comment), so every digit typed into that
+        // field silently toggled a layer too, the original bug reported.
+        // When `active` transitions to false, `le_clear_all_keys` fires
+        // once - the matching key-up for whatever was held at that
+        // moment (e.g. Shift, mid-multi-select) isn't guaranteed to
+        // still reach this function once forwarding stops, so without
+        // this a modifier could stay "held" from the backend's own point
+        // of view indefinitely (le_clear_all_keys's own doc comment).
+        void forward_keyboard_input(LeHandle *handle, bool active)
         {
-            ImGuiIO &io = ImGui::GetIO();
+            static bool was_active = false;
             static bool ctrl_was_held = false;
             static bool shift_was_held = false;
+
+            if (!active)
+            {
+                if (was_active)
+                {
+                    le_clear_all_keys(handle);
+                    ctrl_was_held = false;
+                    shift_was_held = false;
+                }
+                was_active = false;
+                return;
+            }
+            was_active = true;
+
+            ImGuiIO &io = ImGui::GetIO();
             if (io.KeyCtrl != ctrl_was_held)
             {
                 (io.KeyCtrl ? le_key_down : le_key_up)(handle, LE_KEY_CTRL);
@@ -152,8 +193,9 @@ namespace le::gui
         // own pixel space (matching le_set_viewport_size's own
         // framebuffer-pixel units) - they differ on a HiDPI/Retina
         // display, where the framebuffer has more real pixels than
-        // logical points.
-        void forward_mouse_input(LeHandle *handle, ActiveGesture &gesture, float scale_x, float scale_y)
+        // logical points. Returns `hovered` - the caller also gates
+        // forward_keyboard_input on it (BUGS_AND_ENHANCEMENTS.md B7).
+        bool forward_mouse_input(LeHandle *handle, ActiveGesture &gesture, float scale_x, float scale_y)
         {
             const bool hovered = ImGui::IsItemHovered();
             const ImVec2 origin = ImGui::GetItemRectMin();
@@ -207,6 +249,8 @@ namespace le::gui
             {
                 le_zoom(handle, wheel * kZoomStepPerWheelTick, px, py);
             }
+
+            return hovered;
         }
 
         // How often the background render thread re-checks the handle
@@ -524,7 +568,12 @@ namespace le::gui
                 ImGui_ImplGlfw_NewFrame();
                 ImGui::NewFrame();
 
-                forward_keyboard_input(handle);
+                // BUGS_AND_ENHANCEMENTS.md B7 - set once the layout
+                // view's own hover state is known (forward_mouse_input,
+                // below, only runs once the image is actually drawn);
+                // forward_keyboard_input is called unconditionally after
+                // that, once per frame, using whatever this ends up as.
+                bool layout_view_hovered = false;
 
                 const bool dock_layout_just_built = draw_dockspace_and_default_layout(dockspace_built);
 
@@ -711,7 +760,7 @@ namespace le::gui
                     ImGui::Image(
                         static_cast<ImTextureID>(static_cast<intptr_t>(texture_id)),
                         ImVec2(panel_width, image_win_height));
-                    forward_mouse_input(handle, gesture, scale_x, scale_y);
+                    layout_view_hovered = forward_mouse_input(handle, gesture, scale_x, scale_y);
 
                     // A render actually in progress (le_is_rendering, E17's
                     // own spinner signal) means whatever's currently
@@ -740,6 +789,11 @@ namespace le::gui
                     ImGui::Dummy(ImVec2(panel_width, dummy_height));
                     ImGui::TextUnformatted("No design loaded yet - read_lef/open_design from the console.");
                 }
+
+                // BUGS_AND_ENHANCEMENTS.md B7 - see forward_keyboard_input's
+                // own doc comment for why io.WantTextInput, not
+                // io.WantCaptureKeyboard, is the right flag here.
+                forward_keyboard_input(handle, layout_view_hovered && !ImGui::GetIO().WantTextInput);
 
                 draw_status_bar(handle, panel_width);
 
