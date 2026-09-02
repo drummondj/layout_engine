@@ -116,3 +116,50 @@ doesn't change behavior for the non-resizing steady-state case (verified
 via a PTY smoke test: window still opens and renders correctly). Worth a
 quick manual drag-a-sidebar check on your end.
 
+## E18/E24. Pseudo-abstract generation for Layout-only Placements with no Abstract view; PlacementNames for sub-layout placements.
+
+**Fixed - both together, same root cause.** `HierarchyResolver::discover_layout_children`
+resolves each Placement's own `reference_design` via `resolve_design_target`,
+which returns `Kind::Layout` only if `remaining_depth > 0`, else falls back
+to `Kind::Abstract`, else `Kind::None`. A Placement whose Design has a
+Layout but genuinely no Abstract hits `Kind::None` once `remaining_depth`
+reaches 0 (the normal, expected point where recursion stops) - previously
+that meant "skip this Placement entirely, log a warning, draw nothing,"
+even though the Layout's own `diearea` is known and could still be shown
+as a placeholder.
+
+Fix: in that `Kind::None` branch, before giving up, look up
+`root.get_design_layout(reference_design)` directly - independent of
+`remaining_depth`, since this is a leaf placeholder, not a recursion
+attempt. If a Layout exists, compute its world bbox the same way a real
+Layout placement would, then push it into `tiny_instance_rects` (boundary
+outline) and `placement_labels` (name) - the exact same mechanism
+`BuildLayoutPictureStage` already uses for genuinely tiny/sub-pixel
+placements (BOUNDARY view layer's own outline color, drawn under real
+child content) - with no `NodeKey`/child node/edge, i.e. no recursion.
+This covers E24 too: the label is the same `PlacementLabel` mechanism a
+normal (recursed) placement already gets, just also applied to this
+no-recursion case. A design with neither a Layout nor an Abstract still
+falls through to the original warn-and-skip behavior unchanged.
+
+New test: `hierarchy_resolver_test.cpp`'s
+`PlacementOfALayoutOnlyDesignAtExhaustedDepthDrawsBoundaryAndLabelInsteadOfNothing`
+(a Layout-only INNER design placed inside OUTER at `remaining_depth=0` -
+asserts the boundary outline is visible and no colored/real content
+drew, since none exists). Full 666-test suite passes; both
+`build`/`build_release` rebuilt.
+
+**Judgment call:** the placeholder outline still respects the same
+sub-pixel skip (`sub_pixel_dbu`) genuinely-tiny placements already use -
+if the placement is sub-pixel in both dimensions even this outline would
+be pure noise, so it's skipped the same way. Unlike a normal placement,
+though, this placeholder path is never subject to the *larger*
+`min_visible_dbu` threshold that would otherwise route a large-enough
+placement into real recursion instead of an outline - there's no
+Abstract/reachable-Layout to recurse into here regardless of size, so it
+always gets the outline+label treatment once it's above the sub-pixel
+floor, matching what E18 asked for ("draw the Placement boundary and
+placementName if there is no Abstract view") rather than gating it
+behind the same density-avoidance threshold a real recursable placement
+uses.
+

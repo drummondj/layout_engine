@@ -498,6 +498,42 @@ namespace le
                 const DesignTarget target = resolve_design_target(root, placement->reference_design, remaining_depth);
                 if (target.kind == DesignTarget::Kind::None)
                 {
+                    // BUGS_AND_ENHANCEMENTS.md E18/E24 - a Placement whose
+                    // Design has a Layout but no Abstract resolves to
+                    // Kind::None at remaining_depth 0 (Layout needs
+                    // remaining_depth > 0, and there's no Abstract to fall
+                    // back to) - real content is unreachable, but the
+                    // Layout's own diearea is still known, so draw a
+                    // boundary outline + name label for it (reusing the
+                    // tiny_instance_rects/placement_labels mechanism below
+                    // - same parent-local pixel space, no recursion, no
+                    // child node/edge) rather than rendering nothing at
+                    // all. Looked up independent of remaining_depth: this
+                    // is a leaf placeholder, not a recursion attempt.
+                    const LayoutId pseudo_layout_id = root.get_design_layout(placement->reference_design);
+                    if (pseudo_layout_id.valid())
+                    {
+                        const Rect child_local_bbox = layout_declared_bbox(root, pseudo_layout_id);
+                        const Orientation orientation = placement->orientation.value_or(Orientation::N);
+                        const Geometry::InstanceTransform transform = Geometry::instance_transform(orientation, child_local_bbox, *placement->location);
+                        const Rect world_bbox = Geometry::transform_bbox(transform, child_local_bbox);
+
+                        expand(world_bbox);
+
+                        const double width = static_cast<double>(world_bbox.ur.x - world_bbox.ll.x);
+                        const double height = static_cast<double>(world_bbox.ur.y - world_bbox.ll.y);
+                        if (width < sub_pixel_dbu && height < sub_pixel_dbu)
+                            continue; // sub-pixel outline would be visual noise, not information
+
+                        const PixelRect pixel_rect{
+                            .ll = PixelPoint{.x = static_cast<double>(world_bbox.ll.x - local_origin.x) * scale, .y = static_cast<double>(world_bbox.ll.y - local_origin.y) * scale},
+                            .ur = PixelPoint{.x = static_cast<double>(world_bbox.ur.x - local_origin.x) * scale, .y = static_cast<double>(world_bbox.ur.y - local_origin.y) * scale},
+                        };
+                        result.tiny_instance_rects.push_back(pixel_rect);
+                        result.placement_labels.push_back(PlacementLabel{.name = placement->name, .rect = pixel_rect});
+                        continue;
+                    }
+
                     if (unresolved_logged_.insert(placement->reference_design).second)
                         spdlog::warn("HierarchyResolver: Placement references DesignId {} which resolves to neither an Abstract nor a Layout (or the Layout is unreachable at remaining_depth {}) - skipping every Placement of it", to_string(placement->reference_design), remaining_depth);
                     continue;

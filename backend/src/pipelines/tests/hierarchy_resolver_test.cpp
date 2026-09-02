@@ -233,6 +233,32 @@ TEST_F(HierarchyResolverFixture, ResolveDesignPictureFallsBackToAbstractOnlyWhen
     EXPECT_FALSE(resolver.resolve_design_picture(root, sub_design, /*remaining_depth=*/0, view_layers, scene, 1.0));
 }
 
+TEST_F(HierarchyResolverFixture, PlacementOfALayoutOnlyDesignAtExhaustedDepthDrawsBoundaryAndLabelInsteadOfNothing)
+{
+    // BUGS_AND_ENHANCEMENTS.md E18/E24 - INNER has a Layout but no
+    // Abstract; placing it at remaining_depth=0 means neither a real
+    // recursion (Layout needs remaining_depth > 0) nor an Abstract
+    // fallback resolves. Previously this drew nothing at all for INNER's
+    // whole Placement - it should still draw a boundary outline + name
+    // label from INNER's own Layout diearea, exactly like a genuinely
+    // tiny placement does, rather than vanish.
+    auto [inner_design, inner_layout] = create_layout_design("INNER", le::Point{200, 200});
+    auto [outer_design, outer_layout] = create_layout_design("OUTER", le::Point{2000, 2000});
+    add_placement(outer_layout, inner_design, le::Point{500, 500}, le::Orientation::N, "U1");
+
+    const sk_sp<SkPicture> picture = resolver.build_layout_picture(root, outer_layout, /*remaining_depth=*/0, view_layers, scene, /*scale=*/1.0);
+    ASSERT_TRUE(picture);
+
+    const SkBitmap bitmap = rasterize(picture, 2000, 2000);
+    // INNER's own world bbox is (500,500)-(700,700) - its boundary
+    // outline's left edge, vertically centered, should be visible there.
+    EXPECT_TRUE(region_has_opaque_pixel(bitmap, 499, 595, 501, 605));
+    // Confirm this really is the placeholder-outline path, not a real
+    // recursion drawing INNER's own (nonexistent) content: no colored
+    // (M1-style) pixel anywhere inside INNER's own bbox.
+    EXPECT_FALSE(region_has_colored_opaque_pixel(bitmap, 510, 510, 690, 690));
+}
+
 TEST_F(HierarchyResolverFixture, UnresolvedReferenceDesignIsSkippedWithoutAffectingOtherPlacements)
 {
     le::DesignId leaf = create_leaf_design("LEAF", le::Point{100, 100});

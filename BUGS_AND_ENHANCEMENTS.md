@@ -27,7 +27,7 @@
 - [x] E15. The LibraryBrowser widget needs to be updated so the user can open an abstract view or a layout view. Each design node in the tree should have children for each view, if it exists, which can be clicked on to open that view in the LayoutEngine widget (via the open_design TCL command not directly in the API).
 - [x] E16. The cross shapes next to terminal text should scale with the text instead of being a fixed height/width. Let's use half the height of the text.
 - [x] E17. When interacting with the texture, zoom, pan etc. I would also like the spinner to show in the status bar when a frame is being rendered.
-- [ ] E18. Psuedo-abstract generation. When a Layout view containts Placements of other Layout views and those designs don't have an abstract view, then nothing is rendered at hierarchy depth 1. Which is expected. But I would like to draw the Placement boundary and placementName if there is no Abstract view.
+- [x] E18. Psuedo-abstract generation. When a Layout view containts Placements of other Layout views and those designs don't have an abstract view, then nothing is rendered at hierarchy depth 1. Which is expected. But I would like to draw the Placement boundary and placementName if there is no Abstract view.
 - [x] E19. The anti-aliasing enable/disable option doesn't work on all text. Some are hardcoded as true. Even though it looks bad, text render is quite expensive, so it would be good to benchmark if this helps or not.
 - [x] E20. Prefer TCL commands over directy API calls from LeProvider. Can you review which LeProvider methods call the API directly and if they can be replaced with TCL command calls? Then the user can see which UI action correspond to which TCL commands, which helps them script things. Also, it's better to have one way to execute API commands, and TCL is my prefered way. For example, if I used the UI to select and read a LEF file, I should see a read_lef command in the TCL history.
 - [ ] E21. There is an inconsistency between how shape coordinates are displayed in the property viewer, and how TCL command accept coordinates as arguments. All properties and TCL commands should follow this convention:
@@ -38,5 +38,5 @@
     - Path: {width { { x0 y0 } { x1 y1 } ...} }
 - [ ] E22. When Placements with terminal labels are rendered, the text orientation is drawn depending on the orientation of the Placement. Is there anyway to always draw text the right way up without impacting performance? For example, using a custom canvas and overriding onDrawTextBlob.
 - [x] E23. I'm wondering if it is efficent to create a SkPicture and replay it each time the zoom level changes. Would it be better to just directly render to the canvas and re-use the canvas across Placements? Is this even possible? Please investigate.
-- [ ] E24. PlacementNames should be rendered for sub-layout placements in the same way terminal text is for placement abstracts.
+- [x] E24. PlacementNames should be rendered for sub-layout placements in the same way terminal text is for placement abstracts.
 - [ ] E25. Test raster performance when recording SkPitcures with a SkRTreeFactory
