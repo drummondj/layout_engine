@@ -163,3 +163,47 @@ placementName if there is no Abstract view") rather than gating it
 behind the same density-avoidance threshold a real recursable placement
 uses.
 
+## E21. Coordinate display convention (property viewer vs. TCL command arguments).
+
+**Already done - found already-correct on investigation, no code change
+needed.** This one looked substantial on paper, so before implementing
+anything I checked whether it was actually still broken: `schema.py`,
+the `codegen` fork (`Field.wrap_with_to_property`/`wrap_with_to_property_string`,
+`Klass.is_composed_of_records`), and `src/tcl/tests/crud_test.tcl` all
+already reference "BUGS_AND_ENHANCEMENTS.md E21" by name in their own
+comments and already implement exactly the convention requested - this
+must have landed in an earlier session (before this overnight pass
+started) whose work never flipped this checkbox.
+
+Verified live rather than trusting the comments alone - built `le_tcl`
+and drove a real `tclsh8.6` session through `create_abstract`/
+`create_shape`/`create_placement` (see commands below) with
+`get_properties` reading each value straight back:
+- Point (`Abstract.size`, `Placement.location`): `-size {100 200}` in,
+  `{100 200}` out.
+- Rect (`Shape.rects`, a `List[Rect]`): `-rects {{{2 2} {8 8}}}` in,
+  `{{2 2} {8 8}}` out for the one entry.
+- Polygon (`Shape.polygons`): `-polygons {{{0 0} {5 0} {5 5} {0 5}}}` in,
+  same shape out.
+- Path (`Shape.paths`): `-paths {{0.5 {{0 0} {10 10} {20 0}}}}` in,
+  `{0.500 {{0 0} {10 10} {20 0}}}` out.
+
+All four match the requested convention exactly, and input/output are
+symmetric (what a script passes to `create_<type>`/`update_<type>` is
+exactly what `get_properties` hands back for the same field). One false
+alarm along the way worth recording: `puts [get_properties $plc]` (the
+*whole* dict at once) printed `location` as `{{500 600}}`, which looked
+like a real double-bracing bug at first glance - but `dict get $props
+location` in isolation returns the correct, single-braced `{500 600}`;
+the doubling only appears when Tcl's own list-formatting re-quotes a
+brace-containing dict *value* so the whole dict remains a valid list
+when printed as one string - a Tcl display artifact of my own test
+script, not a bug in this codebase's property formatting.
+
+Both frontends (the ImGui `property_viewer.cpp`'s `format_value` and
+Flutter's `property_viewer.dart`) pass a string-typed property's value
+straight through with no reformatting of their own, so there's no
+separate display path that could drift out of sync with what
+`get_properties`/TCL command arguments use - they're structurally
+guaranteed to agree, not just observed to agree today.
+

@@ -30,7 +30,7 @@
 - [x] E18. Psuedo-abstract generation. When a Layout view containts Placements of other Layout views and those designs don't have an abstract view, then nothing is rendered at hierarchy depth 1. Which is expected. But I would like to draw the Placement boundary and placementName if there is no Abstract view.
 - [x] E19. The anti-aliasing enable/disable option doesn't work on all text. Some are hardcoded as true. Even though it looks bad, text render is quite expensive, so it would be good to benchmark if this helps or not.
 - [x] E20. Prefer TCL commands over directy API calls from LeProvider. Can you review which LeProvider methods call the API directly and if they can be replaced with TCL command calls? Then the user can see which UI action correspond to which TCL commands, which helps them script things. Also, it's better to have one way to execute API commands, and TCL is my prefered way. For example, if I used the UI to select and read a LEF file, I should see a read_lef command in the TCL history.
-- [ ] E21. There is an inconsistency between how shape coordinates are displayed in the property viewer, and how TCL command accept coordinates as arguments. All properties and TCL commands should follow this convention:
+- [x] E21. There is an inconsistency between how shape coordinates are displayed in the property viewer, and how TCL command accept coordinates as arguments. All properties and TCL commands should follow this convention:
 
     - Point: { x y }
     - Rect: { { llx lly } { urx ury } }
