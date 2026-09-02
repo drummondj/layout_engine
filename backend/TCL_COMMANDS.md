@@ -1906,6 +1906,16 @@ A logical connectivity view (netlist)
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_selection
+
+`get_selection [-help]`
+
+Returns the current selection as a list of tokens (shape:/row:/placement:/region:) - the same tokens select accepts.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_shapes
 
 `get_shapes [-of <token>...] [-filter <expr>] [-help]`
@@ -2162,6 +2172,17 @@ Pretty-prints every property of every given friendly-id token to stdout, one ali
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<tokens>` | `token...` | yes | One friendly-id token, or a list of them |
+
+## select
+
+`select <tokens> [-help]`
+
+Adds each given token to the current selection (additive, like ctrl/shift-clicking - does not clear the existing selection first, use deselect_all before select for that). A shape: token selects every one of that Shape's own rects/polygons/paths, not just one - piece-level selection is only reachable via a real mouse click.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<tokens>` | `token` | yes | One or more shape:/row:/placement:/region: tokens to select |
+| `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## select_all
 

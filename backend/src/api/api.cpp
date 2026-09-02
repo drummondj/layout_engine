@@ -2738,6 +2738,79 @@ extern "C"
                 return ref_from_id(LE_OBJECT_KIND_REGION, s); }, selection[static_cast<size_t>(selection_index)]);
     }
 
+    int32_t le_select_object_ref(LeHandle *handle, LeObjectRef ref)
+    {
+        if (!handle)
+            return 1;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        switch (ref.kind)
+        {
+        case LE_OBJECT_KIND_SHAPE:
+        {
+            // Same per-piece loop select_all_unlocked uses - selects
+            // every rect/polygon/path entry of the Shape, since a bare
+            // ShapeId can't express "just this one piece" (see this
+            // function's own api.hpp doc comment).
+            const le::ShapeId shape_id{.index = ref.index, .generation = ref.generation};
+            const le::ShapeData *shape = handle->root.get_shape(shape_id);
+            if (!shape)
+            {
+                handle->messages.push_back("ERROR: le_select_object_ref: no such Shape");
+                return 1;
+            }
+            for (size_t i = 0; i < shape->rects.size(); i++)
+                handle->scene.select(shape_id, le::PieceKind::RECT, i);
+            for (size_t i = 0; i < shape->polygons.size(); i++)
+                handle->scene.select(shape_id, le::PieceKind::POLYGON, i);
+            for (size_t i = 0; i < shape->paths.size(); i++)
+                handle->scene.select(shape_id, le::PieceKind::PATH, i);
+            if (shape->rects.empty() && shape->polygons.empty() && shape->paths.empty())
+            {
+                handle->messages.push_back("ERROR: le_select_object_ref: Shape has no geometry to select");
+                return 1;
+            }
+            return 0;
+        }
+        case LE_OBJECT_KIND_ROW:
+        {
+            const le::RowId id{.index = ref.index, .generation = ref.generation};
+            if (!handle->root.get_row(id))
+            {
+                handle->messages.push_back("ERROR: le_select_object_ref: no such Row");
+                return 1;
+            }
+            handle->scene.select(id);
+            return 0;
+        }
+        case LE_OBJECT_KIND_PLACEMENT:
+        {
+            const le::PlacementId id{.index = ref.index, .generation = ref.generation};
+            if (!handle->root.get_placement(id))
+            {
+                handle->messages.push_back("ERROR: le_select_object_ref: no such Placement");
+                return 1;
+            }
+            handle->scene.select(id);
+            return 0;
+        }
+        case LE_OBJECT_KIND_REGION:
+        {
+            const le::RegionId id{.index = ref.index, .generation = ref.generation};
+            if (!handle->root.get_region(id))
+            {
+                handle->messages.push_back("ERROR: le_select_object_ref: no such Region");
+                return 1;
+            }
+            handle->scene.select(id);
+            return 0;
+        }
+        default:
+            handle->messages.push_back("ERROR: le_select_object_ref: unsupported object kind (only Shape/Row/Placement/Region can be selected)");
+            return 1;
+        }
+    }
+
     LeTerminalId le_terminal_by_name(LeHandle *handle, const char *name)
     {
         const LeTerminalId invalid{.index = UINT32_MAX, .generation = 0};

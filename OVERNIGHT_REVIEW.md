@@ -168,3 +168,60 @@ plus every existing E28 test updated for the new `le_write_lef` signature)
 and `crud_test.tcl` (`-library`, `-abstracts`, and the `-abstract`/
 `-library` mutual-exclusion error). Full 700-test suite passes; both
 `build`/`build_release` rebuilt.
+
+## E30. get_selection/select TCL commands.
+
+**Done.** Added a new C API function, `le_select_object_ref(handle, ref)` -
+the script-driven counterpart to a real mouse click, built on the same
+generic `LeObjectRef` (kind/index/generation) type `le_selected_object_ref`
+already returns for reading the current selection (E1) - so a script can
+now round-trip `get_selection` -> tokens -> `select` those same tokens
+back, using one consistent identity representation both directions.
+
+Only `LE_OBJECT_KIND_SHAPE`/`_ROW`/`_PLACEMENT`/`_REGION` are supported -
+the same four kinds `Scene::SelectedObject`'s own variant actually covers.
+`select shape:N` selects *every* rect/polygon/path of that Shape (reusing
+`select_all_unlocked`'s own per-shape piece-enumeration loop), not one
+specific piece - piece-level granularity only has meaning from a real
+mouse hit-test (which piece was actually clicked), a bare Shape token from
+a script has no such information to narrow it down.
+
+TCL surface: `get_selection` (no args, returns the current selection as a
+list of `shape:`/`row:`/`placement:`/`region:` tokens) and `select
+<tokens>` (one or more tokens, additive - same as ctrl/shift-clicking,
+does not clear the existing selection first). Both are thin wrappers
+around three new shim functions (`selection_count_cmd`/
+`get_selection_at_cmd`/`select_cmd`, `le_tcl_shim.cpp`) dispatching by
+token prefix / `LeObjectKind`.
+
+**Judgment calls (not asked):**
+- `select`'s own token-prefix dispatch uses plain literal `"shape:"`/
+  `"row:"`/etc. string checks in the shim rather than the generated
+  `kShapePrefix`/etc constants those literals mirror - the constants live
+  in the generated file's own scope, not this hand-written one, and
+  duplicating a 5-character literal locally seemed simpler/lower-risk than
+  reaching across that boundary for it.
+- `select_cmd`'s own return value distinguishes "unrecognized prefix" (2)
+  from "recognized prefix but le_select_object_ref itself failed" (1) -
+  needed because le_tcl_shim.cpp has no access to `LeHandle`'s real
+  definition (it's opaque outside `api.cpp`) to push its own ERROR message
+  for the first case the way every other shim function pushes messages
+  through the handle it's given; `select` (the Tcl proc) raises its own
+  clear error using the token text it already has for that case instead,
+  and only reads `handle->messages` (via `message_count`/`message_at`,
+  the same idiom `write_lef`/`write_def` already use) for the second.
+
+Also regenerated `TCL_COMMANDS.md` again (`generate-tcl-docs` skill) for
+`get_selection`/`select`'s own new entries.
+
+New tests: `api_test.cpp` (`SelectObjectRefWithAShapeRefSelectsEveryPieceOfIt`,
+`SelectObjectRefWithAnInvalidShapeFailsWithAMessage`,
+`SelectObjectRefIsAdditiveNotReplacing`, `SelectObjectRefWithAPlacementSelectsIt`,
+`SelectObjectRefWithAnUnsupportedKindFailsWithAMessage`,
+`SelectObjectRefWithNullHandleDoesNotCrash` - all pass on the first real
+attempt, no fail-before/pass-after cycle needed since this is new
+functionality, not a bug fix) plus `smoke_test.tcl` (basic no-data-loaded
+smoke checks) and `crud_test.tcl` (a real Shape/Row/Region round trip
+through `get_selection`/`select`, including the additive and rejected-
+token cases). Full 706-test suite passes; both `build`/`build_release`
+rebuilt.

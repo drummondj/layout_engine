@@ -1103,6 +1103,64 @@ register_command_help deselect_all \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+# BUGS_AND_ENHANCEMENTS.md E30 - get_selection/select, the script-driven
+# counterpart to select_all/deselect_all/a real mouse click. Only
+# shape:/row:/placement:/region: tokens are meaningful (the same four
+# kinds Scene::SelectedObject's own variant covers, see
+# le_select_object_ref's own api.hpp comment) - selecting a shape:
+# token selects every one of its rects/polygons/paths, not one piece,
+# since piece-level granularity has no meaning outside a real mouse
+# hit-test.
+proc get_selection {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_selection \[-help\] - Returns the current selection as a list of tokens"
+    }
+    set result {}
+    set count [selection_count_cmd]
+    for {set i 0} {$i < $count} {incr i} {
+        set token [get_selection_at_cmd $i]
+        if {$token ne {}} {
+            lappend result $token
+        }
+    }
+    return $result
+}
+register_command_help get_selection \
+    "get_selection \[-help\]" \
+    "Returns the current selection as a list of tokens (shape:/row:/placement:/region:) - the same tokens select accepts." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc select {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "select <tokens> \[-help\] - Adds the given shape:/row:/placement:/region: tokens to the current selection"
+    }
+    if {[llength $args] < 1} {
+        error "select: expected at least one <token>, got \"$args\""
+    }
+    foreach token $args {
+        set messages_before [message_count]
+        set status [select_cmd $token]
+        if {$status == 2} {
+            error "select: unrecognized token \"$token\" (expected a shape:/row:/placement:/region: token)"
+        } elseif {$status != 0} {
+            if {[message_count] > $messages_before} {
+                error "select: [message_at [expr {[message_count] - 1}]]"
+            }
+            error "select: failed to select \"$token\""
+        }
+    }
+    return ""
+}
+register_command_help select \
+    "select <tokens> \[-help\] - Adds the given shape:/row:/placement:/region: tokens to the current selection" \
+    "Adds each given token to the current selection (additive, like ctrl/shift-clicking - does not clear the existing selection first, use deselect_all before select for that). A shape: token selects every one of that Shape's own rects/polygons/paths, not just one - piece-level selection is only reachable via a real mouse click." \
+    {
+        {<tokens> {type token required 1 description {One or more shape:/row:/placement:/region: tokens to select}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 proc arm_move {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "arm_move \[-help\] - Arms Move for the current selection"

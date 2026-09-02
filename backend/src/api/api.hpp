@@ -1275,6 +1275,26 @@ extern "C"
     /// out of range.
     LeObjectRef le_selected_object_ref(LeHandle *handle, int32_t selection_index);
 
+    /// @brief Adds the object `ref` refers to to the current selection
+    /// (BUGS_AND_ENHANCEMENTS.md E30) - the script-driven counterpart to
+    /// le_mouse_up's own hit-test-driven selection. Only
+    /// LE_OBJECT_KIND_SHAPE/_ROW/_PLACEMENT/_REGION are supported (the
+    /// same four kinds Scene::SelectedObject's own variant covers) - any
+    /// other kind, or a ref that doesn't resolve, is a no-op that appends
+    /// an ERROR message rather than crashing or silently doing nothing.
+    /// For LE_OBJECT_KIND_SHAPE specifically, this selects every piece of
+    /// the Shape (every rect/polygon/path entry - the same per-shape loop
+    /// le_select_all() already uses internally), not just one - piece-
+    /// level granularity is reachable only via a real mouse hit-test
+    /// (le_mouse_up), there's no "just this one piece" concept a bare
+    /// ShapeId can express on its own. Does not clear the existing
+    /// selection first (mirrors Scene::select()'s own additive behavior,
+    /// same as ctrl/shift-clicking) - call le_deselect_all() first for a
+    /// script that wants to replace the selection outright. Returns 0 if
+    /// this added at least one selection entry, nonzero otherwise
+    /// (including a null handle).
+    int32_t le_select_object_ref(LeHandle *handle, LeObjectRef ref);
+
     /// @brief Run the full pipeline+render chain (generate -> filter ->
     /// filter -> transform -> picture -> rasterize) for the currently
     /// selected Design and viewport, returning the resulting pixel

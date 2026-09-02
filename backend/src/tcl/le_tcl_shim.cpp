@@ -525,6 +525,77 @@ int write_def_cmd(const char *path, const char *layout_token)
     return le_write_def(session(), path, layout_id);
 }
 
+// BUGS_AND_ENHANCEMENTS.md E30 - get_selection/select. Only Shape/Row/
+// Placement/Region friendly ids are meaningful here (the same four kinds
+// Scene::SelectedObject's own variant covers - see le_select_object_ref's
+// own api.hpp doc comment); literal prefix strings rather than the
+// generated kShapePrefix/etc constants, since those live in the generated
+// file's own scope and duplicating a plain "shape:"/"row:"/... literal
+// here is simpler than reaching for them.
+int selection_count_cmd()
+{
+    return le_selection_count(session());
+}
+
+const char *get_selection_at_cmd(int index)
+{
+    const LeObjectRef ref = le_selected_object_ref(session(), index);
+    switch (ref.kind)
+    {
+    case LE_OBJECT_KIND_SHAPE:
+        return return_string(format_shape_id(LeShapeId{.index = ref.index, .generation = ref.generation}));
+    case LE_OBJECT_KIND_ROW:
+        return return_string(format_row_id(LeRowId{.index = ref.index, .generation = ref.generation}));
+    case LE_OBJECT_KIND_PLACEMENT:
+        return return_string(format_placement_id(LePlacementId{.index = ref.index, .generation = ref.generation}));
+    case LE_OBJECT_KIND_REGION:
+        return return_string(format_region_id(LeRegionId{.index = ref.index, .generation = ref.generation}));
+    default:
+        return return_string(std::string{});
+    }
+}
+
+int select_cmd(const char *token)
+{
+    if (!token)
+        return 1;
+    const std::string_view sv(token);
+    LeObjectRef ref{};
+    if (sv.substr(0, 6) == "shape:")
+    {
+        const LeShapeId id = resolve_shape_id(token);
+        ref = LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = id.index, .generation = id.generation};
+    }
+    else if (sv.substr(0, 4) == "row:")
+    {
+        const LeRowId id = resolve_row_id(token);
+        ref = LeObjectRef{.kind = LE_OBJECT_KIND_ROW, .index = id.index, .generation = id.generation};
+    }
+    else if (sv.substr(0, 10) == "placement:")
+    {
+        const LePlacementId id = resolve_placement_id(token);
+        ref = LeObjectRef{.kind = LE_OBJECT_KIND_PLACEMENT, .index = id.index, .generation = id.generation};
+    }
+    else if (sv.substr(0, 7) == "region:")
+    {
+        const LeRegionId id = resolve_region_id(token);
+        ref = LeObjectRef{.kind = LE_OBJECT_KIND_REGION, .index = id.index, .generation = id.generation};
+    }
+    else
+    {
+        // Unlike le_select_object_ref's own ERROR messages below (pushed
+        // to handle->messages, api.cpp has real access to LeHandle's
+        // definition there) - this shim has no such access (LeHandle is
+        // opaque outside api.cpp), so an unrecognized prefix is surfaced
+        // by the caller instead: select (le_tcl_procs.tcl) checks this
+        // return value and raises its own clear Tcl error with the token
+        // text it already has, no message-count round trip needed for a
+        // purely shallow, prefix-level validation like this one.
+        return 2; // distinct from 1 (a real, resolved-but-invalid/unsupported ref)
+    }
+    return le_select_object_ref(session(), ref);
+}
+
 void set_layer_selectable_cmd(const char *layer_name, bool selectable)
 {
     le_set_layer_name_selectable(session(), layer_name, selectable);

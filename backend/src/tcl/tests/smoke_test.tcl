@@ -119,6 +119,15 @@ select_all
 puts "ok: select_all"
 deselect_all
 puts "ok: deselect_all"
+
+check "get_selection is empty with nothing selected" {} [get_selection]
+if {[catch {select "not_a_real_token"} err]} {
+    puts "ok: select rejects an unrecognized token ($err)"
+} else {
+    puts stderr "FAIL: select accepted an unrecognized token"
+    exit 1
+}
+
 arm_move
 puts "ok: arm_move"
 

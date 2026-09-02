@@ -220,6 +220,28 @@ int write_lef_cmd(const char *path, const char *abstract_tokens, const char *lib
 /// le_write_def's own current-Layout fallback).
 int write_def_cmd(const char *path, const char *layout_token);
 
+/// @brief Backing for `get_selection` (BUGS_AND_ENHANCEMENTS.md E30) -
+/// le_selection_count(session()) directly, no extra logic needed.
+int selection_count_cmd();
+
+/// @brief Backing for `get_selection` (BUGS_AND_ENHANCEMENTS.md E30) - the
+/// friendly token (shape:/row:/placement:/region:) for the selected
+/// object at `index` (0..selection_count_cmd()-1), or an empty string for
+/// an out-of-range index or an unsupported LeObjectKind (there are none
+/// today - le_selected_object_ref only ever returns one of the four kinds
+/// this dispatches, but this stays exhaustive-safe rather than assuming).
+const char *get_selection_at_cmd(int index);
+
+/// @brief Backing for `select` (BUGS_AND_ENHANCEMENTS.md E30) - resolves
+/// `token`'s own shape:/row:/placement:/region: prefix to a LeObjectRef
+/// and calls le_select_object_ref. Returns 0 on success, 1 for a
+/// recognized-prefix-but-unresolvable/unsupported token (le_select_object_ref's
+/// own failure, with a real ERROR message in handle->messages), or 2 for
+/// an unrecognized prefix (no message pushed - this shim has no access to
+/// LeHandle's real definition to push one itself; select, le_tcl_procs.tcl,
+/// raises its own Tcl error using the token text it already has instead).
+int select_cmd(const char *token);
+
 /// @brief Backing for the `set_layer_visible <layer_name> <visible>` Tcl
 /// command - mirrors le_set_layer_name_visible directly (affects every
 /// ViewLayer of the real Layer named `layer_name`, e.g. both TERMINAL and

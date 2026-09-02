@@ -741,4 +741,46 @@ if {[catch {write_lef -abstract $scratch_abstract -library $scratch_library [fil
 
 file delete -force $write_scratch_dir
 
+# --- get_selection/select (BUGS_AND_ENHANCEMENTS.md E30) - reuses
+# scratch_shape (one rect) and scratch_layout (from the sections above)
+# for a real Row/Placement/Region to select too. ---
+
+deselect_all
+check "get_selection is empty before anything is selected" {} [get_selection]
+
+select $scratch_shape
+check "get_selection after select shape:N sees exactly that shape" $scratch_shape [get_selection]
+
+deselect_all
+set scratch_row [create_row -layout $scratch_layout -name SCRATCH_ROW -site_name CORE -orientation N]
+check_true "create_row (from-scratch flow) returned a valid friendly id" [expr {$scratch_row ne {}}]
+set scratch_region [create_region -layout $scratch_layout -name SCRATCH_REGION]
+check_true "create_region (from-scratch flow) returned a valid friendly id" [expr {$scratch_region ne {}}]
+
+select $scratch_row $scratch_region
+check "select with multiple tokens adds both" [lsort [list $scratch_row $scratch_region]] [lsort [get_selection]]
+
+select $scratch_shape
+check "select is additive - a third select call adds to, not replaces, the selection" \
+    [lsort [list $scratch_row $scratch_region $scratch_shape]] [lsort [get_selection]]
+
+deselect_all
+if {[catch {select "not_a_real_token"} err]} {
+    check_true "select rejects an unrecognized token with a clear error" \
+        [expr {[string first "select" $err] >= 0}]
+} else {
+    puts stderr "FAIL: select accepted an unrecognized token"
+    exit 1
+}
+if {[catch {select "shape:999999"} err]} {
+    check_true "select rejects a well-formed but unresolvable token with a clear error" \
+        [expr {[string first "select" $err] >= 0}]
+} else {
+    puts stderr "FAIL: select accepted an unresolvable shape token"
+    exit 1
+}
+check "get_selection is still empty after both rejected select calls" {} [get_selection]
+
+deselect_all
+
 puts "le_tcl CRUD test passed"

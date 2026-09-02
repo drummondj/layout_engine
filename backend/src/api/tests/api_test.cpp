@@ -3499,6 +3499,103 @@ namespace
     }
 }
 
+// --- BUGS_AND_ENHANCEMENTS.md E30: le_select_object_ref (the
+// script-driven counterpart to a real mouse click) ---
+
+TEST_F(ApiFixture, SelectObjectRefWithAShapeRefSelectsEveryPieceOfIt)
+{
+    load_pin_and_obstruction_at_known_scale(handle);
+    // A real click first, purely to discover PIN A's own ShapeId (no
+    // other way to get one without duplicating this fixture's own LEF
+    // content) - then clear the selection le_select_object_ref is about
+    // to redo, so this test actually exercises that function, not the
+    // click.
+    le_mouse_down(handle, 25, 175);
+    le_mouse_up(handle, 25, 175);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    const LeObjectRef shape_ref = le_selected_object_ref(handle, 0);
+    ASSERT_EQ(shape_ref.kind, LE_OBJECT_KIND_SHAPE);
+    le_deselect_all(handle);
+    ASSERT_EQ(le_selection_count(handle), 0);
+
+    EXPECT_EQ(le_select_object_ref(handle, shape_ref), 0);
+    EXPECT_GE(le_selection_count(handle), 1); // every rect/polygon/path of the shape, not just one
+    for (int32_t i = 0; i < le_selection_count(handle); i++)
+    {
+        const LeObjectRef selected = le_selected_object_ref(handle, i);
+        EXPECT_EQ(selected.kind, LE_OBJECT_KIND_SHAPE);
+        EXPECT_EQ(selected.index, shape_ref.index);
+    }
+}
+
+TEST_F(ApiFixture, SelectObjectRefWithAnInvalidShapeFailsWithAMessage)
+{
+    const LeObjectRef bad_ref{.kind = LE_OBJECT_KIND_SHAPE, .index = UINT32_MAX, .generation = 0};
+    const int32_t messages_before = le_message_count(handle);
+    EXPECT_NE(le_select_object_ref(handle, bad_ref), 0);
+    ASSERT_GT(le_message_count(handle), messages_before);
+    EXPECT_NE(std::string(le_message_at(handle, le_message_count(handle) - 1)).find("no such Shape"), std::string::npos);
+}
+
+TEST_F(ApiFixture, SelectObjectRefIsAdditiveNotReplacing)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    const LeDesignInfo design = le_library_design_at(handle, 0, 0);
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, design.id), 0);
+    const LeLayoutId layout_id = design.layout_id;
+    ASSERT_NE(layout_id.index, UINT32_MAX);
+
+    const LeRowId row_id = le_create_row(handle, layout_id, "ROW_0", "CORE", 0, 0.0, 0.0, "N", 0, 0, 0, 0, 0, 0.0, 0, 0.0);
+    ASSERT_NE(row_id.index, UINT32_MAX);
+    const LeRegionId region_id = le_create_region(handle, layout_id, "REGION_0", nullptr, 0, nullptr, 0);
+    ASSERT_NE(region_id.index, UINT32_MAX);
+
+    EXPECT_EQ(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_ROW, .index = row_id.index, .generation = row_id.generation}), 0);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    EXPECT_EQ(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_REGION, .index = region_id.index, .generation = region_id.generation}), 0);
+    EXPECT_EQ(le_selection_count(handle), 2); // additive - the Row is still selected too
+}
+
+TEST_F(ApiFixture, SelectObjectRefWithAPlacementSelectsIt)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    const LeDesignInfo design = le_library_design_at(handle, 0, 0);
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, design.id), 0);
+    const LeLayoutId layout_id = design.layout_id;
+    ASSERT_NE(layout_id.index, UINT32_MAX);
+
+    const LeAbstractId testcell_abstract = testcell_abstract_id(handle);
+    ASSERT_NE(testcell_abstract.index, UINT32_MAX);
+    const LeDesignId testcell_design = le_library_design_at(handle, 0, 0).id;
+    const LePlacementId placement_id = le_create_placement(handle, layout_id, testcell_design, "U1", "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+    ASSERT_NE(placement_id.index, UINT32_MAX);
+
+    EXPECT_EQ(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_PLACEMENT, .index = placement_id.index, .generation = placement_id.generation}), 0);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_PLACEMENT);
+    EXPECT_EQ(le_selected_object_ref(handle, 0).index, placement_id.index);
+}
+
+TEST_F(ApiFixture, SelectObjectRefWithAnUnsupportedKindFailsWithAMessage)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeAbstractId abstract_id = testcell_abstract_id(handle);
+    ASSERT_NE(abstract_id.index, UINT32_MAX);
+
+    const int32_t messages_before = le_message_count(handle);
+    EXPECT_NE(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_ABSTRACT, .index = abstract_id.index, .generation = abstract_id.generation}), 0);
+    ASSERT_GT(le_message_count(handle), messages_before);
+    EXPECT_NE(std::string(le_message_at(handle, le_message_count(handle) - 1)).find("unsupported object kind"), std::string::npos);
+    EXPECT_EQ(le_selection_count(handle), 0);
+}
+
+TEST_F(ApiFixture, SelectObjectRefWithNullHandleDoesNotCrash)
+{
+    EXPECT_NE(le_select_object_ref(nullptr, LeObjectRef{.kind = LE_OBJECT_KIND_ROW, .index = 0, .generation = 0}), 0);
+}
+
 TEST_F(ApiFixture, CreateTerminalWithNullHandleOrNameReturnsInvalidId)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
