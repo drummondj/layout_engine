@@ -405,6 +405,76 @@ TEST_F(LEFWriterRoundtripFixture, RoundTripsAPlainViaWithLayerGeometryAndResista
     }
 }
 
+// BUGS_AND_ENHANCEMENTS.md B9 investigation - LEFWriter::write_vias had the
+// exact same gap DEFWriter::write_vias turned out to have (found fixing
+// B9's own DEF report): num_cut_rows/num_cut_cols/origin/bot_offset/
+// top_offset (BUGS_AND_ENHANCEMENTS.md B3 follow-up) were never passed to
+// lefwViaViaruleRowCol/Origin/Offset at all, so a via array silently
+// collapsed to a single cut on write. via_rule_reference.lef's own VIA4
+// has ROWCOL + ORIGIN + OFFSET together (VIA3 has ROWCOL alone, VIA5 has
+// ROWCOL + PATTERN - PATTERN is deliberately unmodeled, see
+// ViaRuleReference's own schema.py doc comment, not exercised here).
+// Standalone fixture (not LEFWriterRoundtripFixture/writer_roundtrip.lef,
+// which has no via array at all) since this needs its own source file.
+class LEFWriterViaRuleReferenceRoundtripFixture : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        ASSERT_EQ(reader.read_lef(fixture_path("via_rule_reference.lef"), original_root, "test_lib"), 0)
+            << (reader.messages().empty() ? "" : reader.messages().front());
+
+        const std::string out_path = scratch_output_path("le_lef_writer_via_rule_reference_roundtrip.lef");
+        ASSERT_EQ(writer.write_lef(out_path, original_root, AbstractId{}, LEFWriter::LayerWriteMode::TechnologyOnly), 0)
+            << (writer.messages().empty() ? "" : writer.messages().front());
+
+        ASSERT_EQ(reread.read_lef(out_path, written_root, "test_lib"), 0)
+            << (reread.messages().empty() ? "" : reread.messages().front());
+    }
+
+    Root original_root;
+    Root written_root;
+    LEFReader reader;
+    LEFReader reread;
+    LEFWriter writer;
+};
+
+TEST_F(LEFWriterViaRuleReferenceRoundtripFixture, RoundTripsRowColOriginAndOffsetForAViaArray)
+{
+    const ViaId original_id = original_root.get_via_by_name("VIA4");
+    const ViaId written_id = written_root.get_via_by_name("VIA4");
+    ASSERT_TRUE(original_id.valid());
+    ASSERT_TRUE(written_id.valid());
+
+    const ViaRuleReferenceData *original = original_root.get_via_rule_reference(original_root.get_via_via_rule(original_id));
+    const ViaRuleReferenceData *written = written_root.get_via_rule_reference(written_root.get_via_via_rule(written_id));
+    ASSERT_NE(original, nullptr);
+    ASSERT_NE(written, nullptr);
+
+    ASSERT_TRUE(original->num_cut_rows.has_value());
+    ASSERT_TRUE(original->num_cut_cols.has_value());
+    ASSERT_TRUE(written->num_cut_rows.has_value());
+    ASSERT_TRUE(written->num_cut_cols.has_value());
+    EXPECT_EQ(*original->num_cut_rows, *written->num_cut_rows);
+    EXPECT_EQ(*original->num_cut_cols, *written->num_cut_cols);
+    EXPECT_EQ(*written->num_cut_rows, 2);
+    EXPECT_EQ(*written->num_cut_cols, 3);
+
+    ASSERT_TRUE(original->origin.has_value());
+    ASSERT_TRUE(written->origin.has_value());
+    EXPECT_EQ(original->origin->x, written->origin->x);
+    EXPECT_EQ(original->origin->y, written->origin->y);
+
+    ASSERT_TRUE(original->bot_offset.has_value());
+    ASSERT_TRUE(written->bot_offset.has_value());
+    EXPECT_EQ(original->bot_offset->x, written->bot_offset->x);
+    EXPECT_EQ(original->bot_offset->y, written->bot_offset->y);
+    ASSERT_TRUE(original->top_offset.has_value());
+    ASSERT_TRUE(written->top_offset.has_value());
+    EXPECT_EQ(original->top_offset->x, written->top_offset->x);
+    EXPECT_EQ(original->top_offset->y, written->top_offset->y);
+}
+
 TEST_F(LEFWriterRoundtripFixture, RoundTripsAGenerateViaRuleWithEnclosureAndACutLayer)
 {
     const ViaRuleId original_id = original_root.get_via_rule_by_name("VIARULE1");

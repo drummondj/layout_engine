@@ -104,6 +104,192 @@ namespace le
         EXPECT_EQ(written_root.get_layout_placements(written_layout_id).size(), original_root.get_layout_placements(original_layout_id).size());
     }
 
+    // BUGS_AND_ENHANCEMENTS.md B8 - DEFWriter::write_placements used to pass
+    // placement->weight.value_or(-1.0) as defwComponentStr's own weight
+    // argument. The vendored writer's own header comment claims -1.0 is the
+    // "omit this field" sentinel, but its real implementation
+    // (defwWriter.cpp) gates the WEIGHT line on a plain `if (weight)` - true
+    // for -1.0 (any non-zero value), so a component with no weight at all
+    // still got a literal "WEIGHT -1" written every time. 0.0 is the only
+    // value `if (weight)` treats as false, so it's the real sentinel - see
+    // LEFDEF_BUGS.md's DEF writer section for the fuller writeup (including
+    // the one real consequence: a component whose real weight IS zero can
+    // never round-trip through this writer, a vendored-writer limitation,
+    // not a bug in this project's own code).
+    //
+    // component_weight.def has two COMPONENTS - one with no WEIGHT clause
+    // at all, one with an explicit "+ WEIGHT 3" - reading, writing, and
+    // re-reading both catches the read side already round-tripping the
+    // *reader's own hasWeight() gap in reverse.
+    class DEFWriterComponentWeightFixture : public ::testing::Test
+    {
+    protected:
+        void SetUp() override
+        {
+            original_root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            const LibraryId library_id = original_root.create_library(LibraryData{.name = "weight_test_lib"});
+            original_root.create_design(DesignData{.library = library_id, .name = "CELL"});
+
+            DEFReader reader;
+            ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/component_weight.def", original_root, "weight_test_lib"), 0);
+            const DesignId design_id = original_root.get_design_by_name("component_weight_test");
+            ASSERT_TRUE(design_id.valid());
+            original_layout_id = original_root.get_design_layout(design_id);
+            ASSERT_TRUE(original_layout_id.valid());
+
+            written_path = scratch_output_path("le_def_writer_component_weight.def");
+            DEFWriter writer;
+            ASSERT_EQ(writer.write_def(written_path, original_root, original_layout_id), 0);
+
+            written_root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            const LibraryId reread_library_id = written_root.create_library(LibraryData{.name = "weight_test_lib"});
+            written_root.create_design(DesignData{.library = reread_library_id, .name = "CELL"});
+            DEFReader reread_reader;
+            ASSERT_EQ(reread_reader.read_def(written_path, written_root, "weight_test_lib"), 0);
+            const DesignId reread_design_id = written_root.get_design_by_name("component_weight_test");
+            ASSERT_TRUE(reread_design_id.valid());
+            written_layout_id = written_root.get_design_layout(reread_design_id);
+            ASSERT_TRUE(written_layout_id.valid());
+        }
+
+        PlacementId find_by_name(const Root &root, LayoutId layout_id, const std::string &name)
+        {
+            for (const PlacementId id : root.get_layout_placements(layout_id))
+                if (const PlacementData *p = root.get_placement(id); p && p->name == name)
+                    return id;
+            return PlacementId{};
+        }
+
+        Root original_root;
+        Root written_root;
+        LayoutId original_layout_id;
+        LayoutId written_layout_id;
+        std::string written_path;
+    };
+
+    TEST_F(DEFWriterComponentWeightFixture, ComponentWithNoWeightWritesNoWeightLineAtAll)
+    {
+        std::ifstream written_file(written_path);
+        ASSERT_TRUE(written_file.is_open());
+        const std::string written_text((std::istreambuf_iterator<char>(written_file)), std::istreambuf_iterator<char>());
+        // The no-weight component's own name must appear (so this isn't
+        // vacuously true if the component itself failed to write), but
+        // WEIGHT must never appear anywhere on its own line - checked via
+        // the re-read round trip below for the semantic side, this checks
+        // the raw text directly for the literal symptom reported in B8
+        // ("WEIGHT -1" showing up for a component that never had one).
+        EXPECT_NE(written_text.find("INST_NO_WEIGHT"), std::string::npos);
+        EXPECT_EQ(written_text.find("WEIGHT -1"), std::string::npos);
+
+        const PlacementId id = find_by_name(written_root, written_layout_id, "INST_NO_WEIGHT");
+        ASSERT_TRUE(id.valid());
+        const PlacementData *placement = written_root.get_placement(id);
+        ASSERT_NE(placement, nullptr);
+        EXPECT_FALSE(placement->weight.has_value());
+    }
+
+    TEST_F(DEFWriterComponentWeightFixture, ComponentWithARealWeightRoundTrips)
+    {
+        const PlacementId id = find_by_name(written_root, written_layout_id, "INST_WITH_WEIGHT");
+        ASSERT_TRUE(id.valid());
+        const PlacementData *placement = written_root.get_placement(id);
+        ASSERT_NE(placement, nullptr);
+        ASSERT_TRUE(placement->weight.has_value());
+        EXPECT_DOUBLE_EQ(*placement->weight, 3.0);
+    }
+
+    // BUGS_AND_ENHANCEMENTS.md B9 - the actual root cause of the reported
+    // "missing vias"/malformed-looking VIAS section after a write_def then
+    // read_def round trip: DEFWriter::write_vias never wrote
+    // num_cut_rows/num_cut_cols/origin/bot_offset/top_offset at all (see
+    // this fix's own comment in def_writer.cpp), so a real via *array*
+    // (ROWCOL numRows > 1) always collapsed to a single cut on write - a
+    // ViaRuleReference with no ROWCOL clause means exactly that, per its
+    // own schema.py doc comment - which read back as a design with far
+    // fewer actual cut rects than the original at every one of that via's
+    // placements. Reuses via_rule_reference.def (same fixture
+    // DEFReaderViaRuleReferenceFixture, def_reader_test.cpp, already reads
+    // for the B3 follow-up reader-side coverage) - VIA_ARRAY_1 has
+    // ROWCOL + ORIGIN + OFFSET together.
+    class DEFWriterViaRuleReferenceRoundtripFixture : public ::testing::Test
+    {
+    protected:
+        void SetUp() override
+        {
+            technology_id = original_root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            for (const char *name : {"M1", "M2", "V1"})
+                original_root.create_layer(LayerData{.technology = technology_id, .name = name, .type = "ROUTING"});
+            ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/via_rule_reference.def", original_root, "test_lib"), 0);
+            const DesignId design_id = original_root.get_design_by_name("via_rule_reference_test");
+            ASSERT_TRUE(design_id.valid());
+            original_layout_id = original_root.get_design_layout(design_id);
+            ASSERT_TRUE(original_layout_id.valid());
+
+            const std::string written_path = scratch_output_path("le_def_writer_via_rule_reference_roundtrip.def");
+            DEFWriter writer;
+            ASSERT_EQ(writer.write_def(written_path, original_root, original_layout_id), 0) << [&]
+            {
+                std::string joined;
+                for (const std::string &m : writer.messages())
+                    joined += m + "\n";
+                return joined;
+            }();
+
+            const TechnologyId reread_technology_id = written_root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            for (const char *name : {"M1", "M2", "V1"})
+                written_root.create_layer(LayerData{.technology = reread_technology_id, .name = name, .type = "ROUTING"});
+            DEFReader reread_reader;
+            ASSERT_EQ(reread_reader.read_def(written_path, written_root, "test_lib"), 0);
+            const DesignId reread_design_id = written_root.get_design_by_name("via_rule_reference_test");
+            ASSERT_TRUE(reread_design_id.valid());
+            written_layout_id = written_root.get_design_layout(reread_design_id);
+            ASSERT_TRUE(written_layout_id.valid());
+        }
+
+        Root original_root;
+        Root written_root;
+        TechnologyId technology_id;
+        LayoutId original_layout_id;
+        LayoutId written_layout_id;
+        DEFReader reader;
+    };
+
+    TEST_F(DEFWriterViaRuleReferenceRoundtripFixture, RoundTripsRowColOriginAndOffsetForAViaArray)
+    {
+        const LayoutViaId original_id = original_root.get_layout_via_by_name(original_layout_id, "VIA_ARRAY_1");
+        const LayoutViaId written_id = written_root.get_layout_via_by_name(written_layout_id, "VIA_ARRAY_1");
+        ASSERT_TRUE(original_id.valid());
+        ASSERT_TRUE(written_id.valid());
+
+        const ViaRuleReferenceData *original = original_root.get_via_rule_reference(original_root.get_layout_via_via_rule(original_id));
+        const ViaRuleReferenceData *written = written_root.get_via_rule_reference(written_root.get_layout_via_via_rule(written_id));
+        ASSERT_NE(original, nullptr);
+        ASSERT_NE(written, nullptr);
+
+        ASSERT_TRUE(original->num_cut_rows.has_value());
+        ASSERT_TRUE(written->num_cut_rows.has_value());
+        EXPECT_EQ(*original->num_cut_rows, *written->num_cut_rows);
+        EXPECT_EQ(*written->num_cut_rows, 2);
+        ASSERT_TRUE(original->num_cut_cols.has_value());
+        ASSERT_TRUE(written->num_cut_cols.has_value());
+        EXPECT_EQ(*original->num_cut_cols, *written->num_cut_cols);
+        EXPECT_EQ(*written->num_cut_cols, 3);
+
+        ASSERT_TRUE(original->origin.has_value());
+        ASSERT_TRUE(written->origin.has_value());
+        EXPECT_EQ(original->origin->x, written->origin->x);
+        EXPECT_EQ(original->origin->y, written->origin->y);
+
+        ASSERT_TRUE(original->bot_offset.has_value());
+        ASSERT_TRUE(written->bot_offset.has_value());
+        EXPECT_EQ(original->bot_offset->x, written->bot_offset->x);
+        EXPECT_EQ(original->bot_offset->y, written->bot_offset->y);
+        ASSERT_TRUE(original->top_offset.has_value());
+        ASSERT_TRUE(written->top_offset.has_value());
+        EXPECT_EQ(original->top_offset->x, written->top_offset->x);
+        EXPECT_EQ(original->top_offset->y, written->top_offset->y);
+    }
+
     TEST_F(DEFWriterRoundtripFixture, RoundTripsPhysicalPortCount)
     {
         EXPECT_EQ(written_root.get_layout_physical_ports(written_layout_id).size(), original_root.get_layout_physical_ports(original_layout_id).size());

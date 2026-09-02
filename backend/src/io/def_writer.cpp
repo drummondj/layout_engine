@@ -251,6 +251,41 @@ namespace le
                                          as_dbu(top_enclosure.x), as_dbu(top_enclosure.y));
                 if (status)
                     return status;
+
+                // BUGS_AND_ENHANCEMENTS.md B9 - the actual root cause of
+                // the reported "missing vias" after a write_def/read_def
+                // round trip: num_cut_rows/num_cut_cols/origin/bot_offset/
+                // top_offset are all real schema fields (B3 follow-up) but
+                // were never written here - every via array silently
+                // collapsed to a single cut on write, since a
+                // ViaRuleReference with no ROWCOL means exactly that (see
+                // its own schema.py doc comment). defwViaViaruleRowCol/
+                // Origin/Offset can each only be called once, immediately
+                // after defwViaViarule (see their own header comments) -
+                // same gap, same fix shape as LEFWriter::write_vias' own
+                // sibling code (lef_writer.cpp), found and fixed alongside
+                // this one.
+                if (vr->num_cut_rows.has_value() && vr->num_cut_cols.has_value())
+                {
+                    status = defwViaViaruleRowCol(*vr->num_cut_rows, *vr->num_cut_cols);
+                    if (status)
+                        return status;
+                }
+                if (vr->origin.has_value())
+                {
+                    status = defwViaViaruleOrigin(static_cast<int>(vr->origin->x), static_cast<int>(vr->origin->y));
+                    if (status)
+                        return status;
+                }
+                if (vr->bot_offset.has_value() || vr->top_offset.has_value())
+                {
+                    const Point bot_offset = vr->bot_offset.value_or(Point{});
+                    const Point top_offset = vr->top_offset.value_or(Point{});
+                    status = defwViaViaruleOffset(static_cast<int>(bot_offset.x), static_cast<int>(bot_offset.y),
+                                                   static_cast<int>(top_offset.x), static_cast<int>(top_offset.y));
+                    if (status)
+                        return status;
+                }
             }
 
             std::vector<ViaLayerData> layers;
@@ -427,7 +462,7 @@ namespace le
                                        is_placed ? placement_status_to_string(placement->placement_status) : nullptr,
                                        static_cast<int>(location.x), static_cast<int>(location.y),
                                        is_placed && !orient.empty() ? orient.c_str() : nullptr,
-                                       placement->weight.value_or(-1.0),
+                                       placement->weight.value_or(0.0),
                                        nullptr, 0, 0, 0, 0); // region
             if (status)
                 return status;

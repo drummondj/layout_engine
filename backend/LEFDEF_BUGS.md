@@ -272,6 +272,24 @@ Found implementing `DEFWriter` (`src/io/def_writer.cpp`/`.hpp`) against
   never calls `defwNetPathWidth` for a regular (non-special) net's path;
   `Route.width` is already documented SPECIALNETS-only in `schema.py` for
   the same reason.
+- **`defwComponent`/`defwComponentStr`**'s own header comment claims their
+  `weight` parameter's "omit this field" sentinel is `-1.0` ("The optional
+  fields will be ignored if they are set to zero (except for weight which
+  must be set to -1.0)") — but the real implementation
+  (`defwWriter.cpp`) gates the `+ WEIGHT` line on a plain `if (weight)`,
+  true for *any* non-zero value including `-1.0` — so passing the
+  documented sentinel actually always writes a literal `WEIGHT -1`
+  (BUGS_AND_ENHANCEMENTS.md B8, confirmed against a real report of exactly
+  this symptom). `0.0` is the only value that check treats as false, so
+  it's the real sentinel, contradicting the header comment; the header
+  comment is simply wrong, not describing an older/different code path.
+  `DEFWriter::write_placements` now passes `weight.value_or(0.0)`. One
+  real, unfixable consequence: a `Placement` whose weight genuinely *is*
+  `0.0` (unusual but valid DEF) can never be told apart from "no weight at
+  all" through this API and will round-trip as unset — a vendored-writer
+  limitation, not a bug in this project's own code (see
+  `DEFWriterComponentWeightFixture` in `def_writer_test.cpp`, which locks
+  in the real, sentinel-collision-aware behavior).
 
 ## Naming quirk (not a functional bug)
 

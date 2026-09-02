@@ -1274,6 +1274,36 @@ namespace le
                                              to_um(top_enclosure.x), to_um(top_enclosure.y));
                     if (status)
                         return status;
+
+                    // BUGS_AND_ENHANCEMENTS.md B3 follow-up added
+                    // num_cut_rows/num_cut_cols/origin/bot_offset/top_offset
+                    // to the schema plus the reader/renderer, but missed
+                    // both writers - found investigating B9's own DEF
+                    // writer report, and the same gap exists here
+                    // verbatim. lefwViaViaruleRowCol/Origin/Offset can each
+                    // only be called once, immediately after
+                    // lefwViaViarule (see their own header comments).
+                    if (vr.num_cut_rows.has_value() && vr.num_cut_cols.has_value())
+                    {
+                        status = lefwViaViaruleRowCol(*vr.num_cut_rows, *vr.num_cut_cols);
+                        if (status)
+                            return status;
+                    }
+                    if (vr.origin.has_value())
+                    {
+                        status = lefwViaViaruleOrigin(to_um(vr.origin->x), to_um(vr.origin->y));
+                        if (status)
+                            return status;
+                    }
+                    if (vr.bot_offset.has_value() || vr.top_offset.has_value())
+                    {
+                        const Point bot_offset = vr.bot_offset.value_or(Point{});
+                        const Point top_offset = vr.top_offset.value_or(Point{});
+                        status = lefwViaViaruleOffset(to_um(bot_offset.x), to_um(bot_offset.y),
+                                                       to_um(top_offset.x), to_um(top_offset.y));
+                        if (status)
+                            return status;
+                    }
                 }
             }
 

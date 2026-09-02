@@ -5,8 +5,11 @@
 - [x] B3. Via arrays are not being rendered.
 - [x] B4. Running a zoom command before show_gui causes the layout viewer to hang.
 - [x] B5. Resizing a sidebar should wait until the resize is finished before rendering a new frame in the layout window.
-- [ ] B6. Closing the GUI window still causes a never ending beachball. Force quiting window results in B6_trace.txt report. 
+- [ ] SKIP FOR NOW B6. Closing the GUI window still causes a never ending beachball. Force quiting window results in B6_trace.txt report. 
 - [x] B7. Keyboard shorrtcuts should only trigger when the mouse is over the layout window. Changing the hierarchy depth by entering 1, 2 etc also changes the layer visibility.
+- [x] B8. write_def always writes "WEIGHT -1" to each COMPONENT even if that wasn't in the original DEF.
+- [x] B9. If I write_def using the aes design and read it back in again, then it is missing vias. Looking at the output DEF, the via array definitions are in the wrong place. Lot's of via arrays one after another. But also lot's that look correct too, it's hard to tell by eye. We need a methodology to check that the result of write_def can be read back in and creates an identical database.
+
 
 # ENHANCEMENTS
 
@@ -64,6 +67,8 @@ I already have an old script (before ImGui) I was using the build the backend: s
 
 write_lef [-abstract <token>] [-include_tech] [-tech_only] <filename> - writes a LEF file for the specified -abstract ID, or uses current_abstract. If current_abstract is not set and -abstract is not provided, then error. By default, technology information is not included. Use the -include_tech to include technology layers and -tech_only to just write technology layers. Some updates the the write_lef C++ will be required to support these extra options.
 write_def [-layout <token>] <filename> - writes a DEF file for the specified -layout ID, or uses current_layout. If current_layout is not set and -layout is not provided, then error.
+
+- [ ] E28.b. I made a mistake with the write_lef specification. write_lef should be able to write MACROs for each Design in a Library. So it should have a -library argument, then an -abstracts argument to specify one or more abstracts to write MACROs for. If -abstracts is not specified, all abstract views for the -library should be written.
 
 - [ ] E29. Schema description cleanup. Decriptions in the schema are used for TCL command help. So they shouldn't contain lengthy or information about internals of the program. Just short susinct help messages intended for the user. Also, most of the error messages reference an le_ command but the user runs commands without the le_ prefix, so that would be confusing. For example, le_read_lef vs read_lef.
 
