@@ -577,4 +577,116 @@ explicitly, not just whatever target I happened to ask for.
 Not yet committed - want your sign-off given the GENERATE fit
 algorithm's own approximation, same as the caching fix above.
 
+## 2026-09-02 (afternoon): E22 implemented - terminal/placement label text now always renders upright
+
+Picked up the plan the earlier E22 section above deferred. Implementation
+matches that plan's shape (an `SkPaintFilterCanvas`-based
+`UprightTextCanvas` wrapping the real rasterize target, wired in at
+`TiledRasterizePictureStage` only - the "content-heavy slot" shared by
+both Abstract-view and Layout-view rendering per `RasterizeComposePipeline`'s
+own doc comment; `RasterizePictureStage`'s remaining callers -
+tiny-shape/selection/ruler overlays - draw no Placement-orientation-
+affected text at all, ruler distance labels included, since those are
+drawn directly in device space from mouse/ruler state, never inside a
+per-instance `concat(instance_transform)` chain, so they were correctly
+left unwired), but getting there took two real wrong turns worth
+recording so they don't get re-made:
+
+**Wrong turn 1 - linking, not logic.** The class as first written
+(constructed, all methods inline in the header) failed to link the
+moment any real code actually instantiated it (`backend_tests`, not the
+narrower `pipelines` target, which never triggered vtable emission at
+all and so built "successfully" while testing nothing): "Undefined
+symbols: typeinfo for SkPaintFilterCanvas, referenced from: typeinfo for
+le::UprightTextCanvas". Root cause, confirmed via `nm` against the
+vendored `libskia.a`: this Skia build disables RTTI for its own core
+classes (`SkCanvas`/`SkPaintFilterCanvas` have vtables but no `typeinfo
+for` symbol anywhere in the archive) - a real, known Skia integration
+gotcha, not a mistake in our own CMake. Fixed by giving the class a
+single out-of-line "key function" (its own destructor, in a new
+`upright_text_canvas.cpp`) compiled with `-fno-rtti` specifically for
+that one file (`set_source_files_properties` in `CMakeLists.txt`) - the
+vtable is then emitted exactly once, in a TU where no `typeinfo for`
+symbol is ever attempted for either class, rather than vaguely-linked
+into every TU that constructs one.
+
+**Wrong turn 2 - the real one, and the scarier one.** Once it linked, it
+built, benchmarked identically before/after, and (on a naive first pixel
+test using a Placement's own *name* label, not a terminal label) even
+appeared to pass - all while doing precisely nothing. Two compounding
+`SkPaintFilterCanvas` defaults turned out to bypass the whole class
+silently:
+- `SkPaintFilterCanvas::onDrawPicture`'s own default implementation
+  forwards straight to the ONE wrapped proxy canvas rather than back
+  through `this` - and the public `SkCanvas::drawPicture` entry point
+  only calls `picture->playback(this)` directly for a picture with
+  `approximateOpCount() <= 1` (`SkCanvasPriv.h`), true only for a
+  near-empty picture, never real content - so every picture with real
+  content (every one in this codebase) escaped filtering the instant it
+  was drawn, nested instances included.
+- Once that was fixed (an `onDrawPicture` override replaying
+  `picture->playback(this)` directly, mirroring the private
+  `SkAutoCanvasMatrixPaint`'s own save/concat/restore shape against
+  public `SkCanvas` methods only), text STILL rendered rotated. This
+  file's own original E22 section above (and the user's own original
+  bug report) already named the right method - `onDrawTextBlob` - but
+  the implementation had been overriding `onDrawGlyphRunList` instead,
+  on the strength of an earlier (wrong) trace of a *live, non-recording*
+  canvas's own call path (`SkCanvas::drawSimpleText` really does call
+  `onDrawGlyphRunList` directly there). A *recording* canvas
+  (`SkPictureRecord`, what actually builds every picture in this
+  codebase) overrides `onDrawTextBlob` only - there is no "recorded
+  glyph run list" op kind at all (confirmed by grepping `SkRecords.h`) -
+  so every recorded `drawString` call is stored, and later replayed, as
+  `onDrawTextBlob`, never `onDrawGlyphRunList`. `SkPaintFilterCanvas`'s
+  own default `onDrawTextBlob` has the exact same "forwards to the proxy,
+  not back through `this`" bypass as `onDrawPicture` above. Fixed by
+  overriding `onDrawTextBlob` for real (with `onDrawGlyphRunList` kept
+  too, defensively, for a hypothetical live-draw caller) - confirmed with
+  a debug PNG dump that text was still visibly sideways right up until
+  this fix, then genuinely upright after.
+
+Both wrong turns were only caught because I built dedicated,
+independent-of-the-real-pipeline unit tests (`upright_text_canvas_test.cpp`)
+that construct a small nested `SkPicture` matching
+`BuildLayoutPictureStage`'s own exact `concat(instance_transform);
+drawPicture(child)` idiom, with a real (>1 op) parent picture - rather
+than trusting a green pipeline-level test built around a Placement's own
+*name* label, which turned out to already draw axis-aligned regardless
+of orientation for an unrelated reason (`draw_placement_labels` never
+applies the instance transform to begin with), so it silently exercised
+none of this. Each test was verified to fail with the fix reverted and
+pass with it restored, including catching that a "180 degrees /
+bare-mirror" rotation set doesn't actually distinguish upright from
+not (both preserve a wide-not-tall aspect ratio either way) - replaced
+with 270-degree and mirror-plus-90 cases, the ones that actually flip
+the aspect ratio when broken, matching a real LEF/DEF orientation
+(FE/FW-style) rather than an bare mirror this codebase's own
+`Geometry::orientation_linear` never produces alone.
+
+**Benchmarked** (`BM_TiledRasterizePlayback_NoBBH`/`_WithRTree`,
+`pipeline_benchmarks`, Release, 5 repetitions, 1,000,000-shape stress
+fixture): wrapped vs. unwrapped came out within the same run-to-run
+noise band as an untouched control benchmark (`BM_Rasterize`, ~3% CV
+either way) - `WithRTree` 5.76ms vs. an unwrapped baseline's 5.74ms;
+`NoBBH` 15.7ms vs. 15.4ms. Unsurprising in hindsight: text labels are
+"a small minority of draw calls relative to shapes/rects/paths" at this
+fixture's own scale (`draw_helpers.hpp`'s own comment), so the extra
+per-text-draw `getTotalMatrix`/decompose/save/setMatrix/restore cost
+this adds doesn't move the needle. Re-benchmarked a second time after
+fixing wrong turn 2 above, since the first benchmark run (against the
+silently-inert version) was measuring nothing real.
+
+New test coverage: `src/pipelines/tests/upright_text_canvas_test.cpp`
+(new file, registered in `CMakeLists.txt`) - a baseline-on-a-plain-canvas
+sanity check (confirms the test's own setup really does rotate text,
+so the "fix" tests aren't vacuous), a 90-degree fix test, and a
+270-degree/mirror-plus-90 multi-orientation test. Full 684-test suite
+passes (up from 681); both `build`/`build_release` rebuilt clean.
+`BUGS_AND_ENHANCEMENTS.md`'s E22 checkbox checked.
+
+Not yet committed - want your sign-off given how much this one needed
+correcting from its own first (and second) attempt before landing on
+something real; happy to walk through the debug PNGs if useful.
+
 

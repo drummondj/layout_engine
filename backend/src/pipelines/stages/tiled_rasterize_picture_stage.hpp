@@ -3,6 +3,7 @@
 #include "../../scene/scene.hpp"
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"
+#include "../upright_text_canvas.hpp"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkPicture.h"
@@ -88,10 +89,23 @@ namespace le
                                    // py) - translating by (height - y0) instead of the full
                                    // height reproduces that offset within the tile's own
                                    // [0, y1-y0) row range.
+                                   // BUGS_AND_ENHANCEMENTS.md E22 - wraps
+                                   // the real tile canvas so every text
+                                   // draw this picture's own replay
+                                   // reaches (at any nesting depth -
+                                   // UprightTextCanvas's own doc comment
+                                   // for why that works transparently)
+                                   // renders upright, regardless of
+                                   // whatever Placement orientation or
+                                   // accumulated flip is active at that
+                                   // point. UprightTextCanvas forwards
+                                   // every non-text draw straight through
+                                   // to tile_canvas unchanged.
                                    SkCanvas *tile_canvas = tile_surface->getCanvas();
-                                   tile_canvas->translate(0, static_cast<SkScalar>(height - y0));
-                                   tile_canvas->scale(1, -1);
-                                   tile_canvas->drawPicture(picture);
+                                   UprightTextCanvas upright_canvas(tile_canvas);
+                                   upright_canvas.translate(0, static_cast<SkScalar>(height - y0));
+                                   upright_canvas.scale(1, -1);
+                                   upright_canvas.drawPicture(picture);
                                });
 
             return RasterizedFrame{

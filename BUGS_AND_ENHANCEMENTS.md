@@ -6,7 +6,7 @@
 - [x] B4. Running a zoom command before show_gui causes the layout viewer to hang.
 - [x] B5. Resizing a sidebar should wait until the resize is finished before rendering a new frame in the layout window.
 - [ ] B6. Closing the GUI window still causes a never ending beachball. Force quiting window results in B6_trace.txt report. 
-
+- [ ] B7. Keyboard shorrtcuts should only trigger when the mouse is over the layout window. Changing the hierarchy depth by entering 1, 2 etc also changes the layer visibility.
 
 # ENHANCEMENTS
 
@@ -36,7 +36,33 @@
     - Rect: { { llx lly } { urx ury } }
     - Polygon: { { x0 y0 } { x1 y1 } ...}
     - Path: {width { { x0 y0 } { x1 y1 } ...} }
-- [ ] E22. When Placements with terminal labels are rendered, the text orientation is drawn depending on the orientation of the Placement. Is there anyway to always draw text the right way up without impacting performance? For example, using a custom canvas and overriding onDrawTextBlob.
+- [x] E22. When Placements with terminal labels are rendered, the text orientation is drawn depending on the orientation of the Placement. Is there anyway to always draw text the right way up without impacting performance? For example, using a custom canvas and overriding onDrawTextBlob.
 - [x] E23. I'm wondering if it is efficent to create a SkPicture and replay it each time the zoom level changes. Would it be better to just directly render to the canvas and re-use the canvas across Placements? Is this even possible? Please investigate.
 - [x] E24. PlacementNames should be rendered for sub-layout placements in the same way terminal text is for placement abstracts.
 - [x] E25. Test raster performance when recording SkPitcures with a SkRTreeFactory
+- [ ] E26. le_shell header with version number, should get version number and build date automatically:
+
+```
+┌┐    ┌┬──┐ ┌┐ ┌┐ ┌┬──┐ ┌┐  ┐ ┌─┬┬─┐      ┌┬──┐ ┌┬─┐ ┐ ┌┬──  ┌┐ ┌┬─┐ ┐ ┌┬──┐
+├┤    ├┼──┤ └┴─┼┤ ├┤  │ ├┤  │   ├┤        ├┼─   ├┤ │ │ ├┤ ┬┐ ├┤ ├┤ │ │ ├┼─  
+└┴──┘ └┘  ┘ └──┴┘ └┴──┘ └┴──┘   └┘        └┴──┘ └┘ └─┘ └┴─┴┘ └┘ └┘ └─┘ └┴──┘
+
+Version  : x.x.x
+Built on : <build date>
+
+HINT: Use help [wildcard] for help on the various TCL commands. Use man <command> for details.
+
+```
+
+If not an offical github release then the release version is the current short git commit hash.
+
+I already have an old script (before ImGui) I was using the build the backend: scripts/build.sh so maybe reuse that to generate the version number and date? Unless there is an industry standard way of doing this for C++ programs. Like in the CMakeLists.txt file.
+
+- [ ] E27. Change le_shell prompt from "%" to "le_shell > "
+
+
+# QUESTIONS
+
+Q1. At the same zoom level and orientation, each placement of the same design will be identical. Do we re-use RasterizedFrames or re-draw from the SkPitcure recording?
+
+

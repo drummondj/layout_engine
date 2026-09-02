@@ -411,9 +411,19 @@ endif()
 # pipelines.cpp alone pulls in the CoreText font manager's
 # ApplicationServices.h - see default_typeface()'s own comment (in
 # draw_helpers.hpp) for why that can't be a header-only detail. ---
-add_library(pipelines STATIC src/pipelines/pipelines.cpp)
+add_library(pipelines STATIC src/pipelines/pipelines.cpp src/pipelines/upright_text_canvas.cpp)
 target_include_directories(pipelines PUBLIC src)
 target_link_libraries(pipelines PUBLIC database geometry scene view_style core skia fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
+
+# upright_text_canvas.cpp holds UprightTextCanvas's sole out-of-line virtual
+# (its destructor - see the class's own comment, upright_text_canvas.hpp) so
+# its vtable/typeinfo are emitted exactly once, here, rather than vaguely-
+# linked into every TU that constructs one. -fno-rtti matches this vendored
+# Skia build: SkPaintFilterCanvas/SkCanvas have vtables but no `typeinfo for`
+# symbol anywhere in libskia.a (Skia's own official build disables RTTI for
+# its core classes) - a normal RTTI-enabled TU defining this class's vtable
+# fails to link ("Undefined symbols: typeinfo for SkPaintFilterCanvas").
+set_source_files_properties(src/pipelines/upright_text_canvas.cpp PROPERTIES COMPILE_OPTIONS "-fno-rtti")
 
 # LE_FONT_DIR: Linux's default_typeface() (pipelines.cpp) loads its default
 # font from this bundled directory (backend/assets/fonts, committed to the
@@ -862,7 +872,7 @@ target_compile_definitions(backend_tests PRIVATE
     DEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/bin/defdiff"
 )
 add_dependencies(backend_tests lef_lib def_lib)
-target_sources(backend_tests PRIVATE src/pipelines/tests/pipelines_test.cpp src/pipelines/tests/render_pipelines_test.cpp src/pipelines/tests/hierarchy_resolver_test.cpp src/pipelines/tests/draw_helpers_test.cpp)
+target_sources(backend_tests PRIVATE src/pipelines/tests/pipelines_test.cpp src/pipelines/tests/render_pipelines_test.cpp src/pipelines/tests/hierarchy_resolver_test.cpp src/pipelines/tests/draw_helpers_test.cpp src/pipelines/tests/upright_text_canvas_test.cpp)
 target_link_libraries(backend_tests PRIVATE pipelines)
 le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
