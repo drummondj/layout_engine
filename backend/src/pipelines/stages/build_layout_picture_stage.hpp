@@ -2,6 +2,7 @@
 #include "../draw_helpers.hpp"
 #include "../pixel_types.hpp"
 #include "../../view_style/view_style.hpp"
+#include "include/core/SkBBHFactory.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
@@ -49,6 +50,19 @@ namespace le
     /// drawPoints's own batching had - Skia has no direct batched
     /// multi-rect stroke API, so a path is the next-cheapest equivalent.
     ///
+    /// Records with an SkRTreeFactory-backed bounding box hierarchy
+    /// (BUGS_AND_ENHANCEMENTS.md E25) - the top-level Layout node's own
+    /// picture is what render_layout_frame hands RasterizeComposePipeline's
+    /// design_rasterize_ (TiledRasterizePictureStage), which tile-splits
+    /// it across several row-band clips every rasterize; a nested node's
+    /// own picture gets the same treatment for the same reason one level
+    /// down - a parent's own recorded `canvas->drawPicture(child)` op
+    /// replays the CHILD picture against whatever clip the parent's own
+    /// BBH already narrowed things down to, so a BBH-backed child can keep
+    /// skipping within its own content for that same clip rather than
+    /// walking all of it. See build_design_picture_stage.hpp's own doc
+    /// comment for the measured numbers (same fixture, same conclusion).
+    ///
     /// Deliberately NOT VersionedStage-cached, unlike every sibling stage
     /// in this directory - a real, reasoned deviation, not an omission:
     /// caching here would need to be keyed per-{LayoutId, remaining_depth},
@@ -70,8 +84,9 @@ namespace le
 
         static sk_sp<SkPicture> run(SkRect bounds, const std::map<ViewLayerId, std::vector<PixelShape>> &own_shapes, const std::vector<ResolvedInstance> &instances, const std::vector<PixelRect> &tiny_instance_rects, const std::vector<PlacementLabel> &placement_labels, const ViewLayerSet &view_layers, bool antialiasing_enabled, bool placement_names_visible)
         {
+            SkRTreeFactory rtree_factory;
             SkPictureRecorder recorder;
-            SkCanvas *canvas = recorder.beginRecording(bounds);
+            SkCanvas *canvas = recorder.beginRecording(bounds, &rtree_factory);
 
             draw_shape_groups(*canvas, own_shapes, view_layers, antialiasing_enabled);
 

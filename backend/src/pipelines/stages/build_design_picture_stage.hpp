@@ -6,6 +6,7 @@
 #include "../../view_style/view_style.hpp"
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"
+#include "include/core/SkBBHFactory.h"
 #include "include/core/SkPicture.h"
 #include "include/core/SkPictureRecorder.h"
 #include "include/core/SkRect.h"
@@ -21,6 +22,19 @@ namespace le
     /// current Abstract's own origin marker. compute()'s own body is
     /// unchanged from the original stage's run() lambda - see that file's
     /// own doc comment for the full drawing-order rationale.
+    ///
+    /// Records with an SkRTreeFactory-backed bounding box hierarchy
+    /// (BUGS_AND_ENHANCEMENTS.md E25) - this picture is the one
+    /// RasterizeComposePipeline's design_rasterize_ tile-splits across
+    /// several row-band clips every rasterize (TiledRasterizePictureStage),
+    /// and a BBH lets playback skip recorded ops outside each tile's own
+    /// clip instead of walking/clip-testing all of them per tile.
+    /// Benchmarked (BM_TiledRasterizePlayback_NoBBH vs. _WithRTree,
+    /// BM_RecordPicture_NoBBH vs. _WithRTree, see BENCHMARKS.md): ~2.7x
+    /// faster tiled playback against the 1,000,000-shape stress fixture,
+    /// for ~2% extra one-time recording cost - a clear win since playback
+    /// happens far more often (every pan/zoom/rasterize) than recording
+    /// (every real content change).
     ///
     /// Wired downstream of PixelTransformStage via make_edge (within
     /// DesignRenderPipeline's own graph) - its own data_version arrives
@@ -39,9 +53,10 @@ namespace le
             const ViewLayerSet &view_layers = *options.ctx.view_layers;
             const Root &root = *options.ctx.root;
 
+            SkRTreeFactory rtree_factory;
             SkPictureRecorder recorder;
             SkCanvas *canvas = recorder.beginRecording(
-                SkRect::MakeWH(static_cast<SkScalar>(scene.viewport_width_px()), static_cast<SkScalar>(scene.viewport_height_px())));
+                SkRect::MakeWH(static_cast<SkScalar>(scene.viewport_width_px()), static_cast<SkScalar>(scene.viewport_height_px())), &rtree_factory);
 
             // Grid first, so it sits underneath the real design geometry
             // drawn below rather than obscuring it.

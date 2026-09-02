@@ -1485,3 +1485,42 @@ who disables AA should see it applied consistently, not silently
 excluded from some text), but not for the performance reason originally
 suspected. Full 658-test suite passes; both `build`/`build_release`
 rebuilt clean.
+
+## 2026-09-02 — SkRTreeFactory bounding-box hierarchy for the design picture (E25)
+
+The user asked whether recording with an `SkRTreeFactory`-backed BBH
+would help raster performance. The natural place this could pay off is
+`TiledRasterizePictureStage` (2026-08-30 entry above) - it tile-splits
+the viewport into row bands and calls `drawPicture()` against the SAME
+whole picture once per tile/clip; without a BBH, `SkPicture::playback`
+has to walk and clip-test every recorded op for every single tile, even
+ops nowhere near that tile's own row band.
+
+Two new isolated benchmark pairs against the 1,000,000-shape stress
+fixture, recording the same real content (`draw_grid` + `draw_shape_groups`,
+matching `BuildDesignPictureStage::compute` exactly) into a plain picture
+vs. an RTree-backed one, then (a) timing `TiledRasterizePictureStage`'s
+own real tile-loop against each, and (b) timing the recording itself:
+
+| Benchmark | Result |
+| --- | --- |
+| `BM_TiledRasterizePlayback_NoBBH` | 14.7 ms (11.6 ms CPU) |
+| `BM_TiledRasterizePlayback_WithRTree` | 5.48 ms (2.89 ms CPU) |
+| `BM_RecordPicture_NoBBH` | 2132 ms |
+| `BM_RecordPicture_WithRTree` | 2183 ms |
+
+**~2.7x faster tiled playback (wall time), ~4x less CPU work**, for
+~2% extra one-time recording cost (well within this benchmark's own
+run-to-run stddev, ~5%) - a clear, decisive win, since playback happens
+on every pan/zoom/rasterize tick while recording only happens when
+real content actually changes. Applied: `BuildDesignPictureStage`
+(Abstract-view) and `BuildLayoutPictureStage` (Layout-view, every node -
+see its own doc comment for why a nested node's picture benefits too,
+not just the top-level one handed to `RasterizeComposePipeline`) both
+now record with `SkRTreeFactory`. Left alone: `BuildTinyDotsPictureStage`
+and the selection/ruler/mouse-overlay pictures - none of those go
+through `TiledRasterizePictureStage`'s own tiled path; each is played
+back via a plain `RasterizePictureStage` exactly once per frame with no
+clip narrower than the whole viewport, so there's no repeated-clipped-
+query pattern for a BBH to accelerate. Full 666-test suite passes; both
+`build`/`build_release` rebuilt clean.

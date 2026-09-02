@@ -207,3 +207,28 @@ separate display path that could drift out of sync with what
 `get_properties`/TCL command arguments use - they're structurally
 guaranteed to agree, not just observed to agree today.
 
+## E25. Test raster performance when recording SkPictures with a SkRTreeFactory.
+
+**Done - benchmarked, and the result was a clear enough win to apply,
+not just report.** Added two isolated benchmark pairs
+(`BM_TiledRasterizePlayback_NoBBH`/`_WithRTree`,
+`BM_RecordPicture_NoBBH`/`_WithRTree`) against the real 1,000,000-shape
+stress fixture: ~2.7x faster tiled playback (the access pattern
+`TiledRasterizePictureStage` - added 2026-08-30, before this overnight
+pass - actually uses: the same whole picture drawn once per row-band
+tile/clip) for only ~2% extra one-time recording cost, well inside this
+benchmark's own run-to-run noise. Full numbers and reasoning in
+`backend/BENCHMARKS.md`'s new 2026-09-02 entry.
+
+**Judgment call:** given a genuinely decisive result (not a marginal
+one needing your own sign-off on a tradeoff), I applied it rather than
+just leaving the benchmark for you to interpret - `BuildDesignPictureStage`
+and every `BuildLayoutPictureStage` node now record with `SkRTreeFactory`
+(the two picture producers that ever feed `TiledRasterizePictureStage`,
+directly or via a nested `drawPicture` composed into it), while
+`BuildTinyDotsPictureStage` and the selection/ruler/mouse-overlay
+pictures are deliberately left alone - none of those are ever
+tile-rasterized with a narrower-than-viewport clip, so a BBH would only
+add recording cost there with nothing to accelerate. Full 666-test
+suite passes; both `build`/`build_release` rebuilt.
+

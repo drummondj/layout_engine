@@ -14,13 +14,17 @@
 #include "../stages/pixel_transform_stage.hpp"
 #include "../stages/rasterize_picture_stage.hpp"
 #include "../stages/selection_overlay_stage.hpp"
+#include "../stages/tiled_rasterize_picture_stage.hpp"
 #include "../stages/tiny_pixel_transform_stage.hpp"
 #include "../stages/tiny_viewport_filter_stage.hpp"
 #include "../stages/viewport_filter_stage.hpp"
 #include "layout_stress_data.hpp"
 #include "real_design_data.hpp"
 #include "stress_data.hpp"
+#include "include/core/SkBBHFactory.h"
+#include "include/core/SkPictureRecorder.h"
 #include <benchmark/benchmark.h>
+#include <oneapi/tbb.h>
 
 using namespace le;
 
@@ -470,6 +474,115 @@ static void BM_Rasterize(benchmark::State &state)
     state.SetItemsProcessed(state.iterations() * pixel_shapes.size());
 }
 BENCHMARK(BM_Rasterize)->Unit(benchmark::kMillisecond);
+
+// BUGS_AND_ENHANCEMENTS.md E25 - does recording an SkPicture with an
+// SkRTreeFactory-backed bounding box hierarchy pay for itself? A BBH lets
+// SkPicture::playback skip subtrees of recorded ops that don't intersect
+// the current canvas clip - real per-clipped-draw benefit specifically
+// requires a canvas with a NON-trivial clip smaller than the picture's
+// own bounds, which is exactly TiledRasterizePictureStage's own access
+// pattern (RasterizeComposePipeline's content-heavy slot): each tile is a
+// small SkSurface covering one row-band, and drawPicture is called
+// against it with the WHOLE 1,000,000-shape picture every time. Without a
+// BBH, playback still has to walk (and clip-test) every recorded op for
+// every tile; with one, most ops outside a tile's own row band should
+// never be visited at all. Records the same real stress-fixture content
+// (draw_grid + draw_shape_groups, matching BuildDesignPictureStage::compute
+// exactly) into two pictures - one plain, one RTree-backed - then times
+// TiledRasterizePictureStage's own real tile-splitting/drawPicture loop
+// (copied verbatim, not reimplemented, so this can't drift from what
+// production code actually does) against each. See BENCHMARKS.md for the
+// resulting numbers and the adopt/defer decision.
+namespace
+{
+    sk_sp<SkPicture> record_stress_picture_for_rtree_benchmark(const StressData &data, const Scene &scene, const PipelineOptions &options, SkBBHFactory *bbh_factory)
+    {
+        AbstractShapePipeline setup_pipeline;
+        const auto &generated = setup_pipeline.run(data.abstract_id, options);
+        SynchronousStageRunner<PixelTransformStage, std::map<ViewLayerId, std::vector<RenderedShape>>, std::map<ViewLayerId, std::vector<PixelShape>>> setup_transform{"bm_pixel_transform_setup_rtree"};
+        const auto &pixel_shapes = setup_transform.run(generated, PixelTransformStage::data_version_for(data.abstract_id, options), options);
+
+        SkPictureRecorder recorder;
+        SkCanvas *canvas = recorder.beginRecording(
+            SkRect::MakeWH(static_cast<SkScalar>(scene.viewport_width_px()), static_cast<SkScalar>(scene.viewport_height_px())), bbh_factory);
+        draw_grid(*canvas, scene);
+        draw_shape_groups(*canvas, pixel_shapes, data.view_layers, scene.antialiasing_enabled());
+        return recorder.finishRecordingAsPicture();
+    }
+
+}
+
+static void BM_TiledRasterizePlayback_NoBBH(benchmark::State &state)
+{
+    const auto &data = stress_data();
+    Scene scene = make_scene(data);
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
+    const sk_sp<SkPicture> picture = record_stress_picture_for_rtree_benchmark(data, scene, options, nullptr);
+
+    for (auto _ : state)
+    {
+        // A fresh SynchronousStageRunner every iteration - matching
+        // BM_BuildPicture's own idiom above - since MemoizingStage caches
+        // on data_version, and a reused runner would only pay the real
+        // rasterize cost on the first iteration.
+        SynchronousStageRunner<TiledRasterizePictureStage, sk_sp<SkPicture>, RasterizedFrame> runner{"bm_tiled_rasterize_no_bbh"};
+        const auto &frame = runner.run(picture, /*data_version=*/0, options);
+        const uint8_t *buffer_data = frame.buffer.data;
+        benchmark::DoNotOptimize(buffer_data);
+    }
+}
+BENCHMARK(BM_TiledRasterizePlayback_NoBBH)->Unit(benchmark::kMillisecond);
+
+static void BM_TiledRasterizePlayback_WithRTree(benchmark::State &state)
+{
+    const auto &data = stress_data();
+    Scene scene = make_scene(data);
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
+    SkRTreeFactory rtree_factory;
+    const sk_sp<SkPicture> picture = record_stress_picture_for_rtree_benchmark(data, scene, options, &rtree_factory);
+
+    for (auto _ : state)
+    {
+        SynchronousStageRunner<TiledRasterizePictureStage, sk_sp<SkPicture>, RasterizedFrame> runner{"bm_tiled_rasterize_with_rtree"};
+        const auto &frame = runner.run(picture, /*data_version=*/0, options);
+        const uint8_t *buffer_data = frame.buffer.data;
+        benchmark::DoNotOptimize(buffer_data);
+    }
+}
+BENCHMARK(BM_TiledRasterizePlayback_WithRTree)->Unit(benchmark::kMillisecond);
+
+// Recording cost itself - a BBH isn't free to build at record time either,
+// paid once per BuildDesignPictureStage recompute (not once per rasterize/
+// pan tick the way the playback benchmarks above are), so a real adopt
+// decision needs both sides of this tradeoff, not just the playback win.
+static void BM_RecordPicture_NoBBH(benchmark::State &state)
+{
+    const auto &data = stress_data();
+    Scene scene = make_scene(data);
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
+
+    for (auto _ : state)
+    {
+        const sk_sp<SkPicture> picture = record_stress_picture_for_rtree_benchmark(data, scene, options, nullptr);
+        benchmark::DoNotOptimize(picture.get());
+    }
+}
+BENCHMARK(BM_RecordPicture_NoBBH)->Unit(benchmark::kMillisecond);
+
+static void BM_RecordPicture_WithRTree(benchmark::State &state)
+{
+    const auto &data = stress_data();
+    Scene scene = make_scene(data);
+    const PipelineOptions options = pipeline_options_for(data.root, data.view_layers, scene);
+    SkRTreeFactory rtree_factory;
+
+    for (auto _ : state)
+    {
+        const sk_sp<SkPicture> picture = record_stress_picture_for_rtree_benchmark(data, scene, options, &rtree_factory);
+        benchmark::DoNotOptimize(picture.get());
+    }
+}
+BENCHMARK(BM_RecordPicture_WithRTree)->Unit(benchmark::kMillisecond);
 
 // A fresh AbstractShapePipeline + FrameRenderPipeline every iteration,
 // running the full generate -> filter -> filter -> transform -> picture ->

@@ -39,4 +39,4 @@
 - [ ] E22. When Placements with terminal labels are rendered, the text orientation is drawn depending on the orientation of the Placement. Is there anyway to always draw text the right way up without impacting performance? For example, using a custom canvas and overriding onDrawTextBlob.
 - [x] E23. I'm wondering if it is efficent to create a SkPicture and replay it each time the zoom level changes. Would it be better to just directly render to the canvas and re-use the canvas across Placements? Is this even possible? Please investigate.
 - [x] E24. PlacementNames should be rendered for sub-layout placements in the same way terminal text is for placement abstracts.
-- [ ] E25. Test raster performance when recording SkPitcures with a SkRTreeFactory
+- [x] E25. Test raster performance when recording SkPitcures with a SkRTreeFactory
