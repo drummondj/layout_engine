@@ -126,7 +126,7 @@ A library cell or logical module
 
 `create_enclosure_entry -layer <token> [-location <str>] -overhang1 <dbu> -overhang2 <dbu> [-width <dbu>] [-except_extra_cut <dbu>] [-min_length <dbu>] [-help]`
 
-One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several. width/except_extra_cut/min_length are mutually exclusive per the vendored writer's own three ENCLOSURE writer variants (plain, WIDTH[+EXCEPTEXTRACUT], LENGTH)
+One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -250,7 +250,7 @@ A routing layer
 
 `create_layer_density_entry [-ac_layer <token>] [-dc_layer <token>] -type <str> [-one_entry <double>] [-help]`
 
-One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is always AVERAGE) - either a plain scalar (one_entry) or a table (frequency/width-or-cutarea + table_entries), never both. Owned by exactly one of Layer's two independent is_child lists (ac_current_density/dc_current_density, mutually exclusive per instance - same multi-parent-field pattern as Shape's terminal_port/obstruction, just both roles happening to be the same owner class)
+One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS) - either a plain scalar or a table, never both.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -264,7 +264,7 @@ One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is a
 
 `create_layout -design <token> [-help]`
 
-A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc. Net *connectivity* (which component pins a net connects) is deferred to when SystemVerilog/Schematic linking lands - Net here only holds routing geometry.
+A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -417,7 +417,7 @@ An abstract routing blockage
 
 `create_physical_port -layout <token> -name <str> [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
 
-A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's future logical Port, named PhysicalPort (not Pin, DEF's own section name) since SCHEMA.md reserves Pin for a different concept (a logical pin on a Schematic Instance, i.e. a Verilog instance pin). Net connectivity is deferred to when SystemVerilog/Schematic linking lands - net_name is stored as read, not resolved to a (future) Net.
+A chip-boundary I/O pin (DEF PINS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -435,7 +435,7 @@ A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's f
 
 `create_physical_port_segment -physical_port <token> [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
 
-One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort's own relationship to Terminal, just named to avoid stuttering (PhysicalPort + Port). Unlike TerminalPort, carries its own placement_status/location/orientation - DEF lets each PORT of a multi-port pin be placed independently (setPortPlacement, distinct from the pin's own top-level setPlacement), and its own LAYER/POLYGON coordinates are relative to that placement, not the parent PhysicalPort's - confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3 different placements: FIXED/COVER/PLACED at 3 different locations). Unset for the synthetic single segment a pre-5.7 simple (no-PORT-wrapper) pin gets - that case's placement lives on the parent PhysicalPort instead.
+One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -461,7 +461,7 @@ One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer'
 
 `create_placement -layout <token> -reference_design <token> -name <str> -placement_status <PlacementStatus> [-location <Point>] [-orientation <Orientation>] [-weight <double>] [-source <str>] [-help]`
 
-A placed physical instance (DEF COMPONENTS) - the physical counterpart to Instance, kept as a separate klass to keep physical placement apart from logical connectivity (Instance/Schematic, not yet populated - no SystemVerilog reader exists). Named Placement (not Component, DEF's own section name) to mirror Net/Route's own logical-vs-physical naming split - see SCHEMA.md.
+A placed physical instance (DEF COMPONENTS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -526,7 +526,7 @@ A placement region (DEF REGIONS)
 
 `create_route -layout <token> -name <str> [-is_special <bool>] [-width <dbu>] [-voltage <double>] [-use <str>] [-help]`
 
-The routing geometry of a regular or special net (DEF NETS/SPECIALNETS) - named Route rather than Net to reserve the Net name for the future Schematic/SystemVerilog netlist connectivity klass. Net *connectivity* (which component pins a net connects) is deferred to when that linking lands - this klass only holds physical routed geometry.
+The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -572,7 +572,7 @@ A logical connectivity view (netlist)
 
 `create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <dbu>] [-design_rule_width <dbu>] [-except_pg_net <bool>] [-help]`
 
-A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes.
+A shape on a layer.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -612,7 +612,7 @@ A site definition (LEF SITE) - the placement grid unit a MACRO's own SITE statem
 
 `create_spacing_rule -layer <token> -distance <dbu> [-range_min <dbu>] [-range_max <dbu>] [-range_use_length_threshold <bool>] [-range_influence <dbu>] [-range_influence_range_min <dbu>] [-range_influence_range_max <dbu>] [-range_range_min <dbu>] [-range_range_max <dbu>] [-length_threshold <dbu>] [-length_threshold_range_min <dbu>] [-length_threshold_range_max <dbu>] [-center_to_center <bool>] [-same_net <bool>] [-same_net_pg_only <bool>] [-parallel_overlap <bool>] [-end_of_line_width <dbu>] [-end_of_line_within <dbu>] [-parallel_edge_space <dbu>] [-parallel_edge_within <dbu>] [-two_edges <bool>] [-notch_length <dbu>] [-end_of_notch_width <dbu>] [-end_of_notch_spacing <dbu>] [-end_of_notch_length <dbu>] [-second_layer_name <str>] [-second_layer_stack <bool>] [-adjacent_cuts <int>] [-adjacent_within <dbu>] [-adjacent_except_same_pg_net <bool>] [-area <dbu>] [-help]`
 
-One LEF SPACING statement for a layer. ROUTING and CUT layers use disjoint sets of modifiers (a ROUTING rule leaves the CUT-only fields unset, and vice versa) - see LEFReader/LEFWriter for which fields apply to which layer type.
+One LEF SPACING statement for a layer - ROUTING and CUT layers use disjoint sets of modifiers.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -765,7 +765,7 @@ A fixed/default via definition (LEF VIA)
 
 `create_via_layer [-via <token>] [-non_default_rule_via <token>] [-layout_via <token>] -layer_name <str> [-help]`
 
-One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia/LayoutVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction/... parents)
+One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -816,7 +816,7 @@ One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd bei
 
 `create_via_rule_reference [-via <token>] [-layout_via <token>] -via_rule_name <str> [-cut_size <Point>] -bot_layer_name <str> -cut_layer_name <str> -top_layer_name <str> [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-num_cut_rows <int>] [-num_cut_cols <int>] [-origin <Point>] [-bot_offset <Point>] [-top_offset <Point>] [-help]`
 
-A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). ROWCOL (num_cut_rows/num_cut_cols below) is modeled - BUGS_AND_ENHANCEMENTS.md B3, a via *array* is exactly a ROWCOL clause with more than one row/col of cuts, synthesized into concrete cut rects by via_shapes.hpp at render time rather than stored as one rect per cut. ORIGIN/OFFSET (origin/bot_offset/top_offset below) are also modeled (B3 follow-up) - real caller-supplied overrides for where the cut array's own center (ORIGIN) and each metal layer's own enclosure-rect center (OFFSET) land, relative to the via's own placement point, used e.g. when a via needs to sit off-center from its own connection point. PATTERN (a sparse cut-presence bitmap - which grid cells in a rows x cols array actually have a cut, vs. the simpler always-fully-populated grid this schema assumes) is deliberately still not modeled - the reader logs a warning when one is present rather than silently ignoring it, the same documented-gap convention as everywhere else in this schema. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
+A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA) - not the same thing as a VIARULE block itself, see ViaRule. Owned by exactly one of Via/LayoutVia.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -940,7 +940,7 @@ A library cell or logical module
 
 `delete_enclosure_entry <id> [-help]`
 
-One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several. width/except_extra_cut/min_length are mutually exclusive per the vendored writer's own three ENCLOSURE writer variants (plain, WIDTH[+EXCEPTEXTRACUT], LENGTH)
+One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1006,7 +1006,7 @@ A routing layer
 
 `delete_layer_density_entry <id> [-help]`
 
-One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is always AVERAGE) - either a plain scalar (one_entry) or a table (frequency/width-or-cutarea + table_entries), never both. Owned by exactly one of Layer's two independent is_child lists (ac_current_density/dc_current_density, mutually exclusive per instance - same multi-parent-field pattern as Shape's terminal_port/obstruction, just both roles happening to be the same owner class)
+One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS) - either a plain scalar or a table, never both.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1017,7 +1017,7 @@ One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is a
 
 `delete_layout <id> [-help]`
 
-A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc. Net *connectivity* (which component pins a net connects) is deferred to when SystemVerilog/Schematic linking lands - Net here only holds routing geometry.
+A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1138,7 +1138,7 @@ An abstract routing blockage
 
 `delete_physical_port <id> [-help]`
 
-A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's future logical Port, named PhysicalPort (not Pin, DEF's own section name) since SCHEMA.md reserves Pin for a different concept (a logical pin on a Schematic Instance, i.e. a Verilog instance pin). Net connectivity is deferred to when SystemVerilog/Schematic linking lands - net_name is stored as read, not resolved to a (future) Net.
+A chip-boundary I/O pin (DEF PINS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1149,7 +1149,7 @@ A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's f
 
 `delete_physical_port_segment <id> [-help]`
 
-One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort's own relationship to Terminal, just named to avoid stuttering (PhysicalPort + Port). Unlike TerminalPort, carries its own placement_status/location/orientation - DEF lets each PORT of a multi-port pin be placed independently (setPortPlacement, distinct from the pin's own top-level setPlacement), and its own LAYER/POLYGON coordinates are relative to that placement, not the parent PhysicalPort's - confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3 different placements: FIXED/COVER/PLACED at 3 different locations). Unset for the synthetic single segment a pre-5.7 simple (no-PORT-wrapper) pin gets - that case's placement lives on the parent PhysicalPort instead.
+One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1171,7 +1171,7 @@ One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer'
 
 `delete_placement <id> [-help]`
 
-A placed physical instance (DEF COMPONENTS) - the physical counterpart to Instance, kept as a separate klass to keep physical placement apart from logical connectivity (Instance/Schematic, not yet populated - no SystemVerilog reader exists). Named Placement (not Component, DEF's own section name) to mirror Net/Route's own logical-vs-physical naming split - see SCHEMA.md.
+A placed physical instance (DEF COMPONENTS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1215,7 +1215,7 @@ A placement region (DEF REGIONS)
 
 `delete_route <id> [-help]`
 
-The routing geometry of a regular or special net (DEF NETS/SPECIALNETS) - named Route rather than Net to reserve the Net name for the future Schematic/SystemVerilog netlist connectivity klass. Net *connectivity* (which component pins a net connects) is deferred to when that linking lands - this klass only holds physical routed geometry.
+The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1248,7 +1248,7 @@ A logical connectivity view (netlist)
 
 `delete_shape <id> [-help]`
 
-A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes.
+A shape on a layer.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1270,7 +1270,7 @@ A site definition (LEF SITE) - the placement grid unit a MACRO's own SITE statem
 
 `delete_spacing_rule <id> [-help]`
 
-One LEF SPACING statement for a layer. ROUTING and CUT layers use disjoint sets of modifiers (a ROUTING rule leaves the CUT-only fields unset, and vice versa) - see LEFReader/LEFWriter for which fields apply to which layer type.
+One LEF SPACING statement for a layer - ROUTING and CUT layers use disjoint sets of modifiers.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1347,7 +1347,7 @@ A fixed/default via definition (LEF VIA)
 
 `delete_via_layer <id> [-help]`
 
-One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia/LayoutVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction/... parents)
+One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1380,7 +1380,7 @@ One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd bei
 
 `delete_via_rule_reference <id> [-help]`
 
-A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). ROWCOL (num_cut_rows/num_cut_cols below) is modeled - BUGS_AND_ENHANCEMENTS.md B3, a via *array* is exactly a ROWCOL clause with more than one row/col of cuts, synthesized into concrete cut rects by via_shapes.hpp at render time rather than stored as one rect per cut. ORIGIN/OFFSET (origin/bot_offset/top_offset below) are also modeled (B3 follow-up) - real caller-supplied overrides for where the cut array's own center (ORIGIN) and each metal layer's own enclosure-rect center (OFFSET) land, relative to the via's own placement point, used e.g. when a via needs to sit off-center from its own connection point. PATTERN (a sparse cut-presence bitmap - which grid cells in a rows x cols array actually have a cut, vs. the simpler always-fully-populated grid this schema assumes) is deliberately still not modeled - the reader logs a warning when one is present rather than silently ignoring it, the same documented-gap convention as everywhere else in this schema. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
+A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA) - not the same thing as a VIARULE block itself, see ViaRule. Owned by exactly one of Via/LayoutVia.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1482,7 +1482,7 @@ A library cell or logical module
 
 `get_enclosure_entries [-of <token>...] [-filter <expr>] [-help]`
 
-One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several. width/except_extra_cut/min_length are mutually exclusive per the vendored writer's own three ENCLOSURE writer variants (plain, WIDTH[+EXCEPTEXTRACUT], LENGTH)
+One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1552,7 +1552,7 @@ An instance of another design
 
 `get_layer_density_entries [-filter <expr>] [-help]`
 
-One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is always AVERAGE) - either a plain scalar (one_entry) or a table (frequency/width-or-cutarea + table_entries), never both. Owned by exactly one of Layer's two independent is_child lists (ac_current_density/dc_current_density, mutually exclusive per instance - same multi-parent-field pattern as Shape's terminal_port/obstruction, just both roles happening to be the same owner class)
+One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS) - either a plain scalar or a table, never both.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1611,7 +1611,7 @@ A design-scoped named via (DEF VIAS) - distinct from the Technology-level Via si
 
 `get_layouts [-of <token>...] [-filter <expr>] [-help]`
 
-A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc. Net *connectivity* (which component pins a net connects) is deferred to when SystemVerilog/Schematic linking lands - Net here only holds routing geometry.
+A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1752,7 +1752,7 @@ An abstract routing blockage
 
 `get_physical_port_segments [-of <token>...] [-filter <expr>] [-help]`
 
-One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort's own relationship to Terminal, just named to avoid stuttering (PhysicalPort + Port). Unlike TerminalPort, carries its own placement_status/location/orientation - DEF lets each PORT of a multi-port pin be placed independently (setPortPlacement, distinct from the pin's own top-level setPlacement), and its own LAYER/POLYGON coordinates are relative to that placement, not the parent PhysicalPort's - confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3 different placements: FIXED/COVER/PLACED at 3 different locations). Unset for the synthetic single segment a pre-5.7 simple (no-PORT-wrapper) pin gets - that case's placement lives on the parent PhysicalPort instead.
+One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1764,7 +1764,7 @@ One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port p
 
 `get_physical_ports [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
-A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's future logical Port, named PhysicalPort (not Pin, DEF's own section name) since SCHEMA.md reserves Pin for a different concept (a logical pin on a Schematic Instance, i.e. a Verilog instance pin). Net connectivity is deferred to when SystemVerilog/Schematic linking lands - net_name is stored as read, not resolved to a (future) Net.
+A chip-boundary I/O pin (DEF PINS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1789,7 +1789,7 @@ One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer'
 
 `get_placements [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
-A placed physical instance (DEF COMPONENTS) - the physical counterpart to Instance, kept as a separate klass to keep physical placement apart from logical connectivity (Instance/Schematic, not yet populated - no SystemVerilog reader exists). Named Placement (not Component, DEF's own section name) to mirror Net/Route's own logical-vs-physical naming split - see SCHEMA.md.
+A placed physical instance (DEF COMPONENTS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1872,7 +1872,7 @@ A placement region (DEF REGIONS)
 
 `get_routes [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
-The routing geometry of a regular or special net (DEF NETS/SPECIALNETS) - named Route rather than Net to reserve the Net name for the future Schematic/SystemVerilog netlist connectivity klass. Net *connectivity* (which component pins a net connects) is deferred to when that linking lands - this klass only holds physical routed geometry.
+The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1920,7 +1920,7 @@ Returns the current selection as a list of tokens (shape:/row:/placement:/region
 
 `get_shapes [-of <token>...] [-filter <expr>] [-help]`
 
-A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes.
+A shape on a layer.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1945,7 +1945,7 @@ A site definition (LEF SITE) - the placement grid unit a MACRO's own SITE statem
 
 `get_spacing_rules [-of <token>...] [-filter <expr>] [-help]`
 
-One LEF SPACING statement for a layer. ROUTING and CUT layers use disjoint sets of modifiers (a ROUTING rule leaves the CUT-only fields unset, and vice versa) - see LEFReader/LEFWriter for which fields apply to which layer type.
+One LEF SPACING statement for a layer - ROUTING and CUT layers use disjoint sets of modifiers.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2017,7 +2017,7 @@ One WIDTH row of a LEF SPACINGTABLE TWOWIDTHS block (5.7) - Layer.spacing_table_
 
 `get_via_layers [-of <token>...] [-filter <expr>] [-help]`
 
-One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia/LayoutVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction/... parents)
+One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2041,7 +2041,7 @@ One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd bei
 
 `get_via_rule_references [-of <token>...] [-filter <expr>] [-help]`
 
-A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). ROWCOL (num_cut_rows/num_cut_cols below) is modeled - BUGS_AND_ENHANCEMENTS.md B3, a via *array* is exactly a ROWCOL clause with more than one row/col of cuts, synthesized into concrete cut rects by via_shapes.hpp at render time rather than stored as one rect per cut. ORIGIN/OFFSET (origin/bot_offset/top_offset below) are also modeled (B3 follow-up) - real caller-supplied overrides for where the cut array's own center (ORIGIN) and each metal layer's own enclosure-rect center (OFFSET) land, relative to the via's own placement point, used e.g. when a via needs to sit off-center from its own connection point. PATTERN (a sparse cut-presence bitmap - which grid cells in a rows x cols array actually have a cut, vs. the simpler always-fully-populated grid this schema assumes) is deliberately still not modeled - the reader logs a warning when one is present rather than silently ignoring it, the same documented-gap convention as everywhere else in this schema. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
+A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA) - not the same thing as a VIARULE block itself, see ViaRule. Owned by exactly one of Via/LayoutVia.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2455,7 +2455,7 @@ A library cell or logical module
 
 `update_enclosure_entry <id> [-layer <token>] [-location <str>] [-overhang1 <dbu>] [-overhang2 <dbu>] [-width <dbu>] [-except_extra_cut <dbu>] [-min_length <dbu>] [-help]`
 
-One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several. width/except_extra_cut/min_length are mutually exclusive per the vendored writer's own three ENCLOSURE writer variants (plain, WIDTH[+EXCEPTEXTRACUT], LENGTH)
+One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2575,7 +2575,7 @@ A routing layer
 
 `update_layer_density_entry <id> [-type <str>] [-one_entry <double>] [-help]`
 
-One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is always AVERAGE) - either a plain scalar (one_entry) or a table (frequency/width-or-cutarea + table_entries), never both. Owned by exactly one of Layer's two independent is_child lists (ac_current_density/dc_current_density, mutually exclusive per instance - same multi-parent-field pattern as Shape's terminal_port/obstruction, just both roles happening to be the same owner class)
+One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS) - either a plain scalar or a table, never both.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2587,7 +2587,7 @@ One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is a
 
 `update_layout <id> [-design <token>] [-help]`
 
-A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc. Net *connectivity* (which component pins a net connects) is deferred to when SystemVerilog/Schematic linking lands - Net here only holds routing geometry.
+A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2740,7 +2740,7 @@ An abstract routing blockage
 
 `update_physical_port <id> [-layout <token>] [-name <str>] [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
 
-A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's future logical Port, named PhysicalPort (not Pin, DEF's own section name) since SCHEMA.md reserves Pin for a different concept (a logical pin on a Schematic Instance, i.e. a Verilog instance pin). Net connectivity is deferred to when SystemVerilog/Schematic linking lands - net_name is stored as read, not resolved to a (future) Net.
+A chip-boundary I/O pin (DEF PINS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2758,7 +2758,7 @@ A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's f
 
 `update_physical_port_segment <id> [-physical_port <token>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
 
-One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort's own relationship to Terminal, just named to avoid stuttering (PhysicalPort + Port). Unlike TerminalPort, carries its own placement_status/location/orientation - DEF lets each PORT of a multi-port pin be placed independently (setPortPlacement, distinct from the pin's own top-level setPlacement), and its own LAYER/POLYGON coordinates are relative to that placement, not the parent PhysicalPort's - confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3 different placements: FIXED/COVER/PLACED at 3 different locations). Unset for the synthetic single segment a pre-5.7 simple (no-PORT-wrapper) pin gets - that case's placement lives on the parent PhysicalPort instead.
+One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2784,7 +2784,7 @@ One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer'
 
 `update_placement <id> [-layout <token>] [-reference_design <token>] [-name <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-weight <double>] [-source <str>] [-help]`
 
-A placed physical instance (DEF COMPONENTS) - the physical counterpart to Instance, kept as a separate klass to keep physical placement apart from logical connectivity (Instance/Schematic, not yet populated - no SystemVerilog reader exists). Named Placement (not Component, DEF's own section name) to mirror Net/Route's own logical-vs-physical naming split - see SCHEMA.md.
+A placed physical instance (DEF COMPONENTS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2849,7 +2849,7 @@ A placement region (DEF REGIONS)
 
 `update_route <id> [-layout <token>] [-name <str>] [-is_special <bool>] [-width <dbu>] [-voltage <double>] [-use <str>] [-help]`
 
-The routing geometry of a regular or special net (DEF NETS/SPECIALNETS) - named Route rather than Net to reserve the Net name for the future Schematic/SystemVerilog netlist connectivity klass. Net *connectivity* (which component pins a net connects) is deferred to when that linking lands - this klass only holds physical routed geometry.
+The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2895,7 +2895,7 @@ A logical connectivity view (netlist)
 
 `update_shape <id> [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <dbu>] [-design_rule_width <dbu>] [-except_pg_net <bool>] [-help]`
 
-A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes.
+A shape on a layer.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2928,7 +2928,7 @@ A site definition (LEF SITE) - the placement grid unit a MACRO's own SITE statem
 
 `update_spacing_rule <id> [-layer <token>] [-distance <dbu>] [-range_min <dbu>] [-range_max <dbu>] [-range_use_length_threshold <bool>] [-range_influence <dbu>] [-range_influence_range_min <dbu>] [-range_influence_range_max <dbu>] [-range_range_min <dbu>] [-range_range_max <dbu>] [-length_threshold <dbu>] [-length_threshold_range_min <dbu>] [-length_threshold_range_max <dbu>] [-center_to_center <bool>] [-same_net <bool>] [-same_net_pg_only <bool>] [-parallel_overlap <bool>] [-end_of_line_width <dbu>] [-end_of_line_within <dbu>] [-parallel_edge_space <dbu>] [-parallel_edge_within <dbu>] [-two_edges <bool>] [-notch_length <dbu>] [-end_of_notch_width <dbu>] [-end_of_notch_spacing <dbu>] [-end_of_notch_length <dbu>] [-second_layer_name <str>] [-second_layer_stack <bool>] [-adjacent_cuts <int>] [-adjacent_within <dbu>] [-adjacent_except_same_pg_net <bool>] [-area <dbu>] [-help]`
 
-One LEF SPACING statement for a layer. ROUTING and CUT layers use disjoint sets of modifiers (a ROUTING rule leaves the CUT-only fields unset, and vice versa) - see LEFReader/LEFWriter for which fields apply to which layer type.
+One LEF SPACING statement for a layer - ROUTING and CUT layers use disjoint sets of modifiers.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3081,7 +3081,7 @@ A fixed/default via definition (LEF VIA)
 
 `update_via_layer <id> [-layer_name <str>] [-help]`
 
-One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia/LayoutVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction/... parents)
+One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3129,7 +3129,7 @@ One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd bei
 
 `update_via_rule_reference <id> [-via_rule_name <str>] [-cut_size <Point>] [-bot_layer_name <str>] [-cut_layer_name <str>] [-top_layer_name <str>] [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-num_cut_rows <int>] [-num_cut_cols <int>] [-origin <Point>] [-bot_offset <Point>] [-top_offset <Point>] [-help]`
 
-A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). ROWCOL (num_cut_rows/num_cut_cols below) is modeled - BUGS_AND_ENHANCEMENTS.md B3, a via *array* is exactly a ROWCOL clause with more than one row/col of cuts, synthesized into concrete cut rects by via_shapes.hpp at render time rather than stored as one rect per cut. ORIGIN/OFFSET (origin/bot_offset/top_offset below) are also modeled (B3 follow-up) - real caller-supplied overrides for where the cut array's own center (ORIGIN) and each metal layer's own enclosure-rect center (OFFSET) land, relative to the via's own placement point, used e.g. when a via needs to sit off-center from its own connection point. PATTERN (a sparse cut-presence bitmap - which grid cells in a rows x cols array actually have a cut, vs. the simpler always-fully-populated grid this schema assumes) is deliberately still not modeled - the reader logs a warning when one is present rather than silently ignoring it, the same documented-gap convention as everywhere else in this schema. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)
+A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA) - not the same thing as a VIARULE block itself, see ViaRule. Owned by exactly one of Via/LayoutVia.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |

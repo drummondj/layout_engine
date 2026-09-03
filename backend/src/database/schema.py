@@ -606,9 +606,12 @@ schema = Schema(
                 Field(name="min_width", description="Optional WIDTH, in database units", type="dbu", is_optional=True),
             ],
         ),
+        # width/except_extra_cut/min_length are mutually exclusive per the
+        # vendored writer's own three ENCLOSURE writer variants (plain,
+        # WIDTH[+EXCEPTEXTRACUT], LENGTH).
         Klass(
             name="EnclosureEntry",
-            description="One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several. width/except_extra_cut/min_length are mutually exclusive per the vendored writer's own three ENCLOSURE writer variants (plain, WIDTH[+EXCEPTEXTRACUT], LENGTH)",
+            description="One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several.",
             fields=[
                 Field(name="layer", description="Parent layer", type="Layer", parent="enclosures"),
                 Field(name="location", description="ABOVE, BELOW, or unset", type="str", example="BELOW", is_optional=True),
@@ -628,9 +631,14 @@ schema = Schema(
                 Field(name="width", description="In database units", type="dbu", example=1000),
             ],
         ),
+        # Owned by exactly one of Layer's two independent is_child lists
+        # (ac_current_density/dc_current_density, mutually exclusive per
+        # instance - same multi-parent-field pattern as Shape's
+        # terminal_port/obstruction, just both roles happening to be the
+        # same owner class).
         Klass(
             name="LayerDensityEntry",
-            description="One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS - DC is always AVERAGE) - either a plain scalar (one_entry) or a table (frequency/width-or-cutarea + table_entries), never both. Owned by exactly one of Layer's two independent is_child lists (ac_current_density/dc_current_density, mutually exclusive per instance - same multi-parent-field pattern as Shape's terminal_port/obstruction, just both roles happening to be the same owner class)",
+            description="One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS) - either a plain scalar or a table, never both.",
             fields=[
                 Field(name="ac_layer", description="Owning Layer, if this entry belongs to its ac_current_density list (unset/invalid otherwise)", type="Layer", parent="ac_current_density"),
                 Field(name="dc_layer", description="Owning Layer, if this entry belongs to its dc_current_density list (unset/invalid otherwise)", type="Layer", parent="dc_current_density"),
@@ -795,7 +803,7 @@ schema = Schema(
         ),
         Klass(
             name="SpacingRule",
-            description="One LEF SPACING statement for a layer. ROUTING and CUT layers use disjoint sets of modifiers (a ROUTING rule leaves the CUT-only fields unset, and vice versa) - see LEFReader/LEFWriter for which fields apply to which layer type.",
+            description="One LEF SPACING statement for a layer - ROUTING and CUT layers use disjoint sets of modifiers.",
             fields=[
                 Field(name="layer", description="Parent layer", type="Layer", parent="spacing_rules"),
                 Field(name="distance", description="The spacing distance, in database units (LEF SPACING)", type="dbu", example=200),
@@ -834,8 +842,11 @@ schema = Schema(
             ],
         ),
         Klass(
+            # Owned by exactly one of Via/NonDefaultRuleVia/LayoutVia
+            # (mutually exclusive, same pattern as Shape's
+            # terminal_port/obstruction/... parents).
             name="ViaLayer",
-            description="One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE. Owned by exactly one of Via/NonDefaultRuleVia/LayoutVia (mutually exclusive, same pattern as Shape's terminal_port/obstruction/... parents)",
+            description="One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE.",
             fields=[
                 Field(
                     name="via",
@@ -891,9 +902,25 @@ schema = Schema(
                 ),
             ],
         ),
+        # ROWCOL (num_cut_rows/num_cut_cols below) is modeled - a via
+        # *array* is exactly a ROWCOL clause with more than one row/col of
+        # cuts, synthesized into concrete cut rects by via_shapes.hpp at
+        # render time rather than stored as one rect per cut
+        # (BUGS_AND_ENHANCEMENTS.md B3). ORIGIN/OFFSET (origin/bot_offset/
+        # top_offset below) are also modeled (B3 follow-up) - real
+        # caller-supplied overrides for where the cut array's own center
+        # (ORIGIN) and each metal layer's own enclosure-rect center
+        # (OFFSET) land, relative to the via's own placement point, used
+        # e.g. when a via needs to sit off-center from its own connection
+        # point. PATTERN (a sparse cut-presence bitmap - which grid cells
+        # in a rows x cols array actually have a cut, vs. the simpler
+        # always-fully-populated grid this schema assumes) is deliberately
+        # still not modeled - the reader logs a warning when one is
+        # present rather than silently ignoring it, the same documented-
+        # gap convention as everywhere else in this schema.
         Klass(
             name="ViaRuleReference",
-            description="A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA - not the same thing as a VIARULE block itself, see ViaRule). ROWCOL (num_cut_rows/num_cut_cols below) is modeled - BUGS_AND_ENHANCEMENTS.md B3, a via *array* is exactly a ROWCOL clause with more than one row/col of cuts, synthesized into concrete cut rects by via_shapes.hpp at render time rather than stored as one rect per cut. ORIGIN/OFFSET (origin/bot_offset/top_offset below) are also modeled (B3 follow-up) - real caller-supplied overrides for where the cut array's own center (ORIGIN) and each metal layer's own enclosure-rect center (OFFSET) land, relative to the via's own placement point, used e.g. when a via needs to sit off-center from its own connection point. PATTERN (a sparse cut-presence bitmap - which grid cells in a rows x cols array actually have a cut, vs. the simpler always-fully-populated grid this schema assumes) is deliberately still not modeled - the reader logs a warning when one is present rather than silently ignoring it, the same documented-gap convention as everywhere else in this schema. Owned by exactly one of Via/LayoutVia (mutually exclusive, same multi-parent pattern as Shape/ViaLayer/Foreign)",
+            description="A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA) - not the same thing as a VIARULE block itself, see ViaRule. Owned by exactly one of Via/LayoutVia.",
             fields=[
                 Field(
                     name="via",
@@ -1442,8 +1469,14 @@ schema = Schema(
             ],
         ),
         Klass(
+            # Owned by exactly one of TerminalPort/Obstruction/
+            # PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually
+            # exclusive - at most one of these parent fields is ever set
+            # on a given Shape). The last two are singular, non-list
+            # owners (Layout.diearea, Abstract.boundary) rather than a
+            # list of several Shapes.
             name="Shape",
-            description="A shape on a layer, owned by exactly one of TerminalPort/Obstruction/PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually exclusive - at most one of these parent fields is ever set on a given Shape). The last two are singular, non-list owners (Layout.diearea, Abstract.boundary) rather than a list of several Shapes.",
+            description="A shape on a layer.",
             has_pool=True,
             fields=[
                 Field(
@@ -1614,8 +1647,15 @@ schema = Schema(
             ],
         ),
         Klass(
+            # Stored as-is (same convention as RectIterate/PathIterate/
+            # PolygonIterate) - unlike those, Pipeline::generate_shapes
+            # does not yet expand this one into concrete placements, since
+            # nothing currently renders VIA geometry. Also covers a DEF
+            # NETS/SPECIALNETS routed path's own arrayed VIA placement
+            # ("VIA DO n BY m STEP x y") - structurally the same shape as
+            # LEF's VIA ITERATE.
             name="ShapeViaIterate",
-            description="One raw VIA ITERATE statement within a Shape's LAYER occurrence, stored as-is (same convention as RectIterate/PathIterate/PolygonIterate) - unlike those, Pipeline::generate_shapes does not yet expand this one into concrete placements, since nothing currently renders VIA geometry. Also covers a DEF NETS/SPECIALNETS routed path's own arrayed VIA placement (\"VIA DO n BY m STEP x y\") - structurally the same shape as LEF's VIA ITERATE.",
+            description="One raw VIA ITERATE statement within a Shape's LAYER occurrence, or a routed path's own arrayed VIA placement.",
             has_pool=False,
             fields=[
                 Field(name="via_name", description="The name of the via", type="str", example="VIA12"),
@@ -2274,9 +2314,15 @@ schema = Schema(
                 Field(name="PLACEMENT", description="A placement blockage (DEF BLOCKAGES PLACEMENT)", type="int", value=1),
             ],
         ),
+        # Mirrors src/view_style's own ViewLayerPurpose (the rendering-layer
+        # concept), but persisted here on Shape.purpose itself rather than
+        # derived at render time. Exactly one of Shape.layer/Shape.purpose
+        # is ever set on a given Shape - documented convention, not
+        # database-enforced, same as e.g. Blockage.spacing/
+        # design_rule_width's own precedent.
         Klass(
             name="ShapePurpose",
-            description="A synthetic, non-physical-layer role a Shape can play instead of sitting on a real routing Layer - a closed, application-owned set (mirrors src/view_style's own ViewLayerPurpose, the rendering-layer concept, but persisted here on Shape.purpose itself rather than derived at render time) for the handful of Shapes that aren't real LEF/DEF geometry on a real Layer. Exactly one of Shape.layer/Shape.purpose is ever set on a given Shape - documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent.",
+            description="A role a Shape can play instead of sitting on a real routing Layer, for Shapes that aren't real LEF/DEF geometry.",
             is_enum=True,
             has_pool=False,
             fields=[
@@ -2285,8 +2331,11 @@ schema = Schema(
             ],
         ),
         Klass(
+            # Net *connectivity* (which component pins a net connects) is
+            # deferred to when SystemVerilog/Schematic linking lands - Net
+            # here only holds routing geometry.
             name="Layout",
-            description="A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc. Net *connectivity* (which component pins a net connects) is deferred to when SystemVerilog/Schematic linking lands - Net here only holds routing geometry.",
+            description="A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc.",
             has_current_access=True,
             fields=[
                 Field(name="design", description="Parent design", type="Design", parent="layout"),
@@ -2342,9 +2391,14 @@ schema = Schema(
                 Field(name="step", description="Spacing between grid lines, in database units (DEF GCELLGRID STEP)", type="dbu"),
             ],
         ),
+        # Kept as a separate klass from Instance to keep physical
+        # placement apart from logical connectivity (Instance/Schematic,
+        # not yet populated - no SystemVerilog reader exists). Named
+        # Placement (not Component, DEF's own section name) to mirror
+        # Net/Route's own logical-vs-physical naming split - see SCHEMA.md.
         Klass(
             name="Placement",
-            description="A placed physical instance (DEF COMPONENTS) - the physical counterpart to Instance, kept as a separate klass to keep physical placement apart from logical connectivity (Instance/Schematic, not yet populated - no SystemVerilog reader exists). Named Placement (not Component, DEF's own section name) to mirror Net/Route's own logical-vs-physical naming split - see SCHEMA.md.",
+            description="A placed physical instance (DEF COMPONENTS).",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="placements"),
                 Field(name="name", description="The name of the instance - unique within its parent Layout (see unique_per_parent)", type="str", example="U1", index=True, unique_per_parent=True),
@@ -2356,9 +2410,20 @@ schema = Schema(
                 Field(name="source", description="DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) - unset if omitted", type="str", example="NETLIST", is_optional=True),
             ],
         ),
+        # Mirrors TerminalPort's own relationship to Terminal, just named
+        # to avoid stuttering (PhysicalPort + Port). Unlike TerminalPort,
+        # carries its own placement_status/location/orientation - DEF lets
+        # each PORT of a multi-port pin be placed independently
+        # (setPortPlacement, distinct from the pin's own top-level
+        # setPlacement), and its own LAYER/POLYGON coordinates are
+        # relative to that placement, not the parent PhysicalPort's -
+        # confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3
+        # different placements). Unset for the synthetic single segment a
+        # pre-5.7 simple (no-PORT-wrapper) pin gets - that case's
+        # placement lives on the parent PhysicalPort instead.
         Klass(
             name="PhysicalPortSegment",
-            description="One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins) - mirrors TerminalPort's own relationship to Terminal, just named to avoid stuttering (PhysicalPort + Port). Unlike TerminalPort, carries its own placement_status/location/orientation - DEF lets each PORT of a multi-port pin be placed independently (setPortPlacement, distinct from the pin's own top-level setPlacement), and its own LAYER/POLYGON coordinates are relative to that placement, not the parent PhysicalPort's - confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3 different placements: FIXED/COVER/PLACED at 3 different locations). Unset for the synthetic single segment a pre-5.7 simple (no-PORT-wrapper) pin gets - that case's placement lives on the parent PhysicalPort instead.",
+            description="One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins).",
             fields=[
                 Field(name="physical_port", description="Parent physical port", type="PhysicalPort", parent="segments"),
                 Field(name="placement_status", description="This segment's own placement status - unset for the synthetic segment of a simple (non-multi-port) pin, whose placement lives on the parent PhysicalPort instead", type="PlacementStatus", is_optional=True),
@@ -2367,9 +2432,14 @@ schema = Schema(
                 Field(name="shapes", description="This segment's shapes", type="Shape", is_list=True, is_child=True),
             ],
         ),
+        # Named PhysicalPort (not Pin, DEF's own section name) since
+        # SCHEMA.md reserves Pin for a different concept (a logical pin on
+        # a Schematic Instance, i.e. a Verilog instance pin). Net
+        # connectivity is deferred to when SystemVerilog/Schematic linking
+        # lands - net_name is stored as read, not resolved to a (future) Net.
         Klass(
             name="PhysicalPort",
-            description="A chip-boundary I/O pin (DEF PINS) - the physical counterpart to a Schematic's future logical Port, named PhysicalPort (not Pin, DEF's own section name) since SCHEMA.md reserves Pin for a different concept (a logical pin on a Schematic Instance, i.e. a Verilog instance pin). Net connectivity is deferred to when SystemVerilog/Schematic linking lands - net_name is stored as read, not resolved to a (future) Net.",
+            description="A chip-boundary I/O pin (DEF PINS).",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="physical_ports"),
                 Field(name="name", description="The name of the pin - unique within its parent Layout (see unique_per_parent)", type="str", example="clk", index=True, unique_per_parent=True),
@@ -2409,8 +2479,12 @@ schema = Schema(
             ],
         ),
         Klass(
+            # Named Route rather than Net to reserve the Net name for the
+            # future Schematic/SystemVerilog netlist connectivity klass -
+            # this klass only holds physical routed geometry, not
+            # connectivity.
             name="Route",
-            description="The routing geometry of a regular or special net (DEF NETS/SPECIALNETS) - named Route rather than Net to reserve the Net name for the future Schematic/SystemVerilog netlist connectivity klass. Net *connectivity* (which component pins a net connects) is deferred to when that linking lands - this klass only holds physical routed geometry.",
+            description="The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="routes"),
                 Field(name="name", description="The name of the net this routes, as read - unique within its parent Layout (see unique_per_parent); not resolved to a (future) Net, same deferred-connectivity convention as Pin.net_name", type="str", example="clk", index=True, unique_per_parent=True),

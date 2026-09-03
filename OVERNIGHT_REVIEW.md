@@ -271,3 +271,89 @@ bottleneck before it's worth pursuing - `BENCHMARKS.md`'s existing
 rasterize-dominated per its own writeup) are the place to start if this
 becomes worth a closer look. Not adding as a new `BUGS_AND_ENHANCEMENTS.md`
 item unprompted - flagging here for you to decide if it's worth pursuing.
+
+## E29. Schema description cleanup + le_ prefixed error messages.
+
+**Done, deliberately scoped down from "every description in the file"** -
+see the judgment call below. Two independent parts, both addressed:
+
+**Part 1 - `le_`-prefixed error messages** (the item's own concrete
+example: "le_read_lef vs read_lef"). Used a research agent to survey the
+full scope first rather than guessing - found the confusion is real but
+narrower than it sounded:
+- `codegen/codegen/schema.py`'s `create_api_body()`/`update_api_body()`
+  (16 f-string sites) build every generated `create_<type>`/
+  `update_<type>` command's own error messages as `f"ERROR: le_create_{snake}: ..."`/
+  `f"ERROR: le_update_{snake}: ..."` - stripping `le_` from these is always
+  exactly right, since `create_<type>`/`update_<type>` (the generated TCL
+  command names) are *literally* `le_create_<type>`/`le_update_<type>`
+  minus that prefix, no exceptions. Fixed all 16, plus the 5
+  list-compound-flag-parsing sites that were double-wrong (their own
+  `cmd_name` parameter was itself built with the same `le_`-prefixed
+  string). `delete_api_body()` never pushes a message at all, so
+  "le_delete_X" - named in the item's own text - doesn't actually exist
+  anywhere in generated output; nothing to fix there.
+- `codegen/codegen/templates/tcl/api_property_accessors_public_inc_j2.py`'s
+  3 `property_path` error sites - same fix. These aren't
+  `register_command_help`-registered user commands (they back dot-path
+  property hops like `.layer.name`, not something typed directly), but
+  the stripped name (`technology_property_path`, etc.) is still the real,
+  callable Tcl proc name - a strict improvement either way.
+- `backend/src/api/api.cpp` (hand-written, 15 occurrences): 6
+  `read_lef`/`read_def`/`write_lef`/`write_def` messages fixed (exact
+  1:1 strip). 6 `le_select_object_ref` messages (added by me earlier
+  tonight, for E30) renamed to `select:` instead - `select_object_ref`
+  isn't a real command, `select` is. Left `le_search_terminal`/
+  `le_search_terminal_port`/`le_search_obstruction` (3 messages)
+  **unchanged** - traced through `le_tcl_shim.cpp`/`le_tcl_procs.tcl` and
+  confirmed these aren't reachable from TCL at all (no SWIG binding, no
+  Tcl proc calls them - only `api_test.cpp`/`session_handle_test.cpp` use
+  them directly as C API), so their `le_` name is their *real* name, not
+  a mismatch to fix.
+
+New test coverage: `crud_test.tcl`'s `create_design` failure-message
+check (asserts the pushed message names `create_design:`, not
+`le_create_design`) and `write_lef` failure-message check (already
+existing, now implicitly covers the fix). No fail-before/pass-after cycle
+needed - re-ran the exact scenario against the pre-fix generated output
+first (confirmed `le_create_design`/etc were really there) before
+regenerating.
+
+**Part 2 - shortening `schema.py`'s own `description=` text.** A research
+agent surveyed all 625 `description=` occurrences: ~10% are genuinely
+excessive (over 150 chars, multi-sentence, citing file names/
+`BUGS_AND_ENHANCEMENTS.md` item numbers/internal class names) - and that
+excess is heavily concentrated in **Klass-level** descriptions (31% of
+the 74 Klass-level ones are long) rather than **Field-level** ones (only
+6.7% of 551 are long). Klass-level descriptions are also the higher-
+impact fix - they're what `create_<type>`/`get_<type>` `-help` actually
+shows as the one-line command summary, the most visible surface this
+item is about.
+
+**Judgment call: fixed every Klass-level description over ~250 characters
+(13 total - ViaRuleReference, ShapePurpose, Placement,
+PhysicalPortSegment, PhysicalPort, LayerDensityEntry, EnclosureEntry,
+SpacingRule, ViaLayer, Shape, ShapeViaIterate, Layout, Route), left
+Field-level descriptions and the remaining ~10 moderately-long (200-250
+char) Klass ones alone.** Rewriting all 625 descriptions individually
+would be many hours of pure editorial work with real risk of losing
+genuinely useful nuance in the process, for marginal additional benefit
+past the worst offenders - this felt like the right stopping point for
+one night among several other items, not a corner deliberately cut. In
+every case, the trimmed rationale wasn't deleted - it moved to a `#`
+comment directly above the `Klass(...)` call (invisible to codegen, still
+there for a future maintainer reading `schema.py` itself), so nothing
+institutional was actually lost, only what a Tcl user sees in `-help`
+output changed. If you want the remaining Field-level/moderate-Klass
+descriptions trimmed too, that's a well-defined, mechanical-ish follow-up
+- happy to pick it up as its own future pass.
+
+Regenerated both codegen targets (`regen-tcl` and `regen-database` -
+Klass/Field descriptions feed both, and this is a pure text change with
+no field/class shape change, so no `Schema.version` bump needed per that
+skill's own carve-out). One test failure on the first full-suite run
+(`ApiFixture.IsRenderingReflectsWhetherARenderIsActuallyInProgress`) -
+confirmed as a pre-existing flake unrelated to this change (a timing-
+sensitive async-render-in-progress check; passed cleanly both isolated
+and on a full re-run). Full 706-test suite passes; both `build`/
+`build_release` rebuilt; `TCL_COMMANDS.md` regenerated again.

@@ -1234,7 +1234,7 @@ extern "C"
 
         if (!path)
         {
-            handle->messages.push_back("ERROR: le_read_lef: path is null");
+            handle->messages.push_back("ERROR: read_lef: path is null");
             return 1;
         }
 
@@ -1315,7 +1315,7 @@ extern "C"
 
         if (!path)
         {
-            handle->messages.push_back("ERROR: le_read_def: path is null");
+            handle->messages.push_back("ERROR: read_def: path is null");
             return 1;
         }
 
@@ -1353,7 +1353,7 @@ extern "C"
 
         if (!path)
         {
-            handle->messages.push_back("ERROR: le_write_lef: path is null");
+            handle->messages.push_back("ERROR: write_lef: path is null");
             return 1;
         }
 
@@ -1405,7 +1405,7 @@ extern "C"
                 }
                 else
                 {
-                    handle->messages.push_back("ERROR: le_write_lef: no Abstract or Library given and no current Abstract set");
+                    handle->messages.push_back("ERROR: write_lef: no Abstract or Library given and no current Abstract set");
                     return 1;
                 }
             }
@@ -1426,7 +1426,7 @@ extern "C"
 
         if (!path)
         {
-            handle->messages.push_back("ERROR: le_write_def: path is null");
+            handle->messages.push_back("ERROR: write_def: path is null");
             return 1;
         }
 
@@ -1441,7 +1441,7 @@ extern "C"
         }
         if (layout_id.index == UINT32_MAX)
         {
-            handle->messages.push_back("ERROR: le_write_def: no Layout given and no current Layout set");
+            handle->messages.push_back("ERROR: write_def: no Layout given and no current Layout set");
             return 1;
         }
 
@@ -2756,7 +2756,7 @@ extern "C"
             const le::ShapeData *shape = handle->root.get_shape(shape_id);
             if (!shape)
             {
-                handle->messages.push_back("ERROR: le_select_object_ref: no such Shape");
+                handle->messages.push_back("ERROR: select: no such Shape");
                 return 1;
             }
             for (size_t i = 0; i < shape->rects.size(); i++)
@@ -2767,7 +2767,7 @@ extern "C"
                 handle->scene.select(shape_id, le::PieceKind::PATH, i);
             if (shape->rects.empty() && shape->polygons.empty() && shape->paths.empty())
             {
-                handle->messages.push_back("ERROR: le_select_object_ref: Shape has no geometry to select");
+                handle->messages.push_back("ERROR: select: Shape has no geometry to select");
                 return 1;
             }
             return 0;
@@ -2777,7 +2777,7 @@ extern "C"
             const le::RowId id{.index = ref.index, .generation = ref.generation};
             if (!handle->root.get_row(id))
             {
-                handle->messages.push_back("ERROR: le_select_object_ref: no such Row");
+                handle->messages.push_back("ERROR: select: no such Row");
                 return 1;
             }
             handle->scene.select(id);
@@ -2788,7 +2788,7 @@ extern "C"
             const le::PlacementId id{.index = ref.index, .generation = ref.generation};
             if (!handle->root.get_placement(id))
             {
-                handle->messages.push_back("ERROR: le_select_object_ref: no such Placement");
+                handle->messages.push_back("ERROR: select: no such Placement");
                 return 1;
             }
             handle->scene.select(id);
@@ -2799,14 +2799,14 @@ extern "C"
             const le::RegionId id{.index = ref.index, .generation = ref.generation};
             if (!handle->root.get_region(id))
             {
-                handle->messages.push_back("ERROR: le_select_object_ref: no such Region");
+                handle->messages.push_back("ERROR: select: no such Region");
                 return 1;
             }
             handle->scene.select(id);
             return 0;
         }
         default:
-            handle->messages.push_back("ERROR: le_select_object_ref: unsupported object kind (only Shape/Row/Placement/Region can be selected)");
+            handle->messages.push_back("ERROR: select: unsupported object kind (only Shape/Row/Placement/Region can be selected)");
             return 1;
         }
     }

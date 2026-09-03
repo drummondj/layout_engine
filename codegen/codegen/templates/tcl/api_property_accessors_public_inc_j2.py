@@ -89,7 +89,7 @@ LeProperty le_{{klass.to_snake_case()}}_property_path(LeHandle *handle, Le{{klas
     auto parsed = le::parse_property_path(path);
     if (!parsed)
     {
-        handle->messages.push_back(fmt::format("ERROR: le_{{klass.to_snake_case()}}_property_path: {}", parsed.error()));
+        handle->messages.push_back(fmt::format("ERROR: {{klass.to_snake_case()}}_property_path: {}", parsed.error()));
         return invalid;
     }
 
@@ -105,13 +105,13 @@ LeProperty le_{{klass.to_snake_case()}}_property_path(LeHandle *handle, Le{{klas
             handle->cached_property_path_value = std::move(*found);
             return to_c(handle->cached_property_path_value);
         }
-        handle->messages.push_back(fmt::format("ERROR: le_{{klass.to_snake_case()}}_property_path: unknown field '{}' on {{klass.name}}", (*parsed)[0]));
+        handle->messages.push_back(fmt::format("ERROR: {{klass.to_snake_case()}}_property_path: unknown field '{}' on {{klass.name}}", (*parsed)[0]));
         return invalid;
     }
 
     if (auto error = validate_filter_path("{{klass.name}}", *parsed))
     {
-        handle->messages.push_back(fmt::format("ERROR: le_{{klass.to_snake_case()}}_property_path: {}", *error));
+        handle->messages.push_back(fmt::format("ERROR: {{klass.to_snake_case()}}_property_path: {}", *error));
         return invalid;
     }
 

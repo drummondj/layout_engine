@@ -70,7 +70,7 @@ write_def [-layout <token>] <filename> - writes a DEF file for the specified -la
 
 - [x] E28.b. I made a mistake with the write_lef specification. write_lef should be able to write MACROs for each Design in a Library. So it should have a -library argument, then an -abstracts argument to specify one or more abstracts to write MACROs for. If -abstracts is not specified, all abstract views for the -library should be written.
 
-- [ ] E29. Schema description cleanup. Decriptions in the schema are used for TCL command help. So they shouldn't contain lengthy or information about internals of the program. Just short susinct help messages intended for the user. Also, most of the error messages reference an le_ command but the user runs commands without the le_ prefix, so that would be confusing. For example, le_read_lef vs read_lef.
+- [x] E29. Schema description cleanup. Decriptions in the schema are used for TCL command help. So they shouldn't contain lengthy or information about internals of the program. Just short susinct help messages intended for the user. Also, most of the error messages reference an le_ command but the user runs commands without the le_ prefix, so that would be confusing. For example, le_read_lef vs read_lef.
 
 - [x] E30. More TCL commands for selection modification:
     get_selection - returns a list of selected object tokens

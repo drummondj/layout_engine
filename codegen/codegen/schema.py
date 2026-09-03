@@ -781,7 +781,7 @@ class Klass:
             if (f.type == "str" or f.is_enum_type()) and f.create_required():
                 add(f"if (!{f.create_c_param_name()})")
                 add("{")
-                add(f'    handle->messages.push_back(fmt::format("ERROR: le_create_{snake}: {f.name} is required"));')
+                add(f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: {f.name} is required"));')
                 add("    return invalid;")
                 add("}")
         add("std::lock_guard<std::mutex> lock(handle->mutex_);")
@@ -794,7 +794,7 @@ class Klass:
                 pf = parent_fields[0]
                 add(f"if (!handle->root.get_{pf._parent_klass.to_snake_case()}({pf.name}))")
                 add("{")
-                add(f'    handle->messages.push_back(fmt::format("ERROR: le_create_{snake}: unknown {pf.name} - no such {pf.type} exists"));')
+                add(f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: unknown {pf.name} - no such {pf.type} exists"));')
                 add("    return invalid;")
                 add("}")
             else:
@@ -806,7 +806,7 @@ class Klass:
                 add("if (provided_parent_count != 1)")
                 add("{")
                 add(
-                    f'    handle->messages.push_back(fmt::format("ERROR: le_create_{snake}: exactly one of '
+                    f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: exactly one of '
                     f'{"/".join(p.name for p in parent_fields)} must resolve to a valid parent, got {{}}", '
                     f'provided_parent_count));'
                 )
@@ -835,7 +835,7 @@ class Klass:
                 add(f"if ({condition})")
                 add("{")
                 add(
-                    f'    handle->messages.push_back(fmt::format("ERROR: le_create_{snake}: unknown '
+                    f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: unknown '
                     f'{rf.name} - no such {rf.type} exists"));'
                 )
                 add("    return invalid;")
@@ -849,14 +849,14 @@ class Klass:
                     add(f"const std::optional<le::{f.type}> parsed_{f.name} = le::{enum_snake}_from_string({f.name});")
                     add(f"if (!parsed_{f.name})")
                     add("{")
-                    add(f'    handle->messages.push_back(fmt::format("ERROR: le_create_{snake}: unrecognized {f.name} \'{{}}\'", {f.name}));')
+                    add(f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: unrecognized {f.name} \'{{}}\'", {f.name}));')
                     add("    return invalid;")
                     add("}")
                 else:
                     add(f"const std::optional<le::{f.type}> parsed_{f.name} = ({f.name} && {f.name}[0]) ? le::{enum_snake}_from_string({f.name}) : std::nullopt;")
                     add(f"if ({f.name} && {f.name}[0] && !parsed_{f.name})")
                     add("{")
-                    add(f'    handle->messages.push_back(fmt::format("ERROR: le_create_{snake}: unrecognized {f.name} \'{{}}\'", {f.name}));')
+                    add(f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: unrecognized {f.name} \'{{}}\'", {f.name}));')
                     add("    return invalid;")
                     add("}")
 
@@ -865,14 +865,14 @@ class Klass:
             add("const std::optional<double> dbu_per_um = database_units_microns(handle->root);")
             add("if (!dbu_per_um)")
             add("{")
-            add(f'    handle->messages.push_back(fmt::format("ERROR: le_create_{snake}: no Technology has been read yet (needed for micron-to-dbu conversion)"));')
+            add(f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: no Technology has been read yet (needed for micron-to-dbu conversion)"));')
             add("    return invalid;")
             add("}")
 
         list_compound_fields = [f for f in create_fields if f.list_compound_kind() is not None]
         for f in list_compound_fields:
             add()
-            lines.extend(f.list_compound_parse_lines("create", "return invalid;", f"le_create_{snake}"))
+            lines.extend(f.list_compound_parse_lines("create", "return invalid;", f"create_{snake}"))
 
         add()
         add(f"const le::{self.name}Data new_data{{")
@@ -899,7 +899,7 @@ class Klass:
             add("if (!created.valid())")
             add("{")
             add(
-                f'    handle->messages.push_back(fmt::format("ERROR: le_create_{snake}: a sibling {self.name} with this '
+                f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: a sibling {self.name} with this '
                 f"{field.name} (\'{{}}\') already exists\", {field.create_c_param_name()}));"
             )
             add("    return invalid;")
@@ -1389,7 +1389,7 @@ class Klass:
         add(f"const le::{self.name}Data *existing_{snake} = handle->root.get_{snake}(typed_id);")
         add(f"if (!existing_{snake})")
         add("{")
-        add(f'    handle->messages.push_back(fmt::format("ERROR: le_update_{snake}: unknown id"));')
+        add(f'    handle->messages.push_back(fmt::format("ERROR: update_{snake}: unknown id"));')
         add("    return 1;")
         add("}")
         add()
@@ -1407,7 +1407,7 @@ class Klass:
             add(f"    if (!handle->root.get_{single_parent._parent_klass.to_snake_case()}({single_parent.name}))")
             add("    {")
             add(
-                f'        handle->messages.push_back(fmt::format("ERROR: le_update_{snake}: unknown '
+                f'        handle->messages.push_back(fmt::format("ERROR: update_{snake}: unknown '
                 f'{single_parent.name} - no such {single_parent.type} exists"));'
             )
             add("        return 1;")
@@ -1424,7 +1424,7 @@ class Klass:
                 add(f"    if (!handle->root.get_{rf._type_klass.to_snake_case()}({rf.name}))")
                 add("    {")
                 add(
-                    f'        handle->messages.push_back(fmt::format("ERROR: le_update_{snake}: unknown '
+                    f'        handle->messages.push_back(fmt::format("ERROR: update_{snake}: unknown '
                     f'{rf.name} - no such {rf.type} exists"));'
                 )
                 add("        return 1;")
@@ -1442,7 +1442,7 @@ class Klass:
                 add(f"if ({f.name} && {f.name}[0] && !parsed_{f.name})")
                 add("{")
                 add(
-                    f'    handle->messages.push_back(fmt::format("ERROR: le_update_{snake}: unrecognized '
+                    f'    handle->messages.push_back(fmt::format("ERROR: update_{snake}: unrecognized '
                     f"{f.name} '{{}}'\", {f.name}));"
                 )
                 add("    return 1;")
@@ -1453,14 +1453,14 @@ class Klass:
             add("const std::optional<double> dbu_per_um = database_units_microns(handle->root);")
             add("if (!dbu_per_um)")
             add("{")
-            add(f'    handle->messages.push_back(fmt::format("ERROR: le_update_{snake}: no Technology has been read yet (needed for micron-to-dbu conversion)"));')
+            add(f'    handle->messages.push_back(fmt::format("ERROR: update_{snake}: no Technology has been read yet (needed for micron-to-dbu conversion)"));')
             add("    return 1;")
             add("}")
 
         list_compound_fields = [f for f in create_fields if f.list_compound_kind() is not None]
         for f in list_compound_fields:
             add()
-            lines.extend(f.list_compound_parse_lines("update", "return 1;", f"le_update_{snake}"))
+            lines.extend(f.list_compound_parse_lines("update", "return 1;", f"update_{snake}"))
 
         add()
         call_args = ["typed_id"]
@@ -1476,7 +1476,7 @@ class Klass:
             add("if (!ok)")
             add("{")
             add(
-                f'    handle->messages.push_back(fmt::format("ERROR: le_update_{snake}: a sibling {self.name} '
+                f'    handle->messages.push_back(fmt::format("ERROR: update_{snake}: a sibling {self.name} '
                 f'with this {unique_fields[0].name} already exists"));'
             )
             add("    return 1;")
@@ -1484,7 +1484,7 @@ class Klass:
         else:
             add("if (!ok)")
             add("{")
-            add(f'    handle->messages.push_back(fmt::format("ERROR: le_update_{snake}: update failed"));')
+            add(f'    handle->messages.push_back(fmt::format("ERROR: update_{snake}: update failed"));')
             add("    return 1;")
             add("}")
 

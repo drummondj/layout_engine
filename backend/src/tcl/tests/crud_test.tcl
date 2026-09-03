@@ -674,6 +674,21 @@ check "delete_terminal via le_repl_eval removed the terminal" {} [get_terminals 
 check "undo recreates the deleted terminal" 1 [undo]
 check_true "get_terminals sees the recreated terminal" [expr {[get_terminals DELETETEST] ne {}}]
 
+# --- Error messages name the real user-facing command, not the raw le_
+# C API function (BUGS_AND_ENHANCEMENTS.md E29 - the item's own example
+# was "le_read_lef vs read_lef"). Generated create_<type> commands don't
+# raise a Tcl error on failure (they just return "" and push a message -
+# unlike write_lef/write_def/select's own hand-written catch-and-wrap),
+# so this checks message_at directly rather than catching an error. ---
+
+set messages_before [message_count]
+check "create_design with an unresolvable -library returns an empty id" {} \
+    [create_design -library library:does_not_exist -name SHOULD_NOT_EXIST]
+check_true "create_design pushed a new message" [expr {[message_count] > $messages_before}]
+set last_create_design_message [message_at [expr {[message_count] - 1}]]
+check_true "create_design's own message names the real command, not le_create_design" \
+    [expr {[string first "create_design:" $last_create_design_message] >= 0 && [string first "le_create_design" $last_create_design_message] < 0}]
+
 # --- write_lef/write_def (BUGS_AND_ENHANCEMENTS.md E28) - reuses
 # scratch_abstract (still the current Abstract from the from-scratch
 # section above) and a from-scratch Layout on scratch_design, so this
