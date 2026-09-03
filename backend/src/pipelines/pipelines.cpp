@@ -140,13 +140,20 @@ namespace le
             // dev, where that source tree genuinely exists, but never valid
             // on a machine a packaged release bundle gets copied to. Fall
             // back to the font bundled next to the running executable
-            // instead (flutter_plugin/linux/CMakeLists.txt's own
-            // LE_RUNTIME_BUNDLED_FILES bundles backend/assets/fonts/*.ttf
-            // into the app's lib/ directory, same place le_tcl.so/
-            // le_tcl_procs.tcl land - see layout_engine_plugin.cc's
-            // ExecutableDir() for the equivalent Tcl-console fix this
-            // mirrors) - confirmed necessary by a real report of every text
-            // label rendering blank on a release build.
+            // instead - Dockerfile.linux-release's own bundle stage copies
+            // assets/fonts/ into /bundle/fonts/, right alongside le_shell/
+            // le_tcl.so, specifically for this fallback to find - confirmed
+            // necessary by a real report of every text label rendering
+            // blank on a release build.
+            //
+            // This used to look for exe_dir + "/lib" instead of
+            // exe_dir + "/fonts" - a leftover from when this fallback was
+            // written for flutter_plugin/linux/CMakeLists.txt's own
+            // LE_RUNTIME_BUNDLED_FILES bundling scheme (fonts alongside
+            // le_tcl.so in a lib/ directory), which no longer exists
+            // (flutter_plugin was removed). A second real report - the
+            // exact same warn() line this comment is next to, naming that
+            // stale "/lib" path - confirmed the mismatch directly.
             sk_sp<SkTypeface> face = try_font_dir(LE_FONT_DIR);
             if (face == nullptr)
             {
@@ -188,7 +195,7 @@ namespace le
                 }
                 if (!exe_dir.empty())
                 {
-                    face = try_font_dir(exe_dir + "/lib");
+                    face = try_font_dir(exe_dir + "/fonts");
                 }
             }
             if (face == nullptr)

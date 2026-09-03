@@ -312,6 +312,19 @@ FetchContent_Declare(
     DOWNLOAD_NO_EXTRACT TRUE
 )
 FetchContent_MakeAvailable(lucide_font)
+# Also copied into the build tree next to where le_shell/le_tcl.so land
+# (not just left in FetchContent's own cache dir under CMAKE_BINARY_DIR/
+# _deps) - LE_LUCIDE_FONT_PATH (below) is this build machine's own
+# absolute FetchContent cache path, correct for a local dev/ctest run but
+# never valid once le_shell is copied to another machine; le_gui.cpp's
+# own runtime fallback looks for a file named exactly "lucide.ttf" right
+# next to the running executable when that compile-time path doesn't
+# exist (mirroring pipelines.cpp's default_typeface() fallback). Having a
+# real copy sitting right next to le_shell in the build tree also means
+# Dockerfile.linux-release's own bundle stage can just `cp` it alongside
+# le_shell the same simple way it already does for every other bundled
+# file, rather than needing to know this FetchContent-internal path.
+file(COPY "${lucide_font_SOURCE_DIR}/lucide.ttf" DESTINATION "${CMAKE_BINARY_DIR}")
 
 enable_testing()
 include(GoogleTest)

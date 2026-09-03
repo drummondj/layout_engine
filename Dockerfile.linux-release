@@ -268,13 +268,25 @@ RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug -DSKIA_DIR=${SKIA_DIR} -D
 # subdirectory exists - see that file's own comment), the shared libtbb.so.12
 # every one of api/pipelines/le_shell/le_tcl.so links dynamically (`find`,
 # not a hardcoded lib/lib64 path - GNUInstallDirs' own choice between the
-# two isn't worth pinning down by hand here), and the bundled font
-# directory Linux's own default_typeface() reads from (backend/CLAUDE.md's
-# Open gaps) - not the raw build tree/CMake cache. ----
+# two isn't worth pinning down by hand here), the bundled font directory
+# Linux's own default_typeface() reads from (backend/CLAUDE.md's Open
+# gaps), and lucide.ttf (the toolbar icon font, le_gui.cpp) - not the raw
+# build tree/CMake cache. lucide.ttf is copied from build_release-linux/
+# itself, not backend/'s own source tree - backend/CMakeLists.txt's own
+# file(COPY ...) right after FetchContent_MakeAvailable(lucide_font) puts
+# a real copy there specifically so this bundle stage (and
+# le_gui.cpp's own exe-relative runtime fallback, once shipped) don't
+# need to know FetchContent's own internal cache path. Both fonts were a
+# real, confirmed gap - a Linux release build reported every text label
+# AND every toolbar icon rendering blank, traced to default_typeface()'s
+# fallback still pointing at a since-removed flutter_plugin bundling
+# convention (lib/ instead of fonts/) and lucide.ttf never being bundled
+# at all. ----
 FROM backend AS bundle
 RUN mkdir -p /bundle/fonts \
  && cp build_release-linux/le_shell /bundle/ \
  && cp build_release-linux/le_tcl.so /bundle/ \
+ && cp build_release-linux/lucide.ttf /bundle/ \
  && cp src/tcl/le_tcl_procs.tcl /bundle/ \
  && cp src/tcl/generated/le_tcl_procs_generated.tcl /bundle/ \
  && cp -r assets/fonts/. /bundle/fonts/ \

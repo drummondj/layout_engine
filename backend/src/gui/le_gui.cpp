@@ -38,6 +38,8 @@
 
 #include <GLFW/glfw3.h>
 
+#include <spdlog/spdlog.h>
+
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -45,8 +47,15 @@
 #include <cstring>
 #include <functional>
 #include <mutex>
+#include <string>
+#include <sys/stat.h>
 #include <thread>
 #include <vector>
+
+#if defined(__linux__)
+#include <limits.h>
+#include <unistd.h>
+#endif
 
 namespace le::gui
 {
@@ -59,6 +68,64 @@ namespace le::gui
         // single atomic exchange) that a short interval costs nothing
         // measurable while idle.
         constexpr auto kIdlePollInterval = std::chrono::milliseconds(30);
+
+        // LE_LUCIDE_FONT_PATH (CMakeLists.txt) is this build machine's
+        // own absolute FetchContent cache path - correct for a local
+        // dev/ctest run where that cache dir genuinely still exists, but
+        // never valid once le_shell is copied to another machine (the
+        // exact bug pipelines.cpp's default_typeface() already has this
+        // same two-step fallback for, on Linux, for the exact same
+        // reason - a real report of AddFontFromFileTTF failing outright
+        // in a Linux release build, both icon and body text). Checked
+        // via stat() first, on both platforms, so a missing file is
+        // diagnosed by us (a clean spdlog::warn + graceful skip - icons
+        // just don't render, matching draw_helpers.hpp's own "degrade
+        // rather than throw" contract) instead of reaching
+        // AddFontFromFileTTF at all, which logs its own ImGui-internal
+        // "Could not load font file!" error/assert and returns null
+        // either way - our own check is strictly more informative (names
+        // every candidate path actually tried, mirroring
+        // default_typeface()'s own try_font_dir).
+        //
+        // The second candidate - right next to the running executable -
+        // only exists on Linux: CMakeLists.txt's own file(COPY ...) right
+        // after FetchContent_MakeAvailable(lucide_font) puts a real copy
+        // of lucide.ttf in the build tree alongside le_shell specifically
+        // so this works, and Dockerfile.linux-release's own bundle stage
+        // copies that same file into the shipped release bundle
+        // alongside le_shell too. macOS never needs this second
+        // candidate - a real report would be needed before adding
+        // platform-specific bundling for it, matching this project's own
+        // "fix confirmed bugs, don't speculatively harden" convention.
+        std::string resolve_lucide_font_path()
+        {
+            struct stat st{};
+            if (stat(LE_LUCIDE_FONT_PATH, &st) == 0)
+                return LE_LUCIDE_FONT_PATH;
+            spdlog::warn("resolve_lucide_font_path(): '{}' does not exist", LE_LUCIDE_FONT_PATH);
+
+#if defined(__linux__)
+            char buf[PATH_MAX];
+            const ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+            if (len <= 0)
+            {
+                spdlog::warn("resolve_lucide_font_path(): readlink(\"/proc/self/exe\") failed (errno {}) - "
+                             "can't compute the executable-relative icon-font fallback path",
+                             errno);
+                return {};
+            }
+            buf[len] = '\0';
+            const std::string exe_path(buf);
+            const size_t slash = exe_path.find_last_of('/');
+            const std::string exe_dir = slash == std::string::npos ? "." : slash == 0 ? "/"
+                                                                                        : exe_path.substr(0, slash);
+            const std::string candidate = exe_dir + "/lucide.ttf";
+            if (stat(candidate.c_str(), &st) == 0)
+                return candidate;
+            spdlog::warn("resolve_lucide_font_path(): '{}' does not exist either", candidate);
+#endif
+            return {};
+        }
 
         // Every physical key this prototype forwards to the backend,
         // mapped to its own LeKeyCode - see api.hpp's own LeKeyCode/
@@ -480,7 +547,12 @@ namespace le::gui
             icon_font_config.PixelSnapH = true;
             icon_font_config.GlyphMinAdvanceX = 16.0f;
             static const ImWchar icon_ranges[] = {ICON_MIN_LC, ICON_MAX_LC, 0};
-            io.Fonts->AddFontFromFileTTF(LE_LUCIDE_FONT_PATH, 16.0f, &icon_font_config, icon_ranges);
+            const std::string lucide_font_path = resolve_lucide_font_path();
+            if (!lucide_font_path.empty())
+                io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 16.0f, &icon_font_config, icon_ranges);
+            else
+                spdlog::error("resolve_lucide_font_path(): FAILED - no usable icon font found, every toolbar icon will render blank. "
+                               "See the warn() line(s) immediately above for which candidate paths failed and why.");
 
             ImGui_ImplGlfw_InitForOpenGL(window, true);
             ImGui_ImplOpenGL3_Init("#version 150");
