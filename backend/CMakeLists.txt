@@ -966,6 +966,29 @@ add_executable(render_preview src/pipelines/benchmarks/render_preview.cpp)
 target_link_libraries(render_preview PRIVATE database geometry scene pipelines io)
 le_enable_coverage_instrumentation(render_preview)
 
+# --- generate_tiled_design: dev-only data-generation tool
+# (BUGS_AND_ENHANCEMENTS.md E31) - tiles a real LEF+DEF design's own
+# Layout content across a grid, producing one large flat DEF file for
+# render-performance stress testing/Tracy profiling. Not a benchmark or a
+# test - not run by ctest or the coverage target. Only needs database/io
+# (no geometry/scene/pipelines) - it never renders anything itself.
+add_executable(generate_tiled_design src/pipelines/benchmarks/generate_tiled_design.cpp)
+target_link_libraries(generate_tiled_design PRIVATE database io)
+le_enable_coverage_instrumentation(generate_tiled_design)
+
+# --- profile_tiled_render: dev-only headless profiling driver
+# (BUGS_AND_ENHANCEMENTS.md E31) - loads a real Layout-bearing DEF (meant
+# for generate_tiled_design's own output) and runs the real
+# HierarchyResolver::render_layout_frame production code path directly,
+# with no GUI/window at all, so it can run under `tracy-capture` for a
+# fully headless Tracy profile of a real large-scale render. Not a
+# benchmark (no Google Benchmark harness/reported numbers of its own,
+# see pipeline_benchmarks for that) and not a test - not run by ctest or
+# the coverage target.
+add_executable(profile_tiled_render src/pipelines/benchmarks/profile_tiled_render.cpp)
+target_link_libraries(profile_tiled_render PRIVATE database geometry scene pipelines io)
+le_enable_coverage_instrumentation(profile_tiled_render)
+
 # --- lef_roundtrip_diff: dev-only progress-tracking tool for UPDATES.md
 # item 12 (LEF syntax completion) - reads a LEF file (default:
 # complete.5.8.lef), writes every Design + the Technology's layers back out

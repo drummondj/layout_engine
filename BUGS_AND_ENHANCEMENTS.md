@@ -76,6 +76,8 @@ write_def [-layout <token>] <filename> - writes a DEF file for the specified -la
     get_selection - returns a list of selected object tokens
     select <tokens> - adds <tokens> to the selection
 
+- [ ] E31. 4 million COMPONENT test case and profiling. Please take the aes DEF file /Volumes/Docking/Projects/synthosilicon/layout_engine/test_data/ISPD22__final_benchmarks/AES_1/design_original.def and use that as a source of data to generate another DEF file with around 4 million COMPONENTS and 4 million NETS. Take the original aes design and tile it, copying all the COMPONENT/NET/SPECIALNET/TRACK/ROW data and transforming the geometries for each tile. The result should be a flat DEF file. Then run tracy on a full screen render with a zoom-fit. 
+
 # QUESTIONS
 
 Q1. At the same zoom level and orientation, each placement of the same design will be identical. Do we re-use RasterizedFrames or re-draw from the SkPicture recording?
