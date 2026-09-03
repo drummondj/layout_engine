@@ -842,6 +842,20 @@ if(SWIG_FOUND AND TCL_FOUND)
     target_include_directories(le_shell PRIVATE ${TCL_INCLUDE_PATH} ${CMAKE_BINARY_DIR})
     target_link_libraries(le_shell PRIVATE ${TCL_LIBRARY} api gui)
 
+    # Compile-time fallback for -module/-procs and their LE_TCL_MODULE/
+    # LE_TCL_PROCS_PATH env-var equivalents (le_shell.cpp's own
+    # resolve_path) - this build tree's own known locations for le_tcl's
+    # built module and le_tcl_procs.tcl, same paths the le_tcl_shell/
+    # le_tcl_session_test targets above already pass explicitly. Lets a
+    # plain `./le_shell` run with no flags or env vars set for the common
+    # case (running straight out of this build tree); either override
+    # mechanism still works for a packaged/relocated binary.
+    target_compile_definitions(le_shell PRIVATE
+        LE_TCL_MODULE_DEFAULT_PATH="$<TARGET_FILE:le_tcl>"
+        LE_TCL_PROCS_DEFAULT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl"
+    )
+    add_dependencies(le_shell le_tcl)
+
     # GNU readline (GPL - this project carries no LICENSE file/
     # redistribution requirement of its own, so that's not a blocker
     # here) rather than macOS's own BSD-licensed libedit: modern macOS no

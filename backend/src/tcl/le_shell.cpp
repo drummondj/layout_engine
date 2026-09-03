@@ -81,7 +81,17 @@ namespace
 
     LeHandle *g_injected_handle = nullptr;
 
-    std::string resolve_path(const char *cli_value, const char *env_var, const char *what)
+    // -module/-procs beat LE_TCL_MODULE/LE_TCL_PROCS_PATH beat the
+    // compile-time default baked in by CMakeLists.txt's own le_shell
+    // target (LE_TCL_MODULE_DEFAULT_PATH/LE_TCL_PROCS_DEFAULT_PATH - the
+    // exact build-tree locations this same build already produces, same
+    // idea as le_tcl_session_test's own LE_TCL_MODULE_PATH/
+    // LE_TCL_PROCS_PATH definitions) - so a plain `./le_shell` with no
+    // flags or env vars set works out of the box against this binary's
+    // own build tree, while either override mechanism still lets a
+    // packaged/relocated binary (e.g. Dockerfile.linux-release's bundle)
+    // point at a different location.
+    std::string resolve_path(const char *cli_value, const char *env_var, const char *default_value, const char *what)
     {
         if (cli_value != nullptr)
         {
@@ -90,6 +100,10 @@ namespace
         if (const char *from_env = std::getenv(env_var))
         {
             return from_env;
+        }
+        if (default_value != nullptr)
+        {
+            return default_value;
         }
         std::fprintf(stderr, "le_shell: no %s given - pass it as an argument or set %s\n", what, env_var);
         std::exit(2);
@@ -463,8 +477,18 @@ int main(int argc, char **argv)
         remaining.push_back(argv[i]);
     }
 
-    g_module_path = resolve_path(module_arg, "LE_TCL_MODULE", "the le_tcl module path (-module)");
-    g_procs_path = resolve_path(procs_arg, "LE_TCL_PROCS_PATH", "the le_tcl_procs.tcl path (-procs)");
+#ifdef LE_TCL_MODULE_DEFAULT_PATH
+    const char *module_default = LE_TCL_MODULE_DEFAULT_PATH;
+#else
+    const char *module_default = nullptr;
+#endif
+#ifdef LE_TCL_PROCS_DEFAULT_PATH
+    const char *procs_default = LE_TCL_PROCS_DEFAULT_PATH;
+#else
+    const char *procs_default = nullptr;
+#endif
+    g_module_path = resolve_path(module_arg, "LE_TCL_MODULE", module_default, "the le_tcl module path (-module)");
+    g_procs_path = resolve_path(procs_arg, "LE_TCL_PROCS_PATH", procs_default, "the le_tcl_procs.tcl path (-procs)");
 
     g_injected_handle = le_create();
 
