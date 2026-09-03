@@ -357,3 +357,53 @@ confirmed as a pre-existing flake unrelated to this change (a timing-
 sensitive async-render-in-progress check; passed cleanly both isolated
 and on a full re-run). Full 706-test suite passes; both `build`/
 `build_release` rebuilt; `TCL_COMMANDS.md` regenerated again.
+
+## Closing summary
+
+Every open item in `BUGS_AND_ENHANCEMENTS.md` is now done except **B6**
+(explicitly marked "SKIP FOR NOW" in the file itself - not attempted, per
+your own instruction). Completed tonight, each its own commit, all
+pushed to `main`:
+
+- **B8** - `write_def`'s spurious `WEIGHT -1`.
+- **B9** - via arrays lost on `write_def`/`read_def` round trip (real
+  root cause: `ROWCOL`/`ORIGIN`/`OFFSET` never written by either the DEF
+  *or* LEF writer - both fixed together).
+- **E28.b** - `write_lef -library`/`-abstracts` (write a whole Library's
+  MACROs, or an explicit subset, in one file).
+- **E30** - `get_selection`/`select` Tcl commands.
+- **E29** - dropped the `le_` prefix from user-facing error messages
+  (codegen-level fix, not per-message); shortened `schema.py`'s 13
+  worst-offender Klass-level descriptions.
+- **Q1** (a question, not a task) - investigated and answered: identical
+  placements share one recorded `SkPicture`, replayed per instance, not
+  a per-instance rasterized-pixel cache.
+
+Also set up the `/overnight-review` skill (you asked mid-session, since
+this recurs most nights) - it now captures this whole workflow so it
+doesn't need re-deriving next time.
+
+**Nothing left uncommitted for your sign-off tonight** - every item's
+own fix landed cleanly on the first or second real attempt (test
+failures along the way were caught and fixed *before* committing, not
+left for you to find), so nothing hit this skill's own "leave it
+uncommitted, ask first" bar.
+
+**Three optional follow-ups surfaced along the way, not acted on tonight
+- your call whether any are worth adding to `BUGS_AND_ENHANCEMENTS.md`:**
+1. B9's own fix is covered by two hermetic fixture tests, not a full
+   round-trip of the real `aes_5x5.def` design you originally reported
+   the bug against - would be stronger, production-scale confidence if
+   you want it.
+2. Q1's answer flagged a real, unbenchmarked question: whether a
+   pixel-level per-Design rasterize cache (instead of per-instance
+   SkPicture replay) would meaningfully help `RenderLayoutFrame`'s own
+   cold-cache numbers for a design with many repeated placements at one
+   scale.
+3. E29's own schema-description cleanup deliberately stopped at the
+   worst Klass-level offenders (13 fixed) - Field-level descriptions and
+   ~10 moderately-long Klass ones are still on the wordier side, a
+   mechanical-ish follow-up pass if you want it fully clean.
+
+Full test suite (706 tests) green on every commit; both `build`/
+`build_release` rebuilt and left in a working state.
