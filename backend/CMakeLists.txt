@@ -989,6 +989,15 @@ add_executable(profile_tiled_render src/pipelines/benchmarks/profile_tiled_rende
 target_link_libraries(profile_tiled_render PRIVATE database geometry scene pipelines io)
 le_enable_coverage_instrumentation(profile_tiled_render)
 
+# --- spatial_index_benchmark: dev-only benchmark (BUGS_AND_ENHANCEMENTS.md
+# E31 zoom/pan-tick follow-up) - quantifies a Boost.Geometry Index rtree's
+# query cost against HierarchyResolver::discover_layout_children's own
+# current linear per-placement scan, at several simulated zoom levels.
+# Not run by ctest or the coverage target.
+add_executable(spatial_index_benchmark src/pipelines/benchmarks/spatial_index_benchmark.cpp)
+target_link_libraries(spatial_index_benchmark PRIVATE database geometry io)
+le_enable_coverage_instrumentation(spatial_index_benchmark)
+
 # --- lef_roundtrip_diff: dev-only progress-tracking tool for UPDATES.md
 # item 12 (LEF syntax completion) - reads a LEF file (default:
 # complete.5.8.lef), writes every Design + the Technology's layers back out

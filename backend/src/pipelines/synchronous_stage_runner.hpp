@@ -108,8 +108,31 @@ namespace le
         SynchronousStageChain(const SynchronousStageChain &) = delete;
         SynchronousStageChain &operator=(const SynchronousStageChain &) = delete;
 
+        // BUGS_AND_ENHANCEMENTS.md E31's own zoom/pan-tick follow-up:
+        // try_put()+wait_for_all() used to run unconditionally on every
+        // call, even when both stages were guaranteed cache hits
+        // (MemoizingStage::execute()'s own should_recompute == false on
+        // both) - a real, measured cost, not a theoretical one: 300-600ms
+        // per call on record_local_picture's own ~478,000-shape Layout
+        // geometry chain, purely from TBB's own per-call flow::graph
+        // scheduling overhead (the same class of cost HierarchyGraph's
+        // own run_pending already guards against one level up - see that
+        // method's own doc comment - just never applied here). Checking
+        // would_recompute() first, on both stages, lets this skip the
+        // graph entirely and return the already-cached result_.data when
+        // NEITHER stage's own inputs actually changed - stage2's own
+        // input data_version is stage1's own version(), which only moves
+        // when stage1 itself just recomputed, so this correctly detects
+        // "stage1 would recompute, therefore stage2's real input differs
+        // too" without needing stage2's own would_recompute() to somehow
+        // predict stage1's future output.
         const OutputData &run(InputData1 data, uint64_t data_version, const PipelineOptions &options1, const PipelineOptions &options2)
         {
+            const bool stage1_would_recompute = stage1_.would_recompute(data_version, options1);
+            const bool stage2_would_recompute = stage1_would_recompute || stage2_.would_recompute(stage1_.version(), options2);
+            if (!stage1_would_recompute && !stage2_would_recompute)
+                return result_.data;
+
             options2_ = options2;
             stage1_.try_put({.data = std::move(data), .data_version = data_version, .options = options1});
             graph_.wait_for_all();

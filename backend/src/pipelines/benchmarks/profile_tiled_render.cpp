@@ -154,6 +154,45 @@ int main(int argc, char **argv)
     }
     const double warm_render_ms_avg = warm_render_ms_total / kWarmRenders;
 
+    // Deep-zoom pan-in: the cold render above is a fit-to-content view -
+    // essentially the WHOLE die visible at once. Five 10% zoom ticks from
+    // there (scale *= 1.1^5 = 1.61x, pan unchanged) only shrinks the
+    // visible window to ~62% per dimension / ~38% of area - nowhere near
+    // the "zoomed into a small corner of a huge design" state a real user
+    // spends most of their interactive time in, and not enough to show a
+    // spatial index's real win (confirmed empirically: measuring zoom
+    // ticks directly from the fit-to-content view showed no improvement
+    // at all over the pre-culling numbers - not because culling didn't
+    // work, but because most placements genuinely were still visible).
+    // Pan+scale into a window covering ~1% of the die's own area
+    // (centered) first - a realistic deep-pan/zoom state on a large
+    // tiled design, matching spatial_index_benchmark.cpp's own
+    // area_fraction sweep, which showed the rtree decisively winning
+    // below ~5% - then run the zoom-tick sequence from there.
+    const ShapeId diearea_id2 = root.get_layout_diearea(layout_id);
+    const ShapeData *diearea2 = root.get_shape(diearea_id2);
+    if (diearea2)
+    {
+        const auto die_bbox = Geometry::bbox(*diearea2);
+        if (die_bbox)
+        {
+            constexpr double kDeepZoomAreaFraction = 0.01;
+            const double side_fraction = std::sqrt(kDeepZoomAreaFraction);
+            const int64_t cx = (die_bbox->ll.x + die_bbox->ur.x) / 2;
+            const int64_t cy = (die_bbox->ll.y + die_bbox->ur.y) / 2;
+            const double window_width_dbu = static_cast<double>(die_bbox->ur.x - die_bbox->ll.x) * side_fraction;
+            const double window_height_dbu = static_cast<double>(die_bbox->ur.y - die_bbox->ll.y) * side_fraction;
+            const double deep_scale = std::min(width_px / window_width_dbu, height_px / window_height_dbu);
+            scene.set_scale(deep_scale);
+            scene.set_pan(Point{cx - static_cast<int64_t>(width_px / deep_scale / 2.0), cy - static_cast<int64_t>(height_px / deep_scale / 2.0)});
+
+            t0 = Clock::now();
+            last_buffer = &resolver.render_layout_frame(root, layout_id, scene.hierarchy_depth(), view_layers, scene);
+            printf("Deep-zoom pan-in render (scale now %.9g, ~%.0f%% of die area visible) done in %.1f ms\n",
+                   scene.scale(), kDeepZoomAreaFraction * 100.0, elapsed_ms(t0));
+        }
+    }
+
     // Zoom-tick timings: the case the warm-cache loop above does NOT
     // cover at all - a real interactive zoom changes scene.scale() and
     // nothing else. Scene::set_scale bumps viewport_version_
@@ -169,7 +208,8 @@ int main(int argc, char **argv)
     // consecutive ticks compounds to 1.1^5 = 1.61x, crossing the 1.25x
     // tolerance boundary partway through, so this sequence is expected
     // to show at least one expensive (rebuild) tick among mostly-cheap
-    // ones, not a flat cost.
+    // ones, not a flat cost. Run from the deep-zoom pan-in state above,
+    // not the fit-to-content one - see that block's own comment.
     constexpr double kZoomTickFactor = 1.10;
     constexpr int kZoomTicks = 5;
     double zoom_tick_ms[kZoomTicks] = {};

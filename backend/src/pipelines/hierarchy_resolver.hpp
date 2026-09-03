@@ -27,6 +27,7 @@
 #include "include/core/SkRect.h"
 #include <algorithm>
 #include <atomic>
+#include <boost/geometry/index/rtree.hpp>
 #include <map>
 #include <memory>
 #include <optional>
@@ -34,6 +35,8 @@
 #include <spdlog/spdlog.h>
 #include <tuple>
 #include <vector>
+
+namespace bgi = boost::geometry::index;
 
 namespace le
 {
@@ -168,6 +171,30 @@ namespace le
 
         double min_visible_instance_pixels() const { return min_visible_instance_pixels_; }
         void set_min_visible_instance_pixels(double pixels) { min_visible_instance_pixels_ = pixels; }
+
+        // BUGS_AND_ENHANCEMENTS.md E31's zoom/pan-tick follow-up - a
+        // placement under this pixel size (in BOTH dimensions) is skipped
+        // entirely: no tiny_instance_rects outline, no placement_labels
+        // entry, nothing drawn at all. Previously this "skip entirely"
+        // threshold was hardcoded to exactly 1 real device pixel
+        // (genuinely sub-pixel) - real-world testing at high placement
+        // density (a fully zoomed-out view of a multi-hundred-thousand-
+        // placement tiled design, every cell individually 2-9px)
+        // showed even a real, above-1px outline rect is still visual
+        // noise at that density (a dense grid of hairline-adjacent
+        // rectangles reading as a solid block, conveying nothing a user
+        // could actually parse) - and, since discover_layout_children
+        // still built and drew a tiny_instance_rects entry for every one
+        // of those hundreds of thousands of otherwise-nothing placements,
+        // it was also a real, avoidable per-placement cost at exactly
+        // the scale (fully zoomed out / "zoom to fit") this cost matters
+        // most. 10px default - larger than min_visible_instance_pixels_
+        // would make sense as "same threshold," but the two serve
+        // different purposes (that one gates recursing into real content
+        // vs. drawing a boundary; this one gates drawing a boundary at
+        // all) and are independently tunable.
+        double min_outline_instance_pixels() const { return min_outline_instance_pixels_; }
+        void set_min_outline_instance_pixels(double pixels) { min_outline_instance_pixels_ = pixels; }
 
         // Test-only accessor (verification's pruning-correctness fixture)
         // - the number of graph nodes currently live this epoch.
@@ -436,6 +463,88 @@ namespace le
             return options;
         }
 
+        // A Placement's own world bbox for spatial-index purposes -
+        // mirrors discover_layout_children's own per-placement bbox
+        // computation across all three cases that function handles
+        // (Kind::Layout, Kind::Abstract, and the Kind::None
+        // BUGS_AND_ENHANCEMENTS.md E18/E24 pseudo-layout-boundary
+        // fallback), unlike core/placement_geometry.hpp's own
+        // placement_world_bbox - that shared helper deliberately treats
+        // Kind::None as fully unresolved for its own callers
+        // (hit_test_placements_point/_rect), which would silently drop
+        // the E18/E24 case from this index (and therefore cull it
+        // regardless of viewport, not just when actually off-screen) if
+        // reused here as-is. Returns nullopt only for a placement
+        // discover_layout_children itself would skip entirely (no
+        // location/reference_design, or truly no Layout/Abstract to
+        // fall back to at all).
+        std::optional<Rect> discover_placement_bbox(const Root &root, PlacementId placement_id, int remaining_depth) const
+        {
+            const PlacementData *placement = root.get_placement(placement_id);
+            if (!placement || !placement->location || !placement->reference_design.valid())
+                return std::nullopt;
+
+            const DesignTarget target = resolve_design_target(root, placement->reference_design, remaining_depth);
+            Rect child_local_bbox;
+            if (target.kind == DesignTarget::Kind::Layout)
+                child_local_bbox = layout_declared_bbox(root, target.layout_id);
+            else if (target.kind == DesignTarget::Kind::Abstract)
+                child_local_bbox = abstract_declared_bbox(root, target.abstract_id);
+            else
+            {
+                const LayoutId pseudo_layout_id = root.get_design_layout(placement->reference_design);
+                if (!pseudo_layout_id.valid())
+                    return std::nullopt;
+                child_local_bbox = layout_declared_bbox(root, pseudo_layout_id);
+            }
+
+            const Orientation orientation = placement->orientation.value_or(Orientation::N);
+            const Geometry::InstanceTransform transform = Geometry::instance_transform(orientation, child_local_bbox, *placement->location);
+            return Geometry::transform_bbox(transform, child_local_bbox);
+        }
+
+        /// @brief Real per-instance culling for the TOP-LEVEL
+        /// render_layout_frame path only (BUGS_AND_ENHANCEMENTS.md E31's
+        /// zoom/pan-tick follow-up) - returns layout_id's own top-level
+        /// Placements whose world bbox intersects cull_rect, via a
+        /// persistent per-LayoutId rtree (spatial_indices_) bulk-built
+        /// from discover_placement_bbox above. The index is rebuilt only
+        /// when root.mutation_version() (or remaining_depth) has moved
+        /// since it was last built - Root itself never changes between
+        /// pan/zoom ticks, only Scene does, so this stays warm across
+        /// every view-only call; a real database edit anywhere bumps
+        /// mutation_version and forces one fresh O(N) rebuild, matching
+        /// every other cache in this class. See discover_layout_children's
+        /// own candidate_placements parameter doc comment for why this
+        /// must never be used for a recursively-cached nested node.
+        std::vector<PlacementId> visible_top_level_placements(const Root &root, LayoutId layout_id, int remaining_depth, const Rect &cull_rect)
+        {
+            PlacementSpatialIndex &index = spatial_indices_[layout_id];
+            if (!index.built || index.mutation_version != root.mutation_version() || index.remaining_depth != remaining_depth)
+            {
+                std::vector<std::pair<Rect, PlacementId>> entries;
+                const auto &placement_ids = root.get_layout_placements(layout_id);
+                entries.reserve(placement_ids.size());
+                for (PlacementId placement_id : placement_ids)
+                    if (const std::optional<Rect> bbox = discover_placement_bbox(root, placement_id, remaining_depth))
+                        entries.push_back({*bbox, placement_id});
+
+                index.tree = bgi::rtree<std::pair<Rect, PlacementId>, bgi::rstar<16>>(entries);
+                index.mutation_version = root.mutation_version();
+                index.remaining_depth = remaining_depth;
+                index.built = true;
+            }
+
+            std::vector<std::pair<Rect, PlacementId>> hits;
+            index.tree.query(bgi::intersects(cull_rect), std::back_inserter(hits));
+
+            std::vector<PlacementId> result;
+            result.reserve(hits.size());
+            for (const auto &[bbox, placement_id] : hits)
+                result.push_back(placement_id);
+            return result;
+        }
+
         /// @brief Result of walking layout_id's own direct Placements
         /// (the discovery pass, §2) - which children it references
         /// (deduped edges/children), which placements collapse to a
@@ -454,8 +563,23 @@ namespace le
             std::vector<NodeKey> children; // deduped, for touch_children
         };
 
-        DiscoverResult discover_layout_children(LayoutId layout_id, int remaining_depth, const Root &root, const ViewLayerSet &view_layers, const Scene &scene, double scale, Point local_origin = Point{0, 0})
+        // candidate_placements, when non-null, restricts the walk below to
+        // exactly that id set instead of layout_id's own full placement
+        // list - real per-instance culling (BUGS_AND_ENHANCEMENTS.md E31's
+        // own zoom/pan-tick follow-up), backed by visible_top_level_placements's
+        // own spatial index. ONLY build_top_layout_picture ever passes one:
+        // this must stay nullptr for every call reachable from
+        // ensure_node_built (the recursively-cached per-{AbstractId}/
+        // {LayoutId,remaining_depth} node graph) - a cached node's own
+        // picture is shared by every placement anywhere that references
+        // it, at any pan/scale, so it must stay exactly as
+        // viewport-independent as the "local pixel space" convention
+        // this class's own doc comment already requires; culling it by
+        // *one particular* top-level viewport would silently drop content
+        // for every other placement/viewport sharing that cached node.
+        DiscoverResult discover_layout_children(LayoutId layout_id, int remaining_depth, const Root &root, const ViewLayerSet &view_layers, const Scene &scene, double scale, Point local_origin = Point{0, 0}, const std::vector<PlacementId> *candidate_placements = nullptr)
         {
+            ZoneScopedN("HierarchyResolver: discover_layout_children");
             DiscoverResult result;
             result.content_bbox = layout_declared_bbox(root, layout_id);
             bool have_content_bbox = result.content_bbox.ll.x != result.content_bbox.ur.x || result.content_bbox.ll.y != result.content_bbox.ur.y;
@@ -475,21 +599,21 @@ namespace le
             };
 
             const double min_visible_dbu = min_visible_instance_pixels_ / scale;
-            // Same "genuinely invisible" threshold ViewportFilterStage/
-            // TinyViewportFilterStage already use for real shapes (1
-            // device pixel in both dimensions) - a placement under
-            // min_visible_dbu still gets a real outline rect drawn
-            // (below) down to any nonzero size, which at high placement
-            // density (thousands of adjacent standard cells, zoomed
-            // out) rasterizes as a dense grid of hairline-adjacent
-            // rectangles that reads as a solid block, not useful
-            // information - once a placement is ALSO sub-pixel in both
-            // dimensions, its own outline conveys nothing a real user
-            // could see, so skip it entirely rather than drawing it.
-            const double sub_pixel_dbu = 1.0 / scale;
+            // A placement under min_visible_dbu still gets a real outline
+            // rect drawn (below) rather than recursing into its own real
+            // content - which at high placement density (thousands of
+            // adjacent standard cells, zoomed out) rasterizes as a dense
+            // grid of hairline-adjacent rectangles that reads as a solid
+            // block, not useful information - once a placement is ALSO
+            // under min_outline_instance_pixels_ in both dimensions (see
+            // that member's own doc comment), its own outline conveys
+            // nothing a real user could parse, so skip it entirely
+            // rather than drawing it.
+            const double skip_entirely_dbu = min_outline_instance_pixels_ / scale;
             std::set<NodeKey> seen_children;
 
-            for (PlacementId placement_id : root.get_layout_placements(layout_id))
+            const std::vector<PlacementId> &placements_to_visit = candidate_placements ? *candidate_placements : root.get_layout_placements(layout_id);
+            for (PlacementId placement_id : placements_to_visit)
             {
                 const PlacementData *placement = root.get_placement(placement_id);
                 if (!placement || !placement->location || !placement->reference_design.valid())
@@ -522,8 +646,8 @@ namespace le
 
                         const double width = static_cast<double>(world_bbox.ur.x - world_bbox.ll.x);
                         const double height = static_cast<double>(world_bbox.ur.y - world_bbox.ll.y);
-                        if (width < sub_pixel_dbu && height < sub_pixel_dbu)
-                            continue; // sub-pixel outline would be visual noise, not information
+                        if (width < skip_entirely_dbu && height < skip_entirely_dbu)
+                            continue; // too small an outline to be visual information, not noise-worth-drawing
 
                         const PixelRect pixel_rect{
                             .ll = PixelPoint{.x = static_cast<double>(world_bbox.ll.x - local_origin.x) * scale, .y = static_cast<double>(world_bbox.ll.y - local_origin.y) * scale},
@@ -550,8 +674,8 @@ namespace le
                 const double height = static_cast<double>(world_bbox.ur.y - world_bbox.ll.y);
                 if (width < min_visible_dbu && height < min_visible_dbu)
                 {
-                    if (width < sub_pixel_dbu && height < sub_pixel_dbu)
-                        continue; // sub-pixel outline would be visual noise, not information
+                    if (width < skip_entirely_dbu && height < skip_entirely_dbu)
+                        continue; // too small an outline to be visual information, not noise-worth-drawing
 
                     result.tiny_instance_rects.push_back(PixelRect{
                         .ll = PixelPoint{.x = static_cast<double>(world_bbox.ll.x - local_origin.x) * scale, .y = static_cast<double>(world_bbox.ll.y - local_origin.y) * scale},
@@ -715,6 +839,7 @@ namespace le
         // AND no new node was constructed (so wire_fan_in never ran).
         void run_pending(const Root &root, const ViewLayerSet &view_layers, const Scene &scene, size_t nodes_before)
         {
+            ZoneScopedN("HierarchyResolver: run_pending");
             const PipelineOptions options = options_for(root, view_layers, scene);
             for (HierarchyNodeBase *n : pending_leaf_triggers_)
                 n->trigger(options);
@@ -727,7 +852,10 @@ namespace le
             pending_layout_triggers_.clear();
 
             if (had_pending_triggers || any_new_node_wired)
+            {
+                ZoneScopedN("HierarchyResolver: run_pending wait_for_all");
                 graph_->flow_graph.wait_for_all();
+            }
         }
 
         // A node survives being touched in any of the last
@@ -803,7 +931,30 @@ namespace le
             // have drifted from that within ensure_epoch's own tolerance.
             // render_layout_frame's own caller applies the residual
             // correction on top.
-            DiscoverResult disc = discover_layout_children(layout_id, remaining_depth, root, view_layers, scene, epoch_.scale, scene.pan());
+            //
+            // BUGS_AND_ENHANCEMENTS.md E31's zoom/pan-tick follow-up: the
+            // real Tracy-measured cost here was never
+            // discover_layout_children's own walk (under 0.2% of total
+            // render time even at 372,096 placements) - it was every
+            // downstream per-placement step run unconditionally for the
+            // WHOLE layout regardless of visibility (the resolved/
+            // instances build+sort right below, and
+            // BuildLayoutPictureStage's own concat+drawPicture loop
+            // inside record_local_picture). cull_rect - the same
+            // viewport-in-dbu-space formula ViewportFilterStage::compute
+            // already uses for real shapes - restricts the walk (and
+            // therefore every step downstream of it) to only the
+            // placements actually visible this frame, so all of that
+            // scales with visible content, not total content.
+            const Rect cull_rect{
+                .ll = scene.pan(),
+                .ur = Point{
+                    scene.pan().x + static_cast<int64_t>(scene.viewport_width_px() / epoch_.scale),
+                    scene.pan().y + static_cast<int64_t>(scene.viewport_height_px() / epoch_.scale),
+                },
+            };
+            const std::vector<PlacementId> visible_placements = visible_top_level_placements(root, layout_id, remaining_depth, cull_rect);
+            DiscoverResult disc = discover_layout_children(layout_id, remaining_depth, root, view_layers, scene, epoch_.scale, scene.pan(), &visible_placements);
             run_pending(root, view_layers, scene, nodes_before);
 
             std::vector<ResolvedInstanceSlot> resolved;
@@ -823,16 +974,46 @@ namespace le
             const uint64_t geometry_data_version = LayoutGeometryStage::data_version_for(layout_id, top_options);
             const std::vector<RenderedShape> dbu_shapes = top_geometry_runner_.run(layout_id, geometry_data_version, top_options);
 
-            return record_local_picture(dbu_shapes, geometry_data_version, top_viewport_then_layer_chain_, view_layers, scene, epoch_.scale, instances, disc.tiny_instance_rects, disc.content_bbox, scene.pan(), disc.placement_labels);
+            return record_local_picture(dbu_shapes, geometry_data_version, top_viewport_then_layer_chain_, view_layers, scene, epoch_.scale, instances, disc.tiny_instance_rects, disc.content_bbox, scene.pan(), disc.placement_labels, &cull_rect);
         }
 
         double min_visible_instance_pixels_ = 100.0;
+        double min_outline_instance_pixels_ = 10.0;
 
         Epoch epoch_;
         std::unique_ptr<HierarchyGraph> graph_;
         std::vector<HierarchyNodeBase *> pending_leaf_triggers_;
         std::vector<HierarchyNodeBase *> pending_layout_triggers_;
         std::set<DesignId> unresolved_logged_;
+
+        // visible_top_level_placements's own per-Layout spatial index -
+        // see that method's own doc comment (BUGS_AND_ENHANCEMENTS.md
+        // E31's zoom/pan-tick follow-up). Keyed by LayoutId (not folded
+        // into Epoch/graph_, which are keyed on scale/view-layers/
+        // visibility too - this index only depends on the database's own
+        // Placement data plus remaining_depth, so a pure scale/pan tick
+        // must never invalidate it). One entry per LayoutId ever rendered
+        // as a top-level view this HierarchyResolver's whole lifetime -
+        // unbounded like unresolved_logged_ above, acceptable for the
+        // same reason (a handful of distinct top-level Layouts per
+        // session in practice, not thousands).
+        struct PlacementSpatialIndex
+        {
+            // built starts false specifically so the very first query
+            // forces a real build even when root.mutation_version() is
+            // still 0 (a freshly-constructed Root's own default) -
+            // comparing mutation_version alone would wrongly treat "never
+            // built" and "built once already, at version 0" as the same
+            // state, leaving every placement permanently unindexed (found
+            // the hard way: every render_layout_frame test whose Root
+            // never calls bump_mutation_version() failed outright, every
+            // placement silently culled).
+            bool built = false;
+            uint64_t mutation_version = 0;
+            int remaining_depth = 0;
+            bgi::rtree<std::pair<Rect, PlacementId>, bgi::rstar<16>> tree;
+        };
+        std::map<LayoutId, PlacementSpatialIndex> spatial_indices_;
 
         // Bumped from every node's own compute() (via a reference
         // captured at node construction) - std::atomic, not a plain

@@ -609,7 +609,13 @@ TEST_F(HierarchyResolverFixture, RenderLayoutFrameToleratesSmallScaleDriftStayin
 
     // Contrast: a genuinely large scale jump (3x - well past 1.25x
     // tolerance) must still force a real rebuild, not be silently
-    // absorbed the same way.
+    // absorbed the same way. Re-pan first (BUGS_AND_ENHANCEMENTS.md E31's
+    // real-per-instance-culling follow-up) so the placement - world rect
+    // (500,500)-(600,600) - stays inside the viewport at 3x zoom (800px /
+    // 3.0 = 266.7 dbu of visible span from pan); the old pan=(0,0) would
+    // now correctly cull it as genuinely off-screen, which tested nothing
+    // about the scale-drift-tolerance boundary this case exists to check.
+    scene.set_pan(le::Point{450, 450});
     scene.set_scale(3.0);
     resolver.render_layout_frame(root, sub_layout, /*hierarchy_depth=*/1, view_layers, scene);
     EXPECT_GT(resolver.design_picture_recompute_count() - after_drift, 1u)
