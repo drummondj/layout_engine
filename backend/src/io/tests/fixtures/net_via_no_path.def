@@ -1,0 +1,17 @@
+VERSION 5.8 ;
+DESIGN net_via_no_path_test ;
+UNITS DISTANCE MICRONS 1000 ;
+DIEAREA ( 0 0 ) ( 10000 10000 ) ;
+NETS 1 ;
+- NET1
+  + ROUTED metal1 ( 0 0 ) ( 100 0 )
+    NEW metal2 ( 500 500 ) VIA1
+  ;
+END NETS
+SPECIALNETS 1 ;
+- SNET1
+  + ROUTED metal1 500 ( 0 0 ) ( 200 0 )
+    NEW metal2 500 ( 900 900 ) VIA1
+  ;
+END SPECIALNETS
+END DESIGN

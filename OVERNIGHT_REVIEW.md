@@ -407,3 +407,103 @@ uncommitted, ask first" bar.
 
 Full test suite (706 tests) green on every commit; both `build`/
 `build_release` rebuilt and left in a working state.
+
+## B9 follow-up: real production data still showed malformed via output.
+
+You reported after the first B9 fix landed: writing `AES_1/design_original.def`
+(with `NangateOpenCellLibrary.lef`) still produced NETS/SPECIALNETS with
+via references that had no preceding layer/point context at all - bare,
+seemingly-duplicated tokens like `via2_5 via2_5 via3_2 via3_2` sitting on
+their own line. **This was real, and a deeper bug than the first B9 fix
+(ROWCOL/ORIGIN/OFFSET on the VIAS section's own via *template*
+definitions) - a separate bug in how NETS/SPECIALNETS' own *routed paths*
+reference those templates.** Investigated and fixed directly against your
+own real files this time, not just hermetic fixtures - `BUGS_AND_ENHANCEMENTS.md`'s
+B9 checkbox stays `[x]` (this is completing the same item, not a new
+regression to reopen it for).
+
+**Root cause 1 (the actual reported symptom):**
+`DEFWriter::write_net_path` wrote a Shape's own `ShapeVia` entries
+*after* iterating all of that Shape's own `Path` segments, gated on a
+`started` flag that spans the *whole net* (every Shape/layer in it), not
+just the current Shape. A **via-only Shape** (real geometry has these -
+a via dropped at one point with no wire segment of its own; `Path`
+requires >= 2 points, see `append_shapes_from_path`'s own
+`current_points.size() >= 2` gate) has an empty `paths` list, so its own
+via-writing loop found `started` already `true` from some *earlier,
+unrelated* Shape in the same net and wrote its vias anyway - onto
+whatever path-writing state that unrelated Shape had left open, with no
+layer/point of its own at all. The "duplicated-looking" tokens turned out
+to be real: the same via *template* name used at two genuinely different
+physical points along the route (a completely normal pattern for a real
+routed net) - once each got its own real coordinate, they're clearly two
+distinct placements, not a duplicate.
+
+Fix: every `ShapeVia`/`ShapeViaIterate` a Shape owns is now written into
+its own dedicated `NEW <layer> ...` segment (shared across all of that
+shape's own vias, not one segment per via - see root cause 2), each via
+preceded by a real, single-point `defw*PathPoint` call at `ShapeVia.origin`
+(a field that already existed for exactly this - `Field.origin`, "In
+database units" - just never used at this call site before).
+
+**Root cause 2 (found only by testing against your real 20MB file, not
+caught by any hermetic fixture):** an early version of this fix gave
+*each* via its own fresh `defwSpecialNetPathStart("NEW")` call - which
+turned out to reset the vendored writer's own internal
+`defwLineItemCounter` every time (confirmed in `defwWriter.cpp`), the
+same counter that drives its periodic "insert a real newline" logic. A
+net with thousands of individual via taps (a real VDD/VSS power-strap
+SPECIALNET in your own AES design, not a contrived case) came out as one
+enormous, unbroken line - which the vendored *reader*, fed that same
+writer's own output back, choked on outright (a real
+`DEFPARS-5500` parse failure). Fixed by sharing one segment across all of
+a shape's own vias instead of one per via, restoring the same natural
+periodic wrapping the pre-existing multi-point Path-writing loop already
+benefits from.
+
+**Root cause 3 (also only caught against your real file - a second
+distinct bug in my own fix's first attempt, not the original code):**
+SPECIALNETS' own `+ ROUTED/NEW layerName routeWidth routingPoints`
+grammar *requires* a WIDTH token right after the layer name (unlike
+regular NETS, where `defwNetPathLayer` takes no width parameter at all -
+width there is a separate DEF>=6.0-only construct this writer never uses,
+already documented). My new via-only segment called `defwSpecialNetPathLayer`
+but never followed it with `defwSpecialNetPathWidth` - producing exactly
+the reported-shape parse error ("unexpected token `(`" right where a
+number was expected). Fixed using the first via/via_iterate's own
+`ShapeVia.width` as the segment's representative width - a real, minor
+loss of per-via width fidelity if it genuinely varied within one shape's
+own via placements (uncommon in practice, and via rendering itself
+doesn't depend on this value either way - see `ShapeVia.width`'s own
+schema.py comment), traded for being valid DEF at all.
+
+**Also found and documented (not fixed - a real vendored-writer gap, not
+this project's own bug):** no `defwNetPathViaData` equivalent exists for
+*regular* NETS at all - an arrayed via placement (`ShapeViaIterate`,
+"VIA DO n BY m STEP x y") within a regular NET's own routed path has no
+write site through this API, only SPECIALNETS does
+(`defwSpecialNetPathViaData`). Same asymmetry shape as the already-
+documented `Route.width`/`defwNetPathWidth` gap. Skipped silently for
+`!is_special` (`write_net_path` is `static`, no `messages_` to push a
+real warning to - matches `write_tracks`' own silent-skip precedent for
+its analogous gap). Documented in `LEFDEF_BUGS.md`.
+
+**Verified two ways, in this order (real data first, matching your own
+report, then hermetic coverage locked in after):**
+1. Directly against your own files - `read_lef(NangateOpenCellLibrary.lef)`
+   -> `read_def(design_original.def)` -> `write_def` -> `read_def` on the
+   *written* output. Before the fixes: the write itself always "succeeded"
+   (0 messages) but re-reading its own output failed with a real
+   `DEFPARS-5500` parse error. After all three fixes: writes and re-reads
+   cleanly, `route count: 19543` (matches `NETS 19541` + `SPECIALNETS 2`
+   from the original file exactly).
+2. New hermetic fixture `net_via_no_path.def` (a regular NET and a
+   SPECIALNET, each with a real path on one layer and a via-only Shape on
+   a second layer - reproduces both the missing-context bug and the
+   SPECIALNETS-WIDTH bug in a small, fast, deterministic test) -
+   `DEFWriterViaOnlyShapeRoundtripFixture`'s two tests, verified to fail
+   against the pre-fix code (confirmed both the wrong-coordinate symptom
+   AND, separately, that they'd also have failed with a parse error under
+   the intermediate WIDTH-less attempt) and pass with the final fix.
+
+Full 708-test suite passes; both `build`/`build_release` rebuilt.

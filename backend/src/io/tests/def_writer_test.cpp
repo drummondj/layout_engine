@@ -290,6 +290,117 @@ namespace le
         EXPECT_EQ(original->top_offset->y, written->top_offset->y);
     }
 
+    // BUGS_AND_ENHANCEMENTS.md B9 follow-up - a real-world regression found
+    // reading a full ISPD22 benchmark (AES_1 + NangateOpenCellLibrary.lef,
+    // reported directly): write_net_path used to attach a Shape's own
+    // ShapeVia entries onto whatever *unrelated* shape's own path segment
+    // happened to still be open (a via-only Shape - real geometry has
+    // them - has no path segment of its own at all), producing a bare via
+    // token with no layer/point context. net_via_no_path.def's own NET1/
+    // SNET1 each have exactly this shape: a real metal1 path segment,
+    // then a metal2 "NEW ... ( x y ) VIA1" with only ONE point and no
+    // second point to form a real path (Path requires >= 2 points, see
+    // append_shapes_from_path's own current_points.size() >= 2 gate) -
+    // metal2 ends up a via-only Shape. The SPECIALNETS half also caught a
+    // second, real bug in this fix's own first attempt: a via-only
+    // segment needs its own WIDTH token too (SPECIALNETS' own "+ ROUTED/
+    // NEW layerName routeWidth routingPoints" grammar requires one,
+    // unlike regular NETS) - missing it produced a real DEF parse error
+    // reading the fix's own output back (confirmed directly against the
+    // real 20MB AES_1 output before this was caught and fixed).
+    class DEFWriterViaOnlyShapeRoundtripFixture : public ::testing::Test
+    {
+    protected:
+        void SetUp() override
+        {
+            technology_id = original_root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            for (const char *name : {"metal1", "metal2"})
+                original_root.create_layer(LayerData{.technology = technology_id, .name = name, .type = "ROUTING"});
+            ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/net_via_no_path.def", original_root, "test_lib"), 0);
+            const DesignId design_id = original_root.get_design_by_name("net_via_no_path_test");
+            ASSERT_TRUE(design_id.valid());
+            original_layout_id = original_root.get_design_layout(design_id);
+            ASSERT_TRUE(original_layout_id.valid());
+
+            const std::string written_path = scratch_output_path("le_def_writer_via_only_shape_roundtrip.def");
+            DEFWriter writer;
+            ASSERT_EQ(writer.write_def(written_path, original_root, original_layout_id), 0) << [&]
+            {
+                std::string joined;
+                for (const std::string &m : writer.messages())
+                    joined += m + "\n";
+                return joined;
+            }();
+
+            const TechnologyId reread_technology_id = written_root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            for (const char *name : {"metal1", "metal2"})
+                written_root.create_layer(LayerData{.technology = reread_technology_id, .name = name, .type = "ROUTING"});
+            // The regression itself: re-reading the fix's own output used
+            // to fail outright (a real DEFPARS-5500 parse error, not a
+            // C++ exception/crash - reader.read_def returns nonzero and
+            // pushes a message rather than throwing) before both bugs in
+            // this fix's own first two attempts were caught and fixed.
+            ASSERT_EQ(reread_reader.read_def(written_path, written_root, "test_lib"), 0) << [&]
+            {
+                std::string joined;
+                for (const std::string &m : reread_reader.messages())
+                    joined += m + "\n";
+                return joined;
+            }();
+            const DesignId reread_design_id = written_root.get_design_by_name("net_via_no_path_test");
+            ASSERT_TRUE(reread_design_id.valid());
+            written_layout_id = written_root.get_design_layout(reread_design_id);
+            ASSERT_TRUE(written_layout_id.valid());
+        }
+
+        static std::optional<ShapeVia> find_via(const Root &root, LayoutId layout_id, const std::string &route_name)
+        {
+            for (const RouteId route_id : root.get_layout_routes(layout_id))
+            {
+                const RouteData *route = root.get_route(route_id);
+                if (!route || route->name != route_name)
+                    continue;
+                for (const ShapeId shape_id : root.get_route_shapes(route_id))
+                {
+                    const Shape *shape = root.get_shape(shape_id);
+                    if (shape && !shape->vias.empty())
+                        return shape->vias.front();
+                }
+            }
+            return std::nullopt;
+        }
+
+        Root original_root;
+        Root written_root;
+        TechnologyId technology_id;
+        LayoutId original_layout_id;
+        LayoutId written_layout_id;
+        DEFReader reader;
+        DEFReader reread_reader;
+    };
+
+    TEST_F(DEFWriterViaOnlyShapeRoundtripFixture, RegularNetsViaOnlyShapeRoundTrips)
+    {
+        const std::optional<ShapeVia> original = find_via(original_root, original_layout_id, "NET1");
+        const std::optional<ShapeVia> written = find_via(written_root, written_layout_id, "NET1");
+        ASSERT_TRUE(original.has_value());
+        ASSERT_TRUE(written.has_value());
+        EXPECT_EQ(original->via_name, written->via_name);
+        EXPECT_EQ(original->origin.x, written->origin.x);
+        EXPECT_EQ(original->origin.y, written->origin.y);
+    }
+
+    TEST_F(DEFWriterViaOnlyShapeRoundtripFixture, SpecialNetsViaOnlyShapeRoundTrips)
+    {
+        const std::optional<ShapeVia> original = find_via(original_root, original_layout_id, "SNET1");
+        const std::optional<ShapeVia> written = find_via(written_root, written_layout_id, "SNET1");
+        ASSERT_TRUE(original.has_value());
+        ASSERT_TRUE(written.has_value());
+        EXPECT_EQ(original->via_name, written->via_name);
+        EXPECT_EQ(original->origin.x, written->origin.x);
+        EXPECT_EQ(original->origin.y, written->origin.y);
+    }
+
     TEST_F(DEFWriterRoundtripFixture, RoundTripsPhysicalPortCount)
     {
         EXPECT_EQ(written_root.get_layout_physical_ports(written_layout_id).size(), original_root.get_layout_physical_ports(original_layout_id).size());

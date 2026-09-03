@@ -290,6 +290,19 @@ Found implementing `DEFWriter` (`src/io/def_writer.cpp`/`.hpp`) against
   limitation, not a bug in this project's own code (see
   `DEFWriterComponentWeightFixture` in `def_writer_test.cpp`, which locks
   in the real, sentinel-collision-aware behavior).
+- **No `defwNetPathViaData`-equivalent exists for regular NETS** — an
+  arrayed VIA placement within a routed path ("VIA DO n BY m STEP x y")
+  has a real write site for SPECIALNETS (`defwSpecialNetPathViaData`,
+  called right after `defwSpecialNetPathVia` to append the "DO ... BY ...
+  STEP ..." suffix), but no matching function exists for regular NETS'
+  own `defwNetPathVia`/`defwNetPathViaWithOrient*` family at all
+  (confirmed against `defwWriter.hpp` — this is the same
+  regular-vs-special asymmetry `Route.width`/`defwNetPathWidth` already
+  has, just on the via-array construct instead of path width).
+  `DEFWriter::write_net_path`'s own `ShapeViaIterate` loop skips this
+  case silently for `!is_special` (`write_net_path` is `static`, with no
+  `messages_` to push a real warning to — matches `write_tracks`' own
+  silent-skip precedent for its analogous LAYER-less-Track gap).
 
 ## Naming quirk (not a functional bug)
 
