@@ -1,5 +1,5 @@
 #include "../stages/layer_generation_stage.hpp"
-#include "../synchronous_stage_runner.hpp"
+#include "synchronous_stage_runner.hpp"
 #include <gtest/gtest.h>
 
 using namespace le;

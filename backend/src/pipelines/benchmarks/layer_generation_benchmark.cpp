@@ -1,6 +1,6 @@
 #include "../pipeline_options.hpp"
 #include "../stages/layer_generation_stage.hpp"
-#include "../synchronous_stage_runner.hpp"
+#include "../tests/synchronous_stage_runner.hpp"
 #include "aes_scaling_fixture.hpp"
 
 #include <benchmark/benchmark.h>
