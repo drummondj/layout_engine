@@ -60,5 +60,13 @@ namespace le::benchmarks
             benchmark::RegisterBenchmark(("BM_HierarchyResolver/" + std::string(config.label)).c_str(), BM_HierarchyResolver, config)
                 ->Unit(benchmark::kMillisecond);
         }
+
+        // kAesScalingLargeConfig (~1,033,600 components) - the Cold tier's
+        // own real target scale, not another scaling-matrix point (see
+        // that constant's own comment) - run in isolation
+        // (--benchmark_filter=5x5) to measure this design's own memory
+        // footprint without every other cached fixture also resident.
+        benchmark::RegisterBenchmark(("BM_HierarchyResolver/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_HierarchyResolver, kAesScalingLargeConfig)
+            ->Unit(benchmark::kMillisecond);
     }
 }

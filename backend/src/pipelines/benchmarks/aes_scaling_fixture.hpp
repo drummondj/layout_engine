@@ -39,6 +39,16 @@ namespace le::benchmarks
         {3, 3, "3x3"},
     }};
 
+    /// @brief A 6th, larger validation point - deliberately NOT folded
+    /// into kAesScalingTileConfigs above (PIPELINE_REFACTOR.md's own
+    /// methodology names exactly those 5 as every stage benchmark's
+    /// standard scaling matrix; this one is a separate, special-purpose
+    /// check against the Cold tier's own real target scale, not another
+    /// scaling data point). 41,344 x 25 = 1,033,600 components - close to
+    /// a round 1,000,000, and test_data/aes_scaling_5x5.def already
+    /// exists (pre-generated, same as the 5 above).
+    inline constexpr TileConfig kAesScalingLargeConfig{5, 5, "5x5"};
+
     struct AesScalingFixture
     {
         Root root;

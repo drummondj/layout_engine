@@ -51,5 +51,12 @@ namespace le::benchmarks
             benchmark::RegisterBenchmark(("BM_LayerGeneration/" + std::string(config.label)).c_str(), BM_LayerGeneration, config)
                 ->Unit(benchmark::kMicrosecond);
         }
+
+        // kAesScalingLargeConfig (~1,033,600 components) - see its own
+        // comment (aes_scaling_fixture.hpp); confirms this stage stays
+        // flat even at the Cold tier's real target scale, not just across
+        // the 5-point matrix.
+        benchmark::RegisterBenchmark(("BM_LayerGeneration/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_LayerGeneration, kAesScalingLargeConfig)
+            ->Unit(benchmark::kMicrosecond);
     }
 }
