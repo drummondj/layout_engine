@@ -104,12 +104,20 @@ namespace le
     /// @brief Cold-tier stage 2 (PIPELINE_REFACTOR.md): traverses
     /// Placement -> Design hierarchy from ColdPipelineOptions::top_level,
     /// consuming one unit of ColdPipelineOptions::hierarchy_depth per
-    /// Layout -> Layout hop, falling back to a placed instance's own
-    /// Abstract once that budget is exhausted (or its reference_design
-    /// simply has no Layout at all) - see resolve_design_target (core/
-    /// placement_geometry.hpp), the single source of truth for that
-    /// dispatch, also what Scene::hierarchy_depth()'s own documented
-    /// semantics (backend/CLAUDE.md) are built on.
+    /// Layout -> Layout hop. At remaining_depth == 0 a Layout's own
+    /// placements are never resolved into anything at all (not even a
+    /// fallback to their own Abstract) - only that Layout's own direct
+    /// content appears (see collect_layout_content's own comment on
+    /// PLACEMENT_BOUNDARY, the placeholder that's still visible there).
+    /// This is a deliberate departure from resolve_design_target's own
+    /// "fall back to the Abstract regardless of remaining depth"
+    /// convention (core/placement_geometry.hpp) - still the right choice,
+    /// and still used here for sizing a placement's own placeholder
+    /// rect, for every *other* caller (hit-testing, Scene::hierarchy_depth()'s
+    /// own documented semantics, backend/CLAUDE.md) - this stage's own
+    /// depth==0 case just isn't one of them: "traverses hierarchy ...
+    /// until hierarchy_depth is 0" is read literally here, not as
+    /// "one further Abstract-only hop past 0."
     ///
     /// Gathers every reached Abstract's/Layout's own *direct* shapes
     /// (Terminal/Obstruction/boundary for an Abstract; diearea/Blockage/
@@ -188,37 +196,57 @@ namespace le
                 {
                     ViewData data = collect_layout_content(root, view_layers, *layout_id, item.remaining_depth);
 
-                    const auto &placements = root.get_layout_placements(*layout_id);
-                    data.placement_data.reserve(placements.size()); // exact upper bound - not every placement resolves
-                    for (PlacementId placement_id : placements)
+                    // remaining_depth == 0: this Layout's own direct
+                    // content (just gathered above, PLACEMENT_BOUNDARY
+                    // placeholders included) is everything shown here -
+                    // no placement is resolved into a further Abstract or
+                    // Layout, and placement_data stays empty. Reading
+                    // "traverses hierarchy ... until hierarchy_depth is 0"
+                    // literally: depth 0 means the top level, full stop -
+                    // deliberately NOT resolve_design_target's own
+                    // "fall back to the Abstract regardless of depth"
+                    // convention (used elsewhere - hit-testing,
+                    // placement_world_bbox's own bbox sizing above), which
+                    // would otherwise materialize every placement's own
+                    // Abstract content even at depth 0. Applies uniformly
+                    // at every node this traversal reaches, not just the
+                    // very first one: a nested Layout discovered with
+                    // remaining_depth already at 0 shows the same "just
+                    // this level" behavior.
+                    if (item.remaining_depth > 0)
                     {
-                        const PlacementData *placement = root.get_placement(placement_id);
-                        if (!placement || !placement->location || !placement->reference_design.valid())
-                            continue;
+                        const auto &placements = root.get_layout_placements(*layout_id);
+                        data.placement_data.reserve(placements.size()); // exact upper bound - not every placement resolves
+                        for (PlacementId placement_id : placements)
+                        {
+                            const PlacementData *placement = root.get_placement(placement_id);
+                            if (!placement || !placement->location || !placement->reference_design.valid())
+                                continue;
 
-                        const DesignTarget target = resolve_design_target(root, placement->reference_design, item.remaining_depth);
-                        HierarchyId child_id;
-                        int child_remaining_depth = 0;
-                        if (target.kind == DesignTarget::Kind::Layout)
-                        {
-                            child_id = target.layout_id;
-                            child_remaining_depth = item.remaining_depth - 1;
-                        }
-                        else if (target.kind == DesignTarget::Kind::Abstract)
-                        {
-                            child_id = target.abstract_id;
-                        }
-                        else
-                        {
-                            continue; // unresolved reference_design - nothing to place
-                        }
+                            const DesignTarget target = resolve_design_target(root, placement->reference_design, item.remaining_depth);
+                            HierarchyId child_id;
+                            int child_remaining_depth = 0;
+                            if (target.kind == DesignTarget::Kind::Layout)
+                            {
+                                child_id = target.layout_id;
+                                child_remaining_depth = item.remaining_depth - 1;
+                            }
+                            else if (target.kind == DesignTarget::Kind::Abstract)
+                            {
+                                child_id = target.abstract_id;
+                            }
+                            else
+                            {
+                                continue; // unresolved reference_design - nothing to place
+                            }
 
-                        data.placement_data.push_back(ViewPlacementData{
-                            .id = child_id,
-                            .location = *placement->location,
-                            .orientation = placement->orientation.value_or(Orientation::N),
-                        });
-                        worklist.push_back(WorkItem{child_id, child_remaining_depth});
+                            data.placement_data.push_back(ViewPlacementData{
+                                .id = child_id,
+                                .location = *placement->location,
+                                .orientation = placement->orientation.value_or(Orientation::N),
+                            });
+                            worklist.push_back(WorkItem{child_id, child_remaining_depth});
+                        }
                     }
 
                     result.view_data.emplace(item.id, std::move(data));

@@ -30,15 +30,19 @@ namespace
         const std::vector<TechnologyId> technology_ids = fixture.root.get_technology_ids();
         const ViewLayerSet view_layers = technology_ids.empty() ? ViewLayerSet{} : ViewLayerSet::build_for_technology(fixture.root, technology_ids.front());
 
-        // hierarchy_depth 0 - every placement in these fixtures is a
-        // Nangate standard cell (Abstract only, no Layout of its own), so
-        // resolve_design_target falls back to its Abstract regardless of
-        // depth; depth only matters once a fixture actually nests
-        // Layout-in-Layout, which none of the aes_scaling DEFs do.
+        // hierarchy_depth 1, not 0 - depth 0 now means "only the top
+        // Layout's own direct content, nothing resolved past it at all"
+        // (HierarchyResolverStage::compute()'s own doc comment); depth 1
+        // is what actually resolves top-level placements to their own
+        // content. Every placement in these fixtures is a Nangate
+        // standard cell (Abstract only, no Layout of its own), so at
+        // depth 1 resolve_design_target already falls back to its
+        // Abstract - depth only matters further once a fixture actually
+        // nests Layout-in-Layout, which none of the aes_scaling DEFs do.
         const ColdPipelineOptions options{
             .root_mutation_version = fixture.root.mutation_version(),
             .top_level = HierarchyId{fixture.layout_id},
-            .hierarchy_depth = 0,
+            .hierarchy_depth = 1,
         };
         const HierarchyResolverInput input{.root = &fixture.root, .view_layers = &view_layers};
 

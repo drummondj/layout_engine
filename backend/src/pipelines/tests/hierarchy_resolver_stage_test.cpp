@@ -17,12 +17,20 @@ namespace
     //     BLOCK (Layout + Abstract) - diearea, 2 placements of LEAF
     //       LEAF (Abstract only) - boundary, 1 Terminal (1 Shape), 1 Obstruction (1 Shape)
     //
-    // BLOCK having both a Layout and an Abstract is what exercises
-    // resolve_design_target's own depth-based dispatch: placed at
-    // hierarchy_depth 0 it resolves to BLOCK's Abstract (a flat leaf, no
-    // further recursion into its own placements); placed at depth >= 1 it
-    // resolves to BLOCK's Layout instead, and traversal continues into
-    // BLOCK's own placements of LEAF.
+    // hierarchy_depth semantics (HierarchyResolverStage::compute()'s own
+    // doc comment): depth 0 shows only TOP's own direct content, nothing
+    // resolved past it at all; each further unit of depth lets one more
+    // Placement -> Layout hop actually resolve and get visited. So:
+    //   depth 0: TOP only - block0 is never resolved to anything.
+    //   depth 1: TOP resolves block0 -> BLOCK's Layout (remaining_depth 1
+    //            > 0 and BLOCK has one), but BLOCK's own remaining_depth
+    //            is now 0, so BLOCK's own placements (leaf0/leaf1) are
+    //            never resolved either.
+    //   depth 2: BLOCK's own remaining_depth is 1 > 0, so leaf0/leaf1
+    //            resolve too - to LEAF's Abstract (LEAF has no Layout of
+    //            its own, so resolve_design_target falls back to it
+    //            regardless of remaining_depth - Abstracts are always
+    //            leaves, never depth-gated).
     struct HierarchyResolverStageFixture : public ::testing::Test
     {
         void SetUp() override
@@ -76,36 +84,69 @@ namespace
     };
 }
 
-TEST_F(HierarchyResolverStageFixture, DepthZeroFallsBackToAbstractWithoutRecursing)
+TEST_F(HierarchyResolverStageFixture, DepthZeroShowsOnlyTopLevelContent)
 {
     const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 0);
     const HierarchyResolverOutput &output = runner.run(HierarchyResolverInput{.root = &root, .view_layers = &view_layers}, 0, options);
 
-    // TOP + BLOCK's Abstract only - depth 0 never reaches BLOCK's own
-    // Layout, so LEAF is never discovered at all.
-    EXPECT_EQ(output.view_data.size(), 2u);
+    // TOP only - depth 0 means "just the top level," full stop: block0
+    // isn't resolved to anything at all, not even a fallback to its own
+    // Abstract.
+    EXPECT_EQ(output.view_data.size(), 1u);
     ASSERT_TRUE(output.view_data.contains(HierarchyId{top_layout}));
-    ASSERT_TRUE(output.view_data.contains(HierarchyId{block_abstract}));
+    EXPECT_FALSE(output.view_data.contains(HierarchyId{block_abstract}));
+    EXPECT_FALSE(output.view_data.contains(HierarchyId{block_layout}));
     EXPECT_FALSE(output.view_data.contains(HierarchyId{leaf_abstract}));
 
     const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
-    ASSERT_EQ(top_data.placement_data.size(), 1u);
-    EXPECT_EQ(top_data.placement_data[0].id, HierarchyId{block_abstract});
-    EXPECT_EQ(top_data.placement_data[0].location.x, 100);
-    EXPECT_EQ(top_data.placement_data[0].location.y, 100);
+    EXPECT_TRUE(top_data.placement_data.empty());
 
-    const ViewData &block_data = output.view_data.at(HierarchyId{block_abstract});
-    EXPECT_EQ(block_data.shapes.size(), 1u); // just its own boundary
-    EXPECT_TRUE(block_data.placement_data.empty());
+    // Still shows a PLACEMENT_BOUNDARY placeholder for block0 - its own
+    // footprint (sized via resolve_design_target for bbox purposes only -
+    // collect_layout_content's own placement-boundary comment) is real
+    // *data* about this Layout's own direct content, unaffected by
+    // whether anything past it ever gets resolved.
+    const ViewLayerId placement_boundary_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
+    const ViewShape *top_boundary_shape = nullptr;
+    for (const ViewShape &view_shape : top_data.shapes)
+        if (view_shape.view_layer == placement_boundary_layer)
+            top_boundary_shape = &view_shape;
+    ASSERT_NE(top_boundary_shape, nullptr);
+    ASSERT_EQ(top_boundary_shape->shape.texts.size(), 1u);
+    EXPECT_EQ(top_boundary_shape->shape.texts[0].label, "block0");
 }
 
-TEST_F(HierarchyResolverStageFixture, DepthOneRecursesIntoLayoutAndDedupesRepeatedPlacements)
+TEST_F(HierarchyResolverStageFixture, DepthOneResolvesTopLevelPlacementsButNotTheirOwn)
 {
     const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 1);
     const HierarchyResolverOutput &output = runner.run(HierarchyResolverInput{.root = &root, .view_layers = &view_layers}, 0, options);
 
+    // TOP + BLOCK's Layout - block0 resolves (remaining_depth 1 > 0 and
+    // BLOCK has a Layout), but BLOCK's own remaining_depth is now 0, so
+    // its own placements (leaf0/leaf1) don't resolve to anything either.
+    EXPECT_EQ(output.view_data.size(), 2u);
+    ASSERT_TRUE(output.view_data.contains(HierarchyId{block_layout}));
+    EXPECT_FALSE(output.view_data.contains(HierarchyId{block_abstract}));
+    EXPECT_FALSE(output.view_data.contains(HierarchyId{leaf_abstract}));
+
+    const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
+    ASSERT_EQ(top_data.placement_data.size(), 1u);
+    EXPECT_EQ(top_data.placement_data[0].id, HierarchyId{block_layout});
+
+    const ViewData &block_data = output.view_data.at(HierarchyId{block_layout});
+    EXPECT_TRUE(block_data.placement_data.empty());
+}
+
+TEST_F(HierarchyResolverStageFixture, DepthTwoRecursesIntoLayoutAndDedupesRepeatedPlacements)
+{
+    const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 2);
+    const HierarchyResolverOutput &output = runner.run(HierarchyResolverInput{.root = &root, .view_layers = &view_layers}, 0, options);
+
     // TOP + BLOCK's Layout + LEAF's Abstract (visited once, not twice,
-    // despite BLOCK placing it twice).
+    // despite BLOCK placing it twice) - BLOCK's own remaining_depth is
+    // now 1 > 0, so its own placements resolve too. LEAF has no Layout
+    // of its own, so it falls back to its Abstract regardless of
+    // remaining_depth (Abstracts are always leaves, never depth-gated).
     EXPECT_EQ(output.view_data.size(), 3u);
     ASSERT_TRUE(output.view_data.contains(HierarchyId{block_layout}));
     ASSERT_TRUE(output.view_data.contains(HierarchyId{leaf_abstract}));
@@ -126,7 +167,7 @@ TEST_F(HierarchyResolverStageFixture, DepthOneRecursesIntoLayoutAndDedupesRepeat
 
 TEST_F(HierarchyResolverStageFixture, ShapesResolveExpectedViewLayers)
 {
-    const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 1);
+    const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 2); // depth 2 - see DepthTwoRecursesIntoLayoutAndDedupesRepeatedPlacements for why LEAF needs this now
     const HierarchyResolverOutput &output = runner.run(HierarchyResolverInput{.root = &root, .view_layers = &view_layers}, 0, options);
 
     const ViewData &leaf_data = output.view_data.at(HierarchyId{leaf_abstract});
@@ -208,11 +249,11 @@ TEST_F(HierarchyResolverStageFixture, RecomputesWhenHierarchyDepthChangesEvenIfM
 {
     const ColdPipelineOptions depth_zero = options_for(HierarchyId{top_layout}, 0);
     const HierarchyResolverOutput &first = runner.run(HierarchyResolverInput{.root = &root, .view_layers = &view_layers}, 0, depth_zero);
-    EXPECT_EQ(first.view_data.size(), 2u);
+    EXPECT_EQ(first.view_data.size(), 1u);
 
     const ColdPipelineOptions depth_one = options_for(HierarchyId{top_layout}, 1);
     ASSERT_TRUE(runner.would_recompute(0, depth_one));
 
     const HierarchyResolverOutput &second = runner.run(HierarchyResolverInput{.root = &root, .view_layers = &view_layers}, 0, depth_one);
-    EXPECT_EQ(second.view_data.size(), 3u);
+    EXPECT_EQ(second.view_data.size(), 2u);
 }
