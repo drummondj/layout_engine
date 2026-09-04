@@ -158,35 +158,41 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
     const ViewLayerId placement_boundary_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
     ASSERT_TRUE(placement_boundary_layer.valid());
 
-    // TOP has one placement (block0) - its own PLACEMENT_BOUNDARY shape is
-    // block0's resolved world bbox (BLOCK's own declared 1000x1000 size,
-    // translated by its location) plus a Text labeled "block0".
-    const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
-    std::vector<std::string> top_labels;
-    for (const ViewShape &view_shape : top_data.shapes)
-    {
-        if (view_shape.view_layer != placement_boundary_layer)
-            continue;
-        ASSERT_EQ(view_shape.shape.rects.size(), 1u);
-        EXPECT_GT(view_shape.shape.rects[0].ur.x, view_shape.shape.rects[0].ll.x);
-        EXPECT_GT(view_shape.shape.rects[0].ur.y, view_shape.shape.rects[0].ll.y);
-        ASSERT_EQ(view_shape.shape.texts.size(), 1u);
-        top_labels.push_back(view_shape.shape.texts[0].label);
-    }
-    EXPECT_EQ(top_labels, (std::vector<std::string>{"block0"}));
+    // Every placement in a Layout batches into a single PLACEMENT_BOUNDARY
+    // ViewShape (one rect + one Text per placement, all in that one
+    // Shape) rather than one ViewShape per placement - see
+    // append_placement_boundary_shapes' own comment for why (measured
+    // allocation cost at real placement counts).
 
-    // BLOCK's own Layout has two placements (leaf0/leaf1) - one
-    // PLACEMENT_BOUNDARY shape each.
+    // TOP has one placement (block0) - its own PLACEMENT_BOUNDARY shape
+    // holds block0's resolved world bbox (BLOCK's own declared 1000x1000
+    // size, translated by its location) plus a Text labeled "block0".
+    const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
+    const ViewShape *top_boundary_shape = nullptr;
+    for (const ViewShape &view_shape : top_data.shapes)
+        if (view_shape.view_layer == placement_boundary_layer)
+            top_boundary_shape = &view_shape;
+    ASSERT_NE(top_boundary_shape, nullptr);
+    ASSERT_EQ(top_boundary_shape->shape.rects.size(), 1u);
+    EXPECT_GT(top_boundary_shape->shape.rects[0].ur.x, top_boundary_shape->shape.rects[0].ll.x);
+    EXPECT_GT(top_boundary_shape->shape.rects[0].ur.y, top_boundary_shape->shape.rects[0].ll.y);
+    ASSERT_EQ(top_boundary_shape->shape.texts.size(), 1u);
+    EXPECT_EQ(top_boundary_shape->shape.texts[0].label, "block0");
+
+    // BLOCK's own Layout has two placements (leaf0/leaf1) - one shared
+    // PLACEMENT_BOUNDARY shape with 2 rects/labels, not two shapes.
     const ViewData &block_data = output.view_data.at(HierarchyId{block_layout});
-    std::vector<std::string> block_labels;
+    const ViewShape *block_boundary_shape = nullptr;
     for (const ViewShape &view_shape : block_data.shapes)
-    {
-        if (view_shape.view_layer != placement_boundary_layer)
-            continue;
-        ASSERT_EQ(view_shape.shape.texts.size(), 1u);
-        block_labels.push_back(view_shape.shape.texts[0].label);
-    }
-    ASSERT_EQ(block_labels.size(), 2u);
+        if (view_shape.view_layer == placement_boundary_layer)
+            block_boundary_shape = &view_shape;
+    ASSERT_NE(block_boundary_shape, nullptr);
+    ASSERT_EQ(block_boundary_shape->shape.rects.size(), 2u);
+    ASSERT_EQ(block_boundary_shape->shape.texts.size(), 2u);
+
+    std::vector<std::string> block_labels;
+    for (const Text &text : block_boundary_shape->shape.texts)
+        block_labels.push_back(text.label);
     EXPECT_NE(std::find(block_labels.begin(), block_labels.end(), "leaf0"), block_labels.end());
     EXPECT_NE(std::find(block_labels.begin(), block_labels.end(), "leaf1"), block_labels.end());
 }

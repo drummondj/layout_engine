@@ -8,6 +8,7 @@
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -505,10 +506,10 @@ namespace le
             }
         }
 
-        // One PLACEMENT_BOUNDARY-purpose rect per Placement, labeled with
-        // its own name (Text, same convention Terminal labels use in
-        // collect_abstract_content) - the Placement's own resolved
-        // footprint, in this Layout's own local dbu space. Uses
+        // One PLACEMENT_BOUNDARY-purpose rect per Placement in the Layout,
+        // labeled with its own name (Text, same convention Terminal
+        // labels use in collect_abstract_content) - the Placement's own
+        // resolved footprint, in this Layout's own local dbu space. Uses
         // placement_world_bbox (core/placement_geometry.hpp) - the same
         // resolve_design_target-based dispatch compute()'s own placement
         // loop already applies for recursion, so a placement's own drawn
@@ -517,10 +518,46 @@ namespace le
         // size. Skips a placement compute()'s own loop already skips too
         // (no location, no/unresolved reference_design) - same "nothing
         // to draw for an unplaced/dangling placement" convention.
+        //
+        // All rects/labels are batched into a single Shape (like
+        // append_gcell_grid_shapes' own `lines` accumulator, not like
+        // append_row_shapes' own one-Shape-per-Row) rather than one Shape
+        // (and one ViewShape push_back) per placement - measured directly
+        // against the real aes_scaling_3x3 fixture (372,096 placements):
+        // the one-per-placement version spent ~126ms of its ~149ms total
+        // on Shape/Text construction and the two heap allocations each
+        // incurs (rects.push_back, texts.push_back), not on
+        // placement_world_bbox or label geometry (~23ms combined) - a
+        // real, measured cost, not a hypothetical one. Batching turns
+        // O(placements) allocations for rects/texts into O(1) (one
+        // reserve() each up front); ViewShape has no SelectionRef/ShapeId
+        // of its own (unlike the pre-restart RenderedShape - see this
+        // class's own top comment) so there's no independent per-
+        // placement selection identity this would need to preserve,
+        // unlike Row/Region's own one-per-item convention elsewhere in
+        // this file.
+        //
+        // Label position/size is computed directly from `bbox` (a rect's
+        // own center, and min(width, height) - exactly what
+        // Geometry::get_label_location/local_width_at themselves compute
+        // for a single-rect shape, confirmed against their own
+        // implementation) rather than calling those generic functions on
+        // a throwaway single-rect Shape: besides the avoidable allocation
+        // that throwaway Shape's own rects vector would cost, calling
+        // them on the real accumulating `shape` instead would rescan
+        // every rect gathered *so far* on every single placement,
+        // turning this loop quadratic in placement count.
         static void append_placement_boundary_shapes(const Root &root, LayoutId layout_id, const ViewLayerSet &view_layers, int remaining_depth, std::vector<ViewShape> &shapes)
         {
-            const ViewLayerId placement_boundary_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
-            for (PlacementId placement_id : root.get_layout_placements(layout_id))
+            const auto &placements = root.get_layout_placements(layout_id);
+            if (placements.empty())
+                return;
+
+            Shape shape;
+            shape.rects.reserve(placements.size());
+            shape.texts.reserve(placements.size());
+
+            for (PlacementId placement_id : placements)
             {
                 const std::optional<Rect> bbox = placement_world_bbox(root, placement_id, remaining_depth);
                 if (!bbox)
@@ -530,16 +567,18 @@ namespace le
                 if (!placement)
                     continue;
 
-                Shape shape;
+                const Point label_location{(bbox->ll.x + bbox->ur.x) / 2, (bbox->ll.y + bbox->ur.y) / 2};
+                const double label_size = static_cast<double>(std::min(bbox->ur.x - bbox->ll.x, bbox->ur.y - bbox->ll.y));
+
                 shape.rects.push_back(*bbox);
-                const Point label_location = Geometry::get_label_location(shape);
-                shape.texts.push_back(Text{
-                    .label = placement->name,
-                    .location = label_location,
-                    .size = Geometry::local_width_at(shape, label_location),
-                });
-                shapes.push_back(ViewShape{.shape = std::move(shape), .view_layer = placement_boundary_view_layer});
+                shape.texts.push_back(Text{.label = placement->name, .location = label_location, .size = label_size});
             }
+
+            if (shape.rects.empty())
+                return;
+
+            const ViewLayerId placement_boundary_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
+            shapes.push_back(ViewShape{.shape = std::move(shape), .view_layer = placement_boundary_view_layer});
         }
 
         static ViewData collect_layout_content(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, int remaining_depth)
