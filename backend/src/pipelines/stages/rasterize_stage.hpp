@@ -56,18 +56,28 @@ namespace le
         return builder.detach();
     }
 
-    /// @brief Draws `shapes` onto `canvas`, resolving each ViewShape's own
-    /// view_layer against `view_layers` for style. Assumes `canvas`'s own
-    /// current matrix already maps raw dbu coordinates directly to this
-    /// canvas's own pixel space (RasterizeStage::compute()'s own
-    /// translate+scale+flip setup) - every rect/polygon/path below is
-    /// drawn using its own raw dbu-space coordinates unchanged, with no
-    /// further per-shape math, EXCEPT text: `scale` is needed there
-    /// specifically to counter the active canvas matrix's own scale
-    /// factor (and y-flip) so a label's own declared `size` renders at a
-    /// real, upright pixel size instead of being further distorted by
-    /// whatever the active dbu-to-pixel scale happens to be - see the
-    /// text loop's own comment.
+    /// @brief Draws `shapes_by_layer` onto `canvas`, one ViewLayer group at
+    /// a time, walking `view_layers.all()` (that ViewLayerSet's own
+    /// bottom-to-top insertion/z-order - HierarchyResolverStage's own
+    /// ViewLayerShapes comment) so draw order matches real layer stacking
+    /// regardless of the order shapes happened to be collected in, and so
+    /// a future layer-visibility feature can skip a hidden layer's whole
+    /// group with one lookup rather than checking every shape - neither
+    /// of which a flat, per-shape iteration could do as directly. Fill/
+    /// stroke paint is constructed once per layer group, not once per
+    /// shape (hoisted out of the per-shape loop below), since one
+    /// ViewLayerStyle applies to every shape a group holds.
+    ///
+    /// Assumes `canvas`'s own current matrix already maps raw dbu
+    /// coordinates directly to this canvas's own pixel space
+    /// (RasterizeStage::compute()'s own translate+scale+flip setup) -
+    /// every rect/polygon/path below is drawn using its own raw dbu-space
+    /// coordinates unchanged, with no further per-shape math, EXCEPT
+    /// text: `scale` is needed there specifically to counter the active
+    /// canvas matrix's own scale factor (and y-flip) so a label's own
+    /// declared `size` renders at a real, upright pixel size instead of
+    /// being further distorted by whatever the active dbu-to-pixel scale
+    /// happens to be - see the text loop's own comment.
     ///
     /// Deliberately simpler than the pre-restart draw_group (git history):
     /// no FillPattern shader tiling (flat fill_color only), no CUT-style
@@ -81,11 +91,15 @@ namespace le
     /// because it was prioritized over the others. `antialiasing_enabled`
     /// is ViewRenderOptions::antialiasing_enabled - see that field's own
     /// comment for why it defaults false.
-    inline void draw_view_shapes(SkCanvas &canvas, const std::vector<ViewShape> &shapes, const ViewLayerSet &view_layers, double scale, bool antialiasing_enabled)
+    inline void draw_view_shapes(SkCanvas &canvas, const ViewLayerShapes &shapes_by_layer, const ViewLayerSet &view_layers, double scale, bool antialiasing_enabled)
     {
-        for (const ViewShape &view_shape : shapes)
+        for (const ViewLayerId &view_layer_id : view_layers.all())
         {
-            const ViewLayerData *layer = view_layers.get(view_shape.view_layer);
+            const auto group_it = shapes_by_layer.find(view_layer_id);
+            if (group_it == shapes_by_layer.end() || group_it->second.empty())
+                continue; // no shapes on this layer - a future visibility check would also short-circuit right here
+
+            const ViewLayerData *layer = view_layers.get(view_layer_id);
             if (!layer)
                 continue;
 
@@ -116,62 +130,64 @@ namespace le
                 stroke.setPathEffect(SkDashPathEffect::Make({dash_length, dash_length}, 0.0f));
             }
 
-            const Shape &shape = view_shape.shape;
+            SkPaint text_paint;
+            text_paint.setAntiAlias(antialiasing_enabled);
+            text_paint.setColor(to_sk_color(style.outline_color));
 
-            for (const Rect &r : shape.rects)
+            for (const Shape &shape : group_it->second)
             {
-                const SkRect rect = SkRect::MakeLTRB(
-                    static_cast<SkScalar>(r.ll.x), static_cast<SkScalar>(r.ll.y),
-                    static_cast<SkScalar>(r.ur.x), static_cast<SkScalar>(r.ur.y));
-                if (has_fill)
-                    canvas.drawRect(rect, fill);
-                if (has_outline)
-                    canvas.drawRect(rect, stroke);
-            }
+                for (const Rect &r : shape.rects)
+                {
+                    const SkRect rect = SkRect::MakeLTRB(
+                        static_cast<SkScalar>(r.ll.x), static_cast<SkScalar>(r.ll.y),
+                        static_cast<SkScalar>(r.ur.x), static_cast<SkScalar>(r.ur.y));
+                    if (has_fill)
+                        canvas.drawRect(rect, fill);
+                    if (has_outline)
+                        canvas.drawRect(rect, stroke);
+                }
 
-            for (const Polygon &poly : shape.polygons)
-            {
-                const SkPath path = to_sk_path(poly, /*close=*/true);
-                if (has_fill)
-                    canvas.drawPath(path, fill);
-                if (has_outline)
-                    canvas.drawPath(path, stroke);
-            }
+                for (const Polygon &poly : shape.polygons)
+                {
+                    const SkPath path = to_sk_path(poly, /*close=*/true);
+                    if (has_fill)
+                        canvas.drawPath(path, fill);
+                    if (has_outline)
+                        canvas.drawPath(path, stroke);
+                }
 
-            for (const Path &p : shape.paths)
-            {
-                SkPaint path_stroke = has_outline ? stroke : fill;
-                path_stroke.setStyle(SkPaint::kStroke_Style);
-                path_stroke.setStrokeWidth(static_cast<SkScalar>(p.width)); // 0 == hairline
-                canvas.drawPath(to_sk_path(p.polygon, /*close=*/false), path_stroke);
-            }
+                for (const Path &p : shape.paths)
+                {
+                    SkPaint path_stroke = has_outline ? stroke : fill;
+                    path_stroke.setStyle(SkPaint::kStroke_Style);
+                    path_stroke.setStrokeWidth(static_cast<SkScalar>(p.width)); // 0 == hairline
+                    canvas.drawPath(to_sk_path(p.polygon, /*close=*/false), path_stroke);
+                }
 
-            for (const Text &text : shape.texts)
-            {
-                const SkScalar pixel_size = static_cast<SkScalar>(text.size * scale);
-                if (pixel_size <= 0)
-                    continue;
+                for (const Text &text : shape.texts)
+                {
+                    const SkScalar pixel_size = static_cast<SkScalar>(text.size * scale);
+                    if (pixel_size <= 0)
+                        continue;
 
-                SkFont font(default_typeface(), pixel_size);
-                font.setEdging(antialiasing_enabled ? SkFont::Edging::kAntiAlias : SkFont::Edging::kAlias);
+                    SkFont font(default_typeface(), pixel_size);
+                    font.setEdging(antialiasing_enabled ? SkFont::Edging::kAntiAlias : SkFont::Edging::kAlias);
 
-                SkPaint text_paint;
-                text_paint.setAntiAlias(antialiasing_enabled);
-                text_paint.setColor(to_sk_color(style.outline_color));
-
-                // Counters the active canvas matrix's own scale+flip (see
-                // this function's own doc comment) so the label renders
-                // upright at its real declared pixel size, the same
-                // save/translate/scale(1,-1)-counter-flip/drawString/
-                // restore idiom the pre-restart draw_placement_labels
-                // used, generalized to also cancel a non-1:1 scale
-                // (that code operated in already-pixel-space content, so
-                // its own counter-scale was always exactly {1,-1}).
-                canvas.save();
-                canvas.translate(static_cast<SkScalar>(text.location.x), static_cast<SkScalar>(text.location.y));
-                canvas.scale(static_cast<SkScalar>(1.0 / scale), static_cast<SkScalar>(-1.0 / scale));
-                canvas.drawString(text.label.c_str(), 0, 0, font, text_paint);
-                canvas.restore();
+                    // Counters the active canvas matrix's own scale+flip
+                    // (see this function's own doc comment) so the label
+                    // renders upright at its real declared pixel size,
+                    // the same save/translate/scale(1,-1)-counter-flip/
+                    // drawString/restore idiom the pre-restart
+                    // draw_placement_labels used, generalized to also
+                    // cancel a non-1:1 scale (that code operated in
+                    // already-pixel-space content, so its own counter-
+                    // scale was always exactly {1,-1}).
+                    canvas.save();
+                    canvas.translate(static_cast<SkScalar>(text.location.x), static_cast<SkScalar>(text.location.y));
+                    canvas.scale(static_cast<SkScalar>(1.0 / scale), static_cast<SkScalar>(-1.0 / scale));
+                    canvas.drawString(text.label.c_str(), 0, 0, font, text_paint);
+                    canvas.restore();
+                }
             }
         }
     }
@@ -263,7 +279,7 @@ namespace le
 
             static const ViewLayerSet kEmptyViewLayers;
             const ViewLayerSet &view_layers = options.view_layers != nullptr ? *options.view_layers : kEmptyViewLayers;
-            static const std::vector<ViewShape> kEmptyShapes;
+            static const ViewLayerShapes kEmptyShapes;
 
             constexpr int kMaxDimensionPx = 8192;
 

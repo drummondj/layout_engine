@@ -110,13 +110,11 @@ TEST_F(HierarchyResolverStageFixture, DepthZeroShowsOnlyTopLevelContent)
     // *data* about this Layout's own direct content, unaffected by
     // whether anything past it ever gets resolved.
     const ViewLayerId placement_boundary_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
-    const ViewShape *top_boundary_shape = nullptr;
-    for (const ViewShape &view_shape : *top_data.shapes)
-        if (view_shape.view_layer == placement_boundary_layer)
-            top_boundary_shape = &view_shape;
-    ASSERT_NE(top_boundary_shape, nullptr);
-    ASSERT_EQ(top_boundary_shape->shape.texts.size(), 1u);
-    EXPECT_EQ(top_boundary_shape->shape.texts[0].label, "block0");
+    const auto boundary_group_it = top_data.shapes->find(placement_boundary_layer);
+    ASSERT_NE(boundary_group_it, top_data.shapes->end());
+    ASSERT_EQ(boundary_group_it->second.size(), 1u);
+    ASSERT_EQ(boundary_group_it->second[0].texts.size(), 1u);
+    EXPECT_EQ(boundary_group_it->second[0].texts[0].label, "block0");
 }
 
 TEST_F(HierarchyResolverStageFixture, DepthOneResolvesTopLevelPlacementsButNotTheirOwn)
@@ -164,16 +162,15 @@ TEST_F(HierarchyResolverStageFixture, PlacementDataBboxMatchesPlacementBoundaryS
     // (the whole point of folding this computation into one pass - see
     // the main compute() loop's own comment).
     const ViewLayerId placement_boundary_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
-    const ViewShape *top_boundary_shape = nullptr;
-    for (const ViewShape &view_shape : *top_data.shapes)
-        if (view_shape.view_layer == placement_boundary_layer)
-            top_boundary_shape = &view_shape;
-    ASSERT_NE(top_boundary_shape, nullptr);
-    ASSERT_EQ(top_boundary_shape->shape.rects.size(), 1u);
-    EXPECT_EQ(top_boundary_shape->shape.rects[0].ll.x, bbox.ll.x);
-    EXPECT_EQ(top_boundary_shape->shape.rects[0].ll.y, bbox.ll.y);
-    EXPECT_EQ(top_boundary_shape->shape.rects[0].ur.x, bbox.ur.x);
-    EXPECT_EQ(top_boundary_shape->shape.rects[0].ur.y, bbox.ur.y);
+    const auto boundary_group_it = top_data.shapes->find(placement_boundary_layer);
+    ASSERT_NE(boundary_group_it, top_data.shapes->end());
+    ASSERT_EQ(boundary_group_it->second.size(), 1u);
+    const Shape &top_boundary_shape = boundary_group_it->second[0];
+    ASSERT_EQ(top_boundary_shape.rects.size(), 1u);
+    EXPECT_EQ(top_boundary_shape.rects[0].ll.x, bbox.ll.x);
+    EXPECT_EQ(top_boundary_shape.rects[0].ll.y, bbox.ll.y);
+    EXPECT_EQ(top_boundary_shape.rects[0].ur.x, bbox.ur.x);
+    EXPECT_EQ(top_boundary_shape.rects[0].ur.y, bbox.ur.y);
 }
 
 TEST_F(HierarchyResolverStageFixture, DepthTwoRecursesIntoLayoutAndDedupesRepeatedPlacements)
@@ -200,7 +197,7 @@ TEST_F(HierarchyResolverStageFixture, DepthTwoRecursesIntoLayoutAndDedupesRepeat
     EXPECT_EQ(block_data.placement_data[1].id, HierarchyId{leaf_abstract});
 
     const ViewData &leaf_data = output.view_data.at(HierarchyId{leaf_abstract});
-    EXPECT_EQ(leaf_data.shapes->size(), 3u); // terminal shape + obstruction shape + boundary
+    EXPECT_EQ(leaf_data.shapes->size(), 3u); // 3 distinct ViewLayer groups: terminal, obstruction, boundary - one shape each
     EXPECT_TRUE(leaf_data.placement_data.empty());
 }
 
@@ -213,54 +210,13 @@ TEST_F(HierarchyResolverStageFixture, ShapesResolveExpectedViewLayers)
     const ViewLayerId expected_terminal_layer = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
     const ViewLayerId expected_obstruction_layer = view_layers.find(m1, ViewLayerPurpose::OBSTRUCTION);
 
-    bool found_terminal = false;
-    bool found_obstruction = false;
-    bool found_boundary = false;
-    for (const ViewShape &view_shape : *leaf_data.shapes)
-    {
-        if (view_shape.view_layer == expected_terminal_layer && !view_shape.shape.rects.empty())
-            found_terminal = true;
-        if (view_shape.view_layer == expected_obstruction_layer)
-            found_obstruction = true;
-        if (view_shape.view_layer == view_layers.boundary_view_layer())
-            found_boundary = true;
-    }
-    EXPECT_TRUE(found_terminal);
-    EXPECT_TRUE(found_obstruction);
-    EXPECT_TRUE(found_boundary);
-}
+    const auto terminal_it = leaf_data.shapes->find(expected_terminal_layer);
+    ASSERT_NE(terminal_it, leaf_data.shapes->end());
+    EXPECT_FALSE(terminal_it->second.empty());
+    EXPECT_FALSE(terminal_it->second.front().rects.empty());
 
-TEST_F(HierarchyResolverStageFixture, ShapesAreOrderedByViewLayerDrawOrderNotCollectionOrder)
-{
-    // A node's own shapes must draw bottom-to-top in ViewLayerSet's own
-    // insertion order (its own ViewLayerId.index), not whatever order
-    // this stage happened to collect them in - LEAF's own boundary shape
-    // is collected LAST (collect_abstract_content's own terminal/
-    // obstruction/boundary order) but BOUNDARY's own ViewLayerId is
-    // created well BEFORE any physical layer's TERMINAL/OBSTRUCTION
-    // (ViewLayerSet::build_for_technology's own "ROW then BOUNDARY...
-    // before any physical Layer" ordering) - so a naive "keep collection
-    // order" implementation would draw the boundary ON TOP of the
-    // terminal/obstruction it should sit BELOW.
-    const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 2);
-    const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options);
-
-    const ViewData &leaf_data = output.view_data.at(HierarchyId{leaf_abstract});
-    ASSERT_EQ(leaf_data.shapes->size(), 3u);
-
-    // Non-decreasing view_layer.index order, general invariant.
-    for (std::size_t i = 1; i < leaf_data.shapes->size(); ++i)
-        EXPECT_LE((*leaf_data.shapes)[i - 1].view_layer.index, (*leaf_data.shapes)[i].view_layer.index);
-
-    // Specifically: boundary (index 1, added before any physical layer)
-    // sorts before terminal/obstruction (M1's own per-layer block, added
-    // after) - the concrete case a collection-order bug would get wrong.
-    const ViewLayerId boundary_layer = view_layers.boundary_view_layer();
-    const ViewLayerId terminal_layer = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
-    const ViewLayerId obstruction_layer = view_layers.find(m1, ViewLayerPurpose::OBSTRUCTION);
-    EXPECT_EQ((*leaf_data.shapes)[0].view_layer, boundary_layer);
-    EXPECT_EQ((*leaf_data.shapes)[1].view_layer, terminal_layer);
-    EXPECT_EQ((*leaf_data.shapes)[2].view_layer, obstruction_layer);
+    EXPECT_TRUE(leaf_data.shapes->contains(expected_obstruction_layer));
+    EXPECT_TRUE(leaf_data.shapes->contains(view_layers.boundary_view_layer()));
 }
 
 TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
@@ -272,8 +228,8 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
     ASSERT_TRUE(placement_boundary_layer.valid());
 
     // Every placement in a Layout batches into a single PLACEMENT_BOUNDARY
-    // ViewShape (one rect + one Text per placement, all in that one
-    // Shape) rather than one ViewShape per placement - see
+    // Shape (one rect + one Text per placement, all in that one Shape)
+    // rather than one Shape per placement - see
     // append_placement_boundary_shapes' own comment for why (measured
     // allocation cost at real placement counts).
 
@@ -281,30 +237,28 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
     // holds block0's resolved world bbox (BLOCK's own declared 1000x1000
     // size, translated by its location) plus a Text labeled "block0".
     const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
-    const ViewShape *top_boundary_shape = nullptr;
-    for (const ViewShape &view_shape : *top_data.shapes)
-        if (view_shape.view_layer == placement_boundary_layer)
-            top_boundary_shape = &view_shape;
-    ASSERT_NE(top_boundary_shape, nullptr);
-    ASSERT_EQ(top_boundary_shape->shape.rects.size(), 1u);
-    EXPECT_GT(top_boundary_shape->shape.rects[0].ur.x, top_boundary_shape->shape.rects[0].ll.x);
-    EXPECT_GT(top_boundary_shape->shape.rects[0].ur.y, top_boundary_shape->shape.rects[0].ll.y);
-    ASSERT_EQ(top_boundary_shape->shape.texts.size(), 1u);
-    EXPECT_EQ(top_boundary_shape->shape.texts[0].label, "block0");
+    const auto top_boundary_it = top_data.shapes->find(placement_boundary_layer);
+    ASSERT_NE(top_boundary_it, top_data.shapes->end());
+    ASSERT_EQ(top_boundary_it->second.size(), 1u);
+    const Shape &top_boundary_shape = top_boundary_it->second[0];
+    ASSERT_EQ(top_boundary_shape.rects.size(), 1u);
+    EXPECT_GT(top_boundary_shape.rects[0].ur.x, top_boundary_shape.rects[0].ll.x);
+    EXPECT_GT(top_boundary_shape.rects[0].ur.y, top_boundary_shape.rects[0].ll.y);
+    ASSERT_EQ(top_boundary_shape.texts.size(), 1u);
+    EXPECT_EQ(top_boundary_shape.texts[0].label, "block0");
 
     // BLOCK's own Layout has two placements (leaf0/leaf1) - one shared
     // PLACEMENT_BOUNDARY shape with 2 rects/labels, not two shapes.
     const ViewData &block_data = output.view_data.at(HierarchyId{block_layout});
-    const ViewShape *block_boundary_shape = nullptr;
-    for (const ViewShape &view_shape : *block_data.shapes)
-        if (view_shape.view_layer == placement_boundary_layer)
-            block_boundary_shape = &view_shape;
-    ASSERT_NE(block_boundary_shape, nullptr);
-    ASSERT_EQ(block_boundary_shape->shape.rects.size(), 2u);
-    ASSERT_EQ(block_boundary_shape->shape.texts.size(), 2u);
+    const auto block_boundary_it = block_data.shapes->find(placement_boundary_layer);
+    ASSERT_NE(block_boundary_it, block_data.shapes->end());
+    ASSERT_EQ(block_boundary_it->second.size(), 1u);
+    const Shape &block_boundary_shape = block_boundary_it->second[0];
+    ASSERT_EQ(block_boundary_shape.rects.size(), 2u);
+    ASSERT_EQ(block_boundary_shape.texts.size(), 2u);
 
     std::vector<std::string> block_labels;
-    for (const Text &text : block_boundary_shape->shape.texts)
+    for (const Text &text : block_boundary_shape.texts)
         block_labels.push_back(text.label);
     EXPECT_NE(std::find(block_labels.begin(), block_labels.end(), "leaf0"), block_labels.end());
     EXPECT_NE(std::find(block_labels.begin(), block_labels.end(), "leaf1"), block_labels.end());

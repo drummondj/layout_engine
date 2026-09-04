@@ -110,3 +110,12 @@ HierarchyResolverStage now sorts each node's own `shapes` by ViewLayerId draw or
 
 Warm-tier numbers (BM_Rasterize/BM_Compose/BM_WarmTier) are unaffected within normal run-to-run variance, as expected - they consume Cold's already-sorted output, so the sort's own cost never appears on a Warm-tier tick.
 
+Commit: (pending)
+
+Superseded the sort above with a structural fix instead: HierarchyResolverStage now groups each node's own shapes into a `std::unordered_map<ViewLayerId, std::vector<Shape>>` (ViewLayerShapes) at collection time, rather than a flat vector sorted afterward - draw order comes from RasterizeStage walking `ViewLayerSet::all()` (that set's own bottom-to-top z-order) and looking up each layer's own group directly. This removes the sort's own O(n log n) cost entirely (grouping happens for free during insertion), and lets RasterizeStage construct one SkPaint per *layer* instead of per *shape* (hoisted out of the per-shape loop) - also the natural place a future per-layer visibility toggle would plug in, skipping a hidden layer's whole group with one map lookup:
+
+| Pipeline | Stage             | 1x1    | 2x1    | 2x2    | 3x2    | 3x3    | 5x5    | Comments                                                                     |
+| -------- | ----------------- | ------ | ------ | ------ | ------ | ------ | ------ | --------------------------------------------------------------------------- |
+| Cold     | HierarchyResolver | 55.3 ms | 99.5 ms | 199 ms | 310 ms | 781 ms | 2.14 s | Sort cost fully gone - back to pre-sort numbers (~50-91ms/2.1s), correctness kept |
+| Warm     | Rasterize         | 92.5 ms | 137 ms | 271 ms | 358 ms | 518 ms | 1.40 s | Essentially unchanged from per-shape paint construction - confirms paint construction was never the dominant cost here, something else in the per-shape draw calls is |
+

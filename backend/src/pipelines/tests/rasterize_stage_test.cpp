@@ -5,6 +5,8 @@
 #include "include/core/SkColor.h"
 #include "include/core/SkPixmap.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 
 using namespace le;
@@ -60,6 +62,27 @@ namespace
             if (!image->peekPixels(&pixmap))
                 return 0;
             return pixmap.getColor(x, y);
+        }
+
+        // Standard unpremultiplied Porter-Duff "src over dst" - what two
+        // translucent fills drawn one after another actually produce, so
+        // a z-order test can predict the exact resulting color instead of
+        // assuming the top layer's own color shows through unblended.
+        static SkColor blend_src_over_dst(Color src, Color dst)
+        {
+            const double sa = src.a / 255.0;
+            const double da = dst.a / 255.0;
+            const double out_a = sa + da * (1.0 - sa);
+            if (out_a <= 0.0)
+                return SkColorSetARGB(0, 0, 0, 0);
+            const auto blend_channel = [&](uint8_t s, uint8_t d)
+            {
+                const double result = (s * sa + d * da * (1.0 - sa)) / out_a;
+                return static_cast<uint8_t>(std::clamp(result, 0.0, 255.0));
+            };
+            return SkColorSetARGB(
+                static_cast<uint8_t>(std::clamp(out_a * 255.0, 0.0, 255.0)),
+                blend_channel(src.r, dst.r), blend_channel(src.g, dst.g), blend_channel(src.b, dst.b));
         }
 
         Root root;
@@ -143,6 +166,61 @@ TEST_F(RasterizeStageFixture, TopLevelUsesViewportNotItsOwnDeclaredBbox)
     EXPECT_EQ(image->height(), 50);
     EXPECT_EQ(output.images.at(HierarchyId{leaf_abstract}).local_origin.x, 0);
     EXPECT_EQ(output.images.at(HierarchyId{leaf_abstract}).local_origin.y, 0);
+}
+
+TEST_F(RasterizeStageFixture, DrawsLaterViewLayerOnTopOfAnEarlierOverlappingOne)
+{
+    // A real regression test for the ViewLayer draw-order fix
+    // (HierarchyResolverStage's own ViewLayerShapes/draw_view_shapes'
+    // own doc comments): two fully-overlapping shapes on two DIFFERENT
+    // layers - M2 (a second ROUTING layer, created AFTER M1, so its own
+    // ViewLayerId.index - and therefore z-order - is higher than every
+    // one of M1's own purposes) should draw on TOP of M1's, not the
+    // other way around, regardless of which one this stage happens to
+    // iterate first internally.
+    const LayerId m2 = root.create_layer(LayerData{.technology = technology_id, .name = "M2", .type = "ROUTING"});
+    const ViewLayerSet two_layer_view_layers = ViewLayerSet::build_for_technology(root, technology_id);
+    const ViewLayerSetHandle two_layer_view_layers_handle = std::make_shared<const ViewLayerSet>(two_layer_view_layers);
+
+    const ObstructionId obstruction = root.create_obstruction(ObstructionData{.abstract = leaf_abstract});
+    root.create_shape(ShapeData{.obstruction = obstruction, .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
+    const TerminalId terminal = root.create_terminal(TerminalData{.abstract = leaf_abstract, .name = "B", .direction = SignalDirection::INPUT});
+    const TerminalPortId port = root.create_terminal_port(TerminalPortData{.terminal = terminal});
+    root.create_shape(ShapeData{.terminal_port = port, .layer = m2, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
+
+    const ViewLayerId m1_obstruction_layer = two_layer_view_layers.find(m1, ViewLayerPurpose::OBSTRUCTION);
+    const ViewLayerId m2_terminal_layer = two_layer_view_layers.find(m2, ViewLayerPurpose::TERMINAL);
+    ASSERT_LT(m1_obstruction_layer.index, m2_terminal_layer.index); // the property this test actually exercises
+
+    const Color m1_color = two_layer_view_layers.get(m1_obstruction_layer)->style.fill_color;
+    const Color m2_color = two_layer_view_layers.get(m2_terminal_layer)->style.fill_color;
+    ASSERT_NE(m1_color.r, m2_color.r); // the palette must actually distinguish them, or this test can't tell who won
+
+    HierarchyResolverRunner fresh_hierarchy_runner{"HierarchyResolverTwoLayer"};
+    ViewRenderOptions options = options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);
+    options.view_layers = two_layer_view_layers_handle;
+    fresh_hierarchy_runner.run(two_layer_view_layers_handle, 0, options);
+
+    RasterizeRunner fresh_rasterize_runner{"RasterizeTwoLayer"};
+    const RasterizeOutput &output = fresh_rasterize_runner.run(fresh_hierarchy_runner.last_handle(), 0, options);
+
+    const sk_sp<SkImage> &image = output.images.at(HierarchyId{leaf_abstract}).image;
+    const SkColor sampled = sample(image, 50, 50); // dead center of the fully-overlapping 100x100px rects
+
+    // Both fills are translucent (layer_style()'s own alpha=100, not
+    // 255), so "drawn on top" means Porter-Duff SrcOver blending, not
+    // full replacement - the raw sampled color is neither pure m1_color
+    // nor pure m2_color. Compute both possible blends (src-over-dst) by
+    // hand and assert the sample matches "m2 over m1" specifically, not
+    // "m1 over m2" - the two differ whenever the colors differ, so this
+    // still proves order, not just that both layers drew something.
+    const SkColor expected_m2_over_m1 = blend_src_over_dst(m2_color, m1_color);
+    const SkColor expected_m1_over_m2 = blend_src_over_dst(m1_color, m2_color);
+    ASSERT_NE(expected_m2_over_m1, expected_m1_over_m2); // sanity - the two orders must actually be distinguishable
+
+    EXPECT_NEAR(SkColorGetR(sampled), SkColorGetR(expected_m2_over_m1), 8);
+    EXPECT_NEAR(SkColorGetG(sampled), SkColorGetG(expected_m2_over_m1), 8);
+    EXPECT_NEAR(SkColorGetB(sampled), SkColorGetB(expected_m2_over_m1), 8);
 }
 
 TEST_F(RasterizeStageFixture, NullInputProducesEmptyOutput)
