@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -87,19 +88,16 @@ namespace le
         std::unordered_map<HierarchyId, ViewData, HierarchyIdHash> view_data;
     };
 
-    /// @brief HierarchyResolverStage's own InputData - a Root plus the
-    /// ViewLayers LayerGenerationStage already resolved (its Output,
-    /// PIPELINE_REFACTOR.md's own "LayerGenerationOutput"). Not yet wired
-    /// to LayerGenerationStage via a real make_edge - that needs joining
-    /// two different upstream OutputData types into one node's own
-    /// InputData, deferred until the two stages are actually assembled
-    /// into one flow::graph pipeline (see SynchronousStageRunner's own
-    /// standalone-testing use in the meantime, same as LayerGenerationStage).
-    struct HierarchyResolverInput
-    {
-        const Root *root = nullptr;
-        const ViewLayerSet *view_layers = nullptr;
-    };
+    /// @brief HierarchyResolverStage's own InputData - LayerGenerationStage's
+    /// own OutputHandle (tbb_core.hpp's MemoizingStage::OutputHandle), so
+    /// ViewRenderPipeline (view_render_pipeline.hpp) can wire the two
+    /// stages together with a real make_edge and no adapter node in
+    /// between - both sides
+    /// of that edge are exactly this type. The Root pointer this stage
+    /// also needs travels via ColdPipelineOptions::root instead of being
+    /// part of this InputData - it isn't part of LayerGenerationStage's
+    /// own output, so it couldn't flow through that same edge.
+    using ViewLayerSetHandle = std::shared_ptr<const ViewLayerSet>;
 
     /// @brief Cold-tier stage 2 (PIPELINE_REFACTOR.md): traverses
     /// Placement -> Design hierarchy from ColdPipelineOptions::top_level,
@@ -158,23 +156,28 @@ namespace le
     /// only cares about the first) - a top_level/hierarchy_depth change
     /// re-walks the same Root from a different starting point or budget,
     /// producing a different HierarchyResolverOutput even though nothing
-    /// in the database itself changed.
-    class HierarchyResolverStage : public MemoizingStage<HierarchyResolverInput, HierarchyResolverOutput, ColdPipelineOptions>
+    /// in the database itself changed. When wired to LayerGenerationStage
+    /// via a real make_edge (ViewRenderPipeline), a ViewLayerSet rebuild also
+    /// forces a recompute here even if none of the three fields above
+    /// changed - LayerGenerationStage's own bumped version() becomes this
+    /// stage's own incoming data_version, and execute()'s should_recompute
+    /// check ORs that against options_did_change() below.
+    class HierarchyResolverStage : public MemoizingStage<ViewLayerSetHandle, HierarchyResolverOutput, ColdPipelineOptions>
     {
     public:
         explicit HierarchyResolverStage(oneapi::tbb::flow::graph &g, std::string label = "HierarchyResolver")
             : MemoizingStage(g, std::move(label)) {}
 
     protected:
-        HierarchyResolverOutput compute(const HierarchyResolverInput &input, const ColdPipelineOptions &options) override
+        HierarchyResolverOutput compute(const ViewLayerSetHandle &view_layers_handle, const ColdPipelineOptions &options) override
         {
             HierarchyResolverOutput result;
-            if (input.root == nullptr)
+            if (options.root == nullptr)
                 return result;
 
-            const Root &root = *input.root;
+            const Root &root = *options.root;
             static const ViewLayerSet kEmptyViewLayers;
-            const ViewLayerSet &view_layers = input.view_layers != nullptr ? *input.view_layers : kEmptyViewLayers;
+            const ViewLayerSet &view_layers = view_layers_handle != nullptr ? *view_layers_handle : kEmptyViewLayers;
 
             struct WorkItem
             {

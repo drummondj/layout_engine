@@ -7,6 +7,7 @@
 
 #include <benchmark/benchmark.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -15,7 +16,7 @@ using namespace le::benchmarks;
 
 namespace
 {
-    using HierarchyResolverRunner = SynchronousStageRunner<HierarchyResolverStage, HierarchyResolverInput, HierarchyResolverOutput, ColdPipelineOptions>;
+    using HierarchyResolverRunner = SynchronousStageRunner<HierarchyResolverStage, ViewLayerSetHandle, HierarchyResolverOutput, ColdPipelineOptions>;
 
     // Unlike LayerGenerationStage, this stage's own cost DOES scale with
     // design size - it walks every placement in the Layout plus every
@@ -28,7 +29,8 @@ namespace
     {
         const AesScalingFixture &fixture = cached_aes_scaling_fixture(config);
         const std::vector<TechnologyId> technology_ids = fixture.root.get_technology_ids();
-        const ViewLayerSet view_layers = technology_ids.empty() ? ViewLayerSet{} : ViewLayerSet::build_for_technology(fixture.root, technology_ids.front());
+        const ViewLayerSetHandle view_layers_handle = std::make_shared<const ViewLayerSet>(
+            technology_ids.empty() ? ViewLayerSet{} : ViewLayerSet::build_for_technology(fixture.root, technology_ids.front()));
 
         // hierarchy_depth 1, not 0 - depth 0 now means "only the top
         // Layout's own direct content, nothing resolved past it at all"
@@ -40,16 +42,16 @@ namespace
         // Abstract - depth only matters further once a fixture actually
         // nests Layout-in-Layout, which none of the aes_scaling DEFs do.
         const ColdPipelineOptions options{
+            .root = &fixture.root,
             .root_mutation_version = fixture.root.mutation_version(),
             .top_level = HierarchyId{fixture.layout_id},
             .hierarchy_depth = 1,
         };
-        const HierarchyResolverInput input{.root = &fixture.root, .view_layers = &view_layers};
 
         for (auto _ : state)
         {
             HierarchyResolverRunner runner{"bm_hierarchy_resolver"};
-            const HierarchyResolverOutput &output = runner.run(input, 0, options);
+            const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options);
             benchmark::DoNotOptimize(output.view_data.size());
         }
 

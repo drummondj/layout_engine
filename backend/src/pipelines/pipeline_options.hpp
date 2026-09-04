@@ -18,6 +18,19 @@ namespace le
     /// options_did_change() override.
     struct ColdPipelineOptions
     {
+        /// @brief Non-owning pointer to the Root every Cold-tier stage
+        /// reads from - shared context, not part of any one stage's own
+        /// InputData (ViewRenderPipeline, view_render_pipeline.hpp, wires
+        /// LayerGenerationStage's own OutputHandle directly into
+        /// HierarchyResolverStage's InputData via a real make_edge; the
+        /// Root pointer has to travel some other way, since it isn't part
+        /// of that upstream output). Mirrors the pre-restart PipelineOptions'
+        /// own PipelineContext pattern (backend/CLAUDE.md) for the same
+        /// reason. Never null-checked by a stage before use - each
+        /// degrades to an empty/default output instead (same convention
+        /// as a null LeHandle in api.cpp).
+        const Root *root = nullptr;
+
         /// @brief Root::mutation_version() at the time this options
         /// snapshot was taken. Every Cold-tier stage's own
         /// options_did_change() compares this field (directly, or via a
@@ -31,8 +44,13 @@ namespace le
         std::variant<AbstractId, LayoutId> top_level;
 
         /// @brief How many further Placement -> Design levels a Layout
-        /// view recurses into before falling back to a placed instance's
-        /// own Abstract - see Scene::hierarchy_depth()'s own doc comment.
+        /// view recurses into - HierarchyResolverStage's own doc comment
+        /// has the exact semantics (0 shows only top_level's own direct
+        /// content; each further unit lets one more Placement -> Layout
+        /// hop actually resolve and get visited, falling back to a
+        /// placement's own Abstract once a Layout hop is no longer
+        /// possible - not a blanket "always show at least the Abstract"
+        /// rule at any depth).
         int hierarchy_depth = 0;
     };
 }
