@@ -125,7 +125,7 @@ Full Cold->Warm chain (BM_WarmTier, LayerGeneration->HierarchyResolver->Viewport
 | --------- | ------------- | ------- | -------- | ------------------------------------------------------------ |
 | Cold+Warm | Full pipeline | 1.25 s  | 3.69 GB  | **Wrong - see next entry.** BM_WarmTier's own timed loop read `pan_viewports[pan_index]` before incrementing it, so its first timed iteration replayed the untimed warm-up call's own exact (data_version, options) pair - a guaranteed, free MemoizingStage cache hit doing zero real work, inflating the reported mean by ~1/state.iterations() (~10% at this point's own 10 iterations) |
 
-Commit: (pending)
+Commit: 92471a2
 
 Fixed BM_WarmTier's own pan_index bug above (increment before use, matching BM_Rasterize/BM_Compose's own already-correct pattern) and reran:
 
