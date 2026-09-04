@@ -9,14 +9,10 @@
 #include "../io/def_reader.hpp"
 #include "../io/lef_writer.hpp"
 #include "../io/def_writer.hpp"
-#include "../pipelines/abstract_shape_pipeline.hpp"
-#include "../pipelines/frame_render_pipeline.hpp"
-#include "../pipelines/hierarchy_resolver.hpp"
-#include "../pipelines/hit_test.hpp"
-#include "../pipelines/layout_shape_pipeline.hpp"
-#include "../pipelines/synchronous_stage_runner.hpp"
 #include "../scene/scene.hpp"
 #include "../view_style/view_style.hpp"
+#include "../pipelines/view_render_pipeline.hpp"
+#include "../pipelines/pipeline_options.hpp"
 // Generated apply_<snake>_snapshot(Root&, <Klass>Id, const <Klass>Data&)
 // helpers (UPDATES.md item 21) - a real standalone header, unlike every
 // other generated_tcl/*.inc fragment, so it's included here with the
@@ -64,22 +60,8 @@ struct LeHandle
     le::Root root;
     le::ViewLayerSet view_layers;
     le::Scene scene;
-    le::AbstractShapePipeline abstract_shape_pipeline;
-    le::LayoutShapePipeline layout_shape_pipeline;
-    le::FrameRenderPipeline frame_render_pipeline;
 
-    // Resolves Placement -> Design into cached SkPictures and renders the
-    // full displayable frame for a Layout view (Migration Step 3 Phase C)
-    // - le_render_pixel_buffer calls its own render_layout_frame instead
-    // of abstract_shape_pipeline/frame_render_pipeline above when
-    // scene.current_layout() is active. Fully self-contained: it owns its
-    // own private MouseOverlayStage/RulerOverlayStage/SelectionOverlayStage
-    // trio AND its own private RasterizeComposePipeline, entirely separate
-    // from frame_render_pipeline's own equivalents (see HierarchyResolver's
-    // own class comment for why - a pipeline is a self-contained graph of
-    // stages, so this never reaches into frame_render_pipeline's internal
-    // nodes).
-    le::HierarchyResolver hierarchy_resolver;
+    le::ViewRenderPipeline view_render_pipeline;
 
     // Undo/redo stack + command-recall log (UPDATES.md item 21) - every
     // generated le_create_X/le_update_X/le_delete_X function records
@@ -234,26 +216,41 @@ namespace
     // compiler/optimization level.
     constexpr const char *kRenderFrameName = "le_render_pixel_buffer";
 
-    // Builds a PipelineOptions snapshot of `handle`'s own current root/
-    // view_layers/scene state - every pipelines-module call site below
-    // needs one of these (backend/ONETBB_INTEGRATION.md migration, Phase
-    // 5 cutover). Read-only (just copies counters/pointers out of
-    // `handle`), safe to call regardless of lock state, though every real
-    // call site already holds handle->mutex_ by the time it does.
-    le::PipelineOptions pipeline_options_for(const LeHandle *handle)
+    // Builds a ViewRenderOptions snapshot of `handle`'s own current
+    // root/scene state, for le_render_pixel_buffer's own
+    // view_render_pipeline.run_warm() call - view_layers is deliberately
+    // left unset here: RasterizeStage needs it, but the *correct* value
+    // only exists once LayerGenerationStage has actually run inside that
+    // same call, so run_warm() itself fills it in (see that method's own
+    // doc comment, view_render_pipeline.hpp) rather than a caller trying
+    // to precompute it. Scene's own pan/scale/viewport-size convention
+    // (pixel = (dbu - pan) * scale, Scene::pixel_to_dbu's own comment)
+    // maps directly onto ViewRenderOptions::viewport/scale: pan is
+    // exactly the dbu point at the viewport's own bottom-left pixel
+    // corner - viewport.ll - and the top-right corner is pan plus the
+    // pixel size converted to dbu via the same scale.
+    le::ViewRenderOptions view_render_options_for(const LeHandle *handle)
     {
-        le::PipelineOptions options;
-        options.ctx.root = &handle->root;
-        options.ctx.view_layers = &handle->view_layers;
-        options.ctx.scene = &handle->scene;
-        options.epoch.root_mutation_version = handle->root.mutation_version();
-        options.epoch.view_layers_generation = handle->view_layers.generation();
-        options.viewport.viewport_version = handle->scene.viewport_version();
-        options.viewport.visibility_version = handle->scene.visibility_version();
-        options.viewport.scale = handle->scene.scale();
-        options.interaction.mouse_version = handle->scene.mouse_version();
-        options.interaction.selection_version = handle->scene.selection_version();
-        options.interaction.ruler_version = handle->scene.ruler_version();
+        le::ViewRenderOptions options;
+        options.root = &handle->root;
+        options.root_mutation_version = handle->root.mutation_version();
+        options.hierarchy_depth = handle->scene.hierarchy_depth();
+        options.scale = handle->scene.scale();
+        options.antialiasing_enabled = handle->scene.antialiasing_enabled();
+
+        if (handle->scene.current_layout().valid())
+            options.top_level = handle->scene.current_layout();
+        else
+            options.top_level = handle->scene.current_abstract();
+
+        const le::Point pan = handle->scene.pan();
+        const double width_dbu = handle->scene.viewport_width_px() / handle->scene.scale();
+        const double height_dbu = handle->scene.viewport_height_px() / handle->scene.scale();
+        options.viewport = le::Rect{
+            .ll = pan,
+            .ur = le::Point{.x = pan.x + static_cast<int64_t>(width_dbu), .y = pan.y + static_cast<int64_t>(height_dbu)},
+        };
+
         return options;
     }
 
@@ -588,14 +585,15 @@ namespace
             return;
         }
 
-        const auto &generated = handle->abstract_shape_pipeline.run_generate_shapes(handle->scene.current_abstract(), pipeline_options_for(handle));
-
-        std::vector<const le::Shape *> shape_ptrs;
-        shape_ptrs.reserve(generated.size());
-        for (const auto &rs : generated)
-            shape_ptrs.push_back(&rs.shape);
-
-        handle->scene.fit_to_content(le::Geometry::bbox(shape_ptrs), padding_px);
+        // Same "declared size, not a union of every generated shape"
+        // convention as the Layout branch above, now that this stage's
+        // own shape generation lives in the new pipelines module (Warm
+        // tier) instead of AbstractShapePipeline - abstract_declared_bbox
+        // (core/placement_geometry.hpp) is the exact bbox a *parent*
+        // already uses to size its own placement of this Abstract, so
+        // it's the right "whole content" bound here too, and O(1)
+        // regardless of how many Terminal/Obstruction shapes it has.
+        handle->scene.fit_to_content(le::abstract_declared_bbox(handle->root, handle->scene.current_abstract()), padding_px);
     }
 
     // Widens `bbox` to also enclose `r` - a plain min/max union, same
@@ -838,69 +836,17 @@ namespace
     // Root::get_shape() data is then selected directly (select-all means
     // "select everything", not a geometric containment test - no second
     // fully_enclosed_pieces call needed, unlike drag-select).
-    void select_all_unlocked(LeHandle *handle)
+    // Deferred pending the new pipelines module's own Hot tier
+    // (PIPELINE_REFACTOR.md - selection/hit-testing isn't built there
+    // yet): this used to walk AbstractShapePipeline's own generated
+    // shapes through a standalone LayerVisibilityFilterStage +
+    // hit_test_rect, both from the deleted pre-restart pipelines module.
+    // A real reimplementation needs the new module's own equivalent of
+    // that filtered-shape list first - not yet in scope (see
+    // le_render_pixel_buffer's own comment for what *is* wired up so
+    // far). No-op for now rather than a stale/incorrect selection.
+    void select_all_unlocked(LeHandle * /*handle*/)
     {
-        const auto &generated = handle->abstract_shape_pipeline.run_generate_shapes(handle->scene.current_abstract(), pipeline_options_for(handle));
-
-        // Deliberately a fresh, standalone LayerVisibilityFilterStage
-        // call directly off `generated` (bypassing viewport filtering) -
-        // AbstractShapePipeline's own wired chain has no path from
-        // AbstractGeometryStage straight to LayerVisibilityFilterStage
-        // without going through ViewportFilterStage first (see this
-        // function's own comment above for why viewport filtering must
-        // be skipped here). Same "fresh, call-local filter instance"
-        // pattern HierarchyResolver already uses for its own per-call
-        // culling passes.
-        le::SynchronousStageRunner<le::LayerVisibilityFilterStage, std::vector<le::RenderedShape>, std::map<le::ViewLayerId, std::vector<le::RenderedShape>>> layer_visibility_runner{"select_all_layer_visibility_filter"};
-        const auto &filtered = layer_visibility_runner.run(generated, handle->abstract_shape_pipeline.shapes_version(), pipeline_options_for(handle));
-
-        std::vector<const le::Shape *> shape_ptrs;
-        shape_ptrs.reserve(generated.size());
-        for (const auto &rs : generated)
-            shape_ptrs.push_back(&rs.shape);
-        const auto bbox = le::Geometry::bbox(shape_ptrs);
-        if (!bbox)
-            return;
-
-        handle->scene.clear_selection();
-
-        std::set<le::ShapeId> candidate_ids;
-        for (const le::HoverTarget &hit : le::hit_test_rect(filtered, handle->view_layers, handle->scene, *bbox))
-            if (hit.shape_id)
-                candidate_ids.insert(*hit.shape_id);
-
-        bool capped = false;
-        for (const le::ShapeId shape_id : candidate_ids)
-        {
-            if (capped)
-                break;
-
-            const le::ShapeData *data = handle->root.get_shape(shape_id);
-            if (!data)
-                continue;
-
-            auto select_piece = [&](le::PieceKind kind, size_t index)
-            {
-                if (capped)
-                    return;
-                if (static_cast<int32_t>(handle->scene.selection().size()) >= kMaxSelectAllCount)
-                {
-                    capped = true;
-                    return;
-                }
-                handle->scene.select(shape_id, kind, index);
-            };
-
-            for (size_t i = 0; i < data->rects.size(); ++i)
-                select_piece(le::PieceKind::RECT, i);
-            for (size_t i = 0; i < data->polygons.size(); ++i)
-                select_piece(le::PieceKind::POLYGON, i);
-            for (size_t i = 0; i < data->paths.size(); ++i)
-                select_piece(le::PieceKind::PATH, i);
-        }
-
-        if (capped)
-            handle->messages.push_back(fmt::format("WARNING: Selection capped at {} objects - design has more.", kMaxSelectAllCount));
     }
 
     // Every ROUTING-type layer in `technology_id`'s own declaration
@@ -1344,8 +1290,8 @@ extern "C"
     }
 
     int le_write_lef(LeHandle *handle, const char *path,
-                      const LeAbstractId *abstract_ids_c, int32_t abstract_id_count,
-                      LeLibraryId library_id_c, int32_t layer_write_mode)
+                     const LeAbstractId *abstract_ids_c, int32_t abstract_id_count,
+                     LeLibraryId library_id_c, int32_t layer_write_mode)
     {
         if (!handle)
             return 1;
@@ -2115,38 +2061,14 @@ extern "C"
 
         handle->scene.set_mouse_position(x, y);
 
-        // The hover outline is a Select-mode-only affordance (see
-        // Scene::set_mode's own comment) - skip the hit-test entirely
-        // outside Select mode rather than computing and immediately
-        // discarding it.
-        if (handle->scene.mode() == le::Scene::Mode::SELECT)
-        {
-            // E1 (BUGS_AND_ENHANCEMENTS.md) - this used to unconditionally
-            // hit-test the Abstract path even in Layout view, hovering
-            // stale/irrelevant content; same branch as le_mouse_up below.
-            // No Placement fallback here (unlike le_mouse_up's own click/
-            // drag handling) - HoverTarget's own SelectionRef variant
-            // deliberately excludes PlacementId (see its own comment: a
-            // Placement never enters the RenderedShape map at all), so
-            // hovering a Placement specifically isn't representable by
-            // this mechanism - a real, separate follow-up, not a gap this
-            // fix silently introduces (Placement was never hoverable
-            // before this fix either).
-            if (handle->scene.current_layout().valid())
-            {
-                const auto &shapes = handle->layout_shape_pipeline.run(handle->scene.current_layout(), pipeline_options_for(handle));
-                handle->scene.set_hover(le::hit_test_point(shapes, handle->view_layers, handle->scene, *handle->scene.mouse_dbu_position()));
-            }
-            else
-            {
-                const auto &shapes = handle->abstract_shape_pipeline.run(handle->scene.current_abstract(), pipeline_options_for(handle));
-                handle->scene.set_hover(le::hit_test_point(shapes, handle->view_layers, handle->scene, *handle->scene.mouse_dbu_position()));
-            }
-        }
-        else
-        {
-            handle->scene.clear_hover();
-        }
+        // Hover hit-testing is deferred pending the new pipelines
+        // module's own Hot tier (PIPELINE_REFACTOR.md) - this used
+        // layout_shape_pipeline/abstract_shape_pipeline +
+        // le::hit_test_point, both from the deleted pre-restart
+        // pipelines module. No hover outline for now rather than a
+        // stale/incorrect one (see le_render_pixel_buffer's own comment
+        // for what *is* wired up so far).
+        handle->scene.clear_hover();
     }
 
     void le_clear_mouse_position(LeHandle *handle)
@@ -2387,73 +2309,13 @@ extern "C"
     // are). Called with handle->mutex_ already held, `x`/`y` the same
     // release-point le_mouse_up itself received, `is_click` its own
     // click-vs-drag threshold result.
-    void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
+    // Deferred pending the new pipelines module's own Hot tier
+    // (PIPELINE_REFACTOR.md) - this used abstract_shape_pipeline.run() +
+    // le::hit_test_point/hit_test_rect, both from the deleted pre-restart
+    // pipelines module. No-op for now (see le_render_pixel_buffer's own
+    // comment for what *is* wired up so far).
+    void select_in_abstract_view_unlocked(LeHandle * /*handle*/, int32_t /*x*/, int32_t /*y*/, bool /*is_click*/)
     {
-        const auto &shapes = handle->abstract_shape_pipeline.run(handle->scene.current_abstract(), pipeline_options_for(handle));
-
-        if (is_click)
-        {
-            // Computed straight from this call's own x/y, not
-            // Scene::drag_rect_dbu()/mouse_dbu_position() - those read the
-            // separately-tracked *stored* mouse position (see
-            // le_set_mouse_position), which this call has no guaranteed
-            // ordering against.
-            const le::Point dbu_point = handle->scene.pixel_to_dbu(x, y);
-            const auto hit = le::hit_test_point(shapes, handle->view_layers, handle->scene, dbu_point);
-            if (hit && hit->shape_id)
-            {
-                // UPDATES.md item 21 - hit_test_point's own piece is
-                // Pipeline's *rendered* geometry, not always
-                // addressable in Root (e.g. an ITERATE-expanded piece
-                // has no raw index - see HoverTarget's own comment) -
-                // re-hit-test the same point against the shape's real,
-                // raw geometry to find the piece selection/Move
-                // actually operate on. Selects the whole shape id with
-                // the default piece (0) in the vanishingly unlikely
-                // case the raw geometry doesn't hit at the exact same
-                // point the rendered geometry did (e.g. a boundary
-                // rounding difference, or a pure ITERATE-expanded hit
-                // with no raw counterpart at all) rather than silently
-                // selecting nothing.
-                if (const le::ShapeData *data = handle->root.get_shape(*hit->shape_id))
-                {
-                    if (const auto raw_piece = le::Geometry::find_hit_piece(*data, dbu_point))
-                        handle->scene.select(*hit->shape_id, raw_piece->kind, raw_piece->index);
-                    else
-                        handle->scene.select(*hit->shape_id);
-                }
-            }
-        }
-        else
-        {
-            const le::Point start = handle->scene.pixel_to_dbu(handle->scene.drag_start_x_px(), handle->scene.drag_start_y_px());
-            const le::Point end = handle->scene.pixel_to_dbu(x, y);
-            const le::Rect drag_rect{
-                .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
-                .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
-            };
-
-            // UPDATES.md item 21 - same "re-test against raw geometry"
-            // reasoning as the click branch above: hit_test_rect's own
-            // pieces are only used to find which ShapeIds are
-            // candidates at all; each candidate's actual enclosed
-            // pieces are then found by re-running fully_enclosed_pieces
-            // against its real Root::get_shape() data.
-            std::set<le::ShapeId> candidate_ids;
-            for (const le::HoverTarget &hit : le::hit_test_rect(shapes, handle->view_layers, handle->scene, drag_rect))
-                if (hit.shape_id)
-                    candidate_ids.insert(*hit.shape_id);
-
-            for (const le::ShapeId shape_id : candidate_ids)
-            {
-                const le::ShapeData *data = handle->root.get_shape(shape_id);
-                if (!data)
-                    continue;
-
-                for (const auto &piece : le::Geometry::fully_enclosed_pieces(drag_rect, *data))
-                    handle->scene.select(shape_id, piece.kind, piece.index);
-            }
-        }
     }
 
     // le_mouse_up's Select-mode, Layout-view branch (E1,
@@ -2488,36 +2350,23 @@ extern "C"
     // hit_test_rect's own results independently rather than picking one
     // topmost target, so the same set of ids ends up selected regardless
     // of which is checked first.
+    // own_shape (Row/Region/Blockage/Route/PhysicalPort) hit-testing
+    // below is deferred pending the new pipelines module's own Hot tier
+    // (PIPELINE_REFACTOR.md) - it used layout_shape_pipeline.run() +
+    // le::hit_test_point/hit_test_rect, both from the deleted pre-restart
+    // pipelines module (see le_render_pixel_buffer's own comment for
+    // what *is* wired up so far). Placement selection below is
+    // unaffected - hit_test_placements_point/_rect
+    // (core/placement_geometry.hpp) query Root directly and never
+    // depended on either.
     void select_in_layout_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
     {
         const le::LayoutId layout_id = handle->scene.current_layout();
         const int remaining_depth = std::max(0, handle->scene.hierarchy_depth() - 1);
-        const auto &shapes = handle->layout_shape_pipeline.run(layout_id, pipeline_options_for(handle));
 
         if (is_click)
         {
             const le::Point dbu_point = handle->scene.pixel_to_dbu(x, y);
-
-            const auto hit = le::hit_test_point(shapes, handle->view_layers, handle->scene, dbu_point);
-            if (hit)
-            {
-                if (hit->shape_id)
-                {
-                    if (const le::ShapeData *data = handle->root.get_shape(*hit->shape_id))
-                    {
-                        if (const auto raw_piece = le::Geometry::find_hit_piece(*data, dbu_point))
-                            handle->scene.select(*hit->shape_id, raw_piece->kind, raw_piece->index);
-                        else
-                            handle->scene.select(*hit->shape_id);
-                    }
-                }
-                else if (const auto *row_id = std::get_if<le::RowId>(&hit->origin))
-                    handle->scene.select(*row_id);
-                else if (const auto *region_id = std::get_if<le::RegionId>(&hit->origin))
-                    handle->scene.select(*region_id);
-                return;
-            }
-
             if (const auto placement_id = le::hit_test_placements_point(handle->root, layout_id, remaining_depth, dbu_point))
                 handle->scene.select(*placement_id);
         }
@@ -2532,27 +2381,6 @@ extern "C"
 
             for (le::PlacementId placement_id : le::hit_test_placements_rect(handle->root, layout_id, remaining_depth, drag_rect))
                 handle->scene.select(placement_id);
-
-            std::set<le::ShapeId> candidate_ids;
-            for (const le::HoverTarget &hit : le::hit_test_rect(shapes, handle->view_layers, handle->scene, drag_rect))
-            {
-                if (hit.shape_id)
-                    candidate_ids.insert(*hit.shape_id);
-                else if (const auto *row_id = std::get_if<le::RowId>(&hit.origin))
-                    handle->scene.select(*row_id);
-                else if (const auto *region_id = std::get_if<le::RegionId>(&hit.origin))
-                    handle->scene.select(*region_id);
-            }
-
-            for (const le::ShapeId shape_id : candidate_ids)
-            {
-                const le::ShapeData *data = handle->root.get_shape(shape_id);
-                if (!data)
-                    continue;
-
-                for (const auto &piece : le::Geometry::fully_enclosed_pieces(drag_rect, *data))
-                    handle->scene.select(shape_id, piece.kind, piece.index);
-            }
         }
     }
 
@@ -3338,31 +3166,30 @@ extern "C"
 
         FrameMarkStart(kRenderFrameName);
 
-        // Migration Step 3 Phase C: a Layout view (scene.current_layout()
-        // valid - set by le_set_current_design_layout(_by_id), which
-        // clears scene.current_abstract() at the same time, so the two
-        // are always mutually exclusive) renders through HierarchyResolver
-        // instead of AbstractShapePipeline/FrameRenderPipeline - see
-        // LeHandle::hierarchy_resolver's own comment.
-        const le::PixelBuffer *buffer = nullptr;
-        if (handle->scene.current_layout().valid())
-        {
-            buffer = &handle->hierarchy_resolver.render_layout_frame(handle->root, handle->scene.current_layout(), handle->scene.hierarchy_depth(), handle->view_layers, handle->scene);
-        }
-        else
-        {
-            const le::PipelineOptions options = pipeline_options_for(handle);
-            const auto &shapes = handle->abstract_shape_pipeline.run(handle->scene.current_abstract(), options);
-            const auto &tiny_shapes = handle->abstract_shape_pipeline.run_tiny_shapes(handle->scene.current_abstract(), options);
-            buffer = &handle->frame_render_pipeline.run(handle->scene.current_abstract(), shapes, tiny_shapes, options);
-        }
+        // PIPELINE_REFACTOR.md's restarted pipelines module - Warm tier
+        // only (basic pan/zoom, view_render_options_for's own comment on
+        // how Scene's pan/scale/viewport-size map onto ViewRenderOptions):
+        // no selection/hover/ruler overlay yet, Hot tier still TBD - see
+        // select_in_abstract_view_unlocked/select_in_layout_view_unlocked/
+        // le_set_mouse_position's own comments for what that gap means.
+        // The returned WarmOutput::frame keeps its own RasterizedFrame
+        // alive via ComposeStage's own MemoizingStage cache (last_result_)
+        // for exactly as long as LePixelBuffer's own "valid until the
+        // next call" contract (api.hpp) already promises - no separate
+        // LeHandle-owned storage needed here.
+        const le::ViewRenderOptions options = view_render_options_for(handle);
+        const le::ViewRenderPipeline::WarmOutput output = handle->view_render_pipeline.run_warm(&handle->root, options);
 
         FrameMarkEnd(kRenderFrameName);
+
+        if (!output.frame || output.frame->empty)
+            return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
+
         return LePixelBuffer{
-            .data = buffer->data,
-            .width = buffer->width,
-            .height = buffer->height,
-            .row_bytes = static_cast<int64_t>(buffer->row_bytes),
+            .data = output.frame->buffer.data,
+            .width = output.frame->buffer.width,
+            .height = output.frame->buffer.height,
+            .row_bytes = static_cast<int64_t>(output.frame->buffer.row_bytes),
         };
     }
 
