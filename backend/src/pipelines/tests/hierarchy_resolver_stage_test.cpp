@@ -2,6 +2,10 @@
 #include "synchronous_stage_runner.hpp"
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
 using namespace le;
 
 namespace
@@ -144,6 +148,47 @@ TEST_F(HierarchyResolverStageFixture, ShapesResolveExpectedViewLayers)
     EXPECT_TRUE(found_terminal);
     EXPECT_TRUE(found_obstruction);
     EXPECT_TRUE(found_boundary);
+}
+
+TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
+{
+    const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 1);
+    const HierarchyResolverOutput &output = runner.run(HierarchyResolverInput{.root = &root, .view_layers = &view_layers}, 0, options);
+
+    const ViewLayerId placement_boundary_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
+    ASSERT_TRUE(placement_boundary_layer.valid());
+
+    // TOP has one placement (block0) - its own PLACEMENT_BOUNDARY shape is
+    // block0's resolved world bbox (BLOCK's own declared 1000x1000 size,
+    // translated by its location) plus a Text labeled "block0".
+    const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
+    std::vector<std::string> top_labels;
+    for (const ViewShape &view_shape : top_data.shapes)
+    {
+        if (view_shape.view_layer != placement_boundary_layer)
+            continue;
+        ASSERT_EQ(view_shape.shape.rects.size(), 1u);
+        EXPECT_GT(view_shape.shape.rects[0].ur.x, view_shape.shape.rects[0].ll.x);
+        EXPECT_GT(view_shape.shape.rects[0].ur.y, view_shape.shape.rects[0].ll.y);
+        ASSERT_EQ(view_shape.shape.texts.size(), 1u);
+        top_labels.push_back(view_shape.shape.texts[0].label);
+    }
+    EXPECT_EQ(top_labels, (std::vector<std::string>{"block0"}));
+
+    // BLOCK's own Layout has two placements (leaf0/leaf1) - one
+    // PLACEMENT_BOUNDARY shape each.
+    const ViewData &block_data = output.view_data.at(HierarchyId{block_layout});
+    std::vector<std::string> block_labels;
+    for (const ViewShape &view_shape : block_data.shapes)
+    {
+        if (view_shape.view_layer != placement_boundary_layer)
+            continue;
+        ASSERT_EQ(view_shape.shape.texts.size(), 1u);
+        block_labels.push_back(view_shape.shape.texts[0].label);
+    }
+    ASSERT_EQ(block_labels.size(), 2u);
+    EXPECT_NE(std::find(block_labels.begin(), block_labels.end(), "leaf0"), block_labels.end());
+    EXPECT_NE(std::find(block_labels.begin(), block_labels.end(), "leaf1"), block_labels.end());
 }
 
 TEST_F(HierarchyResolverStageFixture, NullRootProducesEmptyOutput)

@@ -112,9 +112,12 @@ namespace le
     ///
     /// Gathers every reached Abstract's/Layout's own *direct* shapes
     /// (Terminal/Obstruction/boundary for an Abstract; diearea/Blockage/
-    /// Route/PhysicalPort/synthesized Row/Track/GCellGrid/Region for a
-    /// Layout), each resolved to its ViewLayerId - a simplified port of
-    /// the pre-restart AbstractGeometryStage/LayoutGeometryStage compute()
+    /// Route/PhysicalPort/synthesized Row/Track/GCellGrid/Region/
+    /// PlacementBoundary for a Layout - the last one a synthesized,
+    /// name-labeled outline of each of the Layout's own Placements' own
+    /// resolved footprint, not real LEF/DEF geometry), each resolved to
+    /// its ViewLayerId - a simplified port of the pre-restart
+    /// AbstractGeometryStage/LayoutGeometryStage compute()
     /// bodies (src/pipelines.old/stages/): RECT/PATH/POLYGON ITERATE
     /// expansion and Terminal name-label placement are carried over (both
     /// are real *data*, not a rendering-only concern), but SelectionRef/
@@ -182,7 +185,7 @@ namespace le
 
                 if (const LayoutId *layout_id = std::get_if<LayoutId>(&item.id))
                 {
-                    ViewData data = collect_layout_content(root, view_layers, *layout_id);
+                    ViewData data = collect_layout_content(root, view_layers, *layout_id, item.remaining_depth);
 
                     for (PlacementId placement_id : root.get_layout_placements(*layout_id))
                     {
@@ -502,7 +505,44 @@ namespace le
             }
         }
 
-        static ViewData collect_layout_content(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id)
+        // One PLACEMENT_BOUNDARY-purpose rect per Placement, labeled with
+        // its own name (Text, same convention Terminal labels use in
+        // collect_abstract_content) - the Placement's own resolved
+        // footprint, in this Layout's own local dbu space. Uses
+        // placement_world_bbox (core/placement_geometry.hpp) - the same
+        // resolve_design_target-based dispatch compute()'s own placement
+        // loop already applies for recursion, so a placement's own drawn
+        // boundary always matches what it actually resolves to (Layout vs.
+        // Abstract) at this remaining_depth, not just its raw declared
+        // size. Skips a placement compute()'s own loop already skips too
+        // (no location, no/unresolved reference_design) - same "nothing
+        // to draw for an unplaced/dangling placement" convention.
+        static void append_placement_boundary_shapes(const Root &root, LayoutId layout_id, const ViewLayerSet &view_layers, int remaining_depth, std::vector<ViewShape> &shapes)
+        {
+            const ViewLayerId placement_boundary_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
+            for (PlacementId placement_id : root.get_layout_placements(layout_id))
+            {
+                const std::optional<Rect> bbox = placement_world_bbox(root, placement_id, remaining_depth);
+                if (!bbox)
+                    continue;
+
+                const PlacementData *placement = root.get_placement(placement_id);
+                if (!placement)
+                    continue;
+
+                Shape shape;
+                shape.rects.push_back(*bbox);
+                const Point label_location = Geometry::get_label_location(shape);
+                shape.texts.push_back(Text{
+                    .label = placement->name,
+                    .location = label_location,
+                    .size = Geometry::local_width_at(shape, label_location),
+                });
+                shapes.push_back(ViewShape{.shape = std::move(shape), .view_layer = placement_boundary_view_layer});
+            }
+        }
+
+        static ViewData collect_layout_content(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, int remaining_depth)
         {
             ViewData data;
 
@@ -534,6 +574,7 @@ namespace le
             append_track_shapes(root, layout_id, view_layers, data.shapes);
             append_gcell_grid_shapes(root, layout_id, view_layers, data.shapes);
             append_region_shapes(root, layout_id, view_layers, data.shapes);
+            append_placement_boundary_shapes(root, layout_id, view_layers, remaining_depth, data.shapes);
 
             return data;
         }

@@ -58,6 +58,16 @@ namespace le
                              // used to borrow its color from) so a label's own color/
                              // visibility can be tuned independently of the boundary outline
                              // itself.
+        PLACEMENT_BOUNDARY, // A Placement's own resolved footprint outline (HierarchyResolverStage's
+                             // own collect_layout_content, PIPELINE_REFACTOR.md) - own pseudo-row,
+                             // no Layer, same "no physical Layer" treatment as PLACEMENT_NAME, which
+                             // this is drawn alongside (the outline this purpose draws, the name
+                             // PLACEMENT_NAME draws) - kept as its own purpose rather than folded
+                             // into BOUNDARY so a placement's own footprint can be toggled
+                             // independently of a Design's own boundary/diearea outline. Appended
+                             // last, not inserted alongside PLACEMENT_NAME above - this enum's raw
+                             // ordinal crosses the C API (le_purpose_at, see this enum's own top
+                             // comment), so an existing member's ordinal must never shift.
     };
 
     struct Color
@@ -189,6 +199,20 @@ namespace le
             set.rows_.push_back(ViewLayerRow{
                 .name = "PLACEMENT_NAME",
                 .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PLACEMENT_NAME, .id = set.placement_name_id_}},
+            });
+
+            // Own row right after PLACEMENT_NAME - the outline this
+            // purpose draws and the name PLACEMENT_NAME draws are two
+            // independently toggleable treatments of the same placement,
+            // so they sit next to each other here the same way TERMINAL/
+            // OBSTRUCTION sit together per physical Layer below. No
+            // dedicated accessor (unlike boundary_view_layer()/
+            // placement_name_view_layer()) - resolved via find(LayerId{},
+            // ...) at the call site, same as ROW/GCELLGRID/REGION.
+            const ViewLayerId placement_boundary_id = set.add("PLACEMENT_BOUNDARY", "PLACEMENT_BOUNDARY", ViewLayerPurpose::PLACEMENT_BOUNDARY, LayerId{}, placement_boundary_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "PLACEMENT_BOUNDARY",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PLACEMENT_BOUNDARY, .id = placement_boundary_id}},
             });
 
             for (LayerId layer_id : root.get_technology_layers(technology_id))
@@ -547,6 +571,18 @@ namespace le
         static ViewLayerStyle placement_name_style()
         {
             return ViewLayerStyle{.outline_color = {220, 220, 220, 255}, .fill_color = {0, 0, 0, 0}};
+        }
+
+        // A distinct, cooler hue from placement_name_style()'s own warm
+        // gray - the two are drawn together (see build_for_technology's
+        // own comment) but toggled independently, so they need to read as
+        // visually separate, not shades of the same color. No fill (an
+        // outline of the placement's own already-drawn instance content,
+        // not a region to tint) - dashed, same "boundary of something,
+        // not real geometry" treatment GCELLGRID's own outline uses.
+        static ViewLayerStyle placement_boundary_style()
+        {
+            return ViewLayerStyle{.outline_color = {80, 180, 220, 255}, .fill_color = {0, 0, 0, 0}, .dashed = true};
         }
 
         // Faint translucent blue outline, no fill - DEF GCELLGRID is a
