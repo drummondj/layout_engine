@@ -23,3 +23,9 @@ Commit: bcf6293
 | -------- | ----------------- | ------ | ------ | ------ | ------ | ------- | -------------------------------------------- |
 | Cold     | HierarchyResolver | 121 ms | 262 ms | 609 ms | 996 ms | 1571 ms | Batched PLACEMENT_BOUNDARY shapes, ~9-22% faster |
 
+Commit: 997e943
+
+| Pipeline | Stage             | 1x1    | 2x1    | 2x2    | 3x2    | 3x3     | Comments                                       |
+| -------- | ----------------- | ------ | ------ | ------ | ------ | ------- | ----------------------------------------------- |
+| Cold     | HierarchyResolver | 124 ms | 246 ms | 588 ms | 982 ms | 1463 ms | reserve()/batching everywhere else; 3x2/3x3 cv ~20-30%, within noise |
+
