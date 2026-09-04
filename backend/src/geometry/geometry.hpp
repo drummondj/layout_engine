@@ -471,6 +471,28 @@ namespace le
             };
         }
 
+        /// @brief The inverse of `t` - composing the result with `t`
+        /// (in either order) yields identity_transform(). Every
+        /// LinearTransform2D this codebase ever produces
+        /// (orientation_linear's 8 cases) is orthogonal with {-1,0,1}
+        /// entries, so its inverse is exactly its transpose - no
+        /// determinant/division needed, and no precision loss. Needed to
+        /// bring a world-space rect (e.g. a viewport) into one node's own
+        /// local space by applying the *inverse* of that node's own
+        /// accumulated transform, the cheap direction when there are many
+        /// local bboxes to test against one world-space rect and only one
+        /// rect to transform, rather than transforming every local bbox
+        /// out to world space instead (ViewportCullStage's own use).
+        static InstanceTransform invert(const InstanceTransform &t)
+        {
+            const LinearTransform2D transposed{.a = t.linear.a, .b = t.linear.c, .c = t.linear.b, .d = t.linear.d};
+            const Point negated_translation{.x = -t.translation.x, .y = -t.translation.y};
+            return InstanceTransform{
+                .linear = transposed,
+                .translation = apply_linear(transposed, negated_translation),
+            };
+        }
+
         static Polygon rect_to_polygon(const Rect &rect)
         {
             std::vector<Point> points;

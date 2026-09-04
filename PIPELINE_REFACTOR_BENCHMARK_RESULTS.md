@@ -64,3 +64,11 @@ Warm stage 1 (ViewportCullStage) - viewport is the central half of the design's 
 | -------- | ------------ | ------- | ------- | ------- | ------ | ------ | ------ | ------------------------------------------------------------------------------------ |
 | Warm     | ViewportCull | 21.4 ms | 44.6 ms | 87.6 ms | 135 ms | 210 ms | 1.75 s | Linear in placement count (no spatial index yet); 5x5 misses the 500ms target ~3.5x |
 
+Commit: TBD
+
+Warm stage 1, rebenchmarked: (1) per-node R-tree over local placement bboxes, built once per Cold input and reused across every later viewport-only call - benchmark now reuses one runner across a 16-position pan sequence instead of a fresh runner per iteration, matching real zoom/pan-tick usage; (2) ViewData::shapes changed from `std::vector<ViewShape>` to a shared_ptr handle (HierarchyResolverStage), so carrying a node's own shapes through unchanged is a refcount bump, not a copy - was the dominant remaining cost once placement culling was indexed (1.1M shapes on the 5x5 top-level node, copied by value on every call):
+
+| Pipeline | Stage        | 1x1      | 2x1      | 2x2     | 3x2     | 3x3     | 5x5      | Comments                                                               |
+| -------- | ------------ | -------- | -------- | ------- | ------- | ------- | -------- | ----------------------------------------------------------------------- |
+| Warm     | ViewportCull | 0.043 ms | 0.096 ms | 0.138 ms | 0.179 ms | 0.239 ms | 0.675 ms | 5x5 now ~740x under the 500ms target (was 1.75s pre-index, ~660ms with index alone before the shapes fix) |
+

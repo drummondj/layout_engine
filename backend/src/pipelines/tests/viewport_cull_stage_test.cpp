@@ -91,9 +91,11 @@ TEST_F(ViewportCullStageFixture, ViewportCoveringNothingLeavesOnlyTopLevel)
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{top_layout}));
     EXPECT_TRUE(culled.view_data.at(HierarchyId{top_layout}).placement_data.empty());
 
-    // shapes are copied through unchanged regardless of culling - this
-    // stage prunes placements, not a node's own direct content.
-    EXPECT_EQ(culled.view_data.at(HierarchyId{top_layout}).shapes.size(), cold_output->view_data.at(HierarchyId{top_layout}).shapes.size());
+    // shapes are carried through unchanged regardless of culling - not
+    // just equal in content, but the exact same ViewShapesHandle (a
+    // shared_ptr copy, not a fresh vector) - this stage prunes
+    // placements, not a node's own direct content.
+    EXPECT_EQ(culled.view_data.at(HierarchyId{top_layout}).shapes.get(), cold_output->view_data.at(HierarchyId{top_layout}).shapes.get());
 }
 
 TEST_F(ViewportCullStageFixture, CullingComposesAncestorTransformsNotJustLocalBbox)
@@ -118,6 +120,29 @@ TEST_F(ViewportCullStageFixture, CullingComposesAncestorTransformsNotJustLocalBb
     ASSERT_EQ(block_data.placement_data.size(), 1u); // leaf0 culled, leaf1 survives
     EXPECT_EQ(block_data.placement_data[0].location.x, 500);
     EXPECT_EQ(block_data.placement_data[0].location.y, 500);
+}
+
+TEST_F(ViewportCullStageFixture, ReusingCachedIndexAcrossViewportOnlyChangesStaysCorrect)
+{
+    // ViewportCullStage caches a spatial index per node keyed on the Cold
+    // input's own identity (viewport_cull_stage.hpp's own doc comment) -
+    // reused across calls that share the same cold_output, rebuilt only
+    // when that identity changes. Querying the SAME runner (so the SAME
+    // cached index) with two different viewports in sequence, in either
+    // order, must still answer each one correctly - a stale-cache bug
+    // would show up here as the second call's own result still matching
+    // the first viewport instead of its own.
+    const ViewRenderOptions everything = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
+    const HierarchyResolverOutput &full = cull_runner.run(cold_output, 0, everything);
+    EXPECT_EQ(full.view_data.at(HierarchyId{block_layout}).placement_data.size(), 2u);
+
+    const ViewRenderOptions narrow = options_with_viewport(Rect{.ll = Point{550, 550}, .ur = Point{650, 650}});
+    const HierarchyResolverOutput &narrowed = cull_runner.run(cold_output, 0, narrow);
+    ASSERT_EQ(narrowed.view_data.at(HierarchyId{block_layout}).placement_data.size(), 1u);
+    EXPECT_EQ(narrowed.view_data.at(HierarchyId{block_layout}).placement_data[0].location.x, 500);
+
+    const HierarchyResolverOutput &full_again = cull_runner.run(cold_output, 0, everything);
+    EXPECT_EQ(full_again.view_data.at(HierarchyId{block_layout}).placement_data.size(), 2u);
 }
 
 TEST_F(ViewportCullStageFixture, NullInputProducesEmptyOutput)

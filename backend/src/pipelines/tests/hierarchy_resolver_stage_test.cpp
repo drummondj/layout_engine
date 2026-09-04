@@ -111,7 +111,7 @@ TEST_F(HierarchyResolverStageFixture, DepthZeroShowsOnlyTopLevelContent)
     // whether anything past it ever gets resolved.
     const ViewLayerId placement_boundary_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
     const ViewShape *top_boundary_shape = nullptr;
-    for (const ViewShape &view_shape : top_data.shapes)
+    for (const ViewShape &view_shape : *top_data.shapes)
         if (view_shape.view_layer == placement_boundary_layer)
             top_boundary_shape = &view_shape;
     ASSERT_NE(top_boundary_shape, nullptr);
@@ -165,7 +165,7 @@ TEST_F(HierarchyResolverStageFixture, PlacementDataBboxMatchesPlacementBoundaryS
     // the main compute() loop's own comment).
     const ViewLayerId placement_boundary_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
     const ViewShape *top_boundary_shape = nullptr;
-    for (const ViewShape &view_shape : top_data.shapes)
+    for (const ViewShape &view_shape : *top_data.shapes)
         if (view_shape.view_layer == placement_boundary_layer)
             top_boundary_shape = &view_shape;
     ASSERT_NE(top_boundary_shape, nullptr);
@@ -200,7 +200,7 @@ TEST_F(HierarchyResolverStageFixture, DepthTwoRecursesIntoLayoutAndDedupesRepeat
     EXPECT_EQ(block_data.placement_data[1].id, HierarchyId{leaf_abstract});
 
     const ViewData &leaf_data = output.view_data.at(HierarchyId{leaf_abstract});
-    EXPECT_EQ(leaf_data.shapes.size(), 3u); // terminal shape + obstruction shape + boundary
+    EXPECT_EQ(leaf_data.shapes->size(), 3u); // terminal shape + obstruction shape + boundary
     EXPECT_TRUE(leaf_data.placement_data.empty());
 }
 
@@ -216,7 +216,7 @@ TEST_F(HierarchyResolverStageFixture, ShapesResolveExpectedViewLayers)
     bool found_terminal = false;
     bool found_obstruction = false;
     bool found_boundary = false;
-    for (const ViewShape &view_shape : leaf_data.shapes)
+    for (const ViewShape &view_shape : *leaf_data.shapes)
     {
         if (view_shape.view_layer == expected_terminal_layer && !view_shape.shape.rects.empty())
             found_terminal = true;
@@ -249,7 +249,7 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
     // size, translated by its location) plus a Text labeled "block0".
     const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
     const ViewShape *top_boundary_shape = nullptr;
-    for (const ViewShape &view_shape : top_data.shapes)
+    for (const ViewShape &view_shape : *top_data.shapes)
         if (view_shape.view_layer == placement_boundary_layer)
             top_boundary_shape = &view_shape;
     ASSERT_NE(top_boundary_shape, nullptr);
@@ -263,7 +263,7 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
     // PLACEMENT_BOUNDARY shape with 2 rects/labels, not two shapes.
     const ViewData &block_data = output.view_data.at(HierarchyId{block_layout});
     const ViewShape *block_boundary_shape = nullptr;
-    for (const ViewShape &view_shape : block_data.shapes)
+    for (const ViewShape &view_shape : *block_data.shapes)
         if (view_shape.view_layer == placement_boundary_layer)
             block_boundary_shape = &view_shape;
     ASSERT_NE(block_boundary_shape, nullptr);

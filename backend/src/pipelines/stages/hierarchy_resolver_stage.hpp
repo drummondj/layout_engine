@@ -96,6 +96,19 @@ namespace le
         Orientation orientation = Orientation::N;
     };
 
+    /// @brief One node's own direct `shapes` list, shared rather than
+    /// copied - a Warm-tier stage (ViewportCullStage) builds a new
+    /// ViewData per node with different `placement_data` but the exact
+    /// same `shapes`, every single viewport-only call; measured directly
+    /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) that copying a
+    /// ~1,000,000-entry `shapes` vector by value on every such call, even
+    /// though its content never actually changes call to call, dominated
+    /// the Warm tier's own budget far more than the placement-culling
+    /// work itself - the same "a shared_ptr copy is a refcount bump
+    /// regardless of payload size" fix MemoizingStage's own OutputHandle
+    /// already applies one level up, applied here one level down.
+    using ViewShapesHandle = std::shared_ptr<const std::vector<ViewShape>>;
+
     /// @brief One Abstract's or Layout's own resolved content -
     /// PIPELINE_REFACTOR.md's own ViewData. `shapes` is this node's own
     /// *direct* geometry only (an Abstract's Terminals/Obstructions/
@@ -106,7 +119,7 @@ namespace le
     /// child's shapes is a Warm-tier concern, not Cold's.
     struct ViewData
     {
-        std::vector<ViewShape> shapes;
+        ViewShapesHandle shapes;
         std::vector<ViewPlacementData> placement_data;
     };
 
@@ -230,7 +243,8 @@ namespace le
 
                 if (const LayoutId *layout_id = std::get_if<LayoutId>(&item.id))
                 {
-                    ViewData data = collect_layout_content(root, view_layers, *layout_id);
+                    std::vector<ViewShape> shapes = collect_layout_content(root, view_layers, *layout_id);
+                    ViewData data;
 
                     const auto &placements = root.get_layout_placements(*layout_id);
                     if (item.remaining_depth > 0)
@@ -326,15 +340,18 @@ namespace le
                     if (!placement_boundary_shape.rects.empty())
                     {
                         const ViewLayerId placement_boundary_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
-                        data.shapes.push_back(ViewShape{.shape = std::move(placement_boundary_shape), .view_layer = placement_boundary_view_layer});
+                        shapes.push_back(ViewShape{.shape = std::move(placement_boundary_shape), .view_layer = placement_boundary_view_layer});
                     }
 
+                    data.shapes = std::make_shared<const std::vector<ViewShape>>(std::move(shapes));
                     result.view_data.emplace(item.id, std::move(data));
                 }
                 else
                 {
                     const AbstractId abstract_id = std::get<AbstractId>(item.id);
-                    result.view_data.emplace(item.id, collect_abstract_content(root, view_layers, abstract_id));
+                    ViewData data;
+                    data.shapes = std::make_shared<const std::vector<ViewShape>>(collect_abstract_content(root, view_layers, abstract_id));
+                    result.view_data.emplace(item.id, std::move(data));
                 }
             }
 
@@ -430,12 +447,18 @@ namespace le
             return ViewLayerId{};
         }
 
-        static ViewData collect_abstract_content(const Root &root, const ViewLayerSet &view_layers, AbstractId abstract_id)
+        // Returns just the shapes (an Abstract has no placement_data of
+        // its own - LEF macros are leaves) - the caller wraps this into
+        // ViewData::shapes' own ViewShapesHandle once, after this
+        // function is done appending to it (see ViewShapesHandle's own
+        // comment for why the wrap happens exactly once, at the end,
+        // rather than as this function's own return type).
+        static std::vector<ViewShape> collect_abstract_content(const Root &root, const ViewLayerSet &view_layers, AbstractId abstract_id)
         {
-            ViewData data;
+            std::vector<ViewShape> shapes;
             const auto &terminals = root.get_abstract_terminals(abstract_id);
             const auto &obstructions = root.get_abstract_obstructions(abstract_id);
-            data.shapes.reserve(terminals.size() + obstructions.size());
+            shapes.reserve(terminals.size() + obstructions.size());
 
             for (TerminalId terminal_id : terminals)
             {
@@ -462,13 +485,13 @@ namespace le
 
                         auto [it, inserted] = by_layer.try_emplace(shape.layer);
                         if (inserted)
-                            it->second.first_shape_index = data.shapes.size();
+                            it->second.first_shape_index = shapes.size();
                         Shape &combined = it->second.combined;
                         combined.rects.insert(combined.rects.end(), shape.rects.begin(), shape.rects.end());
                         combined.polygons.insert(combined.polygons.end(), shape.polygons.begin(), shape.polygons.end());
                         combined.paths.insert(combined.paths.end(), shape.paths.begin(), shape.paths.end());
 
-                        data.shapes.push_back(ViewShape{.shape = std::move(shape), .view_layer = view_layer});
+                        shapes.push_back(ViewShape{.shape = std::move(shape), .view_layer = view_layer});
                     }
                 }
 
@@ -480,7 +503,7 @@ namespace le
                     for (const auto &[layer_id, acc] : by_layer)
                     {
                         const Point location = Geometry::get_label_location(acc.combined);
-                        data.shapes[acc.first_shape_index].shape.texts.push_back(Text{
+                        shapes[acc.first_shape_index].shape.texts.push_back(Text{
                             .label = terminal->name,
                             .location = location,
                             .size = Geometry::local_width_at(acc.combined, location),
@@ -498,14 +521,14 @@ namespace le
                         continue;
                     Shape shape = expand_iterates(*raw_shape);
                     const ViewLayerId view_layer = resolve_view_layer(view_layers, shape, ViewLayerPurpose::OBSTRUCTION);
-                    data.shapes.push_back(ViewShape{.shape = std::move(shape), .view_layer = view_layer});
+                    shapes.push_back(ViewShape{.shape = std::move(shape), .view_layer = view_layer});
                 }
             }
 
             if (const Shape *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id)))
-                data.shapes.push_back(ViewShape{.shape = *boundary_shape, .view_layer = view_layers.boundary_view_layer()});
+                shapes.push_back(ViewShape{.shape = *boundary_shape, .view_layer = view_layers.boundary_view_layer()});
 
-            return data;
+            return shapes;
         }
 
         static std::optional<Rect> layout_die_area_bbox(const Root &root, LayoutId layout_id)
@@ -631,38 +654,45 @@ namespace le
             }
         }
 
-        static ViewData collect_layout_content(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id)
+        // Returns just the shapes - placement_data is always filled in by
+        // the caller (compute()'s own Layout branch), and the
+        // PLACEMENT_BOUNDARY shape below is appended to this same vector
+        // by that caller too, before it wraps the whole thing into
+        // ViewData::shapes' own ViewShapesHandle exactly once (see that
+        // type's own comment) - collect_layout_content itself can't do
+        // that wrap, since there's more to append after it returns.
+        static std::vector<ViewShape> collect_layout_content(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id)
         {
-            ViewData data;
+            std::vector<ViewShape> shapes;
 
             // Rough lower-bound reserve, cheap to compute up front (no
             // second pass over blockage_id/route_id/port_id's own shape
             // lists just to size this exactly - that would double the
-            // real work below to save only some of data.shapes' own
+            // real work below to save only some of shapes' own
             // growth-reallocation cost, not all of it). A Blockage/Route/
             // PhysicalPortSegment can carry more than one Shape, so this
             // undercounts the real total, but every reallocation this
             // avoids still saves moving every ViewShape gathered so far -
             // a real cost at real route counts (a Route is the single
             // largest DEF construct by count in every aes_scaling fixture).
-            data.shapes.reserve(root.get_layout_blockages(layout_id).size() +
-                                 root.get_layout_routes(layout_id).size() +
-                                 root.get_layout_physical_ports(layout_id).size() +
-                                 root.get_layout_rows(layout_id).size() +
-                                 root.get_layout_tracks(layout_id).size() +
-                                 root.get_layout_regions(layout_id).size() +
-                                 3); // diearea + GCELLGRID + PLACEMENT_BOUNDARY, each at most one shape
+            shapes.reserve(root.get_layout_blockages(layout_id).size() +
+                            root.get_layout_routes(layout_id).size() +
+                            root.get_layout_physical_ports(layout_id).size() +
+                            root.get_layout_rows(layout_id).size() +
+                            root.get_layout_tracks(layout_id).size() +
+                            root.get_layout_regions(layout_id).size() +
+                            3); // diearea + GCELLGRID + PLACEMENT_BOUNDARY, each at most one shape
 
             auto push_shape_id = [&](ShapeId shape_id, ViewLayerPurpose fallback_purpose)
             {
                 const Shape *shape = root.get_shape(shape_id);
                 if (!shape)
                     return;
-                data.shapes.push_back(ViewShape{.shape = *shape, .view_layer = resolve_view_layer(view_layers, *shape, fallback_purpose)});
+                shapes.push_back(ViewShape{.shape = *shape, .view_layer = resolve_view_layer(view_layers, *shape, fallback_purpose)});
             };
 
             if (const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id)))
-                data.shapes.push_back(ViewShape{.shape = *diearea, .view_layer = view_layers.boundary_view_layer()});
+                shapes.push_back(ViewShape{.shape = *diearea, .view_layer = view_layers.boundary_view_layer()});
 
             for (BlockageId blockage_id : root.get_layout_blockages(layout_id))
                 for (ShapeId shape_id : root.get_blockage_shapes(blockage_id))
@@ -677,10 +707,10 @@ namespace le
                     for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
                         push_shape_id(shape_id, ViewLayerPurpose::TERMINAL);
 
-            append_row_shapes(root, layout_id, view_layers, data.shapes);
-            append_track_shapes(root, layout_id, view_layers, data.shapes);
-            append_gcell_grid_shapes(root, layout_id, view_layers, data.shapes);
-            append_region_shapes(root, layout_id, view_layers, data.shapes);
+            append_row_shapes(root, layout_id, view_layers, shapes);
+            append_track_shapes(root, layout_id, view_layers, shapes);
+            append_gcell_grid_shapes(root, layout_id, view_layers, shapes);
+            append_region_shapes(root, layout_id, view_layers, shapes);
             // PLACEMENT_BOUNDARY is added by the main compute() loop, not
             // here - it needs resolve_design_target's own per-placement
             // dispatch (Layout vs. Abstract, depth-dependent) and the
@@ -688,7 +718,7 @@ namespace le
             // uses, so it's computed once there rather than duplicated
             // into a second pass over this Layout's own placements.
 
-            return data;
+            return shapes;
         }
     };
 }

@@ -5,12 +5,19 @@
 #include "../tbb_core.hpp"
 #include "hierarchy_resolver_stage.hpp"
 
+#include <boost/geometry/index/rtree.hpp>
+
+#include <cstddef>
 #include <deque>
 #include <string>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace le
 {
+    namespace bgi = boost::geometry::index;
+
     /// @brief Warm-tier stage 1 (PIPELINE_REFACTOR.md): prunes
     /// HierarchyResolverOutput down to what actually overlaps
     /// ViewRenderOptions::viewport, so downstream Rasterization/Compose
@@ -29,15 +36,18 @@ namespace le
     /// ViewPlacementData::bbox is only ever in its *immediate* parent's
     /// own local space, never pre-composed with anything above that). At
     /// each visited id:
-    ///   - `shapes` are copied through unchanged - this stage prunes
+    ///   - `shapes` are carried through unchanged - a ViewShapesHandle
+    ///     copy (a shared_ptr, hierarchy_resolver_stage.hpp's own
+    ///     ViewShapesHandle comment) is a refcount bump regardless of how
+    ///     many shapes a node has, not a real copy - this stage prunes
     ///     *placements*, not individual shapes within one node's own
     ///     direct content (a finer-grained concern, deferred - Skia's own
     ///     clipping/quickReject covers the gap for now once Rasterization
     ///     exists).
     ///   - `placement_data` is filtered down to just the placements whose
-    ///     own world-space bbox (this level's own accumulated transform
-    ///     applied to ViewPlacementData::bbox via Geometry::transform_bbox)
-    ///     overlaps the viewport (Geometry::rects_overlap).
+    ///     own local (pre-ancestor-transform) bbox overlaps the viewport
+    ///     once brought into this node's own local space - see the
+    ///     spatial-index paragraph below for exactly how.
     ///
     /// An id with no surviving placement anywhere never gets visited at
     /// all, and therefore never appears in the output - the same
@@ -60,6 +70,28 @@ namespace le
     /// draws every surviving instance of a shared id at its own correct
     /// position regardless, so this can only ever cost a little
     /// unnecessary off-screen work, never an incorrect on-screen result.
+    ///
+    /// Overlap testing is spatially indexed, not a linear scan (measured:
+    /// a linear scan missed the Warm tier's own 500ms budget by ~3.5x at
+    /// the 1M-component target scale, PIPELINE_REFACTOR_BENCHMARK_RESULTS.md's
+    /// commit 6478286 entry). Two things make this fast rather than just
+    /// "an rtree slapped on":
+    ///   - The *viewport* is brought into each node's own local space
+    ///     (Geometry::invert(accumulated_transform) applied once per
+    ///     node, via Geometry::transform_bbox), not the other way around
+    ///     - transforming one rect per node is far cheaper than
+    ///     transforming every one of that node's own (up to ~1,000,000)
+    ///     placement bboxes out to world space just to test them.
+    ///   - Each node's own R-tree (Boost.Geometry Index, bulk-loaded over
+    ///     that node's local, untransformed placement bboxes) is built at
+    ///     most once per distinct Cold input and reused across every
+    ///     later call that shares it - "zoom always re-computes" means a
+    ///     fresh viewport every call, but Cold's own output (and
+    ///     therefore what to index) only changes on a real database edit
+    ///     or hierarchy_depth change. Indexed by the node's own id, keyed
+    ///     off `input`'s own identity (a shared_ptr, held here to
+    ///     guarantee no other allocation can reuse its address while this
+    ///     cache still names it) - see spatial_index_for()'s own comment.
     class ViewportCullStage : public MemoizingStage<HierarchyResolverStage::OutputHandle, HierarchyResolverOutput, ViewRenderOptions>
     {
     public:
@@ -72,6 +104,12 @@ namespace le
             HierarchyResolverOutput result;
             if (input == nullptr)
                 return result;
+
+            if (input.get() != cached_input_.get())
+            {
+                cached_input_ = input;
+                spatial_indices_.clear();
+            }
 
             struct WorkItem
             {
@@ -93,16 +131,22 @@ namespace le
                 if (source_it == input->view_data.end())
                     continue; // not present in Cold's own output - nothing to cull (degrade, don't crash)
 
+                const ViewData &source_data = source_it->second;
                 ViewData data;
-                data.shapes = source_it->second.shapes;
-                data.placement_data.reserve(source_it->second.placement_data.size()); // exact upper bound - not every placement survives culling
+                data.shapes = source_data.shapes;
 
-                for (const ViewPlacementData &placement : source_it->second.placement_data)
+                // One Rect transform per node, not one per placement -
+                // see the class's own doc comment.
+                const Rect local_viewport = Geometry::transform_bbox(Geometry::invert(item.accumulated_transform), options.viewport);
+
+                const SpatialIndex &index = spatial_index_for(item.id, source_data);
+                std::vector<IndexEntry> candidates;
+                index.query(bgi::intersects(local_viewport), std::back_inserter(candidates));
+
+                data.placement_data.reserve(candidates.size());
+                for (const IndexEntry &entry : candidates)
                 {
-                    const Rect world_bbox = Geometry::transform_bbox(item.accumulated_transform, placement.bbox);
-                    if (!Geometry::rects_overlap(world_bbox, options.viewport))
-                        continue; // culled - outside the viewport
-
+                    const ViewPlacementData &placement = source_data.placement_data[entry.second];
                     data.placement_data.push_back(placement);
                     worklist.push_back(WorkItem{placement.id, Geometry::compose(item.accumulated_transform, placement.transform)});
                 }
@@ -121,5 +165,38 @@ namespace le
                    last.viewport.ur.x != current.viewport.ur.x ||
                    last.viewport.ur.y != current.viewport.ur.y;
         }
+
+    private:
+        // Rect (a node's own local placement bbox) paired with its own
+        // index into that node's placement_data vector - the rtree's own
+        // value type has to carry enough to recover the actual
+        // ViewPlacementData a hit corresponds to.
+        using IndexEntry = std::pair<Rect, std::size_t>;
+        using SpatialIndex = bgi::rtree<IndexEntry, bgi::rstar<16>>;
+
+        /// @brief This node's own spatial index over `data.placement_data`'s
+        /// local (untransformed) bboxes - built once per distinct Cold
+        /// input (see compute()'s own cached_input_ check) and reused
+        /// across every later call that still shares it, rather than
+        /// rebuilt on every viewport-only "zoom tick".
+        const SpatialIndex &spatial_index_for(const HierarchyId &id, const ViewData &data)
+        {
+            const auto it = spatial_indices_.find(id);
+            if (it != spatial_indices_.end())
+                return it->second;
+
+            std::vector<IndexEntry> entries;
+            entries.reserve(data.placement_data.size());
+            for (std::size_t i = 0; i < data.placement_data.size(); ++i)
+                entries.emplace_back(data.placement_data[i].bbox, i);
+
+            return spatial_indices_.emplace(id, SpatialIndex(entries)).first->second;
+        }
+
+        // Held (not just a raw pointer) so the underlying HierarchyResolverOutput
+        // can't be freed - and its address reused by an unrelated allocation -
+        // while spatial_indices_ still names it by identity.
+        HierarchyResolverStage::OutputHandle cached_input_;
+        std::unordered_map<HierarchyId, SpatialIndex, HierarchyIdHash> spatial_indices_;
     };
 }
