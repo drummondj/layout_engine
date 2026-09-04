@@ -11,3 +11,9 @@ Commit: e61a8ab
 | -------- | ----------------- | ------ | ------ | ------ | ------ | ------- | --------------------------------------- |
 | Cold     | HierarchyResolver | 104 ms | 216 ms | 554 ms | 829 ms | 1202 ms | Scales with design size, roughly linear |
 
+Commit: 6e05291
+
+| Pipeline | Stage             | 1x1    | 2x1    | 2x2    | 3x2     | 3x3     | Comments                                     |
+| -------- | ----------------- | ------ | ------ | ------ | ------- | ------- | --------------------------------------------- |
+| Cold     | HierarchyResolver | 156 ms | 289 ms | 762 ms | 1187 ms | 2017 ms | +PLACEMENT_BOUNDARY per-placement label cost |
+
