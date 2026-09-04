@@ -14,36 +14,36 @@ Commit: e61a8ab
 Commit: 6e05291
 
 | Pipeline | Stage             | 1x1    | 2x1    | 2x2    | 3x2     | 3x3     | Comments                                     |
-| -------- | ----------------- | ------ | ------ | ------ | ------- | ------- | --------------------------------------------- |
+| -------- | ----------------- | ------ | ------ | ------ | ------- | ------- | -------------------------------------------- |
 | Cold     | HierarchyResolver | 156 ms | 289 ms | 762 ms | 1187 ms | 2017 ms | +PLACEMENT_BOUNDARY per-placement label cost |
 
 Commit: bcf6293
 
-| Pipeline | Stage             | 1x1    | 2x1    | 2x2    | 3x2    | 3x3     | Comments                                    |
-| -------- | ----------------- | ------ | ------ | ------ | ------ | ------- | -------------------------------------------- |
+| Pipeline | Stage             | 1x1    | 2x1    | 2x2    | 3x2    | 3x3     | Comments                                         |
+| -------- | ----------------- | ------ | ------ | ------ | ------ | ------- | ------------------------------------------------ |
 | Cold     | HierarchyResolver | 121 ms | 262 ms | 609 ms | 996 ms | 1571 ms | Batched PLACEMENT_BOUNDARY shapes, ~9-22% faster |
 
 Commit: 997e943
 
-| Pipeline | Stage             | 1x1    | 2x1    | 2x2    | 3x2    | 3x3     | Comments                                       |
-| -------- | ----------------- | ------ | ------ | ------ | ------ | ------- | ----------------------------------------------- |
+| Pipeline | Stage             | 1x1    | 2x1    | 2x2    | 3x2    | 3x3     | Comments                                                             |
+| -------- | ----------------- | ------ | ------ | ------ | ------ | ------- | -------------------------------------------------------------------- |
 | Cold     | HierarchyResolver | 124 ms | 246 ms | 588 ms | 982 ms | 1463 ms | reserve()/batching everywhere else; 3x2/3x3 cv ~20-30%, within noise |
 
 Commit: abc3013
 
 1M-component target validation (test_data/aes_scaling_5x5.def, 1,033,600 components) - not part of the 5-point matrix above, run in isolation via `--benchmark_filter=5x5` so peak RSS reflects one design, not every cached fixture:
 
-| Pipeline | Stage             | Time      | Peak RSS | Comments                                                  |
-| -------- | ----------------- | --------- | -------- | ---------------------------------------------------------- |
-| Cold     | LayerGeneration   | 79.7 us   | -        | Still flat/O(1) at ~1M components                         |
+| Pipeline | Stage             | Time      | Peak RSS | Comments                                                                                                                   |
+| -------- | ----------------- | --------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Cold     | LayerGeneration   | 79.7 us   | -        | Still flat/O(1) at ~1M components                                                                                          |
 | Cold     | HierarchyResolver | 5.9-6.2 s | ~6.6 GB  | Exceeds the 5s/1M-component target (repeatable across 2 runs); peak RSS is whole-process (DEF parse into Root + compute()) |
 
 Commit: f385beb
 
 Same 5x5 point, now measured via the built-in PeakRSS_MB counter (`--benchmark_filter=5x5`) instead of manually wrapping with `/usr/bin/time -v` - confirms the earlier manual reading, no logic changes this commit (benchmark reporting infrastructure only):
 
-| Pipeline | Stage             | Time    | Peak RSS  | Comments                                    |
-| -------- | ----------------- | ------- | --------- | -------------------------------------------- |
-| Cold     | LayerGeneration   | 80.8 us | 2.27 GB   | Peak RSS here is mostly just the DEF parse into Root - LayerGeneration itself never touches placements |
-| Cold     | HierarchyResolver | 6.55 s  | 6.53 GB   | Consistent with the manual /usr/bin/time reading (~6.6-6.7GB) |
+| Pipeline | Stage             | Time    | Peak RSS | Comments                                                                                               |
+| -------- | ----------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------ |
+| Cold     | LayerGeneration   | 80.8 us | 2.27 GB  | Peak RSS here is mostly just the DEF parse into Root - LayerGeneration itself never touches placements |
+| Cold     | HierarchyResolver | 6.55 s  | 6.53 GB  | Consistent with the manual /usr/bin/time reading (~6.6-6.7GB)                                          |
 

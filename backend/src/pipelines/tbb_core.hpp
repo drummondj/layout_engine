@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -38,11 +39,36 @@ namespace le
     /// @tparam PipelineOptions Options type threaded through this pipeline; every stage
     ///         connected via make_edge must use the same one.
     ///
+    /// The node's own OutputData travels as `OutputHandle`
+    /// (`std::shared_ptr<const OutputData>`), not `OutputData` by value - a
+    /// cache hit has to hand back the *same* result on every call (that's
+    /// the whole point of memoizing), which otherwise means deep-copying
+    /// the full OutputData on every single execute() (cache hit or miss:
+    /// `return {last_result_, ...}` copy-constructs from the `last_result_`
+    /// member either way), not just the recompute case - free for a small
+    /// OutputData, but a real, measured multi-second cost for a large one
+    /// (confirmed directly: ~1.75s of real compute() work vs. several
+    /// seconds more just moving a ~1,000,000-entry HierarchyResolverOutput
+    /// through the cache and this node's own TBB message-passing/
+    /// buffering down to a successor, PIPELINE_REFACTOR_BENCHMARK_RESULTS.md's
+    /// 5x5 entries). A `shared_ptr` copy is one atomic refcount bump
+    /// regardless of payload size - `compute()` itself is unaffected
+    /// (subclasses still just return a plain `OutputData` by value; this
+    /// wraps it exactly once, in execute()). A downstream stage wired via
+    /// make_edge receives this same `OutputHandle`, not a copy of the
+    /// referenced data, so chaining stages is zero-copy on this side too.
+    ///
     /// @note Must be constructed via std::make_unique and never moved or copied.
     template <typename InputData, typename OutputData, typename PipelineOptions>
     class MemoizingStage
     {
     public:
+        /// @brief This stage's own OutputData, as it actually travels
+        /// through the cache and this node's own output edge - see the
+        /// class's own doc comment for why a plain `OutputData` by value
+        /// isn't used here.
+        using OutputHandle = std::shared_ptr<const OutputData>;
+
         /// @brief Constructs the stage and its underlying node.
         /// @param g Flow graph this stage's node belongs to.
         /// @param label Optional label identifying this instance in Tracy traces.
@@ -60,7 +86,7 @@ namespace le
 
         /// @brief The underlying function_node, for wiring with make_edge.
         oneapi::tbb::flow::function_node<
-            StageData<InputData, PipelineOptions>, StageData<OutputData, PipelineOptions>> &
+            StageData<InputData, PipelineOptions>, StageData<OutputHandle, PipelineOptions>> &
         node() { return node_; }
 
         /// @brief Submits input to this stage's node.
@@ -115,7 +141,7 @@ namespace le
 
     private:
         /// @brief Recomputes via compute() if needed, else returns the cached result.
-        StageData<OutputData, PipelineOptions> execute(StageData<InputData, PipelineOptions> in)
+        StageData<OutputHandle, PipelineOptions> execute(StageData<InputData, PipelineOptions> in)
         {
             ZoneScoped;
             if (!label_.empty())
@@ -128,7 +154,7 @@ namespace le
 
             if (should_recompute)
             {
-                last_result_ = compute(in.data, in.options);
+                last_result_ = std::make_shared<const OutputData>(compute(in.data, in.options));
                 ++version_;
             }
             else
@@ -138,15 +164,15 @@ namespace le
 
             last_data_version_ = in.data_version;
             last_options_ = in.options;
-            return {last_result_, version_, in.options};
+            return {last_result_, version_, in.options}; // shared_ptr copy - cheap regardless of OutputData's own size
         }
 
         oneapi::tbb::flow::function_node<
-            StageData<InputData, PipelineOptions>, StageData<OutputData, PipelineOptions>>
+            StageData<InputData, PipelineOptions>, StageData<OutputHandle, PipelineOptions>>
             node_;
         std::optional<std::uint64_t> last_data_version_;
         PipelineOptions last_options_{};
-        OutputData last_result_{};
+        OutputHandle last_result_;
         std::uint64_t version_{0};
         std::string label_;
     };

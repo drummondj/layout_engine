@@ -19,9 +19,15 @@ namespace le
     class SynchronousStageRunner
     {
     public:
+        // Stage's own node() output travels as Stage::OutputHandle
+        // (std::shared_ptr<const OutputData>, see MemoizingStage's own
+        // doc comment for why) - matched here so the sink's own edge
+        // type-checks against it.
+        using OutputHandle = typename Stage::OutputHandle;
+
         explicit SynchronousStageRunner(std::string label)
             : stage_(graph_, std::move(label)),
-              sink_(graph_, oneapi::tbb::flow::serial, [this](StageData<OutputData, PipelineOptions> in)
+              sink_(graph_, oneapi::tbb::flow::serial, [this](StageData<OutputHandle, PipelineOptions> in)
                     { result_ = std::move(in); })
         {
             make_edge(stage_.node(), sink_);
@@ -34,7 +40,7 @@ namespace le
         {
             stage_.try_put({.data = std::move(data), .data_version = data_version, .options = options});
             graph_.wait_for_all();
-            return result_.data;
+            return *result_.data;
         }
 
         /// @brief Whether calling run() with this exact (data_version,
@@ -56,7 +62,7 @@ namespace le
     private:
         oneapi::tbb::flow::graph graph_;
         Stage stage_;
-        oneapi::tbb::flow::function_node<StageData<OutputData, PipelineOptions>> sink_;
-        StageData<OutputData, PipelineOptions> result_{};
+        oneapi::tbb::flow::function_node<StageData<OutputHandle, PipelineOptions>> sink_;
+        StageData<OutputHandle, PipelineOptions> result_{};
     };
 }
