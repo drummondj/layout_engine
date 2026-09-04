@@ -62,7 +62,7 @@ Warm stage 1 (ViewportCullStage) - viewport is the central half of the design's 
 
 | Pipeline | Stage        | 1x1     | 2x1     | 2x2     | 3x2    | 3x3    | 5x5    | Comments                                                                            |
 | -------- | ------------ | ------- | ------- | ------- | ------ | ------ | ------ | ------------------------------------------------------------------------------------ |
-| Warm     | ViewportCull | 21.4 ms | 44.6 ms | 87.6 ms | 135 ms | 210 ms | 1.75 s | Linear in placement count (no spatial index yet); 5x5 misses the 500ms target ~3.5x |
+| Warm     | ViewportCull | 21.4 ms | 44.6 ms | 87.6 ms | 135 ms | 210 ms | 1.75 s | Linear in placement count (no spatial index yet); 500ms is the WHOLE Warm tier's budget (cull + rasterize + compose combined) - 1.75s in this one stage alone already blows it |
 
 Commit: 22f7210
 
@@ -70,5 +70,5 @@ Warm stage 1, rebenchmarked: (1) per-node R-tree over local placement bboxes, bu
 
 | Pipeline | Stage        | 1x1      | 2x1      | 2x2     | 3x2     | 3x3     | 5x5      | Comments                                                               |
 | -------- | ------------ | -------- | -------- | ------- | ------- | ------- | -------- | ----------------------------------------------------------------------- |
-| Warm     | ViewportCull | 0.043 ms | 0.096 ms | 0.138 ms | 0.179 ms | 0.239 ms | 0.675 ms | 5x5 now ~740x under the 500ms target (was 1.75s pre-index, ~660ms with index alone before the shapes fix) |
+| Warm     | ViewportCull | 0.043 ms | 0.096 ms | 0.138 ms | 0.179 ms | 0.239 ms | 0.675 ms | This stage now costs a negligible slice of the 500ms Warm-tier budget (was 1.75s pre-index, ~660ms with index alone before the shapes fix) - leaves essentially the whole 500ms for Rasterization + Compose, still to be benchmarked |
 
