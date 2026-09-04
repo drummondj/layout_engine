@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 using namespace le;
@@ -25,24 +26,48 @@ namespace
     using ViewportCullRunner = SynchronousStageRunner<ViewportCullStage, HierarchyResolverStage::OutputHandle, HierarchyResolverOutput, ViewRenderOptions>;
     using RasterizeRunner = SynchronousStageRunner<RasterizeStage, HierarchyResolverStage::OutputHandle, RasterizeOutput, ViewRenderOptions>;
 
+    // Mirrors Scene's own pre-seeded default (scene.hpp's own
+    // purpose_visible_ member comment, BUGS_AND_ENHANCEMENTS.md E2) -
+    // what a real UI session actually renders out of the box, not the
+    // "everything visible" case BM_Rasterize/BM_WarmTier otherwise
+    // measure. Kept here rather than in scene.hpp itself, since a
+    // benchmark shouldn't depend on the scene module just to read one
+    // default - this is a plain, independent copy of that same default.
+    std::unordered_map<ViewLayerPurpose, bool> default_hidden_purposes()
+    {
+        return {
+            {ViewLayerPurpose::TRACK_PREFERRED, false},
+            {ViewLayerPurpose::TRACK_NON_PREFERRED, false},
+            {ViewLayerPurpose::ROW, false},
+            {ViewLayerPurpose::GCELLGRID, false},
+        };
+    }
+
     // Isolates RasterizeStage's own cost from BM_WarmTier's combined
     // number - every (viewport, culled-input) pair is precomputed OUTSIDE
     // the timed loop (a fresh ViewportCullStage per pan position, cost
     // irrelevant here - only correctness of the pairing matters), so the
     // loop below times RasterizeStage's own compute() alone, repeated
     // across the same 16-position pan sequence BM_ViewportCull/BM_WarmTier
-    // use, at a fixed 1000x1000px output size.
-    void BM_Rasterize(benchmark::State &state, TileConfig config)
+    // use, at a fixed 1000x1000px output size. `apply_default_visibility`
+    // switches between "everything visible" (BM_Rasterize, comparable
+    // with every earlier commit's own numbers) and the real UI-default
+    // case (BM_RasterizeDefaultVisibility - default_hidden_purposes()
+    // above) - both share every other pan/window/scale setup exactly.
+    void BM_Rasterize(benchmark::State &state, TileConfig config, bool apply_default_visibility)
     {
         const AesScalingFixture &fixture = cached_aes_scaling_fixture(config);
         const std::vector<TechnologyId> technology_ids = fixture.root.get_technology_ids();
         const ViewLayerSetHandle view_layers_handle = std::make_shared<const ViewLayerSet>(
             technology_ids.empty() ? ViewLayerSet{} : ViewLayerSet::build_for_technology(fixture.root, technology_ids.front()));
 
-        const ViewRenderOptions cold_options{
+        ViewRenderOptions cold_options{
             .root = &fixture.root, .root_mutation_version = fixture.root.mutation_version(),
             .top_level = HierarchyId{fixture.layout_id}, .hierarchy_depth = 1, .view_layers = view_layers_handle,
         };
+        if (apply_default_visibility)
+            cold_options.purpose_visible = default_hidden_purposes();
+
         HierarchyResolverRunner hierarchy_resolver_runner{"bm_rasterize_hierarchy_resolver"};
         hierarchy_resolver_runner.run(view_layers_handle, 0, cold_options);
         const HierarchyResolverStage::OutputHandle cold_output = hierarchy_resolver_runner.last_handle();
@@ -99,11 +124,15 @@ namespace le::benchmarks
     {
         for (const TileConfig &config : kAesScalingTileConfigs)
         {
-            benchmark::RegisterBenchmark(("BM_Rasterize/" + std::string(config.label)).c_str(), BM_Rasterize, config)
+            benchmark::RegisterBenchmark(("BM_Rasterize/" + std::string(config.label)).c_str(), BM_Rasterize, config, false)
+                ->Unit(benchmark::kMillisecond);
+            benchmark::RegisterBenchmark(("BM_RasterizeDefaultVisibility/" + std::string(config.label)).c_str(), BM_Rasterize, config, true)
                 ->Unit(benchmark::kMillisecond);
         }
 
-        benchmark::RegisterBenchmark(("BM_Rasterize/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_Rasterize, kAesScalingLargeConfig)
+        benchmark::RegisterBenchmark(("BM_Rasterize/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_Rasterize, kAesScalingLargeConfig, false)
+            ->Unit(benchmark::kMillisecond);
+        benchmark::RegisterBenchmark(("BM_RasterizeDefaultVisibility/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_Rasterize, kAesScalingLargeConfig, true)
             ->Unit(benchmark::kMillisecond);
     }
 }

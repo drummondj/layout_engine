@@ -141,3 +141,16 @@ Added BM_WarmTierColdStart - the number the row above can't give: the TRUE first
 | --------- | ------------------------ | ------------------------ | ------------- | --------------------------------------------------------------------------- |
 | Cold+Warm | First render (cold start) | 3.21 s mean (2.89-3.73 s, 3 runs) | 3.65-3.73 GB | Consistent with Cold (2.14s) + Warm (1.38s) summed independently (~3.5s) - confirms the two numbers above really do add up for a genuine first render |
 
+Commit: 4c39ac7
+
+Layer visibility (ROW/TRACK_PREFERRED/TRACK_NON_PREFERRED/GCELLGRID hidden by default, mirroring Scene's own long-standing pre-seeded defaults) wired into RasterizeStage. Re-ran the full matrix with everything still visible (BM_Rasterize/BM_Compose/BM_WarmTier/BM_HierarchyResolver) to confirm the new is_view_layer_visible check adds no real cost when nothing is actually hidden - within normal run-to-run variance of the numbers already on record (e.g. 5x5: HierarchyResolver 2.02s, Rasterize 1.47s, Compose 13.2ms, WarmTier 1.43s, WarmTierColdStart 3.01s - all consistent with prior entries).
+
+Added BM_RasterizeDefaultVisibility - the number that actually matters for a real UI session, where rows/tracks/gcellgrid are hidden out of the box:
+
+| Pipeline | Stage                          | 1x1    | 2x1    | 2x2    | 3x2    | 3x3    | 5x5    | Comments                                                              |
+| -------- | ------------------------------ | ------ | ------ | ------ | ------ | ------ | ------ | -------------------------------------------------------------------------- |
+| Warm     | Rasterize (everything visible) | 100 ms | 143 ms | 278 ms | 362 ms | 532 ms | 1.40 s | Baseline, same config every earlier Rasterize entry used                    |
+| Warm     | Rasterize (default visibility) | 74.6 ms | 116 ms | 226 ms | 314 ms | 461 ms | 1.28 s | 25% faster at 1x1, shrinking to only ~8% faster at 5x5                      |
+
+A real but modest win, and shrinking at scale - this actually rules out my own earlier hypothesis that ROW/TRACK/GCELLGRID's own individual draw calls were the dominant Rasterize cost (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md's antialiasing-fix entry above). Something else - likely ROUTE geometry or the sheer TERMINAL/OBSTRUCTION count across every distinct standard-cell Abstract - still dominates, and dominates more at larger scale, not less. Root cause still not found.
+
