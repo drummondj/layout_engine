@@ -72,3 +72,11 @@ Warm stage 1, rebenchmarked: (1) per-node R-tree over local placement bboxes, bu
 | -------- | ------------ | -------- | -------- | ------- | ------- | ------- | -------- | ----------------------------------------------------------------------- |
 | Warm     | ViewportCull | 0.043 ms | 0.096 ms | 0.138 ms | 0.179 ms | 0.239 ms | 0.675 ms | This stage now costs a negligible slice of the 500ms Warm-tier budget (was 1.75s pre-index, ~660ms with index alone before the shapes fix) - leaves essentially the whole 500ms for Rasterization + Compose, still to be benchmarked |
 
+Commit: (pending)
+
+Warm stages 2+3 added (RasterizeStage/ComposeStage - per-node raster bitmaps, composited via drawImage+transform per placement, not SkPicture recording - see PIPELINE_REFACTOR.md's own review notes for why). BM_WarmTier measures the WHOLE tier end to end (ViewportCull+Rasterize+Compose via ViewRenderPipeline::run_warm()) against its own single 500ms budget, one persistent pipeline reused across a 16-position pan sequence (same steady-state convention as BM_ViewportCull), rendering a fixed 1000x1000px output window at each point:
+
+| Pipeline | Stage         | 1x1    | 2x1    | 2x2    | 3x2    | 3x3    | 5x5    | Comments                                                                 |
+| -------- | ------------- | ------ | ------ | ------ | ------ | ------ | ------ | ------------------------------------------------------------------------- |
+| Warm     | Full tier     | 200 ms | 210 ms | 407 ms | 473 ms | 750 ms | 1.53 s | Misses the 500ms tier budget at every point except 1x1/2x1 - ViewportCull alone is ~1ms, so this is essentially all Rasterize+Compose; not yet profiled which of the two dominates |
+

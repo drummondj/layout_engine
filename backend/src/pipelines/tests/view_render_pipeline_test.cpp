@@ -33,6 +33,14 @@ namespace
             return ViewRenderOptions{.root_mutation_version = root.mutation_version(), .top_level = HierarchyId{top_layout}, .hierarchy_depth = hierarchy_depth};
         }
 
+        ViewRenderOptions warm_options_for(int hierarchy_depth) const
+        {
+            ViewRenderOptions options = options_for(hierarchy_depth);
+            options.viewport = Rect{.ll = Point{0, 0}, .ur = Point{5000, 5000}}; // TOP's own full diearea
+            options.scale = 0.05; // 5000 dbu * 0.05 = 250px - a manageable test image size
+            return options;
+        }
+
         Root root;
         TechnologyId technology_id;
         LayerId m1;
@@ -112,4 +120,46 @@ TEST_F(ViewRenderPipelineFixture, NullRootProducesEmptyOutputs)
     ASSERT_NE(output.hierarchy, nullptr);
     EXPECT_TRUE(output.view_layers->all().empty());
     EXPECT_TRUE(output.hierarchy->view_data.empty());
+}
+
+TEST_F(ViewRenderPipelineFixture, RunWarmProducesAFrameSizedToTheViewport)
+{
+    const ViewRenderPipeline::WarmOutput output = pipeline.run_warm(&root, warm_options_for(1));
+
+    ASSERT_NE(output.view_layers, nullptr);
+    ASSERT_NE(output.hierarchy, nullptr);
+    ASSERT_NE(output.culled, nullptr);
+    ASSERT_NE(output.rasterized, nullptr);
+    ASSERT_NE(output.frame, nullptr);
+
+    EXPECT_FALSE(output.frame->empty);
+    EXPECT_EQ(output.frame->buffer.width, 250);  // 5000 dbu * scale 0.05
+    EXPECT_EQ(output.frame->buffer.height, 250);
+    EXPECT_NE(output.frame->buffer.data, nullptr);
+
+    // Warm's own output should agree with what run_cold() independently
+    // computes for the same options - run_warm() reuses run_cold()
+    // internally rather than duplicating its logic (ViewRenderPipeline's
+    // own doc comment), so this also guards against that reuse silently
+    // drifting apart.
+    EXPECT_EQ(output.view_layers, pipeline.run_cold(&root, options_for(1)).view_layers);
+}
+
+TEST_F(ViewRenderPipelineFixture, RunWarmCacheHitReturnsIdenticalFrameHandleOnUnchangedInputs)
+{
+    const ViewRenderOptions options = warm_options_for(1);
+    const ViewRenderPipeline::WarmOutput first = pipeline.run_warm(&root, options);
+    const ViewRenderPipeline::WarmOutput second = pipeline.run_warm(&root, options);
+
+    EXPECT_EQ(first.culled, second.culled);
+    EXPECT_EQ(first.rasterized, second.rasterized);
+    EXPECT_EQ(first.frame, second.frame);
+}
+
+TEST_F(ViewRenderPipelineFixture, RunWarmNullRootProducesEmptyFrame)
+{
+    const ViewRenderPipeline::WarmOutput output = pipeline.run_warm(nullptr, warm_options_for(1));
+
+    ASSERT_NE(output.frame, nullptr);
+    EXPECT_TRUE(output.frame->empty);
 }

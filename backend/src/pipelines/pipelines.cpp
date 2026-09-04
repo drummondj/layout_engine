@@ -1,4 +1,4 @@
-#include "draw_helpers.hpp"
+#include "default_typeface.hpp"
 #include "include/core/SkFontMgr.h"
 #include "include/core/SkFontStyle.h"
 #include "include/core/SkString.h"
@@ -8,14 +8,15 @@
 #include <cerrno>
 #include <string>
 
-// See draw_helpers.hpp's comment on default_typeface() for why this is
-// isolated to its own translation unit: ApplicationServices.h (pulled in by
-// SkFontMgr_mac_ct.h) defines legacy Carbon Rect/Point/Polygon typedefs
-// that collide with le::Rect/le::Point/le::Polygon wherever a file does
-// `using namespace le`. SkFontMgr_directory.h doesn't have that problem, but
-// it's included here anyway to keep both platforms' font-manager headers in
-// the one .cpp that's allowed to know about them, rather than splitting the
-// isolation rule across files.
+// One compiled TU (PIPELINE_REFACTOR.md's restart otherwise being
+// header-only) for exactly the reason the pre-restart pipelines.cpp
+// existed: ApplicationServices.h (pulled in by SkFontMgr_mac_ct.h)
+// defines legacy Carbon Rect/Point/Polygon typedefs that collide with
+// le::Rect/le::Point/le::Polygon wherever a file does `using namespace
+// le`. SkFontMgr_directory.h doesn't have that problem, but it's
+// included here anyway to keep both platforms' font-manager headers in
+// the one .cpp that's allowed to know about them, rather than splitting
+// the isolation rule across files.
 #if defined(__APPLE__)
 #include "include/ports/SkFontMgr_mac_ct.h"
 #elif defined(__linux__)
@@ -200,9 +201,9 @@ namespace le
             }
             if (face == nullptr)
             {
-                // Not a hard failure (matches this function's existing
-                // "degrade rather than throw" contract - see draw_helpers.hpp)
-                // but every terminal/pin/ruler label silently renders blank
+                // Not a hard failure (degrades to blank text labels
+                // rather than crashing) but every terminal/pin/ruler
+                // label silently renders blank
                 // if this ever fires, which is otherwise very hard to
                 // diagnose on a machine we can't reproduce against directly -
                 // see backend/CLAUDE.md's Build section for LE_FONT_DIR. The

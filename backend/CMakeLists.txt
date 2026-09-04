@@ -440,16 +440,26 @@ endif()
 # MemoizingStage/FanInCollectStage). The pre-restart module (STATIC,
 # compiled for its own Skia/CoreText default_typeface() - see git history)
 # has been moved to src/pipelines.old/ and is being rebuilt one stage at a
-# time (PIPELINE_REFACTOR.md's own methodology); today the module is
-# entirely header-only (no Skia/rasterization dependency yet - that
-# returns with the Warm tier), so this is an INTERFACE library rather than
-# STATIC. Revert to STATIC (and reinstate pipelines.cpp/
-# upright_text_canvas.cpp plus their Skia/fmt/spdlog/LE_FONT_DIR wiring -
-# see git history) once Warm-tier rasterization work needs a real
-# compiled TU again - don't carry that machinery speculatively until then.
-add_library(pipelines INTERFACE)
-target_include_directories(pipelines INTERFACE src)
-target_link_libraries(pipelines INTERFACE database view_style core TBB::tbb TracyClient)
+# time (PIPELINE_REFACTOR.md's own methodology). Was header-only (INTERFACE)
+# through the Cold tier and Warm stage 1 (ViewportCullStage, no Skia
+# dependency); reverted to STATIC here with the Warm tier's own
+# Rasterization/Compose stages, which do need a real compiled TU -
+# pipelines.cpp defines default_typeface() for the same reason the
+# pre-restart one did (see that file's own comment).
+add_library(pipelines STATIC src/pipelines/pipelines.cpp)
+target_include_directories(pipelines PUBLIC src)
+target_link_libraries(pipelines PUBLIC database view_style core skia fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
+
+# LE_FONT_DIR: Linux's default_typeface() (pipelines.cpp) loads its default
+# text font from this bundled directory rather than system fontconfig, so
+# text labels still render on a locked-down target machine with no fonts
+# installed at all - see pipelines.cpp's own comment. Not used on macOS
+# (CoreText already has system fonts).
+if(NOT APPLE)
+    set(LE_FONT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" CACHE PATH
+        "Directory of bundled fonts default_typeface() (pipelines.cpp) loads on Linux")
+    target_compile_definitions(pipelines PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
+endif()
 
 # --- io: LEF/DEF file readers ---
 add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp src/io/def_writer.cpp)
@@ -960,6 +970,8 @@ add_executable(pipelines_tests
     src/pipelines/tests/hierarchy_resolver_stage_test.cpp
     src/pipelines/tests/view_render_pipeline_test.cpp
     src/pipelines/tests/viewport_cull_stage_test.cpp
+    src/pipelines/tests/rasterize_stage_test.cpp
+    src/pipelines/tests/compose_stage_test.cpp
 )
 target_link_libraries(pipelines_tests PRIVATE database geometry view_style pipelines GTest::gtest_main)
 gtest_discover_tests(pipelines_tests)
@@ -976,6 +988,7 @@ add_executable(pipeline_benchmarks
     src/pipelines/benchmarks/layer_generation_benchmark.cpp
     src/pipelines/benchmarks/hierarchy_resolver_benchmark.cpp
     src/pipelines/benchmarks/viewport_cull_benchmark.cpp
+    src/pipelines/benchmarks/warm_tier_benchmark.cpp
 )
 target_link_libraries(pipeline_benchmarks PRIVATE database geometry view_style pipelines io benchmark::benchmark)
 target_compile_definitions(pipeline_benchmarks PRIVATE

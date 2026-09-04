@@ -1,8 +1,10 @@
 #pragma once
 
 #include "../database/database.hpp"
+#include "../view_style/view_style.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <variant>
 
 namespace le
@@ -61,5 +63,30 @@ namespace le
         /// space once composed through every ancestor placement's own
         /// transform on the way down, which is exactly what culling does.
         Rect viewport;
+
+        /// @brief Warm tier's own pixels-per-dbu-unit scale, shared by
+        /// every node's own rasterization (RasterizeStage) so composing
+        /// them (ComposeStage) is a plain translate+rotate per placement,
+        /// never a resample - see RasterizeStage's own doc comment.
+        double scale = 1.0;
+
+        /// @brief The current ViewLayerSet, so a Warm-tier drawing stage
+        /// (RasterizeStage) can resolve a ViewShape's own view_layer id
+        /// into real style (color/pattern) without a second graph input -
+        /// mirrors `root` above (shared context, not part of any one
+        /// stage's own InputData/OutputData) for the same reason: a real
+        /// make_edge already carries LayerGenerationStage's own output
+        /// into HierarchyResolverStage's InputData, but nothing wires it
+        /// any further downstream, so a later stage that still needs the
+        /// actual ViewLayerSet content (not just a recompute signal - the
+        /// data_version chain already provides that on its own) has
+        /// nowhere else to get it. Same type as LayerGenerationStage::
+        /// OutputHandle/HierarchyResolverStage::ViewLayerSetHandle (both
+        /// std::shared_ptr<const ViewLayerSet>) - spelled out directly
+        /// here rather than named via either alias, to avoid a circular
+        /// include (both those headers already include this one).
+        /// Never null-checked before use, same "degrade to empty output"
+        /// convention as `root`.
+        std::shared_ptr<const ViewLayerSet> view_layers;
     };
 }
