@@ -89,3 +89,14 @@ BM_Rasterize/BM_Compose isolate each stage the same way BM_ViewportCull was isol
 | Warm     | Rasterize  | 227 ms | 268 ms | 538 ms | 559 ms | 925 ms | 2.06 s  | Dominates the Warm tier entirely - accounts for essentially all of BM_WarmTier's own total |
 | Warm     | Compose    | 3.83 ms | 2.54 ms | 5.18 ms | 4.77 ms | 7.40 ms | 13.0 ms | Cheap and roughly flat - 20-150x under Rasterize at every point, not the problem |
 
+Commit: (pending)
+
+ViewRenderOptions::antialiasing_enabled added, default false (was unconditionally on) - RasterizeStage's own SkPaint fill/stroke/font antialiasing now opt-in. Every benchmark below leaves it at the new default (off), so this is a direct before/after of that one change alone:
+
+| Pipeline | Stage      | 1x1    | 2x1    | 2x2    | 3x2    | 3x3    | 5x5    | Comments                                                                 |
+| -------- | ---------- | ------ | ------ | ------ | ------ | ------ | ------ | ------------------------------------------------------------------------- |
+| Warm     | Rasterize  | 93.2 ms | 121 ms | 247 ms | 314 ms | 449 ms | 1.24 s | ~1.7-2.4x faster than with AA (227ms-2.06s) - real, but not close to closing the gap to 500ms |
+| Warm     | Full tier  | 82.6 ms | 120 ms | 232 ms | 313 ms | 470 ms | 1.19 s | 1x1/2x1/2x2 now under the 500ms tier budget; 3x2 upward still over it |
+
+AA was a real, measurable contributor (roughly half of Rasterize's own cost) but not the dominant one - something else in RasterizeStage's own per-shape drawing accounts for the rest. Not yet investigated further.
+

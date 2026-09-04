@@ -88,5 +88,14 @@ namespace le
         /// Never null-checked before use, same "degrade to empty output"
         /// convention as `root`.
         std::shared_ptr<const ViewLayerSet> view_layers;
+
+        /// @brief Whether RasterizeStage draws with antialiasing. Default
+        /// false: RasterizeStage draws every individual rect/path/polygon
+        /// with its own Skia draw call (no batching), and antialiasing
+        /// each one is a real, measured cost at real geometry counts
+        /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) - off by default so a
+        /// caller opts into the slower, smoother path deliberately rather
+        /// than paying for it unknowingly.
+        bool antialiasing_enabled = false;
     };
 }

@@ -78,8 +78,10 @@ namespace le
     /// dropping it). A 0-width Path draws as a hairline (SkPaint stroke
     /// width 0, Skia's own "always exactly 1 device pixel" convention) -
     /// this one nicety survives because it needs no extra code, not
-    /// because it was prioritized over the others.
-    inline void draw_view_shapes(SkCanvas &canvas, const std::vector<ViewShape> &shapes, const ViewLayerSet &view_layers, double scale)
+    /// because it was prioritized over the others. `antialiasing_enabled`
+    /// is ViewRenderOptions::antialiasing_enabled - see that field's own
+    /// comment for why it defaults false.
+    inline void draw_view_shapes(SkCanvas &canvas, const std::vector<ViewShape> &shapes, const ViewLayerSet &view_layers, double scale, bool antialiasing_enabled)
     {
         for (const ViewShape &view_shape : shapes)
         {
@@ -94,12 +96,12 @@ namespace le
                 continue;
 
             SkPaint fill;
-            fill.setAntiAlias(true);
+            fill.setAntiAlias(antialiasing_enabled);
             fill.setStyle(SkPaint::kFill_Style);
             fill.setColor(to_sk_color(style.fill_color));
 
             SkPaint stroke;
-            stroke.setAntiAlias(true);
+            stroke.setAntiAlias(antialiasing_enabled);
             stroke.setStyle(SkPaint::kStroke_Style);
             stroke.setColor(to_sk_color(style.outline_color));
             if (style.dashed)
@@ -151,10 +153,10 @@ namespace le
                     continue;
 
                 SkFont font(default_typeface(), pixel_size);
-                font.setEdging(SkFont::Edging::kAntiAlias);
+                font.setEdging(antialiasing_enabled ? SkFont::Edging::kAntiAlias : SkFont::Edging::kAlias);
 
                 SkPaint text_paint;
-                text_paint.setAntiAlias(true);
+                text_paint.setAntiAlias(antialiasing_enabled);
                 text_paint.setColor(to_sk_color(style.outline_color));
 
                 // Counters the active canvas matrix's own scale+flip (see
@@ -291,7 +293,7 @@ namespace le
                 canvas->scale(static_cast<SkScalar>(options.scale), static_cast<SkScalar>(-options.scale));
                 canvas->translate(static_cast<SkScalar>(-local_bbox.ll.x), static_cast<SkScalar>(-local_bbox.ll.y));
 
-                draw_view_shapes(*canvas, data.shapes ? *data.shapes : kEmptyShapes, view_layers, options.scale);
+                draw_view_shapes(*canvas, data.shapes ? *data.shapes : kEmptyShapes, view_layers, options.scale, options.antialiasing_enabled);
 
                 result.images.emplace(id, RasterizedImage{surface->makeImageSnapshot(), local_bbox.ll});
             }
@@ -307,7 +309,8 @@ namespace le
                    last.viewport.ll.y != current.viewport.ll.y ||
                    last.viewport.ur.x != current.viewport.ur.x ||
                    last.viewport.ur.y != current.viewport.ur.y ||
-                   last.view_layers != current.view_layers;
+                   last.view_layers != current.view_layers ||
+                   last.antialiasing_enabled != current.antialiasing_enabled;
         }
 
     private:
