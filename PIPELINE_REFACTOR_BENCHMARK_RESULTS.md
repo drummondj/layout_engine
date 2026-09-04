@@ -56,3 +56,11 @@ MemoizingStage now caches OutputData as a shared_ptr instead of a value (root ca
 | Cold     | LayerGeneration   | 45.0 us | 44.5 us | 43.2 us | 44.3 us | 43.0 us | 45.8 us | 4.09 GB (cumulative, full suite) | ~45% faster than before too - was paying a smaller version of the same copy cost |
 | Cold     | HierarchyResolver | 50.2 ms | 91.2 ms | 202 ms | 299 ms | 552 ms | 2.1 s  | ~3.6 GB (isolated) | 2-4x faster at every point; 5x5 now comfortably meets the 5s/1M-component target (was ~6.5-8.9s/~6.5GB) |
 
+Commit: 6478286
+
+Warm stage 1 (ViewportCullStage) - viewport is the central half of the design's own declared bbox by each axis; "zoom always re-computes" case (fresh runner per iteration, same convention as HierarchyResolver's own):
+
+| Pipeline | Stage        | 1x1     | 2x1     | 2x2     | 3x2    | 3x3    | 5x5    | Comments                                                                            |
+| -------- | ------------ | ------- | ------- | ------- | ------ | ------ | ------ | ------------------------------------------------------------------------------------ |
+| Warm     | ViewportCull | 21.4 ms | 44.6 ms | 87.6 ms | 135 ms | 210 ms | 1.75 s | Linear in placement count (no spatial index yet); 5x5 misses the 500ms target ~3.5x |
+
