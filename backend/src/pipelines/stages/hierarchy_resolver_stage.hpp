@@ -59,10 +59,27 @@ namespace le
     /// resolved (Layout vs. Abstract, per HierarchyId's own comment)
     /// rather than the raw PlacementData::reference_design, so a Warm-tier
     /// consumer never has to re-run resolve_design_target itself.
+    ///
+    /// `location`/`orientation` and `bbox` serve two different downstream
+    /// purposes and neither substitutes for the other: `bbox` (this
+    /// placement's own resolved world-space footprint, in this Layout's
+    /// own local dbu space - what placement_world_bbox, core/
+    /// placement_geometry.hpp, computes) is what a Warm-tier viewport-
+    /// culling stage tests against the viewport Rect - cheap AABB-vs-AABB,
+    /// no per-shape work. `location`/`orientation` are what a *later*
+    /// compose step needs to actually draw the child's own real content
+    /// once a placement survives culling - `bbox` alone can't reconstruct
+    /// that (orientation isn't recoverable from a bounding box, and even
+    /// for a fixed orientation, `location` and `bbox.ll` only coincide
+    /// when the referenced Abstract's own declared ORIGIN is (0, 0) -
+    /// AbstractData.origin isn't applied yet, core/placement_geometry.hpp's
+    /// own resolved_local_bbox comment, but once it is they can genuinely
+    /// differ, so this doesn't collapse to one field even in principle).
     struct ViewPlacementData
     {
         HierarchyId id;
         Point location;
+        Rect bbox;
         Orientation orientation = Orientation::N;
     };
 
@@ -103,16 +120,19 @@ namespace le
     /// Placement -> Design hierarchy from ColdPipelineOptions::top_level,
     /// consuming one unit of ColdPipelineOptions::hierarchy_depth per
     /// Layout -> Layout hop. At remaining_depth == 0 a Layout's own
-    /// placements are never resolved into anything at all (not even a
-    /// fallback to their own Abstract) - only that Layout's own direct
-    /// content appears (see collect_layout_content's own comment on
-    /// PLACEMENT_BOUNDARY, the placeholder that's still visible there).
-    /// This is a deliberate departure from resolve_design_target's own
-    /// "fall back to the Abstract regardless of remaining depth"
-    /// convention (core/placement_geometry.hpp) - still the right choice,
-    /// and still used here for sizing a placement's own placeholder
-    /// rect, for every *other* caller (hit-testing, Scene::hierarchy_depth()'s
-    /// own documented semantics, backend/CLAUDE.md) - this stage's own
+    /// placements are never *resolved* into anything at all (not even a
+    /// fallback to their own Abstract) - placement_data stays empty and
+    /// nothing is pushed onto the worklist - but each placement's own
+    /// PLACEMENT_BOUNDARY placeholder rect+label is still drawn (see the
+    /// main compute() loop's own comment), since that's real data about
+    /// this Layout's own direct content, not about what a placement
+    /// resolves to. This is a deliberate departure from
+    /// resolve_design_target's own "fall back to the Abstract regardless
+    /// of remaining depth" convention (core/placement_geometry.hpp) -
+    /// still the right choice, and still used here for sizing a
+    /// placement's own placeholder rect/ViewPlacementData::bbox, for
+    /// every *other* caller (hit-testing, Scene::hierarchy_depth()'s own
+    /// documented semantics, backend/CLAUDE.md) - this stage's own
     /// depth==0 case just isn't one of them: "traverses hierarchy ...
     /// until hierarchy_depth is 0" is read literally here, not as
     /// "one further Abstract-only hop past 0."
@@ -197,59 +217,102 @@ namespace le
 
                 if (const LayoutId *layout_id = std::get_if<LayoutId>(&item.id))
                 {
-                    ViewData data = collect_layout_content(root, view_layers, *layout_id, item.remaining_depth);
+                    ViewData data = collect_layout_content(root, view_layers, *layout_id);
 
-                    // remaining_depth == 0: this Layout's own direct
-                    // content (just gathered above, PLACEMENT_BOUNDARY
-                    // placeholders included) is everything shown here -
-                    // no placement is resolved into a further Abstract or
-                    // Layout, and placement_data stays empty. Reading
-                    // "traverses hierarchy ... until hierarchy_depth is 0"
-                    // literally: depth 0 means the top level, full stop -
-                    // deliberately NOT resolve_design_target's own
-                    // "fall back to the Abstract regardless of depth"
-                    // convention (used elsewhere - hit-testing,
-                    // placement_world_bbox's own bbox sizing above), which
-                    // would otherwise materialize every placement's own
-                    // Abstract content even at depth 0. Applies uniformly
-                    // at every node this traversal reaches, not just the
-                    // very first one: a nested Layout discovered with
-                    // remaining_depth already at 0 shows the same "just
-                    // this level" behavior.
+                    const auto &placements = root.get_layout_placements(*layout_id);
                     if (item.remaining_depth > 0)
-                    {
-                        const auto &placements = root.get_layout_placements(*layout_id);
                         data.placement_data.reserve(placements.size()); // exact upper bound - not every placement resolves
-                        for (PlacementId placement_id : placements)
+
+                    // One PLACEMENT_BOUNDARY rect+label per placement,
+                    // batched into a single Shape - measured directly
+                    // against aes_scaling_3x3 (372,096 placements): a
+                    // one-Shape-per-placement version spent ~126ms of its
+                    // ~149ms total on Shape/Text construction and the two
+                    // heap allocations each incurs, not on bbox/label
+                    // geometry (~23ms combined) - batching turns
+                    // O(placements) allocations into O(1) (one reserve()
+                    // each up front). ViewShape has no SelectionRef/
+                    // ShapeId of its own (unlike the pre-restart
+                    // RenderedShape) so there's no independent per-
+                    // placement selection identity this would need to
+                    // preserve, unlike Row/Region's own one-per-item
+                    // convention elsewhere in this file.
+                    //
+                    // Computed here, in the same loop as the resolve/
+                    // recurse decision, rather than as a separate pass
+                    // over collect_layout_content: both need
+                    // resolve_design_target's own dispatch for this same
+                    // placement, and both need the same resolved bbox
+                    // (ViewPlacementData::bbox and this placeholder's own
+                    // rect are now the exact same value, computed once,
+                    // not twice) - a real, measured redundancy this
+                    // consolidation removes, not just a tidiness pass.
+                    Shape placement_boundary_shape;
+                    placement_boundary_shape.rects.reserve(placements.size());
+                    placement_boundary_shape.texts.reserve(placements.size());
+
+                    for (PlacementId placement_id : placements)
+                    {
+                        const PlacementData *placement = root.get_placement(placement_id);
+                        if (!placement || !placement->location || !placement->reference_design.valid())
+                            continue;
+
+                        // resolve_design_target is called unconditionally
+                        // (regardless of remaining_depth) - the placeholder
+                        // rect below always needs a resolved size, even at
+                        // remaining_depth == 0 where nothing gets visited
+                        // past this point (see this class's own top
+                        // comment on why depth 0 still draws placeholders).
+                        const DesignTarget target = resolve_design_target(root, placement->reference_design, item.remaining_depth);
+                        HierarchyId child_id;
+                        Rect child_local_bbox;
+                        if (target.kind == DesignTarget::Kind::Layout)
                         {
-                            const PlacementData *placement = root.get_placement(placement_id);
-                            if (!placement || !placement->location || !placement->reference_design.valid())
-                                continue;
-
-                            const DesignTarget target = resolve_design_target(root, placement->reference_design, item.remaining_depth);
-                            HierarchyId child_id;
-                            int child_remaining_depth = 0;
-                            if (target.kind == DesignTarget::Kind::Layout)
-                            {
-                                child_id = target.layout_id;
-                                child_remaining_depth = item.remaining_depth - 1;
-                            }
-                            else if (target.kind == DesignTarget::Kind::Abstract)
-                            {
-                                child_id = target.abstract_id;
-                            }
-                            else
-                            {
-                                continue; // unresolved reference_design - nothing to place
-                            }
-
-                            data.placement_data.push_back(ViewPlacementData{
-                                .id = child_id,
-                                .location = *placement->location,
-                                .orientation = placement->orientation.value_or(Orientation::N),
-                            });
-                            worklist.push_back(WorkItem{child_id, child_remaining_depth});
+                            child_id = target.layout_id;
+                            child_local_bbox = layout_declared_bbox(root, target.layout_id);
                         }
+                        else if (target.kind == DesignTarget::Kind::Abstract)
+                        {
+                            child_id = target.abstract_id;
+                            child_local_bbox = abstract_declared_bbox(root, target.abstract_id);
+                        }
+                        else
+                        {
+                            continue; // unresolved reference_design - nothing to place or draw
+                        }
+
+                        const Orientation orientation = placement->orientation.value_or(Orientation::N);
+                        const Geometry::InstanceTransform transform = Geometry::instance_transform(orientation, child_local_bbox, *placement->location);
+                        const Rect bbox = Geometry::transform_bbox(transform, child_local_bbox);
+
+                        // Label position/size computed directly from
+                        // `bbox` (a rect's own center, and
+                        // min(width, height)) rather than calling
+                        // Geometry::get_label_location/local_width_at on
+                        // a throwaway single-rect Shape - see the
+                        // preserved comment below for why.
+                        const Point label_location{(bbox.ll.x + bbox.ur.x) / 2, (bbox.ll.y + bbox.ur.y) / 2};
+                        const double label_size = static_cast<double>(std::min(bbox.ur.x - bbox.ll.x, bbox.ur.y - bbox.ll.y));
+                        placement_boundary_shape.rects.push_back(bbox);
+                        placement_boundary_shape.texts.push_back(Text{.label = placement->name, .location = label_location, .size = label_size});
+
+                        if (item.remaining_depth <= 0)
+                            continue; // depth exhausted - placeholder drawn above, nothing further resolved/visited
+
+                        const int child_remaining_depth = target.kind == DesignTarget::Kind::Layout ? item.remaining_depth - 1 : 0;
+                        data.placement_data.push_back(ViewPlacementData{
+                            .id = child_id,
+                            .location = *placement->location,
+                            .bbox = bbox,
+                            .orientation = orientation,
+                        });
+                        worklist.push_back(WorkItem{child_id, child_remaining_depth});
+                    }
+
+                    if (!placement_boundary_shape.rects.empty())
+                    {
+                        const ViewLayerId placement_boundary_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
+                        data.shapes.push_back(ViewShape{.shape = std::move(placement_boundary_shape), .view_layer = placement_boundary_view_layer});
                     }
 
                     result.view_data.emplace(item.id, std::move(data));
@@ -443,10 +506,10 @@ namespace le
         // parametric geometry - Migration Step 2's own plan) - synthesized
         // here exactly as LayoutGeometryStage's own append_*_shapes did.
         //
-        // Batched into one shared Shape (same reasoning as
-        // append_placement_boundary_shapes' own comment: ViewShape has no
-        // SelectionRef/ShapeId of its own to preserve per-Row, unlike the
-        // pre-restart RenderedShape) rather than one Shape/ViewShape per
+        // Batched into one shared Shape (same reasoning as the main
+        // compute() loop's own placement-boundary batching: ViewShape has
+        // no SelectionRef/ShapeId of its own to preserve per-Row, unlike
+        // the pre-restart RenderedShape) rather than one Shape/ViewShape per
         // Row, the pre-restart stage's own convention - Row count is far
         // below Placement's own (hundreds to low thousands, not hundreds
         // of thousands), so the absolute win is smaller, but it's the same
@@ -554,82 +617,7 @@ namespace le
             }
         }
 
-        // One PLACEMENT_BOUNDARY-purpose rect per Placement in the Layout,
-        // labeled with its own name (Text, same convention Terminal
-        // labels use in collect_abstract_content) - the Placement's own
-        // resolved footprint, in this Layout's own local dbu space. Uses
-        // placement_world_bbox (core/placement_geometry.hpp) - the same
-        // resolve_design_target-based dispatch compute()'s own placement
-        // loop already applies for recursion, so a placement's own drawn
-        // boundary always matches what it actually resolves to (Layout vs.
-        // Abstract) at this remaining_depth, not just its raw declared
-        // size. Skips a placement compute()'s own loop already skips too
-        // (no location, no/unresolved reference_design) - same "nothing
-        // to draw for an unplaced/dangling placement" convention.
-        //
-        // All rects/labels are batched into a single Shape (like
-        // append_gcell_grid_shapes' own `lines` accumulator, not like
-        // append_row_shapes' own one-Shape-per-Row) rather than one Shape
-        // (and one ViewShape push_back) per placement - measured directly
-        // against the real aes_scaling_3x3 fixture (372,096 placements):
-        // the one-per-placement version spent ~126ms of its ~149ms total
-        // on Shape/Text construction and the two heap allocations each
-        // incurs (rects.push_back, texts.push_back), not on
-        // placement_world_bbox or label geometry (~23ms combined) - a
-        // real, measured cost, not a hypothetical one. Batching turns
-        // O(placements) allocations for rects/texts into O(1) (one
-        // reserve() each up front); ViewShape has no SelectionRef/ShapeId
-        // of its own (unlike the pre-restart RenderedShape - see this
-        // class's own top comment) so there's no independent per-
-        // placement selection identity this would need to preserve,
-        // unlike Row/Region's own one-per-item convention elsewhere in
-        // this file.
-        //
-        // Label position/size is computed directly from `bbox` (a rect's
-        // own center, and min(width, height) - exactly what
-        // Geometry::get_label_location/local_width_at themselves compute
-        // for a single-rect shape, confirmed against their own
-        // implementation) rather than calling those generic functions on
-        // a throwaway single-rect Shape: besides the avoidable allocation
-        // that throwaway Shape's own rects vector would cost, calling
-        // them on the real accumulating `shape` instead would rescan
-        // every rect gathered *so far* on every single placement,
-        // turning this loop quadratic in placement count.
-        static void append_placement_boundary_shapes(const Root &root, LayoutId layout_id, const ViewLayerSet &view_layers, int remaining_depth, std::vector<ViewShape> &shapes)
-        {
-            const auto &placements = root.get_layout_placements(layout_id);
-            if (placements.empty())
-                return;
-
-            Shape shape;
-            shape.rects.reserve(placements.size());
-            shape.texts.reserve(placements.size());
-
-            for (PlacementId placement_id : placements)
-            {
-                const std::optional<Rect> bbox = placement_world_bbox(root, placement_id, remaining_depth);
-                if (!bbox)
-                    continue;
-
-                const PlacementData *placement = root.get_placement(placement_id);
-                if (!placement)
-                    continue;
-
-                const Point label_location{(bbox->ll.x + bbox->ur.x) / 2, (bbox->ll.y + bbox->ur.y) / 2};
-                const double label_size = static_cast<double>(std::min(bbox->ur.x - bbox->ll.x, bbox->ur.y - bbox->ll.y));
-
-                shape.rects.push_back(*bbox);
-                shape.texts.push_back(Text{.label = placement->name, .location = label_location, .size = label_size});
-            }
-
-            if (shape.rects.empty())
-                return;
-
-            const ViewLayerId placement_boundary_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
-            shapes.push_back(ViewShape{.shape = std::move(shape), .view_layer = placement_boundary_view_layer});
-        }
-
-        static ViewData collect_layout_content(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, int remaining_depth)
+        static ViewData collect_layout_content(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id)
         {
             ViewData data;
 
@@ -679,7 +667,12 @@ namespace le
             append_track_shapes(root, layout_id, view_layers, data.shapes);
             append_gcell_grid_shapes(root, layout_id, view_layers, data.shapes);
             append_region_shapes(root, layout_id, view_layers, data.shapes);
-            append_placement_boundary_shapes(root, layout_id, view_layers, remaining_depth, data.shapes);
+            // PLACEMENT_BOUNDARY is added by the main compute() loop, not
+            // here - it needs resolve_design_target's own per-placement
+            // dispatch (Layout vs. Abstract, depth-dependent) and the
+            // same resolved bbox that loop's own ViewPlacementData::bbox
+            // uses, so it's computed once there rather than duplicated
+            // into a second pass over this Layout's own placements.
 
             return data;
         }

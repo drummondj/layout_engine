@@ -140,6 +140,42 @@ TEST_F(HierarchyResolverStageFixture, DepthOneResolvesTopLevelPlacementsButNotTh
     EXPECT_TRUE(block_data.placement_data.empty());
 }
 
+TEST_F(HierarchyResolverStageFixture, PlacementDataBboxMatchesPlacementBoundaryShapeRect)
+{
+    const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 1);
+    const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options);
+
+    const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
+    ASSERT_EQ(top_data.placement_data.size(), 1u);
+
+    // BLOCK's Layout declares a 1000x1000 diearea at depth 1 (BLOCK
+    // resolves to its Layout, not its Abstract - see
+    // DepthOneResolvesTopLevelPlacementsButNotTheirOwn), placed at
+    // (100, 100) with orientation N (identity transform) - the world
+    // bbox is that diearea translated by the placement's own location.
+    const Rect &bbox = top_data.placement_data[0].bbox;
+    EXPECT_EQ(bbox.ll.x, 100);
+    EXPECT_EQ(bbox.ll.y, 100);
+    EXPECT_EQ(bbox.ur.x, 1100);
+    EXPECT_EQ(bbox.ur.y, 1100);
+
+    // Not just equal in value - the exact same bbox computed once and
+    // reused for the PLACEMENT_BOUNDARY placeholder shape's own rect
+    // (the whole point of folding this computation into one pass - see
+    // the main compute() loop's own comment).
+    const ViewLayerId placement_boundary_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
+    const ViewShape *top_boundary_shape = nullptr;
+    for (const ViewShape &view_shape : top_data.shapes)
+        if (view_shape.view_layer == placement_boundary_layer)
+            top_boundary_shape = &view_shape;
+    ASSERT_NE(top_boundary_shape, nullptr);
+    ASSERT_EQ(top_boundary_shape->shape.rects.size(), 1u);
+    EXPECT_EQ(top_boundary_shape->shape.rects[0].ll.x, bbox.ll.x);
+    EXPECT_EQ(top_boundary_shape->shape.rects[0].ll.y, bbox.ll.y);
+    EXPECT_EQ(top_boundary_shape->shape.rects[0].ur.x, bbox.ur.x);
+    EXPECT_EQ(top_boundary_shape->shape.rects[0].ur.y, bbox.ur.y);
+}
+
 TEST_F(HierarchyResolverStageFixture, DepthTwoRecursesIntoLayoutAndDedupesRepeatedPlacements)
 {
     const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 2);
