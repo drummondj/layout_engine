@@ -133,7 +133,7 @@ Fixed BM_WarmTier's own pan_index bug above (increment before use, matching BM_R
 | -------- | --------------- | ------- | -------- | --------------------------------------------------------------------------- |
 | Warm     | Full tier (warm) | 1.38 s  | 3.88 GB  | Now matches Rasterize (1.38s) + Compose (12.8ms) + ViewportCull (~1ms) almost exactly, as it should. This is the steady-state per-tick cost, NOT a Cold+Warm total. |
 
-Commit: (pending)
+Commit: ff29bda
 
 Added BM_WarmTierColdStart - the number the row above can't give: the TRUE first-render cost (Cold running for real, immediately followed by one Warm tick, no untimed warm-up priming any cache first - a fresh ViewRenderPipeline per timed iteration, `->Iterations(1)` forced since Google Benchmark's own calibration would otherwise invoke the whole thing, construction included, more than once):
 
