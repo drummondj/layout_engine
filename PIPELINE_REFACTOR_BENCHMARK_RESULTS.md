@@ -17,3 +17,9 @@ Commit: 6e05291
 | -------- | ----------------- | ------ | ------ | ------ | ------- | ------- | --------------------------------------------- |
 | Cold     | HierarchyResolver | 156 ms | 289 ms | 762 ms | 1187 ms | 2017 ms | +PLACEMENT_BOUNDARY per-placement label cost |
 
+Commit: bcf6293
+
+| Pipeline | Stage             | 1x1    | 2x1    | 2x2    | 3x2    | 3x3     | Comments                                    |
+| -------- | ----------------- | ------ | ------ | ------ | ------ | ------- | -------------------------------------------- |
+| Cold     | HierarchyResolver | 121 ms | 262 ms | 609 ms | 996 ms | 1571 ms | Batched PLACEMENT_BOUNDARY shapes, ~9-22% faster |
+
