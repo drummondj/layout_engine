@@ -988,6 +988,8 @@ add_executable(pipeline_benchmarks
     src/pipelines/benchmarks/layer_generation_benchmark.cpp
     src/pipelines/benchmarks/hierarchy_resolver_benchmark.cpp
     src/pipelines/benchmarks/viewport_cull_benchmark.cpp
+    src/pipelines/benchmarks/rasterize_benchmark.cpp
+    src/pipelines/benchmarks/compose_benchmark.cpp
     src/pipelines/benchmarks/warm_tier_benchmark.cpp
 )
 target_link_libraries(pipeline_benchmarks PRIVATE database geometry view_style pipelines io benchmark::benchmark)
