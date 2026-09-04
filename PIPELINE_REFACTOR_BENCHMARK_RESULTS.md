@@ -100,7 +100,7 @@ ViewRenderOptions::antialiasing_enabled added, default false (was unconditionall
 
 AA was a real, measurable contributor (roughly half of Rasterize's own cost) but not the dominant one - something else in RasterizeStage's own per-shape drawing accounts for the rest. Not yet investigated further.
 
-Commit: (pending)
+Commit: 47b0ae3
 
 HierarchyResolverStage now sorts each node's own `shapes` by ViewLayerId draw order (a correctness fix - shapes were previously drawn in whatever order this stage happened to collect them in, not bottom-to-top by ViewLayer, so e.g. a node's own BOUNDARY shape - created well before any physical layer's TERMINAL/OBSTRUCTION - could render on TOP of them instead of below). A real, one-time Cold-tier cost (std::stable_sort per node, dominated by the single large top-level node at scale), paid once per Cold recompute and amortized across every subsequent Warm-tier tick - not a per-frame cost:
 
