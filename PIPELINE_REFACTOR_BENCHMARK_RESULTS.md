@@ -127,9 +127,17 @@ Full Cold->Warm chain (BM_WarmTier, LayerGeneration->HierarchyResolver->Viewport
 
 Commit: 92471a2
 
-Fixed BM_WarmTier's own pan_index bug above (increment before use, matching BM_Rasterize/BM_Compose's own already-correct pattern) and reran:
+Fixed BM_WarmTier's own pan_index bug above (increment before use, matching BM_Rasterize/BM_Compose's own already-correct pattern) and reran. Mislabeled in the row above, too, not just the number: BM_WarmTier's own untimed warm-up call already runs Cold for real once, and root_mutation_version/top_level/hierarchy_depth never change for the rest of the benchmark - so every TIMED iteration is a guaranteed Cold cache hit. This number is Warm's own steady-state per-tick cost alone (the 2nd, 3rd, ... Nth pan/zoom tick against an already-resolved design), not "Cold+Warm" - Cold's own cost never appears in it at all:
 
-| Pipeline  | Stage         | Time    | Peak RSS | Comments                                                                 |
-| --------- | ------------- | ------- | -------- | --------------------------------------------------------------------------- |
-| Cold+Warm | Full pipeline | 1.38 s  | 3.88 GB  | Now matches Rasterize (1.38s) + Compose (12.8ms) + ViewportCull (~1ms) almost exactly, as it should |
+| Pipeline | Stage           | Time    | Peak RSS | Comments                                                                 |
+| -------- | --------------- | ------- | -------- | --------------------------------------------------------------------------- |
+| Warm     | Full tier (warm) | 1.38 s  | 3.88 GB  | Now matches Rasterize (1.38s) + Compose (12.8ms) + ViewportCull (~1ms) almost exactly, as it should. This is the steady-state per-tick cost, NOT a Cold+Warm total. |
+
+Commit: (pending)
+
+Added BM_WarmTierColdStart - the number the row above can't give: the TRUE first-render cost (Cold running for real, immediately followed by one Warm tick, no untimed warm-up priming any cache first - a fresh ViewRenderPipeline per timed iteration, `->Iterations(1)` forced since Google Benchmark's own calibration would otherwise invoke the whole thing, construction included, more than once):
+
+| Pipeline  | Stage                    | Time                    | Peak RSS      | Comments                                                                 |
+| --------- | ------------------------ | ------------------------ | ------------- | --------------------------------------------------------------------------- |
+| Cold+Warm | First render (cold start) | 3.21 s mean (2.89-3.73 s, 3 runs) | 3.65-3.73 GB | Consistent with Cold (2.14s) + Warm (1.38s) summed independently (~3.5s) - confirms the two numbers above really do add up for a genuine first render |
 
