@@ -119,3 +119,9 @@ Superseded the sort above with a structural fix instead: HierarchyResolverStage 
 | Cold     | HierarchyResolver | 55.3 ms | 99.5 ms | 199 ms | 310 ms | 781 ms | 2.14 s | Sort cost fully gone - back to pre-sort numbers (~50-91ms/2.1s), correctness kept |
 | Warm     | Rasterize         | 92.5 ms | 137 ms | 271 ms | 358 ms | 518 ms | 1.40 s | Essentially unchanged from per-shape paint construction - confirms paint construction was never the dominant cost here, something else in the per-shape draw calls is |
 
+Full Cold->Warm chain (BM_WarmTier, LayerGeneration->HierarchyResolver->ViewportCull->Rasterize->Compose via ViewRenderPipeline::run_warm()), 5x5 only, run in isolation (`--benchmark_filter=BM_WarmTier/5x5`) so peak RSS reflects this one design, not every cached fixture:
+
+| Pipeline  | Stage         | Time    | Peak RSS | Comments                                                    |
+| --------- | ------------- | ------- | -------- | ------------------------------------------------------------ |
+| Cold+Warm | Full pipeline | 1.25 s  | 3.69 GB  | Steady-state pan-sequence timing (one persistent pipeline, matching every other Warm-tier benchmark's own convention) |
+
