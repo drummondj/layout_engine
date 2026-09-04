@@ -38,3 +38,12 @@ Commit: abc3013
 | Cold     | LayerGeneration   | 79.7 us   | -        | Still flat/O(1) at ~1M components                         |
 | Cold     | HierarchyResolver | 5.9-6.2 s | ~6.6 GB  | Exceeds the 5s/1M-component target (repeatable across 2 runs); peak RSS is whole-process (DEF parse into Root + compute()) |
 
+Commit: f385beb
+
+Same 5x5 point, now measured via the built-in PeakRSS_MB counter (`--benchmark_filter=5x5`) instead of manually wrapping with `/usr/bin/time -v` - confirms the earlier manual reading, no logic changes this commit (benchmark reporting infrastructure only):
+
+| Pipeline | Stage             | Time    | Peak RSS  | Comments                                    |
+| -------- | ----------------- | ------- | --------- | -------------------------------------------- |
+| Cold     | LayerGeneration   | 80.8 us | 2.27 GB   | Peak RSS here is mostly just the DEF parse into Root - LayerGeneration itself never touches placements |
+| Cold     | HierarchyResolver | 6.55 s  | 6.53 GB   | Consistent with the manual /usr/bin/time reading (~6.6-6.7GB) |
+
