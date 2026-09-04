@@ -59,8 +59,11 @@ The pipeline will be split into 3 parts, cold, warm and hot:
                 struct HierarchyResolverOutput {
                     std::unordered_map<std::variant<AbstractId, LayoutId>> view_data;
                 }
-
-2. Warm - TBD triggered by viewport changes, converts Cold data into razterized images.
+2. Warm - triggered by viewport changes, converts Cold data into razterized images.
     Speed requirement: 500ms (would prefer as fast as possible)
+    Stages:
+        1. ViewData culling - removes ViewData that is not required in the current viewport based on ViewPlacementData
+        2. Rasterization - raterize each ViewData entry afer culling, into it's own image
+        3. Compose each image based on ViewData placements, into one image.
 3. Hot - TBD Mouse movement, selection highlighting and zoom/selection rectangle rendering. Plus a final image composition.
     Speed requirement: 100ms (again as fast as possible)

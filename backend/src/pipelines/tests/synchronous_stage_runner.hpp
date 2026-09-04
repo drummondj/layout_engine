@@ -59,6 +59,14 @@ namespace le
         // hand-threading a separately-tracked counter.
         std::uint64_t last_version() const { return result_.data_version; }
 
+        // The last-emitted output's own handle (shared_ptr<const
+        // OutputData>) - lets a caller feed this stage's own output
+        // directly into a downstream stage's InputData without
+        // re-wrapping the dereferenced run() result in a new shared_ptr
+        // (which would break MemoizingStage's own cache-identity
+        // assumptions for that downstream stage).
+        OutputHandle last_handle() const { return result_.data; }
+
     private:
         oneapi::tbb::flow::graph graph_;
         Stage stage_;

@@ -425,6 +425,52 @@ namespace le
             return Rect{.ll = lo, .ur = hi};
         }
 
+        /// @brief Composes two InstanceTransforms into one equivalent to
+        /// applying `inner` first, then `outer` - i.e.
+        /// apply_linear(compose(outer, inner).linear, p) + compose(outer,
+        /// inner).translation == outer applied to (inner applied to p),
+        /// for any point p. Needed to walk a Placement hierarchy more than
+        /// one level deep without returning to Root: a nested placement's
+        /// own InstanceTransform (ViewPlacementData::transform,
+        /// src/pipelines/stages/hierarchy_resolver_stage.hpp) maps its own
+        /// content into its *immediate* parent's local space only: to
+        /// place that content directly into a further ancestor's own
+        /// space (e.g. a viewport-culling stage's own running accumulated
+        /// transform while recursing top-down), that ancestor's own
+        /// transform must be composed with each descendant's own, one
+        /// level at a time, exactly as this function does.
+        /// @brief The identity InstanceTransform (maps every point to
+        /// itself) - the correct starting point for composing down from a
+        /// hierarchy's own top level (e.g. viewport culling's own running
+        /// accumulated transform before any placement has been applied).
+        /// Deliberately not just `InstanceTransform{}` - a default-
+        /// constructed one has `linear = LinearTransform2D{0, 0, 0, 0}`
+        /// (every point collapses to the origin), not the identity matrix
+        /// `orientation_linear(Orientation::N)` produces.
+        static InstanceTransform identity_transform()
+        {
+            return InstanceTransform{.linear = orientation_linear(Orientation::N), .translation = Point{0, 0}};
+        }
+
+        static InstanceTransform compose(const InstanceTransform &outer, const InstanceTransform &inner)
+        {
+            const LinearTransform2D &a = outer.linear;
+            const LinearTransform2D &b = inner.linear;
+            const Point rotated_inner_translation = apply_linear(a, inner.translation);
+            return InstanceTransform{
+                .linear = LinearTransform2D{
+                    .a = a.a * b.a + a.b * b.c,
+                    .b = a.a * b.b + a.b * b.d,
+                    .c = a.c * b.a + a.d * b.c,
+                    .d = a.c * b.b + a.d * b.d,
+                },
+                .translation = Point{
+                    .x = rotated_inner_translation.x + outer.translation.x,
+                    .y = rotated_inner_translation.y + outer.translation.y,
+                },
+            };
+        }
+
         static Polygon rect_to_polygon(const Rect &rect)
         {
             std::vector<Point> points;

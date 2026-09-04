@@ -959,6 +959,7 @@ add_executable(pipelines_tests
     src/pipelines/tests/layer_generation_stage_test.cpp
     src/pipelines/tests/hierarchy_resolver_stage_test.cpp
     src/pipelines/tests/view_render_pipeline_test.cpp
+    src/pipelines/tests/viewport_cull_stage_test.cpp
 )
 target_link_libraries(pipelines_tests PRIVATE database geometry view_style pipelines GTest::gtest_main)
 gtest_discover_tests(pipelines_tests)
