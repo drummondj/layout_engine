@@ -435,40 +435,21 @@ else()
     target_link_libraries(skia INTERFACE freetype)
 endif()
 
-# --- pipelines: dbu->pixel transform + Skia SkPicture generation, built on
-# oneTBB's flow::graph (backend/ONETBB_INTEGRATION.md migration, Phase 5c
-# cutover) - the direct replacement for the former pipeline/render/
-# instancing modules (deleted; see git history for their own doc comments,
-# preserved in this module's own stage-class comments as "oneTBB port of
-# src/render/stages/..." provenance notes). Compiled (not header-only) so
-# pipelines.cpp alone pulls in the CoreText font manager's
-# ApplicationServices.h - see default_typeface()'s own comment (in
-# draw_helpers.hpp) for why that can't be a header-only detail. ---
-add_library(pipelines STATIC src/pipelines/pipelines.cpp src/pipelines/upright_text_canvas.cpp)
-target_include_directories(pipelines PUBLIC src)
-target_link_libraries(pipelines PUBLIC database geometry scene view_style core skia fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
-
-# upright_text_canvas.cpp holds UprightTextCanvas's sole out-of-line virtual
-# (its destructor - see the class's own comment, upright_text_canvas.hpp) so
-# its vtable/typeinfo are emitted exactly once, here, rather than vaguely-
-# linked into every TU that constructs one. -fno-rtti matches this vendored
-# Skia build: SkPaintFilterCanvas/SkCanvas have vtables but no `typeinfo for`
-# symbol anywhere in libskia.a (Skia's own official build disables RTTI for
-# its core classes) - a normal RTTI-enabled TU defining this class's vtable
-# fails to link ("Undefined symbols: typeinfo for SkPaintFilterCanvas").
-set_source_files_properties(src/pipelines/upright_text_canvas.cpp PROPERTIES COMPILE_OPTIONS "-fno-rtti")
-
-# LE_FONT_DIR: Linux's default_typeface() (pipelines.cpp) loads its default
-# font from this bundled directory (backend/assets/fonts, committed to the
-# repo - DejaVu Sans, Bitstream-Vera licensed) instead of system fontconfig,
-# so rendering doesn't depend on the target machine having any fonts
-# installed at all - see pipelines.cpp's own comment. Not used on macOS
-# (CoreText path). Override for a different bundled font set.
-if(NOT APPLE)
-    set(LE_FONT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" CACHE PATH
-        "Directory of .ttf/.ttc/.otf/.pfb files default_typeface() loads from on Linux")
-    target_compile_definitions(pipelines PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
-endif()
+# --- pipelines: PIPELINE_REFACTOR.md restart - the Cold/Warm/Hot
+# ViewRenderPipeline, built on oneTBB's flow::graph (tbb_core.hpp's
+# MemoizingStage/FanInCollectStage). The pre-restart module (STATIC,
+# compiled for its own Skia/CoreText default_typeface() - see git history)
+# has been moved to src/pipelines.old/ and is being rebuilt one stage at a
+# time (PIPELINE_REFACTOR.md's own methodology); today the module is
+# entirely header-only (no Skia/rasterization dependency yet - that
+# returns with the Warm tier), so this is an INTERFACE library rather than
+# STATIC. Revert to STATIC (and reinstate pipelines.cpp/
+# upright_text_canvas.cpp plus their Skia/fmt/spdlog/LE_FONT_DIR wiring -
+# see git history) once Warm-tier rasterization work needs a real
+# compiled TU again - don't carry that machinery speculatively until then.
+add_library(pipelines INTERFACE)
+target_include_directories(pipelines INTERFACE src)
+target_link_libraries(pipelines INTERFACE database view_style core TBB::tbb TracyClient)
 
 # --- io: LEF/DEF file readers ---
 add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp src/io/def_writer.cpp)
@@ -966,16 +947,28 @@ target_compile_definitions(backend_tests PRIVATE
     DEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/bin/defdiff"
 )
 add_dependencies(backend_tests lef_lib def_lib)
-target_sources(backend_tests PRIVATE src/pipelines/tests/pipelines_test.cpp src/pipelines/tests/render_pipelines_test.cpp src/pipelines/tests/hierarchy_resolver_test.cpp src/pipelines/tests/draw_helpers_test.cpp src/pipelines/tests/upright_text_canvas_test.cpp)
-target_link_libraries(backend_tests PRIVATE pipelines)
 le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
 
+# --- pipelines_tests: the new (PIPELINE_REFACTOR.md) pipelines module's own
+# test binary, deliberately separate from backend_tests - developed and
+# benchmarked standalone against database/view_style alone, integration
+# with api/backend_tests deferred until the module is far enough along to
+# replace src/pipelines.old's own equivalents there. ---
+add_executable(pipelines_tests src/pipelines/tests/layer_generation_stage_test.cpp)
+target_link_libraries(pipelines_tests PRIVATE database view_style pipelines GTest::gtest_main)
+gtest_discover_tests(pipelines_tests)
+
 # --- benchmarks ---
-add_executable(pipeline_benchmarks src/pipelines/benchmarks/pipeline_benchmark.cpp)
-target_link_libraries(pipeline_benchmarks PRIVATE database geometry scene pipelines io api benchmark::benchmark)
+# --- pipeline_benchmarks: PIPELINE_REFACTOR.md's own per-stage benchmarks,
+# standalone against database/view_style/io - see aes_scaling_fixture.hpp
+# for the shared 1x1/2x1/2x2/3x2/3x3 tiling fixture every stage benchmark
+# uses (PIPELINE_REFACTOR.md's own "Benchmarking" section). Deliberately no
+# `scene`/`api` dependency yet - those return once a stage/benchmark
+# actually needs them. ---
+add_executable(pipeline_benchmarks src/pipelines/benchmarks/layer_generation_benchmark.cpp)
+target_link_libraries(pipeline_benchmarks PRIVATE database view_style pipelines io benchmark::benchmark)
 target_compile_definitions(pipeline_benchmarks PRIVATE
-    BENCHMARK_DATA_DIR="${CMAKE_BINARY_DIR}/benchmark_data"
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_data"
 )
 # Not instrumented for its own coverage (benchmarks aren't run under the
@@ -985,13 +978,10 @@ target_compile_definitions(pipeline_benchmarks PRIVATE
 # target also passes -fprofile-instr-generate, or the link fails.
 le_enable_coverage_instrumentation(pipeline_benchmarks)
 
-# --- render_preview: dev-only tool, rasterizes each given LEF file's Designs
-# to PNGs (preview/<lef-stem>__<design-name>.png) so they can be visually
-# sanity-checked without waiting for Flutter texture wiring. Not a benchmark
-# or a test - not run by ctest or the coverage target. ---
-add_executable(render_preview src/pipelines/benchmarks/render_preview.cpp)
-target_link_libraries(render_preview PRIVATE database geometry scene pipelines io)
-le_enable_coverage_instrumentation(render_preview)
+# render_preview (rasterizes a LEF's Designs to PNGs via the real render
+# pipeline) is out for now - it depends on the pre-restart FrameRenderPipeline/
+# HierarchyResolver (src/pipelines.old/), which PIPELINE_REFACTOR.md's Warm/Hot
+# tiers haven't rebuilt yet. Restore once those exist.
 
 # --- generate_tiled_design: dev-only data-generation tool
 # (BUGS_AND_ENHANCEMENTS.md E31) - tiles a real LEF+DEF design's own
@@ -1003,18 +993,9 @@ add_executable(generate_tiled_design src/pipelines/benchmarks/generate_tiled_des
 target_link_libraries(generate_tiled_design PRIVATE database io)
 le_enable_coverage_instrumentation(generate_tiled_design)
 
-# --- profile_tiled_render: dev-only headless profiling driver
-# (BUGS_AND_ENHANCEMENTS.md E31) - loads a real Layout-bearing DEF (meant
-# for generate_tiled_design's own output) and runs the real
-# HierarchyResolver::render_layout_frame production code path directly,
-# with no GUI/window at all, so it can run under `tracy-capture` for a
-# fully headless Tracy profile of a real large-scale render. Not a
-# benchmark (no Google Benchmark harness/reported numbers of its own,
-# see pipeline_benchmarks for that) and not a test - not run by ctest or
-# the coverage target.
-add_executable(profile_tiled_render src/pipelines/benchmarks/profile_tiled_render.cpp)
-target_link_libraries(profile_tiled_render PRIVATE database geometry scene pipelines io)
-le_enable_coverage_instrumentation(profile_tiled_render)
+# profile_tiled_render (headless Tracy-profiling driver for
+# HierarchyResolver::render_layout_frame) is out for the same reason
+# render_preview is, above - restore once the Warm/Hot tiers exist.
 
 # --- spatial_index_benchmark: dev-only benchmark (BUGS_AND_ENHANCEMENTS.md
 # E31 zoom/pan-tick follow-up) - quantifies a Boost.Geometry Index rtree's
