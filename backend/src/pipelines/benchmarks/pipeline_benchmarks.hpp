@@ -11,4 +11,5 @@ namespace le::benchmarks
 {
     void register_layer_generation_benchmarks();
     void register_hierarchy_resolver_benchmarks();
+    void register_viewport_cull_benchmarks();
 }

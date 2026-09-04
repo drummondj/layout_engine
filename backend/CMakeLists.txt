@@ -975,6 +975,7 @@ add_executable(pipeline_benchmarks
     src/pipelines/benchmarks/benchmark_main.cpp
     src/pipelines/benchmarks/layer_generation_benchmark.cpp
     src/pipelines/benchmarks/hierarchy_resolver_benchmark.cpp
+    src/pipelines/benchmarks/viewport_cull_benchmark.cpp
 )
 target_link_libraries(pipeline_benchmarks PRIVATE database geometry view_style pipelines io benchmark::benchmark)
 target_compile_definitions(pipeline_benchmarks PRIVATE
