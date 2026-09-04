@@ -47,3 +47,12 @@ Same 5x5 point, now measured via the built-in PeakRSS_MB counter (`--benchmark_f
 | Cold     | LayerGeneration   | 80.8 us | 2.27 GB  | Peak RSS here is mostly just the DEF parse into Root - LayerGeneration itself never touches placements |
 | Cold     | HierarchyResolver | 6.55 s  | 6.53 GB  | Consistent with the manual /usr/bin/time reading (~6.6-6.7GB)                                          |
 
+Commit: f5abfd9
+
+MemoizingStage now caches OutputData as a shared_ptr instead of a value (root cause of the above: execute() was deep-copying the full cached result on every call, cache hit or miss). Full matrix + 5x5, isolated per point via `--benchmark_filter`:
+
+| Pipeline | Stage             | 1x1     | 2x1     | 2x2    | 3x2    | 3x3    | 5x5    | 5x5 Peak RSS | Comments |
+| -------- | ----------------- | ------- | ------- | ------ | ------ | ------ | ------ | ------------ | -------- |
+| Cold     | LayerGeneration   | 45.0 us | 44.5 us | 43.2 us | 44.3 us | 43.0 us | 45.8 us | 4.09 GB (cumulative, full suite) | ~45% faster than before too - was paying a smaller version of the same copy cost |
+| Cold     | HierarchyResolver | 50.2 ms | 91.2 ms | 202 ms | 299 ms | 552 ms | 2.1 s  | ~3.6 GB (isolated) | 2-4x faster at every point; 5x5 now comfortably meets the 5s/1M-component target (was ~6.5-8.9s/~6.5GB) |
+

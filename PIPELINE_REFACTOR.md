@@ -26,10 +26,12 @@ The pipeline will be split into 3 parts, cold, warm and hot:
     Options: top_level AbstractId or LayoutId, root mutation_version, hierarchy_depth.
     Output: A vector of shapes per Abstract and Layout, including placement data for each Placement plus a vector of ViewLayers
     Speed requirement: Max 5s for a design with 1,000,000 components (as of
-    2026-09-04, HierarchyResolver alone measures ~6s/~6.6GB peak RSS at
-    1,033,600 components (aes_scaling 5x5) - see
-    PIPELINE_REFACTOR_BENCHMARK_RESULTS.md - so this target is not yet met;
-    tracked as an open gap, not a passed gate)
+    2026-09-04, HierarchyResolver measures ~2.1s/~3.6GB peak RSS at
+    1,033,600 components (aes_scaling 5x5), comfortably meeting this target -
+    see PIPELINE_REFACTOR_BENCHMARK_RESULTS.md. An earlier version of this
+    stage measured ~6s/~6.6GB at the same scale, traced to MemoizingStage
+    deep-copying its own cached OutputData on every call (tbb_core.hpp);
+    fixed by caching a shared_ptr instead)
     Stages:
         1. LayerGeneration - generates ViewLayers from Technology data
             Input: Pointer to Root database
