@@ -80,7 +80,7 @@ Warm stages 2+3 added (RasterizeStage/ComposeStage - per-node raster bitmaps, co
 | -------- | ------------- | ------ | ------ | ------ | ------ | ------ | ------ | ------------------------------------------------------------------------- |
 | Warm     | Full tier     | 200 ms | 210 ms | 407 ms | 473 ms | 750 ms | 1.53 s | Misses the 500ms tier budget at every point except 1x1/2x1 - ViewportCull alone is ~1ms, so this is essentially all Rasterize+Compose; not yet profiled which of the two dominates |
 
-Commit: (pending)
+Commit: a441f68
 
 BM_Rasterize/BM_Compose isolate each stage the same way BM_ViewportCull was isolated (precomputed inputs per pan position, timing only the stage under test):
 
