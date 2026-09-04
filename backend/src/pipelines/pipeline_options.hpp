@@ -5,6 +5,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
+#include <unordered_map>
 #include <variant>
 
 namespace le
@@ -97,5 +99,25 @@ namespace le
         /// caller opts into the slower, smoother path deliberately rather
         /// than paying for it unknowingly.
         bool antialiasing_enabled = false;
+
+        /// @brief Per-layer-name and per-purpose visibility toggles - a
+        /// ViewLayer draws only if BOTH its own layer-name entry (if any)
+        /// and its own purpose entry (if any) say visible; an unset key
+        /// in either map means visible (matches Scene::is_layer_name_visible/
+        /// is_purpose_visible's own "unknown key -> visible" default, and
+        /// RasterizeStage's own is_view_layer_visible mirrors that same
+        /// logic exactly - see its own comment). Plain values, not a
+        /// shared_ptr like `view_layers` above: these two maps are small
+        /// (at most one entry per real layer/purpose, never per-shape),
+        /// so options_did_change() can just compare them by real content
+        /// equality instead of needing the caller to track its own
+        /// version counter and hand back a fresh shared_ptr on every
+        /// actual change. Empty by default (nothing hidden) - a caller
+        /// wanting Scene's own long-standing "ROW/TRACK_PREFERRED/
+        /// TRACK_NON_PREFERRED/GCELLGRID hidden by default" convention
+        /// copies Scene::layer_name_visibility()/purpose_visibility()
+        /// in here directly (api.cpp's own view_render_options_for).
+        std::unordered_map<std::string, bool> layer_name_visible;
+        std::unordered_map<ViewLayerPurpose, bool> purpose_visible;
     };
 }

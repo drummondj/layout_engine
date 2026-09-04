@@ -921,6 +921,15 @@ namespace le
             return is_layer_name_visible(layer_name) && is_purpose_visible(purpose);
         }
 
+        // Read-only access to both maps directly, for a caller (api.cpp's
+        // own view_render_options_for) building a ViewRenderOptions
+        // snapshot to hand to the new pipelines module - copied by value
+        // there rather than threading a Scene reference/pointer into
+        // ViewRenderOptions, which otherwise has no dependency on this
+        // module at all.
+        const std::unordered_map<std::string, bool> &layer_name_visibility() const { return layer_name_visible_; }
+        const std::unordered_map<ViewLayerPurpose, bool> &purpose_visibility() const { return purpose_visible_; }
+
         // Monotonic counter bumped by set_layer_name_visible/set_purpose_visible/
         // set_antialiasing_enabled - cheap for a caller to compare instead of
         // comparing both maps (or this flag) by value.

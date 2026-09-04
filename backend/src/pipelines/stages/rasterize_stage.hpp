@@ -34,6 +34,23 @@ namespace le
 {
     inline SkColor to_sk_color(Color c) { return SkColorSetARGB(c.a, c.r, c.g, c.b); }
 
+    /// @brief Mirrors Scene::is_view_layer_visible exactly (that class's
+    /// own doc comment): visible only if BOTH its own layer-name entry
+    /// (if any) and its own purpose entry (if any) say so - an unset key
+    /// in either map means visible, not hidden.
+    inline bool is_view_layer_visible(
+        const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
+        const std::string &layer_name, ViewLayerPurpose purpose)
+    {
+        const auto name_it = layer_name_visible.find(layer_name);
+        if (name_it != layer_name_visible.end() && !name_it->second)
+            return false;
+        const auto purpose_it = purpose_visible.find(purpose);
+        if (purpose_it != purpose_visible.end() && !purpose_it->second)
+            return false;
+        return true;
+    }
+
     inline SkPath to_sk_path(const Polygon &polygon, bool close)
     {
         SkPathBuilder builder;
@@ -61,10 +78,10 @@ namespace le
     /// bottom-to-top insertion/z-order - HierarchyResolverStage's own
     /// ViewLayerShapes comment) so draw order matches real layer stacking
     /// regardless of the order shapes happened to be collected in, and so
-    /// a future layer-visibility feature can skip a hidden layer's whole
-    /// group with one lookup rather than checking every shape - neither
-    /// of which a flat, per-shape iteration could do as directly. Fill/
-    /// stroke paint is constructed once per layer group, not once per
+    /// a hidden layer's whole group can be skipped with one lookup rather
+    /// than checking every shape - neither of which a flat, per-shape
+    /// iteration could do as directly. Fill/stroke paint is constructed
+    /// once per layer group, not once per
     /// shape (hoisted out of the per-shape loop below), since one
     /// ViewLayerStyle applies to every shape a group holds.
     ///
@@ -90,17 +107,26 @@ namespace le
     /// this one nicety survives because it needs no extra code, not
     /// because it was prioritized over the others. `antialiasing_enabled`
     /// is ViewRenderOptions::antialiasing_enabled - see that field's own
-    /// comment for why it defaults false.
-    inline void draw_view_shapes(SkCanvas &canvas, const ViewLayerShapes &shapes_by_layer, const ViewLayerSet &view_layers, double scale, bool antialiasing_enabled)
+    /// comment for why it defaults false. `layer_name_visible`/
+    /// `purpose_visible` are ViewRenderOptions' own same-named fields -
+    /// a hidden layer's whole group is skipped in one is_view_layer_visible
+    /// check, before its own shapes are even looked at, exactly the
+    /// "skip a hidden layer's whole group with one map lookup" hook this
+    /// function's own class-level doc comment already named.
+    inline void draw_view_shapes(
+        SkCanvas &canvas, const ViewLayerShapes &shapes_by_layer, const ViewLayerSet &view_layers, double scale, bool antialiasing_enabled,
+        const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible)
     {
         for (const ViewLayerId &view_layer_id : view_layers.all())
         {
             const auto group_it = shapes_by_layer.find(view_layer_id);
             if (group_it == shapes_by_layer.end() || group_it->second.empty())
-                continue; // no shapes on this layer - a future visibility check would also short-circuit right here
+                continue; // no shapes on this layer
 
             const ViewLayerData *layer = view_layers.get(view_layer_id);
             if (!layer)
+                continue;
+            if (!is_view_layer_visible(layer_name_visible, purpose_visible, layer->layer_name, layer->purpose))
                 continue;
 
             const ViewLayerStyle &style = layer->style;
@@ -309,7 +335,9 @@ namespace le
                 canvas->scale(static_cast<SkScalar>(options.scale), static_cast<SkScalar>(-options.scale));
                 canvas->translate(static_cast<SkScalar>(-local_bbox.ll.x), static_cast<SkScalar>(-local_bbox.ll.y));
 
-                draw_view_shapes(*canvas, data.shapes ? *data.shapes : kEmptyShapes, view_layers, options.scale, options.antialiasing_enabled);
+                draw_view_shapes(
+                    *canvas, data.shapes ? *data.shapes : kEmptyShapes, view_layers, options.scale, options.antialiasing_enabled,
+                    options.layer_name_visible, options.purpose_visible);
 
                 result.images.emplace(id, RasterizedImage{surface->makeImageSnapshot(), local_bbox.ll});
             }
@@ -326,7 +354,9 @@ namespace le
                    last.viewport.ur.x != current.viewport.ur.x ||
                    last.viewport.ur.y != current.viewport.ur.y ||
                    last.view_layers != current.view_layers ||
-                   last.antialiasing_enabled != current.antialiasing_enabled;
+                   last.antialiasing_enabled != current.antialiasing_enabled ||
+                   last.layer_name_visible != current.layer_name_visible ||
+                   last.purpose_visible != current.purpose_visible;
         }
 
     private:

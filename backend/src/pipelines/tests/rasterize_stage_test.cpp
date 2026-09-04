@@ -129,6 +129,42 @@ TEST_F(RasterizeStageFixture, FillsTerminalRectWithItsOwnLayerFillColor)
     EXPECT_NEAR(SkColorGetA(sampled), SkColorGetA(expected), 5);
 }
 
+TEST_F(RasterizeStageFixture, HidingAPurposeSkipsItsWholeLayerGroupButNotOthers)
+{
+    ViewRenderOptions options = options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);
+    options.purpose_visible[ViewLayerPurpose::TERMINAL] = false;
+    const RasterizeOutput &output = rasterize_runner.run(hierarchy_output, 0, options);
+
+    const sk_sp<SkImage> &image = output.images.at(HierarchyId{leaf_abstract}).image;
+    // Terminal rect (1,1)-(2,2) -> pixel (15, 85) - now hidden, so this
+    // should read as fully transparent background instead of the
+    // terminal's own fill color (matches FillsTerminalRectWithItsOwnLayerFillColor's
+    // own sample point exactly, just with the opposite expectation).
+    EXPECT_EQ(SkColorGetA(sample(image, 15, 85)), 0u);
+
+    // Obstruction rect (3,3)-(4,4) -> pixel (35, 65) - untouched, since
+    // only TERMINAL was hidden, not OBSTRUCTION.
+    const ViewLayerId obstruction_layer = view_layers.find(m1, ViewLayerPurpose::OBSTRUCTION);
+    const Color obstruction_fill = view_layers.get(obstruction_layer)->style.fill_color;
+    const SkColor sampled_obstruction = sample(image, 35, 65);
+    EXPECT_NEAR(SkColorGetR(sampled_obstruction), obstruction_fill.r, 5);
+    EXPECT_NEAR(SkColorGetA(sampled_obstruction), obstruction_fill.a, 5);
+}
+
+TEST_F(RasterizeStageFixture, HidingALayerByNameSkipsEveryPurposeOnThatLayer)
+{
+    ViewRenderOptions options = options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);
+    options.layer_name_visible["M1"] = false;
+    const RasterizeOutput &output = rasterize_runner.run(hierarchy_output, 0, options);
+
+    const sk_sp<SkImage> &image = output.images.at(HierarchyId{leaf_abstract}).image;
+    // Both the terminal (1,1)-(2,2) and obstruction (3,3)-(4,4) rects are
+    // on M1 - hiding the whole layer by name should hide both purposes at
+    // once, unlike the purpose-only test above.
+    EXPECT_EQ(SkColorGetA(sample(image, 15, 85)), 0u);
+    EXPECT_EQ(SkColorGetA(sample(image, 35, 65)), 0u);
+}
+
 TEST_F(RasterizeStageFixture, BackgroundOutsideAnyShapeIsFullyTransparent)
 {
     const ViewRenderOptions options = options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);

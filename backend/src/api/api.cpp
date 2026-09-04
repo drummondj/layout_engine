@@ -237,6 +237,8 @@ namespace
         options.hierarchy_depth = handle->scene.hierarchy_depth();
         options.scale = handle->scene.scale();
         options.antialiasing_enabled = handle->scene.antialiasing_enabled();
+        options.layer_name_visible = handle->scene.layer_name_visibility();
+        options.purpose_visible = handle->scene.purpose_visibility();
 
         if (handle->scene.current_layout().valid())
             options.top_level = handle->scene.current_layout();
