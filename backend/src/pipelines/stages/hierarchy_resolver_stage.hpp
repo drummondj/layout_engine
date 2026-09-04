@@ -188,7 +188,9 @@ namespace le
                 {
                     ViewData data = collect_layout_content(root, view_layers, *layout_id, item.remaining_depth);
 
-                    for (PlacementId placement_id : root.get_layout_placements(*layout_id))
+                    const auto &placements = root.get_layout_placements(*layout_id);
+                    data.placement_data.reserve(placements.size()); // exact upper bound - not every placement resolves
+                    for (PlacementId placement_id : placements)
                     {
                         const PlacementData *placement = root.get_placement(placement_id);
                         if (!placement || !placement->location || !placement->reference_design.valid())
@@ -409,18 +411,31 @@ namespace le
         // Row/Track/GCellGrid have no stored Shape of their own (purely
         // parametric geometry - Migration Step 2's own plan) - synthesized
         // here exactly as LayoutGeometryStage's own append_*_shapes did.
+        //
+        // Batched into one shared Shape (same reasoning as
+        // append_placement_boundary_shapes' own comment: ViewShape has no
+        // SelectionRef/ShapeId of its own to preserve per-Row, unlike the
+        // pre-restart RenderedShape) rather than one Shape/ViewShape per
+        // Row, the pre-restart stage's own convention - Row count is far
+        // below Placement's own (hundreds to low thousands, not hundreds
+        // of thousands), so the absolute win is smaller, but it's the same
+        // fix for the same reason.
         static void append_row_shapes(const Root &root, LayoutId layout_id, const ViewLayerSet &view_layers, std::vector<ViewShape> &shapes)
         {
-            const ViewLayerId row_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::ROW);
-            for (RowId row_id : root.get_layout_rows(layout_id))
-            {
-                const std::optional<Rect> bbox = row_footprint_bbox(root, row_id);
-                if (!bbox)
-                    continue;
-                Shape shape;
-                shape.rects.push_back(*bbox);
-                shapes.push_back(ViewShape{.shape = std::move(shape), .view_layer = row_view_layer});
-            }
+            const auto &rows = root.get_layout_rows(layout_id);
+            if (rows.empty())
+                return;
+
+            Shape shape;
+            shape.rects.reserve(rows.size());
+            for (RowId row_id : rows)
+                if (const std::optional<Rect> bbox = row_footprint_bbox(root, row_id))
+                    shape.rects.push_back(*bbox);
+
+            if (shape.rects.empty())
+                return;
+
+            shapes.push_back(ViewShape{.shape = std::move(shape), .view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::ROW)});
         }
 
         static void append_track_shapes(const Root &root, LayoutId layout_id, const ViewLayerSet &view_layers, std::vector<ViewShape> &shapes)
@@ -436,6 +451,7 @@ namespace le
                     continue;
 
                 Shape lines;
+                lines.paths.reserve(static_cast<std::size_t>(track->count)); // exact - every iteration below pushes exactly one
                 for (int i = 0; i < track->count; i++)
                 {
                     const int64_t coord = track->start + static_cast<int64_t>(i) * track->step;
@@ -480,6 +496,7 @@ namespace le
                 if (!grid || grid->count <= 0)
                     continue;
 
+                lines.paths.reserve(lines.paths.size() + static_cast<std::size_t>(grid->count)); // exact - every iteration below pushes exactly one
                 for (int i = 0; i < grid->count; i++)
                 {
                     const int64_t coord = grid->start + static_cast<int64_t>(i) * grid->step;
@@ -584,6 +601,24 @@ namespace le
         static ViewData collect_layout_content(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, int remaining_depth)
         {
             ViewData data;
+
+            // Rough lower-bound reserve, cheap to compute up front (no
+            // second pass over blockage_id/route_id/port_id's own shape
+            // lists just to size this exactly - that would double the
+            // real work below to save only some of data.shapes' own
+            // growth-reallocation cost, not all of it). A Blockage/Route/
+            // PhysicalPortSegment can carry more than one Shape, so this
+            // undercounts the real total, but every reallocation this
+            // avoids still saves moving every ViewShape gathered so far -
+            // a real cost at real route counts (a Route is the single
+            // largest DEF construct by count in every aes_scaling fixture).
+            data.shapes.reserve(root.get_layout_blockages(layout_id).size() +
+                                 root.get_layout_routes(layout_id).size() +
+                                 root.get_layout_physical_ports(layout_id).size() +
+                                 root.get_layout_rows(layout_id).size() +
+                                 root.get_layout_tracks(layout_id).size() +
+                                 root.get_layout_regions(layout_id).size() +
+                                 3); // diearea + GCELLGRID + PLACEMENT_BOUNDARY, each at most one shape
 
             auto push_shape_id = [&](ShapeId shape_id, ViewLayerPurpose fallback_purpose)
             {
