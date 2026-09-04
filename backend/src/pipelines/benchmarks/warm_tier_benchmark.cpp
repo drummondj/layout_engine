@@ -64,15 +64,26 @@ namespace
         };
         pipeline.run_warm(&fixture.root, warm_up_options); // not timed - pays every one-time cost (index build, distinct-Abstract rasterization) up front
 
+        // Starts at index 1, not 0 - index 0 is exactly what the untimed
+        // warm-up call above already used, and every stage's own
+        // MemoizingStage cache compares against the *last* (data_version,
+        // options) pair regardless of which call set it - replaying index
+        // 0 as the very first timed iteration would be a guaranteed,
+        // free cache hit doing zero real work (confirmed directly: this
+        // was silently inflating BM_WarmTier's own apparent speed by
+        // ~1/state.iterations() - about 10% at the 5x5 point's own 10
+        // iterations - until fixed here; BM_Rasterize/BM_Compose already
+        // avoid this by bumping their own data_version on every timed
+        // call regardless of options, see their own pan_index handling).
         int pan_index = 0;
         for (auto _ : state)
         {
+            pan_index = (pan_index + 1) % pan_viewports.size();
             const ViewRenderOptions options{
                 .root = &fixture.root, .root_mutation_version = fixture.root.mutation_version(),
                 .top_level = HierarchyId{fixture.layout_id}, .hierarchy_depth = 1,
                 .viewport = pan_viewports[pan_index], .scale = scale,
             };
-            pan_index = (pan_index + 1) % pan_viewports.size();
             const ViewRenderPipeline::WarmOutput output = pipeline.run_warm(&fixture.root, options);
             int frame_width = output.frame->buffer.width;
             benchmark::DoNotOptimize(frame_width);
