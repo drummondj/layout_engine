@@ -230,6 +230,39 @@ TEST_F(HierarchyResolverStageFixture, ShapesResolveExpectedViewLayers)
     EXPECT_TRUE(found_boundary);
 }
 
+TEST_F(HierarchyResolverStageFixture, ShapesAreOrderedByViewLayerDrawOrderNotCollectionOrder)
+{
+    // A node's own shapes must draw bottom-to-top in ViewLayerSet's own
+    // insertion order (its own ViewLayerId.index), not whatever order
+    // this stage happened to collect them in - LEAF's own boundary shape
+    // is collected LAST (collect_abstract_content's own terminal/
+    // obstruction/boundary order) but BOUNDARY's own ViewLayerId is
+    // created well BEFORE any physical layer's TERMINAL/OBSTRUCTION
+    // (ViewLayerSet::build_for_technology's own "ROW then BOUNDARY...
+    // before any physical Layer" ordering) - so a naive "keep collection
+    // order" implementation would draw the boundary ON TOP of the
+    // terminal/obstruction it should sit BELOW.
+    const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 2);
+    const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options);
+
+    const ViewData &leaf_data = output.view_data.at(HierarchyId{leaf_abstract});
+    ASSERT_EQ(leaf_data.shapes->size(), 3u);
+
+    // Non-decreasing view_layer.index order, general invariant.
+    for (std::size_t i = 1; i < leaf_data.shapes->size(); ++i)
+        EXPECT_LE((*leaf_data.shapes)[i - 1].view_layer.index, (*leaf_data.shapes)[i].view_layer.index);
+
+    // Specifically: boundary (index 1, added before any physical layer)
+    // sorts before terminal/obstruction (M1's own per-layer block, added
+    // after) - the concrete case a collection-order bug would get wrong.
+    const ViewLayerId boundary_layer = view_layers.boundary_view_layer();
+    const ViewLayerId terminal_layer = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
+    const ViewLayerId obstruction_layer = view_layers.find(m1, ViewLayerPurpose::OBSTRUCTION);
+    EXPECT_EQ((*leaf_data.shapes)[0].view_layer, boundary_layer);
+    EXPECT_EQ((*leaf_data.shapes)[1].view_layer, terminal_layer);
+    EXPECT_EQ((*leaf_data.shapes)[2].view_layer, obstruction_layer);
+}
+
 TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
 {
     const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 1);

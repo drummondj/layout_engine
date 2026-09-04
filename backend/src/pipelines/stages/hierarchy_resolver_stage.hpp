@@ -343,14 +343,17 @@ namespace le
                         shapes.push_back(ViewShape{.shape = std::move(placement_boundary_shape), .view_layer = placement_boundary_view_layer});
                     }
 
+                    sort_shapes_by_view_layer_order(shapes);
                     data.shapes = std::make_shared<const std::vector<ViewShape>>(std::move(shapes));
                     result.view_data.emplace(item.id, std::move(data));
                 }
                 else
                 {
                     const AbstractId abstract_id = std::get<AbstractId>(item.id);
+                    std::vector<ViewShape> shapes = collect_abstract_content(root, view_layers, abstract_id);
+                    sort_shapes_by_view_layer_order(shapes);
                     ViewData data;
-                    data.shapes = std::make_shared<const std::vector<ViewShape>>(collect_abstract_content(root, view_layers, abstract_id));
+                    data.shapes = std::make_shared<const std::vector<ViewShape>>(std::move(shapes));
                     result.view_data.emplace(item.id, std::move(data));
                 }
             }
@@ -366,6 +369,35 @@ namespace le
         }
 
     private:
+        // Draw order (bottom to top) must match ViewLayerSet's own
+        // insertion order (ViewLayerSet::build_for_technology's own doc
+        // comment: ROW, then BOUNDARY, then PLACEMENT_NAME, then
+        // PLACEMENT_BOUNDARY, then each physical Layer's own TERMINAL/
+        // OBSTRUCTION/TRACK/ROUTING_BLOCKAGE in LEF LAYER declaration
+        // order - bottom-up physical stacking), not whichever order this
+        // stage happened to collect a node's own shapes in (diearea,
+        // then blockages, then routes, ..., PLACEMENT_BOUNDARY appended
+        // last by the caller) - those two orders don't coincide, so a
+        // node's own shapes need an explicit reorder before being handed
+        // downstream. Done once here, in Cold, rather than by every
+        // Warm-tier consumer on every draw: a ViewLayerId's own `.index`
+        // is the pool slot it was created into, assigned strictly in
+        // ViewLayerSet::build_for_technology's own call order (a fresh
+        // ViewLayerSet, built once per Technology, never deletes a slot -
+        // see backend/CLAUDE.md's Database codegen section on why a pool
+        // index alone isn't generally a safe ordering key, and why it is
+        // here specifically), so sorting by it directly reproduces that
+        // insertion order exactly. Stable, not just sorted - shapes
+        // already sharing one view_layer (e.g. two TERMINAL shapes on
+        // different pins) keep whatever relative order they were
+        // collected in, rather than an arbitrary one std::sort could
+        // introduce.
+        static void sort_shapes_by_view_layer_order(std::vector<ViewShape> &shapes)
+        {
+            std::stable_sort(shapes.begin(), shapes.end(), [](const ViewShape &a, const ViewShape &b)
+                              { return a.view_layer.index < b.view_layer.index; });
+        }
+
         // Expands RECT/PATH/POLYGON ITERATE (UPDATES.md 12 Phase 1's raw-
         // storage rework - see AbstractGeometryStage's own comment,
         // src/pipelines.old/) into concrete rects/paths/polygons on a copy
