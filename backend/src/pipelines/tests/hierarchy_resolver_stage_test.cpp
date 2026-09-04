@@ -11,7 +11,7 @@ using namespace le;
 
 namespace
 {
-    using HierarchyResolverRunner = SynchronousStageRunner<HierarchyResolverStage, ViewLayerSetHandle, HierarchyResolverOutput, ColdPipelineOptions>;
+    using HierarchyResolverRunner = SynchronousStageRunner<HierarchyResolverStage, ViewLayerSetHandle, HierarchyResolverOutput, ViewRenderOptions>;
 
     // Fixture hierarchy:
     //   TOP (Layout only) - diearea, 1 placement of BLOCK
@@ -69,9 +69,9 @@ namespace
             root.create_placement(PlacementData{.layout = top_layout, .name = "block0", .reference_design = block_design, .placement_status = PlacementStatus::PLACED, .location = Point{100, 100}, .orientation = Orientation::N});
         }
 
-        ColdPipelineOptions options_for(HierarchyId top_level, int hierarchy_depth) const
+        ViewRenderOptions options_for(HierarchyId top_level, int hierarchy_depth) const
         {
-            return ColdPipelineOptions{.root = &root, .root_mutation_version = root.mutation_version(), .top_level = top_level, .hierarchy_depth = hierarchy_depth};
+            return ViewRenderOptions{.root = &root, .root_mutation_version = root.mutation_version(), .top_level = top_level, .hierarchy_depth = hierarchy_depth};
         }
 
         Root root;
@@ -89,7 +89,7 @@ namespace
 
 TEST_F(HierarchyResolverStageFixture, DepthZeroShowsOnlyTopLevelContent)
 {
-    const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 0);
+    const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 0);
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options);
 
     // TOP only - depth 0 means "just the top level," full stop: block0
@@ -121,7 +121,7 @@ TEST_F(HierarchyResolverStageFixture, DepthZeroShowsOnlyTopLevelContent)
 
 TEST_F(HierarchyResolverStageFixture, DepthOneResolvesTopLevelPlacementsButNotTheirOwn)
 {
-    const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 1);
+    const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 1);
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options);
 
     // TOP + BLOCK's Layout - block0 resolves (remaining_depth 1 > 0 and
@@ -142,7 +142,7 @@ TEST_F(HierarchyResolverStageFixture, DepthOneResolvesTopLevelPlacementsButNotTh
 
 TEST_F(HierarchyResolverStageFixture, PlacementDataBboxMatchesPlacementBoundaryShapeRect)
 {
-    const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 1);
+    const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 1);
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options);
 
     const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
@@ -178,7 +178,7 @@ TEST_F(HierarchyResolverStageFixture, PlacementDataBboxMatchesPlacementBoundaryS
 
 TEST_F(HierarchyResolverStageFixture, DepthTwoRecursesIntoLayoutAndDedupesRepeatedPlacements)
 {
-    const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 2);
+    const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 2);
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options);
 
     // TOP + BLOCK's Layout + LEAF's Abstract (visited once, not twice,
@@ -206,7 +206,7 @@ TEST_F(HierarchyResolverStageFixture, DepthTwoRecursesIntoLayoutAndDedupesRepeat
 
 TEST_F(HierarchyResolverStageFixture, ShapesResolveExpectedViewLayers)
 {
-    const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 2); // depth 2 - see DepthTwoRecursesIntoLayoutAndDedupesRepeatedPlacements for why LEAF needs this now
+    const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 2); // depth 2 - see DepthTwoRecursesIntoLayoutAndDedupesRepeatedPlacements for why LEAF needs this now
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options);
 
     const ViewData &leaf_data = output.view_data.at(HierarchyId{leaf_abstract});
@@ -232,7 +232,7 @@ TEST_F(HierarchyResolverStageFixture, ShapesResolveExpectedViewLayers)
 
 TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
 {
-    const ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 1);
+    const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 1);
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options);
 
     const ViewLayerId placement_boundary_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
@@ -279,7 +279,7 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
 
 TEST_F(HierarchyResolverStageFixture, NullRootProducesEmptyOutput)
 {
-    ColdPipelineOptions options = options_for(HierarchyId{top_layout}, 1);
+    ViewRenderOptions options = options_for(HierarchyId{top_layout}, 1);
     options.root = nullptr;
     const HierarchyResolverOutput &output = runner.run(nullptr, 0, options);
     EXPECT_TRUE(output.view_data.empty());
@@ -287,11 +287,11 @@ TEST_F(HierarchyResolverStageFixture, NullRootProducesEmptyOutput)
 
 TEST_F(HierarchyResolverStageFixture, RecomputesWhenHierarchyDepthChangesEvenIfMutationVersionDoesNot)
 {
-    const ColdPipelineOptions depth_zero = options_for(HierarchyId{top_layout}, 0);
+    const ViewRenderOptions depth_zero = options_for(HierarchyId{top_layout}, 0);
     const HierarchyResolverOutput &first = runner.run(view_layers_handle, 0, depth_zero);
     EXPECT_EQ(first.view_data.size(), 1u);
 
-    const ColdPipelineOptions depth_one = options_for(HierarchyId{top_layout}, 1);
+    const ViewRenderOptions depth_one = options_for(HierarchyId{top_layout}, 1);
     ASSERT_TRUE(runner.would_recompute(0, depth_one));
 
     const HierarchyResolverOutput &second = runner.run(view_layers_handle, 0, depth_one);

@@ -28,9 +28,9 @@ namespace
             root.create_placement(PlacementData{.layout = top_layout, .name = "leaf0", .reference_design = leaf_design, .placement_status = PlacementStatus::PLACED, .location = Point{100, 100}, .orientation = Orientation::N});
         }
 
-        ColdPipelineOptions options_for(int hierarchy_depth) const
+        ViewRenderOptions options_for(int hierarchy_depth) const
         {
-            return ColdPipelineOptions{.root_mutation_version = root.mutation_version(), .top_level = HierarchyId{top_layout}, .hierarchy_depth = hierarchy_depth};
+            return ViewRenderOptions{.root_mutation_version = root.mutation_version(), .top_level = HierarchyId{top_layout}, .hierarchy_depth = hierarchy_depth};
         }
 
         Root root;
@@ -63,7 +63,7 @@ TEST_F(ViewRenderPipelineFixture, RunColdMatchesIndependentlyComputedResults)
 
 TEST_F(ViewRenderPipelineFixture, CacheHitReturnsIdenticalHandlesOnUnchangedInputs)
 {
-    const ColdPipelineOptions options = options_for(1);
+    const ViewRenderOptions options = options_for(1);
     const ViewRenderPipeline::ColdOutput first = pipeline.run_cold(&root, options);
     const ViewRenderPipeline::ColdOutput second = pipeline.run_cold(&root, options);
 

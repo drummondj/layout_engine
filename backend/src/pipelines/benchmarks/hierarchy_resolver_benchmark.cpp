@@ -16,7 +16,7 @@ using namespace le::benchmarks;
 
 namespace
 {
-    using HierarchyResolverRunner = SynchronousStageRunner<HierarchyResolverStage, ViewLayerSetHandle, HierarchyResolverOutput, ColdPipelineOptions>;
+    using HierarchyResolverRunner = SynchronousStageRunner<HierarchyResolverStage, ViewLayerSetHandle, HierarchyResolverOutput, ViewRenderOptions>;
 
     // Unlike LayerGenerationStage, this stage's own cost DOES scale with
     // design size - it walks every placement in the Layout plus every
@@ -41,7 +41,7 @@ namespace
         // depth 1 resolve_design_target already falls back to its
         // Abstract - depth only matters further once a fixture actually
         // nests Layout-in-Layout, which none of the aes_scaling DEFs do.
-        const ColdPipelineOptions options{
+        const ViewRenderOptions options{
             .root = &fixture.root,
             .root_mutation_version = fixture.root.mutation_version(),
             .top_level = HierarchyId{fixture.layout_id},

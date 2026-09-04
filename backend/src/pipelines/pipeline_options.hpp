@@ -7,16 +7,18 @@
 
 namespace le
 {
-    /// @brief Options shared by every stage in the Cold tier of
-    /// ViewRenderPipeline (see PIPELINE_REFACTOR.md's own "Cold" section) -
-    /// converts a Root's raw content into per-Abstract/per-Layout dbu-space
-    /// shapes plus the Technology's ViewLayers. Every stage wired into the
-    /// same Cold flow::graph must share this exact type (tbb_core.hpp's
+    /// @brief Options shared by every stage of ViewRenderPipeline (see
+    /// PIPELINE_REFACTOR.md's own "Structure" section) - Cold, Warm, and
+    /// (eventually) Hot alike. Every stage wired into the same
+    /// oneapi::tbb::flow::graph must share this exact type (tbb_core.hpp's
     /// MemoizingStage is templated on one PipelineOptions type per graph),
     /// even though a given stage - e.g. LayerGenerationStage - only reads
     /// the subfield(s) it actually depends on, via its own
-    /// options_did_change() override.
-    struct ColdPipelineOptions
+    /// options_did_change() override. Named for the whole pipeline, not
+    /// "Cold", precisely because fields like `viewport` below only matter
+    /// to Warm/Hot stages - a Cold-only name would be misleading the
+    /// moment those stages join the same graph.
+    struct ViewRenderOptions
     {
         /// @brief Non-owning pointer to the Root every Cold-tier stage
         /// reads from - shared context, not part of any one stage's own
@@ -52,5 +54,12 @@ namespace le
         /// possible - not a blanket "always show at least the Abstract"
         /// rule at any depth).
         int hierarchy_depth = 0;
+
+        /// @brief Warm tier's own viewport, in dbu, in top_level's own
+        /// coordinate space (ViewportCullStage's own doc comment) - a
+        /// Placement's own bbox at any deeper level is only in that same
+        /// space once composed through every ancestor placement's own
+        /// transform on the way down, which is exactly what culling does.
+        Rect viewport;
     };
 }

@@ -6,7 +6,7 @@ using namespace le;
 
 namespace
 {
-    using LayerGenerationRunner = SynchronousStageRunner<LayerGenerationStage, const Root *, ViewLayerSet, ColdPipelineOptions>;
+    using LayerGenerationRunner = SynchronousStageRunner<LayerGenerationStage, const Root *, ViewLayerSet, ViewRenderOptions>;
 
     struct LayerGenerationStageFixture : public ::testing::Test
     {
@@ -27,7 +27,7 @@ namespace
 
 TEST_F(LayerGenerationStageFixture, MatchesDirectViewLayerSetBuild)
 {
-    ColdPipelineOptions options{.root_mutation_version = root.mutation_version()};
+    ViewRenderOptions options{.root_mutation_version = root.mutation_version()};
     const ViewLayerSet &generated = runner.run(&root, 0, options);
 
     const ViewLayerSet expected = ViewLayerSet::build_for_technology(root, technology_id);
@@ -39,7 +39,7 @@ TEST_F(LayerGenerationStageFixture, MatchesDirectViewLayerSetBuild)
 
 TEST_F(LayerGenerationStageFixture, NullRootProducesEmptyViewLayerSet)
 {
-    ColdPipelineOptions options{.root_mutation_version = 0};
+    ViewRenderOptions options{.root_mutation_version = 0};
     const ViewLayerSet &generated = runner.run(nullptr, 0, options);
     EXPECT_TRUE(generated.all().empty());
 }
@@ -47,14 +47,14 @@ TEST_F(LayerGenerationStageFixture, NullRootProducesEmptyViewLayerSet)
 TEST_F(LayerGenerationStageFixture, RootWithNoTechnologyProducesEmptyViewLayerSet)
 {
     Root empty_root;
-    ColdPipelineOptions options{.root_mutation_version = empty_root.mutation_version()};
+    ViewRenderOptions options{.root_mutation_version = empty_root.mutation_version()};
     const ViewLayerSet &generated = runner.run(&empty_root, 0, options);
     EXPECT_TRUE(generated.all().empty());
 }
 
 TEST_F(LayerGenerationStageFixture, CacheHitOnUnchangedMutationVersion)
 {
-    ColdPipelineOptions options{.root_mutation_version = root.mutation_version()};
+    ViewRenderOptions options{.root_mutation_version = root.mutation_version()};
     runner.run(&root, 0, options);
     ASSERT_FALSE(runner.would_recompute(0, options));
 
@@ -64,7 +64,7 @@ TEST_F(LayerGenerationStageFixture, CacheHitOnUnchangedMutationVersion)
 
 TEST_F(LayerGenerationStageFixture, RecomputesWhenRootMutationVersionChanges)
 {
-    ColdPipelineOptions first_options{.root_mutation_version = root.mutation_version()};
+    ViewRenderOptions first_options{.root_mutation_version = root.mutation_version()};
     const ViewLayerSet &first = runner.run(&root, 0, first_options);
     EXPECT_EQ(first.all().size(), 19u);
     const std::uint64_t generation_before = first.generation();
@@ -72,7 +72,7 @@ TEST_F(LayerGenerationStageFixture, RecomputesWhenRootMutationVersionChanges)
     root.create_layer(LayerData{.technology = technology_id, .name = "M3", .type = "ROUTING"});
     root.bump_mutation_version();
 
-    ColdPipelineOptions second_options{.root_mutation_version = root.mutation_version()};
+    ViewRenderOptions second_options{.root_mutation_version = root.mutation_version()};
     ASSERT_TRUE(runner.would_recompute(0, second_options));
 
     const ViewLayerSet &second = runner.run(&root, 0, second_options);

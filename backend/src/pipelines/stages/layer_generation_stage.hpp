@@ -26,7 +26,7 @@ namespace le
     /// "degrade gracefully rather than crash" convention as api.cpp's own
     /// null-handle checks).
     ///
-    /// Recompute trigger: `ColdPipelineOptions::root_mutation_version`
+    /// Recompute trigger: `ViewRenderOptions::root_mutation_version`
     /// alone (via options_did_change() below), not `data_version` - the
     /// input `Root*` itself never changes across calls within one handle's
     /// lifetime, so there is nothing meaningful to bump a data_version on;
@@ -38,14 +38,14 @@ namespace le
     /// this rebuild's cost tracks layer count (tens, not millions), so the
     /// extra recomputes are cheap; narrow this further only if a benchmark
     /// ever shows otherwise.
-    class LayerGenerationStage : public MemoizingStage<const Root *, ViewLayerSet, ColdPipelineOptions>
+    class LayerGenerationStage : public MemoizingStage<const Root *, ViewLayerSet, ViewRenderOptions>
     {
     public:
         explicit LayerGenerationStage(oneapi::tbb::flow::graph &g, std::string label = "LayerGeneration")
             : MemoizingStage(g, std::move(label)) {}
 
     protected:
-        ViewLayerSet compute(const Root *const &root, const ColdPipelineOptions &options) override
+        ViewLayerSet compute(const Root *const &root, const ViewRenderOptions &options) override
         {
             if (root == nullptr)
                 return ViewLayerSet{};
@@ -61,7 +61,7 @@ namespace le
             return ViewLayerSet::build_for_technology(*root, technology_ids.front());
         }
 
-        bool options_did_change(const ColdPipelineOptions &last, const ColdPipelineOptions &current) const override
+        bool options_did_change(const ViewRenderOptions &last, const ViewRenderOptions &current) const override
         {
             return last.root_mutation_version != current.root_mutation_version;
         }

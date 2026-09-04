@@ -34,7 +34,7 @@ namespace le
     /// type alias's own doc comment).
     ///
     /// The Root pointer both stages need travels via
-    /// ColdPipelineOptions::root, not either stage's own InputData -
+    /// ViewRenderOptions::root, not either stage's own InputData -
     /// run_cold() sets it from its own `root` parameter, so a caller never
     /// has to set it independently.
     class ViewRenderPipeline
@@ -57,11 +57,11 @@ namespace le
               hierarchy_resolver_(graph_, label + ".HierarchyResolver"),
               layer_generation_sink_(
                   graph_, oneapi::tbb::flow::serial,
-                  [this](StageData<LayerGenerationStage::OutputHandle, ColdPipelineOptions> in)
+                  [this](StageData<LayerGenerationStage::OutputHandle, ViewRenderOptions> in)
                   { layer_generation_result_ = std::move(in); }),
               hierarchy_resolver_sink_(
                   graph_, oneapi::tbb::flow::serial,
-                  [this](StageData<HierarchyResolverStage::OutputHandle, ColdPipelineOptions> in)
+                  [this](StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions> in)
                   { hierarchy_resolver_result_ = std::move(in); })
         {
             make_edge(layer_generation_.node(), layer_generation_sink_);
@@ -87,7 +87,7 @@ namespace le
         /// recompute - see MemoizingStage::would_recompute()'s own doc
         /// comment (tbb_core.hpp) for why that's load-bearing, not just a
         /// nicety, even on a guaranteed cache hit.
-        ColdOutput run_cold(const Root *root, ColdPipelineOptions options)
+        ColdOutput run_cold(const Root *root, ViewRenderOptions options)
         {
             options.root = root;
 
@@ -108,9 +108,9 @@ namespace le
         oneapi::tbb::flow::graph graph_;
         LayerGenerationStage layer_generation_;
         HierarchyResolverStage hierarchy_resolver_;
-        oneapi::tbb::flow::function_node<StageData<LayerGenerationStage::OutputHandle, ColdPipelineOptions>> layer_generation_sink_;
-        oneapi::tbb::flow::function_node<StageData<HierarchyResolverStage::OutputHandle, ColdPipelineOptions>> hierarchy_resolver_sink_;
-        StageData<LayerGenerationStage::OutputHandle, ColdPipelineOptions> layer_generation_result_{};
-        StageData<HierarchyResolverStage::OutputHandle, ColdPipelineOptions> hierarchy_resolver_result_{};
+        oneapi::tbb::flow::function_node<StageData<LayerGenerationStage::OutputHandle, ViewRenderOptions>> layer_generation_sink_;
+        oneapi::tbb::flow::function_node<StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions>> hierarchy_resolver_sink_;
+        StageData<LayerGenerationStage::OutputHandle, ViewRenderOptions> layer_generation_result_{};
+        StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions> hierarchy_resolver_result_{};
     };
 }

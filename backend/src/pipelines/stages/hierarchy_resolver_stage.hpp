@@ -60,26 +60,39 @@ namespace le
     /// rather than the raw PlacementData::reference_design, so a Warm-tier
     /// consumer never has to re-run resolve_design_target itself.
     ///
-    /// `location`/`orientation` and `bbox` serve two different downstream
-    /// purposes and neither substitutes for the other: `bbox` (this
-    /// placement's own resolved world-space footprint, in this Layout's
-    /// own local dbu space - what placement_world_bbox, core/
-    /// placement_geometry.hpp, computes) is what a Warm-tier viewport-
-    /// culling stage tests against the viewport Rect - cheap AABB-vs-AABB,
-    /// no per-shape work. `location`/`orientation` are what a *later*
-    /// compose step needs to actually draw the child's own real content
-    /// once a placement survives culling - `bbox` alone can't reconstruct
-    /// that (orientation isn't recoverable from a bounding box, and even
-    /// for a fixed orientation, `location` and `bbox.ll` only coincide
-    /// when the referenced Abstract's own declared ORIGIN is (0, 0) -
-    /// AbstractData.origin isn't applied yet, core/placement_geometry.hpp's
-    /// own resolved_local_bbox comment, but once it is they can genuinely
-    /// differ, so this doesn't collapse to one field even in principle).
+    /// `location`/`orientation`, `bbox`, and `transform` each serve a
+    /// different downstream purpose - none substitutes for another:
+    ///   - `bbox` (this placement's own resolved world-space footprint, in
+    ///     this Layout's own local dbu space) is what a Warm-tier
+    ///     viewport-culling stage tests against the viewport Rect - cheap
+    ///     AABB-vs-AABB, no per-shape work.
+    ///   - `transform` (Geometry::InstanceTransform - a linear component
+    ///     plus a translation) is what culling composes with its own
+    ///     running accumulated transform as it recurses into this
+    ///     placement's own referenced id, so a *nested* placement's own
+    ///     bbox (stored in its own immediate parent's local space) can be
+    ///     tested against the same top-level viewport. Stored directly
+    ///     (computed once here, in compute()) rather than recomputed
+    ///     downstream from `location`/`orientation` - `bbox` is a one-way
+    ///     AABB of the transformed corners, not invertible back into a
+    ///     transform for a rotated/flipped orientation, and recomputing it
+    ///     properly would mean a Warm-tier stage re-deriving the child's
+    ///     own local bbox from Root again, defeating Cold's whole point of
+    ///     producing a self-contained, Root-independent snapshot.
+    ///   - `location`/`orientation` are the placement's own raw DEF-level
+    ///     placement point and orientation - still meaningful in their own
+    ///     right (e.g. a Hot-tier inspector showing a placement's nominal
+    ///     origin) independent of the derived `bbox`/`transform`, and
+    ///     `location`/`bbox.ll` only coincide today because
+    ///     AbstractData.origin isn't applied yet (core/placement_geometry.hpp's
+    ///     own resolved_local_bbox comment) - once it is, they can
+    ///     genuinely differ.
     struct ViewPlacementData
     {
         HierarchyId id;
         Point location;
         Rect bbox;
+        Geometry::InstanceTransform transform;
         Orientation orientation = Orientation::N;
     };
 
@@ -111,14 +124,14 @@ namespace le
     /// stages together with a real make_edge and no adapter node in
     /// between - both sides
     /// of that edge are exactly this type. The Root pointer this stage
-    /// also needs travels via ColdPipelineOptions::root instead of being
+    /// also needs travels via ViewRenderOptions::root instead of being
     /// part of this InputData - it isn't part of LayerGenerationStage's
     /// own output, so it couldn't flow through that same edge.
     using ViewLayerSetHandle = std::shared_ptr<const ViewLayerSet>;
 
     /// @brief Cold-tier stage 2 (PIPELINE_REFACTOR.md): traverses
-    /// Placement -> Design hierarchy from ColdPipelineOptions::top_level,
-    /// consuming one unit of ColdPipelineOptions::hierarchy_depth per
+    /// Placement -> Design hierarchy from ViewRenderOptions::top_level,
+    /// consuming one unit of ViewRenderOptions::hierarchy_depth per
     /// Layout -> Layout hop. At remaining_depth == 0 a Layout's own
     /// placements are never *resolved* into anything at all (not even a
     /// fallback to their own Abstract) - placement_data stays empty and
@@ -182,14 +195,14 @@ namespace le
     /// changed - LayerGenerationStage's own bumped version() becomes this
     /// stage's own incoming data_version, and execute()'s should_recompute
     /// check ORs that against options_did_change() below.
-    class HierarchyResolverStage : public MemoizingStage<ViewLayerSetHandle, HierarchyResolverOutput, ColdPipelineOptions>
+    class HierarchyResolverStage : public MemoizingStage<ViewLayerSetHandle, HierarchyResolverOutput, ViewRenderOptions>
     {
     public:
         explicit HierarchyResolverStage(oneapi::tbb::flow::graph &g, std::string label = "HierarchyResolver")
             : MemoizingStage(g, std::move(label)) {}
 
     protected:
-        HierarchyResolverOutput compute(const ViewLayerSetHandle &view_layers_handle, const ColdPipelineOptions &options) override
+        HierarchyResolverOutput compute(const ViewLayerSetHandle &view_layers_handle, const ViewRenderOptions &options) override
         {
             HierarchyResolverOutput result;
             if (options.root == nullptr)
@@ -304,6 +317,7 @@ namespace le
                             .id = child_id,
                             .location = *placement->location,
                             .bbox = bbox,
+                            .transform = transform,
                             .orientation = orientation,
                         });
                         worklist.push_back(WorkItem{child_id, child_remaining_depth});
@@ -327,7 +341,7 @@ namespace le
             return result;
         }
 
-        bool options_did_change(const ColdPipelineOptions &last, const ColdPipelineOptions &current) const override
+        bool options_did_change(const ViewRenderOptions &last, const ViewRenderOptions &current) const override
         {
             return last.root_mutation_version != current.root_mutation_version ||
                    last.top_level != current.top_level ||

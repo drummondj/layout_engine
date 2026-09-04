@@ -13,7 +13,7 @@ using namespace le::benchmarks;
 
 namespace
 {
-    using LayerGenerationRunner = SynchronousStageRunner<LayerGenerationStage, const Root *, ViewLayerSet, ColdPipelineOptions>;
+    using LayerGenerationRunner = SynchronousStageRunner<LayerGenerationStage, const Root *, ViewLayerSet, ViewRenderOptions>;
 
     // LayerGenerationStage's own cost is a function of the Technology's
     // layer count alone (ViewLayerSet::build_for_technology), never of
@@ -26,7 +26,7 @@ namespace
     void BM_LayerGeneration(benchmark::State &state, TileConfig config)
     {
         const AesScalingFixture &fixture = cached_aes_scaling_fixture(config);
-        const ColdPipelineOptions options{.root_mutation_version = fixture.root.mutation_version()};
+        const ViewRenderOptions options{.root_mutation_version = fixture.root.mutation_version()};
 
         for (auto _ : state)
         {
