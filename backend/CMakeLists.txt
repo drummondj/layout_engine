@@ -955,8 +955,11 @@ gtest_discover_tests(backend_tests)
 # benchmarked standalone against database/view_style alone, integration
 # with api/backend_tests deferred until the module is far enough along to
 # replace src/pipelines.old's own equivalents there. ---
-add_executable(pipelines_tests src/pipelines/tests/layer_generation_stage_test.cpp)
-target_link_libraries(pipelines_tests PRIVATE database view_style pipelines GTest::gtest_main)
+add_executable(pipelines_tests
+    src/pipelines/tests/layer_generation_stage_test.cpp
+    src/pipelines/tests/hierarchy_resolver_stage_test.cpp
+)
+target_link_libraries(pipelines_tests PRIVATE database geometry view_style pipelines GTest::gtest_main)
 gtest_discover_tests(pipelines_tests)
 
 # --- benchmarks ---
@@ -966,8 +969,12 @@ gtest_discover_tests(pipelines_tests)
 # uses (PIPELINE_REFACTOR.md's own "Benchmarking" section). Deliberately no
 # `scene`/`api` dependency yet - those return once a stage/benchmark
 # actually needs them. ---
-add_executable(pipeline_benchmarks src/pipelines/benchmarks/layer_generation_benchmark.cpp)
-target_link_libraries(pipeline_benchmarks PRIVATE database view_style pipelines io benchmark::benchmark)
+add_executable(pipeline_benchmarks
+    src/pipelines/benchmarks/benchmark_main.cpp
+    src/pipelines/benchmarks/layer_generation_benchmark.cpp
+    src/pipelines/benchmarks/hierarchy_resolver_benchmark.cpp
+)
+target_link_libraries(pipeline_benchmarks PRIVATE database geometry view_style pipelines io benchmark::benchmark)
 target_compile_definitions(pipeline_benchmarks PRIVATE
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_data"
 )

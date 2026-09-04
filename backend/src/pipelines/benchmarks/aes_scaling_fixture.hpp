@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <string>
 
 // Shared benchmark fixture (PIPELINE_REFACTOR.md's own "Benchmarking"
@@ -89,5 +90,28 @@ namespace le::benchmarks
         }
 
         return fixture;
+    }
+
+    /// @brief Memoized load_aes_scaling_fixture(), shared across every
+    /// benchmark .cpp in this executable (an `inline` function has vague
+    /// linkage - the linker merges every TU's copy into one, so this
+    /// function's own local `cache` is one single instance too, not one
+    /// per TU). Google Benchmark re-invokes a registered benchmark
+    /// function's entire body several times per reported result
+    /// (calibration passes, plus once per --benchmark_repetitions) - only
+    /// the for(auto _ : state) loop's own contents are timed, but
+    /// everything outside it still runs every time. A fresh
+    /// AesScalingFixture per invocation would reparse the DEF file (up to
+    /// ~270,000 shapes at 3x2/3x3) that many times over, dwarfing the
+    /// thing actually being measured - confirmed directly, an earlier
+    /// version without this cache took several minutes per config in a
+    /// Debug build.
+    inline const AesScalingFixture &cached_aes_scaling_fixture(const TileConfig &config)
+    {
+        static std::map<std::string, AesScalingFixture> cache;
+        auto it = cache.find(config.label);
+        if (it == cache.end())
+            it = cache.emplace(config.label, load_aes_scaling_fixture(config)).first;
+        return it->second;
     }
 }
