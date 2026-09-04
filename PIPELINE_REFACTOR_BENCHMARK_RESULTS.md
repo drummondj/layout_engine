@@ -29,3 +29,12 @@ Commit: 997e943
 | -------- | ----------------- | ------ | ------ | ------ | ------ | ------- | ----------------------------------------------- |
 | Cold     | HierarchyResolver | 124 ms | 246 ms | 588 ms | 982 ms | 1463 ms | reserve()/batching everywhere else; 3x2/3x3 cv ~20-30%, within noise |
 
+Commit: abc3013
+
+1M-component target validation (test_data/aes_scaling_5x5.def, 1,033,600 components) - not part of the 5-point matrix above, run in isolation via `--benchmark_filter=5x5` so peak RSS reflects one design, not every cached fixture:
+
+| Pipeline | Stage             | Time      | Peak RSS | Comments                                                  |
+| -------- | ----------------- | --------- | -------- | ---------------------------------------------------------- |
+| Cold     | LayerGeneration   | 79.7 us   | -        | Still flat/O(1) at ~1M components                         |
+| Cold     | HierarchyResolver | 5.9-6.2 s | ~6.6 GB  | Exceeds the 5s/1M-component target (repeatable across 2 runs); peak RSS is whole-process (DEF parse into Root + compute()) |
+
