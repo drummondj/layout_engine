@@ -89,7 +89,7 @@ BM_Rasterize/BM_Compose isolate each stage the same way BM_ViewportCull was isol
 | Warm     | Rasterize  | 227 ms | 268 ms | 538 ms | 559 ms | 925 ms | 2.06 s  | Dominates the Warm tier entirely - accounts for essentially all of BM_WarmTier's own total |
 | Warm     | Compose    | 3.83 ms | 2.54 ms | 5.18 ms | 4.77 ms | 7.40 ms | 13.0 ms | Cheap and roughly flat - 20-150x under Rasterize at every point, not the problem |
 
-Commit: (pending)
+Commit: b329ba1
 
 ViewRenderOptions::antialiasing_enabled added, default false (was unconditionally on) - RasterizeStage's own SkPaint fill/stroke/font antialiasing now opt-in. Every benchmark below leaves it at the new default (off), so this is a direct before/after of that one change alone:
 
