@@ -4,6 +4,8 @@
 #include "../../io/def_reader.hpp"
 #include "../../io/lef_reader.hpp"
 
+#include <sys/resource.h>
+
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -123,5 +125,27 @@ namespace le::benchmarks
         if (it == cache.end())
             it = cache.emplace(config.label, load_aes_scaling_fixture(config)).first;
         return it->second;
+    }
+
+    /// @brief This process's own peak resident set size so far (MB) - a
+    /// whole-process, monotonically-non-decreasing high-water mark, not a
+    /// per-benchmark-call delta. Meaningful as "how much memory did
+    /// processing this design need" only when nothing else large is
+    /// cached alongside it in the same process - true for
+    /// kAesScalingLargeConfig ("5x5") specifically when run in isolation
+    /// (`--benchmark_filter=5x5`); running the full suite in one process
+    /// reports the *cumulative* peak across every cached fixture up to
+    /// that point instead, since cached_aes_scaling_fixture keeps every
+    /// config's own Root alive for the rest of the process (PIPELINE_
+    /// REFACTOR.md's own "report peak memory for the 5x5 point" ask).
+    inline double peak_rss_mb()
+    {
+        struct rusage usage{};
+        getrusage(RUSAGE_SELF, &usage);
+#if defined(__APPLE__)
+        return static_cast<double>(usage.ru_maxrss) / (1024.0 * 1024.0); // ru_maxrss is bytes on macOS
+#else
+        return static_cast<double>(usage.ru_maxrss) / 1024.0; // ru_maxrss is kilobytes on Linux
+#endif
     }
 }

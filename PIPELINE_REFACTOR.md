@@ -13,6 +13,8 @@ All stages must be implemented with a class from tbb_core.hpp. If the generics i
 
 Using the aes_scaling data we should measure the performance of each stage and pipeline to determine big-O scaling. I would like to see every benchmark use 1x1, 2x1, 2x2, 3x2 and 3x3 tiling, so we get 5 points of data.
 
+Every benchmark should also always run a 6th point: the 5x5 tiling (1,033,600 components, close to the 1,000,000-component target below) - not for the big-O scaling comparison itself (it's not evenly spaced with the 5 points above), but as a standing check against the Cold tier's own real target scale. Report peak memory (RSS) alongside timing for this point every time - a design at this scale approaching or exceeding available memory (risking swap) is as much a failure of the target as being too slow.
+
 ## Structure
 
 ### ViewRenderPipeline
@@ -23,7 +25,11 @@ The pipeline will be split into 3 parts, cold, warm and hot:
     Input: Pointer to Root database.
     Options: top_level AbstractId or LayoutId, root mutation_version, hierarchy_depth.
     Output: A vector of shapes per Abstract and Layout, including placement data for each Placement plus a vector of ViewLayers
-    Speed requirement: Max 5s
+    Speed requirement: Max 5s for a design with 1,000,000 components (as of
+    2026-09-04, HierarchyResolver alone measures ~6s/~6.6GB peak RSS at
+    1,033,600 components (aes_scaling 5x5) - see
+    PIPELINE_REFACTOR_BENCHMARK_RESULTS.md - so this target is not yet met;
+    tracked as an open gap, not a passed gate)
     Stages:
         1. LayerGeneration - generates ViewLayers from Technology data
             Input: Pointer to Root database

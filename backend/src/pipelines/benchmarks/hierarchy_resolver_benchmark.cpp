@@ -48,6 +48,12 @@ namespace
             const HierarchyResolverOutput &output = runner.run(input, 0, options);
             benchmark::DoNotOptimize(output.view_data.size());
         }
+
+        // Whole-process peak RSS so far - see peak_rss_mb()'s own comment
+        // for why this only reads as "this design's own memory" when run
+        // in isolation (kAesScalingLargeConfig/"5x5" via
+        // --benchmark_filter=5x5), not as part of the full suite.
+        state.counters["PeakRSS_MB"] = peak_rss_mb();
     }
 }
 

@@ -39,6 +39,10 @@ namespace
             const ViewLayerSet &view_layers = runner.run(&fixture.root, 0, options);
             benchmark::DoNotOptimize(view_layers.all().size());
         }
+
+        // See peak_rss_mb()'s own comment - whole-process peak RSS so
+        // far, only a clean "this design alone" reading in isolation.
+        state.counters["PeakRSS_MB"] = peak_rss_mb();
     }
 }
 
