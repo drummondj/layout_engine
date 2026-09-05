@@ -2,10 +2,13 @@
 
 #include "../../core/placement_geometry.hpp"
 #include "../../database/database.hpp"
+#include "../../geometry/geometry.hpp"
 #include "../../view_style/view_style.hpp"
 #include "../default_typeface.hpp"
+#include "../draw_helpers.hpp"
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"
+#include "../upright_text_canvas.hpp"
 #include "hierarchy_resolver_stage.hpp"
 
 #include "include/core/SkCanvas.h"
@@ -13,11 +16,13 @@
 #include "include/core/SkFont.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkImageInfo.h"
+#include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkRect.h"
+#include "include/core/SkShader.h"
 #include "include/core/SkSurface.h"
 #include "include/effects/SkDashPathEffect.h"
 
@@ -32,8 +37,6 @@
 
 namespace le
 {
-    inline SkColor to_sk_color(Color c) { return SkColorSetARGB(c.a, c.r, c.g, c.b); }
-
     /// @brief Mirrors Scene::is_view_layer_visible exactly (that class's
     /// own doc comment): visible only if BOTH its own layer-name entry
     /// (if any) and its own purpose entry (if any) say so - an unset key
@@ -96,27 +99,83 @@ namespace le
     /// being further distorted by whatever the active dbu-to-pixel scale
     /// happens to be - see the text loop's own comment.
     ///
-    /// Deliberately simpler than the pre-restart draw_group (git history):
-    /// no FillPattern shader tiling (flat fill_color only), no CUT-style
-    /// cross pattern, no sub-pixel hairline-collapse special case - each a
-    /// real, deliberate scope cut for this first Rasterization pass, not
-    /// an oversight (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md's own
-    /// convention of noting what's deferred rather than silently
-    /// dropping it). A 0-width Path draws as a hairline (SkPaint stroke
-    /// width 0, Skia's own "always exactly 1 device pixel" convention) -
-    /// this one nicety survives because it needs no extra code, not
-    /// because it was prioritized over the others. `antialiasing_enabled`
-    /// is ViewRenderOptions::antialiasing_enabled - see that field's own
-    /// comment for why it defaults false. `layer_name_visible`/
-    /// `purpose_visible` are ViewRenderOptions' own same-named fields -
-    /// a hidden layer's whole group is skipped in one is_view_layer_visible
-    /// check, before its own shapes are even looked at, exactly the
-    /// "skip a hidden layer's whole group with one map lookup" hook this
-    /// function's own class-level doc comment already named.
+    /// Ported from the pre-restart draw_group (git history), adapted for
+    /// this function's own dbu-space drawing (draw_group operated in
+    /// already-pixel-space content): FillPattern shader tiling
+    /// (pattern_shader, draw_helpers.hpp - the tiled shader's own local
+    /// matrix is scaled by `scale` to counter the ambient canvas matrix's
+    /// own scale, so the tile reads as a fixed on-screen pixel density
+    /// rather than stretching with zoom; the old design's own
+    /// `pattern_phase_px` pan-phase compensation has no equivalent here -
+    /// each node's own raster surface has its own local origin baked into
+    /// the canvas matrix already, so the pattern's phase is stable per
+    /// node/zoom-tick but not guaranteed pixel-identical to a sibling
+    /// node's own phase - a cosmetic nuance, not a correctness one),
+    /// FillPattern::CROSS drawn as an explicit "X" (draw_cross) instead of
+    /// a tiled shader, and a sub-pixel-width Path drawn as a single
+    /// hairline centerline stroke rather than Geometry::path_to_polygons'
+    /// buffered (extension-aware) outline - imperceptibly different
+    /// on-screen at that size, and avoids a real, if rare, degenerate/
+    /// empty-polygon buffer result at effectively-zero width (e.g. Track/
+    /// GCellGrid's own deliberate width=0 synthetic lines, which must
+    /// always take this branch, never the buffered one).
+    ///
+    /// A0-width Path (Track/GCellGrid) always takes the hairline branch
+    /// above (SkPaint stroke width 0, Skia's own "always exactly 1 device
+    /// pixel" convention) regardless of scale - `path_to_polygons` isn't
+    /// extension/buffer-safe for a truly zero-width centerline (the LEF/
+    /// DEF default half-width end-cap extension there would itself be
+    /// zero, degenerating to a flat, possibly self-intersecting result).
+    ///
+    /// `antialiasing_enabled` is ViewRenderOptions::antialiasing_enabled -
+    /// see that field's own comment for why it defaults false.
+    /// `layer_name_visible`/`purpose_visible` are ViewRenderOptions' own
+    /// same-named fields - a hidden layer's whole group is skipped in one
+    /// is_view_layer_visible check, before its own shapes are even looked
+    /// at.
+    ///
+    /// Text sizing/positioning mirrors the pre-restart split between
+    /// draw_group's own per-shape terminal/route label loop
+    /// (kLabelWidthRatio applied to Text::size - itself
+    /// Geometry::local_width_at's raw dbu result - floored at
+    /// kMinLabelPixelSize, centered at `text.location`, never truncated)
+    /// and draw_placement_labels (kPlacementLabelHeightRatio already baked
+    /// into Text::size at construction time - HierarchyResolverStage's own
+    /// placement_name_shape - floored the same way, anchored at the box's
+    /// own bottom-left corner with a fixed on-screen padding, truncated to
+    /// fit via truncate_text_to_width): the two are told apart here by
+    /// whether the current ViewLayer *is*
+    /// `view_layers.placement_name_view_layer()` - a placement-name Shape
+    /// is the only kind ever pushed there, with `rects`/`texts` kept
+    /// index-parallel (rects[i] is texts[i]'s own reference box) precisely
+    /// so this function can recover the per-label available width without
+    /// Text itself needing a width field of its own.
+    /// `path_outline_cache` memoizes Geometry::path_to_polygons per Path
+    /// (real bg::buffer work, not cheap) keyed by that Path's own stable
+    /// address - stable because it points into `shapes_by_layer`'s own
+    /// backing storage, itself owned by a shared_ptr<const ViewLayerShapes>
+    /// HierarchyResolverStage's own MemoizingStage caching keeps alive
+    /// unchanged across every pan/zoom-only tick. Passed in by the caller
+    /// (RasterizeStage, a real member field invalidated whenever that
+    /// shared_ptr's own identity changes - RasterizeStage's own comment)
+    /// rather than owned here, since this is a free function with no
+    /// state of its own between calls. Without this, a real routed
+    /// design's own thousands-to-millions of wire Path segments each paid
+    /// a fresh buffer computation on *every* Warm-tier tick, not just
+    /// once per Cold recompute - measured as a 7-9x Rasterize slowdown
+    /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) before this cache existed,
+    /// the same caching granularity the pre-restart pipeline's own
+    /// RenderedShape::path_outlines already used (computed once at
+    /// shape-generation/Cold time - git history), just keyed differently
+    /// since Shape itself has no field of its own to cache into (a
+    /// schema.py change, deliberately avoided here).
     inline void draw_view_shapes(
         SkCanvas &canvas, const ViewLayerShapes &shapes_by_layer, const ViewLayerSet &view_layers, double scale, bool antialiasing_enabled,
-        const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible)
+        const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
+        std::unordered_map<const Path *, std::vector<Polygon>> &path_outline_cache)
     {
+        const ViewLayerId placement_name_layer_id = view_layers.placement_name_view_layer();
+
         for (const ViewLayerId &view_layer_id : view_layers.all())
         {
             const auto group_it = shapes_by_layer.find(view_layer_id);
@@ -135,10 +194,31 @@ namespace le
             if (!has_fill && !has_outline)
                 continue;
 
+            const bool is_cross = style.fill_pattern == FillPattern::CROSS;
+            const bool is_placement_name_layer = view_layer_id == placement_name_layer_id;
+
             SkPaint fill;
             fill.setAntiAlias(antialiasing_enabled);
             fill.setStyle(SkPaint::kFill_Style);
-            fill.setColor(to_sk_color(style.fill_color));
+            if (sk_sp<SkShader> shader = pattern_shader(style.fill_pattern, to_sk_color(style.outline_color)))
+            {
+                // Cancels the ambient canvas matrix's own dbu-to-pixel
+                // scale (RasterizeStage::compute's own translate+scale+
+                // flip setup) so pattern_shader's fixed-pixel-size tile
+                // reads at a constant on-screen density regardless of
+                // zoom - see this function's own doc comment.
+                shader = shader->makeWithLocalMatrix(SkMatrix::Scale(static_cast<SkScalar>(scale), static_cast<SkScalar>(-scale)));
+                // A paint's alpha still modulates its shader's own output
+                // alpha even though its RGB is ignored - leaving
+                // fill_color (translucent) as this paint's color would
+                // silently wash out an already-opaque pattern pixel.
+                fill.setShader(std::move(shader));
+                fill.setAlphaf(1.0f);
+            }
+            else
+            {
+                fill.setColor(to_sk_color(style.fill_color));
+            }
 
             SkPaint stroke;
             stroke.setAntiAlias(antialiasing_enabled);
@@ -156,6 +236,14 @@ namespace le
                 stroke.setPathEffect(SkDashPathEffect::Make({dash_length, dash_length}, 0.0f));
             }
 
+            // Only the "X" itself (draw_cross below) uses this - the
+            // surrounding cut rect/polygon boundary still draws with the
+            // plain hairline `stroke` above, same as every other layer's
+            // outline.
+            SkPaint cross_stroke = stroke;
+            if (is_cross)
+                cross_stroke.setStrokeWidth(kViaCrossStrokeWidth);
+
             SkPaint text_paint;
             text_paint.setAntiAlias(antialiasing_enabled);
             text_paint.setColor(to_sk_color(style.outline_color));
@@ -167,6 +255,14 @@ namespace le
                     const SkRect rect = SkRect::MakeLTRB(
                         static_cast<SkScalar>(r.ll.x), static_cast<SkScalar>(r.ll.y),
                         static_cast<SkScalar>(r.ur.x), static_cast<SkScalar>(r.ur.y));
+                    if (is_cross)
+                    {
+                        if (has_outline)
+                            draw_cross(canvas, rect, cross_stroke);
+                        if (has_outline)
+                            canvas.drawRect(rect, stroke);
+                        continue;
+                    }
                     if (has_fill)
                         canvas.drawRect(rect, fill);
                     if (has_outline)
@@ -176,7 +272,12 @@ namespace le
                 for (const Polygon &poly : shape.polygons)
                 {
                     const SkPath path = to_sk_path(poly, /*close=*/true);
-                    if (has_fill)
+                    if (is_cross)
+                    {
+                        if (has_outline)
+                            draw_cross(canvas, path.getBounds(), cross_stroke);
+                    }
+                    else if (has_fill)
                         canvas.drawPath(path, fill);
                     if (has_outline)
                         canvas.drawPath(path, stroke);
@@ -184,33 +285,93 @@ namespace le
 
                 for (const Path &p : shape.paths)
                 {
-                    SkPaint path_stroke = has_outline ? stroke : fill;
-                    path_stroke.setStyle(SkPaint::kStroke_Style);
-                    path_stroke.setStrokeWidth(static_cast<SkScalar>(p.width)); // 0 == hairline
-                    canvas.drawPath(to_sk_path(p.polygon, /*close=*/false), path_stroke);
+                    // Sub-pixel on screen (or a deliberately zero-width
+                    // synthetic line, Track/GCellGrid) - a single hairline
+                    // centerline stroke instead of a buffered, extension-
+                    // aware outline; see this function's own doc comment.
+                    if (p.width * scale < 1.0)
+                    {
+                        SkPaint path_stroke = has_outline ? stroke : fill;
+                        path_stroke.setStyle(SkPaint::kStroke_Style);
+                        path_stroke.setStrokeWidth(0); // hairline
+                        canvas.drawPath(to_sk_path(p.polygon, /*close=*/false), path_stroke);
+                        continue;
+                    }
+
+                    // Real square-ended (LEF/DEF default half-width
+                    // extension) stroked outline, fill first (the layer's
+                    // real pattern, not a solid stroke) then a thin
+                    // outline-colored boundary, then a thin centerline
+                    // stroke on top so the path still reads as a wire
+                    // rather than just another filled/outlined shape.
+                    // Cached (see this function's own doc comment) -
+                    // real bg::buffer work, not cheap enough to redo on
+                    // every pan/zoom tick for every routed Path.
+                    auto outline_it = path_outline_cache.find(&p);
+                    if (outline_it == path_outline_cache.end())
+                        outline_it = path_outline_cache.emplace(&p, Geometry::path_to_polygons(p)).first;
+                    for (const Polygon &outline : outline_it->second)
+                    {
+                        const SkPath outline_path = to_sk_path(outline, /*close=*/true);
+                        if (has_fill)
+                            canvas.drawPath(outline_path, fill);
+                        if (has_outline)
+                            canvas.drawPath(outline_path, stroke);
+                    }
+                    if (has_outline)
+                        canvas.drawPath(to_sk_path(p.polygon, /*close=*/false), stroke);
+                }
+
+                if (is_placement_name_layer)
+                {
+                    // Placement name labels: height-ratio font size
+                    // (already baked into text.size, dbu, at construction
+                    // time) floored at a fixed on-screen minimum,
+                    // bottom-left-anchored with a small constant on-screen
+                    // padding (added here, in already-counter-scaled local
+                    // space, not baked into the dbu-space translate, so it
+                    // stays a constant inset regardless of zoom), and
+                    // truncated to fit the placement's own on-screen width
+                    // via the index-paired shape.rects entry - see this
+                    // function's own doc comment.
+                    for (std::size_t i = 0; i < shape.texts.size(); ++i)
+                    {
+                        const Text &text = shape.texts[i];
+                        const double pixel_size = std::max(text.size * scale, kMinLabelPixelSize);
+                        if (i >= shape.rects.size())
+                            continue;
+                        const double width_px = static_cast<double>(shape.rects[i].ur.x - shape.rects[i].ll.x) * scale;
+                        const double available_width_px = width_px - 2.0 * kPlacementLabelPaddingPx;
+                        if (available_width_px <= 0.0)
+                            continue;
+
+                        SkFont font(default_typeface(), static_cast<SkScalar>(pixel_size));
+                        font.setEdging(antialiasing_enabled ? SkFont::Edging::kAntiAlias : SkFont::Edging::kAlias);
+
+                        const std::string truncated = truncate_text_to_width(text.label, font, static_cast<SkScalar>(available_width_px));
+                        if (truncated.empty())
+                            continue;
+
+                        canvas.save();
+                        canvas.translate(static_cast<SkScalar>(text.location.x), static_cast<SkScalar>(text.location.y));
+                        canvas.drawString(truncated.c_str(), static_cast<SkScalar>(kPlacementLabelPaddingPx), static_cast<SkScalar>(kPlacementLabelPaddingPx), font, text_paint);
+                        canvas.restore();
+                    }
+                    continue;
                 }
 
                 for (const Text &text : shape.texts)
                 {
-                    const SkScalar pixel_size = static_cast<SkScalar>(text.size * scale);
-                    if (pixel_size <= 0)
-                        continue;
+                    const double pixel_size = std::max(text.size * scale * kLabelWidthRatio, kMinLabelPixelSize);
 
-                    SkFont font(default_typeface(), pixel_size);
+                    SkFont font(default_typeface(), static_cast<SkScalar>(pixel_size));
                     font.setEdging(antialiasing_enabled ? SkFont::Edging::kAntiAlias : SkFont::Edging::kAlias);
 
                     // Counters the active canvas matrix's own scale+flip
                     // (see this function's own doc comment) so the label
-                    // renders upright at its real declared pixel size,
-                    // the same save/translate/scale(1,-1)-counter-flip/
-                    // drawString/restore idiom the pre-restart
-                    // draw_placement_labels used, generalized to also
-                    // cancel a non-1:1 scale (that code operated in
-                    // already-pixel-space content, so its own counter-
-                    // scale was always exactly {1,-1}).
+                    // renders upright at its real declared pixel size.
                     canvas.save();
                     canvas.translate(static_cast<SkScalar>(text.location.x), static_cast<SkScalar>(text.location.y));
-                    canvas.scale(static_cast<SkScalar>(1.0 / scale), static_cast<SkScalar>(-1.0 / scale));
                     canvas.drawString(text.label.c_str(), 0, 0, font, text_paint);
                     canvas.restore();
                 }
@@ -335,9 +496,58 @@ namespace le
                 canvas->scale(static_cast<SkScalar>(options.scale), static_cast<SkScalar>(-options.scale));
                 canvas->translate(static_cast<SkScalar>(-local_bbox.ll.x), static_cast<SkScalar>(-local_bbox.ll.y));
 
+                // UprightTextCanvas (pipelines.old, re-ported) intercepts
+                // every text draw and replaces the CTM with a
+                // translation+uniform-scale-only matrix for that one draw
+                // (discarding this canvas's own y-flip reflection
+                // component), so a label renders upright/correctly sized
+                // without draw_view_shapes' own text loop needing its own
+                // manual per-label save/scale(1/scale,-1/scale)/restore
+                // counter-transform - see upright_text_canvas.hpp's own
+                // doc comment for why this decomposition is exact (not
+                // approximate) for this codebase's own transform chain,
+                // and PIPELINE_REFACTOR_BENCHMARK_RESULTS.md for this
+                // swap's own measured overhead (an SkPaintFilterCanvas
+                // virtual-dispatch + matrix-decomposition per text draw)
+                // against the manual approach it replaces.
+                UprightTextCanvas upright_canvas(canvas);
+
+                // Per-NODE path-outline cache (keyed on this node's own
+                // `id`, not on `culled` itself): a real Cold recompute
+                // upstream gives this exact node a brand-new `data.shapes`
+                // shared_ptr, invalidating just its own cached entry, but
+                // ViewportCullStage runs BETWEEN HierarchyResolverStage and
+                // this stage and hands every node a fresh wrapper object
+                // on every single call regardless of whether the viewport
+                // actually affected it - keying on `culled` itself (an
+                // earlier version of this cache) invalidated on every pan
+                // tick for every node, measured providing no real benefit
+                // at all (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md). Keying
+                // on `data.shapes` per node instead survives exactly the
+                // pan/zoom-only ticks it needs to (that pointer is only
+                // ever reassigned by a real HierarchyResolverStage
+                // recompute reaching this specific node), while still
+                // never growing past this design's own real node count
+                // (bounded by macro/hierarchy variety, not by pan ticks or
+                // shape count) - and holding this node's own current
+                // `data.shapes` copy as the cache's own key value (not a
+                // bare pointer) means the moment it's superseded, this is
+                // the only extra reference keeping the OLD version alive,
+                // so overwriting it here doesn't artificially extend
+                // anything's lifetime beyond what HierarchyResolverStage's
+                // own cache already does. See draw_view_shapes' own doc
+                // comment for why buffering Path outlines needs caching at
+                // all.
+                NodePathOutlineCache &node_outline_cache = path_outline_cache_by_node_[id];
+                if (node_outline_cache.source != data.shapes)
+                {
+                    node_outline_cache.outlines.clear();
+                    node_outline_cache.source = data.shapes;
+                }
+
                 draw_view_shapes(
-                    *canvas, data.shapes ? *data.shapes : kEmptyShapes, view_layers, options.scale, options.antialiasing_enabled,
-                    options.layer_name_visible, options.purpose_visible);
+                    upright_canvas, data.shapes ? *data.shapes : kEmptyShapes, view_layers, options.scale, options.antialiasing_enabled,
+                    options.layer_name_visible, options.purpose_visible, node_outline_cache.outlines);
 
                 result.images.emplace(id, RasterizedImage{surface->makeImageSnapshot(), local_bbox.ll});
             }
@@ -360,6 +570,15 @@ namespace le
         }
 
     private:
+        // See compute()'s own comment on why this is keyed per-node
+        // (HierarchyId) rather than on `culled` as a whole.
+        struct NodePathOutlineCache
+        {
+            ViewShapesHandle source;
+            std::unordered_map<const Path *, std::vector<Polygon>> outlines;
+        };
+        std::unordered_map<HierarchyId, NodePathOutlineCache, HierarchyIdHash> path_outline_cache_by_node_;
+
         static Rect node_local_bbox(const Root &root, const HierarchyId &id)
         {
             if (const LayoutId *layout_id = std::get_if<LayoutId>(&id))

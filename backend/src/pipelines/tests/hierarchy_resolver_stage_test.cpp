@@ -113,8 +113,18 @@ TEST_F(HierarchyResolverStageFixture, DepthZeroShowsOnlyTopLevelContent)
     const auto boundary_group_it = top_data.shapes->find(placement_boundary_layer);
     ASSERT_NE(boundary_group_it, top_data.shapes->end());
     ASSERT_EQ(boundary_group_it->second.size(), 1u);
-    ASSERT_EQ(boundary_group_it->second[0].texts.size(), 1u);
-    EXPECT_EQ(boundary_group_it->second[0].texts[0].label, "block0");
+    EXPECT_TRUE(boundary_group_it->second[0].texts.empty()); // boundary Shape carries only the outline now - see placement_name_layer below
+
+    // The name label itself lives on its own dedicated PLACEMENT_NAME
+    // Shape/ViewLayer (view_style.hpp, BUGS_AND_ENHANCEMENTS.md E13) -
+    // split out from PLACEMENT_BOUNDARY so its own color/visibility is
+    // independently toggleable, matching pipelines.old's own
+    // draw_placement_labels/PLACEMENT_NAME split.
+    const auto name_group_it = top_data.shapes->find(view_layers.placement_name_view_layer());
+    ASSERT_NE(name_group_it, top_data.shapes->end());
+    ASSERT_EQ(name_group_it->second.size(), 1u);
+    ASSERT_EQ(name_group_it->second[0].texts.size(), 1u);
+    EXPECT_EQ(name_group_it->second[0].texts[0].label, "block0");
 }
 
 TEST_F(HierarchyResolverStageFixture, DepthOneResolvesTopLevelPlacementsButNotTheirOwn)
@@ -228,14 +238,22 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
     ASSERT_TRUE(placement_boundary_layer.valid());
 
     // Every placement in a Layout batches into a single PLACEMENT_BOUNDARY
-    // Shape (one rect + one Text per placement, all in that one Shape)
-    // rather than one Shape per placement - see
-    // append_placement_boundary_shapes' own comment for why (measured
-    // allocation cost at real placement counts).
+    // Shape (one rect per placement) plus a single, separate
+    // PLACEMENT_NAME Shape (one rect + one Text per placement, index-
+    // paired with the boundary rects - draw_view_shapes' own comment)
+    // rather than one Shape per placement - see the main compute() loop's
+    // own comment for why batching matters (measured allocation cost at
+    // real placement counts), and view_style.hpp's own PLACEMENT_NAME
+    // purpose for why the label is its own Shape/ViewLayer rather than
+    // living on the boundary Shape itself (independent color/visibility,
+    // BUGS_AND_ENHANCEMENTS.md E13).
+    const ViewLayerId placement_name_layer = view_layers.placement_name_view_layer();
+    ASSERT_TRUE(placement_name_layer.valid());
 
     // TOP has one placement (block0) - its own PLACEMENT_BOUNDARY shape
     // holds block0's resolved world bbox (BLOCK's own declared 1000x1000
-    // size, translated by its location) plus a Text labeled "block0".
+    // size, translated by its location); its own PLACEMENT_NAME shape
+    // holds that same rect plus a Text labeled "block0".
     const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
     const auto top_boundary_it = top_data.shapes->find(placement_boundary_layer);
     ASSERT_NE(top_boundary_it, top_data.shapes->end());
@@ -244,21 +262,27 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
     ASSERT_EQ(top_boundary_shape.rects.size(), 1u);
     EXPECT_GT(top_boundary_shape.rects[0].ur.x, top_boundary_shape.rects[0].ll.x);
     EXPECT_GT(top_boundary_shape.rects[0].ur.y, top_boundary_shape.rects[0].ll.y);
-    ASSERT_EQ(top_boundary_shape.texts.size(), 1u);
-    EXPECT_EQ(top_boundary_shape.texts[0].label, "block0");
+    EXPECT_TRUE(top_boundary_shape.texts.empty());
+
+    const auto top_name_it = top_data.shapes->find(placement_name_layer);
+    ASSERT_NE(top_name_it, top_data.shapes->end());
+    ASSERT_EQ(top_name_it->second.size(), 1u);
+    const Shape &top_name_shape = top_name_it->second[0];
+    ASSERT_EQ(top_name_shape.texts.size(), 1u);
+    EXPECT_EQ(top_name_shape.texts[0].label, "block0");
 
     // BLOCK's own Layout has two placements (leaf0/leaf1) - one shared
-    // PLACEMENT_BOUNDARY shape with 2 rects/labels, not two shapes.
+    // PLACEMENT_NAME shape with 2 rects/labels, not two shapes.
     const ViewData &block_data = output.view_data.at(HierarchyId{block_layout});
-    const auto block_boundary_it = block_data.shapes->find(placement_boundary_layer);
-    ASSERT_NE(block_boundary_it, block_data.shapes->end());
-    ASSERT_EQ(block_boundary_it->second.size(), 1u);
-    const Shape &block_boundary_shape = block_boundary_it->second[0];
-    ASSERT_EQ(block_boundary_shape.rects.size(), 2u);
-    ASSERT_EQ(block_boundary_shape.texts.size(), 2u);
+    const auto block_name_it = block_data.shapes->find(placement_name_layer);
+    ASSERT_NE(block_name_it, block_data.shapes->end());
+    ASSERT_EQ(block_name_it->second.size(), 1u);
+    const Shape &block_name_shape = block_name_it->second[0];
+    ASSERT_EQ(block_name_shape.rects.size(), 2u);
+    ASSERT_EQ(block_name_shape.texts.size(), 2u);
 
     std::vector<std::string> block_labels;
-    for (const Text &text : block_boundary_shape.texts)
+    for (const Text &text : block_name_shape.texts)
         block_labels.push_back(text.label);
     EXPECT_NE(std::find(block_labels.begin(), block_labels.end(), "leaf0"), block_labels.end());
     EXPECT_NE(std::find(block_labels.begin(), block_labels.end(), "leaf1"), block_labels.end());

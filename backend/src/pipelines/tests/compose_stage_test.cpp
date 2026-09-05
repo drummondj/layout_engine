@@ -5,6 +5,7 @@
 #include "include/core/SkColor.h"
 #include "include/core/SkPixmap.h"
 
+#include <cstdlib>
 #include <memory>
 
 using namespace le;
@@ -69,6 +70,35 @@ namespace
             return pixmap.getColor(x, y);
         }
 
+        // M1's own TERMINAL row draws with a real diagonal-stripe
+        // FillPattern now (view_style.hpp's own terminal_fill_pattern,
+        // M1 being a ROUTING-type Layer) rather than a flat fill, so a
+        // single hardcoded sample point can legitimately land on a
+        // pattern "gap" - scan a small block instead (see
+        // rasterize_stage_test.cpp's own region_contains_color_near, same
+        // idea, RasterizedFrame's own surface instead of an SkImage).
+        static bool region_contains_color_near(const RasterizedFrame &frame, int x0, int y0, int x1, int y1, SkColor expected, int tolerance)
+        {
+            if (frame.empty || !frame.surface)
+                return false;
+            SkPixmap pixmap;
+            if (!frame.surface->peekPixels(&pixmap))
+                return false;
+            for (int y = y0; y < y1; ++y)
+            {
+                for (int x = x0; x < x1; ++x)
+                {
+                    const SkColor c = pixmap.getColor(x, y);
+                    if (std::abs(static_cast<int>(SkColorGetR(c)) - static_cast<int>(SkColorGetR(expected))) <= tolerance &&
+                        std::abs(static_cast<int>(SkColorGetG(c)) - static_cast<int>(SkColorGetG(expected))) <= tolerance &&
+                        std::abs(static_cast<int>(SkColorGetB(c)) - static_cast<int>(SkColorGetB(expected))) <= tolerance &&
+                        std::abs(static_cast<int>(SkColorGetA(c)) - static_cast<int>(SkColorGetA(expected))) <= tolerance)
+                        return true;
+                }
+            }
+            return false;
+        }
+
         static constexpr double kScale = 4.0;
 
         Root root;
@@ -95,30 +125,27 @@ TEST_F(ComposeStageFixture, ComposesUnrotatedChildAtItsOwnGlobalOffset)
 
     const ViewLayerSet view_layers = ViewLayerSet::build_for_technology(root, technology_id);
     const ViewLayerId terminal_layer = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
-    const Color expected_color = view_layers.get(terminal_layer)->style.fill_color;
+    const Color expected_color = view_layers.get(terminal_layer)->style.outline_color;
     ASSERT_GT(expected_color.a, 0);
 
     // Global (unrotated) terminal bbox: block0 at (30,30) + leaf0 at
     // BLOCK-local (20,20) + terminal at LEAF-local (1,1)-(4,2) =
     // (51,51)-(54,52) in TOP's own dbu space -> pixel x:[204,216],
     // y: 800-52*4=592 to 800-51*4=596.
+    // M1's own TERMINAL row draws with a real diagonal-stripe FillPattern
+    // now (view_style.hpp's own terminal_fill_pattern, M1 being a
+    // ROUTING-type Layer) instead of a flat fill_color - pattern_shader's
+    // own tile paints its "ink" in the layer's own OUTLINE color at full
+    // opacity (rasterize_stage.hpp's own draw_view_shapes comment), so
+    // that - not fill_color - is the color that actually appears
+    // wherever this pattern has ink. Scan the whole rect instead of one
+    // hardcoded pixel (see region_contains_color_near's own comment).
     // +/-5 tolerance (not exact equality) - same premultiplied-alpha
     // round-trip rounding RasterizeStageFixture's own color-sampling
     // tests already tolerate, compounded slightly further here by a
     // second composite (LEAF's own image drawn onto BLOCK's, then
     // BLOCK's onto TOP's).
-    // x=206 (2px inset from the rect's own left edge at 204), not the
-    // rect's own horizontal center (210) - the Terminal's own name ("A",
-    // this fixture's own TerminalData) draws a label on top of its own
-    // fill (HierarchyResolverStage's own by_layer/get_label_location
-    // machinery), roughly centered in the combined shape's own bbox -
-    // confirmed via direct pixel inspection that x=210 lands on that
-    // label's own antialiased glyph edge, x=206 doesn't.
-    const SkColor sampled = sample(*frame, 206, 594);
-    EXPECT_NEAR(SkColorGetR(sampled), expected_color.r, 5);
-    EXPECT_NEAR(SkColorGetG(sampled), expected_color.g, 5);
-    EXPECT_NEAR(SkColorGetB(sampled), expected_color.b, 5);
-    EXPECT_NEAR(SkColorGetA(sampled), expected_color.a, 5);
+    EXPECT_TRUE(region_contains_color_near(*frame, 204, 592, 216, 596, to_sk_color(expected_color), 5));
 }
 
 TEST_F(ComposeStageFixture, ComposesA90DegreeRotatedChildAtTheCorrectlyTransformedOffset)
@@ -138,13 +165,14 @@ TEST_F(ComposeStageFixture, ComposesA90DegreeRotatedChildAtTheCorrectlyTransform
 
     const ViewLayerSet view_layers = ViewLayerSet::build_for_technology(root, technology_id);
     const ViewLayerId terminal_layer = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
-    const Color expected_color = view_layers.get(terminal_layer)->style.fill_color;
+    const Color expected_color = view_layers.get(terminal_layer)->style.outline_color;
 
     // TOP-local (51,56)-(52,59) @ scale 4 -> pixel x:[204,208],
-    // y: 800-59*4=564 to 800-56*4=576.
-    const SkColor rotated_position = sample(*frame, 206, 570);
-    EXPECT_NEAR(SkColorGetR(rotated_position), expected_color.r, 5);
-    EXPECT_NEAR(SkColorGetA(rotated_position), expected_color.a, 5);
+    // y: 800-59*4=564 to 800-56*4=576. M1's own TERMINAL row draws with a
+    // real diagonal-stripe FillPattern now (see this fixture's own
+    // ComposesUnrotatedChildAtItsOwnGlobalOffset comment) - scan the rect
+    // rather than one exact pixel.
+    EXPECT_TRUE(region_contains_color_near(*frame, 204, 564, 208, 576, to_sk_color(expected_color), 5));
 
     // The UNROTATED (Orientation::N) test's own sample point should now
     // be empty - if this test only "passed" because the whole image is

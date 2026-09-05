@@ -446,8 +446,18 @@ endif()
 # Rasterization/Compose stages, which do need a real compiled TU -
 # pipelines.cpp defines default_typeface() for the same reason the
 # pre-restart one did (see that file's own comment).
-add_library(pipelines STATIC src/pipelines/pipelines.cpp)
+add_library(pipelines STATIC src/pipelines/pipelines.cpp src/pipelines/upright_text_canvas.cpp)
 target_include_directories(pipelines PUBLIC src)
+
+# UprightTextCanvas (SkPaintFilterCanvas subclass) needs -fno-rtti on this
+# one TU specifically - this vendored Skia build (like the pre-restart
+# module's own, see upright_text_canvas.cpp's own comment) has no
+# `typeinfo for` symbol for SkPaintFilterCanvas/SkCanvas anywhere in
+# libskia.a, so a normal RTTI-enabled derived class fails to link the
+# moment any TU actually instantiates one. Scoped to this single source
+# file (not the whole `pipelines` target) since nothing else here needs
+# RTTI disabled.
+set_source_files_properties(src/pipelines/upright_text_canvas.cpp PROPERTIES COMPILE_OPTIONS "-fno-rtti")
 target_link_libraries(pipelines PUBLIC database view_style core skia fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
 
 # LE_FONT_DIR: Linux's default_typeface() (pipelines.cpp) loads its default

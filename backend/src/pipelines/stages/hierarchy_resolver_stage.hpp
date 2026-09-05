@@ -5,8 +5,10 @@
 #include "../../database/database.hpp"
 #include "../../geometry/geometry.hpp"
 #include "../../view_style/view_style.hpp"
+#include "../draw_helpers.hpp"
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"
+#include "../via_shapes.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -286,7 +288,20 @@ namespace le
                     // consolidation removes, not just a tidiness pass.
                     Shape placement_boundary_shape;
                     placement_boundary_shape.rects.reserve(placements.size());
-                    placement_boundary_shape.texts.reserve(placements.size());
+
+                    // A Placement's own name label is its own Shape, on
+                    // its own dedicated PLACEMENT_NAME ViewLayer (view_style.hpp)
+                    // - split out from PLACEMENT_BOUNDARY (BUGS_AND_ENHANCEMENTS.md
+                    // E13) so a label's own color/visibility toggle is
+                    // independent of the boundary outline it's drawn
+                    // alongside, matching pipelines.old/draw_helpers.hpp's
+                    // own draw_placement_labels. rects/texts stay index-
+                    // parallel (rects[i] is texts[i]'s own reference box,
+                    // for RasterizeStage's own width-fit truncation) - see
+                    // draw_view_shapes' own comment.
+                    Shape placement_name_shape;
+                    placement_name_shape.rects.reserve(placements.size());
+                    placement_name_shape.texts.reserve(placements.size());
 
                     for (PlacementId placement_id : placements)
                     {
@@ -322,16 +337,29 @@ namespace le
                         const Geometry::InstanceTransform transform = Geometry::instance_transform(orientation, child_local_bbox, *placement->location);
                         const Rect bbox = Geometry::transform_bbox(transform, child_local_bbox);
 
-                        // Label position/size computed directly from
-                        // `bbox` (a rect's own center, and
-                        // min(width, height)) rather than calling
-                        // Geometry::get_label_location/local_width_at on
-                        // a throwaway single-rect Shape - see the
-                        // preserved comment below for why.
-                        const Point label_location{(bbox.ll.x + bbox.ur.x) / 2, (bbox.ll.y + bbox.ur.y) / 2};
-                        const double label_size = static_cast<double>(std::min(bbox.ur.x - bbox.ll.x, bbox.ur.y - bbox.ll.y));
+                        // Label size/position ported from
+                        // pipelines.old/draw_helpers.hpp's own
+                        // draw_placement_labels: font size is a fraction
+                        // of the placement's own on-screen *height*
+                        // (kPlacementLabelHeightRatio, floored at
+                        // kMinLabelPixelSize - applied at draw time,
+                        // RasterizeStage's own text loop, once `scale` is
+                        // known), anchored at the box's own bottom-left
+                        // corner (RasterizeStage adds the fixed pixel
+                        // padding at draw time too, in already-counter-
+                        // scaled local space, so it stays a constant
+                        // on-screen inset regardless of zoom - baking a
+                        // dbu-space padding in here instead would grow/
+                        // shrink with zoom, the wrong behavior). `size` is
+                        // therefore a pure dbu quantity (bbox height x the
+                        // ratio), matching Text.size's own schema
+                        // convention ("local width of the shape geometry
+                        // ... used to size the rendered text") rather than
+                        // a literal pixel font size.
+                        const double height_dbu = static_cast<double>(bbox.ur.y - bbox.ll.y);
                         placement_boundary_shape.rects.push_back(bbox);
-                        placement_boundary_shape.texts.push_back(Text{.label = placement->name, .location = label_location, .size = label_size});
+                        placement_name_shape.rects.push_back(bbox);
+                        placement_name_shape.texts.push_back(Text{.label = placement->name, .location = bbox.ll, .size = height_dbu * kPlacementLabelHeightRatio});
 
                         if (item.remaining_depth <= 0)
                             continue; // depth exhausted - placeholder drawn above, nothing further resolved/visited
@@ -351,6 +379,7 @@ namespace le
                     {
                         const ViewLayerId placement_boundary_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
                         shapes_by_layer[placement_boundary_view_layer].push_back(std::move(placement_boundary_shape));
+                        shapes_by_layer[view_layers.placement_name_view_layer()].push_back(std::move(placement_name_shape));
                     }
 
                     data.shapes = std::make_shared<const ViewLayerShapes>(std::move(shapes_by_layer));
@@ -512,6 +541,7 @@ namespace le
                         combined.polygons.insert(combined.polygons.end(), shape.polygons.begin(), shape.polygons.end());
                         combined.paths.insert(combined.paths.end(), shape.paths.begin(), shape.paths.end());
 
+                        append_via_shapes(root, shape, ViewLayerPurpose::TERMINAL, view_layers, LayoutId{}, shapes_by_layer);
                         layer_shapes.push_back(std::move(shape));
                     }
                 }
@@ -542,6 +572,7 @@ namespace le
                         continue;
                     Shape shape = expand_iterates(*raw_shape);
                     const ViewLayerId view_layer = resolve_view_layer(view_layers, shape, ViewLayerPurpose::OBSTRUCTION);
+                    append_via_shapes(root, shape, ViewLayerPurpose::OBSTRUCTION, view_layers, LayoutId{}, shapes_by_layer);
                     shapes_by_layer[view_layer].push_back(std::move(shape));
                 }
             }
@@ -692,6 +723,7 @@ namespace le
                 const Shape *shape = root.get_shape(shape_id);
                 if (!shape)
                     return;
+                append_via_shapes(root, *shape, fallback_purpose, view_layers, layout_id, shapes_by_layer);
                 shapes_by_layer[resolve_view_layer(view_layers, *shape, fallback_purpose)].push_back(*shape);
             };
 
