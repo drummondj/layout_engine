@@ -768,56 +768,53 @@ namespace le
                     return status;
             }
 
-            // BUGS_AND_ENHANCEMENTS.md B9 follow-up - every ShapeVia/
-            // ShapeViaIterate this shape owns is now written into one
-            // shared NEW ... segment of its own (point, via, point, via,
-            // ..., all valid DEF routingPoints grammar - a path segment
-            // can freely alternate real points and via placements), not
-            // appended onto whatever segment this shape's own Path loop
-            // above happened to leave open. Real production DEF (found
-            // reading an ISPD22 benchmark) has via-only Shapes with an
-            // empty paths list at all - the previous code wrote those
-            // vias onto whatever *unrelated* shape's path segment
-            // happened to still be "started", producing a bare via name
-            // with no layer/point context of its own at all (and,
-            // observed directly: duplicated-looking tokens, since several
-            // via-only shapes in a row all glued onto that same stale
-            // open segment - turned out to be real, distinct via
-            // placements sharing a via-template name, not an actual
-            // duplication, once each got its own real coordinate).
+            // BUGS_AND_ENHANCEMENTS.md B9 follow-up, REVISED 2026-09-04 -
+            // the previous version of this block wrote every ShapeVia/
+            // ShapeViaIterate this shape owns into ONE shared NEW segment
+            // as a sequence of (point, via, point, via, ...) pairs,
+            // reasoning that this was cosmetically different from but
+            // geometrically equivalent to giving each via its own
+            // segment. That reasoning was wrong: DEF's own routingPoints
+            // grammar treats every *consecutive* point within one path/
+            // NEW segment's own point list as directly wire-connected -
+            // that's the real, load-bearing meaning of a multi-point
+            // jogged wire spec like "(pt1)(pt2)(pt3)" elsewhere in this
+            // same file. Sharing one segment across several unrelated
+            // vias (merged into this one Shape only because they sit on
+            // the same layer - see DEFReader::append_shapes_from_path's
+            // own per-layer grouping) therefore emitted a real, phantom
+            // wire connecting each pair of via origins - almost always
+            // diagonal, since two vias merged this way rarely share an x
+            // or y coordinate. This was the actual root cause of the
+            // "chaotic diagonal routing" visual corruption found
+            // 2026-09-04 comparing a tiled AES_1 DEF's rendering against
+            // the original (confirmed via a byte-identical zero-
+            // translation 1x1 "tiling" reproducing it, ruling out
+            // generate_tiled_design.cpp, then tracing the corrupted
+            // output's own repeated-point/via runs back to this exact
+            // code path).
             //
-            // One shared segment per shape (not one fresh NEW per via, an
-            // earlier version of this fix) matters for more than just
-            // tidiness: *PathStart resets the vendored writer's own
-            // internal defwLineItemCounter to 0 every time it's called
-            // (confirmed in defwWriter.cpp), which is also what drives
-            // its periodic "insert a real newline" logic - a fresh
-            // PathStart per via never lets that counter accumulate past
-            // one point/via pair, so a net with thousands of individual
-            // via taps (a real power-strap SPECIALNET in the same
-            // benchmark, not a contrived case) came out as one
-            // enormous, effectively unwrapped line - which the vendored
-            // *reader*, fed back its own writer's output, choked on
-            // outright (a real parse failure, not merely unsightly - the
-            // vendored lexer's own fixed-size line buffer, a plausible
-            // read of a fully generic "unexpected token" error at a
-            // seemingly arbitrary position deep into that line). Sharing
-            // one segment restores the same natural periodic wrapping the
-            // original multi-point Path-writing loop above already
-            // benefits from.
-            //
-            // The original point-by-point interleaving ("this via came
-            // after exactly this point in the original file") still isn't
-            // preserved (ShapeVia carries its own origin, not a
-            // path-index - ShapeVia's own schema.py comment) - every via
-            // ends up grouped after this shape's own real Path segments
-            // rather than interleaved within one of them, but every via
-            // now always has a real, correct layer and location, which is
-            // what the original file's own byte-for-byte segment grouping
-            // was needed to reconstruct only for cosmetic fidelity, not
-            // correctness (same location, same connectivity, same
-            // rendered geometry either way).
-            if (!shape->vias.empty() || !shape->via_iterates.empty())
+            // Fixed by giving every via/via_iterate its own isolated
+            // single-point NEW segment (a degenerate "+ NEW layer (x y)
+            // via_name" path - valid DEF, `path`'s own grammar
+            // (def.y's `path` rule) requires only one point, `path_pt`,
+            // before an optional via/point item list) - restoring the
+            // *first*-abandoned "one fresh NEW per via" design (see this
+            // comment's own prior revision, preserved in git history),
+            // which was abandoned only because *PathStart resets the
+            // vendored writer's own internal defwLineItemCounter to 0
+            // every time it's called, starving that counter's own
+            // periodic-newline heuristic and producing one giant
+            // unwrapped physical line for a real power-strap SPECIALNET
+            // with thousands of via taps - long enough to overflow the
+            // vendored *reader*'s own fixed-size line buffer on
+            // read-back (a real parse failure). Fixed here too, by
+            // calling `defwNewLine()` (a raw fprintf, confirmed
+            // independent of defwLineItemCounter) directly after every
+            // via - correctness (no phantom wire segments) doesn't need
+            // to trade away line-wrapping once wrapping is driven
+            // independently of it.
+            for (const ShapeVia &via : shape->vias)
             {
                 status = is_special ? defwSpecialNetPathStart("NEW") : defwNetPathStart("NEW");
                 if (status)
@@ -828,100 +825,93 @@ namespace le
                 if (status)
                     return status;
 
-                // SPECIALNETS' own "+ ROUTED/NEW layerName routeWidth
-                // routingPoints" grammar requires a WIDTH token right
-                // after the layer name (unlike regular NETS, where
-                // defwNetPathLayer takes no width param at all - width
-                // there is a separate, DEF>=6.0-only construct this
-                // writer's fixed 5.8 output version never uses, see this
-                // function's own Path-writing loop above). Missing this
-                // was the actual root cause of a real parse failure ("on
-                // token (" right after the layer name) found testing
-                // against a real ISPD22 benchmark - every real Path
-                // segment above already calls defwSpecialNetPathWidth,
-                // this via-only segment needs it too. Uses the first
-                // via/via_iterate's own width (ShapeVia.width - "the
-                // enclosing DEF routed path's own current width at this
-                // via's own point") as representative for the whole
-                // shared segment - a real, minor loss of per-via width
-                // fidelity if it genuinely varied within one shape's own
-                // via placements (uncommon in practice), traded for being
-                // valid DEF at all; via geometry rendering itself doesn't
-                // depend on this value (see ShapeVia.width's own
-                // schema.py comment - it's for via_shapes.hpp's own
-                // VIARULE GENERATE fit-to-width algorithm, read from the
-                // database, not from this file's own width token).
+                // See this function's own Path-writing loop above for
+                // why SPECIALNETS needs an explicit WIDTH token here and
+                // regular NETS don't.
                 if (is_special)
                 {
-                    const int64_t width = !shape->vias.empty() ? shape->vias.front().width.value_or(0) : shape->via_iterates.front().width.value_or(0);
-                    status = defwSpecialNetPathWidth(static_cast<int>(width));
+                    status = defwSpecialNetPathWidth(static_cast<int>(via.width.value_or(0)));
                     if (status)
                         return status;
                 }
 
-                for (const ShapeVia &via : shape->vias)
+                double x = as_dbu(via.origin.x);
+                double y = as_dbu(via.origin.y);
+                status = is_special ? defwSpecialNetPathPoint(1, &x, &y) : defwNetPathPoint(1, &x, &y);
+                if (status)
+                    return status;
+
+                if (is_special)
                 {
-                    double x = as_dbu(via.origin.x);
-                    double y = as_dbu(via.origin.y);
-                    status = is_special ? defwSpecialNetPathPoint(1, &x, &y) : defwNetPathPoint(1, &x, &y);
-                    if (status)
-                        return status;
-
-                    if (is_special)
-                    {
-                        // No defwSpecialNetPathViaWithOrient* variant
-                        // exists in the vendored writer (confirmed
-                        // against defwWriter.hpp - only defwNetPathVia's
-                        // own regular-NETS family has one) - a
-                        // SPECIALNETS via's own orientation, when set,
-                        // has no write site here.
-                        status = defwSpecialNetPathVia(via.via_name.c_str());
-                    }
-                    else
-                    {
-                        status = via.orientation
-                                     ? defwNetPathViaWithOrientStr(via.via_name.c_str(), le::to_string(*via.orientation).c_str())
-                                     : defwNetPathVia(via.via_name.c_str());
-                    }
-                    if (status)
-                        return status;
+                    // No defwSpecialNetPathViaWithOrient* variant exists
+                    // in the vendored writer (confirmed against
+                    // defwWriter.hpp - only defwNetPathVia's own
+                    // regular-NETS family has one) - a SPECIALNETS via's
+                    // own orientation, when set, has no write site here.
+                    status = defwSpecialNetPathVia(via.via_name.c_str());
                 }
-
-                // ShapeViaIterate (an arrayed VIA placement, "VIA DO n BY
-                // m STEP x y", within a routed path). KNOWN VENDORED-
-                // WRITER GAP (see LEFDEF_BUGS.md): defwSpecialNetPathViaData
-                // exists for SPECIALNETS (called right after
-                // defwSpecialNetPathVia, same "DO n BY m STEP x y" suffix
-                // DEF's own grammar expects), but no
-                // defwNetPathViaData-equivalent exists for regular NETS
-                // at all (confirmed against defwWriter.hpp) - an arrayed
-                // via placement within a regular NET's own routed path
-                // can't be written back through this API. write_net_path
-                // is static (no messages_ to push a real warning to,
-                // unlike write_def itself - every other similarly-
-                // unwritable construct in this writer, e.g. write_tracks'
-                // own LAYER-less-Track case, is silently skipped the same
-                // way, not surfaced as a message), so this is skipped
-                // silently too, same convention.
-                for (const ShapeViaIterate &via_iterate : shape->via_iterates)
+                else
                 {
-                    if (!is_special)
-                        continue;
-
-                    double x = as_dbu(via_iterate.origin.x);
-                    double y = as_dbu(via_iterate.origin.y);
-                    status = defwSpecialNetPathPoint(1, &x, &y);
-                    if (status)
-                        return status;
-
-                    status = defwSpecialNetPathVia(via_iterate.via_name.c_str());
-                    if (status)
-                        return status;
-                    status = defwSpecialNetPathViaData(via_iterate.num_x, via_iterate.num_y,
-                                                        static_cast<int>(as_dbu(via_iterate.space_x)), static_cast<int>(as_dbu(via_iterate.space_y)));
-                    if (status)
-                        return status;
+                    status = via.orientation
+                                 ? defwNetPathViaWithOrientStr(via.via_name.c_str(), le::to_string(*via.orientation).c_str())
+                                 : defwNetPathVia(via.via_name.c_str());
                 }
+                if (status)
+                    return status;
+
+                defwNewLine();
+            }
+
+            // ShapeViaIterate (an arrayed VIA placement, "VIA DO n BY m
+            // STEP x y", within a routed path). KNOWN VENDORED-WRITER GAP
+            // (see LEFDEF_BUGS.md): defwSpecialNetPathViaData exists for
+            // SPECIALNETS (called right after defwSpecialNetPathVia,
+            // same "DO n BY m STEP x y" suffix DEF's own grammar
+            // expects), but no defwNetPathViaData-equivalent exists for
+            // regular NETS at all (confirmed against defwWriter.hpp) - an
+            // arrayed via placement within a regular NET's own routed
+            // path can't be written back through this API. write_net_path
+            // is static (no messages_ to push a real warning to, unlike
+            // write_def itself - every other similarly-unwritable
+            // construct in this writer, e.g. write_tracks' own
+            // LAYER-less-Track case, is silently skipped the same way,
+            // not surfaced as a message), so this is skipped silently
+            // too, same convention. Same isolated-segment-per-entry
+            // treatment as ShapeVia above, for the same connectivity-
+            // correctness reason.
+            for (const ShapeViaIterate &via_iterate : shape->via_iterates)
+            {
+                if (!is_special)
+                    continue;
+
+                status = defwSpecialNetPathStart("NEW");
+                if (status)
+                    return status;
+                started = true;
+
+                status = defwSpecialNetPathLayer(layer_name.c_str());
+                if (status)
+                    return status;
+
+                status = defwSpecialNetPathWidth(static_cast<int>(via_iterate.width.value_or(0)));
+                if (status)
+                    return status;
+
+                double x = as_dbu(via_iterate.origin.x);
+                double y = as_dbu(via_iterate.origin.y);
+                status = defwSpecialNetPathPoint(1, &x, &y);
+                if (status)
+                    return status;
+
+                status = defwSpecialNetPathVia(via_iterate.via_name.c_str());
+                if (status)
+                    return status;
+                status = defwSpecialNetPathViaData(via_iterate.num_x, via_iterate.num_y,
+                                                    static_cast<int>(as_dbu(via_iterate.space_x)), static_cast<int>(as_dbu(via_iterate.space_y)));
+                if (status)
+                    return status;
+
+                defwNewLine();
             }
         }
 
