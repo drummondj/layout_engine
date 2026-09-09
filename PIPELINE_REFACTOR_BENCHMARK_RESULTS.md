@@ -325,3 +325,26 @@ Rasterize dropped **2.77x** (8.09s -> 2.92s) - directly on the real design and t
 
 **Net**: zoom-fit on this real 661K-component design is now ~2.9s of Rasterize instead of ~8.1s - a real, substantial win, though still not "instant." Whatever remains past this point is genuinely-visible geometry that has to be drawn regardless of technique - the next lever, if this still isn't fast enough, is a coarser one than per-shape culling (a cached lower-resolution "overview" picture, or simplifying/merging geometry below some larger-than-1px threshold), not a further tweak to this same mechanism.
 
+Commit: eaa0985
+
+A direct per-function profile of `draw_view_shapes_blend2d` itself (single-threaded, to attribute cost accurately - Blend2D's own worker threads execute draw calls asynchronously, so timing individual calls under MT4 would misattribute real cost to `ctx.end()`'s own flush) found the per-shape geometry loops dominating almost completely, on both fixtures:
+
+| Component | Synthetic `aes_scaling` 5x5 | Real `aes_scaling_4x4.def` |
+| --------- | --------------------------- | --------------------------- |
+| Rects (TERMINAL/OBSTRUCTION) | ~65% (2.2M rects) | 48% (8.26M rects) |
+| Paths (routed wires) | ~34% (185K paths) | 43% (3.73M paths) |
+| Polygons | ~0.5% | 5.6% |
+| Spatial-index query | ~0.3% | 3.6% |
+| Per-layer setup (style/paint) | ~0.1% | ~0.0% |
+
+Per-layer setup/query were both already confirmed non-bottlenecks - but the setup number was suspicious on its own terms: `set_fill()`/`set_stroke()` (comp_op, fill/stroke color or pattern, stroke width, dash array) were being re-run on *every single shape* even though every one of those values is ViewLayerStyle-level, identical for every shape a layer holds - including a fresh `BLArray<double>` heap allocation per call for the dash array. Hoisted both to run once per layer instead (draw_cross_blend2d's own redundant pre-call state-setting removed too, since it already sets its own stroke_style/width internally) - BLContext keeps whatever style was last set until something changes it, so this is correct, not just faster.
+
+Verified with proper repeated measurements (5 reps, cv <2.6%) against `BM_RasterizeBlend2D/5x5`:
+
+| Benchmark | Before | After | Change |
+| --------- | ------ | ----- | ------ |
+| Single-threaded | 1050 ms | 912 ms | ~13% faster |
+| MT4 | 736 ms | 449 ms | **~39% faster** |
+
+The one real `aes_scaling_4x4.def` zoom-fit measurement (2919ms before, 2929-3117ms across 4 runs after) didn't show a clear win - within this machine's own already-documented noise band for that specific benchmark (see e.g. `BM_WarmTierColdStart`'s own 16-47% run-to-run swings earlier in this file), not a regression signal; the controlled, properly-repeated synthetic numbers above are the statistically reliable evidence here. `backend_tests`/`pipelines_tests` unaffected (same 567/621 baseline; 40/40, including `RasterizeBlend2DStageFixture`'s own real pixel-sampling assertions - confirms this is a pure perf change with no behavior difference).
+
