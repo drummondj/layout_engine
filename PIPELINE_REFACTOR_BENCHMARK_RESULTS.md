@@ -237,3 +237,25 @@ Reading this honestly, step by step:
 
 **Net**: for this workload, Blend2D single-threaded already beats Skia by 1.35-2.9x, multi-threading adds up to another ~1.4x on top at real design sizes, and the opaque fast-path adds nothing measurable given this project's own current color palette. A `ViewRenderPipelineBlend2D` is now a real, working, tested alternative in the codebase - not yet wired into `api.cpp`/`LeHandle` for actual GUI use (a natural, small next step if these numbers motivate switching the default backend), and text rendering remains a real, scoped-out gap to close first if that happens.
 
+Commit: 9dbc294, bbde626
+
+Wired `ViewRenderPipelineBlend2D` into `LeHandle`/`api.cpp` (9dbc294), then found and fixed a real bug (bbde626): `draw_view_shapes_blend2d`'s own `set_stroke()` left the stroke width at a literal `0.0` for every rect/polygon outline (only the sub-pixel `Path` fallback branch ever overrode it). Skia's `SkPaint` treats stroke width 0 as a hairline (always exactly 1 device pixel) - the convention `rasterize_stage.hpp`'s own `stroke` paint relies on by never setting a width at all - but Blend2D has no such convention, so a literal 0-width stroke there rendered nothing. Every outline (including the outline color that patterns render their own ink with) was silently invisible while fills kept working fine, which is how this surfaced - reported directly by inspecting real rendered output, not caught by the existing unit tests (which only assert fill color, not outline color). Fixed by using `1.0 / scale` (a real, on-screen-~1-pixel-wide line at the current zoom) everywhere the code relied on Skia's hairline default.
+
+Since every earlier Blend2D benchmark row above was measured *before* this fix, Blend2D was doing measurably less real drawing work than it should have (no outlines at all) - re-ran the full `BM_Rasterize`/`BM_RasterizeBlend2D*` matrix after the fix to get honest numbers, same `aes_scaling` fixtures/tile configs, single run (no `--benchmark_repetitions`, matching how the row above was itself measured):
+
+| Benchmark                       | 1x1     | 2x1    | 2x2    | 3x2    | 3x3    | 5x5    |
+| -------------------------------- | ------- | ------ | ------ | ------ | ------ | ------ |
+| BM_Rasterize (Skia, baseline)     | 165 ms  | 430 ms | 1.06 s | 690 ms | 844 ms | 1.63 s |
+| BM_RasterizeBlend2D (single-thread) | 87.3 ms | 234 ms | 440 ms | 426 ms | 575 ms | 1.24 s |
+| BM_RasterizeBlend2D_MT2           | 83.8 ms | 199 ms | 325 ms | 378 ms | 538 ms | 1.04 s |
+| BM_RasterizeBlend2D_MT4           | 84.5 ms | 178 ms | 276 ms | 353 ms | 483 ms | 926 ms |
+| BM_RasterizeBlend2D_MT4Opaque     | 89.5 ms | 178 ms | 277 ms | 356 ms | 517 ms | 902 ms |
+
+The Skia baseline itself also moved up from the previous entry's own numbers (139ms->165ms at 1x1, up to 1.23s->1.63s at 5x5) despite no Skia-side code change at all - this run-to-run machine noise (this environment is a shared/virtualized host, not a dedicated benchmarking box) is why the comparison below is done same-run (this table's own Blend2D rows against this table's own Skia row), not against the prior entry's numbers directly:
+
+- **Blend2D single-threaded is still faster than Skia everywhere**, but by a smaller margin now that it's doing the real outline work it was skipping before: 1.89x at 1x1 (was 2.11x), 2.41x at 2x2 (was 2.89x), 1.31x at 5x5 (was 1.36x) - a real, expected, honest shrink, not a regression in the fix itself; outlines are extra draw calls that weren't happening at all in the numbers this file previously reported.
+- **Multi-threading's own win is essentially unchanged in shape**: MT4 vs. single-thread is still a real, size-scaling win (84.5ms->same at 1x1 since there's too little work to amortize thread setup, up to 1.24s->926ms, ~1.34x, at 5x5) tracking closely with the pre-fix entry's own ~1.4x at 5x5.
+- **The opaque fast path still shows no measurable, reliable benefit**, even now that outlines (mostly opaque strokes) are actually being drawn: MT4Opaque is within noise of plain MT4 at every size (89.5 vs 84.5 at 1x1, 902 vs 926 at 5x5 - if anything marginally *faster* at 5x5, ~2.6%, but well inside typical run-to-run variance on this machine). Thin outline strokes still don't cover enough pixel area to make `BL_COMP_OP_SRC_COPY` show up against a workload still dominated by translucent fill geometry.
+
+**Net, updated**: the headline conclusion from the entry above still holds - Blend2D beats Skia at every size tested, multi-threading adds a further real win that grows with design size, and the opaque fast path doesn't move the needle for this project's current color palette - just with more honest margins now that outlines are actually part of what's being measured on both sides. `pipelines_tests` 44/44, `backend_tests` 567/621 (same accepted baseline) after the fix.
+
