@@ -305,7 +305,11 @@ namespace le
                     {
                         if (has_outline)
                         {
-                            draw_cross_blend2d(ctx, BLBox(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h), stroke_color, kViaCrossStrokeWidth);
+                            // kViaCrossStrokeWidth is a fixed on-screen
+                            // pixel width - divide by scale to counter
+                            // the ambient dbu-to-pixel scale (see that
+                            // constant's own doc comment, draw_helpers.hpp).
+                            draw_cross_blend2d(ctx, BLBox(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h), stroke_color, kViaCrossStrokeWidth / scale);
                             ctx.set_stroke_width(1.0 / scale);
                             ctx.stroke_rect(rect);
                         }
@@ -328,7 +332,7 @@ namespace le
                         {
                             BLBox bounds;
                             path.get_bounding_box(&bounds);
-                            draw_cross_blend2d(ctx, bounds, stroke_color, kViaCrossStrokeWidth);
+                            draw_cross_blend2d(ctx, bounds, stroke_color, kViaCrossStrokeWidth / scale);
                             ctx.set_stroke_width(1.0 / scale);
                             ctx.stroke_path(path);
                         }

@@ -246,7 +246,12 @@ namespace le
             // outline.
             SkPaint cross_stroke = stroke;
             if (is_cross)
-                cross_stroke.setStrokeWidth(kViaCrossStrokeWidth);
+                // kViaCrossStrokeWidth is a fixed on-screen pixel width -
+                // divide by scale to counter the canvas's own ambient
+                // dbu-to-pixel scale (see that constant's own doc comment,
+                // draw_helpers.hpp), same as every other fixed-on-screen-
+                // size value in this function.
+                cross_stroke.setStrokeWidth(kViaCrossStrokeWidth / scale);
 
             SkPaint text_paint;
             text_paint.setAntiAlias(antialiasing_enabled);

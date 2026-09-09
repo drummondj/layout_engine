@@ -73,8 +73,17 @@ namespace le
     // baseline's own position above the bottom edge.
     inline constexpr double kPlacementLabelPaddingPx = 2.0;
 
-    // Stroke width (px) of the "X" FillPattern::CROSS draws through a
-    // CUT-purpose TERMINAL shape, instead of a tiled pattern_shader.
+    // Stroke width (on-screen px, constant regardless of zoom) of the "X"
+    // FillPattern::CROSS draws through a CUT-purpose TERMINAL shape,
+    // instead of a tiled pattern_shader. A canvas/BLContext draws in
+    // dbu-space through an ambient dbu-to-pixel scale (RasterizeStage's/
+    // RasterizeBlend2DStage's own translate+scale+flip setup), so a
+    // caller must divide this by that same `scale` before handing it to
+    // setStrokeWidth/set_stroke_width - the same "1.0 / scale" pattern
+    // this project's own hairline-stroke convention already uses - or
+    // the resulting on-screen width scales with zoom instead of staying
+    // fixed (a real, found and fixed bug: both backends passed this
+    // constant straight through unscaled for a while).
     inline constexpr float kViaCrossStrokeWidth = 3.0f;
 
     /// @brief True when a dbu-space bbox is under 1 on-screen pixel in
