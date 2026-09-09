@@ -4,6 +4,7 @@
 #include "../../database/database.hpp"
 #include "../../geometry/geometry.hpp"
 #include "../../view_style/view_style.hpp"
+#include "../blend2d_font.hpp"
 #include "../draw_helpers.hpp"
 #include "../pipeline_options.hpp"
 #include "../rasterize_output.hpp"
@@ -148,12 +149,30 @@ namespace le
     /// viewport-culling dispatch, same path_outline_cache (Geometry::
     /// path_to_polygons' own std::vector<Polygon> result needs no
     /// backend-specific storage) - only the actual draw calls differ
-    /// (BLContext instead of SkCanvas). Text (Shape.texts) is deliberately
-    /// NOT drawn here - a scoped-out gap for this first Blend2D pass (see
-    /// PIPELINE_REFACTOR_BENCHMARK_RESULTS.md), not an oversight; text is
-    /// a small fraction of draw calls next to ROUTE/TERMINAL/OBSTRUCTION/
-    /// via geometry, so its absence shouldn't meaningfully skew a raw
-    /// rasterization-throughput comparison against Skia.
+    /// (BLContext instead of SkCanvas).
+    ///
+    /// Text (Shape.texts) draws the generic per-shape TERMINAL/ROUTE label
+    /// case only (kLabelWidthRatio-scaled, floored at kMinLabelPixelSize,
+    /// centered at `text.location`, never truncated) - the placement-name
+    /// label case (rasterize_stage.hpp's own `is_placement_name_layer`
+    /// branch: index-paired with shape.rects, bottom-left-anchored,
+    /// truncated to fit via truncate_text_to_width) is still a scoped-out
+    /// gap here, not yet ported. Unlike Skia's UprightTextCanvas (which
+    /// intercepts a *replayed* SkTextBlob's own CTM to discard any
+    /// rotation/reflection while keeping the same scale magnitude - see
+    /// that class's own doc comment), this backend never records/replays
+    /// anything - one BLContext draws directly into one node's own BLImage,
+    /// always under the exact same translate+scale+flip transform
+    /// (RasterizeBlend2DStage::compute's own setup), no accumulated
+    /// instance rotation ever baked in. So instead of decomposing/replacing
+    /// the CTM per glyph run, this maps `text.location` through the
+    /// context's own current `final_transform()` once to get its real
+    /// device-pixel position, draws under a plain identity transform at
+    /// that point (BLFont's own `pixel_size` interpreted directly as final
+    /// on-screen pixels, no second multiplication by the ambient dbu-to-
+    /// pixel scale), then restores - simpler than Skia's own mechanism
+    /// precisely because there's no nested-hierarchy replay to defend
+    /// against here.
     ///
     /// Blend2D has no Skia-style "stroke width 0 means always exactly 1
     /// device pixel" hairline convention - a sub-pixel-on-screen (or
@@ -181,6 +200,19 @@ namespace le
         const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
         std::unordered_map<const Path *, std::vector<Polygon>> &path_outline_cache)
     {
+        // Sized BLFont instances are cheap to build but not free (real
+        // per-call work inside Blend2D, not just a struct copy) - cached
+        // here, keyed by rounded pixel size, so the many shapes on one
+        // layer that all resolve to the same on-screen text size (the
+        // common case - kLabelWidthRatio/kMinLabelPixelSize are both
+        // layer/shape-geometry-driven, not per-shape-random) share one
+        // BLFont instead of each building/discarding their own. Local to
+        // one call of this function (one node's own render), not shared
+        // across nodes/frames - default_blend2d_font_face() below is the
+        // one process-wide memoized thing here.
+        const BLFontFace &font_face = default_blend2d_font_face();
+        std::unordered_map<int, BLFont> font_cache;
+
         for (const ViewLayerId &view_layer_id : view_layers.all())
         {
             const auto group_it = shapes_by_layer.find(view_layer_id);
@@ -330,10 +362,27 @@ namespace le
 
             auto draw_one_shape = [&](const Shape &shape)
             {
+                // Tracks whether ANY of this shape's own rects/polygons/paths
+                // actually survived their own sub-pixel cull below - if none
+                // did, this shape's own text (drawn further down) is skipped
+                // too, so a fully-culled shape really does render "no dot,
+                // no outline, nothing" (ApiFixture.
+                // SubPixelShapeIsNotRenderedAndIsNotSelectable, api_test.cpp) -
+                // not a label floating at kMinLabelPixelSize with no visible
+                // geometry backing it. A deliberate reversal of this
+                // function's own earlier "text is unaffected by sub-pixel
+                // culling" stance (bbox_is_sub_pixel's own doc comment,
+                // draw_helpers.hpp) once text drawing actually existed to
+                // expose the conflict - a real, live shape (e.g. a small
+                // pin) rendering an unrelated 10px label with nothing to
+                // anchor it to reads as a rendering bug, not a feature.
+                bool any_geometry_drawn = false;
+
                 for (const Rect &r : shape.rects)
                 {
                     if (bbox_is_sub_pixel(r.ur.x - r.ll.x, r.ur.y - r.ll.y, scale))
                         continue;
+                    any_geometry_drawn = true;
                     const BLRect rect(static_cast<double>(r.ll.x), static_cast<double>(r.ll.y),
                                       static_cast<double>(r.ur.x - r.ll.x), static_cast<double>(r.ur.y - r.ll.y));
                     if (is_cross)
@@ -356,6 +405,7 @@ namespace le
                 {
                     if (polygon_is_sub_pixel(poly, scale))
                         continue;
+                    any_geometry_drawn = true;
                     const BLPath path = to_bl_path(poly, /*close=*/true);
                     if (is_cross)
                     {
@@ -389,6 +439,7 @@ namespace le
                         // substitution when this layer has no real
                         // outline) was already established once above -
                         // see this function's own comment there.
+                        any_geometry_drawn = true;
                         ctx.stroke_path(to_bl_path(p.polygon, /*close=*/false));
                         continue;
                     }
@@ -402,6 +453,7 @@ namespace le
                         // apply to Rect/Polygon geometry (draw_helpers.hpp).
                         continue;
                     }
+                    any_geometry_drawn = true;
 
                     auto outline_it = path_outline_cache.find(&p);
                     if (outline_it == path_outline_cache.end())
@@ -414,6 +466,36 @@ namespace le
                         ctx.stroke_path(outline_path);
                     }
                     ctx.stroke_path(to_bl_path(p.polygon, /*close=*/false));
+                }
+
+                if (!any_geometry_drawn || !font_face.is_valid())
+                    return; // no visible geometry to attach a label to (or no usable font) - draw nothing
+
+                for (const Text &text : shape.texts)
+                {
+                    const double pixel_size = std::max(text.size * scale * kLabelWidthRatio, kMinLabelPixelSize);
+                    const int font_key = std::max(1, static_cast<int>(std::lround(pixel_size)));
+                    auto font_it = font_cache.find(font_key);
+                    if (font_it == font_cache.end())
+                    {
+                        BLFont font;
+                        font.create_from_face(font_face, static_cast<float>(font_key));
+                        font_it = font_cache.emplace(font_key, std::move(font)).first;
+                    }
+
+                    // Maps this shape's own dbu-space label origin through
+                    // the context's current (translate+scale+flip) transform
+                    // once, to a real device-pixel point, then draws under a
+                    // plain identity transform at that point - see this
+                    // function's own top-level doc comment for why that's
+                    // sufficient here (no accumulated instance rotation to
+                    // defend against, unlike Skia's UprightTextCanvas).
+                    const BLPoint device_origin = ctx.final_transform().map_point(text.location.x, text.location.y);
+                    ctx.save();
+                    ctx.set_transform(BLMatrix2D::make_identity());
+                    ctx.set_fill_style(stroke_color);
+                    ctx.fill_utf8_text(device_origin, font_it->second, text.label.c_str(), text.label.size());
+                    ctx.restore();
                 }
             };
 
@@ -445,9 +527,10 @@ namespace le
     /// ViewRenderPipelineImpl<RasterizeStageT>, view_render_pipeline.hpp),
     /// same per-node NodePathOutlineCache pattern (its own, private,
     /// separate cache instance - not shared with RasterizeStage's), same
-    /// options_did_change. Text is not drawn (see draw_view_shapes_blend2d's
-    /// own doc comment) - not a byte-for-byte feature match with
-    /// RasterizeStage, an explicit, scoped choice for this first pass.
+    /// options_did_change. Generic per-shape text is drawn (see
+    /// draw_view_shapes_blend2d's own doc comment); placement-name labels
+    /// are not yet - still not a byte-for-byte feature match with
+    /// RasterizeStage, a smaller scoped gap than before.
     ///
     /// `thread_count_` is a plain mutable setting (set_thread_count
     /// below), not a constructor parameter - keeps this class's own

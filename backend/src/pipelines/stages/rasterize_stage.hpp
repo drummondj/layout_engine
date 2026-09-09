@@ -285,10 +285,28 @@ namespace le
             // from before this was a lambda.
             auto draw_one_shape = [&](const Shape &shape)
             {
+                // Tracks whether ANY of this shape's own rects/polygons/paths
+                // actually survived their own sub-pixel cull below - if none
+                // did, this shape's own text (drawn further down) is skipped
+                // too, matching rasterize_blend2d_stage.hpp's own identical
+                // fix (that file's own doc comment has the full rationale -
+                // a real, live shape rendering an unrelated label floored at
+                // kMinLabelPixelSize with nothing visible to anchor it to
+                // reads as a rendering bug, not a feature) - a deliberate
+                // reversal of bbox_is_sub_pixel's own former "text is
+                // unaffected by sub-pixel culling" doc comment
+                // (draw_helpers.hpp), found once RasterizeBlend2DStage
+                // actually started drawing text and a real regression test
+                // (ApiFixture.SubPixelShapeIsNotRenderedAndIsNotSelectable,
+                // api_test.cpp - api.cpp wires LeHandle to the Blend2D
+                // backend) caught it there first.
+                bool any_geometry_drawn = false;
+
                 for (const Rect &r : shape.rects)
                 {
                     if (bbox_is_sub_pixel(r.ur.x - r.ll.x, r.ur.y - r.ll.y, scale))
                         continue;
+                    any_geometry_drawn = true;
                     const SkRect rect = SkRect::MakeLTRB(
                         static_cast<SkScalar>(r.ll.x), static_cast<SkScalar>(r.ll.y),
                         static_cast<SkScalar>(r.ur.x), static_cast<SkScalar>(r.ur.y));
@@ -307,6 +325,7 @@ namespace le
                 {
                     if (polygon_is_sub_pixel(poly, scale))
                         continue;
+                    any_geometry_drawn = true;
                     const SkPath path = to_sk_path(poly, /*close=*/true);
                     if (is_cross)
                     {
@@ -338,6 +357,7 @@ namespace le
                         SkPaint path_stroke = stroke;
                         path_stroke.setStyle(SkPaint::kStroke_Style);
                         path_stroke.setStrokeWidth(0); // hairline
+                        any_geometry_drawn = true;
                         canvas.drawPath(to_sk_path(p.polygon, /*close=*/false), path_stroke);
                         continue;
                     }
@@ -349,6 +369,7 @@ namespace le
                     // geometry (draw_helpers.hpp).
                     if (p.width * scale < 1.0)
                         continue;
+                    any_geometry_drawn = true;
 
                     // Real square-ended (LEF/DEF default half-width
                     // extension) stroked outline, fill first (the layer's
@@ -371,6 +392,9 @@ namespace le
                     }
                     canvas.drawPath(to_sk_path(p.polygon, /*close=*/false), stroke);
                 }
+
+                if (!any_geometry_drawn)
+                    return; // no visible geometry to attach a label to - draw nothing (see this lambda's own doc comment)
 
                 if (is_placement_name_layer)
                 {

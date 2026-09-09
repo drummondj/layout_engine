@@ -101,8 +101,16 @@ namespace le
     /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) after a real zoom-fit
     /// investigation found Rasterize walking every shape in a design with
     /// no equivalent size-based skip, unlike the pre-restart pipeline's
-    /// own ViewportFilterStage. Text (Shape.texts) is unaffected - this
-    /// only ever gates a Rect/Polygon draw, never a label.
+    /// own ViewportFilterStage. Text (Shape.texts) is gated indirectly,
+    /// not by this function directly: both rasterize_(blend2d_)stage.hpp's
+    /// own draw_one_shape skip a whole shape's own text entirely once none
+    /// of its rects/polygons/paths survive this check (own doc comment,
+    /// PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) - a real, live shape
+    /// rendering an unrelated label floored at kMinLabelPixelSize with
+    /// nothing visible to anchor it to reads as a rendering bug, not a
+    /// feature. An earlier version of this comment claimed the opposite
+    /// ("text is unaffected... never a label") - true before either
+    /// backend actually drew text, wrong the moment one did.
     inline bool bbox_is_sub_pixel(int64_t width_dbu, int64_t height_dbu, double scale)
     {
         return static_cast<double>(width_dbu) * scale < 1.0 && static_cast<double>(height_dbu) * scale < 1.0;

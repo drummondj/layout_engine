@@ -503,13 +503,15 @@ target_link_libraries(pipelines PUBLIC database view_style core skia blend2d::bl
 # LE_FONT_DIR: Linux's default_typeface() (pipelines.cpp) loads its default
 # text font from this bundled directory rather than system fontconfig, so
 # text labels still render on a locked-down target machine with no fonts
-# installed at all - see pipelines.cpp's own comment. Not used on macOS
-# (CoreText already has system fonts).
-if(NOT APPLE)
-    set(LE_FONT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" CACHE PATH
-        "Directory of bundled fonts default_typeface() (pipelines.cpp) loads on Linux")
-    target_compile_definitions(pipelines PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
-endif()
+# installed at all - see pipelines.cpp's own comment. Set unconditionally
+# (not just "if NOT APPLE") since default_blend2d_font_face()
+# (pipelines.cpp/blend2d_font.hpp) also needs it on every platform -
+# Blend2D has no font-manager abstraction to fall back on the way Skia's
+# CoreText path does on macOS, so it always loads one specific bundled
+# file from here directly.
+set(LE_FONT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" CACHE PATH
+    "Directory of bundled fonts default_typeface()/default_blend2d_font_face() (pipelines.cpp) load from")
+target_compile_definitions(pipelines PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
 
 # --- io: LEF/DEF file readers ---
 add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp src/io/def_writer.cpp)
