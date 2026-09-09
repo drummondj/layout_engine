@@ -348,3 +348,19 @@ Verified with proper repeated measurements (5 reps, cv <2.6%) against `BM_Raster
 
 The one real `aes_scaling_4x4.def` zoom-fit measurement (2919ms before, 2929-3117ms across 4 runs after) didn't show a clear win - within this machine's own already-documented noise band for that specific benchmark (see e.g. `BM_WarmTierColdStart`'s own 16-47% run-to-run swings earlier in this file), not a regression signal; the controlled, properly-repeated synthetic numbers above are the statistically reliable evidence here. `backend_tests`/`pipelines_tests` unaffected (same 567/621 baseline; 40/40, including `RasterizeBlend2DStageFixture`'s own real pixel-sampling assertions - confirms this is a pure perf change with no behavior difference).
 
+Commit: 4733fd9
+
+The `draw_view_shapes_blend2d` per-function profile above already found Paths (routed wires) at 43% of real-design time - the largest single remaining category after Rects. That number included every sub-pixel-width Path, which was drawn as a faint centerline hairline (`ctx.stroke_width(1.0/scale)`) rather than its real buffered outline - real, on-screen ink for a wire too thin to actually see clearly, but still a full draw call. Extended the same "not worth the draw call" reasoning `bbox_is_sub_pixel`/`polygon_is_sub_pixel` already apply to Rect/Polygon geometry to these: drop them entirely instead of drawing a hairline.
+
+One real distinction had to be preserved carefully, not glossed over: this same branch also handles TRACK/GCellGrid's own deliberately zero-width synthetic Path (`p.width == 0` by construction, this function's own long-standing convention) - always sub-pixel regardless of zoom, not a real route that just happens to be thin right now. Dropping everything unconditionally would have deleted TRACK/GCellGrid rendering entirely, permanently, at every zoom level - not the intended change. `p.width == 0` (an exact dbu-integer comparison) identifies that case and keeps it drawing unconditionally; only a real route (`p.width > 0`) that computes sub-pixel at the current scale is dropped.
+
+**Results** - by far the largest single win of this whole investigation:
+
+| Benchmark | Before | After | Change |
+| --------- | ------ | ----- | ------ |
+| `BM_RasterizeBlend2D/5x5` (single-threaded, 5 reps) | 912 ms | 675 ms | ~26% faster |
+| `BM_RasterizeBlend2D_MT4/5x5` (5 reps) | 449 ms | 303 ms | ~32% faster |
+| Real `aes_scaling_4x4.def` zoom-fit (MT4, 3 fresh runs) | ~3030 ms mean | 850-918 ms | **~3.3x faster** |
+
+The real-design number confirms directly what the per-function profile only implied: most of the real design's own remaining Rasterize cost at zoom-fit was millions of hairline route segments too thin to meaningfully see, not genuinely useful ink. `backend_tests` unchanged (567/621); `pipelines_tests` 40/40 - though no existing test currently exercises Path/route rendering directly, a real, pre-existing test-coverage gap this change didn't introduce and doesn't close either.
+
