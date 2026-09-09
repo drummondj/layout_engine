@@ -179,6 +179,46 @@ set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googlebenchmark)
 
+# --- Blend2D (a side-experiment alternative Rasterize backend to Skia's -
+# see rasterize_blend2d_stage.hpp's own doc comment; PIPELINE_REFACTOR_BENCHMARK_RESULTS.md
+# has the benchmark comparisons this exists to produce) + its own required
+# AsmJit dependency (Blend2D's JIT-compiled rendering pipelines need it;
+# its own CMakeLists.txt looks for a sibling/vendored `3rdparty/asmjit`
+# directory via the ASMJIT_DIR cache variable, auto-detected only if not
+# already set - see the block below).
+#
+# Neither project publishes tagged releases (confirmed: blend2d/blend2d
+# and asmjit/asmjit both have zero tags on GitHub, development happens
+# directly on `master`) - pinned to a specific commit SHA each instead of
+# the `URL .../refs/tags/vX.Y.Z.zip` convention every other FetchContent
+# dependency in this file uses, via GitHub's own "archive of one commit"
+# zip URL (same mechanism, just a commit hash instead of a tag name).
+#
+# AsmJit is fetched via FetchContent_Populate (NOT FetchContent_MakeAvailable)
+# deliberately - it only needs to be *present on disk* here, not built as
+# its own top-level subdirectory: Blend2D's own CMakeLists.txt does its
+# own `add_subdirectory(${ASMJIT_DIR} ...)` internally once ASMJIT_DIR is
+# set, so calling MakeAvailable(asmjit) ourselves as well would add the
+# same source directory to the build twice - a real CMake error, not just
+# redundant work.
+FetchContent_Declare(
+    asmjit
+    URL https://github.com/asmjit/asmjit/archive/e24347521858616d2d070375ad0d52512e6e44ba.zip
+)
+FetchContent_GetProperties(asmjit)
+if(NOT asmjit_POPULATED)
+    FetchContent_Populate(asmjit)
+endif()
+set(ASMJIT_DIR "${asmjit_SOURCE_DIR}" CACHE PATH "Location of 'asmjit' (fetched, see the Blend2D block above)")
+
+set(BLEND2D_STATIC ON CACHE BOOL "" FORCE)
+set(BLEND2D_TEST OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    blend2d
+    URL https://github.com/blend2d/blend2d/archive/58ca9460b4138af6e793184682e9324e0a8053b2.zip
+)
+FetchContent_MakeAvailable(blend2d)
+
 # --- oneTBB (backend/ONETBB_INTEGRATION.md migration - src/pipelines
 # replaced pipeline/render/instancing at the Phase 5 cutover, and `api`
 # now depends on it unconditionally - see api.cpp's own LeHandle comment).
@@ -458,7 +498,7 @@ target_include_directories(pipelines PUBLIC src)
 # file (not the whole `pipelines` target) since nothing else here needs
 # RTTI disabled.
 set_source_files_properties(src/pipelines/upright_text_canvas.cpp PROPERTIES COMPILE_OPTIONS "-fno-rtti")
-target_link_libraries(pipelines PUBLIC database view_style core skia fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
+target_link_libraries(pipelines PUBLIC database view_style core skia blend2d::blend2d fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
 
 # LE_FONT_DIR: Linux's default_typeface() (pipelines.cpp) loads its default
 # text font from this bundled directory rather than system fontconfig, so
@@ -981,9 +1021,10 @@ add_executable(pipelines_tests
     src/pipelines/tests/view_render_pipeline_test.cpp
     src/pipelines/tests/viewport_cull_stage_test.cpp
     src/pipelines/tests/rasterize_stage_test.cpp
+    src/pipelines/tests/rasterize_blend2d_stage_test.cpp
     src/pipelines/tests/compose_stage_test.cpp
 )
-target_link_libraries(pipelines_tests PRIVATE database geometry view_style pipelines GTest::gtest_main)
+target_link_libraries(pipelines_tests PRIVATE database geometry view_style pipelines blend2d::blend2d GTest::gtest_main)
 gtest_discover_tests(pipelines_tests)
 
 # --- benchmarks ---
@@ -999,6 +1040,7 @@ add_executable(pipeline_benchmarks
     src/pipelines/benchmarks/hierarchy_resolver_benchmark.cpp
     src/pipelines/benchmarks/viewport_cull_benchmark.cpp
     src/pipelines/benchmarks/rasterize_benchmark.cpp
+    src/pipelines/benchmarks/rasterize_blend2d_benchmark.cpp
     src/pipelines/benchmarks/compose_benchmark.cpp
     src/pipelines/benchmarks/warm_tier_benchmark.cpp
 )
@@ -1040,6 +1082,12 @@ le_enable_coverage_instrumentation(generate_tiled_design)
 add_executable(spatial_index_benchmark src/pipelines/benchmarks/spatial_index_benchmark.cpp)
 target_link_libraries(spatial_index_benchmark PRIVATE database geometry io)
 le_enable_coverage_instrumentation(spatial_index_benchmark)
+
+# --- blend2d_smoke_test: throwaway build/link verification for the
+# Blend2D FetchContent chain above - see that block's own comment and
+# blend2d_smoke_test.cpp's own header. Not run by ctest.
+add_executable(blend2d_smoke_test src/pipelines/benchmarks/blend2d_smoke_test.cpp)
+target_link_libraries(blend2d_smoke_test PRIVATE blend2d::blend2d)
 
 # --- lef_roundtrip_diff: dev-only progress-tracking tool for UPDATES.md
 # item 12 (LEF syntax completion) - reads a LEF file (default:

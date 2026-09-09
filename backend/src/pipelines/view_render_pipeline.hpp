@@ -4,6 +4,7 @@
 #include "stages/compose_stage.hpp"
 #include "stages/hierarchy_resolver_stage.hpp"
 #include "stages/layer_generation_stage.hpp"
+#include "stages/rasterize_blend2d_stage.hpp"
 #include "stages/rasterize_stage.hpp"
 #include "stages/viewport_cull_stage.hpp"
 #include "tbb_core.hpp"
@@ -43,7 +44,26 @@ namespace le
     /// correct value only exists once LayerGenerationStage has actually
     /// run, so run_warm() sets it from run_cold()'s own return value
     /// rather than expecting the caller to.
-    class ViewRenderPipeline
+    ///
+    /// Templated on the Rasterize stage implementation (`RasterizeStageT`,
+    /// default `RasterizeStage` - Skia) so a second, real backend
+    /// (`RasterizeBlend2DStage` - rasterize_blend2d_stage.hpp, a side
+    /// experiment benchmarked against Skia's own CPU rasterizer,
+    /// PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) can be wired into this
+    /// exact same graph shape at construction time via
+    /// `ViewRenderPipelineBlend2D` (defined below) with zero code
+    /// duplication - both stage types share the exact same
+    /// `MemoizingStage<HierarchyResolverStage::OutputHandle, RasterizeOutput,
+    /// ViewRenderOptions>` template shape, so `RasterizeStageT::OutputHandle`
+    /// is the identical `RasterizeOutputHandle` (rasterize_output.hpp)
+    /// either way and `ComposeStage` (already typed against
+    /// `RasterizeOutputHandle` directly, not against either concrete
+    /// stage) needs no changes at all. `ViewRenderPipeline` itself (the
+    /// plain, non-template name every existing caller already uses) is
+    /// just a type alias to `ViewRenderPipelineImpl<>` below - unchanged
+    /// behavior for every pre-existing use.
+    template <typename RasterizeStageT = RasterizeStage>
+    class ViewRenderPipelineImpl
     {
     public:
         /// @brief The Cold tier's own combined output (PIPELINE_REFACTOR.md:
@@ -67,11 +87,11 @@ namespace le
             LayerGenerationStage::OutputHandle view_layers;
             HierarchyResolverStage::OutputHandle hierarchy; // Cold's own unculled output
             HierarchyResolverStage::OutputHandle culled;    // ViewportCullStage's own output
-            RasterizeStage::OutputHandle rasterized;
+            typename RasterizeStageT::OutputHandle rasterized;
             ComposeStage::OutputHandle frame;
         };
 
-        explicit ViewRenderPipeline(std::string label = "ViewRenderPipeline")
+        explicit ViewRenderPipelineImpl(std::string label = "ViewRenderPipeline")
             : layer_generation_(graph_, label + ".LayerGeneration"),
               hierarchy_resolver_(graph_, label + ".HierarchyResolver"),
               viewport_cull_(graph_, label + ".ViewportCull"),
@@ -91,7 +111,7 @@ namespace le
                   { viewport_cull_result_ = std::move(in); }),
               rasterize_sink_(
                   graph_, oneapi::tbb::flow::serial,
-                  [this](StageData<RasterizeStage::OutputHandle, ViewRenderOptions> in)
+                  [this](StageData<typename RasterizeStageT::OutputHandle, ViewRenderOptions> in)
                   { rasterize_result_ = std::move(in); }),
               compose_sink_(
                   graph_, oneapi::tbb::flow::serial,
@@ -109,8 +129,8 @@ namespace le
             make_edge(compose_.node(), compose_sink_);
         }
 
-        ViewRenderPipeline(const ViewRenderPipeline &) = delete;
-        ViewRenderPipeline &operator=(const ViewRenderPipeline &) = delete;
+        ViewRenderPipelineImpl(const ViewRenderPipelineImpl &) = delete;
+        ViewRenderPipelineImpl &operator=(const ViewRenderPipelineImpl &) = delete;
 
         /// @brief Runs the Cold tier for `root` under `options` (`options.root`
         /// is overwritten with `root` here - a caller only has to set the
@@ -198,17 +218,25 @@ namespace le
         LayerGenerationStage layer_generation_;
         HierarchyResolverStage hierarchy_resolver_;
         ViewportCullStage viewport_cull_;
-        RasterizeStage rasterize_;
+        RasterizeStageT rasterize_;
         ComposeStage compose_;
         oneapi::tbb::flow::function_node<StageData<LayerGenerationStage::OutputHandle, ViewRenderOptions>> layer_generation_sink_;
         oneapi::tbb::flow::function_node<StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions>> hierarchy_resolver_sink_;
         oneapi::tbb::flow::function_node<StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions>> viewport_cull_sink_;
-        oneapi::tbb::flow::function_node<StageData<RasterizeStage::OutputHandle, ViewRenderOptions>> rasterize_sink_;
+        oneapi::tbb::flow::function_node<StageData<typename RasterizeStageT::OutputHandle, ViewRenderOptions>> rasterize_sink_;
         oneapi::tbb::flow::function_node<StageData<ComposeStage::OutputHandle, ViewRenderOptions>> compose_sink_;
         StageData<LayerGenerationStage::OutputHandle, ViewRenderOptions> layer_generation_result_{};
         StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions> hierarchy_resolver_result_{};
         StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions> viewport_cull_result_{};
-        StageData<RasterizeStage::OutputHandle, ViewRenderOptions> rasterize_result_{};
+        StageData<typename RasterizeStageT::OutputHandle, ViewRenderOptions> rasterize_result_{};
         StageData<ComposeStage::OutputHandle, ViewRenderOptions> compose_result_{};
     };
+
+    /// @brief The plain, non-template name every existing caller uses -
+    /// see ViewRenderPipelineImpl's own doc comment.
+    using ViewRenderPipeline = ViewRenderPipelineImpl<>;
+
+    /// @brief The Blend2D-backed sibling - see ViewRenderPipelineImpl's
+    /// own doc comment and rasterize_blend2d_stage.hpp.
+    using ViewRenderPipelineBlend2D = ViewRenderPipelineImpl<RasterizeBlend2DStage>;
 }

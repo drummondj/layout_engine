@@ -1,9 +1,9 @@
 #pragma once
 
 #include "../pipeline_options.hpp"
+#include "../rasterize_output.hpp"
 #include "../tbb_core.hpp"
 #include "hierarchy_resolver_stage.hpp"
-#include "rasterize_stage.hpp"
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkImage.h"
@@ -84,14 +84,14 @@ namespace le
     /// nesting. Deferred, not fixed here - a real trade-off of this
     /// design choice to weigh in the planned before/after comparison
     /// against the SkPicture approach, not an oversight.
-    class ComposeStage : public MemoizingStage<RasterizeStage::OutputHandle, RasterizedFrame, ViewRenderOptions>
+    class ComposeStage : public MemoizingStage<RasterizeOutputHandle, RasterizedFrame, ViewRenderOptions>
     {
     public:
         explicit ComposeStage(oneapi::tbb::flow::graph &g, std::string label = "Compose")
             : MemoizingStage(g, std::move(label)) {}
 
     protected:
-        RasterizedFrame compute(const RasterizeStage::OutputHandle &input, const ViewRenderOptions &options) override
+        RasterizedFrame compute(const RasterizeOutputHandle &input, const ViewRenderOptions &options) override
         {
             RasterizedFrame frame;
             if (input == nullptr || input->culled == nullptr)

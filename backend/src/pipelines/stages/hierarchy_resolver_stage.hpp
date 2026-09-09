@@ -140,6 +140,28 @@ namespace le
     using ViewLayerShapeIndex = std::unordered_map<ViewLayerId, ShapeSpatialIndex>;
     using ViewShapesIndexHandle = std::shared_ptr<const ViewLayerShapeIndex>;
 
+    /// @brief Mirrors Scene::is_view_layer_visible exactly (that class's
+    /// own doc comment): visible only if BOTH its own layer-name entry
+    /// (if any) and its own purpose entry (if any) say so - an unset key
+    /// in either map means visible, not hidden. Defined here (rather than
+    /// in a Skia-specific drawing header) since it's a pure function of
+    /// `le::`/std types with no rendering-backend dependency at all -
+    /// every Rasterize backend's own draw_view_shapes-shaped function
+    /// (rasterize_stage.hpp's Skia one, rasterize_blend2d_stage.hpp's
+    /// Blend2D one) calls this same definition.
+    inline bool is_view_layer_visible(
+        const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
+        const std::string &layer_name, ViewLayerPurpose purpose)
+    {
+        const auto name_it = layer_name_visible.find(layer_name);
+        if (name_it != layer_name_visible.end() && !name_it->second)
+            return false;
+        const auto purpose_it = purpose_visible.find(purpose);
+        if (purpose_it != purpose_visible.end() && !purpose_it->second)
+            return false;
+        return true;
+    }
+
     /// @brief One Abstract's or Layout's own resolved content -
     /// PIPELINE_REFACTOR.md's own ViewData. `shapes` is this node's own
     /// *direct* geometry only (an Abstract's Terminals/Obstructions/

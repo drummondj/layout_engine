@@ -8,6 +8,7 @@
 #include "../draw_helpers.hpp"
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"
+#include "../rasterize_output.hpp"
 #include "../upright_text_canvas.hpp"
 #include "hierarchy_resolver_stage.hpp"
 
@@ -40,23 +41,6 @@
 namespace le
 {
     namespace bgi = boost::geometry::index;
-
-    /// @brief Mirrors Scene::is_view_layer_visible exactly (that class's
-    /// own doc comment): visible only if BOTH its own layer-name entry
-    /// (if any) and its own purpose entry (if any) say so - an unset key
-    /// in either map means visible, not hidden.
-    inline bool is_view_layer_visible(
-        const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
-        const std::string &layer_name, ViewLayerPurpose purpose)
-    {
-        const auto name_it = layer_name_visible.find(layer_name);
-        if (name_it != layer_name_visible.end() && !name_it->second)
-            return false;
-        const auto purpose_it = purpose_visible.find(purpose);
-        if (purpose_it != purpose_visible.end() && !purpose_it->second)
-            return false;
-        return true;
-    }
 
     inline SkPath to_sk_path(const Polygon &polygon, bool close)
     {
@@ -419,36 +403,6 @@ namespace le
             }
         }
     }
-
-    /// @brief One node's own rasterized image - just its own direct
-    /// `shapes` (RasterizeStage never draws a node's own placements/
-    /// children - ComposeStage composites those, PIPELINE_REFACTOR.md's
-    /// own stage split).
-    struct RasterizedImage
-    {
-        sk_sp<SkImage> image;
-
-        /// @brief The dbu point mapping to `image`'s own bottom-left
-        /// pixel corner (image pixel (0, image->height())) - ComposeStage
-        /// needs this to place the image correctly; an SkImage alone
-        /// carries no notion of *where* in dbu space it represents.
-        Point local_origin;
-    };
-
-    /// @brief RasterizeStage's own output - one RasterizedImage per
-    /// surviving node, plus the culled HierarchyResolverOutput this was
-    /// built from (a plain shared_ptr copy - see ViewRenderOptions::
-    /// view_layers' own comment for why a second graph input isn't used
-    /// instead): ComposeStage needs both the images AND each node's own
-    /// placement_data/transform to composite them, and every
-    /// MemoizingStage in this module takes exactly one InputData - no
-    /// join_node has been needed anywhere else in this pipeline, and
-    /// bundling here avoids introducing the first one.
-    struct RasterizeOutput
-    {
-        std::unordered_map<HierarchyId, RasterizedImage, HierarchyIdHash> images;
-        HierarchyResolverStage::OutputHandle culled;
-    };
 
     /// @brief Warm-tier stage 2 (PIPELINE_REFACTOR.md): rasterizes every
     /// surviving node's own direct `shapes` (post ViewportCullStage)

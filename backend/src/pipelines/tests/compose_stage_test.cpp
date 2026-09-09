@@ -1,4 +1,5 @@
 #include "../stages/compose_stage.hpp"
+#include "../stages/rasterize_stage.hpp"
 #include "synchronous_stage_runner.hpp"
 #include <gtest/gtest.h>
 
