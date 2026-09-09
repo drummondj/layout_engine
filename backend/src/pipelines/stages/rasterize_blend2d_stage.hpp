@@ -221,7 +221,17 @@ namespace le
             {
                 ctx.set_comp_op(stroke_comp_op);
                 ctx.set_stroke_style(stroke_color);
-                ctx.set_stroke_width(0.0); // overridden per-path below where a real width matters
+                // Blend2D has no Skia-style "stroke width 0 means always
+                // exactly 1 device pixel" hairline convention (see this
+                // function's own top-level doc comment) - a literal 0
+                // renders nothing at all here, unlike Skia's SkPaint
+                // (rasterize_stage.hpp never sets a stroke width either,
+                // relying on that hairline default). 1.0 / scale is the
+                // direct analog: a real, on-screen-~1-pixel-wide line at
+                // the current zoom, overridden below only where a wider
+                // width matters (kViaCrossStrokeWidth, or a Path's own
+                // sub-pixel case).
+                ctx.set_stroke_width(1.0 / scale);
                 if (style.dashed)
                 {
                     const double dash_length = 4.0 / scale;
@@ -250,7 +260,7 @@ namespace le
                             set_stroke();
                             ctx.set_stroke_width(kViaCrossStrokeWidth);
                             draw_cross_blend2d(ctx, BLBox(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h), stroke_color, kViaCrossStrokeWidth);
-                            ctx.set_stroke_width(0.0);
+                            ctx.set_stroke_width(1.0 / scale);
                             ctx.stroke_rect(rect);
                         }
                         continue;
@@ -279,7 +289,7 @@ namespace le
                             set_stroke();
                             ctx.set_stroke_width(kViaCrossStrokeWidth);
                             draw_cross_blend2d(ctx, bounds, stroke_color, kViaCrossStrokeWidth);
-                            ctx.set_stroke_width(0.0);
+                            ctx.set_stroke_width(1.0 / scale);
                             ctx.stroke_path(path);
                         }
                         continue;
