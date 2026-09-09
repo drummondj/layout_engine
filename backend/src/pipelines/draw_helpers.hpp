@@ -14,6 +14,7 @@
 #include "include/core/SkSurface.h"
 #include "include/core/SkTileMode.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 
@@ -75,6 +76,52 @@ namespace le
     // Stroke width (px) of the "X" FillPattern::CROSS draws through a
     // CUT-purpose TERMINAL shape, instead of a tiled pattern_shader.
     inline constexpr float kViaCrossStrokeWidth = 3.0f;
+
+    /// @brief True when a dbu-space bbox is under 1 on-screen pixel in
+    /// BOTH dimensions at the given scale - the exact "invisible dot"
+    /// test pipelines.old/stages/viewport_filter_stage.hpp used to drop a
+    /// shape entirely (not just one dimension, so a long thin wire
+    /// survives even if its width alone is sub-pixel; only a true
+    /// dot-sized shape is culled). Shared by both Rasterize backends'
+    /// own draw_view_shapes(_blend2d) - a Rect/Polygon this returns true
+    /// for is skipped before any fill/outline/pattern/cross work is done
+    /// for it at all, not merely left undrawn after the fact, since the
+    /// whole point is avoiding that work's own real cost (BLPath/SkPath
+    /// construction, pattern lookup, draw-call dispatch) for geometry
+    /// that ultimately paints zero visible pixels either way - reintroduced
+    /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) after a real zoom-fit
+    /// investigation found Rasterize walking every shape in a design with
+    /// no equivalent size-based skip, unlike the pre-restart pipeline's
+    /// own ViewportFilterStage. Text (Shape.texts) is unaffected - this
+    /// only ever gates a Rect/Polygon draw, never a label.
+    inline bool bbox_is_sub_pixel(int64_t width_dbu, int64_t height_dbu, double scale)
+    {
+        return static_cast<double>(width_dbu) * scale < 1.0 && static_cast<double>(height_dbu) * scale < 1.0;
+    }
+
+    /// @brief bbox_is_sub_pixel for a Polygon - computes its own bbox
+    /// in-line (a Polygon carries no cached bbox of its own) rather than
+    /// building a full BLPath/SkPath first just to measure it; an empty
+    /// point list (shouldn't occur for a real Shape's own polygon, but
+    /// not this function's job to assume) is treated as sub-pixel, since
+    /// there is nothing to draw either way.
+    inline bool polygon_is_sub_pixel(const Polygon &poly, double scale)
+    {
+        if (poly.points.empty())
+            return true;
+        int64_t min_x = poly.points.front().x;
+        int64_t max_x = min_x;
+        int64_t min_y = poly.points.front().y;
+        int64_t max_y = min_y;
+        for (const Point &p : poly.points)
+        {
+            min_x = std::min(min_x, p.x);
+            max_x = std::max(max_x, p.x);
+            min_y = std::min(min_y, p.y);
+            max_y = std::max(max_y, p.y);
+        }
+        return bbox_is_sub_pixel(max_x - min_x, max_y - min_y, scale);
+    }
 
     inline SkColor to_sk_color(Color c) { return SkColorSetARGB(c.a, c.r, c.g, c.b); }
 

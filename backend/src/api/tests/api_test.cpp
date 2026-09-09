@@ -410,12 +410,17 @@ TEST_F(ApiFixture, RenderPixelBufferProducesTheRequestedDimensions)
     EXPECT_EQ(buffer.height, 200);
 }
 
-TEST_F(ApiFixture, SubPixelShapeRendersAsASinglePixelDotAndIsNotSelectable)
+TEST_F(ApiFixture, SubPixelShapeIsNotRenderedAndIsNotSelectable)
 {
-    // UPDATES.md item 6: a shape too small to render normally should still
-    // show as a single-pixel dot instead of silently vanishing, but that
-    // dot must not be clickable - see TinyShapeDot's own comment for why
-    // Pipeline::hit_test_point/hit_test_rect never see it.
+    // bbox_is_sub_pixel (draw_helpers.hpp, both Rasterize backends) - a
+    // shape under 1 on-screen pixel in both dimensions is skipped before
+    // any fill/outline work is done for it at all, not replaced by a
+    // dot (pipelines.old's own TinyShapeDot/TinyViewportFilterStage
+    // approach - reintroduced deliberately without the dot this time,
+    // per PIPELINE_REFACTOR_BENCHMARK_RESULTS.md's own zoom-fit
+    // investigation: a real design's own overwhelming majority of
+    // sub-pixel shapes at full-design zoom made walking/drawing every
+    // one of them, dot or not, the dominant Rasterize cost).
     ASSERT_EQ(le_read_lef(handle, fixture_path("tiny_shape.lef").c_str()), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
@@ -433,11 +438,10 @@ TEST_F(ApiFixture, SubPixelShapeRendersAsASinglePixelDotAndIsNotSelectable)
     LePixelBuffer buffer = le_render_pixel_buffer(handle);
     ASSERT_NE(buffer.data, nullptr);
 
-    // TinyShapeDot::location is the shape's bbox center: dbu (10, 10)
-    // (integer-division midpoint of (10,10)-(11,11)). Pre-flip pixel =
-    // dbu * scale = (5, 5); rasterize_tiny_shapes_frame's whole-canvas
-    // Y-flip maps that to screen pixel (5, height - 5) = (5, 95).
-    EXPECT_TRUE(region_has_opaque_pixel(buffer, 3, 93, 7, 97));
+    // No dot, no outline, nothing - the shape's own bbox center (see the
+    // now-removed TinyShapeDot-era comment above for its exact pixel
+    // derivation) stays exactly as blank as the rest of the empty canvas.
+    EXPECT_FALSE(region_has_opaque_pixel(buffer, 3, 93, 7, 97));
 
     le_mouse_down(handle, 5, 95);
     le_mouse_up(handle, 5, 95);

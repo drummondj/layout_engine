@@ -251,8 +251,10 @@ namespace le
             {
                 for (const Rect &r : shape.rects)
                 {
+                    if (bbox_is_sub_pixel(r.ur.x - r.ll.x, r.ur.y - r.ll.y, scale))
+                        continue;
                     const BLRect rect(static_cast<double>(r.ll.x), static_cast<double>(r.ll.y),
-                                       static_cast<double>(r.ur.x - r.ll.x), static_cast<double>(r.ur.y - r.ll.y));
+                                      static_cast<double>(r.ur.x - r.ll.x), static_cast<double>(r.ur.y - r.ll.y));
                     if (is_cross)
                     {
                         if (has_outline)
@@ -279,6 +281,8 @@ namespace le
 
                 for (const Polygon &poly : shape.polygons)
                 {
+                    if (polygon_is_sub_pixel(poly, scale))
+                        continue;
                     const BLPath path = to_bl_path(poly, /*close=*/true);
                     if (is_cross)
                     {
@@ -493,7 +497,7 @@ namespace le
         };
         std::unordered_map<HierarchyId, NodePathOutlineCache, HierarchyIdHash> path_outline_cache_by_node_;
 
-        uint32_t thread_count_ = 0;
+        uint32_t thread_count_ = 8;
         bool use_opaque_fast_path_ = false;
 
         static Rect node_local_bbox(const Root &root, const HierarchyId &id)

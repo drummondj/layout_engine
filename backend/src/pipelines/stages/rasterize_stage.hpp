@@ -262,6 +262,8 @@ namespace le
             {
                 for (const Rect &r : shape.rects)
                 {
+                    if (bbox_is_sub_pixel(r.ur.x - r.ll.x, r.ur.y - r.ll.y, scale))
+                        continue;
                     const SkRect rect = SkRect::MakeLTRB(
                         static_cast<SkScalar>(r.ll.x), static_cast<SkScalar>(r.ll.y),
                         static_cast<SkScalar>(r.ur.x), static_cast<SkScalar>(r.ur.y));
@@ -281,6 +283,8 @@ namespace le
 
                 for (const Polygon &poly : shape.polygons)
                 {
+                    if (polygon_is_sub_pixel(poly, scale))
+                        continue;
                     const SkPath path = to_sk_path(poly, /*close=*/true);
                     if (is_cross)
                     {
