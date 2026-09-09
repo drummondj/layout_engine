@@ -379,3 +379,9 @@ Second, re-evaluated `use_opaque_fast_path` (`BL_COMP_OP_SRC_COPY` vs. `SRC_OVER
 
 `backend_tests`/`pipelines_tests` unaffected (567/621, identical failing set; 40/40).
 
+Commit: cc92972
+
+Correction to the Blend2D-experiment entry above: "Blend2D has exactly one BLRenderingQuality value ... a pattern's own thin-line ink pixels never quite reach full alpha ... a real, permanent Blend2D characteristic, not a bug" - true for `DIAGONAL_STRIPES` (measured ~233/255, its 45-degree lines can't be pixel-aligned to avoid splitting AA coverage along their own length), but the `BRICK` half of that claim (~191/255) was wrong - it was a real, fixable bug, reported directly by the user as "the obstruction brick pattern is not rendering correctly," recognized as the same class of failure as an already-fixed `pipelines.old` bug (a hazy pattern instead of crisp joints), just a different root cause: `pattern_blend2d`'s own BRICK lines sat at exact integer coordinates (`y=0`, `y=s/2`, `x=s/2`, `x=0`), each straddling a pixel row/column boundary under Blend2D's mandatory antialiasing (no `setAntiAlias(false)` equivalent, unlike Skia's own `pattern_shader`). Fixed by offsetting each line's own cross-axis coordinate by +0.5, landing its AA-softened edges on the real integer boundaries instead of straddling them - a standalone tile-render check confirmed a solid 255/255 across the whole joint afterward, up from ~191/255.
+
+`RasterizeBlend2DStageFixture`'s own color tolerance (introduced alongside the original, incomplete diagnosis) tightened from 70 to 30 to match - 70 was covering both BRICK's now-fixed gap and stripe's own still-real one; 30 is comfortable margin for stripe alone. `backend_tests`/`pipelines_tests` unaffected (567/621, identical failing set; 40/40, now passing at the tighter tolerance - proof of the fix, not just no-regression).
+
