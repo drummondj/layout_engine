@@ -268,3 +268,23 @@ Follow-up experiment: is the opaque fast path's own lack of benefit really expla
 
 Still no reliable win - MT4Opaque ranges from ~4% slower (2x1) to ~7% faster (3x2), no consistent direction, all inside normal run-to-run noise on this machine. This is actually a *stronger* negative result than the outline-only case above: fills cover far more pixel area than thin outline strokes, so if `BL_COMP_OP_SRC_COPY` were going to show a real win from skipping alpha-blend math over a large opaque region, forcing every fill fully opaque is exactly the condition that should have revealed it, and it didn't. The earlier hypothesis (translucent fills masking a real win) doesn't hold up - something else (likely per-draw-call dispatch/JIT overhead, or memory bandwidth on the destination surface, dominating regardless of whether the blend math itself is skipped) is capping this optimization's real-world payoff for this workload, not fill alpha. Worth revisiting only if a future profiling pass identifies where Blend2D's own per-call time actually goes; not chased further here.
 
+Commit: (pending)
+
+Full-pipeline stage profile, Cold and Warm, using the exact same `aes_scaling` fixtures/tile configs/pan-position sequence `BM_RasterizeBlend2D_MT4` itself uses (`BM_LayerGeneration`/`BM_HierarchyResolver` for Cold, `BM_ViewportCull`/`BM_RasterizeBlend2D_MT4`/`BM_Compose` for Warm - `BM_Compose` itself still runs against Skia's `RasterizeStage` output, not Blend2D's, since `ComposeStage` only ever calls generic `sk_sp<SkImage>` methods regardless of which backend produced a node's image - its own cost is a function of image count/size, not which rasterizer drew them, so its existing numbers are directly reusable here unchanged):
+
+| Tier | Stage             | 1x1     | 2x1    | 2x2    | 3x2    | 3x3    | 5x5     |
+| ---- | ----------------- | ------- | ------ | ------ | ------ | ------ | ------- |
+| Cold | LayerGeneration   | 0.195 ms | 0.191 ms | 0.177 ms | 0.180 ms | 0.179 ms | 0.175 ms |
+| Cold | HierarchyResolver | 342 ms  | 856 ms | 1.84 s | 2.44 s | 4.00 s | 13.3 s  |
+| Warm | ViewportCull      | 0.096 ms | 0.149 ms | 0.232 ms | 0.337 ms | 0.516 ms | 1.18 ms |
+| Warm | Rasterize (Blend2D MT4) | 82.1 ms | 166 ms | 272 ms | 321 ms | 432 ms | 867 ms |
+| Warm | Compose           | 5.43 ms | 3.83 ms | 7.12 ms | 6.55 ms | 9.43 ms | 17.7 ms |
+
+Reading the ranking, not just the raw numbers:
+
+- **Cold is completely dominated by `HierarchyResolver`** - `LayerGeneration` is flat/O(1) (Technology layer count alone, never design size, per its own long-standing finding) and worth under 0.2ms at every size, a rounding error next to `HierarchyResolver`'s 342ms-13.3s. `HierarchyResolver` alone accounts for >99.9% of Cold-tier time at every point in this matrix.
+- **Warm is completely dominated by `Rasterize`** - `ViewportCull` stays under 1.2ms even at 5x5 (the per-shape spatial index doing its job), and `Compose` stays under 18ms (cheap `drawImage` calls, one per node). Rasterize alone is 93-98% of the whole Warm tier at every size (e.g. 5x5: 867ms of an 886ms Warm total).
+- **Cold dwarfs Warm at every size, and the gap widens with scale**: Cold/Warm ratio goes from ~3.9x at 1x1 (342ms vs. 87.6ms) to ~15x at 5x5 (13.3s vs. 886ms). This matters for what to optimize next: Warm-tier tuning (this file's own Blend2D work, per-shape culling) only ever pays off on the 2nd-and-later pan/zoom tick against an *already-resolved* design - the first-ever render of a real, larger design is paying `HierarchyResolver`'s own Cold cost up front regardless, and that cost is now the far larger of the two, especially at scale.
+
+**Net**: if a "why does opening/re-scaling a large design feel slow" investigation continues from here, `HierarchyResolver` (Cold, per-placement/per-Abstract shape collection) is the next real target, not further Warm-tier/Rasterize tuning - Rasterize is already the fast half of this picture. `HierarchyResolver`'s own scaling has been on record since early in this file's own history (see the `997e943`/`f5abfd9` entries above) and hasn't been revisited since the `MemoizingStage` shared_ptr-caching fix; that fix + this file's whole Rasterize-focused effort since has left Cold's own relative share of a first render *larger*, not smaller, simply because Warm got so much faster. Not chased further in this session - flagging it as the honest next bottleneck rather than continuing to narrow an already-small piece of the total.
+
