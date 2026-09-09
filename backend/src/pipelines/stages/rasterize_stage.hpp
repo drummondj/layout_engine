@@ -304,11 +304,16 @@ namespace le
 
                 for (const Path &p : shape.paths)
                 {
-                    // Sub-pixel on screen (or a deliberately zero-width
-                    // synthetic line, Track/GCellGrid) - a single hairline
-                    // centerline stroke instead of a buffered, extension-
-                    // aware outline; see this function's own doc comment.
-                    if (p.width * scale < 1.0)
+                    // p.width == 0 (exact - a dbu integer) is a
+                    // deliberately zero-width synthetic line (TRACK/
+                    // GCellGrid's own convention) - not a real route that
+                    // just happens to be thin at this zoom, and always
+                    // sub-pixel by construction regardless of scale, so
+                    // it must keep drawing as a hairline unconditionally
+                    // rather than ever being dropped, or TRACK/GCellGrid
+                    // would vanish at every zoom level, not just when
+                    // zoomed out.
+                    if (p.width == 0)
                     {
                         SkPaint path_stroke = has_outline ? stroke : fill;
                         path_stroke.setStyle(SkPaint::kStroke_Style);
@@ -316,6 +321,14 @@ namespace le
                         canvas.drawPath(to_sk_path(p.polygon, /*close=*/false), path_stroke);
                         continue;
                     }
+                    // A real routed wire, just too thin to draw a visible
+                    // pixel of at this zoom - dropped entirely rather
+                    // than drawn as a faint hairline, same "not worth the
+                    // draw call" reasoning bbox_is_sub_pixel/
+                    // polygon_is_sub_pixel already apply to Rect/Polygon
+                    // geometry (draw_helpers.hpp).
+                    if (p.width * scale < 1.0)
+                        continue;
 
                     // Real square-ended (LEF/DEF default half-width
                     // extension) stroked outline, fill first (the layer's

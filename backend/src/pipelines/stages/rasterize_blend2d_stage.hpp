@@ -346,13 +346,33 @@ namespace le
 
                 for (const Path &p : shape.paths)
                 {
-                    if (p.width * scale < 1.0)
+                    // p.width == 0 (exact - a dbu integer, not a float
+                    // comparison to worry about) is a deliberately
+                    // zero-width synthetic line (TRACK/GCellGrid's own
+                    // convention, this function's own top-level doc
+                    // comment) - not a real route that just happens to be
+                    // thin at this zoom, and always sub-pixel by
+                    // construction regardless of scale, so it must keep
+                    // drawing as a hairline unconditionally rather than
+                    // ever being dropped, or TRACK/GCellGrid would vanish
+                    // at every zoom level, not just when zoomed out.
+                    if (p.width == 0)
                     {
                         // Stroke state (including the fill-color-as-ink
                         // substitution when this layer has no real
                         // outline) was already established once above -
                         // see this function's own comment there.
                         ctx.stroke_path(to_bl_path(p.polygon, /*close=*/false));
+                        continue;
+                    }
+                    if (p.width * scale < 1.0)
+                    {
+                        // A real routed wire, just too thin to draw a
+                        // visible pixel of at this zoom - dropped
+                        // entirely rather than drawn as a faint hairline,
+                        // same "not worth the draw call" reasoning
+                        // bbox_is_sub_pixel/polygon_is_sub_pixel already
+                        // apply to Rect/Polygon geometry (draw_helpers.hpp).
                         continue;
                     }
 
