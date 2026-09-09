@@ -364,3 +364,18 @@ One real distinction had to be preserved carefully, not glossed over: this same 
 
 The real-design number confirms directly what the per-function profile only implied: most of the real design's own remaining Rasterize cost at zoom-fit was millions of hairline route segments too thin to meaningfully see, not genuinely useful ink. `backend_tests` unchanged (567/621); `pipelines_tests` 40/40 - though no existing test currently exercises Path/route rendering directly, a real, pre-existing test-coverage gap this change didn't introduce and doesn't close either.
 
+Commit: 089dd51
+
+Two follow-ups after hoisting `set_fill()`/`set_stroke()` out of the per-shape loop (the `eaa0985` entry above). First, `has_outline` itself: every `ViewLayerStyle` this codebase actually constructs sets a nonzero `outline_color` (`layer_style()`'s own `base` always comes from a fully-opaque palette entry; every hand-written style literal sets one too), so the per-shape `if (has_outline)` checks throughout `draw_one_shape` never actually skipped a draw call in practice - dead branches, unlike `has_fill`'s own check (which genuinely varies). Removed them in both backends, drawing the outline/stroke unconditionally.
+
+Second, re-evaluated `use_opaque_fast_path` (`BL_COMP_OP_SRC_COPY` vs. `SRC_OVER`) now that `comp_op` no longer gets re-set on every shape - the earlier "no benefit" finding (this file's own Blend2D-experiment entry) was measured *before* that hoist, so it seemed worth double-checking whether the redundant per-shape `set_comp_op` calls had been masking a real win. They weren't: `BM_RasterizeBlend2D_MT4` vs. `_MT4Opaque`, 5 reps, still show no measurable difference (308ms vs 314ms). Went further and tried removing the `color.a == 255` gate entirely - always `SRC_COPY`, even for a translucent color - per explicit direction: still no measurable benefit (300ms vs 302ms), and this time with a real cost attached, confirmed by directly sampling an overlapping-translucent-layers pixel (two TERMINAL shapes, M1 then M2, both using `layer_style()`'s own `fill.a = 100` convention) under each mode:
+
+| Mode | Sampled pixel (M1 red, then M2 green, fully overlapping) |
+| ---- | ---------------------------------------------------------- |
+| SRC_OVER | `r=20 g=235 b=0 a=253` - M1's red still faintly present, alpha built up from real compositing |
+| SRC_COPY (always) | `r=0 g=255 b=0 a=233` - M1 completely erased wherever M2 draws over it |
+
+`SRC_COPY` doesn't blend with the destination at all - it overwrites it outright, alpha included. Given zero performance benefit either way, kept the gate (`color.a == 255`, the one case the two ops are actually equivalent) rather than accept that correctness cost for nothing. `use_opaque_fast_path` remains benchmark-only - `api.cpp` never enables it, so none of this affects live GUI/API rendering today, but it would be a real, silent regression if that ever changed without keeping this gate.
+
+`backend_tests`/`pipelines_tests` unaffected (567/621, identical failing set; 40/40).
+
