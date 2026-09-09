@@ -247,6 +247,52 @@ namespace le
                 }
             };
 
+            // set_fill()/set_stroke() are called (at most) once per LAYER
+            // here, not once per shape - style/style.dashed/fill_pattern/
+            // stroke_color/the comp_op choice are all ViewLayerStyle-level
+            // values, identical for every shape a layer holds, so
+            // re-deriving the same BLContext fill/stroke state on every
+            // single shape (as this function used to do, inside
+            // draw_one_shape below) was pure repeated work - real cost at
+            // real shape counts (a fresh BLArray<double> heap allocation
+            // per shape for the dash array alone, on every dashed layer,
+            // even when nothing about the dash pattern ever changes
+            // within it). BLContext keeps whatever fill/stroke style was
+            // last set until something changes it again, so setting it
+            // once up front and leaving it alone for every draw call in
+            // this layer is correct, not just faster.
+            //
+            // The one real per-shape exception is the CROSS pattern (a
+            // CUT-purpose TERMINAL's own "X" through the rect/polygon,
+            // drawn via draw_cross_blend2d instead of a tiled fill) -
+            // that function sets its own stroke_style/width internally
+            // (kViaCrossStrokeWidth, not this layer's own 1.0/scale), so
+            // draw_one_shape below still explicitly restores this layer's
+            // own default stroke_width to 1.0/scale afterward before its
+            // own ctx.stroke_rect/stroke_path call - stroke_style itself
+            // never actually changes (draw_cross_blend2d's own `color`
+            // argument is this same layer's stroke_color), so only width
+            // needs restoring.
+            //
+            // The other exception is a Path whose own on-screen width is
+            // sub-pixel (see draw_one_shape's own Path loop below): when
+            // has_fill but not has_outline, that hairline fallback stroke
+            // borrows the fill color as its own ink (there's no real
+            // outline color to draw with) - a real, per-layer-constant
+            // decision (has_fill/has_outline never vary by shape), so
+            // it's applied once here too, not re-derived per Path.
+            if (has_fill)
+                set_fill();
+            if (has_outline)
+            {
+                set_stroke();
+            }
+            else if (has_fill)
+            {
+                set_stroke();
+                ctx.set_stroke_style(fill_color);
+            }
+
             auto draw_one_shape = [&](const Shape &shape)
             {
                 for (const Rect &r : shape.rects)
@@ -259,8 +305,6 @@ namespace le
                     {
                         if (has_outline)
                         {
-                            set_stroke();
-                            ctx.set_stroke_width(kViaCrossStrokeWidth);
                             draw_cross_blend2d(ctx, BLBox(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h), stroke_color, kViaCrossStrokeWidth);
                             ctx.set_stroke_width(1.0 / scale);
                             ctx.stroke_rect(rect);
@@ -268,15 +312,9 @@ namespace le
                         continue;
                     }
                     if (has_fill)
-                    {
-                        set_fill();
                         ctx.fill_rect(rect);
-                    }
                     if (has_outline)
-                    {
-                        set_stroke();
                         ctx.stroke_rect(rect);
-                    }
                 }
 
                 for (const Polygon &poly : shape.polygons)
@@ -290,8 +328,6 @@ namespace le
                         {
                             BLBox bounds;
                             path.get_bounding_box(&bounds);
-                            set_stroke();
-                            ctx.set_stroke_width(kViaCrossStrokeWidth);
                             draw_cross_blend2d(ctx, bounds, stroke_color, kViaCrossStrokeWidth);
                             ctx.set_stroke_width(1.0 / scale);
                             ctx.stroke_path(path);
@@ -299,25 +335,19 @@ namespace le
                         continue;
                     }
                     if (has_fill)
-                    {
-                        set_fill();
                         ctx.fill_path(path);
-                    }
                     if (has_outline)
-                    {
-                        set_stroke();
                         ctx.stroke_path(path);
-                    }
                 }
 
                 for (const Path &p : shape.paths)
                 {
                     if (p.width * scale < 1.0)
                     {
-                        set_stroke();
-                        ctx.set_stroke_width(1.0 / scale); // no native hairline concept - see this function's own doc comment
-                        if (has_fill && !has_outline)
-                            ctx.set_stroke_style(fill_color);
+                        // Stroke state (including the fill-color-as-ink
+                        // substitution when this layer has no real
+                        // outline) was already established once above -
+                        // see this function's own comment there.
                         ctx.stroke_path(to_bl_path(p.polygon, /*close=*/false));
                         continue;
                     }
@@ -329,21 +359,12 @@ namespace le
                     {
                         const BLPath outline_path = to_bl_path(outline, /*close=*/true);
                         if (has_fill)
-                        {
-                            set_fill();
                             ctx.fill_path(outline_path);
-                        }
                         if (has_outline)
-                        {
-                            set_stroke();
                             ctx.stroke_path(outline_path);
-                        }
                     }
                     if (has_outline)
-                    {
-                        set_stroke();
                         ctx.stroke_path(to_bl_path(p.polygon, /*close=*/false));
-                    }
                 }
             };
 
