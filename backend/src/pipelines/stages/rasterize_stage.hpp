@@ -194,6 +194,26 @@ namespace le
 
             const ViewLayerStyle &style = layer->style;
             const bool has_fill = style.fill_color.a > 0;
+            // Every ViewLayerStyle this codebase actually constructs sets
+            // a nonzero outline_color (view_style.hpp - layer_style()'s
+            // own `base` always comes from a fully-opaque palette entry,
+            // and every other hand-written style literal sets one too) -
+            // has_outline is unconditionally true for every real style
+            // today, unlike has_fill (which genuinely varies - ROW/
+            // BOUNDARY/PLACEMENT_NAME/PLACEMENT_BOUNDARY/GCELLGRID/REGION
+            // all have no fill at all). draw_one_shape below therefore
+            // draws the outline/stroke unconditionally rather than
+            // re-checking has_outline on every single shape the way it
+            // still does for has_fill - that per-shape check never
+            // actually skipped a draw call in practice (has_outline was
+            // never false), so it was pure dead-branch overhead, not a
+            // real optimization the way has_fill's own check still is.
+            // Not enforced by the type system, but safe even if some
+            // future style ever broke this: a stroke drawn with a fully
+            // transparent color under normal alpha blending still paints
+            // nothing, so an unexpected `outline_color.a == 0` would
+            // degrade to one wasted (if incorrectly unconditional) draw
+            // call per shape, not visibly wrong output.
             const bool has_outline = style.outline_color.a > 0;
             if (!has_fill && !has_outline)
                 continue;
@@ -274,16 +294,13 @@ namespace le
                         static_cast<SkScalar>(r.ur.x), static_cast<SkScalar>(r.ur.y));
                     if (is_cross)
                     {
-                        if (has_outline)
-                            draw_cross(canvas, rect, cross_stroke);
-                        if (has_outline)
-                            canvas.drawRect(rect, stroke);
+                        draw_cross(canvas, rect, cross_stroke);
+                        canvas.drawRect(rect, stroke);
                         continue;
                     }
                     if (has_fill)
                         canvas.drawRect(rect, fill);
-                    if (has_outline)
-                        canvas.drawRect(rect, stroke);
+                    canvas.drawRect(rect, stroke);
                 }
 
                 for (const Polygon &poly : shape.polygons)
@@ -293,13 +310,11 @@ namespace le
                     const SkPath path = to_sk_path(poly, /*close=*/true);
                     if (is_cross)
                     {
-                        if (has_outline)
-                            draw_cross(canvas, path.getBounds(), cross_stroke);
+                        draw_cross(canvas, path.getBounds(), cross_stroke);
                     }
                     else if (has_fill)
                         canvas.drawPath(path, fill);
-                    if (has_outline)
-                        canvas.drawPath(path, stroke);
+                    canvas.drawPath(path, stroke);
                 }
 
                 for (const Path &p : shape.paths)
@@ -315,7 +330,12 @@ namespace le
                     // zoomed out.
                     if (p.width == 0)
                     {
-                        SkPaint path_stroke = has_outline ? stroke : fill;
+                        // has_outline is unconditionally true today (see
+                        // this function's own doc comment), so `stroke`
+                        // is always the real outline paint to use here -
+                        // no need for the has_fill fallback a genuinely
+                        // outline-less layer would otherwise need.
+                        SkPaint path_stroke = stroke;
                         path_stroke.setStyle(SkPaint::kStroke_Style);
                         path_stroke.setStrokeWidth(0); // hairline
                         canvas.drawPath(to_sk_path(p.polygon, /*close=*/false), path_stroke);
@@ -347,11 +367,9 @@ namespace le
                         const SkPath outline_path = to_sk_path(outline, /*close=*/true);
                         if (has_fill)
                             canvas.drawPath(outline_path, fill);
-                        if (has_outline)
-                            canvas.drawPath(outline_path, stroke);
+                        canvas.drawPath(outline_path, stroke);
                     }
-                    if (has_outline)
-                        canvas.drawPath(to_sk_path(p.polygon, /*close=*/false), stroke);
+                    canvas.drawPath(to_sk_path(p.polygon, /*close=*/false), stroke);
                 }
 
                 if (is_placement_name_layer)

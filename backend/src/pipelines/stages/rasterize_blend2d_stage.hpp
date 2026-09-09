@@ -175,6 +175,26 @@ namespace le
 
             const ViewLayerStyle &style = layer->style;
             const bool has_fill = style.fill_color.a > 0;
+            // Every ViewLayerStyle this codebase actually constructs sets
+            // a nonzero outline_color (view_style.hpp - layer_style()'s
+            // own `base` always comes from a fully-opaque palette entry,
+            // and every other hand-written style literal sets one too) -
+            // has_outline is unconditionally true for every real style
+            // today, unlike has_fill (which genuinely varies - ROW/
+            // BOUNDARY/PLACEMENT_NAME/PLACEMENT_BOUNDARY/GCELLGRID/REGION
+            // all have no fill at all). draw_one_shape below therefore
+            // draws the outline/stroke unconditionally rather than
+            // re-checking has_outline on every single shape the way it
+            // still does for has_fill - that per-shape check never
+            // actually skipped a draw call in practice (has_outline was
+            // never false), so it was pure dead-branch overhead, not a
+            // real optimization the way has_fill's own check still is.
+            // Not enforced by the type system, but safe even if some
+            // future style ever broke this: a stroke drawn with a fully
+            // transparent color under normal alpha blending still paints
+            // nothing, so an unexpected `outline_color.a == 0` would
+            // degrade to one wasted (if incorrectly unconditional) draw
+            // call per shape, not visibly wrong output.
             const bool has_outline = style.outline_color.a > 0;
             if (!has_fill && !has_outline)
                 continue;
@@ -186,6 +206,23 @@ namespace le
             const bool has_fill_pattern = style.fill_pattern != FillPattern::NONE && style.fill_pattern != FillPattern::CROSS;
             const BLPattern fill_pattern = has_fill_pattern ? pattern_blend2d(style.fill_pattern, stroke_color) : BLPattern();
 
+            // Gated on color.a == 255, not just use_opaque_fast_path alone -
+            // tried removing this gate entirely (always SRC_COPY,
+            // PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) and measured zero
+            // benefit even then (still within noise of plain SRC_OVER,
+            // same as the gated version), so there's no performance
+            // reason to accept SRC_COPY's own real correctness cost for
+            // a translucent color: it doesn't blend with the destination
+            // at all, it overwrites it outright, alpha included - a
+            // translucent fill/stroke drawn this way would stop showing
+            // whatever was drawn underneath it (an earlier ViewLayer on
+            // the same per-node image - this project's own layer_style()
+            // convention, fill.a = 100, relies on real alpha blending for
+            // exactly this), confirmed directly by sampling an
+            // overlapping-translucent-layers pixel under each mode (same
+            // file). Kept gated to the one case where SRC_COPY and
+            // SRC_OVER are actually equivalent (a fully opaque color has
+            // nothing underneath left to blend anyway).
             const BLCompOp fill_comp_op = (use_opaque_fast_path && style.fill_color.a == 255) ? BL_COMP_OP_SRC_COPY : BL_COMP_OP_SRC_OVER;
             const BLCompOp stroke_comp_op = (use_opaque_fast_path && style.outline_color.a == 255) ? BL_COMP_OP_SRC_COPY : BL_COMP_OP_SRC_OVER;
 
@@ -303,22 +340,18 @@ namespace le
                                       static_cast<double>(r.ur.x - r.ll.x), static_cast<double>(r.ur.y - r.ll.y));
                     if (is_cross)
                     {
-                        if (has_outline)
-                        {
-                            // kViaCrossStrokeWidth is a fixed on-screen
-                            // pixel width - divide by scale to counter
-                            // the ambient dbu-to-pixel scale (see that
-                            // constant's own doc comment, draw_helpers.hpp).
-                            draw_cross_blend2d(ctx, BLBox(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h), stroke_color, kViaCrossStrokeWidth / scale);
-                            ctx.set_stroke_width(1.0 / scale);
-                            ctx.stroke_rect(rect);
-                        }
+                        // kViaCrossStrokeWidth is a fixed on-screen pixel
+                        // width - divide by scale to counter the ambient
+                        // dbu-to-pixel scale (see that constant's own doc
+                        // comment, draw_helpers.hpp).
+                        draw_cross_blend2d(ctx, BLBox(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h), stroke_color, kViaCrossStrokeWidth / scale);
+                        ctx.set_stroke_width(1.0 / scale);
+                        ctx.stroke_rect(rect);
                         continue;
                     }
                     if (has_fill)
                         ctx.fill_rect(rect);
-                    if (has_outline)
-                        ctx.stroke_rect(rect);
+                    ctx.stroke_rect(rect);
                 }
 
                 for (const Polygon &poly : shape.polygons)
@@ -328,20 +361,16 @@ namespace le
                     const BLPath path = to_bl_path(poly, /*close=*/true);
                     if (is_cross)
                     {
-                        if (has_outline)
-                        {
-                            BLBox bounds;
-                            path.get_bounding_box(&bounds);
-                            draw_cross_blend2d(ctx, bounds, stroke_color, kViaCrossStrokeWidth / scale);
-                            ctx.set_stroke_width(1.0 / scale);
-                            ctx.stroke_path(path);
-                        }
+                        BLBox bounds;
+                        path.get_bounding_box(&bounds);
+                        draw_cross_blend2d(ctx, bounds, stroke_color, kViaCrossStrokeWidth / scale);
+                        ctx.set_stroke_width(1.0 / scale);
+                        ctx.stroke_path(path);
                         continue;
                     }
                     if (has_fill)
                         ctx.fill_path(path);
-                    if (has_outline)
-                        ctx.stroke_path(path);
+                    ctx.stroke_path(path);
                 }
 
                 for (const Path &p : shape.paths)
@@ -384,11 +413,9 @@ namespace le
                         const BLPath outline_path = to_bl_path(outline, /*close=*/true);
                         if (has_fill)
                             ctx.fill_path(outline_path);
-                        if (has_outline)
-                            ctx.stroke_path(outline_path);
+                        ctx.stroke_path(outline_path);
                     }
-                    if (has_outline)
-                        ctx.stroke_path(to_bl_path(p.polygon, /*close=*/false));
+                    ctx.stroke_path(to_bl_path(p.polygon, /*close=*/false));
                 }
             };
 
