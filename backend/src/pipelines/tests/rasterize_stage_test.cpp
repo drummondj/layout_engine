@@ -348,6 +348,47 @@ TEST_F(RasterizeStageFixture, DrawsLaterViewLayerOnTopOfAnEarlierOverlappingOne)
     EXPECT_TRUE(region_contains_color_near(image, ink_x, ink_y, ink_x + 1, ink_y + 1, to_sk_color(m2_outline), 5));
 }
 
+TEST_F(RasterizeStageFixture, ShapeFarOutsideTheRenderViewportIsCulledButTheOneInsideStillDraws)
+{
+    // A second Terminal shape (on m1) far outside the fixture's own
+    // (0,0)-(10,10) boundary/viewport - HierarchyResolverStage's own
+    // ViewData::shapes_index (queried by RasterizeStage's own
+    // draw_view_shapes for per-shape viewport culling - the gap
+    // ViewportCullStage's own doc comment names, since that stage only
+    // culls placements/instances, one level up) should exclude it from
+    // the per-shape draw loop entirely, while the existing (1,1)-(2,2)
+    // terminal (well inside) still renders exactly as
+    // FillsTerminalRectWithItsOwnLayerFillColor already verifies - an
+    // end-to-end wiring guard against a coordinate-space/off-by-one
+    // mistake at the RasterizeStage::compute() call site (the index
+    // itself is unit-tested directly against known query rects in
+    // hierarchy_resolver_stage_test.cpp).
+    const TerminalId far_terminal = root.create_terminal(TerminalData{.abstract = leaf_abstract, .name = "FAR", .direction = SignalDirection::INPUT});
+    const TerminalPortId far_port = root.create_terminal_port(TerminalPortData{.terminal = far_terminal});
+    root.create_shape(ShapeData{.terminal_port = far_port, .layer = m1, .rects = {Rect{.ll = Point{1000, 1000}, .ur = Point{1001, 1001}}}});
+
+    HierarchyResolverRunner fresh_hierarchy_runner{"HierarchyResolverCullingTest"};
+    const ViewRenderOptions options = options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);
+    fresh_hierarchy_runner.run(view_layers_handle, 0, options);
+
+    RasterizeRunner fresh_rasterize_runner{"RasterizeCullingTest"};
+    const RasterizeOutput &output = fresh_rasterize_runner.run(fresh_hierarchy_runner.last_handle(), 0, options);
+
+    ASSERT_TRUE(output.images.contains(HierarchyId{leaf_abstract}));
+    const sk_sp<SkImage> &image = output.images.at(HierarchyId{leaf_abstract}).image;
+    ASSERT_TRUE(image != nullptr);
+    EXPECT_EQ(image->width(), 100);
+    EXPECT_EQ(image->height(), 100);
+
+    const ViewLayerId terminal_layer = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
+    const ViewLayerData *terminal_style = view_layers.get(terminal_layer);
+    ASSERT_NE(terminal_style, nullptr);
+
+    // The original, in-viewport terminal (1,1)-(2,2) -> pixel x:[10,20],
+    // y:[80,90] - unaffected by the far shape's own presence.
+    EXPECT_TRUE(region_contains_color_near(image, 10, 80, 20, 90, to_sk_color(terminal_style->style.outline_color), 5));
+}
+
 TEST_F(RasterizeStageFixture, NullInputProducesEmptyOutput)
 {
     const ViewRenderOptions options = options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);

@@ -10,6 +10,8 @@
 #include "../tbb_core.hpp"
 #include "../via_shapes.hpp"
 
+#include <boost/geometry/index/rtree.hpp>
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -121,6 +123,23 @@ namespace le
     using ViewLayerShapes = std::unordered_map<ViewLayerId, std::vector<Shape>>;
     using ViewShapesHandle = std::shared_ptr<const ViewLayerShapes>;
 
+    /// @brief Per-ViewLayer spatial index over `ViewLayerShapes`' own
+    /// per-layer shape vectors, built once alongside `shapes` (see
+    /// build_shape_index() below) so RasterizeStage can find which
+    /// shapes actually overlap the current viewport without walking
+    /// every shape in a huge flat node on every pan/zoom tick - the
+    /// per-*shape* culling gap ViewportCullStage's own doc comment
+    /// explicitly names (that stage only culls placements/instances, one
+    /// level up). Mirrors ViewportCullStage's own SpatialIndex/IndexEntry
+    /// pattern exactly (a Boost.Geometry Index R-tree storing a bbox
+    /// paired with an index into the *existing* shape vector, not a copy
+    /// of the shape itself), just applied to shapes within a node instead
+    /// of placements across nodes.
+    using ShapeIndexEntry = std::pair<Rect, std::size_t>;
+    using ShapeSpatialIndex = boost::geometry::index::rtree<ShapeIndexEntry, boost::geometry::index::rstar<16>>;
+    using ViewLayerShapeIndex = std::unordered_map<ViewLayerId, ShapeSpatialIndex>;
+    using ViewShapesIndexHandle = std::shared_ptr<const ViewLayerShapeIndex>;
+
     /// @brief One Abstract's or Layout's own resolved content -
     /// PIPELINE_REFACTOR.md's own ViewData. `shapes` is this node's own
     /// *direct* geometry only (an Abstract's Terminals/Obstructions/
@@ -128,10 +147,15 @@ namespace le
     /// rows/tracks/gcell grids/regions) - a placed child's own shapes live
     /// under its own id in HierarchyResolverOutput::view_data, not
     /// duplicated here; composing a placement's own transform onto its
-    /// child's shapes is a Warm-tier concern, not Cold's.
+    /// child's shapes is a Warm-tier concern, not Cold's. `shapes_index`
+    /// is built once from `shapes` right after it's constructed (see
+    /// compute()'s own two call sites) - like `shapes` itself, a
+    /// shared_ptr copy elsewhere (ViewportCullStage's own per-tick ViewData
+    /// rebuild) is a refcount bump, not a rebuild.
     struct ViewData
     {
         ViewShapesHandle shapes;
+        ViewShapesIndexHandle shapes_index;
         std::vector<ViewPlacementData> placement_data;
     };
 
@@ -383,6 +407,7 @@ namespace le
                     }
 
                     data.shapes = std::make_shared<const ViewLayerShapes>(std::move(shapes_by_layer));
+                    data.shapes_index = build_shape_index(*data.shapes);
                     result.view_data.emplace(item.id, std::move(data));
                 }
                 else
@@ -390,6 +415,7 @@ namespace le
                     const AbstractId abstract_id = std::get<AbstractId>(item.id);
                     ViewData data;
                     data.shapes = std::make_shared<const ViewLayerShapes>(collect_abstract_content(root, view_layers, abstract_id));
+                    data.shapes_index = build_shape_index(*data.shapes);
                     result.view_data.emplace(item.id, std::move(data));
                 }
             }
@@ -405,6 +431,35 @@ namespace le
         }
 
     private:
+        // Builds ViewData::shapes_index from an already-built ViewLayerShapes -
+        // one Boost.Geometry Index R-tree per ViewLayerId, bulk-loaded
+        // (constructing an rtree from a std::vector triggers Boost's own
+        // packing algorithm, not incremental one-at-a-time insertion - the
+        // same technique ViewportCullStage's own spatial_index_for uses),
+        // storing each shape's own bbox paired with its index into that
+        // layer's own vector rather than a copy of the Shape itself.
+        // Geometry::bbox returns nullopt for a shape with no rects/
+        // polygons/paths of its own (e.g. a via-only Shape before
+        // append_via_shapes expands it into separate real-geometry
+        // Shapes) - skipped here, exactly equivalent to today's
+        // unindexed draw_view_shapes, which already draws nothing for
+        // such a shape either way (its per-geometry-kind loops simply
+        // don't execute).
+        static ViewShapesIndexHandle build_shape_index(const ViewLayerShapes &shapes_by_layer)
+        {
+            ViewLayerShapeIndex index_by_layer;
+            for (const auto &[view_layer_id, shapes] : shapes_by_layer)
+            {
+                std::vector<ShapeIndexEntry> entries;
+                entries.reserve(shapes.size());
+                for (std::size_t i = 0; i < shapes.size(); ++i)
+                    if (const std::optional<Rect> bbox = Geometry::bbox(shapes[i]))
+                        entries.emplace_back(*bbox, i);
+                index_by_layer.emplace(view_layer_id, ShapeSpatialIndex(entries));
+            }
+            return std::make_shared<const ViewLayerShapeIndex>(std::move(index_by_layer));
+        }
+
         // Expands RECT/PATH/POLYGON ITERATE (UPDATES.md 12 Phase 1's raw-
         // storage rework - see AbstractGeometryStage's own comment,
         // src/pipelines.old/) into concrete rects/paths/polygons on a copy

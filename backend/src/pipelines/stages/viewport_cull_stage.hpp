@@ -36,14 +36,14 @@ namespace le
     /// ViewPlacementData::bbox is only ever in its *immediate* parent's
     /// own local space, never pre-composed with anything above that). At
     /// each visited id:
-    ///   - `shapes` are carried through unchanged - a ViewShapesHandle
-    ///     copy (a shared_ptr, hierarchy_resolver_stage.hpp's own
-    ///     ViewShapesHandle comment) is a refcount bump regardless of how
-    ///     many shapes a node has, not a real copy - this stage prunes
-    ///     *placements*, not individual shapes within one node's own
-    ///     direct content (a finer-grained concern, deferred - Skia's own
-    ///     clipping/quickReject covers the gap for now once Rasterization
-    ///     exists).
+    ///   - `shapes`/`shapes_index` are carried through unchanged - a
+    ///     shared_ptr copy (ViewShapesHandle/ViewShapesIndexHandle,
+    ///     hierarchy_resolver_stage.hpp's own comments) is a refcount
+    ///     bump regardless of how many shapes a node has, not a real
+    ///     copy - this stage prunes *placements*, not individual shapes
+    ///     within one node's own direct content; RasterizeStage is the
+    ///     one that queries `shapes_index` against its own per-node
+    ///     render bbox to avoid walking every shape in a huge flat node.
     ///   - `placement_data` is filtered down to just the placements whose
     ///     own local (pre-ancestor-transform) bbox overlaps the viewport
     ///     once brought into this node's own local space - see the
@@ -134,6 +134,7 @@ namespace le
                 const ViewData &source_data = source_it->second;
                 ViewData data;
                 data.shapes = source_data.shapes;
+                data.shapes_index = source_data.shapes_index;
 
                 // One Rect transform per node, not one per placement -
                 // see the class's own doc comment.

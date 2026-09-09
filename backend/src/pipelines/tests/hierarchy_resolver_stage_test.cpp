@@ -308,3 +308,55 @@ TEST_F(HierarchyResolverStageFixture, RecomputesWhenHierarchyDepthChangesEvenIfM
     const HierarchyResolverOutput &second = runner.run(view_layers_handle, 0, depth_one);
     EXPECT_EQ(second.view_data.size(), 2u);
 }
+
+TEST_F(HierarchyResolverStageFixture, ShapesIndexQueryFindsOnlyOverlappingShapesOnTheRightLayer)
+{
+    // LEAF's own TERMINAL shape sits at (1,1)-(2,2); its own OBSTRUCTION
+    // shape sits at (3,3)-(4,4) - both real per-shape RasterizeStage's
+    // own draw_view_shapes queries against ViewData::shapes_index for
+    // per-shape viewport culling (the gap ViewportCullStage's own doc
+    // comment names - it only culls placements, not shapes within one
+    // node). Exercises the index directly rather than through a full
+    // render, so a coordinate-space or off-by-one mistake in the query
+    // itself is caught independent of anything Skia's own clipping might
+    // otherwise paper over.
+    const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{leaf_abstract}, 0));
+    const ViewData &leaf_data = output.view_data.at(HierarchyId{leaf_abstract});
+    ASSERT_NE(leaf_data.shapes_index, nullptr);
+
+    const ViewLayerId terminal_layer = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
+    const auto index_it = leaf_data.shapes_index->find(terminal_layer);
+    ASSERT_NE(index_it, leaf_data.shapes_index->end());
+
+    auto query = [&](Rect rect)
+    {
+        std::vector<ShapeIndexEntry> hits;
+        index_it->second.query(boost::geometry::index::intersects(rect), std::back_inserter(hits));
+        return hits.size();
+    };
+
+    // Tightly around the terminal's own (1,1)-(2,2) rect - a hit.
+    EXPECT_EQ(query(Rect{.ll = Point{0, 0}, .ur = Point{3, 3}}), 1u);
+    // Only partially overlaps the terminal's own rect (its own lower-left
+    // corner region) - a real, if partial, overlap is still a hit.
+    EXPECT_EQ(query(Rect{.ll = Point{-10, -10}, .ur = Point{1, 1}}), 1u);
+    // Far from both the terminal and the obstruction - no hit.
+    EXPECT_EQ(query(Rect{.ll = Point{500, 500}, .ur = Point{600, 600}}), 0u);
+
+    // The OBSTRUCTION shape (3,3)-(4,4) lives on a *different* ViewLayerId
+    // (same physical Layer, different purpose) - a query against the
+    // TERMINAL layer's own index must not find it even though its own
+    // bbox is close by.
+    const ViewLayerId obstruction_layer = view_layers.find(m1, ViewLayerPurpose::OBSTRUCTION);
+    const auto obstruction_index_it = leaf_data.shapes_index->find(obstruction_layer);
+    ASSERT_NE(obstruction_index_it, leaf_data.shapes_index->end());
+    std::vector<ShapeIndexEntry> obstruction_hits;
+    obstruction_index_it->second.query(boost::geometry::index::intersects(Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}), std::back_inserter(obstruction_hits));
+    ASSERT_EQ(obstruction_hits.size(), 1u);
+    const std::optional<Rect> obstruction_bbox = Geometry::bbox(leaf_data.shapes->at(obstruction_layer)[obstruction_hits.front().second]);
+    ASSERT_TRUE(obstruction_bbox.has_value());
+    EXPECT_EQ(obstruction_hits.front().first.ll.x, obstruction_bbox->ll.x);
+    EXPECT_EQ(obstruction_hits.front().first.ll.y, obstruction_bbox->ll.y);
+    EXPECT_EQ(obstruction_hits.front().first.ur.x, obstruction_bbox->ur.x);
+    EXPECT_EQ(obstruction_hits.front().first.ur.y, obstruction_bbox->ur.y);
+}

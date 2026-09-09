@@ -26,6 +26,8 @@
 #include "include/core/SkSurface.h"
 #include "include/effects/SkDashPathEffect.h"
 
+#include <boost/geometry/index/rtree.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -37,6 +39,8 @@
 
 namespace le
 {
+    namespace bgi = boost::geometry::index;
+
     /// @brief Mirrors Scene::is_view_layer_visible exactly (that class's
     /// own doc comment): visible only if BOTH its own layer-name entry
     /// (if any) and its own purpose entry (if any) say so - an unset key
@@ -169,8 +173,24 @@ namespace le
     /// shape-generation/Cold time - git history), just keyed differently
     /// since Shape itself has no field of its own to cache into (a
     /// schema.py change, deliberately avoided here).
+    ///
+    /// `shapes_index`/`query_bbox`: per-shape viewport culling
+    /// (HierarchyResolverStage's own ViewShapesIndexHandle comment) -
+    /// when a given ViewLayerId has a spatial index, only the shapes
+    /// whose own bbox actually overlaps `query_bbox` (the node's own
+    /// render bbox, RasterizeStage::compute()'s own `local_bbox`) are
+    /// visited at all, instead of every shape the layer holds. Falls
+    /// back to the full, unindexed scan when `shapes_index` is null or
+    /// has no entry for a given layer (a defensive degrade, not an
+    /// expected path - every real ViewData built by
+    /// HierarchyResolverStage carries one) - correctness never depends
+    /// on the index existing, only performance does. This is the fix for
+    /// the per-shape culling gap ViewportCullStage's own doc comment
+    /// names (that stage only culls placements/instances, one level up);
+    /// see PIPELINE_REFACTOR_BENCHMARK_RESULTS.md for the before/after.
     inline void draw_view_shapes(
-        SkCanvas &canvas, const ViewLayerShapes &shapes_by_layer, const ViewLayerSet &view_layers, double scale, bool antialiasing_enabled,
+        SkCanvas &canvas, const ViewLayerShapes &shapes_by_layer, const ViewShapesIndexHandle &shapes_index, const Rect &query_bbox,
+        const ViewLayerSet &view_layers, double scale, bool antialiasing_enabled,
         const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
         std::unordered_map<const Path *, std::vector<Polygon>> &path_outline_cache)
     {
@@ -248,7 +268,13 @@ namespace le
             text_paint.setAntiAlias(antialiasing_enabled);
             text_paint.setColor(to_sk_color(style.outline_color));
 
-            for (const Shape &shape : group_it->second)
+            // Extracted from the per-shape loop below so it can be
+            // invoked either for every shape in this layer's own vector
+            // (no index / no entry for this layer) or just the subset a
+            // spatial-index query returns (see this function's own doc
+            // comment) - identical body either way, no behavior change
+            // from before this was a lambda.
+            auto draw_one_shape = [&](const Shape &shape)
             {
                 for (const Rect &r : shape.rects)
                 {
@@ -357,7 +383,7 @@ namespace le
                         canvas.drawString(truncated.c_str(), static_cast<SkScalar>(kPlacementLabelPaddingPx), static_cast<SkScalar>(kPlacementLabelPaddingPx), font, text_paint);
                         canvas.restore();
                     }
-                    continue;
+                    return; // this shape's own placement-name text is handled above - don't also fall into the generic text loop below
                 }
 
                 for (const Text &text : shape.texts)
@@ -375,6 +401,21 @@ namespace le
                     canvas.drawString(text.label.c_str(), 0, 0, font, text_paint);
                     canvas.restore();
                 }
+            };
+
+            const std::vector<Shape> &shapes = group_it->second;
+            const auto layer_index_it = shapes_index ? shapes_index->find(view_layer_id) : ViewLayerShapeIndex::const_iterator{};
+            if (shapes_index && layer_index_it != shapes_index->end())
+            {
+                std::vector<ShapeIndexEntry> hits;
+                layer_index_it->second.query(bgi::intersects(query_bbox), std::back_inserter(hits));
+                for (const ShapeIndexEntry &hit : hits)
+                    draw_one_shape(shapes[hit.second]);
+            }
+            else
+            {
+                for (const Shape &shape : shapes)
+                    draw_one_shape(shape);
             }
         }
     }
@@ -546,8 +587,8 @@ namespace le
                 }
 
                 draw_view_shapes(
-                    upright_canvas, data.shapes ? *data.shapes : kEmptyShapes, view_layers, options.scale, options.antialiasing_enabled,
-                    options.layer_name_visible, options.purpose_visible, node_outline_cache.outlines);
+                    upright_canvas, data.shapes ? *data.shapes : kEmptyShapes, data.shapes_index, local_bbox, view_layers, options.scale,
+                    options.antialiasing_enabled, options.layer_name_visible, options.purpose_visible, node_outline_cache.outlines);
 
                 result.images.emplace(id, RasterizedImage{surface->makeImageSnapshot(), local_bbox.ll});
             }

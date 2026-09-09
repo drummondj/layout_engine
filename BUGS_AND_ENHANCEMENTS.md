@@ -5,7 +5,7 @@
 - [x] B3. Via arrays are not being rendered.
 - [x] B4. Running a zoom command before show_gui causes the layout viewer to hang.
 - [x] B5. Resizing a sidebar should wait until the resize is finished before rendering a new frame in the layout window.
-- [ ] SKIP FOR NOW B6. Closing the GUI window still causes a never ending beachball. Force quiting window results in B6_trace.txt report. 
+- [ ] SKIP FOR NOW B6. Closing the GUI window still causes a never ending beachball. Force quiting window results in B6_trace.txt report.
 - [x] B7. Keyboard shorrtcuts should only trigger when the mouse is over the layout window. Changing the hierarchy depth by entering 1, 2 etc also changes the layer visibility.
 - [x] B8. write_def always writes "WEIGHT -1" to each COMPONENT even if that wasn't in the original DEF.
 - [x] B9. If I write_def using the aes design and read it back in again, then it is missing vias. Looking at the output DEF, the via array definitions are in the wrong place. Lot's of via arrays one after another. But also lot's that look correct too, it's hard to tell by eye. We need a methodology to check that the result of write_def can be read back in and creates an identical database.
@@ -47,7 +47,7 @@
 
 ```
 ┌┐    ┌┬──┐ ┌┐ ┌┐ ┌┬──┐ ┌┐  ┐ ┌─┬┬─┐      ┌┬──┐ ┌┬─┐ ┐ ┌┬──  ┌┐ ┌┬─┐ ┐ ┌┬──┐
-├┤    ├┼──┤ └┴─┼┤ ├┤  │ ├┤  │   ├┤        ├┼─   ├┤ │ │ ├┤ ┬┐ ├┤ ├┤ │ │ ├┼─  
+├┤    ├┼──┤ └┴─┼┤ ├┤  │ ├┤  │   ├┤        ├┼─   ├┤ │ │ ├┤ ┬┐ ├┤ ├┤ │ │ ├┼─
 └┴──┘ └┘  ┘ └──┴┘ └┴──┘ └┴──┘   └┘        └┴──┘ └┘ └─┘ └┴─┴┘ └┘ └┘ └─┘ └┴──┘
 
 Version  : x.y.z
@@ -76,10 +76,13 @@ write_def [-layout <token>] <filename> - writes a DEF file for the specified -la
     get_selection - returns a list of selected object tokens
     select <tokens> - adds <tokens> to the selection
 
-- [ ] E31. 4 million COMPONENT test case and profiling. Please take the aes DEF file /Volumes/Docking/Projects/synthosilicon/layout_engine/test_data/ISPD22__final_benchmarks/AES_1/design_original.def and use that as a source of data to generate another DEF file with around 4 million COMPONENTS and 4 million NETS. Take the original aes design and tile it, copying all the COMPONENT/NET/SPECIALNET/TRACK/ROW data and transforming the geometries for each tile. The result should be a flat DEF file. Then run tracy on a full screen render with a zoom-fit. 
+- [x] E31. 4 million COMPONENT test case and profiling. Please take the aes DEF file /Volumes/Docking/Projects/synthosilicon/layout_engine/test_data/ISPD22__final_benchmarks/AES_1/design_original.def and use that as a source of data to generate another DEF file with around 4 million COMPONENTS and 4 million NETS. Take the original aes design and tile it, copying all the COMPONENT/NET/SPECIALNET/TRACK/ROW data and transforming the geometries for each tile. The result should be a flat DEF file. Then run tracy on a full screen render with a zoom-fit.
 
 # QUESTIONS
 
 Q1. At the same zoom level and orientation, each placement of the same design will be identical. Do we re-use RasterizedFrames or re-draw from the SkPicture recording?
 
+Q2. Are we takign advantage of CPU instructions that use SIMD Extensions (SSE) and Advanced Vector Extensions (AVX)?
+
+Q3. Why does ViewRenderPipeline WarmOutput contain data that is not used by api.cpp:le_render_pixel_buffer. WarmOutput should only required a frame, so you may as well just return the frame. Also, why are run_cold and run_warm separate functions, there should only be one function called run. There should be no sinks at all, a MemoizingStage holds shared_ptrs for it's output data and should be cache within that class, so there is no need for any sinks. If this is not correct, please tell me exactly why.
 
