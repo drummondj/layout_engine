@@ -328,6 +328,34 @@ namespace le::gui
         // pinning a whole CPU core at 100% while idle for no benefit.
         constexpr auto kRenderThreadIdleInterval = std::chrono::milliseconds(33);
 
+        // Upper bound (seconds) on how long the main loop's own
+        // glfwWaitEventsTimeout() below blocks before redrawing anyway -
+        // a real, reported bug: the main loop used to call the
+        // non-blocking glfwPollEvents() and then unconditionally redraw
+        // the whole ImGui frame + do a full GL render every single
+        // iteration, with no idle throttling at all. glfwSwapInterval(1)
+        // (vsync) doesn't reliably cap this on a machine with no real
+        // GPU (confirmed via `top -H` on a live le_shell: dozens of Mesa
+        // "llvmpipe" software-rasterizer threads, one per CPU core, each
+        // sitting at ~18-27% CPU continuously, even with the mouse
+        // untouched and nothing on screen changing) - llvmpipe's own
+        // software swap path has no real display refresh signal to sync
+        // to, so the loop just free-spins, re-rasterizing the entire
+        // (unchanged) UI in software as fast as it possibly can.
+        // glfwWaitEventsTimeout() blocks (genuinely sleeping, not
+        // polling) until either a real input event arrives - identical
+        // responsiveness to glfwPollEvents() for actual interaction,
+        // since any real event wakes it immediately - or this timeout
+        // elapses, which is what now bounds the idle redraw rate instead
+        // of leaving it unbounded. 33ms (~30Hz) matches
+        // kRenderThreadIdleInterval above, both existing for the same
+        // reason: cheap enough to never feel laggy, short enough that a
+        // background render-thread frame (le_is_rendering()'s own
+        // spinner, or a newly-published mailbox frame) still gets picked
+        // up and drawn promptly rather than sitting unseen until the
+        // next real input event.
+        constexpr double kMainLoopIdleWaitSeconds = 0.033;
+
         // Logical (window/point, not framebuffer-pixel) height reserved
         // at the bottom of the window for draw_status_bar
         // (components/status_bar.hpp) - the ImGui port of
@@ -614,7 +642,14 @@ namespace le::gui
 
             while (!glfwWindowShouldClose(window))
             {
-                glfwPollEvents();
+                // glfwWaitEventsTimeout, not glfwPollEvents (see
+                // kMainLoopIdleWaitSeconds's own doc comment) - blocks
+                // until a real input event wakes it (same responsiveness
+                // as PollEvents for actual interaction) instead of
+                // returning immediately and letting the loop below
+                // free-spin a full redraw with nothing to actually
+                // redraw.
+                glfwWaitEventsTimeout(kMainLoopIdleWaitSeconds);
 
                 int fb_width = 0;
                 int fb_height = 0;
