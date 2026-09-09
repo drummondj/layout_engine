@@ -42,7 +42,7 @@ namespace
 
         const ViewRenderOptions cold_options{
             .root = &fixture.root, .root_mutation_version = fixture.root.mutation_version(),
-            .top_level = HierarchyId{fixture.layout_id}, .hierarchy_depth = 1, .view_layers = view_layers_handle,
+            .top_level = HierarchyId{fixture.layout_id}, .hierarchy_depth = 1,
         };
         HierarchyResolverRunner hierarchy_resolver_runner{"bm_compose_hierarchy_resolver"};
         hierarchy_resolver_runner.run(view_layers_handle, 0, cold_options);

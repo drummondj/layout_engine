@@ -227,12 +227,7 @@ namespace
 
     // Builds a ViewRenderOptions snapshot of `handle`'s own current
     // root/scene state, for le_render_pixel_buffer's own
-    // view_render_pipeline.run_warm() call - view_layers is deliberately
-    // left unset here: RasterizeStage needs it, but the *correct* value
-    // only exists once LayerGenerationStage has actually run inside that
-    // same call, so run_warm() itself fills it in (see that method's own
-    // doc comment, view_render_pipeline.hpp) rather than a caller trying
-    // to precompute it. Scene's own pan/scale/viewport-size convention
+    // view_render_pipeline.run() call. Scene's own pan/scale/viewport-size convention
     // (pixel = (dbu - pan) * scale, Scene::pixel_to_dbu's own comment)
     // maps directly onto ViewRenderOptions::viewport/scale: pan is
     // exactly the dbu point at the viewport's own bottom-left pixel
@@ -3189,7 +3184,7 @@ extern "C"
         // next call" contract (api.hpp) already promises - no separate
         // LeHandle-owned storage needed here.
         const le::ViewRenderOptions options = view_render_options_for(handle);
-        const le::ViewRenderPipelineBlend2D::WarmOutput output = handle->view_render_pipeline.run_warm(&handle->root, options);
+        const le::ViewRenderPipelineBlend2D::WarmOutput output = handle->view_render_pipeline.run(&handle->root, options);
 
         FrameMarkEnd(kRenderFrameName);
 

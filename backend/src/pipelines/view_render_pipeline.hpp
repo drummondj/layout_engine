@@ -28,22 +28,29 @@ namespace le
     /// later - one pipeline for the whole thing, not a separate class per
     /// tier.
     ///
-    /// Two independent entry points into this one graph, not one:
-    /// run_cold() submits at layer_generation_.node() (LayerGeneration ->
-    /// HierarchyResolver); run_warm() submits at viewport_cull_.node()
-    /// directly (ViewportCull -> Rasterize -> Compose), after first
-    /// calling run_cold() itself to ensure Cold's own output is fresh -
-    /// see run_warm()'s own doc comment for why this can't be one single
-    /// submission through the whole chain.
+    /// One entry point into this one graph: run() submits at
+    /// layer_generation_.node() and the existing make_edge chain carries
+    /// that single message all the way through to compose_.node() in one
+    /// try_put/wait_for_all - the whole graph was always wired this way
+    /// end to end; what used to force two separate submissions
+    /// (run_cold() then run_warm()) was RasterizeStage's own dependency on
+    /// the ViewLayerSet LayerGenerationStage computes, which had nowhere
+    /// to travel to but ViewRenderOptions::view_layers - a field every
+    /// stage in one submission sees the exact same, caller-supplied copy
+    /// of (StageData<T, Options>'s own contract), so a later stage could
+    /// never see a value an earlier stage in that same submission had just
+    /// computed. Fixed at the source instead: HierarchyResolverStage's own
+    /// OutputData now echoes the ViewLayerSetHandle it received as input
+    /// back out as one of its own fields (HierarchyResolverOutput::
+    /// view_layers), and ViewportCullStage passes it through unchanged -
+    /// so it now arrives at RasterizeStage as part of `data`, the same way
+    /// every other stage's own real dependency does, and one submission
+    /// through the whole chain is enough.
     ///
-    /// The Root pointer every stage needs travels via
-    /// ViewRenderOptions::root, not any one stage's own InputData -
-    /// run_cold()/run_warm() set it from their own `root` parameter, so a
-    /// caller never has to set it independently. ViewRenderOptions::
-    /// view_layers (RasterizeStage's own dependency) is different: its
-    /// correct value only exists once LayerGenerationStage has actually
-    /// run, so run_warm() sets it from run_cold()'s own return value
-    /// rather than expecting the caller to.
+    /// The Root pointer every stage needs still travels via
+    /// ViewRenderOptions::root, not any one stage's own InputData - run()
+    /// sets it from its own `root` parameter, so a caller never has to set
+    /// it independently.
     ///
     /// Templated on the Rasterize stage implementation (`RasterizeStageT`,
     /// default `RasterizeStage` - Skia) so a second, real backend
@@ -66,19 +73,7 @@ namespace le
     class ViewRenderPipelineImpl
     {
     public:
-        /// @brief The Cold tier's own combined output (PIPELINE_REFACTOR.md:
-        /// "Output: A vector of shapes per Abstract and Layout ... plus a
-        /// vector of ViewLayers") - a HierarchyResolverOutput alone isn't
-        /// enough for a consumer to actually render anything, since its own
-        /// ViewShape.view_layer fields are ids that need resolving against
-        /// this same ViewLayerSet for style/color/purpose.
-        struct ColdOutput
-        {
-            LayerGenerationStage::OutputHandle view_layers;
-            HierarchyResolverStage::OutputHandle hierarchy;
-        };
-
-        /// @brief The Warm tier's own combined output - every intermediate
+        /// @brief The full chain's own combined output - every intermediate
         /// stage's own result, not just the final `frame`, so a caller
         /// (or a test) can inspect what actually survived culling/
         /// rasterization without re-deriving it independently.
@@ -132,67 +127,46 @@ namespace le
         ViewRenderPipelineImpl(const ViewRenderPipelineImpl &) = delete;
         ViewRenderPipelineImpl &operator=(const ViewRenderPipelineImpl &) = delete;
 
-        /// @brief Runs the Cold tier for `root` under `options` (`options.root`
-        /// is overwritten with `root` here - a caller only has to set the
-        /// fields that actually vary: root_mutation_version/top_level/
-        /// hierarchy_depth). No data_version parameter, unlike
-        /// SynchronousStageRunner::run() - neither stage's own recompute
-        /// decision ever looks at one (both rely entirely on
-        /// options_did_change(), see each stage's own doc comment), so
-        /// there is nothing meaningful for a caller to thread through here;
-        /// exposing one would only invite a caller to accidentally force
-        /// recomputation by bumping it for an unrelated reason.
+        /// @brief Runs the full Cold+Warm chain for `root` under `options`
+        /// (`options.root` is overwritten with `root` here - a caller only
+        /// has to set the fields that actually vary: root_mutation_version/
+        /// top_level/hierarchy_depth/viewport/scale) in exactly one
+        /// try_put/wait_for_all - see the class's own doc comment for how
+        /// RasterizeStage's own ViewLayerSet dependency, the thing that
+        /// used to force two separate submissions here, now travels
+        /// through `data` instead of `options`. No data_version parameter,
+        /// unlike SynchronousStageRunner::run() - no stage's own recompute
+        /// decision ever looks at one (all five rely entirely on
+        /// options_did_change() plus the previous stage's own version(),
+        /// see each stage's own doc comment), so there is nothing
+        /// meaningful for a caller to thread through here; exposing one
+        /// would only invite a caller to accidentally force recomputation
+        /// by bumping it for an unrelated reason.
         ///
-        /// Skips try_put/wait_for_all entirely when neither stage would
-        /// recompute - see MemoizingStage::would_recompute()'s own doc
-        /// comment (tbb_core.hpp) for why that's load-bearing, not just a
-        /// nicety, even on a guaranteed cache hit.
-        ColdOutput run_cold(const Root *root, ViewRenderOptions options)
+        /// Skips try_put/wait_for_all entirely when no stage in the whole
+        /// chain would recompute - see MemoizingStage::would_recompute()'s
+        /// own doc comment (tbb_core.hpp) for why that's load-bearing, not
+        /// just a nicety, even on a guaranteed cache hit (300-600ms of
+        /// pure TBB message-passing/scheduling overhead on a real
+        /// ~478,000-shape Layout, measured before that method existed -
+        /// paying that on every steady-state pan/zoom tick, when nothing
+        /// changed at all, is exactly the cost this guard exists to avoid).
+        /// Cascaded across all five stages in dependency order, same
+        /// reasoning run_cold()/run_warm() each used on their own half of
+        /// the chain before they were merged into this one method: an
+        /// earlier stage's own future recompute isn't yet a real, bumped
+        /// version() before it actually runs, so it has to be assumed to
+        /// force every later stage's own data_version to change too rather
+        /// than checked against a version number that doesn't exist yet.
+        WarmOutput run(const Root *root, ViewRenderOptions options)
         {
             options.root = root;
 
             const bool layer_generation_would_recompute = layer_generation_.would_recompute(0, options);
             const bool hierarchy_resolver_would_recompute =
                 layer_generation_would_recompute || hierarchy_resolver_.would_recompute(layer_generation_.version(), options);
-
-            if (layer_generation_would_recompute || hierarchy_resolver_would_recompute)
-            {
-                layer_generation_.try_put({.data = root, .data_version = 0, .options = options});
-                graph_.wait_for_all();
-            }
-
-            return {layer_generation_result_.data, hierarchy_resolver_result_.data};
-        }
-
-        /// @brief Runs Cold (via run_cold(), reused directly rather than
-        /// duplicated) followed by the Warm tier, for the given `options.
-        /// viewport`/`options.scale`.
-        ///
-        /// Can't submit through the whole Cold+Warm chain in one
-        /// try_put/wait_for_all the way run_cold() does for its own two
-        /// stages: RasterizeStage reads ViewRenderOptions::view_layers,
-        /// but the *correct* value for that field - LayerGenerationStage's
-        /// own freshly computed output - doesn't exist until
-        /// LayerGenerationStage has actually finished running, and every
-        /// stage in one TBB flow::graph submission sees the exact same
-        /// `options` copy the caller handed to try_put() up front, threaded
-        /// through unchanged (StageData<T, Options>'s own contract) - there
-        /// is no way for a later stage in that same submission to see a
-        /// value an earlier stage in it just computed. So: run Cold to
-        /// completion first (a real, separate try_put/wait_for_all round,
-        /// gated by run_cold()'s own would_recompute check - a no-op call
-        /// when Cold is already up to date), read `view_layers` back out
-        /// of its own result, then submit a *second*, independent round
-        /// directly at viewport_cull_.node() (this graph's own second entry
-        /// point, alongside layer_generation_.node()) with `options.view_layers`
-        /// now set correctly.
-        WarmOutput run_warm(const Root *root, ViewRenderOptions options)
-        {
-            const ColdOutput cold = run_cold(root, options);
-            options.root = root;
-            options.view_layers = cold.view_layers;
-
-            const bool viewport_cull_would_recompute = viewport_cull_.would_recompute(hierarchy_resolver_.version(), options);
+            const bool viewport_cull_would_recompute =
+                hierarchy_resolver_would_recompute || viewport_cull_.would_recompute(hierarchy_resolver_.version(), options);
             const bool rasterize_would_recompute =
                 viewport_cull_would_recompute || rasterize_.would_recompute(viewport_cull_.version(), options);
             const bool compose_would_recompute =
@@ -200,13 +174,13 @@ namespace le
 
             if (compose_would_recompute)
             {
-                viewport_cull_.try_put({.data = cold.hierarchy, .data_version = hierarchy_resolver_.version(), .options = options});
+                layer_generation_.try_put({.data = root, .data_version = 0, .options = options});
                 graph_.wait_for_all();
             }
 
             return WarmOutput{
-                .view_layers = cold.view_layers,
-                .hierarchy = cold.hierarchy,
+                .view_layers = layer_generation_result_.data,
+                .hierarchy = hierarchy_resolver_result_.data,
                 .culled = viewport_cull_result_.data,
                 .rasterized = rasterize_result_.data,
                 .frame = compose_result_.data,

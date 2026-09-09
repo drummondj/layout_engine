@@ -4,7 +4,6 @@
 #include "../view_style/view_style.hpp"
 
 #include <cstdint>
-#include <memory>
 #include <string>
 #include <unordered_map>
 #include <variant>
@@ -72,25 +71,6 @@ namespace le
         /// never a resample - see RasterizeStage's own doc comment.
         double scale = 1.0;
 
-        /// @brief The current ViewLayerSet, so a Warm-tier drawing stage
-        /// (RasterizeStage) can resolve a ViewShape's own view_layer id
-        /// into real style (color/pattern) without a second graph input -
-        /// mirrors `root` above (shared context, not part of any one
-        /// stage's own InputData/OutputData) for the same reason: a real
-        /// make_edge already carries LayerGenerationStage's own output
-        /// into HierarchyResolverStage's InputData, but nothing wires it
-        /// any further downstream, so a later stage that still needs the
-        /// actual ViewLayerSet content (not just a recompute signal - the
-        /// data_version chain already provides that on its own) has
-        /// nowhere else to get it. Same type as LayerGenerationStage::
-        /// OutputHandle/HierarchyResolverStage::ViewLayerSetHandle (both
-        /// std::shared_ptr<const ViewLayerSet>) - spelled out directly
-        /// here rather than named via either alias, to avoid a circular
-        /// include (both those headers already include this one).
-        /// Never null-checked before use, same "degrade to empty output"
-        /// convention as `root`.
-        std::shared_ptr<const ViewLayerSet> view_layers;
-
         /// @brief Whether RasterizeStage draws with antialiasing. Default
         /// false: RasterizeStage draws every individual rect/path/polygon
         /// with its own Skia draw call (no batching), and antialiasing
@@ -107,9 +87,13 @@ namespace le
         /// is_purpose_visible's own "unknown key -> visible" default, and
         /// RasterizeStage's own is_view_layer_visible mirrors that same
         /// logic exactly - see its own comment). Plain values, not a
-        /// shared_ptr like `view_layers` above: these two maps are small
-        /// (at most one entry per real layer/purpose, never per-shape),
-        /// so options_did_change() can just compare them by real content
+        /// shared_ptr (RasterizeStage's own ViewLayerSet content travels
+        /// via HierarchyResolverOutput::view_layers instead, echoed
+        /// forward through the make_edge chain - hierarchy_resolver_stage.hpp's
+        /// own comment, not through this options struct): these two maps
+        /// are small (at most one entry per real layer/purpose, never
+        /// per-shape), so options_did_change() can just compare them by
+        /// real content
         /// equality instead of needing the caller to track its own
         /// version counter and hand back a fresh shared_ptr on every
         /// actual change. Empty by default (nothing hidden) - a caller

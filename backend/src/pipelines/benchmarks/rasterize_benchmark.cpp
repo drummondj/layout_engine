@@ -63,7 +63,7 @@ namespace
 
         ViewRenderOptions cold_options{
             .root = &fixture.root, .root_mutation_version = fixture.root.mutation_version(),
-            .top_level = HierarchyId{fixture.layout_id}, .hierarchy_depth = 1, .view_layers = view_layers_handle,
+            .top_level = HierarchyId{fixture.layout_id}, .hierarchy_depth = 1,
         };
         if (apply_default_visibility)
             cold_options.purpose_visible = default_hidden_purposes();

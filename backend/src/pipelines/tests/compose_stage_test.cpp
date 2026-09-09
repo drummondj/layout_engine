@@ -53,7 +53,7 @@ namespace
 
             const ViewRenderOptions options{
                 .root = &root, .root_mutation_version = root.mutation_version(), .top_level = HierarchyId{top_layout},
-                .hierarchy_depth = 2, .viewport = Rect{.ll = Point{0, 0}, .ur = Point{200, 200}}, .scale = kScale, .view_layers = view_layers_handle,
+                .hierarchy_depth = 2, .viewport = Rect{.ll = Point{0, 0}, .ur = Point{200, 200}}, .scale = kScale,
             };
 
             hierarchy_resolver_runner.run(view_layers_handle, 0, options);
@@ -188,7 +188,7 @@ TEST_F(ComposeStageFixture, NullInputProducesEmptyFrame)
     build_fixture(Orientation::N); // populates root/view_layers_handle/top_layout, result discarded below
     const ViewRenderOptions options{
         .root = &root, .root_mutation_version = root.mutation_version(), .top_level = HierarchyId{top_layout},
-        .hierarchy_depth = 2, .viewport = Rect{.ll = Point{0, 0}, .ur = Point{200, 200}}, .scale = kScale, .view_layers = view_layers_handle,
+        .hierarchy_depth = 2, .viewport = Rect{.ll = Point{0, 0}, .ur = Point{200, 200}}, .scale = kScale,
     };
     // A fresh runner, not the fixture's own compose_runner (already
     // primed with a real result from build_fixture() above at the same

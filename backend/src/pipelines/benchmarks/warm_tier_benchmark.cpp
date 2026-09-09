@@ -17,7 +17,7 @@ using namespace le::benchmarks;
 namespace
 {
     // Measures the WHOLE Warm tier (ViewportCull + Rasterize + Compose,
-    // via ViewRenderPipeline::run_warm()) against its own shared 500ms
+    // via ViewRenderPipeline::run()) against its own shared 500ms
     // budget - PIPELINE_REFACTOR.md names 500ms for the tier as a whole,
     // not per stage (a real, previously-wrong assumption corrected mid-
     // development - see PIPELINE_REFACTOR_BENCHMARK_RESULTS.md), so this
@@ -62,7 +62,7 @@ namespace
             .top_level = HierarchyId{fixture.layout_id}, .hierarchy_depth = 1,
             .viewport = pan_viewports.front(), .scale = scale,
         };
-        pipeline.run_warm(&fixture.root, warm_up_options); // not timed - pays every one-time cost (index build, distinct-Abstract rasterization) up front
+        pipeline.run(&fixture.root, warm_up_options); // not timed - pays every one-time cost (index build, distinct-Abstract rasterization) up front
 
         // Starts at index 1, not 0 - index 0 is exactly what the untimed
         // warm-up call above already used, and every stage's own
@@ -84,7 +84,7 @@ namespace
                 .top_level = HierarchyId{fixture.layout_id}, .hierarchy_depth = 1,
                 .viewport = pan_viewports[pan_index], .scale = scale,
             };
-            const ViewRenderPipeline::WarmOutput output = pipeline.run_warm(&fixture.root, options);
+            const ViewRenderPipeline::WarmOutput output = pipeline.run(&fixture.root, options);
             int frame_width = output.frame->buffer.width;
             benchmark::DoNotOptimize(frame_width);
         }
@@ -139,7 +139,7 @@ namespace
         for (auto _ : state)
         {
             ViewRenderPipeline pipeline{"bm_warm_tier_cold_start"};
-            const ViewRenderPipeline::WarmOutput output = pipeline.run_warm(&fixture.root, options);
+            const ViewRenderPipeline::WarmOutput output = pipeline.run(&fixture.root, options);
             int frame_width = output.frame->buffer.width;
             benchmark::DoNotOptimize(frame_width);
         }

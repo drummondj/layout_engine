@@ -104,6 +104,7 @@ namespace le
             HierarchyResolverOutput result;
             if (input == nullptr)
                 return result;
+            result.view_layers = input->view_layers;
 
             if (input.get() != cached_input_.get())
             {

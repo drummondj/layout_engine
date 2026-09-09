@@ -48,7 +48,7 @@ namespace
         {
             return ViewRenderOptions{
                 .root = &root, .root_mutation_version = root.mutation_version(), .top_level = top_level,
-                .hierarchy_depth = hierarchy_depth, .viewport = viewport, .scale = scale, .view_layers = view_layers_handle,
+                .hierarchy_depth = hierarchy_depth, .viewport = viewport, .scale = scale,
             };
         }
 

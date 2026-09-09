@@ -181,14 +181,6 @@ namespace le
         std::vector<ViewPlacementData> placement_data;
     };
 
-    /// @brief PIPELINE_REFACTOR.md's own HierarchyResolverOutput - every
-    /// Abstract/Layout HierarchyResolverStage's traversal reached, keyed
-    /// by its own id.
-    struct HierarchyResolverOutput
-    {
-        std::unordered_map<HierarchyId, ViewData, HierarchyIdHash> view_data;
-    };
-
     /// @brief HierarchyResolverStage's own InputData - LayerGenerationStage's
     /// own OutputHandle (tbb_core.hpp's MemoizingStage::OutputHandle), so
     /// ViewRenderPipeline (view_render_pipeline.hpp) can wire the two
@@ -197,8 +189,36 @@ namespace le
     /// of that edge are exactly this type. The Root pointer this stage
     /// also needs travels via ViewRenderOptions::root instead of being
     /// part of this InputData - it isn't part of LayerGenerationStage's
-    /// own output, so it couldn't flow through that same edge.
+    /// own output, so it couldn't flow through that same edge. Declared
+    /// ahead of HierarchyResolverOutput below (not in the usual "InputData
+    /// right before the stage that consumes it" spot a little further
+    /// down) since that struct's own view_layers field needs this alias
+    /// already in scope.
     using ViewLayerSetHandle = std::shared_ptr<const ViewLayerSet>;
+
+    /// @brief PIPELINE_REFACTOR.md's own HierarchyResolverOutput - every
+    /// Abstract/Layout HierarchyResolverStage's traversal reached, keyed
+    /// by its own id.
+    struct HierarchyResolverOutput
+    {
+        std::unordered_map<HierarchyId, ViewData, HierarchyIdHash> view_data;
+
+        /// @brief Echoes this stage's own InputData (ViewLayerSetHandle)
+        /// back out, unchanged - the only way a stage further downstream
+        /// in a real make_edge chain (ViewportCullStage, RasterizeStage/
+        /// RasterizeBlend2DStage) can still reach the actual ViewLayerSet
+        /// content: nothing else wires LayerGenerationStage's own output
+        /// any further than this stage's own InputData. Used to carry
+        /// `view_layers` from Cold tier through to RasterizeStage without
+        /// going through ViewRenderOptions::view_layers (removed -
+        /// ViewRenderPipelineImpl::run(), view_render_pipeline.hpp, no
+        /// longer needs to patch it into `options` between two separate
+        /// graph submissions once it travels as data like this instead).
+        /// ViewportCullStage's own OutputData is this same struct type -
+        /// its own compute() just copies this field through unchanged
+        /// alongside its real (culled) view_data.
+        ViewLayerSetHandle view_layers;
+    };
 
     /// @brief Cold-tier stage 2 (PIPELINE_REFACTOR.md): traverses
     /// Placement -> Design hierarchy from ViewRenderOptions::top_level,
@@ -276,6 +296,7 @@ namespace le
         HierarchyResolverOutput compute(const ViewLayerSetHandle &view_layers_handle, const ViewRenderOptions &options) override
         {
             HierarchyResolverOutput result;
+            result.view_layers = view_layers_handle;
             if (options.root == nullptr)
                 return result;
 

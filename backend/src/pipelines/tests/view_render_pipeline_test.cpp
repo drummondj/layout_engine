@@ -50,9 +50,17 @@ namespace
     };
 }
 
-TEST_F(ViewRenderPipelineFixture, RunColdMatchesIndependentlyComputedResults)
+TEST_F(ViewRenderPipelineFixture, RunProducesCorrectViewLayersAndHierarchy)
 {
-    const ViewRenderPipeline::ColdOutput output = pipeline.run_cold(&root, options_for(1));
+    // options_for() leaves viewport/scale at their defaults (a degenerate
+    // zero-sized Rect{}/scale 1.0) - run() still runs the whole chain in
+    // that case (ViewportCull/Rasterize/Compose all degrade gracefully on
+    // a zero-sized viewport, same as everywhere else in this module), but
+    // this test only cares about the Cold-tier-shaped half of its own
+    // output, the same fields ColdOutput used to carry before run_cold()/
+    // run_warm() were merged into this one method (view_render_pipeline.hpp's
+    // own doc comment).
+    const ViewRenderPipeline::WarmOutput output = pipeline.run(&root, options_for(1));
 
     ASSERT_NE(output.view_layers, nullptr);
     ASSERT_NE(output.hierarchy, nullptr);
@@ -72,8 +80,8 @@ TEST_F(ViewRenderPipelineFixture, RunColdMatchesIndependentlyComputedResults)
 TEST_F(ViewRenderPipelineFixture, CacheHitReturnsIdenticalHandlesOnUnchangedInputs)
 {
     const ViewRenderOptions options = options_for(1);
-    const ViewRenderPipeline::ColdOutput first = pipeline.run_cold(&root, options);
-    const ViewRenderPipeline::ColdOutput second = pipeline.run_cold(&root, options);
+    const ViewRenderPipeline::WarmOutput first = pipeline.run(&root, options);
+    const ViewRenderPipeline::WarmOutput second = pipeline.run(&root, options);
 
     // Same shared_ptr identity, not just equal content - proves neither
     // stage actually recomputed (would_recompute's own short-circuit, or
@@ -84,8 +92,8 @@ TEST_F(ViewRenderPipelineFixture, CacheHitReturnsIdenticalHandlesOnUnchangedInpu
 
 TEST_F(ViewRenderPipelineFixture, HierarchyDepthChangeAloneLeavesViewLayersUntouched)
 {
-    const ViewRenderPipeline::ColdOutput depth_one = pipeline.run_cold(&root, options_for(1));
-    const ViewRenderPipeline::ColdOutput depth_two = pipeline.run_cold(&root, options_for(2));
+    const ViewRenderPipeline::WarmOutput depth_one = pipeline.run(&root, options_for(1));
+    const ViewRenderPipeline::WarmOutput depth_two = pipeline.run(&root, options_for(2));
 
     // LayerGenerationStage doesn't care about hierarchy_depth at all - its
     // own handle should be untouched even though HierarchyResolverStage's
@@ -96,12 +104,12 @@ TEST_F(ViewRenderPipelineFixture, HierarchyDepthChangeAloneLeavesViewLayersUntou
 
 TEST_F(ViewRenderPipelineFixture, RootMutationCascadesIntoBothStagesRecomputing)
 {
-    const ViewRenderPipeline::ColdOutput before = pipeline.run_cold(&root, options_for(1));
+    const ViewRenderPipeline::WarmOutput before = pipeline.run(&root, options_for(1));
 
     root.create_layer(LayerData{.technology = technology_id, .name = "M2", .type = "ROUTING"});
     root.bump_mutation_version();
 
-    const ViewRenderPipeline::ColdOutput after = pipeline.run_cold(&root, options_for(1));
+    const ViewRenderPipeline::WarmOutput after = pipeline.run(&root, options_for(1));
 
     // LayerGenerationStage recomputes (root_mutation_version changed) -
     // its own bumped version() becomes HierarchyResolverStage's own
@@ -114,7 +122,7 @@ TEST_F(ViewRenderPipelineFixture, RootMutationCascadesIntoBothStagesRecomputing)
 
 TEST_F(ViewRenderPipelineFixture, NullRootProducesEmptyOutputs)
 {
-    const ViewRenderPipeline::ColdOutput output = pipeline.run_cold(nullptr, options_for(1));
+    const ViewRenderPipeline::WarmOutput output = pipeline.run(nullptr, options_for(1));
 
     ASSERT_NE(output.view_layers, nullptr);
     ASSERT_NE(output.hierarchy, nullptr);
@@ -122,9 +130,9 @@ TEST_F(ViewRenderPipelineFixture, NullRootProducesEmptyOutputs)
     EXPECT_TRUE(output.hierarchy->view_data.empty());
 }
 
-TEST_F(ViewRenderPipelineFixture, RunWarmProducesAFrameSizedToTheViewport)
+TEST_F(ViewRenderPipelineFixture, RunProducesAFrameSizedToTheViewport)
 {
-    const ViewRenderPipeline::WarmOutput output = pipeline.run_warm(&root, warm_options_for(1));
+    const ViewRenderPipeline::WarmOutput output = pipeline.run(&root, warm_options_for(1));
 
     ASSERT_NE(output.view_layers, nullptr);
     ASSERT_NE(output.hierarchy, nullptr);
@@ -136,29 +144,22 @@ TEST_F(ViewRenderPipelineFixture, RunWarmProducesAFrameSizedToTheViewport)
     EXPECT_EQ(output.frame->buffer.width, 250);  // 5000 dbu * scale 0.05
     EXPECT_EQ(output.frame->buffer.height, 250);
     EXPECT_NE(output.frame->buffer.data, nullptr);
-
-    // Warm's own output should agree with what run_cold() independently
-    // computes for the same options - run_warm() reuses run_cold()
-    // internally rather than duplicating its logic (ViewRenderPipeline's
-    // own doc comment), so this also guards against that reuse silently
-    // drifting apart.
-    EXPECT_EQ(output.view_layers, pipeline.run_cold(&root, options_for(1)).view_layers);
 }
 
-TEST_F(ViewRenderPipelineFixture, RunWarmCacheHitReturnsIdenticalFrameHandleOnUnchangedInputs)
+TEST_F(ViewRenderPipelineFixture, RunCacheHitReturnsIdenticalFrameHandleOnUnchangedInputs)
 {
     const ViewRenderOptions options = warm_options_for(1);
-    const ViewRenderPipeline::WarmOutput first = pipeline.run_warm(&root, options);
-    const ViewRenderPipeline::WarmOutput second = pipeline.run_warm(&root, options);
+    const ViewRenderPipeline::WarmOutput first = pipeline.run(&root, options);
+    const ViewRenderPipeline::WarmOutput second = pipeline.run(&root, options);
 
     EXPECT_EQ(first.culled, second.culled);
     EXPECT_EQ(first.rasterized, second.rasterized);
     EXPECT_EQ(first.frame, second.frame);
 }
 
-TEST_F(ViewRenderPipelineFixture, RunWarmNullRootProducesEmptyFrame)
+TEST_F(ViewRenderPipelineFixture, RunNullRootProducesEmptyFrame)
 {
-    const ViewRenderPipeline::WarmOutput output = pipeline.run_warm(nullptr, warm_options_for(1));
+    const ViewRenderPipeline::WarmOutput output = pipeline.run(nullptr, warm_options_for(1));
 
     ASSERT_NE(output.frame, nullptr);
     EXPECT_TRUE(output.frame->empty);
@@ -172,7 +173,7 @@ TEST_F(ViewRenderPipelineFixture, RunWarmNullRootProducesEmptyFrame)
 TEST_F(ViewRenderPipelineFixture, Blend2DBackedPipelineProducesAFrameSizedToTheViewport)
 {
     ViewRenderPipelineBlend2D blend2d_pipeline;
-    const ViewRenderPipelineBlend2D::WarmOutput output = blend2d_pipeline.run_warm(&root, warm_options_for(1));
+    const ViewRenderPipelineBlend2D::WarmOutput output = blend2d_pipeline.run(&root, warm_options_for(1));
 
     ASSERT_NE(output.view_layers, nullptr);
     ASSERT_NE(output.hierarchy, nullptr);

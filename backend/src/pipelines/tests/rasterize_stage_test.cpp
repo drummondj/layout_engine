@@ -49,7 +49,7 @@ namespace
         {
             return ViewRenderOptions{
                 .root = &root, .root_mutation_version = root.mutation_version(), .top_level = top_level,
-                .hierarchy_depth = hierarchy_depth, .viewport = viewport, .scale = scale, .view_layers = view_layers_handle,
+                .hierarchy_depth = hierarchy_depth, .viewport = viewport, .scale = scale,
             };
         }
 
@@ -287,8 +287,7 @@ TEST_F(RasterizeStageFixture, DrawsLaterViewLayerOnTopOfAnEarlierOverlappingOne)
     const Color m1_outline = one_layer_view_layers.get(m1_terminal_layer)->style.outline_color;
 
     HierarchyResolverRunner m1_only_hierarchy_runner{"HierarchyResolverM1Only"};
-    ViewRenderOptions m1_only_options = options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);
-    m1_only_options.view_layers = one_layer_view_layers_handle;
+    const ViewRenderOptions m1_only_options = options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);
     m1_only_hierarchy_runner.run(one_layer_view_layers_handle, 0, m1_only_options);
     RasterizeRunner m1_only_rasterize_runner{"RasterizeM1Only"};
     const RasterizeOutput &m1_only_output = m1_only_rasterize_runner.run(m1_only_hierarchy_runner.last_handle(), 0, m1_only_options);
@@ -333,8 +332,7 @@ TEST_F(RasterizeStageFixture, DrawsLaterViewLayerOnTopOfAnEarlierOverlappingOne)
     ASSERT_NE(m1_outline.r, m2_outline.r); // the palette must actually distinguish them, or this test can't tell who won
 
     HierarchyResolverRunner fresh_hierarchy_runner{"HierarchyResolverTwoLayer"};
-    ViewRenderOptions options = options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);
-    options.view_layers = two_layer_view_layers_handle;
+    const ViewRenderOptions options = options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);
     fresh_hierarchy_runner.run(two_layer_view_layers_handle, 0, options);
     RasterizeRunner fresh_rasterize_runner{"RasterizeTwoLayer"};
     const RasterizeOutput &output = fresh_rasterize_runner.run(fresh_hierarchy_runner.last_handle(), 0, options);

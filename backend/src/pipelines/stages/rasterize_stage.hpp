@@ -464,7 +464,7 @@ namespace le
                 return result;
 
             static const ViewLayerSet kEmptyViewLayers;
-            const ViewLayerSet &view_layers = options.view_layers != nullptr ? *options.view_layers : kEmptyViewLayers;
+            const ViewLayerSet &view_layers = culled->view_layers != nullptr ? *culled->view_layers : kEmptyViewLayers;
             static const ViewLayerShapes kEmptyShapes;
 
             constexpr int kMaxDimensionPx = 8192;
@@ -562,7 +562,6 @@ namespace le
                    last.viewport.ll.y != current.viewport.ll.y ||
                    last.viewport.ur.x != current.viewport.ur.x ||
                    last.viewport.ur.y != current.viewport.ur.y ||
-                   last.view_layers != current.view_layers ||
                    last.antialiasing_enabled != current.antialiasing_enabled ||
                    last.layer_name_visible != current.layer_name_visible ||
                    last.purpose_visible != current.purpose_visible;

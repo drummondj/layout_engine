@@ -45,7 +45,7 @@ namespace
 
         ViewRenderOptions cold_options{
             .root = &fixture.root, .root_mutation_version = fixture.root.mutation_version(),
-            .top_level = HierarchyId{fixture.layout_id}, .hierarchy_depth = 1, .view_layers = view_layers_handle,
+            .top_level = HierarchyId{fixture.layout_id}, .hierarchy_depth = 1,
         };
 
         HierarchyResolverRunner hierarchy_resolver_runner{"bm_rasterize_blend2d_hierarchy_resolver"};
