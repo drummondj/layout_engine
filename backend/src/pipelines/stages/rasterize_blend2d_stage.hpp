@@ -96,11 +96,29 @@ namespace le
         }
         case FillPattern::BRICK:
         {
+            // +0.5 on each line's own cross-axis coordinate (the "thin"
+            // direction the 1-unit-wide default stroke actually needs to
+            // fully cover, not the along-line span) - without it, a
+            // hairline centered exactly on an integer coordinate (0,
+            // s/2) straddles the boundary between two pixel rows/
+            // columns, each getting only partial AA coverage. Skia's own
+            // pattern_shader sidesteps this with paint.setAntiAlias(false)
+            // (draw_helpers.hpp's own comment - "turns crisp brick/
+            // stripe edges into a hazy, low-alpha wash" is literally
+            // this same failure mode), but Blend2D has no equivalent -
+            // exactly one BLRenderingQuality value, always antialiased -
+            // so the fix here is geometric instead: shift the line so
+            // its own AA-softened edges land on the row/column's real
+            // integer boundaries (e.g. y=0.5 for row [0,1)) rather than
+            // straddling them. Found by direct pixel inspection - real,
+            // measured brick ink topped out at ~191/255 alpha before
+            // this (RasterizeBlend2DStageFixture's own wide color
+            // tolerance was working around it, not just AA softness).
             ctx.set_stroke_style(color);
-            ctx.stroke_line(BLLine(0, 0, s, 0));
-            ctx.stroke_line(BLLine(0, s / 2, s, s / 2));
-            ctx.stroke_line(BLLine(s / 2, 0, s / 2, s / 2));
-            ctx.stroke_line(BLLine(0, s / 2, 0, s));
+            ctx.stroke_line(BLLine(0, 0.5, s, 0.5));
+            ctx.stroke_line(BLLine(0, s / 2 + 0.5, s, s / 2 + 0.5));
+            ctx.stroke_line(BLLine(s / 2 + 0.5, 0, s / 2 + 0.5, s / 2));
+            ctx.stroke_line(BLLine(0.5, s / 2, 0.5, s));
             break;
         }
         case FillPattern::DOTS:

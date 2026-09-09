@@ -64,18 +64,25 @@ namespace
         // (rasterize_stage_test.cpp) - a real per-object-type FillPattern
         // means a single hardcoded sample point can legitimately land on
         // a pattern "gap", so tests scan a small block instead. Callers
-        // here use a wider tolerance (70) than the Skia fixture's own (5) -
+        // here use a wider tolerance (30) than the Skia fixture's own (5) -
         // unlike Skia (pattern_shader explicitly disables antialiasing,
         // draw_helpers.hpp's own comment), Blend2D has exactly one
         // BLRenderingQuality value (BL_RENDERING_QUALITY_ANTIALIAS) with
-        // no way to disable it, so a pattern's own thin-line ink pixels
-        // never quite reach full 255 alpha - measured ~233 for the
-        // diagonal-stripe tile (45-degree lines always split coverage
-        // across a pixel boundary) and ~191 for the brick tile (its own
-        // 1px lines sit exactly ON a tile-boundary coordinate, so each
-        // splits ~75/25 across the two rows/columns it straddles) - a
-        // real, permanent Blend2D characteristic for this kind of
-        // thin-line pattern, not a bug.
+        // no way to disable it. The brick tile's own 1px lines used to
+        // sit exactly ON a tile-boundary coordinate, splitting coverage
+        // ~75/25 across the two rows/columns each straddled (measured
+        // ~191/255 max alpha) - that part turned out to be a real, fixable
+        // bug (pattern_blend2d's own BRICK case, rasterize_blend2d_stage.hpp),
+        // the same class of "hazy wash instead of crisp joints" failure
+        // pipelines.old's own BRICK fix was originally about, just from
+        // mandatory AA rather than a missing line - offsetting each
+        // line's own cross-axis coordinate by +0.5 lands it fully within
+        // one pixel row/column instead, now measuring a solid 255/255.
+        // The diagonal-stripe tile's own ~233/255 max alpha *is* a real,
+        // permanent Blend2D characteristic, though - its 45-degree lines
+        // are never axis-aligned, so they always split AA coverage along
+        // their own length regardless of any fixed offset; 30 leaves
+        // comfortable margin for that alone.
         static bool region_contains_color_near(const sk_sp<SkImage> &image, int x0, int y0, int x1, int y1, SkColor expected, int tolerance)
         {
             SkPixmap pixmap;
@@ -128,7 +135,7 @@ TEST_F(RasterizeBlend2DStageFixture, FillsTerminalRectWithItsOwnLayerFillColor)
     // layer's own outline color, mirroring Skia's pattern_shader - see
     // RasterizeStageFixture's own equivalent test comment) - scan the
     // whole rect rather than one exact pixel.
-    EXPECT_TRUE(region_contains_color_near(image, 10, 80, 20, 90, to_sk_color(terminal_style->style.outline_color), 70));
+    EXPECT_TRUE(region_contains_color_near(image, 10, 80, 20, 90, to_sk_color(terminal_style->style.outline_color), 30));
 }
 
 TEST_F(RasterizeBlend2DStageFixture, HidingAPurposeSkipsItsWholeLayerGroupButNotOthers)
@@ -144,7 +151,7 @@ TEST_F(RasterizeBlend2DStageFixture, HidingAPurposeSkipsItsWholeLayerGroupButNot
     // Obstruction rect (3,3)-(4,4) -> pixel x:[30,40], y:[60,70] - untouched.
     const ViewLayerId obstruction_layer = view_layers.find(m1, ViewLayerPurpose::OBSTRUCTION);
     const Color obstruction_outline = view_layers.get(obstruction_layer)->style.outline_color;
-    EXPECT_TRUE(region_contains_color_near(image, 30, 60, 40, 70, to_sk_color(obstruction_outline), 70));
+    EXPECT_TRUE(region_contains_color_near(image, 30, 60, 40, 70, to_sk_color(obstruction_outline), 30));
 }
 
 TEST_F(RasterizeBlend2DStageFixture, ShapeFarOutsideTheRenderViewportIsCulledButTheOneInsideStillDraws)
@@ -173,7 +180,7 @@ TEST_F(RasterizeBlend2DStageFixture, ShapeFarOutsideTheRenderViewportIsCulledBut
     const ViewLayerId terminal_layer = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
     const ViewLayerData *terminal_style = view_layers.get(terminal_layer);
     ASSERT_NE(terminal_style, nullptr);
-    EXPECT_TRUE(region_contains_color_near(image, 10, 80, 20, 90, to_sk_color(terminal_style->style.outline_color), 70));
+    EXPECT_TRUE(region_contains_color_near(image, 10, 80, 20, 90, to_sk_color(terminal_style->style.outline_color), 30));
 }
 
 TEST_F(RasterizeBlend2DStageFixture, NullInputProducesEmptyOutput)
