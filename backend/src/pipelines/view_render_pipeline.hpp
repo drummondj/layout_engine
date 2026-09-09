@@ -21,10 +21,11 @@ namespace le
     /// stage in isolation. Wires the full Cold+Warm chain: LayerGenerationStage
     /// -> HierarchyResolverStage -> ViewportCullStage -> RasterizeStage ->
     /// ComposeStage - a strict linear chain (every stage's own OutputHandle
-    /// type matches the next stage's own InputData exactly), each with a
-    /// sink so a caller can read that stage's own result back after
-    /// wait_for_all() even on a call where a downstream stage alone needed
-    /// to recompute. Hot tier stages get added to this same graph/class
+    /// type matches the next stage's own InputData exactly), with a single
+    /// sink on the terminal node (compose_sink_) so run() can read the
+    /// final frame back after wait_for_all() - see WarmOutput's own doc
+    /// comment for why the four intermediate stages don't get one of
+    /// their own too. Hot tier stages get added to this same graph/class
     /// later - one pipeline for the whole thing, not a separate class per
     /// tier.
     ///
@@ -73,53 +74,44 @@ namespace le
     class ViewRenderPipelineImpl
     {
     public:
-        /// @brief The full chain's own combined output - every intermediate
-        /// stage's own result, not just the final `frame`, so a caller
-        /// (or a test) can inspect what actually survived culling/
-        /// rasterization without re-deriving it independently.
+        /// @brief The full chain's own observable output - just the final
+        /// `frame` (RasterizedFrame, ComposeStage's own OutputHandle).
+        /// Every intermediate stage's own result (view_layers/hierarchy/
+        /// culled/rasterized) used to live here too, each captured off its
+        /// own sink node - removed since nothing outside this class ever
+        /// read them (api.cpp, every benchmark, and every still-relevant
+        /// test all only ever needed `frame`); the sinks that captured them
+        /// went with them (see the constructor's own comment below).
         struct WarmOutput
         {
-            LayerGenerationStage::OutputHandle view_layers;
-            HierarchyResolverStage::OutputHandle hierarchy; // Cold's own unculled output
-            HierarchyResolverStage::OutputHandle culled;    // ViewportCullStage's own output
-            typename RasterizeStageT::OutputHandle rasterized;
             ComposeStage::OutputHandle frame;
         };
 
+        /// @brief Only compose_sink_ remains, of what used to be five sink
+        /// nodes (one per stage) - the other four existed purely to let
+        /// run() read an intermediate stage's own result back into
+        /// WarmOutput, and WarmOutput no longer carries those fields (this
+        /// struct's own doc comment). Each removed sink's own make_edge
+        /// was strictly additional fan-out off a node already wired into
+        /// the main chain below it (e.g. layer_generation_.node() feeds
+        /// both hierarchy_resolver_.node() and, previously,
+        /// layer_generation_sink_) - removing it doesn't change what data
+        /// reaches compose_.node(), only that nothing else also captures a
+        /// copy of it along the way.
         explicit ViewRenderPipelineImpl(std::string label = "ViewRenderPipeline")
             : layer_generation_(graph_, label + ".LayerGeneration"),
               hierarchy_resolver_(graph_, label + ".HierarchyResolver"),
               viewport_cull_(graph_, label + ".ViewportCull"),
               rasterize_(graph_, label + ".Rasterize"),
               compose_(graph_, label + ".Compose"),
-              layer_generation_sink_(
-                  graph_, oneapi::tbb::flow::serial,
-                  [this](StageData<LayerGenerationStage::OutputHandle, ViewRenderOptions> in)
-                  { layer_generation_result_ = std::move(in); }),
-              hierarchy_resolver_sink_(
-                  graph_, oneapi::tbb::flow::serial,
-                  [this](StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions> in)
-                  { hierarchy_resolver_result_ = std::move(in); }),
-              viewport_cull_sink_(
-                  graph_, oneapi::tbb::flow::serial,
-                  [this](StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions> in)
-                  { viewport_cull_result_ = std::move(in); }),
-              rasterize_sink_(
-                  graph_, oneapi::tbb::flow::serial,
-                  [this](StageData<typename RasterizeStageT::OutputHandle, ViewRenderOptions> in)
-                  { rasterize_result_ = std::move(in); }),
               compose_sink_(
                   graph_, oneapi::tbb::flow::serial,
                   [this](StageData<ComposeStage::OutputHandle, ViewRenderOptions> in)
                   { compose_result_ = std::move(in); })
         {
-            make_edge(layer_generation_.node(), layer_generation_sink_);
             make_edge(layer_generation_.node(), hierarchy_resolver_.node());
-            make_edge(hierarchy_resolver_.node(), hierarchy_resolver_sink_);
             make_edge(hierarchy_resolver_.node(), viewport_cull_.node());
-            make_edge(viewport_cull_.node(), viewport_cull_sink_);
             make_edge(viewport_cull_.node(), rasterize_.node());
-            make_edge(rasterize_.node(), rasterize_sink_);
             make_edge(rasterize_.node(), compose_.node());
             make_edge(compose_.node(), compose_sink_);
         }
@@ -178,13 +170,7 @@ namespace le
                 graph_.wait_for_all();
             }
 
-            return WarmOutput{
-                .view_layers = layer_generation_result_.data,
-                .hierarchy = hierarchy_resolver_result_.data,
-                .culled = viewport_cull_result_.data,
-                .rasterized = rasterize_result_.data,
-                .frame = compose_result_.data,
-            };
+            return WarmOutput{.frame = compose_result_.data};
         }
 
     private:
@@ -194,15 +180,7 @@ namespace le
         ViewportCullStage viewport_cull_;
         RasterizeStageT rasterize_;
         ComposeStage compose_;
-        oneapi::tbb::flow::function_node<StageData<LayerGenerationStage::OutputHandle, ViewRenderOptions>> layer_generation_sink_;
-        oneapi::tbb::flow::function_node<StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions>> hierarchy_resolver_sink_;
-        oneapi::tbb::flow::function_node<StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions>> viewport_cull_sink_;
-        oneapi::tbb::flow::function_node<StageData<typename RasterizeStageT::OutputHandle, ViewRenderOptions>> rasterize_sink_;
         oneapi::tbb::flow::function_node<StageData<ComposeStage::OutputHandle, ViewRenderOptions>> compose_sink_;
-        StageData<LayerGenerationStage::OutputHandle, ViewRenderOptions> layer_generation_result_{};
-        StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions> hierarchy_resolver_result_{};
-        StageData<HierarchyResolverStage::OutputHandle, ViewRenderOptions> viewport_cull_result_{};
-        StageData<typename RasterizeStageT::OutputHandle, ViewRenderOptions> rasterize_result_{};
         StageData<ComposeStage::OutputHandle, ViewRenderOptions> compose_result_{};
     };
 
