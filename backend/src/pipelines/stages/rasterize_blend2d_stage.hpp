@@ -146,18 +146,20 @@ namespace le
     /// documented difference from the Skia backend, not a bug to chase
     /// parity on for a perf side-test.
     ///
-    /// `use_opaque_fast_path`: when true, a fully-opaque fill/stroke color
-    /// (alpha == 255) uses BL_COMP_OP_SRC_COPY (a pure overwrite, no
-    /// destination read/blend) instead of the default BL_COMP_OP_SRC_OVER -
-    /// Blend2D's own fast path for exactly this case. Most of this
-    /// project's real ViewLayerStyles use a translucent fill_color (alpha
-    /// 100, layer_style()'s own convention, view_style.hpp) - expected to
-    /// matter more for opaque strokes/outlines than fills; see
-    /// PIPELINE_REFACTOR_BENCHMARK_RESULTS.md for the measured answer
-    /// rather than assuming.
+    /// No opaque fast-path option (BL_COMP_OP_SRC_COPY instead of the
+    /// default BL_COMP_OP_SRC_OVER for a fully-opaque color) - tried and
+    /// removed (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md): measured zero
+    /// benefit even after hoisting comp_op out of this per-shape loop,
+    /// and even with its own color.a == 255 gate removed entirely, which
+    /// only bought a real, confirmed correctness cost instead (SRC_COPY
+    /// doesn't blend with the destination, it overwrites it outright -
+    /// a translucent fill/stroke drawn that way stops showing whatever
+    /// was drawn underneath it). Every draw below relies on BLContext's
+    /// own documented default (BL_COMP_OP_SRC_OVER) rather than setting
+    /// it explicitly.
     inline void draw_view_shapes_blend2d(
         BLContext &ctx, const ViewLayerShapes &shapes_by_layer, const ViewShapesIndexHandle &shapes_index, const Rect &query_bbox,
-        const ViewLayerSet &view_layers, double scale, bool use_opaque_fast_path,
+        const ViewLayerSet &view_layers, double scale,
         const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
         std::unordered_map<const Path *, std::vector<Polygon>> &path_outline_cache)
     {
@@ -206,29 +208,8 @@ namespace le
             const bool has_fill_pattern = style.fill_pattern != FillPattern::NONE && style.fill_pattern != FillPattern::CROSS;
             const BLPattern fill_pattern = has_fill_pattern ? pattern_blend2d(style.fill_pattern, stroke_color) : BLPattern();
 
-            // Gated on color.a == 255, not just use_opaque_fast_path alone -
-            // tried removing this gate entirely (always SRC_COPY,
-            // PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) and measured zero
-            // benefit even then (still within noise of plain SRC_OVER,
-            // same as the gated version), so there's no performance
-            // reason to accept SRC_COPY's own real correctness cost for
-            // a translucent color: it doesn't blend with the destination
-            // at all, it overwrites it outright, alpha included - a
-            // translucent fill/stroke drawn this way would stop showing
-            // whatever was drawn underneath it (an earlier ViewLayer on
-            // the same per-node image - this project's own layer_style()
-            // convention, fill.a = 100, relies on real alpha blending for
-            // exactly this), confirmed directly by sampling an
-            // overlapping-translucent-layers pixel under each mode (same
-            // file). Kept gated to the one case where SRC_COPY and
-            // SRC_OVER are actually equivalent (a fully opaque color has
-            // nothing underneath left to blend anyway).
-            const BLCompOp fill_comp_op = (use_opaque_fast_path && style.fill_color.a == 255) ? BL_COMP_OP_SRC_COPY : BL_COMP_OP_SRC_OVER;
-            const BLCompOp stroke_comp_op = (use_opaque_fast_path && style.outline_color.a == 255) ? BL_COMP_OP_SRC_COPY : BL_COMP_OP_SRC_OVER;
-
             auto set_fill = [&]
             {
-                ctx.set_comp_op(fill_comp_op);
                 if (has_fill_pattern)
                     // BL_CONTEXT_STYLE_TRANSFORM_MODE_NONE - the pattern's
                     // own (identity, left unset) transform is absolute,
@@ -256,7 +237,6 @@ namespace le
             };
             auto set_stroke = [&]
             {
-                ctx.set_comp_op(stroke_comp_op);
                 ctx.set_stroke_style(stroke_color);
                 // Blend2D has no Skia-style "stroke width 0 means always
                 // exactly 1 device pixel" hairline convention (see this
@@ -451,14 +431,14 @@ namespace le
     /// own doc comment) - not a byte-for-byte feature match with
     /// RasterizeStage, an explicit, scoped choice for this first pass.
     ///
-    /// `thread_count_`/`use_opaque_fast_path_` are plain mutable settings
-    /// (set_thread_count/set_use_opaque_fast_path below), not constructor
-    /// parameters - keeps this class's own constructor signature identical
-    /// to RasterizeStage's (`(graph, label)`), which is what lets
-    /// ViewRenderPipelineImpl's single `RasterizeStageT rasterize_(graph_,
-    /// label + ".Rasterize")` construction site work unchanged for either
-    /// backend; a benchmark wanting a specific thread count/fast-path
-    /// configuration calls the setters once after construction instead.
+    /// `thread_count_` is a plain mutable setting (set_thread_count
+    /// below), not a constructor parameter - keeps this class's own
+    /// constructor signature identical to RasterizeStage's
+    /// (`(graph, label)`), which is what lets ViewRenderPipelineImpl's
+    /// single `RasterizeStageT rasterize_(graph_, label + ".Rasterize")`
+    /// construction site work unchanged for either backend; a benchmark
+    /// wanting a specific thread count calls the setter once after
+    /// construction instead.
     class RasterizeBlend2DStage : public MemoizingStage<HierarchyResolverStage::OutputHandle, RasterizeOutput, ViewRenderOptions>
     {
     public:
@@ -472,7 +452,6 @@ namespace le
         /// Blend2D's own multithreaded-rendering docs) - 2 to 4 is that
         /// same documentation's own general guidance for most workloads.
         void set_thread_count(uint32_t thread_count) { thread_count_ = thread_count; }
-        void set_use_opaque_fast_path(bool enabled) { use_opaque_fast_path_ = enabled; }
 
     protected:
         RasterizeOutput compute(const HierarchyResolverStage::OutputHandle &culled, const ViewRenderOptions &options) override
@@ -520,7 +499,7 @@ namespace le
 
                 draw_view_shapes_blend2d(
                     ctx, data.shapes ? *data.shapes : kEmptyShapes, data.shapes_index, local_bbox, view_layers, options.scale,
-                    use_opaque_fast_path_, options.layer_name_visible, options.purpose_visible, node_outline_cache.outlines);
+                    options.layer_name_visible, options.purpose_visible, node_outline_cache.outlines);
 
                 ctx.end();
 
@@ -569,7 +548,6 @@ namespace le
         std::unordered_map<HierarchyId, NodePathOutlineCache, HierarchyIdHash> path_outline_cache_by_node_;
 
         uint32_t thread_count_ = 8;
-        bool use_opaque_fast_path_ = false;
 
         static Rect node_local_bbox(const Root &root, const HierarchyId &id)
         {

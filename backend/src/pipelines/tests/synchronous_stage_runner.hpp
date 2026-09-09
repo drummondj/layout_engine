@@ -70,8 +70,8 @@ namespace le
         // Direct access to the underlying stage instance - for a caller
         // that needs to configure a stage-specific setting not part of
         // MemoizingStage's own generic surface (e.g. RasterizeBlend2DStage's
-        // own set_thread_count()/set_use_opaque_fast_path(),
-        // rasterize_blend2d_stage.hpp) before calling run(). Non-const:
+        // own set_thread_count(), rasterize_blend2d_stage.hpp) before
+        // calling run(). Non-const:
         // such settings are mutated through this reference, not via run()
         // itself (which stays generic across every Stage type).
         Stage &stage() { return stage_; }

@@ -29,14 +29,17 @@ namespace
     /// (same `aes_scaling` design content, same 16-position pan sequence,
     /// same 1000px-window scale derivation) so the two backends' own
     /// numbers are a fair, apples-to-apples comparison - only the stage
-    /// under test differs. `thread_count`/`use_opaque_fast_path` map
-    /// directly onto RasterizeBlend2DStage's own set_thread_count()/
-    /// set_use_opaque_fast_path() (rasterize_blend2d_stage.hpp) - the
-    /// user's own requested 4-step comparison (single-threaded; +multi-
-    /// threaded; +opaque fast-path) is just this same function registered
-    /// several times with different values, mirroring how BM_Rasterize's
-    /// own `apply_default_visibility` bool already works.
-    void BM_RasterizeBlend2D(benchmark::State &state, TileConfig config, uint32_t thread_count, bool use_opaque_fast_path)
+    /// under test differs. `thread_count` maps directly onto
+    /// RasterizeBlend2DStage's own set_thread_count() (rasterize_blend2d_stage.hpp) -
+    /// this same function registered several times with different
+    /// values, mirroring how BM_Rasterize's own `apply_default_visibility`
+    /// bool already works. No opaque-fast-path variant - tried and
+    /// removed (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md): measured zero
+    /// benefit even after hoisting comp_op out of the per-shape draw
+    /// loop, and even without its own color-alpha gate, which only
+    /// bought a real correctness cost (translucent layers stop blending)
+    /// for nothing.
+    void BM_RasterizeBlend2D(benchmark::State &state, TileConfig config, uint32_t thread_count)
     {
         const AesScalingFixture &fixture = cached_aes_scaling_fixture(config);
         const std::vector<TechnologyId> technology_ids = fixture.root.get_technology_ids();
@@ -84,7 +87,6 @@ namespace
 
         RasterizeBlend2DRunner rasterize_runner{"bm_rasterize_blend2d"};
         rasterize_runner.stage().set_thread_count(thread_count);
-        rasterize_runner.stage().set_use_opaque_fast_path(use_opaque_fast_path);
         rasterize_runner.run(culled_by_pan.front(), 0, warm_options_by_pan.front()); // warm-up, not timed
 
         int pan_index = 0;
@@ -106,23 +108,19 @@ namespace le::benchmarks
     {
         for (const TileConfig &config : kAesScalingTileConfigs)
         {
-            benchmark::RegisterBenchmark(("BM_RasterizeBlend2D/" + std::string(config.label)).c_str(), BM_RasterizeBlend2D, config, 0u, false)
+            benchmark::RegisterBenchmark(("BM_RasterizeBlend2D/" + std::string(config.label)).c_str(), BM_RasterizeBlend2D, config, 0u)
                 ->Unit(benchmark::kMillisecond);
-            benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT2/" + std::string(config.label)).c_str(), BM_RasterizeBlend2D, config, 2u, false)
+            benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT2/" + std::string(config.label)).c_str(), BM_RasterizeBlend2D, config, 2u)
                 ->Unit(benchmark::kMillisecond);
-            benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT4/" + std::string(config.label)).c_str(), BM_RasterizeBlend2D, config, 4u, false)
-                ->Unit(benchmark::kMillisecond);
-            benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT4Opaque/" + std::string(config.label)).c_str(), BM_RasterizeBlend2D, config, 4u, true)
+            benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT4/" + std::string(config.label)).c_str(), BM_RasterizeBlend2D, config, 4u)
                 ->Unit(benchmark::kMillisecond);
         }
 
-        benchmark::RegisterBenchmark(("BM_RasterizeBlend2D/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_RasterizeBlend2D, kAesScalingLargeConfig, 0u, false)
+        benchmark::RegisterBenchmark(("BM_RasterizeBlend2D/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_RasterizeBlend2D, kAesScalingLargeConfig, 0u)
             ->Unit(benchmark::kMillisecond);
-        benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT2/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_RasterizeBlend2D, kAesScalingLargeConfig, 2u, false)
+        benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT2/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_RasterizeBlend2D, kAesScalingLargeConfig, 2u)
             ->Unit(benchmark::kMillisecond);
-        benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT4/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_RasterizeBlend2D, kAesScalingLargeConfig, 4u, false)
-            ->Unit(benchmark::kMillisecond);
-        benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT4Opaque/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_RasterizeBlend2D, kAesScalingLargeConfig, 4u, true)
+        benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT4/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_RasterizeBlend2D, kAesScalingLargeConfig, 4u)
             ->Unit(benchmark::kMillisecond);
     }
 }
