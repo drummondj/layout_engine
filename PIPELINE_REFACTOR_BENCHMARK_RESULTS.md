@@ -268,7 +268,7 @@ Follow-up experiment: is the opaque fast path's own lack of benefit really expla
 
 Still no reliable win - MT4Opaque ranges from ~4% slower (2x1) to ~7% faster (3x2), no consistent direction, all inside normal run-to-run noise on this machine. This is actually a *stronger* negative result than the outline-only case above: fills cover far more pixel area than thin outline strokes, so if `BL_COMP_OP_SRC_COPY` were going to show a real win from skipping alpha-blend math over a large opaque region, forcing every fill fully opaque is exactly the condition that should have revealed it, and it didn't. The earlier hypothesis (translucent fills masking a real win) doesn't hold up - something else (likely per-draw-call dispatch/JIT overhead, or memory bandwidth on the destination surface, dominating regardless of whether the blend math itself is skipped) is capping this optimization's real-world payoff for this workload, not fill alpha. Worth revisiting only if a future profiling pass identifies where Blend2D's own per-call time actually goes; not chased further here.
 
-Commit: (pending)
+Commit: d13c1f6
 
 Full-pipeline stage profile, Cold and Warm, using the exact same `aes_scaling` fixtures/tile configs/pan-position sequence `BM_RasterizeBlend2D_MT4` itself uses (`BM_LayerGeneration`/`BM_HierarchyResolver` for Cold, `BM_ViewportCull`/`BM_RasterizeBlend2D_MT4`/`BM_Compose` for Warm - `BM_Compose` itself still runs against Skia's `RasterizeStage` output, not Blend2D's, since `ComposeStage` only ever calls generic `sk_sp<SkImage>` methods regardless of which backend produced a node's image - its own cost is a function of image count/size, not which rasterizer drew them, so its existing numbers are directly reusable here unchanged):
 
