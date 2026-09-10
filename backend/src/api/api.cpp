@@ -65,10 +65,10 @@ struct LeHandle
     // the default Skia le::ViewRenderPipeline - wired up after that
     // side-experiment's own benchmarks showed Blend2D's single-threaded
     // rasterizer already beating Skia's by 1.35-2.9x with zero tuning.
-    // Text (Shape.texts - terminal/route labels) is drawn now
-    // (rasterize_blend2d_stage.hpp) - placement-name labels (the
-    // truncated, bottom-left-anchored case rasterize_stage.hpp's own
-    // is_placement_name_layer branch handles) remain a scoped-out gap.
+    // Text (Shape.texts - both terminal/route labels and truncated,
+    // bottom-left-anchored placement-name labels) is drawn now
+    // (rasterize_blend2d_stage.hpp), via a monospace font rather than
+    // RasterizeStage's own proportional one.
     le::ViewRenderPipelineBlend2D view_render_pipeline;
 
     // Undo/redo stack + command-recall log (UPDATES.md item 21) - every

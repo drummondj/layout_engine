@@ -288,6 +288,39 @@ namespace le
         double cell_width = 0.0;
     };
 
+    /// @brief Truncates `text` to fit within `max_width_px` when rendered
+    /// in a monospace font whose own fixed per-character advance is
+    /// `cell_width` - the direct, arithmetic analog of draw_helpers.hpp's
+    /// own `truncate_text_to_width` (Skia, proportional fonts, used for
+    /// `RasterizeStage`'s own placement-name labels): monospace means "how
+    /// many characters fit" is just `floor(max_width_px / cell_width)`, no
+    /// per-candidate `measureText`-style search needed.
+    ///
+    /// Truncates from the BEGINNING (keeps the label's own trailing
+    /// characters) and prepends "..." - the same convention
+    /// `truncate_text_to_width` already uses, per explicit direction, not
+    /// a new/different one invented for this backend: a real instance
+    /// name's own most identifying part (e.g. a numeric suffix or leaf
+    /// cell name in a hierarchical path like "top/sub_block/cell_042") is
+    /// usually at the end, so keeping the tail and dropping the head
+    /// preserves more of what a user actually needs to read.
+    inline std::string truncate_monospace_label(const std::string &text, double cell_width, double max_width_px)
+    {
+        if (cell_width <= 0.0)
+            return text; // no usable font - caller already checked cell_width > 0 before drawing anything, defensive only
+
+        const int max_chars = static_cast<int>(std::floor(max_width_px / cell_width));
+        if (static_cast<int>(text.size()) <= max_chars)
+            return text;
+
+        static const std::string kEllipsis = "...";
+        if (max_chars <= static_cast<int>(kEllipsis.size()))
+            return ""; // not even room for "..." - same degrade as truncate_text_to_width's own equivalent case
+
+        const std::size_t keep = static_cast<std::size_t>(max_chars) - kEllipsis.size();
+        return kEllipsis + text.substr(text.size() - keep);
+    }
+
     /// @brief Draws `label` one monospace character at a time, starting
     /// at `device_origin` (already mapped into device/pixel space - the
     /// caller's own job, draw_view_shapes_blend2d's text loop below).
@@ -345,14 +378,15 @@ namespace le
     /// backend-specific storage) - only the actual draw calls differ
     /// (BLContext instead of SkCanvas).
     ///
-    /// Text (Shape.texts) draws the generic per-shape TERMINAL/ROUTE label
-    /// case only (kLabelWidthRatio-scaled, clamped to
+    /// Text (Shape.texts) draws both cases rasterize_stage.hpp's own
+    /// `is_placement_name_layer` split does: the generic per-shape
+    /// TERMINAL/ROUTE label (kLabelWidthRatio-scaled, clamped to
     /// [kMinLabelPixelSize, kMaxLabelPixelSize], centered at
-    /// `text.location`, never truncated) - the placement-name label case
-    /// (rasterize_stage.hpp's own `is_placement_name_layer`
-    /// branch: index-paired with shape.rects, bottom-left-anchored,
-    /// truncated to fit via truncate_text_to_width) is still a scoped-out
-    /// gap here, not yet ported.
+    /// `text.location`, never truncated), and the placement-name label
+    /// (index-paired with shape.rects, bottom-left-anchored, truncated to
+    /// fit via `truncate_monospace_label` - the direct, arithmetic
+    /// monospace analog of Skia's own `truncate_text_to_width`, that
+    /// function's own doc comment has the full rationale).
     ///
     /// Every label is drawn one monospace character at a time
     /// (`draw_monospace_label_blend2d` below) via a per-CHARACTER
@@ -426,6 +460,34 @@ namespace le
         // 100% miss rate against this exact fact
         // (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md).
         const BLFontFace &font_face = default_blend2d_font_face();
+        const ViewLayerId placement_name_layer_id = view_layers.placement_name_view_layer();
+
+        // Shared by both the generic per-shape text loop and the
+        // placement-name branch below (draw_one_shape) - looks up
+        // `monospace_font_cache`'s own entry for `font_key`, building
+        // (and measuring the fixed cell width of) a fresh BLFont on a
+        // cache miss. Declared once here rather than duplicated in both
+        // call sites.
+        auto get_or_build_monospace_font = [&](int font_key) -> MonospaceFontEntry &
+        {
+            auto it = monospace_font_cache.find(font_key);
+            if (it == monospace_font_cache.end())
+            {
+                MonospaceFontEntry entry;
+                if (font_face.is_valid())
+                {
+                    entry.font.create_from_face(font_face, static_cast<float>(font_key));
+                    BLGlyphBuffer gb;
+                    gb.set_utf8_text("0", 1);
+                    entry.font.shape(gb);
+                    BLTextMetrics metrics;
+                    entry.font.get_text_metrics(gb, metrics);
+                    entry.cell_width = metrics.advance.x;
+                }
+                it = monospace_font_cache.emplace(font_key, std::move(entry)).first;
+            }
+            return it->second;
+        };
 
         for (const ViewLayerId &view_layer_id : view_layers.all())
         {
@@ -466,6 +528,7 @@ namespace le
                 continue;
 
             const bool is_cross = style.fill_pattern == FillPattern::CROSS;
+            const bool is_placement_name_layer = view_layer_id == placement_name_layer_id;
 
             const BLRgba32 fill_color = to_bl_color(style.fill_color);
             const BLRgba32 stroke_color = to_bl_color(style.outline_color);
@@ -685,6 +748,54 @@ namespace le
                 if (!any_geometry_drawn)
                     return; // no visible geometry to attach a label to - draw nothing
 
+                if (is_placement_name_layer)
+                {
+                    // Placement name labels: floored/capped font size (no
+                    // kLabelWidthRatio here - unlike a Terminal/ROUTE
+                    // label, text.size already bakes in
+                    // kPlacementLabelHeightRatio at construction time,
+                    // hierarchy_resolver_stage.hpp's own
+                    // placement_name_shape), bottom-left-anchored with a
+                    // small constant on-screen padding, truncated to fit
+                    // the placement's own on-screen width via the
+                    // index-paired shape.rects entry - see this function's
+                    // own top-level doc comment and
+                    // truncate_monospace_label's own doc comment.
+                    for (std::size_t i = 0; i < shape.texts.size(); ++i)
+                    {
+                        const Text &text = shape.texts[i];
+                        const double pixel_size = std::clamp(text.size * scale, kMinLabelPixelSize, kMaxLabelPixelSize);
+                        if (i >= shape.rects.size())
+                            continue;
+                        const double width_px = static_cast<double>(shape.rects[i].ur.x - shape.rects[i].ll.x) * scale;
+                        const double available_width_px = width_px - 2.0 * kPlacementLabelPaddingPx;
+                        if (available_width_px <= 0.0)
+                            continue;
+
+                        const int font_key = std::max(1, static_cast<int>(std::lround(pixel_size)));
+                        const MonospaceFontEntry &font_entry = get_or_build_monospace_font(font_key);
+
+                        const std::string truncated = truncate_monospace_label(text.label, font_entry.cell_width, available_width_px);
+                        if (truncated.empty())
+                            continue;
+
+                        // Bottom-left-anchored with a small constant
+                        // on-screen padding - unlike Skia's own local
+                        // (pre-ambient-CTM) translate+drawString
+                        // convention (rasterize_stage.hpp), this backend
+                        // works entirely in already-mapped device-pixel
+                        // space (this function's own top-level doc
+                        // comment), so the padding is added directly here:
+                        // right (+x) and up the screen (-y, since device
+                        // pixel y increases downward) from the placement's
+                        // own raw bottom-left device point.
+                        const BLPoint box_origin = ctx.final_transform().map_point(text.location.x, text.location.y);
+                        const BLPoint device_origin(box_origin.x + kPlacementLabelPaddingPx, box_origin.y - kPlacementLabelPaddingPx);
+                        draw_monospace_label_blend2d(ctx, font_entry, font_key, glyph_bitmap_cache, truncated, stroke_color, device_origin);
+                    }
+                    return; // this shape's own placement-name text is handled above - don't also fall into the generic text loop below
+                }
+
                 for (const Text &text : shape.texts)
                 {
                     // Clamped at both ends: kMinLabelPixelSize keeps a
@@ -699,23 +810,7 @@ namespace le
                     // in (GlyphBitmapCacheKey's own doc comment).
                     const double pixel_size = std::clamp(text.size * scale * kLabelWidthRatio, kMinLabelPixelSize, kMaxLabelPixelSize);
                     const int font_key = std::max(1, static_cast<int>(std::lround(pixel_size)));
-
-                    auto font_it = monospace_font_cache.find(font_key);
-                    if (font_it == monospace_font_cache.end())
-                    {
-                        MonospaceFontEntry entry;
-                        if (font_face.is_valid())
-                        {
-                            entry.font.create_from_face(font_face, static_cast<float>(font_key));
-                            BLGlyphBuffer gb;
-                            gb.set_utf8_text("0", 1);
-                            entry.font.shape(gb);
-                            BLTextMetrics metrics;
-                            entry.font.get_text_metrics(gb, metrics);
-                            entry.cell_width = metrics.advance.x;
-                        }
-                        font_it = monospace_font_cache.emplace(font_key, std::move(entry)).first;
-                    }
+                    const MonospaceFontEntry &font_entry = get_or_build_monospace_font(font_key);
 
                     // Maps this shape's own dbu-space label origin through
                     // the context's current (translate+scale+flip) transform
@@ -724,7 +819,7 @@ namespace le
                     // sufficient here (no accumulated instance rotation to
                     // defend against, unlike Skia's UprightTextCanvas).
                     const BLPoint device_origin = ctx.final_transform().map_point(text.location.x, text.location.y);
-                    draw_monospace_label_blend2d(ctx, font_it->second, font_key, glyph_bitmap_cache, text.label, stroke_color, device_origin);
+                    draw_monospace_label_blend2d(ctx, font_entry, font_key, glyph_bitmap_cache, text.label, stroke_color, device_origin);
                 }
             };
 
@@ -756,10 +851,10 @@ namespace le
     /// ViewRenderPipelineImpl<RasterizeStageT>, view_render_pipeline.hpp),
     /// same per-node NodePathOutlineCache pattern (its own, private,
     /// separate cache instance - not shared with RasterizeStage's), same
-    /// options_did_change. Generic per-shape text is drawn (see
-    /// draw_view_shapes_blend2d's own doc comment); placement-name labels
-    /// are not yet - still not a byte-for-byte feature match with
-    /// RasterizeStage, a smaller scoped gap than before.
+    /// options_did_change. Both generic per-shape text and placement-name
+    /// labels are drawn (see draw_view_shapes_blend2d's own doc comment) -
+    /// via a monospace font rather than RasterizeStage's own proportional
+    /// one, a deliberate difference, not a gap.
     ///
     /// `thread_count_` is a plain mutable setting (set_thread_count
     /// below), not a constructor parameter - keeps this class's own

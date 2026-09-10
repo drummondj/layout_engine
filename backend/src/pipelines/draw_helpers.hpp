@@ -54,7 +54,7 @@ namespace le
     // Minimum on-screen text size in pixels regardless of how thin the
     // labeled geometry is - keeps labels legible at any zoom level
     // instead of shrinking to unreadable specks.
-    inline constexpr double kMinLabelPixelSize = 10.0;
+    inline constexpr double kMinLabelPixelSize = 12.0;
 
     // Maximum on-screen text size in pixels, regardless of how large the
     // labeled geometry's own on-screen footprint grows (e.g. zoomed in
