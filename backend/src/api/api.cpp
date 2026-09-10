@@ -654,36 +654,64 @@ namespace
     // LE_KEY_SELECT_ALL's own body (UPDATES.md 9.1) - unlocked variant,
     // same reasoning as zoom_unlocked/pan_unlocked/fit_scene_unlocked
     // above (called from inside le_key_down, which already holds
-    // handle->mutex_). Deliberately uses generate_shapes +
-    // filter_by_layer_visibility directly, *not* pipeline.run() - run()
-    // also applies filter_by_viewport_and_size, which would silently
-    // exclude anything currently off-screen or sub-pixel from "select
-    // all" (the same viewport-independence fit_scene_unlocked's own
-    // generate_shapes-direct call above needs, for the same reason).
-    // Every selectable shape's own bbox is trivially inside the whole
-    // Abstract's bbox, so hit_test_rect against that bbox correctly
-    // enumerates every *candidate* Shape (still respecting layer
-    // visibility/selectability), with no new traversal.
-    //
-    // hit_test_rect's own pieces (UPDATES.md item 21) are Pipeline's
-    // *rendered* geometry, not necessarily addressable in Root (e.g. an
-    // ITERATE-expanded piece has no raw index at all - see HoverTarget's
-    // own comment) - only used here to find which ShapeIds are candidates
-    // at all; every raw rect/polygon/path of each candidate's actual
-    // Root::get_shape() data is then selected directly (select-all means
-    // "select everything", not a geometric containment test - no second
-    // fully_enclosed_pieces call needed, unlike drag-select).
-    // Deferred pending the new pipelines module's own Hot tier
-    // (PIPELINE_REFACTOR.md - selection/hit-testing isn't built there
-    // yet): this used to walk AbstractShapePipeline's own generated
-    // shapes through a standalone LayerVisibilityFilterStage +
-    // hit_test_rect, both from the deleted pre-restart pipelines module.
-    // A real reimplementation needs the new module's own equivalent of
-    // that filtered-shape list first - not yet in scope (see
-    // le_render_pixel_buffer's own comment for what *is* wired up so
-    // far). No-op for now rather than a stale/incorrect selection.
-    void select_all_unlocked(LeHandle * /*handle*/)
+    // handle->mutex_). Deliberately walks Root's own raw Terminal-port/
+    // Obstruction ShapeData directly, *not* hit_test_abstract_rect - a
+    // geometric containment test would need to also bypass its own
+    // sub-pixel cull (select-all means "select everything regardless of
+    // viewport or on-screen size", the same viewport-independence
+    // fit_scene_unlocked's own generate_shapes-direct call needs, for the
+    // same reason - a hidden-by-being-tiny shape should still be
+    // select-all'able even though a *click* on it correctly can't hit
+    // it), so there's nothing a geometric hit-test actually buys here -
+    // select every rect/polygon/path piece of every ShapeId on a layer
+    // that's both visible and selectable, directly.
+    void select_all_unlocked(LeHandle *handle)
     {
+        const le::AbstractId abstract_id = handle->current_abstract();
+        size_t selected_count = 0;
+        bool capped = false;
+
+        const auto select_shape_pieces = [&](le::ShapeId shape_id, le::ViewLayerPurpose purpose)
+        {
+            const le::Shape *shape = handle->root.get_shape(shape_id);
+            if (!shape || !shape->layer.valid())
+                return;
+
+            const le::ViewLayerId view_layer = handle->view_layers.find(shape->layer, purpose);
+            const le::ViewLayerData *data = handle->view_layers.get(view_layer);
+            if (data && (!handle->is_layer_name_visible(data->layer_name) || !handle->is_purpose_visible(data->purpose) ||
+                         !handle->is_view_layer_selectable(data->layer_name, data->purpose)))
+                return;
+
+            const auto select_piece = [&](le::PieceKind kind, size_t index)
+            {
+                if (selected_count >= static_cast<size_t>(kMaxSelectAllCount))
+                {
+                    capped = true;
+                    return;
+                }
+                handle->select(shape_id, kind, index);
+                ++selected_count;
+            };
+            for (size_t i = 0; i < shape->rects.size(); ++i)
+                select_piece(le::PieceKind::RECT, i);
+            for (size_t i = 0; i < shape->polygons.size(); ++i)
+                select_piece(le::PieceKind::POLYGON, i);
+            for (size_t i = 0; i < shape->paths.size(); ++i)
+                select_piece(le::PieceKind::PATH, i);
+        };
+
+        for (le::TerminalId terminal_id : handle->root.get_abstract_terminals(abstract_id))
+            for (le::TerminalPortId port_id : handle->root.get_terminal_ports(terminal_id))
+                for (le::ShapeId shape_id : handle->root.get_terminal_port_shapes(port_id))
+                    select_shape_pieces(shape_id, le::ViewLayerPurpose::TERMINAL);
+
+        for (le::ObstructionId obstruction_id : handle->root.get_abstract_obstructions(abstract_id))
+            for (le::ShapeId shape_id : handle->root.get_obstruction_shapes(obstruction_id))
+                select_shape_pieces(shape_id, le::ViewLayerPurpose::OBSTRUCTION);
+
+        if (capped)
+            handle->messages.push_back(fmt::format("WARNING: select_all: selection capped at {} pieces", kMaxSelectAllCount));
     }
 
     // Every ROUTING-type layer in `technology_id`'s own declaration
@@ -2148,13 +2176,41 @@ extern "C"
     // are). Called with handle->mutex_ already held, `x`/`y` the same
     // release-point le_mouse_up itself received, `is_click` its own
     // click-vs-drag threshold result.
-    // Deferred pending the new pipelines module's own Hot tier
-    // (PIPELINE_REFACTOR.md) - this used abstract_shape_pipeline.run() +
-    // le::hit_test_point/hit_test_rect, both from the deleted pre-restart
-    // pipelines module. No-op for now (see le_render_pixel_buffer's own
-    // comment for what *is* wired up so far).
-    void select_in_abstract_view_unlocked(LeHandle * /*handle*/, int32_t /*x*/, int32_t /*y*/, bool /*is_click*/)
+    //
+    // Ported from the pre-restart pipelines.old/hit_test.hpp's own
+    // hit_test_point/hit_test_rect (this used to go through
+    // abstract_shape_pipeline.run() + those functions, both deleted with
+    // pipelines.old) - core/placement_geometry.hpp's own
+    // hit_test_abstract_point/_rect are the direct replacement, working
+    // against Root's raw ShapeData directly rather than a pipeline's own
+    // rendered output (PIPELINE_REFACTOR.md's Hot tier has no per-shape
+    // rendered-output cache the way the old module did, and doesn't need
+    // one just for this - a click/drag is a rare, one-off query, not a
+    // per-frame cost).
+    void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
     {
+        const le::AbstractId abstract_id = handle->current_abstract();
+        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
+        { return handle->is_view_layer_selectable(layer_name, purpose); };
+
+        if (is_click)
+        {
+            const le::Point dbu_point = handle->pixel_to_dbu(x, y);
+            if (const auto hit = le::hit_test_abstract_point(handle->root, handle->view_layers, abstract_id, dbu_point, handle->scale(), is_selectable))
+                handle->select(hit->shape_id, hit->piece_kind, hit->piece_index);
+        }
+        else
+        {
+            const le::Point start = handle->pixel_to_dbu(handle->drag_start_x_px(), handle->drag_start_y_px());
+            const le::Point end = handle->pixel_to_dbu(x, y);
+            const le::Rect drag_rect{
+                .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
+                .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
+            };
+
+            for (const le::AbstractHitPiece &hit : le::hit_test_abstract_rect(handle->root, handle->view_layers, abstract_id, drag_rect, handle->scale(), is_selectable))
+                handle->select(hit.shape_id, hit.piece_kind, hit.piece_index);
+        }
     }
 
     // le_mouse_up's Select-mode, Layout-view branch (E1,

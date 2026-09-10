@@ -1,7 +1,11 @@
 #pragma once
 #include "../database/database.hpp"
 #include "../geometry/geometry.hpp"
+#include "../view_style/view_style.hpp"
+#include <functional>
 #include <optional>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace le
@@ -175,6 +179,169 @@ namespace le
             if (bbox && bbox->ll.x >= dbu_rect.ll.x && bbox->ll.y >= dbu_rect.ll.y && bbox->ur.x <= dbu_rect.ur.x && bbox->ur.y <= dbu_rect.ur.y)
                 result.push_back(placement_id);
         }
+        return result;
+    }
+
+    /// @brief One piece of Abstract-view content hit-tested by
+    /// hit_test_abstract_point/_rect below - exactly the rect/polygon/
+    /// path (`piece_kind`/`piece_index`) of `shape_id`'s own raw
+    /// `ShapeData` that was actually hit, plus a copy of just that one
+    /// piece's own geometry (`outline`) for a caller that wants to render
+    /// it (a hover highlight) without a second Root lookup.
+    struct AbstractHitPiece
+    {
+        ShapeId shape_id;
+        PieceKind piece_kind;
+        size_t piece_index;
+        Shape outline;
+    };
+
+    /// @brief Whether a given ViewLayer (by layer name + purpose) should
+    /// be considered for hit-testing at all - a caller-supplied predicate
+    /// (`LeHandle::is_view_layer_selectable`) rather than a `LeHandle`
+    /// reference/pointer, so this header (`core`) doesn't take a
+    /// dependency on `api`.
+    using ViewLayerSelectablePredicate = std::function<bool(const std::string &, ViewLayerPurpose)>;
+
+    /// @brief True when `piece`'s own bbox is under 1 on-screen pixel in
+    /// both dimensions at `scale` - the exact same "invisible, don't draw
+    /// it" test `draw_helpers.hpp`'s own `bbox_is_sub_pixel` applies at
+    /// render time (duplicated here, not shared, since that function
+    /// lives in `pipelines`, below `core` in this project's own layering -
+    /// see `backend/CLAUDE.md`). A piece the renderer would skip entirely
+    /// must not be hit-testable either - `ApiFixture.
+    /// SubPixelShapeIsNotRenderedAndIsNotSelectable` is a real,
+    /// intentional test of exactly this: a click landing on a shape too
+    /// small to see must not select it.
+    inline bool abstract_piece_is_sub_pixel(const Shape &piece, double scale)
+    {
+        const std::optional<Rect> bbox = Geometry::bbox(piece);
+        if (!bbox)
+            return true;
+        const double width = static_cast<double>(bbox->ur.x - bbox->ll.x);
+        const double height = static_cast<double>(bbox->ur.y - bbox->ll.y);
+        return width * scale < 1.0 && height * scale < 1.0;
+    }
+
+    /// @brief Abstract-view analog of hit_test_placements_point above -
+    /// the pre-restart `pipelines.old/hit_test.hpp`'s own
+    /// `hit_test_point`, rewritten directly against `Root`'s raw
+    /// Terminal-port/Obstruction `ShapeData` instead of pipeline-rendered
+    /// `RenderedShape` output: a piece a caller selects/moves must be
+    /// addressable in `Root` by `(shape_id, piece_kind, piece_index)`
+    /// (see `LeHandle::HoverTarget`'s own comment for why a Rasterize
+    /// stage's own iterate-expanded geometry isn't always addressable
+    /// that way, the same reason the pre-restart design already
+    /// re-hit-tested against raw `ShapeData` for select/Move rather than
+    /// reusing its own `RenderedShape` hit). E1's own scope - only
+    /// Terminal/Obstruction pieces are selectable in an Abstract view, no
+    /// BOUNDARY shape (never has an `origin` the same way a pipeline-
+    /// rendered one wouldn't either).
+    ///
+    /// Topmost-selectable-ViewLayer-first (`view_layers.all()` is
+    /// bottom-to-top insertion order - see that method's own doc comment -
+    /// so reverse means topmost first), first-match-within-a-layer wins
+    /// for two overlapping shapes on the same layer - an accepted MVP
+    /// limitation, unchanged from the pre-restart version. Every
+    /// Terminal-port/Obstruction Shape always carries a real, valid
+    /// `Shape.layer` (unlike a BOUNDARY/PLACEMENT_BLOCKAGE Shape, which
+    /// resolves its own ViewLayer via `Shape.purpose` instead - see
+    /// `HierarchyResolverStage::resolve_view_layer`'s own comment) so
+    /// `view_layers.find(shape.layer, purpose)` alone is enough here,
+    /// with no fallback-by-purpose branch needed.
+    inline std::optional<AbstractHitPiece> hit_test_abstract_point(
+        const Root &root, const ViewLayerSet &view_layers, AbstractId abstract_id, Point dbu_point,
+        double scale, const ViewLayerSelectablePredicate &is_selectable)
+    {
+        std::unordered_map<ViewLayerId, std::vector<ShapeId>> by_layer;
+
+        for (TerminalId terminal_id : root.get_abstract_terminals(abstract_id))
+            for (TerminalPortId port_id : root.get_terminal_ports(terminal_id))
+                for (ShapeId shape_id : root.get_terminal_port_shapes(port_id))
+                {
+                    const Shape *shape = root.get_shape(shape_id);
+                    if (!shape || !shape->layer.valid())
+                        continue;
+                    by_layer[view_layers.find(shape->layer, ViewLayerPurpose::TERMINAL)].push_back(shape_id);
+                }
+
+        for (ObstructionId obstruction_id : root.get_abstract_obstructions(abstract_id))
+            for (ShapeId shape_id : root.get_obstruction_shapes(obstruction_id))
+            {
+                const Shape *shape = root.get_shape(shape_id);
+                if (!shape || !shape->layer.valid())
+                    continue;
+                by_layer[view_layers.find(shape->layer, ViewLayerPurpose::OBSTRUCTION)].push_back(shape_id);
+            }
+
+        const std::vector<ViewLayerId> order = view_layers.all();
+        for (auto layer_it = order.rbegin(); layer_it != order.rend(); ++layer_it)
+        {
+            const auto group_it = by_layer.find(*layer_it);
+            if (group_it == by_layer.end())
+                continue;
+
+            const ViewLayerData *data = view_layers.get(*layer_it);
+            if (data && !is_selectable(data->layer_name, data->purpose))
+                continue;
+
+            for (ShapeId shape_id : group_it->second)
+            {
+                const Shape *shape = root.get_shape(shape_id);
+                if (!shape)
+                    continue;
+                if (auto piece = Geometry::find_hit_piece(*shape, dbu_point))
+                {
+                    if (abstract_piece_is_sub_pixel(piece->outline, scale))
+                        continue; // invisible at this scale - not rendered, so not selectable either
+                    return AbstractHitPiece{.shape_id = shape_id, .piece_kind = piece->kind, .piece_index = piece->index, .outline = piece->outline};
+                }
+            }
+        }
+        return std::nullopt;
+    }
+
+    /// @brief Rubber-band counterpart to hit_test_abstract_point above -
+    /// every Terminal/Obstruction piece fully enclosed by `dbu_rect`,
+    /// scanning every selectable ViewLayer (no topmost-only restriction,
+    /// same "all layers" semantics as the pre-restart `hit_test_rect`),
+    /// in no particular order. One `AbstractHitPiece` per enclosed piece
+    /// - a Shape bundling several rects/polygons/paths only reports the
+    /// pieces actually enclosed, not the whole Shape.
+    inline std::vector<AbstractHitPiece> hit_test_abstract_rect(
+        const Root &root, const ViewLayerSet &view_layers, AbstractId abstract_id, Rect dbu_rect,
+        double scale, const ViewLayerSelectablePredicate &is_selectable)
+    {
+        std::vector<AbstractHitPiece> result;
+
+        auto collect = [&](ShapeId shape_id, ViewLayerPurpose purpose)
+        {
+            const Shape *shape = root.get_shape(shape_id);
+            if (!shape || !shape->layer.valid())
+                return;
+
+            const ViewLayerId view_layer = view_layers.find(shape->layer, purpose);
+            const ViewLayerData *data = view_layers.get(view_layer);
+            if (data && !is_selectable(data->layer_name, data->purpose))
+                return;
+
+            for (const HitPiece &piece : Geometry::fully_enclosed_pieces(dbu_rect, *shape))
+            {
+                if (abstract_piece_is_sub_pixel(piece.outline, scale))
+                    continue; // invisible at this scale - not rendered, so not selectable either
+                result.push_back(AbstractHitPiece{.shape_id = shape_id, .piece_kind = piece.kind, .piece_index = piece.index, .outline = piece.outline});
+            }
+        };
+
+        for (TerminalId terminal_id : root.get_abstract_terminals(abstract_id))
+            for (TerminalPortId port_id : root.get_terminal_ports(terminal_id))
+                for (ShapeId shape_id : root.get_terminal_port_shapes(port_id))
+                    collect(shape_id, ViewLayerPurpose::TERMINAL);
+
+        for (ObstructionId obstruction_id : root.get_abstract_obstructions(abstract_id))
+            for (ShapeId shape_id : root.get_obstruction_shapes(obstruction_id))
+                collect(shape_id, ViewLayerPurpose::OBSTRUCTION);
+
         return result;
     }
 }
