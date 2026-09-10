@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../geometry/geometry.hpp"
+#include "../draw_helpers.hpp"
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"
 #include "hierarchy_resolver_stage.hpp"
@@ -47,7 +48,32 @@ namespace le
     ///   - `placement_data` is filtered down to just the placements whose
     ///     own local (pre-ancestor-transform) bbox overlaps the viewport
     ///     once brought into this node's own local space - see the
-    ///     spatial-index paragraph below for exactly how.
+    ///     spatial-index paragraph below for exactly how - AND whose own
+    ///     bbox isn't sub-pixel at `options.scale` (`bbox_is_sub_pixel`,
+    ///     draw_helpers.hpp - the same function/threshold RasterizeStage/
+    ///     RasterizeBlend2DStage already apply per-shape). A placement's
+    ///     own `bbox` is a dbu-space size, and dbu is a globally uniform
+    ///     unit throughout the hierarchy (composing an ancestor chain
+    ///     only ever translates/rotates, per Geometry::InstanceTransform -
+    ///     never rescales), so testing it directly against `options.scale`
+    ///     needs no transform at all, unlike the overlap test above.
+    ///     Skipped (not visited, not pushed to the worklist, no
+    ///     substitute mark) exactly like a sub-pixel Rect/Polygon already
+    ///     is - real reported symptom this closes: at `hierarchy_depth >= 1`
+    ///     and a zoomed-way-out (e.g. zoom-fit) viewport, a placement
+    ///     whose own footprint is too small to matter used to still be
+    ///     fully descended into and rendered at full per-shape detail
+    ///     (only ITS OWN individual shapes were ever tested for being
+    ///     sub-pixel, never the placement as a whole), so a design with
+    ///     many placements each individually a few pixels wide - too big
+    ///     for any single shape inside them to be sub-pixel, but too
+    ///     small to be useful content - showed as visual noise the
+    ///     top-level's own directly-owned geometry never showed, even
+    ///     though it was culled the same way. Applying the identical
+    ///     threshold one level up (to the placement itself, before ever
+    ///     descending) closes that gap and also skips real, avoidable
+    ///     work (an entire subtree's own shape iteration/rasterization),
+    ///     not just a visual cleanup.
     ///
     /// An id with no surviving placement anywhere never gets visited at
     /// all, and therefore never appears in the output - the same
@@ -149,6 +175,12 @@ namespace le
                 for (const IndexEntry &entry : candidates)
                 {
                     const ViewPlacementData &placement = source_data.placement_data[entry.second];
+                    // See this class's own doc comment - a placement
+                    // whose own bbox is sub-pixel at options.scale is
+                    // skipped entirely, the same way a sub-pixel Rect/
+                    // Polygon already is inside Rasterize.
+                    if (bbox_is_sub_pixel(placement.bbox.ur.x - placement.bbox.ll.x, placement.bbox.ur.y - placement.bbox.ll.y, options.scale))
+                        continue;
                     data.placement_data.push_back(placement);
                     worklist.push_back(WorkItem{placement.id, Geometry::compose(item.accumulated_transform, placement.transform)});
                 }
@@ -165,7 +197,16 @@ namespace le
                    last.viewport.ll.x != current.viewport.ll.x ||
                    last.viewport.ll.y != current.viewport.ll.y ||
                    last.viewport.ur.x != current.viewport.ur.x ||
-                   last.viewport.ur.y != current.viewport.ur.y;
+                   last.viewport.ur.y != current.viewport.ur.y ||
+                   // Needed now that compute() also does a scale-dependent
+                   // sub-pixel-placement test (this class's own doc
+                   // comment) - a pure scale change with the viewport's
+                   // own dbu-space bounds held fixed (unusual in practice,
+                   // since a fixed on-screen pixel viewport normally
+                   // implies the two change together, but not guaranteed
+                   // by this struct itself) would otherwise return a
+                   // stale, un-recomputed result.
+                   last.scale != current.scale;
         }
 
     private:

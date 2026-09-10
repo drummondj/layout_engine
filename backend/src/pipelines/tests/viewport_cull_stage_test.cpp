@@ -145,6 +145,47 @@ TEST_F(ViewportCullStageFixture, ReusingCachedIndexAcrossViewportOnlyChangesStay
     EXPECT_EQ(full_again.view_data.at(HierarchyId{block_layout}).placement_data.size(), 2u);
 }
 
+TEST_F(ViewportCullStageFixture, SubPixelPlacementIsCulledEvenWhenItOverlapsTheViewport)
+{
+    // leaf0's own world bbox is (110,110)-(120,120) - a real 10x10 dbu
+    // footprint, comfortably non-sub-pixel at scale 1.0 (every other test
+    // here uses that default). At scale 0.05, that same placement's own
+    // on-screen size is 10*0.05 = 0.5px in both dimensions - genuinely
+    // sub-pixel (bbox_is_sub_pixel's own threshold) - even though its own
+    // bbox still fully overlaps a viewport that covers everything, it
+    // must not survive, and BLOCK's own leaf1 sibling (same size, same
+    // scale) must not either.
+    ViewRenderOptions options = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
+    options.scale = 0.05;
+    const HierarchyResolverOutput &culled = cull_runner.run(cold_output, 0, options);
+
+    ASSERT_TRUE(culled.view_data.contains(HierarchyId{top_layout}));
+    ASSERT_TRUE(culled.view_data.contains(HierarchyId{block_layout}));
+    // Neither leaf0 nor leaf1 survived, so LEAF itself is unreachable -
+    // the same "no surviving placement anywhere means never visited"
+    // principle this class's own doc comment already documents for
+    // viewport-overlap culling now applies to sub-pixel culling too.
+    EXPECT_FALSE(culled.view_data.contains(HierarchyId{leaf_abstract}));
+
+    EXPECT_TRUE(culled.view_data.at(HierarchyId{block_layout}).placement_data.empty());
+}
+
+TEST_F(ViewportCullStageFixture, NonSubPixelPlacementSurvivesTheSameSubPixelCheck)
+{
+    // BLOCK's own world bbox (100,100)-(1100,1100), 1000x1000 dbu, is
+    // nowhere near sub-pixel even at the same aggressively-zoomed-out
+    // scale (0.05) the sibling test above uses to cull the much smaller
+    // LEAF placements - confirms the new check is a real size threshold,
+    // not an accidental blanket cull under a small scale.
+    ViewRenderOptions options = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
+    options.scale = 0.05;
+    const HierarchyResolverOutput &culled = cull_runner.run(cold_output, 0, options);
+
+    ASSERT_TRUE(culled.view_data.contains(HierarchyId{top_layout}));
+    ASSERT_EQ(culled.view_data.at(HierarchyId{top_layout}).placement_data.size(), 1u);
+    EXPECT_EQ(culled.view_data.at(HierarchyId{top_layout}).placement_data[0].id, HierarchyId{block_layout});
+}
+
 TEST_F(ViewportCullStageFixture, NullInputProducesEmptyOutput)
 {
     const ViewRenderOptions options = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
