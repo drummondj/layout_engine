@@ -261,4 +261,17 @@ namespace le
         }
         return kEllipsis + text.substr(lo);
     }
+
+    // Rubber-band drag-rectangle colors (ComposeStage's own doc comment) -
+    // ported from pipelines.old/draw_helpers.hpp verbatim, same RGBA
+    // values, so a user familiar with the pre-restart tool sees the exact
+    // same colors: blue for a plain select-drag, green for a
+    // drag-to-zoom gesture (ViewRenderOptions::drag_is_zoom picks which
+    // pair). Translucent fill + a more opaque stroke, same convention as
+    // every other overlay color in this codebase.
+    inline constexpr Color kDragRectFillColor = {80, 160, 255, 60};
+    inline constexpr Color kDragRectStrokeColor = {80, 160, 255, 220};
+    inline constexpr Color kZoomDragRectFillColor = {80, 255, 160, 60};
+    inline constexpr Color kZoomDragRectStrokeColor = {80, 255, 160, 220};
+    inline constexpr float kDragRectStrokeWidth = 2.0f;
 }

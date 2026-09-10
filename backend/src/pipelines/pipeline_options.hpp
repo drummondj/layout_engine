@@ -4,6 +4,7 @@
 #include "../view_style/view_style.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <variant>
@@ -103,5 +104,25 @@ namespace le
         /// in here directly (api.cpp's own view_render_options_for).
         std::unordered_map<std::string, bool> layer_name_visible;
         std::unordered_map<ViewLayerPurpose, bool> purpose_visible;
+
+        /// @brief The user's own in-progress rubber-band drag rectangle
+        /// (select or zoom), already resolved to a normalized dbu-space
+        /// Rect by Scene::drag_rect_dbu() - nullopt when no drag is in
+        /// progress. A plain snapshot value, like every other field here,
+        /// not a live Scene* - this struct never carries live mutable UI
+        /// state, only values already resolved at the point a caller
+        /// (api.cpp's own view_render_options_for) builds one. Drawn by
+        /// ComposeStage directly (see that stage's own doc comment) - no
+        /// separate overlay stage/node, so the ghost rectangle lives in
+        /// this same graph rather than a second one.
+        std::optional<Rect> drag_rect_dbu;
+
+        /// @brief Which kind of drag `drag_rect_dbu` represents - only
+        /// meaningful when `drag_rect_dbu` has a value. Selects which of
+        /// ComposeStage's own two drag-rect color pairs (draw_helpers.hpp)
+        /// to draw with: a plain rubber-band select drag vs. a
+        /// drag-to-zoom gesture get different colors so a user can tell
+        /// them apart while dragging (Scene::DragKind's own doc comment).
+        bool drag_is_zoom = false;
     };
 }

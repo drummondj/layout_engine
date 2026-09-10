@@ -256,6 +256,12 @@ namespace
             .ur = le::Point{.x = pan.x + static_cast<int64_t>(width_dbu), .y = pan.y + static_cast<int64_t>(height_dbu)},
         };
 
+        if (handle->scene.is_dragging())
+        {
+            options.drag_rect_dbu = handle->scene.drag_rect_dbu();
+            options.drag_is_zoom = handle->scene.drag_kind() == le::Scene::DragKind::ZOOM;
+        }
+
         return options;
     }
 
@@ -3174,7 +3180,9 @@ extern "C"
         // PIPELINE_REFACTOR.md's restarted pipelines module - Warm tier
         // only (basic pan/zoom, view_render_options_for's own comment on
         // how Scene's pan/scale/viewport-size map onto ViewRenderOptions):
-        // no selection/hover/ruler overlay yet, Hot tier still TBD - see
+        // the select/zoom drag-rectangle ghost overlay is drawn now
+        // (ComposeStage's own doc comment) - selection/hover/ruler
+        // overlays remain a gap, Hot tier still TBD - see
         // select_in_abstract_view_unlocked/select_in_layout_view_unlocked/
         // le_set_mouse_position's own comments for what that gap means.
         // The returned WarmOutput::frame keeps its own RasterizedFrame

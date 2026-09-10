@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../draw_helpers.hpp"
 #include "../pipeline_options.hpp"
 #include "../rasterize_output.hpp"
 #include "../tbb_core.hpp"
@@ -9,7 +10,9 @@
 #include "include/core/SkImage.h"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
 #include "include/core/SkPixmap.h"
+#include "include/core/SkRect.h"
 #include "include/core/SkSurface.h"
 
 #include <cstddef>
@@ -120,6 +123,49 @@ namespace le
             std::unordered_map<HierarchyId, sk_sp<SkImage>, HierarchyIdHash> composed_cache;
             draw_node_and_children(*canvas, options.top_level, own_it->second, *input->culled, input->images, composed_cache, options.scale);
 
+            // Drag-rectangle ghost overlay (select or zoom, ViewRenderOptions::
+            // drag_rect_dbu/drag_is_zoom's own doc comment) - drawn directly
+            // here, last, on top of the fully-composed frame, rather than as
+            // a separate stage/node: it's cheap (two drawRect calls, no
+            // rasterization of its own to cache) and this way the whole
+            // ghost-rectangle feature lives in this one graph, matching the
+            // pre-restart design's own choice to draw the equivalent mouse
+            // overlay as one final un-rasterized pass rather than a cached
+            // picture (src/pipelines.old/stages/compose_stage.hpp, git
+            // history). `top_own_image`'s own pixel dimensions are exactly
+            // `options.viewport` rasterized at `options.scale`
+            // (RasterizeStage's/RasterizeBlend2DStage's own convention for
+            // `id == options.top_level`), so mapping `drag_rect_dbu` (in
+            // that same top_level-local dbu space) into this canvas's own
+            // pixel space needs only that one scale/origin, the same
+            // translate+scale+y-flip convention used everywhere else in
+            // this module.
+            if (options.drag_rect_dbu.has_value())
+            {
+                const Rect &drag = *options.drag_rect_dbu;
+                const auto to_pixel_x = [&](int64_t dbu_x)
+                { return static_cast<SkScalar>(static_cast<double>(dbu_x - options.viewport.ll.x) * options.scale); };
+                const auto to_pixel_y = [&](int64_t dbu_y)
+                { return static_cast<SkScalar>(static_cast<double>(top_own_image->height()) - static_cast<double>(dbu_y - options.viewport.ll.y) * options.scale); };
+                const SkRect rect = SkRect::MakeLTRB(to_pixel_x(drag.ll.x), to_pixel_y(drag.ur.y), to_pixel_x(drag.ur.x), to_pixel_y(drag.ll.y));
+
+                const Color &fill_color = options.drag_is_zoom ? kZoomDragRectFillColor : kDragRectFillColor;
+                const Color &stroke_color = options.drag_is_zoom ? kZoomDragRectStrokeColor : kDragRectStrokeColor;
+
+                SkPaint fill;
+                fill.setAntiAlias(true);
+                fill.setStyle(SkPaint::kFill_Style);
+                fill.setColor(to_sk_color(fill_color));
+                canvas->drawRect(rect, fill);
+
+                SkPaint stroke;
+                stroke.setAntiAlias(true);
+                stroke.setStyle(SkPaint::kStroke_Style);
+                stroke.setStrokeWidth(kDragRectStrokeWidth);
+                stroke.setColor(to_sk_color(stroke_color));
+                canvas->drawRect(rect, stroke);
+            }
+
             SkPixmap pixmap;
             if (surface->peekPixels(&pixmap))
             {
@@ -133,6 +179,34 @@ namespace le
             }
             frame.surface = std::move(surface);
             return frame;
+        }
+
+        /// @brief The drag rectangle changes on every mouse-move during a
+        /// drag, independent of whatever RasterizeStage/RasterizeBlend2DStage
+        /// produced (dragging a selection/zoom rectangle never itself
+        /// changes any rasterized content) - without this override,
+        /// MemoizingStage's own default (tbb_core.hpp, "false": recompute
+        /// only when this stage's own InputData identity changes) would
+        /// mean the ghost rectangle never actually updates while the mouse
+        /// moves, only on the next unrelated recompute. Compares
+        /// drag_rect_dbu/drag_is_zoom field-by-field (Rect/Point have no
+        /// operator== in this codebase) rather than any other
+        /// ViewRenderOptions field - those are already covered by however
+        /// they affect RasterizeStage's/RasterizeBlend2DStage's own
+        /// version(), which ViewRenderPipelineImpl::run() already cascades
+        /// through would_recompute() before ever reaching this stage.
+        bool options_did_change(const ViewRenderOptions &last, const ViewRenderOptions &current) const override
+        {
+            if (last.drag_rect_dbu.has_value() != current.drag_rect_dbu.has_value())
+                return true;
+            if (last.drag_rect_dbu.has_value())
+            {
+                const Rect &a = *last.drag_rect_dbu;
+                const Rect &b = *current.drag_rect_dbu;
+                if (a.ll.x != b.ll.x || a.ll.y != b.ll.y || a.ur.x != b.ur.x || a.ur.y != b.ur.y)
+                    return true;
+            }
+            return last.drag_is_zoom != current.drag_is_zoom;
         }
 
     private:
