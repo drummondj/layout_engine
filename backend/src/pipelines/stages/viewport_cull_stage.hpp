@@ -42,16 +42,16 @@ namespace le
     ///     hierarchy_resolver_stage.hpp's own comments) is a refcount
     ///     bump regardless of how many shapes a node has, not a real
     ///     copy - this stage prunes *placements*, not individual shapes
-    ///     within one node's own direct content; RasterizeStage is the
-    ///     one that queries `shapes_index` against its own per-node
+    ///     within one node's own direct content; RasterizeBlend2DStage is
+    ///     the one that queries `shapes_index` against its own per-node
     ///     render bbox to avoid walking every shape in a huge flat node.
     ///   - `placement_data` is filtered down to just the placements whose
     ///     own local (pre-ancestor-transform) bbox overlaps the viewport
     ///     once brought into this node's own local space - see the
     ///     spatial-index paragraph below for exactly how - AND whose own
     ///     bbox isn't sub-pixel at `options.scale` (`bbox_is_sub_pixel`,
-    ///     draw_helpers.hpp - the same function/threshold RasterizeStage/
-    ///     RasterizeBlend2DStage already apply per-shape). A placement's
+    ///     draw_helpers.hpp - the same function/threshold RasterizeBlend2DStage
+    ///     already applies per-shape). A placement's
     ///     own `bbox` is a dbu-space size, and dbu is a globally uniform
     ///     unit throughout the hierarchy (composing an ancestor chain
     ///     only ever translates/rotates, per Geometry::InstanceTransform -

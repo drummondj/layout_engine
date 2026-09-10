@@ -73,19 +73,19 @@ namespace le::gui
         // own absolute FetchContent cache path - correct for a local
         // dev/ctest run where that cache dir genuinely still exists, but
         // never valid once le_shell is copied to another machine (the
-        // exact bug pipelines.cpp's default_typeface() already has this
-        // same two-step fallback for, on Linux, for the exact same
-        // reason - a real report of AddFontFromFileTTF failing outright
-        // in a Linux release build, both icon and body text). Checked
-        // via stat() first, on both platforms, so a missing file is
-        // diagnosed by us (a clean spdlog::warn + graceful skip - icons
+        // exact bug pipelines.cpp's default_blend2d_font_face() already
+        // has this same two-step fallback for, on Linux, for the exact
+        // same reason - a real report of AddFontFromFileTTF failing
+        // outright in a Linux release build, both icon and body text).
+        // Checked via stat() first, on both platforms, so a missing file
+        // is diagnosed by us (a clean spdlog::warn + graceful skip - icons
         // just don't render, matching draw_helpers.hpp's own "degrade
         // rather than throw" contract) instead of reaching
         // AddFontFromFileTTF at all, which logs its own ImGui-internal
         // "Could not load font file!" error/assert and returns null
         // either way - our own check is strictly more informative (names
         // every candidate path actually tried, mirroring
-        // default_typeface()'s own try_font_dir).
+        // default_blend2d_font_face()'s own fallback).
         //
         // The second candidate - right next to the running executable -
         // only exists on Linux: CMakeLists.txt's own file(COPY ...) right

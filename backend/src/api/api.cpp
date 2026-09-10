@@ -61,15 +61,16 @@ struct LeHandle
     le::ViewLayerSet view_layers;
     le::Scene scene;
 
-    // Blend2D-backed (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) rather than
-    // the default Skia le::ViewRenderPipeline - wired up after that
-    // side-experiment's own benchmarks showed Blend2D's single-threaded
-    // rasterizer already beating Skia's by 1.35-2.9x with zero tuning.
-    // Text (Shape.texts - both terminal/route labels and truncated,
-    // bottom-left-anchored placement-name labels) is drawn now
-    // (rasterize_blend2d_stage.hpp), via a monospace font rather than
-    // RasterizeStage's own proportional one.
-    le::ViewRenderPipelineBlend2D view_render_pipeline;
+    // Blend2D-backed (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) - the
+    // earlier Skia-based RasterizeStage/ViewRenderPipelineImpl backend-
+    // swappable template, benchmarked against this one as a side
+    // experiment, is gone now that ComposeStage itself also composites
+    // BLImages natively; Blend2D's single-threaded rasterizer already
+    // beat Skia's by 1.35-2.9x with zero tuning even before that. Text
+    // (Shape.texts - both terminal/route labels and truncated, bottom-
+    // left-anchored placement-name labels) is drawn via a monospace font
+    // (rasterize_blend2d_stage.hpp).
+    le::ViewRenderPipeline view_render_pipeline;
 
     // Undo/redo stack + command-recall log (UPDATES.md item 21) - every
     // generated le_create_X/le_update_X/le_delete_X function records
@@ -3191,7 +3192,7 @@ extern "C"
         // next call" contract (api.hpp) already promises - no separate
         // LeHandle-owned storage needed here.
         const le::ViewRenderOptions options = view_render_options_for(handle);
-        const le::ViewRenderPipelineBlend2D::WarmOutput output = handle->view_render_pipeline.run(&handle->root, options);
+        const le::ViewRenderPipeline::WarmOutput output = handle->view_render_pipeline.run(&handle->root, options);
 
         FrameMarkEnd(kRenderFrameName);
 

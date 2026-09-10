@@ -94,15 +94,16 @@ namespace le
 
     /// @brief One node's own direct shapes, grouped by the ViewLayer they
     /// draw on - not a flat list, so a Warm-tier drawing stage
-    /// (RasterizeStage) never needs to detect "same layer as the
+    /// (RasterizeBlend2DStage) never needs to detect "same layer as the
     /// previous shape" while iterating: it walks ViewLayerSet::all() (in
     /// that ViewLayerSet's own bottom-to-top insertion/z-order, since a
     /// fresh ViewLayerSet's own ViewLayerId.index is assigned strictly in
     /// build_for_technology's own call order - see that method's own doc
     /// comment) and looks up each layer's own group directly - which
-    /// also means constructing one SkPaint per *layer* instead of per
-    /// *shape* (hoisted out of the per-shape loop, RasterizeStage's own
-    /// comment) and, for a not-yet-built layer-visibility feature,
+    /// also means setting fill/stroke style once per *layer* instead of
+    /// per *shape* (hoisted out of the per-shape loop,
+    /// draw_view_shapes_blend2d's own comment) and, for a not-yet-built
+    /// layer-visibility feature,
     /// skipping a hidden layer's whole group in one map lookup rather
     /// than checking every individual shape's own layer. `Id<Tag>`
     /// already has a std::hash specialization (ids.hpp) - no custom
@@ -125,7 +126,7 @@ namespace le
 
     /// @brief Per-ViewLayer spatial index over `ViewLayerShapes`' own
     /// per-layer shape vectors, built once alongside `shapes` (see
-    /// build_shape_index() below) so RasterizeStage can find which
+    /// build_shape_index() below) so RasterizeBlend2DStage can find which
     /// shapes actually overlap the current viewport without walking
     /// every shape in a huge flat node on every pan/zoom tick - the
     /// per-*shape* culling gap ViewportCullStage's own doc comment
@@ -144,11 +145,10 @@ namespace le
     /// own doc comment): visible only if BOTH its own layer-name entry
     /// (if any) and its own purpose entry (if any) say so - an unset key
     /// in either map means visible, not hidden. Defined here (rather than
-    /// in a Skia-specific drawing header) since it's a pure function of
+    /// in a Blend2D-specific drawing header) since it's a pure function of
     /// `le::`/std types with no rendering-backend dependency at all -
-    /// every Rasterize backend's own draw_view_shapes-shaped function
-    /// (rasterize_stage.hpp's Skia one, rasterize_blend2d_stage.hpp's
-    /// Blend2D one) calls this same definition.
+    /// draw_view_shapes_blend2d (rasterize_blend2d_stage.hpp) calls this
+    /// same definition.
     inline bool is_view_layer_visible(
         const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
         const std::string &layer_name, ViewLayerPurpose purpose)
@@ -205,15 +205,15 @@ namespace le
 
         /// @brief Echoes this stage's own InputData (ViewLayerSetHandle)
         /// back out, unchanged - the only way a stage further downstream
-        /// in a real make_edge chain (ViewportCullStage, RasterizeStage/
-        /// RasterizeBlend2DStage) can still reach the actual ViewLayerSet
-        /// content: nothing else wires LayerGenerationStage's own output
-        /// any further than this stage's own InputData. Used to carry
-        /// `view_layers` from Cold tier through to RasterizeStage without
-        /// going through ViewRenderOptions::view_layers (removed -
-        /// ViewRenderPipelineImpl::run(), view_render_pipeline.hpp, no
-        /// longer needs to patch it into `options` between two separate
-        /// graph submissions once it travels as data like this instead).
+        /// in a real make_edge chain (ViewportCullStage, RasterizeBlend2DStage)
+        /// can still reach the actual ViewLayerSet content: nothing else
+        /// wires LayerGenerationStage's own output any further than this
+        /// stage's own InputData. Used to carry `view_layers` from Cold
+        /// tier through to RasterizeBlend2DStage without going through
+        /// ViewRenderOptions::view_layers (removed - ViewRenderPipeline::run(),
+        /// view_render_pipeline.hpp, no longer needs to patch it into
+        /// `options` between two separate graph submissions once it
+        /// travels as data like this instead).
         /// ViewportCullStage's own OutputData is this same struct type -
         /// its own compute() just copies this field through unchanged
         /// alongside its real (culled) view_data.
@@ -364,8 +364,9 @@ namespace le
                     // alongside, matching pipelines.old/draw_helpers.hpp's
                     // own draw_placement_labels. rects/texts stay index-
                     // parallel (rects[i] is texts[i]'s own reference box,
-                    // for RasterizeStage's own width-fit truncation) - see
-                    // draw_view_shapes' own comment.
+                    // for RasterizeBlend2DStage's own width-fit
+                    // truncation) - see draw_view_shapes_blend2d's own
+                    // comment.
                     Shape placement_name_shape;
                     placement_name_shape.rects.reserve(placements.size());
                     placement_name_shape.texts.reserve(placements.size());
@@ -410,10 +411,11 @@ namespace le
                         // of the placement's own on-screen *height*
                         // (kPlacementLabelHeightRatio, floored at
                         // kMinLabelPixelSize - applied at draw time,
-                        // RasterizeStage's own text loop, once `scale` is
-                        // known), anchored at the box's own bottom-left
-                        // corner (RasterizeStage adds the fixed pixel
-                        // padding at draw time too, in already-counter-
+                        // RasterizeBlend2DStage's own text loop, once
+                        // `scale` is known), anchored at the box's own
+                        // bottom-left corner (RasterizeBlend2DStage adds
+                        // the fixed pixel padding at draw time too, in
+                        // already-counter-
                         // scaled local space, so it stays a constant
                         // on-screen inset regardless of zoom - baking a
                         // dbu-space padding in here instead would grow/

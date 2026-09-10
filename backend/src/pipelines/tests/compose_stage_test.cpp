@@ -1,11 +1,9 @@
 #include "../stages/compose_stage.hpp"
-#include "../stages/rasterize_stage.hpp"
+#include "../stages/rasterize_blend2d_stage.hpp"
 #include "synchronous_stage_runner.hpp"
 #include <gtest/gtest.h>
 
-#include "include/core/SkColor.h"
-#include "include/core/SkPixmap.h"
-
+#include <algorithm>
 #include <cstdlib>
 #include <memory>
 
@@ -14,8 +12,29 @@ using namespace le;
 namespace
 {
     using HierarchyResolverRunner = SynchronousStageRunner<HierarchyResolverStage, ViewLayerSetHandle, HierarchyResolverOutput, ViewRenderOptions>;
-    using RasterizeRunner = SynchronousStageRunner<RasterizeStage, HierarchyResolverStage::OutputHandle, RasterizeOutput, ViewRenderOptions>;
-    using ComposeRunner = SynchronousStageRunner<ComposeStage, RasterizeStage::OutputHandle, RasterizedFrame, ViewRenderOptions>;
+    using RasterizeRunner = SynchronousStageRunner<RasterizeBlend2DStage, HierarchyResolverStage::OutputHandle, RasterizeOutput, ViewRenderOptions>;
+    using ComposeRunner = SynchronousStageRunner<ComposeStage, RasterizeOutputHandle, RasterizedFrame, ViewRenderOptions>;
+
+    struct SampledColor
+    {
+        uint8_t r = 0;
+        uint8_t g = 0;
+        uint8_t b = 0;
+        uint8_t a = 0;
+    };
+
+    // RasterizedFrame's own pixel_data is premultiplied RGBA (compute()'s
+    // own doc comment) - unpremultiply before comparing against a raw,
+    // straight ViewLayerStyle color, mirroring what SkPixmap::getColor
+    // used to do for free when this test was Skia-based.
+    SampledColor unpremultiply(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+    {
+        if (a == 0)
+            return SampledColor{};
+        const auto unpremul = [a](uint8_t c)
+        { return static_cast<uint8_t>(std::min(255, (static_cast<int>(c) * 255 + a / 2) / a)); };
+        return SampledColor{unpremul(r), unpremul(g), unpremul(b), a};
+    }
 
     // TOP (diearea (0,0)-(200,200)) places BLOCK once at (30,30) orientation
     // N ("block0"); BLOCK (diearea (0,0)-(50,50)) places LEAF once at
@@ -70,14 +89,13 @@ namespace
             frame = &compose_runner.run(rasterize_runner.last_handle(), 0, options);
         }
 
-        static SkColor sample(const RasterizedFrame &frame, int x, int y)
+        static SampledColor sample(const RasterizedFrame &frame, int x, int y)
         {
-            if (frame.empty || !frame.surface)
-                return 0;
-            SkPixmap pixmap;
-            if (!frame.surface->peekPixels(&pixmap))
-                return 0;
-            return pixmap.getColor(x, y);
+            if (frame.empty || frame.buffer.data == nullptr)
+                return SampledColor{};
+            const uint8_t *row = frame.buffer.data + static_cast<std::size_t>(y) * frame.buffer.row_bytes;
+            const uint8_t *px = row + static_cast<std::size_t>(x) * 4;
+            return unpremultiply(px[0], px[1], px[2], px[3]);
         }
 
         // M1's own TERMINAL row draws with a real diagonal-stripe
@@ -85,24 +103,21 @@ namespace
         // M1 being a ROUTING-type Layer) rather than a flat fill, so a
         // single hardcoded sample point can legitimately land on a
         // pattern "gap" - scan a small block instead (see
-        // rasterize_stage_test.cpp's own region_contains_color_near, same
-        // idea, RasterizedFrame's own surface instead of an SkImage).
-        static bool region_contains_color_near(const RasterizedFrame &frame, int x0, int y0, int x1, int y1, SkColor expected, int tolerance)
+        // rasterize_blend2d_stage_test.cpp's own region_contains_color_near,
+        // same idea, RasterizedFrame's own pixel_data instead of a BLImage).
+        static bool region_contains_color_near(const RasterizedFrame &frame, int x0, int y0, int x1, int y1, Color expected, int tolerance)
         {
-            if (frame.empty || !frame.surface)
-                return false;
-            SkPixmap pixmap;
-            if (!frame.surface->peekPixels(&pixmap))
+            if (frame.empty || frame.buffer.data == nullptr)
                 return false;
             for (int y = y0; y < y1; ++y)
             {
                 for (int x = x0; x < x1; ++x)
                 {
-                    const SkColor c = pixmap.getColor(x, y);
-                    if (std::abs(static_cast<int>(SkColorGetR(c)) - static_cast<int>(SkColorGetR(expected))) <= tolerance &&
-                        std::abs(static_cast<int>(SkColorGetG(c)) - static_cast<int>(SkColorGetG(expected))) <= tolerance &&
-                        std::abs(static_cast<int>(SkColorGetB(c)) - static_cast<int>(SkColorGetB(expected))) <= tolerance &&
-                        std::abs(static_cast<int>(SkColorGetA(c)) - static_cast<int>(SkColorGetA(expected))) <= tolerance)
+                    const SampledColor c = sample(frame, x, y);
+                    if (std::abs(static_cast<int>(c.r) - static_cast<int>(expected.r)) <= tolerance &&
+                        std::abs(static_cast<int>(c.g) - static_cast<int>(expected.g)) <= tolerance &&
+                        std::abs(static_cast<int>(c.b) - static_cast<int>(expected.b)) <= tolerance &&
+                        std::abs(static_cast<int>(c.a) - static_cast<int>(expected.a)) <= tolerance)
                         return true;
                 }
             }
@@ -144,18 +159,17 @@ TEST_F(ComposeStageFixture, ComposesUnrotatedChildAtItsOwnGlobalOffset)
     // y: 800-52*4=592 to 800-51*4=596.
     // M1's own TERMINAL row draws with a real diagonal-stripe FillPattern
     // now (view_style.hpp's own terminal_fill_pattern, M1 being a
-    // ROUTING-type Layer) instead of a flat fill_color - pattern_shader's
+    // ROUTING-type Layer) instead of a flat fill_color - pattern_blend2d's
     // own tile paints its "ink" in the layer's own OUTLINE color at full
-    // opacity (rasterize_stage.hpp's own draw_view_shapes comment), so
-    // that - not fill_color - is the color that actually appears
-    // wherever this pattern has ink. Scan the whole rect instead of one
-    // hardcoded pixel (see region_contains_color_near's own comment).
-    // +/-5 tolerance (not exact equality) - same premultiplied-alpha
-    // round-trip rounding RasterizeStageFixture's own color-sampling
-    // tests already tolerate, compounded slightly further here by a
-    // second composite (LEAF's own image drawn onto BLOCK's, then
-    // BLOCK's onto TOP's).
-    EXPECT_TRUE(region_contains_color_near(*frame, 204, 592, 216, 596, to_sk_color(expected_color), 5));
+    // opacity (draw_view_shapes_blend2d's own comment), so that - not
+    // fill_color - is the color that actually appears wherever this
+    // pattern has ink. Scan the whole rect instead of one hardcoded pixel
+    // (see region_contains_color_near's own comment). +/-5 tolerance (not
+    // exact equality) - same premultiplied-alpha round-trip rounding
+    // RasterizeBlend2DStageFixture's own color-sampling tests already
+    // tolerate, compounded slightly further here by a second composite
+    // (LEAF's own image drawn onto BLOCK's, then BLOCK's onto TOP's).
+    EXPECT_TRUE(region_contains_color_near(*frame, 204, 592, 216, 596, expected_color, 5));
 }
 
 TEST_F(ComposeStageFixture, ComposesA90DegreeRotatedChildAtTheCorrectlyTransformedOffset)
@@ -182,14 +196,14 @@ TEST_F(ComposeStageFixture, ComposesA90DegreeRotatedChildAtTheCorrectlyTransform
     // real diagonal-stripe FillPattern now (see this fixture's own
     // ComposesUnrotatedChildAtItsOwnGlobalOffset comment) - scan the rect
     // rather than one exact pixel.
-    EXPECT_TRUE(region_contains_color_near(*frame, 204, 564, 208, 576, to_sk_color(expected_color), 5));
+    EXPECT_TRUE(region_contains_color_near(*frame, 204, 564, 208, 576, expected_color, 5));
 
     // The UNROTATED (Orientation::N) test's own sample point should now
     // be empty - if this test only "passed" because the whole image is
     // one big blob of fill color regardless of orientation, this catches
     // it.
-    const SkColor unrotated_position = sample(*frame, 210, 594);
-    EXPECT_EQ(SkColorGetA(unrotated_position), 0u);
+    const SampledColor unrotated_position = sample(*frame, 210, 594);
+    EXPECT_EQ(unrotated_position.a, 0u);
 }
 
 TEST_F(ComposeStageFixture, NullInputProducesEmptyFrame)

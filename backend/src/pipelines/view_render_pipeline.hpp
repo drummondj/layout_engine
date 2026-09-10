@@ -5,7 +5,6 @@
 #include "stages/hierarchy_resolver_stage.hpp"
 #include "stages/layer_generation_stage.hpp"
 #include "stages/rasterize_blend2d_stage.hpp"
-#include "stages/rasterize_stage.hpp"
 #include "stages/viewport_cull_stage.hpp"
 #include "tbb_core.hpp"
 
@@ -19,59 +18,50 @@ namespace le
     /// real make_edge connections, not the per-stage-private-graph
     /// SynchronousStageRunner pattern tests/benchmarks use to exercise one
     /// stage in isolation. Wires the full Cold+Warm chain: LayerGenerationStage
-    /// -> HierarchyResolverStage -> ViewportCullStage -> RasterizeStage ->
-    /// ComposeStage - a strict linear chain (every stage's own OutputHandle
-    /// type matches the next stage's own InputData exactly), with a single
-    /// sink on the terminal node (compose_sink_) so run() can read the
-    /// final frame back after wait_for_all() - see WarmOutput's own doc
-    /// comment for why the four intermediate stages don't get one of
-    /// their own too. Hot tier stages get added to this same graph/class
-    /// later - one pipeline for the whole thing, not a separate class per
-    /// tier.
+    /// -> HierarchyResolverStage -> ViewportCullStage -> RasterizeBlend2DStage
+    /// -> ComposeStage - a strict linear chain (every stage's own
+    /// OutputHandle type matches the next stage's own InputData exactly),
+    /// with a single sink on the terminal node (compose_sink_) so run()
+    /// can read the final frame back after wait_for_all() - see
+    /// WarmOutput's own doc comment for why the four intermediate stages
+    /// don't get one of their own too. Hot tier stages get added to this
+    /// same graph/class later - one pipeline for the whole thing, not a
+    /// separate class per tier.
     ///
     /// One entry point into this one graph: run() submits at
     /// layer_generation_.node() and the existing make_edge chain carries
     /// that single message all the way through to compose_.node() in one
     /// try_put/wait_for_all - the whole graph was always wired this way
     /// end to end; what used to force two separate submissions
-    /// (run_cold() then run_warm()) was RasterizeStage's own dependency on
-    /// the ViewLayerSet LayerGenerationStage computes, which had nowhere
-    /// to travel to but ViewRenderOptions::view_layers - a field every
-    /// stage in one submission sees the exact same, caller-supplied copy
-    /// of (StageData<T, Options>'s own contract), so a later stage could
-    /// never see a value an earlier stage in that same submission had just
-    /// computed. Fixed at the source instead: HierarchyResolverStage's own
-    /// OutputData now echoes the ViewLayerSetHandle it received as input
-    /// back out as one of its own fields (HierarchyResolverOutput::
-    /// view_layers), and ViewportCullStage passes it through unchanged -
-    /// so it now arrives at RasterizeStage as part of `data`, the same way
-    /// every other stage's own real dependency does, and one submission
-    /// through the whole chain is enough.
+    /// (run_cold() then run_warm()) was RasterizeBlend2DStage's own
+    /// dependency on the ViewLayerSet LayerGenerationStage computes,
+    /// which had nowhere to travel to but ViewRenderOptions::view_layers -
+    /// a field every stage in one submission sees the exact same,
+    /// caller-supplied copy of (StageData<T, Options>'s own contract), so
+    /// a later stage could never see a value an earlier stage in that
+    /// same submission had just computed. Fixed at the source instead:
+    /// HierarchyResolverStage's own OutputData now echoes the
+    /// ViewLayerSetHandle it received as input back out as one of its own
+    /// fields (HierarchyResolverOutput::view_layers), and ViewportCullStage
+    /// passes it through unchanged - so it now arrives at
+    /// RasterizeBlend2DStage as part of `data`, the same way every other
+    /// stage's own real dependency does, and one submission through the
+    /// whole chain is enough.
     ///
     /// The Root pointer every stage needs still travels via
     /// ViewRenderOptions::root, not any one stage's own InputData - run()
     /// sets it from its own `root` parameter, so a caller never has to set
     /// it independently.
     ///
-    /// Templated on the Rasterize stage implementation (`RasterizeStageT`,
-    /// default `RasterizeStage` - Skia) so a second, real backend
-    /// (`RasterizeBlend2DStage` - rasterize_blend2d_stage.hpp, a side
-    /// experiment benchmarked against Skia's own CPU rasterizer,
-    /// PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) can be wired into this
-    /// exact same graph shape at construction time via
-    /// `ViewRenderPipelineBlend2D` (defined below) with zero code
-    /// duplication - both stage types share the exact same
-    /// `MemoizingStage<HierarchyResolverStage::OutputHandle, RasterizeOutput,
-    /// ViewRenderOptions>` template shape, so `RasterizeStageT::OutputHandle`
-    /// is the identical `RasterizeOutputHandle` (rasterize_output.hpp)
-    /// either way and `ComposeStage` (already typed against
-    /// `RasterizeOutputHandle` directly, not against either concrete
-    /// stage) needs no changes at all. `ViewRenderPipeline` itself (the
-    /// plain, non-template name every existing caller already uses) is
-    /// just a type alias to `ViewRenderPipelineImpl<>` below - unchanged
-    /// behavior for every pre-existing use.
-    template <typename RasterizeStageT = RasterizeStage>
-    class ViewRenderPipelineImpl
+    /// RasterizeBlend2DStage is the only Rasterize backend
+    /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md - the earlier Skia-based
+    /// RasterizeStage, benchmarked against it as a side experiment, and
+    /// the ViewRenderPipelineImpl<RasterizeStageT> template this class
+    /// used to be (parameterized to swap between the two) are both gone
+    /// now that ComposeStage itself also composites BLImages natively,
+    /// with no format-swappable seam left for a second backend to plug
+    /// into anyway) - so this class is concrete, not a template.
+    class ViewRenderPipeline
     {
     public:
         /// @brief The full chain's own observable output - just the final
@@ -98,7 +88,7 @@ namespace le
         /// layer_generation_sink_) - removing it doesn't change what data
         /// reaches compose_.node(), only that nothing else also captures a
         /// copy of it along the way.
-        explicit ViewRenderPipelineImpl(std::string label = "ViewRenderPipeline")
+        explicit ViewRenderPipeline(std::string label = "ViewRenderPipeline")
             : layer_generation_(graph_, label + ".LayerGeneration"),
               hierarchy_resolver_(graph_, label + ".HierarchyResolver"),
               viewport_cull_(graph_, label + ".ViewportCull"),
@@ -116,16 +106,16 @@ namespace le
             make_edge(compose_.node(), compose_sink_);
         }
 
-        ViewRenderPipelineImpl(const ViewRenderPipelineImpl &) = delete;
-        ViewRenderPipelineImpl &operator=(const ViewRenderPipelineImpl &) = delete;
+        ViewRenderPipeline(const ViewRenderPipeline &) = delete;
+        ViewRenderPipeline &operator=(const ViewRenderPipeline &) = delete;
 
         /// @brief Runs the full Cold+Warm chain for `root` under `options`
         /// (`options.root` is overwritten with `root` here - a caller only
         /// has to set the fields that actually vary: root_mutation_version/
         /// top_level/hierarchy_depth/viewport/scale) in exactly one
         /// try_put/wait_for_all - see the class's own doc comment for how
-        /// RasterizeStage's own ViewLayerSet dependency, the thing that
-        /// used to force two separate submissions here, now travels
+        /// RasterizeBlend2DStage's own ViewLayerSet dependency, the thing
+        /// that used to force two separate submissions here, now travels
         /// through `data` instead of `options`. No data_version parameter,
         /// unlike SynchronousStageRunner::run() - no stage's own recompute
         /// decision ever looks at one (all five rely entirely on
@@ -178,17 +168,9 @@ namespace le
         LayerGenerationStage layer_generation_;
         HierarchyResolverStage hierarchy_resolver_;
         ViewportCullStage viewport_cull_;
-        RasterizeStageT rasterize_;
+        RasterizeBlend2DStage rasterize_;
         ComposeStage compose_;
         oneapi::tbb::flow::function_node<StageData<ComposeStage::OutputHandle, ViewRenderOptions>> compose_sink_;
         StageData<ComposeStage::OutputHandle, ViewRenderOptions> compose_result_{};
     };
-
-    /// @brief The plain, non-template name every existing caller uses -
-    /// see ViewRenderPipelineImpl's own doc comment.
-    using ViewRenderPipeline = ViewRenderPipelineImpl<>;
-
-    /// @brief The Blend2D-backed sibling - see ViewRenderPipelineImpl's
-    /// own doc comment and rasterize_blend2d_stage.hpp.
-    using ViewRenderPipelineBlend2D = ViewRenderPipelineImpl<RasterizeBlend2DStage>;
 }

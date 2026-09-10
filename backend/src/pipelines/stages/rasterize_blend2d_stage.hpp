@@ -11,10 +11,6 @@
 #include "../tbb_core.hpp"
 #include "hierarchy_resolver_stage.hpp"
 
-#include "include/core/SkImage.h"
-#include "include/core/SkImageInfo.h"
-#include "include/core/SkPixmap.h"
-
 #include <blend2d/blend2d.h>
 
 #include <boost/geometry/index/rtree.hpp>
@@ -31,8 +27,6 @@
 namespace le
 {
     namespace bgi = boost::geometry::index;
-
-    inline BLRgba32 to_bl_color(Color c) { return BLRgba32(c.r, c.g, c.b, c.a); }
 
     inline BLPath to_bl_path(const Polygon &polygon, bool close)
     {
@@ -290,17 +284,13 @@ namespace le
 
     /// @brief Truncates `text` to fit within `max_width_px` when rendered
     /// in a monospace font whose own fixed per-character advance is
-    /// `cell_width` - the direct, arithmetic analog of draw_helpers.hpp's
-    /// own `truncate_text_to_width` (Skia, proportional fonts, used for
-    /// `RasterizeStage`'s own placement-name labels): monospace means "how
-    /// many characters fit" is just `floor(max_width_px / cell_width)`, no
-    /// per-candidate `measureText`-style search needed.
+    /// `cell_width`: monospace means "how many characters fit" is just
+    /// `floor(max_width_px / cell_width)`, no per-candidate
+    /// `measureText`-style search needed.
     ///
     /// Truncates from the BEGINNING (keeps the label's own trailing
-    /// characters) and prepends "..." - the same convention
-    /// `truncate_text_to_width` already uses, per explicit direction, not
-    /// a new/different one invented for this backend: a real instance
-    /// name's own most identifying part (e.g. a numeric suffix or leaf
+    /// characters) and prepends "..." - per explicit direction: a real
+    /// instance name's own most identifying part (e.g. a numeric suffix or leaf
     /// cell name in a hierarchical path like "top/sub_block/cell_042") is
     /// usually at the end, so keeping the tail and dropping the head
     /// preserves more of what a user actually needs to read.
@@ -371,22 +361,18 @@ namespace le
         ctx.restore();
     }
 
-    /// @brief Blend2D sibling of rasterize_stage.hpp's own `draw_view_shapes` -
-    /// same per-layer/per-shape structure, same shapes_index-or-fallback
-    /// viewport-culling dispatch, same path_outline_cache (Geometry::
-    /// path_to_polygons' own std::vector<Polygon> result needs no
-    /// backend-specific storage) - only the actual draw calls differ
-    /// (BLContext instead of SkCanvas).
+    /// @brief Draws one node's own direct shapes - per-layer/per-shape
+    /// structure, shapes_index-or-fallback viewport-culling dispatch, and
+    /// path_outline_cache (Geometry::path_to_polygons' own
+    /// std::vector<Polygon> result) via BLContext draw calls.
     ///
-    /// Text (Shape.texts) draws both cases rasterize_stage.hpp's own
-    /// `is_placement_name_layer` split does: the generic per-shape
+    /// Text (Shape.texts) draws two cases: the generic per-shape
     /// TERMINAL/ROUTE label (kLabelWidthRatio-scaled, clamped to
     /// [kMinLabelPixelSize, kMaxLabelPixelSize], centered at
     /// `text.location`, never truncated), and the placement-name label
     /// (index-paired with shape.rects, bottom-left-anchored, truncated to
-    /// fit via `truncate_monospace_label` - the direct, arithmetic
-    /// monospace analog of Skia's own `truncate_text_to_width`, that
-    /// function's own doc comment has the full rationale).
+    /// fit via `truncate_monospace_label` - that function's own doc
+    /// comment has the full rationale).
     ///
     /// Every label is drawn one monospace character at a time
     /// (`draw_monospace_label_blend2d` below) via a per-CHARACTER
@@ -402,21 +388,16 @@ namespace le
     /// draws under a plain identity transform at that point (a cached
     /// glyph's own bitmap already being sized in real device pixels, no
     /// further multiplication by the ambient dbu-to-pixel scale), then
-    /// restores - the same direct device-space approach `rasterize_stage.hpp`'s
-    /// own text loop now uses (both backends independently arrived at
-    /// this once each one's own canvas/context was confirmed to never
-    /// carry a rotation component within a single node's own render pass
-    /// - see compose_stage.hpp's own doc comment for the cross-node
-    /// rotation/flip case neither backend handles).
+    /// restores - correct once this context is confirmed to never carry a
+    /// rotation component within a single node's own render pass - see
+    /// compose_stage.hpp's own doc comment for the cross-node rotation/
+    /// flip case this doesn't handle.
     ///
     /// Blend2D has no Skia-style "stroke width 0 means always exactly 1
     /// device pixel" hairline convention - a sub-pixel-on-screen (or
     /// deliberately zero-width, Track/GCellGrid) Path instead gets an
-    /// explicit `1.0 / scale` stroke width (a real, on-screen-1-pixel-ish
-    /// line at the current zoom, computed the same way the Skia path's
-    /// own dash-length-in-dbu compensation already does) - a deliberate,
-    /// documented difference from the Skia backend, not a bug to chase
-    /// parity on for a perf side-test.
+    /// explicit `1.0 / scale` stroke width, a real, on-screen-1-pixel-ish
+    /// line at the current zoom.
     ///
     /// No opaque fast-path option (BL_COMP_OP_SRC_COPY instead of the
     /// default BL_COMP_OP_SRC_OVER for a fully-opaque color) - tried and
@@ -549,9 +530,8 @@ namespace le
                     // gradient with no fully-opaque or fully-transparent
                     // pixel anywhere, consistent with sampling deep inside
                     // one antialiased tile edge). NONE mode is the direct
-                    // Blend2D analog of Skia's own pattern_shader/
-                    // makeWithLocalMatrix scale-compensation
-                    // (draw_view_shapes' own doc comment, rasterize_stage.hpp) -
+                    // Blend2D analog of the earlier Skia backend's own
+                    // pattern_shader/makeWithLocalMatrix scale-compensation -
                     // achieved here by *not* combining with the CTM at all,
                     // rather than manually inverting it.
                     ctx.set_fill_style(fill_pattern, BL_CONTEXT_STYLE_TRANSFORM_MODE_NONE);
@@ -564,9 +544,8 @@ namespace le
                 // Blend2D has no Skia-style "stroke width 0 means always
                 // exactly 1 device pixel" hairline convention (see this
                 // function's own top-level doc comment) - a literal 0
-                // renders nothing at all here, unlike Skia's SkPaint
-                // (rasterize_stage.hpp never sets a stroke width either,
-                // relying on that hairline default). 1.0 / scale is the
+                // renders nothing at all here, unlike Skia's own SkPaint
+                // hairline default. 1.0 / scale is the
                 // direct analog: a real, on-screen-~1-pixel-wide line at
                 // the current zoom, overridden below only where a wider
                 // width matters (kViaCrossStrokeWidth, or a Path's own
@@ -776,9 +755,7 @@ namespace le
                             continue;
 
                         // Bottom-left-anchored with a small constant
-                        // on-screen padding - unlike Skia's own local
-                        // (pre-ambient-CTM) translate+drawString
-                        // convention (rasterize_stage.hpp), this backend
+                        // on-screen padding - this backend
                         // works entirely in already-mapped device-pixel
                         // space (this function's own top-level doc
                         // comment), so the padding is added directly here:
@@ -836,30 +813,20 @@ namespace le
         }
     }
 
-    /// @brief Blend2D-backed sibling of RasterizeStage (rasterize_stage.hpp)
-    /// - a side experiment (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) trying
-    /// Blend2D's own JIT-compiled rasterization pipeline, multi-threaded
-    /// tiled rendering, and opaque fast-path composition operator against
-    /// Skia's CPU rasterizer for this project's own "millions of small
-    /// shapes" workload. Same MemoizingStage template shape as
-    /// RasterizeStage (identical InputData/OutputData/PipelineOptions -
-    /// RasterizeOutput, rasterize_output.hpp - so both share one
-    /// ViewRenderPipelineImpl<RasterizeStageT>, view_render_pipeline.hpp),
-    /// same per-node NodePathOutlineCache pattern (its own, private,
-    /// separate cache instance - not shared with RasterizeStage's), same
-    /// options_did_change. Both generic per-shape text and placement-name
-    /// labels are drawn (see draw_view_shapes_blend2d's own doc comment) -
-    /// via a monospace font rather than RasterizeStage's own proportional
-    /// one, a deliberate difference, not a gap.
+    /// @brief The Rasterize stage - Blend2D's own JIT-compiled
+    /// rasterization pipeline, multi-threaded tiled rendering, tried and
+    /// kept (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) after beating the
+    /// original Skia-based RasterizeStage (side experiment, since
+    /// removed) by 1.35-2.9x with zero tuning on this project's own
+    /// "millions of small shapes" workload - now the only Rasterize
+    /// backend, and the sole thing ViewRenderPipeline (view_render_pipeline.hpp)
+    /// wires in (no more backend-swappable template). Both generic
+    /// per-shape text and placement-name labels are drawn (see
+    /// draw_view_shapes_blend2d's own doc comment), via a monospace font.
     ///
     /// `thread_count_` is a plain mutable setting (set_thread_count
-    /// below), not a constructor parameter - keeps this class's own
-    /// constructor signature identical to RasterizeStage's
-    /// (`(graph, label)`), which is what lets ViewRenderPipelineImpl's
-    /// single `RasterizeStageT rasterize_(graph_, label + ".Rasterize")`
-    /// construction site work unchanged for either backend; a benchmark
-    /// wanting a specific thread count calls the setter once after
-    /// construction instead.
+    /// below), not a constructor parameter - a benchmark wanting a
+    /// specific thread count calls the setter once after construction.
     class RasterizeBlend2DStage : public MemoizingStage<HierarchyResolverStage::OutputHandle, RasterizeOutput, ViewRenderOptions>
     {
     public:
@@ -904,9 +871,7 @@ namespace le
                 BLContext ctx(image, create_info);
                 ctx.clear_all();
 
-                // Same translate+scale+flip setup as RasterizeStage's own
-                // canvas (rasterize_stage.hpp) - dbu y increases upward,
-                // pixel y increases downward.
+                // dbu y increases upward, pixel y increases downward.
                 ctx.translate(0.0, static_cast<double>(pixel_height));
                 ctx.scale(options.scale, -options.scale);
                 ctx.translate(static_cast<double>(-local_bbox.ll.x), static_cast<double>(-local_bbox.ll.y));
@@ -925,24 +890,13 @@ namespace le
 
                 ctx.end();
 
-                // Wrap Blend2D's own raw pixel buffer into an sk_sp<SkImage>
-                // so ComposeStage (Skia-based) needs zero changes regardless
-                // of which backend rasterized a given node - rasterize_output.hpp's
-                // own RasterizedImage/RasterizeOutput comment. BL_FORMAT_PRGB32
-                // is premultiplied-ARGB32 (Blend2D's own doc comment,
-                // format.h: "Format_ARGB32_Premultiplied"/"CAIRO_FORMAT_ARGB32"),
-                // which is B,G,R,A byte order in memory on this little-endian
-                // target - kBGRA_8888_SkColorType describes that layout
-                // directly rather than needing a manual channel-swap copy;
-                // Skia's own compositor (ComposeStage's drawImage calls)
-                // converts as needed during compositing, for free.
-                BLImageData image_data;
-                image.get_data(&image_data);
-                const SkImageInfo sk_info = SkImageInfo::Make(pixel_width, pixel_height, kBGRA_8888_SkColorType, kPremul_SkAlphaType);
-                const SkPixmap pixmap(sk_info, image_data.pixel_data, static_cast<size_t>(image_data.stride));
-                sk_sp<SkImage> sk_image = SkImages::RasterFromPixmapCopy(pixmap);
-
-                result.images.emplace(id, RasterizedImage{std::move(sk_image), local_bbox.ll});
+                // ComposeStage now composites BLImages natively (Blend2D
+                // is the only Rasterize backend, PIPELINE_REFACTOR_BENCHMARK_RESULTS.md -
+                // the generic Skia/Blend2D-swappable pipeline and its own
+                // sk_sp<SkImage>-wrapping shim this replaced are gone), so
+                // `image` itself is the finished RasterizedImage - no
+                // format conversion/copy needed at all.
+                result.images.emplace(id, RasterizedImage{std::move(image), local_bbox.ll});
             }
 
             return result;

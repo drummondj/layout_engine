@@ -2,7 +2,7 @@
 
 #include "stages/hierarchy_resolver_stage.hpp"
 
-#include "include/core/SkImage.h"
+#include <blend2d/blend2d.h>
 
 #include <memory>
 #include <unordered_map>
@@ -12,19 +12,21 @@ namespace le
     /// @brief One node's own rasterized image - just its own direct
     /// `shapes` (a Rasterize stage never draws a node's own placements/
     /// children - ComposeStage composites those, PIPELINE_REFACTOR.md's
-    /// own stage split). Shared by every Rasterize backend
-    /// (RasterizeStage/Skia, RasterizeBlend2DStage/Blend2D, ...) - a
-    /// non-Skia backend rasterizes into its own native surface type
-    /// internally, then wraps its final pixel buffer into an `SkImage`
-    /// here so ComposeStage (Skia-based) needs no changes at all
-    /// regardless of which backend produced a given node's own image.
+    /// own stage split). `BLImage` owns its own pixel storage (refcounted,
+    /// cheap to copy - Blend2D's own analog of `sk_sp<SkImage>`), the
+    /// direct output of RasterizeBlend2DStage's own `BLContext` - no
+    /// format conversion/wrapping needed now that ComposeStage composites
+    /// natively in Blend2D too (RasterizeBlend2DStage is the only
+    /// Rasterize backend; the generic Skia/Blend2D-swappable pipeline and
+    /// this struct's own former `sk_sp<SkImage>`-wrapping design are gone,
+    /// PIPELINE_REFACTOR_BENCHMARK_RESULTS.md).
     struct RasterizedImage
     {
-        sk_sp<SkImage> image;
+        BLImage image;
 
         /// @brief The dbu point mapping to `image`'s own bottom-left
-        /// pixel corner (image pixel (0, image->height())) - ComposeStage
-        /// needs this to place the image correctly; an SkImage alone
+        /// pixel corner (image pixel (0, image.height())) - ComposeStage
+        /// needs this to place the image correctly; a BLImage alone
         /// carries no notion of *where* in dbu space it represents.
         Point local_origin;
     };
@@ -44,15 +46,11 @@ namespace le
         HierarchyResolverStage::OutputHandle culled;
     };
 
-    /// @brief A Rasterize stage's own `OutputHandle` (MemoizingStage's own
-    /// `shared_ptr<const OutputData>` alias, tbb_core.hpp) - identical
-    /// regardless of which concrete Rasterize stage produced it, since
-    /// every Rasterize backend instantiates the exact same
-    /// `MemoizingStage<HierarchyResolverStage::OutputHandle, RasterizeOutput,
-    /// ViewRenderOptions>`. Defined standalone here (rather than every
-    /// consumer writing `RasterizeStage::OutputHandle`) so ComposeStage
-    /// - and anything else downstream of a Rasterize stage - depends on
-    /// this shared output header alone, never on which concrete backend
-    /// (Skia, Blend2D, ...) is actually wired in.
+    /// @brief RasterizeBlend2DStage's own `OutputHandle` (MemoizingStage's
+    /// own `shared_ptr<const OutputData>` alias, tbb_core.hpp). Defined
+    /// standalone here (rather than every consumer writing
+    /// `RasterizeBlend2DStage::OutputHandle`) so ComposeStage - and
+    /// anything else downstream of the Rasterize stage - depends on this
+    /// shared output header alone.
     using RasterizeOutputHandle = std::shared_ptr<const RasterizeOutput>;
 }

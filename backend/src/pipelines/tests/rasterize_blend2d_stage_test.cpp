@@ -2,9 +2,6 @@
 #include "synchronous_stage_runner.hpp"
 #include <gtest/gtest.h>
 
-#include "include/core/SkColor.h"
-#include "include/core/SkPixmap.h"
-
 #include <algorithm>
 #include <cstdint>
 #include <memory>
@@ -16,11 +13,44 @@ namespace
     using HierarchyResolverRunner = SynchronousStageRunner<HierarchyResolverStage, ViewLayerSetHandle, HierarchyResolverOutput, ViewRenderOptions>;
     using RasterizeBlend2DRunner = SynchronousStageRunner<RasterizeBlend2DStage, HierarchyResolverStage::OutputHandle, RasterizeOutput, ViewRenderOptions>;
 
-    // Same fixture shape as RasterizeStageFixture (rasterize_stage_test.cpp)
-    // - deliberately kept in lockstep so the two backends are exercised
-    // against identical content: boundary (0,0)-(10,10), one Terminal
-    // rect (1,1)-(2,2) and one Obstruction rect (3,3)-(4,4), both on the
-    // M1 routing layer.
+    struct SampledColor
+    {
+        uint8_t r = 0;
+        uint8_t g = 0;
+        uint8_t b = 0;
+        uint8_t a = 0;
+    };
+
+    // A BLImage's own BL_FORMAT_PRGB32 pixel data is premultiplied BGRA
+    // in memory on this little-endian target (confirmed by direct pixel
+    // inspection when this format was first adopted) - unpremultiply
+    // (comparing against a raw, straight ViewLayerStyle color) and
+    // reorder to RGBA here, mirroring what SkPixmap::getColor used to do
+    // for free when this test was Skia-based.
+    SampledColor sample(const BLImage &image, int x, int y)
+    {
+        BLImageData data;
+        if (image.is_empty() || image.get_data(&data) != BL_SUCCESS)
+            return SampledColor{};
+        const auto *row = static_cast<const uint8_t *>(data.pixel_data) + static_cast<std::ptrdiff_t>(y) * data.stride;
+        const uint8_t *px = row + static_cast<std::ptrdiff_t>(x) * 4;
+        const uint8_t b = px[0];
+        const uint8_t g = px[1];
+        const uint8_t r = px[2];
+        const uint8_t a = px[3];
+        if (a == 0)
+            return SampledColor{};
+        const auto unpremul = [a](uint8_t c)
+        { return static_cast<uint8_t>(std::min(255, (static_cast<int>(c) * 255 + a / 2) / a)); };
+        return SampledColor{unpremul(r), unpremul(g), unpremul(b), a};
+    }
+
+    // Same fixture shape as RasterizeStageFixture used to be (the earlier
+    // Skia-based rasterize_stage_test.cpp, now removed -
+    // PIPELINE_REFACTOR_BENCHMARK_RESULTS.md, RasterizeBlend2DStage is the
+    // only Rasterize backend): boundary (0,0)-(10,10), one Terminal rect
+    // (1,1)-(2,2) and one Obstruction rect (3,3)-(4,4), both on the M1
+    // routing layer.
     struct RasterizeBlend2DStageFixture : public ::testing::Test
     {
         void SetUp() override
@@ -52,21 +82,12 @@ namespace
             };
         }
 
-        static SkColor sample(const sk_sp<SkImage> &image, int x, int y)
-        {
-            SkPixmap pixmap;
-            if (!image->peekPixels(&pixmap))
-                return 0;
-            return pixmap.getColor(x, y);
-        }
-
-        // Same rationale as RasterizeStageFixture's own helper
-        // (rasterize_stage_test.cpp) - a real per-object-type FillPattern
-        // means a single hardcoded sample point can legitimately land on
-        // a pattern "gap", so tests scan a small block instead. Callers
-        // here use a wider tolerance (30) than the Skia fixture's own (5) -
-        // unlike Skia (pattern_shader explicitly disables antialiasing,
-        // draw_helpers.hpp's own comment), Blend2D has exactly one
+        // Same rationale as the earlier Skia fixture's own helper - a
+        // real per-object-type FillPattern means a single hardcoded
+        // sample point can legitimately land on a pattern "gap", so tests
+        // scan a small block instead. A wider tolerance (30) than the
+        // Skia fixture's own (5) - unlike Skia (pattern_shader explicitly
+        // disabled antialiasing), Blend2D has exactly one
         // BLRenderingQuality value (BL_RENDERING_QUALITY_ANTIALIAS) with
         // no way to disable it. The brick tile's own 1px lines used to
         // sit exactly ON a tile-boundary coordinate, splitting coverage
@@ -83,20 +104,17 @@ namespace
         // are never axis-aligned, so they always split AA coverage along
         // their own length regardless of any fixed offset; 30 leaves
         // comfortable margin for that alone.
-        static bool region_contains_color_near(const sk_sp<SkImage> &image, int x0, int y0, int x1, int y1, SkColor expected, int tolerance)
+        static bool region_contains_color_near(const BLImage &image, int x0, int y0, int x1, int y1, Color expected, int tolerance)
         {
-            SkPixmap pixmap;
-            if (!image->peekPixels(&pixmap))
-                return false;
             for (int y = y0; y < y1; ++y)
             {
                 for (int x = x0; x < x1; ++x)
                 {
-                    const SkColor c = pixmap.getColor(x, y);
-                    if (std::abs(static_cast<int>(SkColorGetR(c)) - static_cast<int>(SkColorGetR(expected))) <= tolerance &&
-                        std::abs(static_cast<int>(SkColorGetG(c)) - static_cast<int>(SkColorGetG(expected))) <= tolerance &&
-                        std::abs(static_cast<int>(SkColorGetB(c)) - static_cast<int>(SkColorGetB(expected))) <= tolerance &&
-                        std::abs(static_cast<int>(SkColorGetA(c)) - static_cast<int>(SkColorGetA(expected))) <= tolerance)
+                    const SampledColor c = sample(image, x, y);
+                    if (std::abs(static_cast<int>(c.r) - static_cast<int>(expected.r)) <= tolerance &&
+                        std::abs(static_cast<int>(c.g) - static_cast<int>(expected.g)) <= tolerance &&
+                        std::abs(static_cast<int>(c.b) - static_cast<int>(expected.b)) <= tolerance &&
+                        std::abs(static_cast<int>(c.a) - static_cast<int>(expected.a)) <= tolerance)
                         return true;
                 }
             }
@@ -121,10 +139,10 @@ TEST_F(RasterizeBlend2DStageFixture, FillsTerminalRectWithItsOwnLayerFillColor)
     const RasterizeOutput &output = rasterize_runner.run(hierarchy_output, 0, options);
 
     ASSERT_TRUE(output.images.contains(HierarchyId{leaf_abstract}));
-    const sk_sp<SkImage> &image = output.images.at(HierarchyId{leaf_abstract}).image;
-    ASSERT_TRUE(image != nullptr);
-    EXPECT_EQ(image->width(), 100);
-    EXPECT_EQ(image->height(), 100);
+    const BLImage &image = output.images.at(HierarchyId{leaf_abstract}).image;
+    ASSERT_FALSE(image.is_empty());
+    EXPECT_EQ(image.width(), 100);
+    EXPECT_EQ(image.height(), 100);
 
     const ViewLayerId terminal_layer = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
     const ViewLayerData *terminal_style = view_layers.get(terminal_layer);
@@ -132,10 +150,9 @@ TEST_F(RasterizeBlend2DStageFixture, FillsTerminalRectWithItsOwnLayerFillColor)
 
     // M1 is a ROUTING-type Layer, so its own TERMINAL row draws with a
     // real diagonal-stripe FillPattern (pattern_blend2d's own ink uses the
-    // layer's own outline color, mirroring Skia's pattern_shader - see
-    // RasterizeStageFixture's own equivalent test comment) - scan the
-    // whole rect rather than one exact pixel.
-    EXPECT_TRUE(region_contains_color_near(image, 10, 80, 20, 90, to_sk_color(terminal_style->style.outline_color), 30));
+    // layer's own outline color) - scan the whole rect rather than one
+    // exact pixel.
+    EXPECT_TRUE(region_contains_color_near(image, 10, 80, 20, 90, terminal_style->style.outline_color, 30));
 }
 
 TEST_F(RasterizeBlend2DStageFixture, HidingAPurposeSkipsItsWholeLayerGroupButNotOthers)
@@ -144,22 +161,21 @@ TEST_F(RasterizeBlend2DStageFixture, HidingAPurposeSkipsItsWholeLayerGroupButNot
     options.purpose_visible[ViewLayerPurpose::TERMINAL] = false;
     const RasterizeOutput &output = rasterize_runner.run(hierarchy_output, 0, options);
 
-    const sk_sp<SkImage> &image = output.images.at(HierarchyId{leaf_abstract}).image;
+    const BLImage &image = output.images.at(HierarchyId{leaf_abstract}).image;
     // Terminal rect (1,1)-(2,2) -> pixel (15, 85) - now hidden.
-    EXPECT_EQ(SkColorGetA(sample(image, 15, 85)), 0u);
+    EXPECT_EQ(sample(image, 15, 85).a, 0u);
 
     // Obstruction rect (3,3)-(4,4) -> pixel x:[30,40], y:[60,70] - untouched.
     const ViewLayerId obstruction_layer = view_layers.find(m1, ViewLayerPurpose::OBSTRUCTION);
     const Color obstruction_outline = view_layers.get(obstruction_layer)->style.outline_color;
-    EXPECT_TRUE(region_contains_color_near(image, 30, 60, 40, 70, to_sk_color(obstruction_outline), 30));
+    EXPECT_TRUE(region_contains_color_near(image, 30, 60, 40, 70, obstruction_outline, 30));
 }
 
 TEST_F(RasterizeBlend2DStageFixture, ShapeFarOutsideTheRenderViewportIsCulledButTheOneInsideStillDraws)
 {
-    // Mirrors RasterizeStageFixture's own equivalent test - confirms
-    // draw_view_shapes_blend2d's shapes_index-or-fallback dispatch (the
-    // exact same per-shape viewport-culling logic as the Skia backend,
-    // shared unchanged) is wired correctly for this backend too.
+    // Mirrors the earlier Skia fixture's own equivalent test - confirms
+    // draw_view_shapes_blend2d's shapes_index-or-fallback dispatch is
+    // wired correctly for this backend.
     const TerminalId far_terminal = root.create_terminal(TerminalData{.abstract = leaf_abstract, .name = "FAR", .direction = SignalDirection::INPUT});
     const TerminalPortId far_port = root.create_terminal_port(TerminalPortData{.terminal = far_terminal});
     root.create_shape(ShapeData{.terminal_port = far_port, .layer = m1, .rects = {Rect{.ll = Point{1000, 1000}, .ur = Point{1001, 1001}}}});
@@ -172,15 +188,15 @@ TEST_F(RasterizeBlend2DStageFixture, ShapeFarOutsideTheRenderViewportIsCulledBut
     const RasterizeOutput &output = fresh_rasterize_runner.run(fresh_hierarchy_runner.last_handle(), 0, options);
 
     ASSERT_TRUE(output.images.contains(HierarchyId{leaf_abstract}));
-    const sk_sp<SkImage> &image = output.images.at(HierarchyId{leaf_abstract}).image;
-    ASSERT_TRUE(image != nullptr);
-    EXPECT_EQ(image->width(), 100);
-    EXPECT_EQ(image->height(), 100);
+    const BLImage &image = output.images.at(HierarchyId{leaf_abstract}).image;
+    ASSERT_FALSE(image.is_empty());
+    EXPECT_EQ(image.width(), 100);
+    EXPECT_EQ(image.height(), 100);
 
     const ViewLayerId terminal_layer = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
     const ViewLayerData *terminal_style = view_layers.get(terminal_layer);
     ASSERT_NE(terminal_style, nullptr);
-    EXPECT_TRUE(region_contains_color_near(image, 10, 80, 20, 90, to_sk_color(terminal_style->style.outline_color), 30));
+    EXPECT_TRUE(region_contains_color_near(image, 10, 80, 20, 90, terminal_style->style.outline_color, 30));
 }
 
 TEST_F(RasterizeBlend2DStageFixture, NullInputProducesEmptyOutput)

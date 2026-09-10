@@ -3,7 +3,7 @@
 #include "../pipeline_options.hpp"
 #include "../stages/compose_stage.hpp"
 #include "../stages/hierarchy_resolver_stage.hpp"
-#include "../stages/rasterize_stage.hpp"
+#include "../stages/rasterize_blend2d_stage.hpp"
 #include "../stages/viewport_cull_stage.hpp"
 #include "../tests/synchronous_stage_runner.hpp"
 #include "aes_scaling_fixture.hpp"
@@ -24,11 +24,11 @@ namespace
 {
     using HierarchyResolverRunner = SynchronousStageRunner<HierarchyResolverStage, ViewLayerSetHandle, HierarchyResolverOutput, ViewRenderOptions>;
     using ViewportCullRunner = SynchronousStageRunner<ViewportCullStage, HierarchyResolverStage::OutputHandle, HierarchyResolverOutput, ViewRenderOptions>;
-    using RasterizeRunner = SynchronousStageRunner<RasterizeStage, HierarchyResolverStage::OutputHandle, RasterizeOutput, ViewRenderOptions>;
-    using ComposeRunner = SynchronousStageRunner<ComposeStage, RasterizeStage::OutputHandle, RasterizedFrame, ViewRenderOptions>;
+    using RasterizeRunner = SynchronousStageRunner<RasterizeBlend2DStage, HierarchyResolverStage::OutputHandle, RasterizeOutput, ViewRenderOptions>;
+    using ComposeRunner = SynchronousStageRunner<ComposeStage, RasterizeOutputHandle, RasterizedFrame, ViewRenderOptions>;
 
     // Isolates ComposeStage's own cost from BM_WarmTier's combined number
-    // the same way BM_Rasterize isolates RasterizeStage's - every
+    // the same way BM_RasterizeBlend2D isolates RasterizeBlend2DStage's - every
     // (viewport, RasterizeOutput) pair is precomputed OUTSIDE the timed
     // loop (ViewportCull + Rasterize both run once per pan position ahead
     // of time; only their OUTPUT matters here, not their own cost), so
@@ -57,7 +57,7 @@ namespace
         const double scale = 1000.0 / static_cast<double>(std::max<int64_t>(window_w, 1));
 
         std::vector<ViewRenderOptions> warm_options_by_pan;
-        std::vector<RasterizeStage::OutputHandle> rasterized_by_pan;
+        std::vector<RasterizeOutputHandle> rasterized_by_pan;
         warm_options_by_pan.reserve(kPanSteps);
         rasterized_by_pan.reserve(kPanSteps);
 

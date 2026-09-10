@@ -359,7 +359,7 @@ FetchContent_MakeAvailable(lucide_font)
 # never valid once le_shell is copied to another machine; le_gui.cpp's
 # own runtime fallback looks for a file named exactly "lucide.ttf" right
 # next to the running executable when that compile-time path doesn't
-# exist (mirroring pipelines.cpp's default_typeface() fallback). Having a
+# exist (mirroring pipelines.cpp's default_blend2d_font_face() fallback). Having a
 # real copy sitting right next to le_shell in the build tree also means
 # Dockerfile.linux-release's own bundle stage can just `cp` it alongside
 # le_shell the same simple way it already does for every other bundled
@@ -466,12 +466,12 @@ else()
     # Linux Skia is built with skia_use_freetype=true (see
     # Dockerfile.linux-ci / rocky8-bootstrap.sh) - not statically bundled
     # into libskia.a the way the platform frameworks are on macOS, so the
-    # final consumer (render, below) needs to link it explicitly.
-    # fontconfig is deliberately NOT linked here (both Dockerfile.linux-ci
-    # and rocky8-bootstrap.sh now build Skia with skia_use_fontconfig=false
-    # too) - default_typeface() (render.cpp) uses a bundled font directory
-    # instead, not system fontconfig, so the app doesn't depend on the
-    # target machine having any fonts installed at all.
+    # final consumer needs to link it explicitly regardless of whether
+    # that consumer's own code ever exercises Skia's font machinery
+    # (le_tcl - the only remaining Skia consumer, PNG export via
+    # dump_png_cmd - doesn't). fontconfig is deliberately NOT linked here
+    # (both Dockerfile.linux-ci and rocky8-bootstrap.sh now build Skia
+    # with skia_use_fontconfig=false too).
     target_link_libraries(skia INTERFACE freetype)
 endif()
 
@@ -484,24 +484,28 @@ endif()
 # through the Cold tier and Warm stage 1 (ViewportCullStage, no Skia
 # dependency); reverted to STATIC here with the Warm tier's own
 # Rasterization/Compose stages, which do need a real compiled TU -
-# pipelines.cpp defines default_typeface() for the same reason the
-# pre-restart one did (see that file's own comment).
+# pipelines.cpp defines default_blend2d_font_face() for the same reason the
+# pre-restart module's own compiled TU existed (see that file's own
+# comment). No `skia` dependency at all anymore
+# (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md - the earlier Skia-based
+# RasterizeStage and its own Skia-based ComposeStage sibling are both
+# gone, RasterizeBlend2DStage/Blend2D-native ComposeStage are the only
+# Rasterize/Compose implementations now) - `le_tcl` (below) still links
+# `skia` directly, an unrelated, independent consumer for PNG export.
 add_library(pipelines STATIC src/pipelines/pipelines.cpp)
 target_include_directories(pipelines PUBLIC src)
 
-target_link_libraries(pipelines PUBLIC database view_style core skia blend2d::blend2d fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
+target_link_libraries(pipelines PUBLIC database view_style core blend2d::blend2d fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
 
-# LE_FONT_DIR: Linux's default_typeface() (pipelines.cpp) loads its default
-# text font from this bundled directory rather than system fontconfig, so
-# text labels still render on a locked-down target machine with no fonts
-# installed at all - see pipelines.cpp's own comment. Set unconditionally
-# (not just "if NOT APPLE") since default_blend2d_font_face()
-# (pipelines.cpp/blend2d_font.hpp) also needs it on every platform -
-# Blend2D has no font-manager abstraction to fall back on the way Skia's
-# CoreText path does on macOS, so it always loads one specific bundled
-# file from here directly.
+# LE_FONT_DIR: default_blend2d_font_face() (pipelines.cpp/blend2d_font.hpp)
+# loads its font from this bundled directory rather than system
+# fontconfig, so text labels still render on a locked-down target machine
+# with no fonts installed at all, on every platform - Blend2D has no
+# font-manager abstraction to fall back on the way Skia's CoreText path
+# does on macOS, so it always loads one specific bundled file from here
+# directly - see pipelines.cpp's own comment.
 set(LE_FONT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" CACHE PATH
-    "Directory of bundled fonts default_typeface()/default_blend2d_font_face() (pipelines.cpp) load from")
+    "Directory of bundled fonts default_blend2d_font_face() (pipelines.cpp) loads from")
 target_compile_definitions(pipelines PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
 
 # --- io: LEF/DEF file readers ---
@@ -622,11 +626,14 @@ if(SWIG_FOUND AND TCL_FOUND)
     )
     set_property(TARGET le_tcl PROPERTY SWIG_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/src/api ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl)
     target_include_directories(le_tcl PRIVATE src/api src/tcl ${TCL_INCLUDE_PATH})
-    # `skia` alongside `api` - api links pipelines (which owns Skia's own
-    # include path) PRIVATE, so it doesn't propagate this far; le_tcl_shim.cpp
-    # needs it directly now too (dump_png_cmd's own SkPngEncoder use, same
-    # reasoning pipelines.cpp's own direct Skia use has - skia is an
-    # INTERFACE library, just the include path, no separate binary to link).
+    # `skia` alongside `api` - `pipelines` (api's own dependency) has no
+    # Skia dependency at all anymore (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md -
+    # RasterizeBlend2DStage/Blend2D-native ComposeStage are the only
+    # Rasterize/Compose implementations now), so nothing propagates Skia's
+    # own include path this far; le_tcl_shim.cpp needs it directly, as the
+    # sole remaining Skia consumer (dump_png_cmd's own SkPngEncoder use for
+    # PNG export - skia is an INTERFACE library, just the include path, no
+    # separate binary to link).
     target_link_libraries(le_tcl PRIVATE api skia ${TCL_LIBRARY})
     # Hide this target's own copy of the vendored LEF parser's symbols
     # (everything under the LefDefParser:: namespace -
@@ -1014,7 +1021,6 @@ add_executable(pipelines_tests
     src/pipelines/tests/via_shapes_test.cpp
     src/pipelines/tests/view_render_pipeline_test.cpp
     src/pipelines/tests/viewport_cull_stage_test.cpp
-    src/pipelines/tests/rasterize_stage_test.cpp
     src/pipelines/tests/rasterize_blend2d_stage_test.cpp
     src/pipelines/tests/compose_stage_test.cpp
 )
@@ -1033,7 +1039,6 @@ add_executable(pipeline_benchmarks
     src/pipelines/benchmarks/layer_generation_benchmark.cpp
     src/pipelines/benchmarks/hierarchy_resolver_benchmark.cpp
     src/pipelines/benchmarks/viewport_cull_benchmark.cpp
-    src/pipelines/benchmarks/rasterize_benchmark.cpp
     src/pipelines/benchmarks/rasterize_blend2d_benchmark.cpp
     src/pipelines/benchmarks/compose_benchmark.cpp
     src/pipelines/benchmarks/warm_tier_benchmark.cpp

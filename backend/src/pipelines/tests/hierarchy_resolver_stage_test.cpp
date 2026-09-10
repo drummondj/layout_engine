@@ -312,14 +312,14 @@ TEST_F(HierarchyResolverStageFixture, RecomputesWhenHierarchyDepthChangesEvenIfM
 TEST_F(HierarchyResolverStageFixture, ShapesIndexQueryFindsOnlyOverlappingShapesOnTheRightLayer)
 {
     // LEAF's own TERMINAL shape sits at (1,1)-(2,2); its own OBSTRUCTION
-    // shape sits at (3,3)-(4,4) - both real per-shape RasterizeStage's
-    // own draw_view_shapes queries against ViewData::shapes_index for
-    // per-shape viewport culling (the gap ViewportCullStage's own doc
+    // shape sits at (3,3)-(4,4) - both real per-shape RasterizeBlend2DStage's
+    // own draw_view_shapes_blend2d queries against ViewData::shapes_index
+    // for per-shape viewport culling (the gap ViewportCullStage's own doc
     // comment names - it only culls placements, not shapes within one
     // node). Exercises the index directly rather than through a full
     // render, so a coordinate-space or off-by-one mistake in the query
-    // itself is caught independent of anything Skia's own clipping might
-    // otherwise paper over.
+    // itself is caught independent of anything the rasterizer's own
+    // clipping might otherwise paper over.
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{leaf_abstract}, 0));
     const ViewData &leaf_data = output.view_data.at(HierarchyId{leaf_abstract});
     ASSERT_NE(leaf_data.shapes_index, nullptr);

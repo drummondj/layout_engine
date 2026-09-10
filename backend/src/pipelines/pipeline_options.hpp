@@ -67,18 +67,21 @@ namespace le
         Rect viewport;
 
         /// @brief Warm tier's own pixels-per-dbu-unit scale, shared by
-        /// every node's own rasterization (RasterizeStage) so composing
-        /// them (ComposeStage) is a plain translate+rotate per placement,
-        /// never a resample - see RasterizeStage's own doc comment.
+        /// every node's own rasterization (RasterizeBlend2DStage) so
+        /// composing them (ComposeStage) is a plain translate+rotate per
+        /// placement, never a resample - see RasterizeBlend2DStage's own
+        /// doc comment.
         double scale = 1.0;
 
-        /// @brief Whether RasterizeStage draws with antialiasing. Default
-        /// false: RasterizeStage draws every individual rect/path/polygon
-        /// with its own Skia draw call (no batching), and antialiasing
-        /// each one is a real, measured cost at real geometry counts
-        /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) - off by default so a
-        /// caller opts into the slower, smoother path deliberately rather
-        /// than paying for it unknowingly.
+        /// @brief Whether the render antialiases. Compared in
+        /// RasterizeBlend2DStage::options_did_change so a live toggle
+        /// still forces a recompute, but currently unused by
+        /// draw_view_shapes_blend2d's own draw calls: Blend2D has exactly
+        /// one BLRenderingQuality value (BL_RENDERING_QUALITY_ANTIALIAS,
+        /// always on, rasterize_blend2d_stage.hpp's own comment), unlike
+        /// the earlier Skia-based RasterizeStage this field was
+        /// originally written for, which genuinely could and did disable
+        /// per-draw-call antialiasing.
         bool antialiasing_enabled = false;
 
         /// @brief Per-layer-name and per-purpose visibility toggles - a
@@ -86,10 +89,11 @@ namespace le
         /// and its own purpose entry (if any) say visible; an unset key
         /// in either map means visible (matches Scene::is_layer_name_visible/
         /// is_purpose_visible's own "unknown key -> visible" default, and
-        /// RasterizeStage's own is_view_layer_visible mirrors that same
-        /// logic exactly - see its own comment). Plain values, not a
-        /// shared_ptr (RasterizeStage's own ViewLayerSet content travels
-        /// via HierarchyResolverOutput::view_layers instead, echoed
+        /// draw_view_shapes_blend2d's own is_view_layer_visible mirrors
+        /// that same logic exactly - see its own comment). Plain values,
+        /// not a shared_ptr (RasterizeBlend2DStage's own ViewLayerSet
+        /// content travels via HierarchyResolverOutput::view_layers
+        /// instead, echoed
         /// forward through the make_edge chain - hierarchy_resolver_stage.hpp's
         /// own comment, not through this options struct): these two maps
         /// are small (at most one entry per real layer/purpose, never

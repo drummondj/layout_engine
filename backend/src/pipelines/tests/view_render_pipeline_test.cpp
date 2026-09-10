@@ -118,20 +118,3 @@ TEST_F(ViewRenderPipelineFixture, RunNullRootProducesEmptyFrame)
     ASSERT_NE(output.frame, nullptr);
     EXPECT_TRUE(output.frame->empty);
 }
-
-// Confirms the Blend2D-backed sibling (ViewRenderPipelineImpl<RasterizeBlend2DStage>,
-// view_render_pipeline.hpp's own doc comment) is wired correctly end-to-end
-// through the exact same graph shape/ComposeStage as the default Skia
-// pipeline - not just unit-testable via RasterizeBlend2DStage in
-// isolation (rasterize_blend2d_stage_test.cpp).
-TEST_F(ViewRenderPipelineFixture, Blend2DBackedPipelineProducesAFrameSizedToTheViewport)
-{
-    ViewRenderPipelineBlend2D blend2d_pipeline;
-    const ViewRenderPipelineBlend2D::WarmOutput output = blend2d_pipeline.run(&root, warm_options_for(1));
-
-    ASSERT_NE(output.frame, nullptr);
-    EXPECT_FALSE(output.frame->empty);
-    EXPECT_EQ(output.frame->buffer.width, 250); // 5000 dbu * scale 0.05
-    EXPECT_EQ(output.frame->buffer.height, 250);
-    EXPECT_NE(output.frame->buffer.data, nullptr);
-}
