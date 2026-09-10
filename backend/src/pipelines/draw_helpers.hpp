@@ -212,6 +212,28 @@ namespace le
     inline constexpr double kMinRulerMajorTickPixelSpacing = 40.0;
     inline constexpr double kMinRulerMinorTickPixelSpacing = 6.0;
 
+    // Background dbu grid (major/minor dot tiers + axis lines, UPDATES.md
+    // 5.1) and Abstract origin marker (UPDATES.md 5.4) - ported verbatim
+    // from pipelines.old/draw_helpers.hpp's own kMinGridDotPixelSpacing/
+    // kGridDotRadius/kMinorGridColor/kMajorGridColor/kAxisLineColor/
+    // kOriginMarkerColor/kOriginMarkerStrokeWidth/kOriginMarkerSizePx,
+    // same RGBA/sizes/spacing floor. Unlike the pre-restart version
+    // (recorded into an already-pixel-space picture with no ambient
+    // transform of its own), `RasterizeBlend2DStage`'s own per-node
+    // context already has a live dbu-to-pixel transform active by the
+    // time these draw - see draw_grid_blend2d/draw_origin_marker_blend2d
+    // (rasterize_blend2d_stage.hpp) for how every fixed on-screen size
+    // below is divided by `scale` before use, the same "1.0 / scale"
+    // convention this file's own kViaCrossStrokeWidth already documents.
+    inline constexpr double kMinGridDotPixelSpacing = 8.0;
+    inline constexpr double kGridDotRadius = 1.0;
+    inline constexpr Color kMinorGridColor = {128, 128, 128, 120};
+    inline constexpr Color kMajorGridColor = {255, 255, 255, 230};
+    inline constexpr Color kAxisLineColor = {255, 255, 255, 160};
+    inline constexpr Color kOriginMarkerColor = {255, 200, 0, 255};
+    inline constexpr double kOriginMarkerStrokeWidth = 2.0;
+    inline constexpr double kOriginMarkerSizePx = 16.0;
+
     /// @brief The largest-precision (smallest) power-of-ten micron
     /// spacing (..., 0.01, 0.1, 1, 10, 100, ...) whose on-screen pixel
     /// spacing is still >= kMinRulerMajorTickPixelSpacing, given

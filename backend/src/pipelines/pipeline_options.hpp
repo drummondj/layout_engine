@@ -243,5 +243,28 @@ namespace le
         /// doesn't need its own version here - it's driven by mouse
         /// position/mode, already covered by `mouse_version` above.
         std::uint64_t ruler_version = 0;
+
+        /// @brief Background dbu grid spacing (`LeHandle::
+        /// minor_grid_spacing()`/`major_grid_spacing()`) - drawn only for
+        /// `top_level` itself (the currently-displayed content, not any
+        /// nested placement's own composited image - pipelines.old's own
+        /// `BuildDesignPictureStage` drew this only for the Abstract/
+        /// Layout actually being viewed too, never per-instance) by
+        /// `RasterizeBlend2DStage`, not `ComposeStage` - this is Cold/
+        /// Warm-tier design-adjacent content (drawn through the same
+        /// per-node dbu-to-pixel transform real geometry uses), not
+        /// Hot-tier interactive chrome.
+        std::int64_t minor_grid_spacing_dbu = 5;
+        std::int64_t major_grid_spacing_dbu = 50;
+
+        /// @brief The current Abstract's own LEF `ORIGIN` point
+        /// (`AbstractData::origin`, defaulting to dbu (0,0) when unset -
+        /// `api.cpp`'s own `view_render_options_for` resolves this),
+        /// nullopt when `top_level` isn't an `AbstractId` at all (a
+        /// Layout view has no origin marker - matching pipelines.old's
+        /// own scope, which never drew one for `BuildLayoutPictureStage`
+        /// either). Drawn by `RasterizeBlend2DStage` alongside the grid
+        /// above, for the same "only for top_level itself" reason.
+        std::optional<Point> abstract_origin_dbu;
     };
 }

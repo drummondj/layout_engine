@@ -138,6 +138,108 @@ namespace le
         ctx.stroke_line(BLLine(bounds.x0, bounds.y1, bounds.x1, bounds.y0));
     }
 
+    /// @brief Draws the background dot grid (major/minor tiers) plus
+    /// solid axis lines at dbu (x=0)/(y=0) - UPDATES.md 5.1, ported from
+    /// pipelines.old/draw_helpers.hpp's own `draw_grid`. Only ever called
+    /// for `id == options.top_level` (`RasterizeBlend2DStage::compute()`'s
+    /// own call site) - drawing this per-node/per-placement too would
+    /// bake a misaligned, independently-scaled grid into every nested
+    /// child image, which then composites incorrectly once `ComposeStage`
+    /// blits it into its parent; the pre-restart version had the same
+    /// "top_level only" scope for the same reason (`BuildDesignPictureStage`,
+    /// never `BuildLayoutPictureStage`/an instance's own picture).
+    ///
+    /// Unlike the pre-restart version - recorded into an already-pixel-
+    /// space picture with no ambient transform of its own, so it needed
+    /// manual dbu-to-pixel math throughout - `ctx` here already has a
+    /// live dbu-to-pixel transform active (the same translate+scale+flip
+    /// `compute()` sets up before any real geometry draws), so every dot/
+    /// line below is drawn directly in dbu coordinates and left to that
+    /// transform; every *fixed on-screen size* (dot radius, axis-line
+    /// width isn't fixed but colors/style are unaffected either way) is
+    /// divided by `scale` first, the same "1.0 / scale" convention this
+    /// module's own `kViaCrossStrokeWidth` already uses, so it still
+    /// renders at a constant pixel size regardless of zoom.
+    ///
+    /// `visible_dbu` is the exact dbu-space rectangle `ctx`'s own image
+    /// covers (`options.viewport` for the top-level case) - unlike the
+    /// pre-restart version, which had to reconstruct this from
+    /// `pan`/`scale`/`viewport_width_px`/`viewport_height_px`, this stage
+    /// already has it on hand as `local_bbox`.
+    inline void draw_grid_blend2d(BLContext &ctx, const Rect &visible_dbu, double scale, int64_t minor_spacing, int64_t major_spacing)
+    {
+        if (scale <= 0.0)
+            return;
+
+        ctx.set_stroke_style(to_bl_color(kAxisLineColor));
+        if (visible_dbu.ll.x <= 0 && visible_dbu.ur.x >= 0)
+            ctx.stroke_line(BLLine(0.0, static_cast<double>(visible_dbu.ll.y), 0.0, static_cast<double>(visible_dbu.ur.y)));
+        if (visible_dbu.ll.y <= 0 && visible_dbu.ur.y >= 0)
+            ctx.stroke_line(BLLine(static_cast<double>(visible_dbu.ll.x), 0.0, static_cast<double>(visible_dbu.ur.x), 0.0));
+
+        if (minor_spacing <= 0 || major_spacing <= 0)
+            return;
+
+        // The first grid line at or above `min_value` on a lattice spaced
+        // `spacing` apart - std::ceil handles a negative min_value
+        // correctly too.
+        auto first_line = [](int64_t min_value, int64_t spacing)
+        { return spacing * static_cast<int64_t>(std::ceil(static_cast<double>(min_value) / static_cast<double>(spacing))); };
+
+        const double dot_radius = kGridDotRadius / scale;
+        const bool minor_visible = static_cast<double>(minor_spacing) * scale >= kMinGridDotPixelSpacing;
+
+        if (minor_visible)
+        {
+            ctx.set_fill_style(to_bl_color(kMinorGridColor));
+            for (int64_t x = first_line(visible_dbu.ll.x, minor_spacing); x <= visible_dbu.ur.x; x += minor_spacing)
+                for (int64_t y = first_line(visible_dbu.ll.y, minor_spacing); y <= visible_dbu.ur.y; y += minor_spacing)
+                {
+                    if (x % major_spacing == 0 && y % major_spacing == 0)
+                        continue; // drawn as a major dot below instead
+                    ctx.fill_circle(BLCircle(static_cast<double>(x), static_cast<double>(y), dot_radius));
+                }
+        }
+
+        if (static_cast<double>(major_spacing) * scale >= kMinGridDotPixelSpacing)
+        {
+            // Once zoomed out far enough that the minor tier itself is
+            // hidden, the major dots are the only grid left on screen -
+            // drawing them in the bolder kMajorGridColor at that point
+            // would visually claim there's still a finer tier being
+            // contrasted against, when there isn't; kMinorGridColor reads
+            // as "the finest grid currently visible" instead.
+            ctx.set_fill_style(to_bl_color(minor_visible ? kMajorGridColor : kMinorGridColor));
+            for (int64_t x = first_line(visible_dbu.ll.x, major_spacing); x <= visible_dbu.ur.x; x += major_spacing)
+                for (int64_t y = first_line(visible_dbu.ll.y, major_spacing); y <= visible_dbu.ur.y; y += major_spacing)
+                    ctx.fill_circle(BLCircle(static_cast<double>(x), static_cast<double>(y), dot_radius));
+        }
+    }
+
+    /// @brief Draws a fixed on-screen-size "+" cross at the Abstract's own
+    /// origin point (UPDATES.md 5.4) - not necessarily dbu (0,0); an
+    /// Abstract's origin is wherever its own LEF `ORIGIN` statement placed
+    /// it (`AbstractData::origin`). Fixed size regardless of `scale`, same
+    /// "marks a reference point, not geometry that should grow with zoom"
+    /// rationale as `kCursorBoxSizePx` - both the stroke width and the
+    /// marker's own half-size are divided by `scale` before drawing
+    /// through the ambient transform, same convention `draw_grid_blend2d`
+    /// above uses for its own dot radius.
+    inline void draw_origin_marker_blend2d(BLContext &ctx, Point origin_dbu, double scale)
+    {
+        if (scale <= 0.0)
+            return;
+
+        const double cx = static_cast<double>(origin_dbu.x);
+        const double cy = static_cast<double>(origin_dbu.y);
+        const double half = kOriginMarkerSizePx / scale;
+
+        ctx.set_stroke_style(to_bl_color(kOriginMarkerColor));
+        ctx.set_stroke_width(kOriginMarkerStrokeWidth / scale);
+        ctx.stroke_line(BLLine(cx - half, cy, cx + half, cy));
+        ctx.stroke_line(BLLine(cx, cy - half, cx, cy + half));
+    }
+
     /// @brief Cache key for `render_glyph_bitmap` below - a single ASCII
     /// character's own rendered ink depends only on which character it is,
     /// its own on-screen pixel size (`font_key` - the same already-rounded,
@@ -876,6 +978,18 @@ namespace le
                 ctx.scale(options.scale, -options.scale);
                 ctx.translate(static_cast<double>(-local_bbox.ll.x), static_cast<double>(-local_bbox.ll.y));
 
+                // Background grid + Abstract origin marker - only for
+                // top_level itself (see draw_grid_blend2d's own doc
+                // comment for why baking these into a nested placement's
+                // own image would be wrong), drawn first so real design
+                // geometry sits on top of it, not underneath.
+                if (id == options.top_level)
+                {
+                    draw_grid_blend2d(ctx, local_bbox, options.scale, options.minor_grid_spacing_dbu, options.major_grid_spacing_dbu);
+                    if (options.abstract_origin_dbu.has_value())
+                        draw_origin_marker_blend2d(ctx, *options.abstract_origin_dbu, options.scale);
+                }
+
                 NodePathOutlineCache &node_outline_cache = path_outline_cache_by_node_[id];
                 if (node_outline_cache.source != data.shapes)
                 {
@@ -904,15 +1018,31 @@ namespace le
 
         bool options_did_change(const ViewRenderOptions &last, const ViewRenderOptions &current) const override
         {
-            return last.top_level != current.top_level ||
-                   last.scale != current.scale ||
-                   last.viewport.ll.x != current.viewport.ll.x ||
-                   last.viewport.ll.y != current.viewport.ll.y ||
-                   last.viewport.ur.x != current.viewport.ur.x ||
-                   last.viewport.ur.y != current.viewport.ur.y ||
-                   last.antialiasing_enabled != current.antialiasing_enabled ||
-                   last.layer_name_visible != current.layer_name_visible ||
-                   last.purpose_visible != current.purpose_visible;
+            if (last.top_level != current.top_level ||
+                last.scale != current.scale ||
+                last.viewport.ll.x != current.viewport.ll.x ||
+                last.viewport.ll.y != current.viewport.ll.y ||
+                last.viewport.ur.x != current.viewport.ur.x ||
+                last.viewport.ur.y != current.viewport.ur.y ||
+                last.antialiasing_enabled != current.antialiasing_enabled ||
+                last.layer_name_visible != current.layer_name_visible ||
+                last.purpose_visible != current.purpose_visible ||
+                last.minor_grid_spacing_dbu != current.minor_grid_spacing_dbu ||
+                last.major_grid_spacing_dbu != current.major_grid_spacing_dbu)
+                return true;
+
+            // Point has no operator== in this codebase - field-by-field,
+            // same convention ComposeStage's own drag_rect_dbu comparison
+            // uses. Rarely actually differs independent of top_level
+            // (switching Abstracts already changes that), but cheap
+            // enough to compare directly rather than assume.
+            if (last.abstract_origin_dbu.has_value() != current.abstract_origin_dbu.has_value())
+                return true;
+            if (last.abstract_origin_dbu.has_value() &&
+                (last.abstract_origin_dbu->x != current.abstract_origin_dbu->x || last.abstract_origin_dbu->y != current.abstract_origin_dbu->y))
+                return true;
+
+            return false;
         }
 
     private:

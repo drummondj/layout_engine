@@ -170,6 +170,70 @@ namespace
         return false;
     }
 
+    // A major grid dot is drawn opaque near-white (see draw_helpers.hpp's
+    // own kMajorGridColor, {255,255,255,230}) - premultiplied, that's
+    // R==G==B==alpha (white's own RGB channels equal alpha exactly once
+    // multiplied through), a ratio of 1.0 regardless of how much of a
+    // pixel the dot's own small on-screen radius (kGridDotRadius, only
+    // ~1-2px across) actually covers - a dbu-integer lattice point
+    // always falls exactly on a pixel *corner* shared by four pixels,
+    // so no single pixel ever reaches the dot's own full nominal alpha,
+    // only a fraction of it. The >140 floor is comfortably above the
+    // minor grid dot's own analogous ratio (~0.5 - kMinorGridColor's
+    // RGB is roughly half its own alpha) and above background/edge
+    // antialiasing noise, while still well below the dot's typical
+    // partially-covered value (~160 at 2x zoom, confirmed empirically).
+    bool region_has_major_grid_pixel(const LePixelBuffer &buffer, int x0, int y0, int x1, int y1)
+    {
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+            {
+                const uint8_t *p = buffer.data + static_cast<size_t>(y) * static_cast<size_t>(buffer.row_bytes) + static_cast<size_t>(x) * 4;
+                if (p[0] > 140 && p[1] > 140 && p[2] > 140 && p[3] > 140)
+                    return true;
+            }
+        return false;
+    }
+
+    // A minor grid dot is drawn translucent gray (see draw_helpers.hpp's
+    // own kMinorGridColor, {128,128,128,120}) - premultiplied over a
+    // transparent background its own ink lands around (60,60,60,120),
+    // distinguishable from the major tier's own much brighter/more-opaque
+    // ink by both R and alpha.
+    bool region_has_minor_grid_pixel(const LePixelBuffer &buffer, int x0, int y0, int x1, int y1)
+    {
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+            {
+                const uint8_t *p = buffer.data + static_cast<size_t>(y) * static_cast<size_t>(buffer.row_bytes) + static_cast<size_t>(x) * 4;
+                if (p[0] > 30 && p[0] < 110 && p[1] > 30 && p[1] < 110 && p[2] > 30 && p[2] < 110 && p[3] > 70 && p[3] < 180)
+                    return true;
+            }
+        return false;
+    }
+
+    // The Abstract origin marker is drawn opaque amber (see
+    // draw_helpers.hpp's own kOriginMarkerColor, {255,200,0,255}) - a
+    // low blue channel like the major grid dot, but distinguished from
+    // it by G (~200, not ~255). The marker sits exactly on dbu (0,0),
+    // which is also where the axis lines are drawn (kAxisLineColor,
+    // translucent white) - the marker's own antialiased stroke edges
+    // partially blend with that underlying axis ink, so the blue
+    // channel here is loosened well past the marker's own "pure" value
+    // to tolerate that real, expected blending rather than requiring an
+    // exact color match.
+    bool region_has_origin_marker_pixel(const LePixelBuffer &buffer, int x0, int y0, int x1, int y1)
+    {
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+            {
+                const uint8_t *p = buffer.data + static_cast<size_t>(y) * static_cast<size_t>(buffer.row_bytes) + static_cast<size_t>(x) * 4;
+                if (p[0] > 200 && p[1] > 150 && p[1] < 230 && p[2] < 120 && p[3] > 200)
+                    return true;
+            }
+        return false;
+    }
+
     struct ApiFixture : public ::testing::Test
     {
         void SetUp() override { handle = le_create(); }
@@ -4677,6 +4741,64 @@ TEST_F(ApiFixture, LiveRulerGhostSegmentRendersAsATranslucentOrangeLineBeforeThe
     LePixelBuffer buffer = le_render_pixel_buffer(handle);
     ASSERT_NE(buffer.data, nullptr);
     EXPECT_TRUE(region_has_ruler_ghost_pixel(buffer, 66, 96, 74, 104));
+}
+
+TEST_F(ApiFixture, RenderPixelBufferShowsMajorGridDotsAndTheAbstractOriginMarker)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+
+    le_set_viewport_size(handle, 200, 200);
+
+    // Zoom scale 1.0 -> 2.0, anchored at the bottom-left image corner
+    // (same trick RenderPixelBufferShowsMinorGridDotsOnceZoomedInEnough
+    // uses) so dbu (0,0) stays at device (0,200). At this scale BOTH
+    // tiers clear kMinGridDotPixelSpacing (8): minor*scale=5*2=10,
+    // major*scale=50*2=100 - so the major-spacing dots really do render
+    // in kMajorGridColor (draw_grid_blend2d falls back to
+    // kMinorGridColor for "major" dots only when the minor tier itself
+    // isn't visible, which isn't the case here).
+    le_zoom(handle, 1.0, 0, 200);
+
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+
+    // dbu (50,50), a major-spacing lattice point, off both axes and
+    // well clear of PIN A's own geometry (testcell.lef's PIN A rect is
+    // at (2000,2000)-(8000,8000) dbu) - device (100, 200-100) = (100,100),
+    // exactly on a pixel corner shared by (99,99)/(100,99)/(99,100)/
+    // (100,100) - sampling all four is what actually catches the dot's
+    // own (necessarily partial-coverage) ink.
+    EXPECT_TRUE(region_has_major_grid_pixel(buffer, 99, 99, 100, 100));
+
+    // testcell.lef declares no LEF ORIGIN statement, so the marker sits
+    // at dbu (0,0) - device (0,200), the viewport's own bottom-left
+    // corner. Its own fixed 16px size (kOriginMarkerSizePx) means the
+    // vertical stroke (dbu x=0, y in [-16,+16]) extends up to device
+    // y=200-(-16)=216, well past this 200px-tall buffer - sampling the
+    // in-bounds tail of it (y:185-199, near x=0) still reliably catches
+    // real marker ink without needing the out-of-bounds portion.
+    EXPECT_TRUE(region_has_origin_marker_pixel(buffer, 0, 185, 3, 199));
+}
+
+TEST_F(ApiFixture, RenderPixelBufferShowsMinorGridDotsOnceZoomedInEnough)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+
+    le_set_viewport_size(handle, 200, 200);
+    // scale 1.0 -> 2.0 ("anchor at the bottom-left image corner" trick,
+    // load_two_shapes_at_known_scale's own comment) - minor*scale=5*2=10
+    // >= 8, now visible.
+    le_zoom(handle, 1.0, 0, 200);
+
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+
+    // dbu (5,5) - a minor-only lattice point (not a multiple of the
+    // major spacing, 50), off both axes, clear of PIN A's own geometry -
+    // device (5*2, 200-5*2) = (10,190).
+    EXPECT_TRUE(region_has_minor_grid_pixel(buffer, 8, 188, 12, 192));
 }
 
 TEST_F(ApiFixture, ArmMoveWithEmptySelectionOrOutsideEditModeIsANoOp)

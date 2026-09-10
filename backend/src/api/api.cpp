@@ -212,6 +212,12 @@ namespace
             options.ruler_ghost_point_dbu = handle->ruler_next_point(handle->ruler_free_form());
         }
 
+        options.minor_grid_spacing_dbu = handle->minor_grid_spacing();
+        options.major_grid_spacing_dbu = handle->major_grid_spacing();
+        if (const le::AbstractId *abstract_id = std::get_if<le::AbstractId>(&options.top_level))
+            if (const le::AbstractData *abstract = handle->root.get_abstract(*abstract_id))
+                options.abstract_origin_dbu = abstract->origin.value_or(le::Point{});
+
         return options;
     }
 
