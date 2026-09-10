@@ -103,6 +103,24 @@ namespace
             selected);
     }
 
+    // Database units per micron for the handle's own (singleton)
+    // Technology - every ruler distance/tick-spacing computation
+    // (ComposeStage::draw_ruler_overlay) works in real microns, not raw
+    // dbu. 0.0 (rather than std::optional) means "unavailable" (no
+    // Technology read yet, or a non-positive value) - matches
+    // ViewRenderOptions::ruler_dbu_per_um's own "<=0 means skip ruler
+    // drawing entirely" convention.
+    double technology_dbu_per_um(const le::Root &root)
+    {
+        const auto technology_ids = root.get_technology_ids();
+        if (technology_ids.empty())
+            return 0.0;
+        const le::TechnologyData *technology = root.get_technology(technology_ids.front());
+        if (!technology || technology->database_units_microns <= 0.0)
+            return 0.0;
+        return technology->database_units_microns;
+    }
+
     // The SelectionRef a hover hit's own shape_id belongs to (LeHandle::
     // HoverTarget::origin) - a Terminal-port Shape resolves to its owning
     // Terminal (not the TerminalPortId itself - SelectionRef's own
@@ -174,6 +192,24 @@ namespace
         {
             options.move_ghost_pieces_dbu = handle->move().moving_geometry;
             options.move_ghost_offset_dbu = *delta;
+        }
+
+        options.ruler_version = handle->ruler_version();
+        options.ruler_dbu_per_um = technology_dbu_per_um(handle->root);
+        options.ruler_label_size_px = handle->ruler_label_size_px();
+        options.ruler_polylines_dbu.reserve(handle->rulers().size());
+        for (const LeHandle::Ruler &ruler : handle->rulers())
+            options.ruler_polylines_dbu.push_back(ruler.points);
+
+        // The live ghost segment - only meaningful in Ruler mode, only
+        // ever extends the *last* ruler if it exists, isn't finished, and
+        // already has a committed point (LeHandle::ruler_next_point's own
+        // "the last entry is the active ruler" invariant - mirrors
+        // pipelines.old's own MouseOverlayStage gating exactly).
+        if (handle->mode() == LeHandle::Mode::RULER && !handle->rulers().empty() &&
+            !handle->rulers().back().finished && !handle->rulers().back().points.empty())
+        {
+            options.ruler_ghost_point_dbu = handle->ruler_next_point(handle->ruler_free_form());
         }
 
         return options;

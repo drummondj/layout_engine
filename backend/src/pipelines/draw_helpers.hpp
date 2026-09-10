@@ -6,6 +6,7 @@
 #include <blend2d/blend2d.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 /// @brief Style constants and free drawing helpers shared across the
@@ -194,6 +195,38 @@ namespace le
     inline constexpr double kMoveGhostStrokeWidth = 2.0;
     inline constexpr double kMoveGhostDashOnPx = 6.0;
     inline constexpr double kMoveGhostDashOffPx = 4.0;
+
+    // Ruler (UPDATES.md item 13) - orange line/ticks/labels, a translucent
+    // "ghost" variant for the not-yet-committed live segment - all ported
+    // verbatim from pipelines.old/draw_helpers.hpp's own kRulerColor/
+    // kRulerGhostColor/kRulerStrokeWidth/kRulerPointRadius/
+    // kRulerMajorTickLengthPx/kRulerMinorTickLengthPx/
+    // kMinRulerMajorTickPixelSpacing/kMinRulerMinorTickPixelSpacing, same
+    // RGBA/widths/spacings.
+    inline constexpr Color kRulerColor = {255, 140, 0, 255};
+    inline constexpr Color kRulerGhostColor = {255, 140, 0, 140};
+    inline constexpr double kRulerStrokeWidth = 1.5;
+    inline constexpr double kRulerPointRadius = 3.0;
+    inline constexpr double kRulerMajorTickLengthPx = 8.0;
+    inline constexpr double kRulerMinorTickLengthPx = 4.0;
+    inline constexpr double kMinRulerMajorTickPixelSpacing = 40.0;
+    inline constexpr double kMinRulerMinorTickPixelSpacing = 6.0;
+
+    /// @brief The largest-precision (smallest) power-of-ten micron
+    /// spacing (..., 0.01, 0.1, 1, 10, 100, ...) whose on-screen pixel
+    /// spacing is still >= kMinRulerMajorTickPixelSpacing, given
+    /// `pixels_per_um` (`scale * dbu_per_um`) - ported verbatim from
+    /// pipelines.old/draw_helpers.hpp's own ruler_major_tick_spacing_um
+    /// (pure math, no Skia dependency to narrow). Minor spacing is
+    /// always exactly this / 10 (UPDATES.md item 13's own "ten minor
+    /// ticks for every major tick").
+    inline double ruler_major_tick_spacing_um(double pixels_per_um)
+    {
+        if (pixels_per_um <= 0.0)
+            return 1.0;
+        const double min_spacing_um = kMinRulerMajorTickPixelSpacing / pixels_per_um;
+        return std::pow(10.0, std::ceil(std::log10(min_spacing_um)));
+    }
 
     /// @brief Strokes `piece`'s own geometry (already mapped to device-
     /// pixel space by the caller's own `to_pixel` - see `ComposeStage`'s

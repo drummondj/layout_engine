@@ -135,6 +135,41 @@ namespace
         return false;
     }
 
+    // A committed ruler segment is drawn pure opaque orange (see
+    // draw_helpers.hpp's own kRulerColor) - distinct from every other
+    // overlay color (red cursor, yellow hover, white selection,
+    // translucent-white Move ghost) by hue alone, so "orange and opaque"
+    // reliably detects it without depending on exact stroke
+    // antialiasing.
+    bool region_has_ruler_pixel(const LePixelBuffer &buffer, int x0, int y0, int x1, int y1)
+    {
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+            {
+                const uint8_t *p = buffer.data + static_cast<size_t>(y) * static_cast<size_t>(buffer.row_bytes) + static_cast<size_t>(x) * 4;
+                if (p[0] > 200 && p[1] > 90 && p[1] < 190 && p[2] < 60 && p[3] > 200)
+                    return true;
+            }
+        return false;
+    }
+
+    // The live, not-yet-committed ruler ghost segment is drawn translucent
+    // orange (see draw_helpers.hpp's own kRulerGhostColor, alpha 140/255) -
+    // premultiplied over a transparent background its own ink lands
+    // around (140,77,0,140), distinguishable from the fully-opaque
+    // committed-segment color above by alpha alone.
+    bool region_has_ruler_ghost_pixel(const LePixelBuffer &buffer, int x0, int y0, int x1, int y1)
+    {
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+            {
+                const uint8_t *p = buffer.data + static_cast<size_t>(y) * static_cast<size_t>(buffer.row_bytes) + static_cast<size_t>(x) * 4;
+                if (p[0] > 90 && p[1] > 30 && p[1] < 150 && p[2] < 60 && p[3] > 60 && p[3] < 200)
+                    return true;
+            }
+        return false;
+    }
+
     struct ApiFixture : public ::testing::Test
     {
         void SetUp() override { handle = le_create(); }
@@ -4582,6 +4617,66 @@ TEST_F(ApiFixture, ArmedMoveRendersADashedTranslucentGhostAtTheOffsetPositionBef
     const LeRectUm rect = le_shape_rect_at(handle, shape_id, 0);
     EXPECT_DOUBLE_EQ(rect.ll_x_um, 0.1);
     EXPECT_DOUBLE_EQ(rect.ur_x_um, 0.3);
+}
+
+TEST_F(ApiFixture, CommittedRulerSegmentRendersAsAnOpaqueOrangeLine)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+
+    // scale 0.1 (10 dbu/px), pan (0,0) - same recipe as the Move ghost
+    // test above.
+    le_set_viewport_size(handle, 200, 200);
+    le_zoom(handle, -0.9, 0, 200);
+
+    le_set_mode(handle, LE_MODE_RULER);
+
+    // dbu (200,1000) [device (20,100)] to dbu (1200,1000) [device
+    // (120,100)] - a horizontal 1000-dbu (1 um, DATABASE MICRONS 1000)
+    // segment, both endpoints already multiples of the default 5-dbu
+    // minor grid spacing so snapping doesn't move them.
+    le_set_mouse_position(handle, 20, 100);
+    le_mouse_down(handle, 20, 100);
+    le_mouse_up(handle, 20, 100);
+    ASSERT_EQ(le_ruler_count(handle), 1);
+
+    le_set_mouse_position(handle, 120, 100);
+    le_mouse_down(handle, 120, 100);
+    le_mouse_up(handle, 120, 100);
+    ASSERT_EQ(le_ruler_point_count(handle, 0), 2);
+
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+
+    // The segment's own midpoint, device (70,100) - well clear of either
+    // endpoint's own point marker or tick/label chrome, so this can only
+    // be catching the line itself.
+    EXPECT_TRUE(region_has_ruler_pixel(buffer, 66, 96, 74, 104));
+}
+
+TEST_F(ApiFixture, LiveRulerGhostSegmentRendersAsATranslucentOrangeLineBeforeTheNextPointCommits)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+
+    le_set_viewport_size(handle, 200, 200);
+    le_zoom(handle, -0.9, 0, 200);
+
+    le_set_mode(handle, LE_MODE_RULER);
+
+    le_set_mouse_position(handle, 20, 100); // dbu (200,1000)
+    le_mouse_down(handle, 20, 100);
+    le_mouse_up(handle, 20, 100);
+    ASSERT_EQ(le_ruler_count(handle), 1);
+
+    // Move the mouse toward dbu (1200,1000) [device (120,100)] *without*
+    // clicking - updates the live ghost segment but commits nothing.
+    le_set_mouse_position(handle, 120, 100);
+    ASSERT_EQ(le_ruler_point_count(handle, 0), 1); // still just the one committed point
+
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_ruler_ghost_pixel(buffer, 66, 96, 74, 104));
 }
 
 TEST_F(ApiFixture, ArmMoveWithEmptySelectionOrOutsideEditModeIsANoOp)

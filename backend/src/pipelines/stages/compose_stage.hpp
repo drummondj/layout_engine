@@ -5,9 +5,12 @@
 #include "../rasterize_output.hpp"
 #include "../tbb_core.hpp"
 #include "hierarchy_resolver_stage.hpp"
+#include "rasterize_blend2d_stage.hpp"
 
 #include <blend2d/blend2d.h>
+#include <fmt/format.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -132,6 +135,7 @@ namespace le
             draw_selection_overlay(ctx, options, height);
             draw_hover_overlay(ctx, options, height);
             draw_move_ghost_overlay(ctx, options, height);
+            draw_ruler_overlay(ctx, options, height);
             draw_cursor_overlay(ctx, options, height);
 
             ctx.end();
@@ -210,7 +214,10 @@ namespace le
             if (last.selection_version != current.selection_version)
                 return true;
 
-            return last.mouse_version != current.mouse_version;
+            if (last.mouse_version != current.mouse_version)
+                return true;
+
+            return last.ruler_version != current.ruler_version;
         }
 
     private:
@@ -370,6 +377,209 @@ namespace le
             ctx.set_stroke_style(to_bl_color(kCursorBoxColor));
             ctx.set_stroke_width(kCursorBoxStrokeWidth);
             ctx.stroke_rect(rect);
+        }
+
+        /// @brief Draws one ruler segment (UPDATES.md item 13): the line
+        /// itself, a point marker at each end (`p1`'s only if not a ghost -
+        /// the ghost's own leading end is already marked by
+        /// `draw_cursor_overlay`'s own snap box), dynamic major/minor tick
+        /// marks measured relative to the segment's own start (tape-
+        /// measure semantics, not the absolute background grid), and the
+        /// segment's own point-to-point distance label near `p1` - ported
+        /// term-for-term from pipelines.old/draw_helpers.hpp's own
+        /// draw_ruler_segment. Perpendicular direction is computed in
+        /// *pixel* space so tick length/spacing reads consistently on
+        /// screen regardless of the segment's own angle - a free-form
+        /// (non-orthogonal) segment gets the exact same treatment as an
+        /// orthogonal one, no special-casing needed. No-op if the segment
+        /// is degenerate (zero on-screen length).
+        ///
+        /// Every label (tick values, this segment's own distance, and -
+        /// via a separate call from draw_ruler_overlay below - a ruler's
+        /// own running total) always draws in solid `kRulerColor`,
+        /// regardless of `is_ghost` - only the line/points/ticks
+        /// themselves switch to the translucent `kRulerGhostColor` for
+        /// the live segment, matching the pre-restart version's own
+        /// behavior exactly (its own draw_ruler_label never took an
+        /// is_ghost parameter at all).
+        template <typename ToPixel>
+        void draw_ruler_segment(
+            BLContext &ctx, const ToPixel &to_pixel, double dbu_per_um, Point p0_dbu, Point p1_dbu, bool is_ghost,
+            const MonospaceFontEntry &font_entry, int font_key)
+        {
+            const BLPoint p0_px = to_pixel(p0_dbu);
+            const BLPoint p1_px = to_pixel(p1_dbu);
+
+            const double seg_dx = p1_px.x - p0_px.x;
+            const double seg_dy = p1_px.y - p0_px.y;
+            const double seg_len = std::sqrt(seg_dx * seg_dx + seg_dy * seg_dy);
+            if (seg_len <= 0.0)
+                return;
+            const double ux = seg_dx / seg_len;
+            const double uy = seg_dy / seg_len;
+            const double perp_x = -uy;
+            const double perp_y = ux;
+
+            const BLRgba32 line_color = to_bl_color(is_ghost ? kRulerGhostColor : kRulerColor);
+
+            ctx.set_stroke_style(line_color);
+            ctx.set_stroke_width(kRulerStrokeWidth);
+            ctx.stroke_line(BLLine(p0_px.x, p0_px.y, p1_px.x, p1_px.y));
+
+            ctx.set_fill_style(line_color);
+            ctx.fill_circle(BLCircle(p0_px.x, p0_px.y, kRulerPointRadius));
+            if (!is_ghost)
+                ctx.fill_circle(BLCircle(p1_px.x, p1_px.y, kRulerPointRadius));
+
+            const double dx_dbu = static_cast<double>(p1_dbu.x - p0_dbu.x);
+            const double dy_dbu = static_cast<double>(p1_dbu.y - p0_dbu.y);
+            const double length_um = std::sqrt(dx_dbu * dx_dbu + dy_dbu * dy_dbu) / dbu_per_um;
+
+            auto draw_label = [&](BLPoint anchor_px, double offset_px, const std::string &text)
+            {
+                if (!font_entry.font.is_valid() || font_entry.cell_width <= 0.0 || text.empty())
+                    return;
+                const double text_width = font_entry.cell_width * static_cast<double>(text.size());
+                const double x0 = perp_x < 0.0 ? -text_width : 0.0;
+                const BLPoint origin(anchor_px.x + perp_x * offset_px + x0, anchor_px.y + perp_y * offset_px);
+                draw_monospace_label_blend2d(ctx, font_entry, font_key, glyph_bitmap_cache_, text, to_bl_color(kRulerColor), origin);
+            };
+
+            const double pixels_per_um = seg_len / (length_um > 0.0 ? length_um : 1.0);
+            const double major_um = ruler_major_tick_spacing_um(pixels_per_um);
+            const double minor_um = major_um / 10.0;
+            const bool major_visible = major_um * pixels_per_um >= kMinRulerMajorTickPixelSpacing;
+            const bool minor_visible = minor_um * pixels_per_um >= kMinRulerMinorTickPixelSpacing;
+
+            if (minor_um > 0.0 && length_um > 0.0)
+            {
+                const int64_t max_k = static_cast<int64_t>(std::floor(length_um / minor_um));
+                for (int64_t k = 1; k <= max_k; ++k)
+                {
+                    const bool is_major = (k % 10 == 0);
+                    if (is_major ? !major_visible : !minor_visible)
+                        continue;
+
+                    const double t = (static_cast<double>(k) * minor_um) / length_um;
+                    const BLPoint tick_center(p0_px.x + t * seg_dx, p0_px.y + t * seg_dy);
+                    const double half_len = (is_major ? kRulerMajorTickLengthPx : kRulerMinorTickLengthPx) / 2.0;
+
+                    ctx.set_stroke_style(line_color);
+                    ctx.set_stroke_width(kRulerStrokeWidth);
+                    ctx.stroke_line(BLLine(
+                        tick_center.x + perp_x * half_len, tick_center.y + perp_y * half_len,
+                        tick_center.x - perp_x * half_len, tick_center.y - perp_y * half_len));
+
+                    if (is_major)
+                    {
+                        const int decimals = std::max(0, -static_cast<int>(std::floor(std::log10(minor_um))));
+                        draw_label(tick_center, half_len + 4.0, fmt::format("{:.{}f}", static_cast<double>(k) * minor_um, decimals));
+                    }
+                }
+            }
+
+            draw_label(p1_px, kRulerMajorTickLengthPx, fmt::format("{:.3f} um", length_um));
+        }
+
+        /// @brief Draws every ruler (`ViewRenderOptions::ruler_polylines_dbu`)
+        /// plus the live, not-yet-committed segment
+        /// (`ruler_ghost_point_dbu`) - a no-op if `ruler_dbu_per_um` isn't
+        /// available (no Technology yet). Ported from pipelines.old's own
+        /// `draw_ruler_polyline` (each committed polyline, plus - once it
+        /// has 2+ points - a "total: " running-length label at its own
+        /// last point, offset to the opposite side from that last
+        /// segment's own distance label so the two don't overlap) and
+        /// `MouseOverlayStage`'s own live-ghost-segment gating (only the
+        /// *last* polyline can have an active ghost extending it, matching
+        /// `LeHandle::ruler_next_point`'s own "the last entry is the
+        /// active ruler" invariant).
+        void draw_ruler_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
+        {
+            if (options.ruler_dbu_per_um <= 0.0)
+                return;
+
+            const auto to_pixel = [&](Point p)
+            {
+                return BLPoint(
+                    static_cast<double>(p.x - options.viewport.ll.x) * options.scale,
+                    static_cast<double>(pixel_height) - static_cast<double>(p.y - options.viewport.ll.y) * options.scale);
+            };
+
+            const BLFontFace &font_face = default_blend2d_font_face();
+            const int font_key = std::max(1, static_cast<int>(std::lround(options.ruler_label_size_px)));
+            auto font_it = monospace_font_cache_.find(font_key);
+            if (font_it == monospace_font_cache_.end())
+            {
+                MonospaceFontEntry entry;
+                if (font_face.is_valid())
+                {
+                    entry.font.create_from_face(font_face, static_cast<float>(font_key));
+                    BLGlyphBuffer gb;
+                    gb.set_utf8_text("0", 1);
+                    entry.font.shape(gb);
+                    BLTextMetrics metrics;
+                    entry.font.get_text_metrics(gb, metrics);
+                    entry.cell_width = metrics.advance.x;
+                }
+                font_it = monospace_font_cache_.emplace(font_key, std::move(entry)).first;
+            }
+            const MonospaceFontEntry &font_entry = font_it->second;
+
+            for (const std::vector<Point> &polyline : options.ruler_polylines_dbu)
+            {
+                if (polyline.size() < 2)
+                    continue;
+
+                double total_um = 0.0;
+                for (std::size_t i = 0; i + 1 < polyline.size(); ++i)
+                {
+                    const double dx = static_cast<double>(polyline[i + 1].x - polyline[i].x);
+                    const double dy = static_cast<double>(polyline[i + 1].y - polyline[i].y);
+                    total_um += std::sqrt(dx * dx + dy * dy) / options.ruler_dbu_per_um;
+                }
+
+                for (std::size_t i = 0; i + 1 < polyline.size(); ++i)
+                    draw_ruler_segment(ctx, to_pixel, options.ruler_dbu_per_um, polyline[i], polyline[i + 1], /*is_ghost=*/false, font_entry, font_key);
+
+                const Point &last = polyline.back();
+                const Point &second_last = polyline[polyline.size() - 2];
+                const BLPoint last_px = to_pixel(last);
+
+                const double seg_dx = static_cast<double>(last.x - second_last.x);
+                const double seg_dy = static_cast<double>(last.y - second_last.y);
+                const double seg_len = std::sqrt(seg_dx * seg_dx + seg_dy * seg_dy);
+                const double perp_x = seg_len > 0.0 ? -(seg_dy / seg_len) : 0.0;
+                const double perp_y = seg_len > 0.0 ? (seg_dx / seg_len) : 1.0;
+
+                // Opposite side from the last segment's own point-to-point
+                // distance label (drawn inside draw_ruler_segment, offset
+                // along +perp) - two labels sharing the same side and a
+                // small offset gap can overlap once text width is
+                // accounted for; opposite sides never compete for the
+                // same space.
+                if (font_entry.font.is_valid() && font_entry.cell_width > 0.0)
+                {
+                    const std::string text = fmt::format("total: {:.3f} um", total_um);
+                    const double text_width = font_entry.cell_width * static_cast<double>(text.size());
+                    const double x0 = (-perp_x) < 0.0 ? -text_width : 0.0;
+                    const BLPoint origin(
+                        last_px.x + (-perp_x) * kRulerMajorTickLengthPx + x0,
+                        last_px.y + (-perp_y) * kRulerMajorTickLengthPx);
+                    draw_monospace_label_blend2d(ctx, font_entry, font_key, glyph_bitmap_cache_, text, to_bl_color(kRulerColor), origin);
+                }
+            }
+
+            // The live ghost segment - only ever extends the *last*
+            // polyline's own last point (LeHandle::ruler_next_point's own
+            // "the last entry is the active ruler" invariant); api.cpp
+            // only ever populates ruler_ghost_point_dbu when that
+            // invariant holds, but this stays defensive rather than
+            // assuming a non-empty options.ruler_polylines_dbu.
+            if (options.ruler_ghost_point_dbu.has_value() && !options.ruler_polylines_dbu.empty() && !options.ruler_polylines_dbu.back().empty())
+            {
+                const Point &from = options.ruler_polylines_dbu.back().back();
+                draw_ruler_segment(ctx, to_pixel, options.ruler_dbu_per_um, from, *options.ruler_ghost_point_dbu, /*is_ghost=*/true, font_entry, font_key);
+            }
         }
 
         /// @brief Draws `own`'s own image onto `ctx` (already at
@@ -557,5 +767,18 @@ namespace le
                 inner.m20 * outer.m00 + inner.m21 * outer.m10 + outer.m20,
                 inner.m20 * outer.m01 + inner.m21 * outer.m11 + outer.m21);
         }
+
+        // Ruler-label glyph rendering (draw_ruler_overlay/draw_ruler_segment
+        // above) reuses RasterizeBlend2DStage's own monospace-glyph-bitmap-
+        // cache machinery (rasterize_blend2d_stage.hpp) - a separate
+        // instance here, not shared with any RasterizeBlend2DStage in the
+        // same pipeline, same "own private cache, not shared across stage
+        // types" convention that stage's own path_outline_cache_by_node_
+        // already uses. Bounded the same way that stage's own caches are
+        // (GlyphBitmapCacheKey's own doc comment): ruler_label_size_px is
+        // one user-wide setting, not per-shape variable, so this adds at
+        // most a small, fixed handful of extra distinct font sizes.
+        std::unordered_map<int, MonospaceFontEntry> monospace_font_cache_;
+        std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> glyph_bitmap_cache_;
     };
 }

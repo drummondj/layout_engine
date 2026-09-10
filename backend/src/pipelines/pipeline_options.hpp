@@ -200,5 +200,48 @@ namespace le
         /// traces the exact geometry Move would actually commit (not a
         /// pixel-space translation of the already-projected outline).
         Point move_ghost_offset_dbu;
+
+        /// @brief Every ruler's own committed dbu-space points
+        /// (`LeHandle::rulers()`, one entry per `Ruler` - `Ruler::finished`
+        /// itself isn't carried across, since a finished and still-active
+        /// ruler draw identically, pipelines.old's own `draw_ruler_polyline`
+        /// doc comment). A polyline with fewer than 2 points draws
+        /// nothing (no segment yet) - `ComposeStage` doesn't special-case
+        /// this, the drawing loop just naturally has nothing to iterate.
+        std::vector<std::vector<Point>> ruler_polylines_dbu;
+
+        /// @brief The live, not-yet-committed ruler segment's own end
+        /// point (`LeHandle::ruler_next_point()`) - nullopt unless
+        /// `LeHandle::mode() == Mode::RULER` *and* there's an active
+        /// (unfinished, non-empty) ruler to extend, matching
+        /// pipelines.old's own `MouseOverlayStage` gating exactly. The
+        /// segment's own start point is always the last entry's own last
+        /// point in `ruler_polylines_dbu` - no separate field needed,
+        /// since a ghost only ever exists when that polyline is real and
+        /// non-empty.
+        std::optional<Point> ruler_ghost_point_dbu;
+
+        /// @brief Database units per micron (`TechnologyData::
+        /// database_units_microns`) - every ruler distance/tick-spacing
+        /// computation works in real microns, not raw dbu, so this is
+        /// needed to convert. 0 (rather than `std::optional`) means
+        /// "unavailable" (no Technology yet, or a non-positive value) -
+        /// `ComposeStage` treats <= 0 as "skip ruler drawing entirely",
+        /// the same guard pipelines.old's own `draw_ruler_segment` used
+        /// its `std::optional<double>` parameter for.
+        double ruler_dbu_per_um = 0.0;
+
+        /// @brief On-screen text size (px) for every ruler label -
+        /// `LeHandle::ruler_label_size_px()`, runtime-configurable
+        /// (`le_ruler_label_size`/`le_set_ruler_label_size`).
+        double ruler_label_size_px = 11.0;
+
+        /// @brief `LeHandle::ruler_version()` at the time this snapshot
+        /// was taken - covers `ruler_polylines_dbu` (bumped only on a
+        /// real ruler change: a point added, a ruler finished, rulers
+        /// cleared - never on mouse move alone). The live ghost segment
+        /// doesn't need its own version here - it's driven by mouse
+        /// position/mode, already covered by `mouse_version` above.
+        std::uint64_t ruler_version = 0;
     };
 }
