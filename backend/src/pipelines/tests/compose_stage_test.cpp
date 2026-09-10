@@ -51,10 +51,19 @@ namespace
             root.create_shape(ShapeData{.layout = top_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{200, 200}}}}});
             root.create_placement(PlacementData{.layout = top_layout, .name = "block0", .reference_design = block_design, .placement_status = PlacementStatus::PLACED, .location = Point{30, 30}, .orientation = Orientation::N});
 
-            const ViewRenderOptions options{
+            ViewRenderOptions options{
                 .root = &root, .root_mutation_version = root.mutation_version(), .top_level = HierarchyId{top_layout},
                 .hierarchy_depth = 2, .viewport = Rect{.ll = Point{0, 0}, .ur = Point{200, 200}}, .scale = kScale,
             };
+            // This fixture's own coordinates ((20,20)/(30,30)) put BLOCK's
+            // own always-drawn "leaf0" placement-name label directly on
+            // top of the pixel ComposesA90DegreeRotatedChildAtTheCorrectlyTransformedOffset
+            // samples to confirm the TERMINAL rect's own rotation (a
+            // coincidence of both deriving from the same placement
+            // coordinates, not a real interaction) - hidden here since
+            // this whole fixture is about geometry rotation, not label
+            // rendering, which no test in this file otherwise exercises.
+            options.purpose_visible[ViewLayerPurpose::PLACEMENT_NAME] = false;
 
             hierarchy_resolver_runner.run(view_layers_handle, 0, options);
             rasterize_runner.run(hierarchy_resolver_runner.last_handle(), 0, options);

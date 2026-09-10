@@ -77,13 +77,20 @@ namespace le
     /// (ViewRenderOptions::scale's own doc comment, RasterizeStage's own
     /// doc comment): a placement whose own orientation isn't N bakes that
     /// rotation/reflection into the composited pixels of its own child
-    /// image, including any text labels drawn within it by RasterizeStage
-    /// - a rotated placement's own labels render rotated/mirrored too,
-    /// unlike the pre-restart SkPicture-based design (UprightTextCanvas,
-    /// git history), which corrected this at replay time regardless of
-    /// nesting. Deferred, not fixed here - a real trade-off of this
-    /// design choice to weigh in the planned before/after comparison
-    /// against the SkPicture approach, not an oversight.
+    /// image, including any text labels drawn within it by RasterizeStage/
+    /// RasterizeBlend2DStage - a rotated placement's own labels render
+    /// rotated/mirrored too, unlike the pre-restart SkPicture-based
+    /// design (`pipelines.old`'s own UprightTextCanvas), which corrected
+    /// this at replay time regardless of nesting. Confirmed by direct
+    /// visual test (three placements, N/FN/FS, a real terminal label
+    /// mirroring right along with each flipped one) and left unfixed by
+    /// explicit decision, not merely deferred pending a future
+    /// evaluation: a correct fix needs text drawn as a separate overlay
+    /// pass after compositing (each label positioned at its own final,
+    /// already-composited screen coordinates, independent of whatever
+    /// per-node bitmap it originated from), a real architecture change
+    /// for both backends, not a small patch to either one's own current
+    /// per-node text-drawing code.
     class ComposeStage : public MemoizingStage<RasterizeOutputHandle, RasterizedFrame, ViewRenderOptions>
     {
     public:

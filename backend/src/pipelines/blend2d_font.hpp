@@ -13,8 +13,17 @@ namespace le
     /// on every platform (not just Linux - default_typeface() only needs
     /// LE_FONT_DIR there since CoreText already has system fonts on macOS,
     /// but Blend2D has no CoreText-equivalent fallback on any platform).
-    /// Deliberately monospace (unlike default_typeface()'s own proportional
-    /// DejaVu Sans) - RasterizeBlend2DStage's own per-character
+    /// Same bundled family default_typeface() now also loads (DejaVu Sans
+    /// Mono, LE_FONT_DIR's own only file - both backends were unified onto
+    /// one monospace font deliberately, not by accident: LE_FONT_DIR used
+    /// to also hold a proportional DejaVuSans.ttf purely for Skia's own
+    /// use, and having two families in one directory broke
+    /// default_typeface()'s own "family at index 0 is unambiguous"
+    /// assumption - SkFontMgr_Custom's own family enumeration order isn't
+    /// alphabetical or otherwise predictable, so which one Skia actually
+    /// picked was filesystem-dependent). Monospace is specifically load-
+    /// bearing for THIS backend though, unlike Skia (which merely
+    /// tolerates it): RasterizeBlend2DStage's own per-character
     /// glyph-bitmap cache (rasterize_blend2d_stage.hpp's own
     /// GlyphBitmapCacheKey/draw_monospace_label_blend2d) lays a label out
     /// as fixed-width cells rather than reproducing Blend2D's own shaped-

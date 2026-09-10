@@ -396,22 +396,18 @@ namespace le
     /// content like a Placement's own name, which is unique per instance;
     /// a per-CHARACTER cache is bounded by the alphabet actually used
     /// regardless of how many distinct/unique strings a design contains)
-    /// rather than a fresh vector shape+fill per occurrence. Unlike Skia's UprightTextCanvas (which
-    /// intercepts a *replayed* SkTextBlob's own CTM to discard any
-    /// rotation/reflection while keeping the same scale magnitude - see
-    /// that class's own doc comment), this backend never records/replays
-    /// anything - one BLContext draws directly into one node's own BLImage,
-    /// always under the exact same translate+scale+flip transform
-    /// (RasterizeBlend2DStage::compute's own setup), no accumulated
-    /// instance rotation ever baked in. So instead of decomposing/replacing
-    /// the CTM per glyph run, this maps `text.location` through the
-    /// context's own current `final_transform()` once to get its real
-    /// device-pixel position, draws under a plain identity transform at
-    /// that point (BLFont's own `pixel_size` interpreted directly as final
-    /// on-screen pixels, no second multiplication by the ambient dbu-to-
-    /// pixel scale), then restores - simpler than Skia's own mechanism
-    /// precisely because there's no nested-hierarchy replay to defend
-    /// against here.
+    /// rather than a fresh vector shape+fill per occurrence. This maps
+    /// `text.location` through the context's own current
+    /// `final_transform()` once to get its real device-pixel position,
+    /// draws under a plain identity transform at that point (a cached
+    /// glyph's own bitmap already being sized in real device pixels, no
+    /// further multiplication by the ambient dbu-to-pixel scale), then
+    /// restores - the same direct device-space approach `rasterize_stage.hpp`'s
+    /// own text loop now uses (both backends independently arrived at
+    /// this once each one's own canvas/context was confirmed to never
+    /// carry a rotation component within a single node's own render pass
+    /// - see compose_stage.hpp's own doc comment for the cross-node
+    /// rotation/flip case neither backend handles).
     ///
     /// Blend2D has no Skia-style "stroke width 0 means always exactly 1
     /// device pixel" hairline convention - a sub-pixel-on-screen (or
@@ -817,7 +813,7 @@ namespace le
                     // once, to a real device-pixel point - see this
                     // function's own top-level doc comment for why that's
                     // sufficient here (no accumulated instance rotation to
-                    // defend against, unlike Skia's UprightTextCanvas).
+                    // defend against within one node's own render pass).
                     const BLPoint device_origin = ctx.final_transform().map_point(text.location.x, text.location.y);
                     draw_monospace_label_blend2d(ctx, font_entry, font_key, glyph_bitmap_cache, text.label, stroke_color, device_origin);
                 }

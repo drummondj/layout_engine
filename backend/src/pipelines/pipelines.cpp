@@ -69,7 +69,7 @@ namespace le
             // never falls back to the family it separately picks as
             // "default" in its own constructor - which only checks a
             // hardcoded name list ("Arial"/"Verdana"/.../"DejaVu Serif")
-            // that doesn't include "DejaVu Sans", this project's own
+            // that doesn't include "DejaVu Sans Mono", this project's own
             // bundled family. Confirmed via gdb: matchFamilyStyle(nullptr,
             // ...) returns null even though the font manager itself loaded
             // the bundled font successfully. createStyleSet(0) sidesteps

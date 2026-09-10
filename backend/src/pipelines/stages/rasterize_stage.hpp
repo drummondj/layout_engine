@@ -9,7 +9,6 @@
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"
 #include "../rasterize_output.hpp"
-#include "../upright_text_canvas.hpp"
 #include "hierarchy_resolver_stage.hpp"
 
 #include "include/core/SkCanvas.h"
@@ -426,9 +425,23 @@ namespace le
                         if (truncated.empty())
                             continue;
 
+                        // Maps the placement's own dbu-space bottom-left
+                        // corner through the canvas's current
+                        // (translate+scale+flip) matrix once, to a real
+                        // device-pixel point, then draws under a plain
+                        // translate-only matrix at that point - see this
+                        // function's own top-level doc comment. Padding is
+                        // added directly here, in already-mapped device-pixel
+                        // space: right (+x) and up the screen (-y, since
+                        // device-pixel y increases downward) from that raw
+                        // bottom-left point.
+                        const SkPoint box_origin = canvas.getTotalMatrix().mapPoint(
+                            SkPoint::Make(static_cast<SkScalar>(text.location.x), static_cast<SkScalar>(text.location.y)));
                         canvas.save();
-                        canvas.translate(static_cast<SkScalar>(text.location.x), static_cast<SkScalar>(text.location.y));
-                        canvas.drawString(truncated.c_str(), static_cast<SkScalar>(kPlacementLabelPaddingPx), static_cast<SkScalar>(kPlacementLabelPaddingPx), font, text_paint);
+                        canvas.setMatrix(SkMatrix::Translate(
+                            box_origin.x() + static_cast<SkScalar>(kPlacementLabelPaddingPx),
+                            box_origin.y() - static_cast<SkScalar>(kPlacementLabelPaddingPx)));
+                        canvas.drawString(truncated.c_str(), 0, 0, font, text_paint);
                         canvas.restore();
                     }
                     return; // this shape's own placement-name text is handled above - don't also fall into the generic text loop below
@@ -441,11 +454,24 @@ namespace le
                     SkFont font(default_typeface(), static_cast<SkScalar>(pixel_size));
                     font.setEdging(antialiasing_enabled ? SkFont::Edging::kAntiAlias : SkFont::Edging::kAlias);
 
-                    // Counters the active canvas matrix's own scale+flip
-                    // (see this function's own doc comment) so the label
-                    // renders upright at its real declared pixel size.
+                    // Maps this shape's own dbu-space label origin through
+                    // the canvas's current (translate+scale+flip) matrix
+                    // once, to a real device-pixel point, then draws under a
+                    // plain translate-only matrix at that point - counters
+                    // the ambient scale+flip directly rather than via
+                    // UprightTextCanvas's own CTM-decomposition-at-draw-time
+                    // approach (removed - see this module's own git history
+                    // and PIPELINE_REFACTOR_BENCHMARK_RESULTS.md for why a
+                    // dedicated intercepting canvas is unnecessary here: this
+                    // function's own canvas never has a rotation component
+                    // to discard in the first place, only ever translate+
+                    // scale+flip, so there was nothing left for that class to
+                    // do beyond what a direct device-space computation
+                    // already does more simply).
+                    const SkPoint device_origin = canvas.getTotalMatrix().mapPoint(
+                        SkPoint::Make(static_cast<SkScalar>(text.location.x), static_cast<SkScalar>(text.location.y)));
                     canvas.save();
-                    canvas.translate(static_cast<SkScalar>(text.location.x), static_cast<SkScalar>(text.location.y));
+                    canvas.setMatrix(SkMatrix::Translate(device_origin.x(), device_origin.y()));
                     canvas.drawString(text.label.c_str(), 0, 0, font, text_paint);
                     canvas.restore();
                 }
@@ -555,22 +581,6 @@ namespace le
                 canvas->scale(static_cast<SkScalar>(options.scale), static_cast<SkScalar>(-options.scale));
                 canvas->translate(static_cast<SkScalar>(-local_bbox.ll.x), static_cast<SkScalar>(-local_bbox.ll.y));
 
-                // UprightTextCanvas (pipelines.old, re-ported) intercepts
-                // every text draw and replaces the CTM with a
-                // translation+uniform-scale-only matrix for that one draw
-                // (discarding this canvas's own y-flip reflection
-                // component), so a label renders upright/correctly sized
-                // without draw_view_shapes' own text loop needing its own
-                // manual per-label save/scale(1/scale,-1/scale)/restore
-                // counter-transform - see upright_text_canvas.hpp's own
-                // doc comment for why this decomposition is exact (not
-                // approximate) for this codebase's own transform chain,
-                // and PIPELINE_REFACTOR_BENCHMARK_RESULTS.md for this
-                // swap's own measured overhead (an SkPaintFilterCanvas
-                // virtual-dispatch + matrix-decomposition per text draw)
-                // against the manual approach it replaces.
-                UprightTextCanvas upright_canvas(canvas);
-
                 // Per-NODE path-outline cache (keyed on this node's own
                 // `id`, not on `culled` itself): a real Cold recompute
                 // upstream gives this exact node a brand-new `data.shapes`
@@ -605,7 +615,7 @@ namespace le
                 }
 
                 draw_view_shapes(
-                    upright_canvas, data.shapes ? *data.shapes : kEmptyShapes, data.shapes_index, local_bbox, view_layers, options.scale,
+                    *canvas, data.shapes ? *data.shapes : kEmptyShapes, data.shapes_index, local_bbox, view_layers, options.scale,
                     options.antialiasing_enabled, options.layer_name_visible, options.purpose_visible, node_outline_cache.outlines);
 
                 result.images.emplace(id, RasterizedImage{surface->makeImageSnapshot(), local_bbox.ll});
