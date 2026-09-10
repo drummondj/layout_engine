@@ -181,5 +181,24 @@ namespace le
         /// instead-of-deep-compare reasoning `selection_version` above
         /// uses.
         std::uint64_t mouse_version = 0;
+
+        /// @brief The live Move gesture's own ghost-preview geometry
+        /// (UPDATES.md item 21) - each moving piece's own *original*
+        /// (pre-offset) dbu-space geometry, copied directly from
+        /// `LeHandle::move().moving_geometry` (already one-piece `Shape`s,
+        /// snapshotted at arm/re-arm time - no further resolution needed,
+        /// unlike `selected_piece_outlines` above). Empty whenever Move
+        /// isn't armed, has no anchor yet, or no mouse position is set
+        /// (mirrors `LeHandle::move_delta()`'s own nullopt conditions) -
+        /// `ComposeStage` draws nothing when this is empty, regardless of
+        /// `move_ghost_offset_dbu`'s own value.
+        std::vector<Shape> move_ghost_pieces_dbu;
+
+        /// @brief The offset (`LeHandle::move_delta()`) every entry of
+        /// `move_ghost_pieces_dbu` should be translated by before drawing -
+        /// applied in dbu space, before mapping to pixels, so the preview
+        /// traces the exact geometry Move would actually commit (not a
+        /// pixel-space translation of the already-projected outline).
+        Point move_ghost_offset_dbu;
     };
 }

@@ -170,6 +170,12 @@ namespace
         if (handle->hover().has_value())
             options.hover_outline_dbu = handle->hover()->outline;
 
+        if (const std::optional<le::Point> delta = handle->move_delta(handle->move_free_form()))
+        {
+            options.move_ghost_pieces_dbu = handle->move().moving_geometry;
+            options.move_ghost_offset_dbu = *delta;
+        }
+
         return options;
     }
 

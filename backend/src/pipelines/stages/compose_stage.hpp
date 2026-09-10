@@ -131,6 +131,7 @@ namespace le
             draw_drag_rect_overlay(ctx, options, height);
             draw_selection_overlay(ctx, options, height);
             draw_hover_overlay(ctx, options, height);
+            draw_move_ghost_overlay(ctx, options, height);
             draw_cursor_overlay(ctx, options, height);
 
             ctx.end();
@@ -311,6 +312,41 @@ namespace le
             ctx.set_stroke_style(to_bl_color(kHoverOutlineColor));
             ctx.set_stroke_width(kHoverOutlineStrokeWidth);
             stroke_piece_outline(ctx, *options.hover_outline_dbu, to_pixel);
+        }
+
+        /// @brief Draws the live Move gesture's own dashed, translucent
+        /// ghost preview (UPDATES.md item 21) -
+        /// `ViewRenderOptions::move_ghost_pieces_dbu`, each translated by
+        /// `move_ghost_offset_dbu` in dbu space *before* mapping to pixels
+        /// (so the preview traces the exact geometry Move would actually
+        /// commit, not a pixel-space translation of the already-projected
+        /// outline) - a no-op when nothing is being moved.
+        static void draw_move_ghost_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
+        {
+            if (options.move_ghost_pieces_dbu.empty())
+                return;
+
+            const Point &offset = options.move_ghost_offset_dbu;
+            const auto to_pixel = [&](Point p)
+            {
+                p.x += offset.x;
+                p.y += offset.y;
+                return BLPoint(
+                    static_cast<double>(p.x - options.viewport.ll.x) * options.scale,
+                    static_cast<double>(pixel_height) - static_cast<double>(p.y - options.viewport.ll.y) * options.scale);
+            };
+
+            BLArray<double> dash_array;
+            dash_array.append(kMoveGhostDashOnPx);
+            dash_array.append(kMoveGhostDashOffPx);
+
+            ctx.set_stroke_style(to_bl_color(kMoveGhostColor));
+            ctx.set_stroke_width(kMoveGhostStrokeWidth);
+            ctx.set_stroke_dash_array(dash_array);
+            ctx.set_stroke_dash_offset(0.0);
+            for (const Shape &piece : options.move_ghost_pieces_dbu)
+                stroke_piece_outline(ctx, piece, to_pixel);
+            ctx.set_stroke_dash_array(BLArray<double>()); // don't leak the dash state into any overlay drawn after this one
         }
 
         /// @brief Draws a small red box (UPDATES.md 7.1 item 1) centered

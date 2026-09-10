@@ -186,6 +186,15 @@ namespace le
     inline constexpr Color kHoverOutlineColor = {255, 255, 0, 255};
     inline constexpr double kHoverOutlineStrokeWidth = 2.0;
 
+    // Dashed, translucent-white Move ghost preview (UPDATES.md item 21) -
+    // ported verbatim from pipelines.old/draw_helpers.hpp's own
+    // kMoveGhostColor/kMoveGhostStrokeWidth/kMoveGhostDashOnPx/
+    // kMoveGhostDashOffPx, same RGBA/width/dash pattern.
+    inline constexpr Color kMoveGhostColor = {255, 255, 255, 160};
+    inline constexpr double kMoveGhostStrokeWidth = 2.0;
+    inline constexpr double kMoveGhostDashOnPx = 6.0;
+    inline constexpr double kMoveGhostDashOffPx = 4.0;
+
     /// @brief Strokes `piece`'s own geometry (already mapped to device-
     /// pixel space by the caller's own `to_pixel` - see `ComposeStage`'s
     /// own doc comment for why its top-level composite canvas has no

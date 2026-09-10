@@ -114,6 +114,27 @@ namespace
         return false;
     }
 
+    // The Move ghost preview is drawn dashed, translucent white (see
+    // draw_helpers.hpp's own kMoveGhostColor, alpha 160/255 - unlike the
+    // fully-opaque selection outline above) onto whatever's already
+    // there via ordinary SRC_OVER compositing - premultiplied over a
+    // transparent background, its own ink lands around (160,160,160,160)
+    // at full stroke coverage. "Grayish/white-ish but clearly not fully
+    // opaque" distinguishes it from both a fully-transparent background
+    // and the fully-opaque selection outline/design fill colors, without
+    // depending on exact dash-phase/stroke-antialiasing coverage.
+    bool region_has_move_ghost_pixel(const LePixelBuffer &buffer, int x0, int y0, int x1, int y1)
+    {
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+            {
+                const uint8_t *p = buffer.data + static_cast<size_t>(y) * static_cast<size_t>(buffer.row_bytes) + static_cast<size_t>(x) * 4;
+                if (p[0] > 100 && p[1] > 100 && p[2] > 100 && p[3] > 80 && p[3] < 220)
+                    return true;
+            }
+        return false;
+    }
+
     struct ApiFixture : public ::testing::Test
     {
         void SetUp() override { handle = le_create(); }
@@ -4501,6 +4522,66 @@ TEST_F(ApiFixture, MoveTranslatesSelectedShapeGeometryAndIsUndoable)
     rect = le_shape_rect_at(handle, shape_id, 0);
     EXPECT_DOUBLE_EQ(rect.ll_x_um, 0.15); // both moves re-applied
     EXPECT_DOUBLE_EQ(rect.ll_y_um, 0.15);
+}
+
+TEST_F(ApiFixture, ArmedMoveRendersADashedTranslucentGhostAtTheOffsetPositionBeforeCommitting)
+{
+    // Same recipe as MoveTranslatesSelectedShapeGeometryAndIsUndoable
+    // above, but on the "M1" layer testcell.lef itself declares (that
+    // test's own "M4" is created fresh via named_layer/le_create_layer,
+    // which currently leaves handle's own cached view_layers stale until
+    // the next le_read_lef - a real, separate, already-flagged gap this
+    // test deliberately avoids exercising, since it's here to verify
+    // ghost *rendering*, not that unrelated bug).
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+    const LeAbstractId abstract_id = testcell_abstract_id(handle);
+    const LeObstructionId obstruction_id = create_obstruction_with_rect(handle, abstract_id, "M1", kRect0);
+    const LeShapeId shape_id = le_obstruction_shape_at(handle, obstruction_id, 0);
+    ASSERT_NE(shape_id.index, UINT32_MAX);
+
+    // scale 0.1 (10 dbu/px), pan (0,0) - same as
+    // MoveTranslatesSelectedShapeGeometryAndIsUndoable's own recipe.
+    le_set_viewport_size(handle, 200, 200);
+    le_zoom(handle, -0.9, 0, 200);
+
+    // dbu (200,250), inside kRect0 (100,100)-(300,400) - select, arm, and
+    // set the anchor there (same point three times, matching Move's own
+    // "anchor = the position at arm time" convention already verified
+    // above).
+    le_mouse_down(handle, 20, 175);
+    le_mouse_up(handle, 20, 175);
+    ASSERT_EQ(le_selection_count(handle), 1);
+
+    le_set_mode(handle, LE_MODE_EDIT);
+    le_arm_move(handle);
+    ASSERT_NE(le_is_move_armed(handle), 0);
+
+    le_set_mouse_position(handle, 20, 175);
+    le_mouse_down(handle, 20, 175);
+    le_mouse_up(handle, 20, 175);
+
+    // Move the mouse to dbu (300,150) [device (30,185)] *without*
+    // clicking - updates the live delta but doesn't commit. Orthogonal
+    // constraint picks the larger-magnitude axis: dx=+100, dy=-100 from
+    // the (200,250) anchor, a tie broken toward dx (LeHandle::move_delta's
+    // own >= comparison) - so the ghost should show at offset (+100, 0)
+    // dbu, i.e. kRect0 shifted to (200,100)-(400,400).
+    le_set_mouse_position(handle, 30, 185);
+
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+
+    // The shifted rect's own right edge (dbu x=400, well outside kRect0's
+    // own original 100-300 range, so this can't be catching the original
+    // rect's own selection outline instead) at dbu y=250 - device
+    // (400*0.1, 200-250*0.1) = (40, 175).
+    EXPECT_TRUE(region_has_move_ghost_pixel(buffer, 36, 171, 44, 179));
+
+    // Not committed yet - the real geometry hasn't moved.
+    const LeRectUm rect = le_shape_rect_at(handle, shape_id, 0);
+    EXPECT_DOUBLE_EQ(rect.ll_x_um, 0.1);
+    EXPECT_DOUBLE_EQ(rect.ur_x_um, 0.3);
 }
 
 TEST_F(ApiFixture, ArmMoveWithEmptySelectionOrOutsideEditModeIsANoOp)
