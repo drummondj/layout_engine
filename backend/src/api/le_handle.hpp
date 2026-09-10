@@ -1,30 +1,227 @@
 #pragma once
+
+#include "api.hpp"
+
 #include "../database/database.hpp"
+#include "../editing/editing.hpp"
+#include "../pipelines/view_render_pipeline.hpp"
 #include "../view_style/view_style.hpp"
+
+#include <oneapi/tbb/global_control.h>
+
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <set>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>
 #include <vector>
 
-namespace le
+// The real, C++-only definition behind the opaque LeHandle - never exposed
+// in api.hpp. Owns everything needed to load a LEF file and render it: one
+// each of the oneTBB-based pipelines module's own owner objects per handle
+// (not one per call), matching the "reuse across repeated calls" lifetime
+// their own internal MemoizingStage caching is designed around
+// (backend/ONETBB_INTEGRATION.md migration, Phase 5 cutover - replaces the
+// former Pipeline/Renderer/InstanceRenderer trio) - plus every piece of
+// per-handle mutable view/interaction state (current Abstract/Layout, pan/
+// zoom, layer visibility, selection, hover, rulers, Move-drag state,
+// interaction mode) that used to live in a separate `le::Scene` class
+// (`src/scene/`, since removed) - folded directly onto this struct rather
+// than composed from it, so there's exactly one per-handle state object,
+// not two. `le::Root`/`le::ViewLayerSet` stay separate members (the
+// persistent database and its rendering-layer view respectively) - this
+// struct owns the mutable *view* of them, not their own content.
+//
+// Given a real header now (rather than defined privately inside api.cpp,
+// this struct's own former convention when it composed a separate `Scene`
+// member) so `api/tests/le_handle_test.cpp` can construct/exercise it
+// directly, the same way `scene/tests/scene_test.cpp` used to construct a
+// standalone `Scene` - every other consumer (api.cpp) is unaffected by
+// this, `LeHandle` itself was always C++-only, never exposed through
+// api.hpp's plain-C surface.
+//
+// `mutex_` exists because this handle genuinely is called from more than
+// one thread today, not as defensive-but-unnecessary caution: Flutter's
+// external-texture API invokes le_render_pixel_buffer (via
+// LeTexture.copyPixelBuffer()) from its own dedicated raster thread once
+// per frame, while ordinary pointer/FFI calls (le_set_mouse_position,
+// le_mouse_down/up, le_zoom, ...) run on the platform thread - both
+// threads reach the same pipelines/Root/view state. See every exported
+// function's own std::lock_guard for the actual enforcement; see
+// le_destroy's doc comment in api.hpp for the one function that can't be
+// covered by the handle's own mutex.
+struct LeHandle
 {
-    // Selectable object references - the object kinds that have a rendered
-    // geometric representation in an Abstract or Layout view (E1: top-level
-    // Layout-view content - Blockage/Route/PhysicalPort ride RenderedShape
-    // the same way Terminal/Obstruction already do; Row is synthesized
-    // geometry with no backing Shape but still flows through this same
-    // origin mechanism). PlacementId is deliberately excluded - a Placement
-    // never enters the RenderedShape map at all (instance rendering is a
-    // separate, picture-cache-based mechanism at up to 1,000,000x scale -
-    // see src/instancing/), so it never becomes a HoverTarget::origin;
-    // its own hover/selection use a separate bbox hit-test (api.cpp).
-    using SelectionRef = std::variant<TerminalId, ObstructionId, BlockageId, RouteId, PhysicalPortId, RowId, RegionId>;
+    le::Root root;
+    le::ViewLayerSet view_layers;
+
+    // Blend2D-backed (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) - the
+    // earlier Skia-based RasterizeStage/ViewRenderPipelineImpl backend-
+    // swappable template, benchmarked against this one as a side
+    // experiment, is gone now that ComposeStage itself also composites
+    // BLImages natively; Blend2D's single-threaded rasterizer already
+    // beat Skia's by 1.35-2.9x with zero tuning even before that. Text
+    // (Shape.texts - both terminal/route labels and truncated, bottom-
+    // left-anchored placement-name labels) is drawn via a monospace font
+    // (rasterize_blend2d_stage.hpp).
+    le::ViewRenderPipeline view_render_pipeline;
+
+    // Undo/redo stack + command-recall log (UPDATES.md item 21) - every
+    // generated le_create_X/le_update_X/le_delete_X function records
+    // itself into whatever transaction is currently recording (see
+    // command_history.is_recording()); Move
+    // (le_mouse_up's Edit-mode branch) and le_repl_eval (the Tcl-side
+    // wrapper every typed console command goes through) are the two
+    // callers that bracket one with begin()/end().
+    le::editing::CommandHistory command_history;
+    std::mutex mutex_;
+
+    // BUGS_AND_ENHANCEMENTS.md E17 - whether le_render_pixel_buffer is
+    // currently doing real work on this handle, for a caller (a Dart-side
+    // poll driving the status bar's own spinner) that wants to know
+    // without blocking behind the render itself. Deliberately a plain
+    // std::atomic<bool>, read/written with no lock - le_is_rendering()
+    // must NOT take mutex_ (that's the exact mutex the render itself
+    // holds for its own entire duration - see mutex_'s own doc comment -
+    // so a lock-taking getter would just block until the render it's
+    // reporting on already finished, defeating the whole point). Safe
+    // without one: mutex_ already serializes every real le_* call
+    // including le_render_pixel_buffer itself, so at most one thread is
+    // ever writing this for a given handle at a time; a plain atomic is
+    // exactly the right tool for "one writer under a different lock,
+    // arbitrary lock-free readers".
+    std::atomic<bool> is_rendering_{false};
+
+    // BUGS_AND_ENHANCEMENTS.md E10 - process-wide cap on how many threads
+    // oneTBB's default arena may use for this handle's pipeline flow
+    // graphs (AbstractShapePipeline/LayoutShapePipeline/FrameRenderPipeline/
+    // HierarchyResolver each own their own private tbb::flow::graph - see
+    // their own class comments - but all of them run on the SAME implicit
+    // default TBB arena unless told otherwise, so one process-wide
+    // oneapi::tbb::global_control is enough to cap every one of them
+    // without threading a reference through each pipeline). global_control
+    // has no setter of its own - only construction/destruction sets its
+    // limit for as long as it's alive - so le_set_max_concurrency
+    // destroys and reconstructs this in place under a new limit rather
+    // than mutating it; std::optional makes that destroy-then-reconstruct
+    // possible. max_concurrency_ mirrors the limit currently in effect so
+    // le_max_concurrency() doesn't need to ask oneapi::tbb::global_control
+    // (which has no public getter) what it's currently set to. Defaults
+    // to 8, the user's own requested default.
+    int32_t max_concurrency_ = 8;
+    std::optional<oneapi::tbb::global_control> concurrency_control_{
+        std::in_place, oneapi::tbb::global_control::max_allowed_parallelism, 8};
+
+    // BUGS_AND_ENHANCEMENTS.md "Dear ImGui prototype" - a Tcl console's
+    // own `show_gui` command sets this to signal the process's dedicated
+    // GUI-owning thread (see src/gui/le_gui.hpp) that it should open its
+    // window now, then returns immediately so the console prompt keeps
+    // working - the console thread and the GUI thread are two different
+    // OS threads sharing this same LeHandle, exactly the split
+    // is_rendering_ above already documents (Flutter's raster thread vs
+    // platform thread), just with `show_gui`'s own request as the payload
+    // instead of a render-in-progress bit. Same reasoning for staying a
+    // lock-free std::atomic<bool>, test-and-cleared by
+    // le_take_show_gui_request rather than read via a separate getter -
+    // a request is a one-shot edge, not a level, so whichever thread
+    // observes it first (there's only ever one GUI-thread reader) should
+    // consume it, not leave it for a second poll to see stale.
+    std::atomic<bool> gui_show_requested_{false};
+
+    // GUI components (src/gui/components/) mutate state two different
+    // ways: a direct le_* call (mouse pan/zoom/select/move - the same
+    // shape layout_engine_plugin.dart's own LeEditorInput uses, and the
+    // right choice for anything needing per-frame responsiveness), or -
+    // for the subset of actions the Flutter frontend's own LeProvider
+    // routes through a Tcl command instead of a direct FFI call (layer/
+    // purpose visibility+selectability, hierarchy depth - see
+    // le_provider.dart's own runTclCommand call sites) - a *queued* Tcl
+    // command string instead, so the action leaves the same command-
+    // history trail a typed command would (this codebase's whole reason
+    // those particular actions go through Tcl at all - see
+    // BUGS_AND_ENHANCEMENTS.md). The GUI thread has no Tcl interpreter of
+    // its own to evaluate one directly (src/gui/ deliberately has no
+    // Tcl/SWIG dependency - see le_gui.hpp's own doc comment), so it can
+    // only leave the command here for whichever thread *does* own one -
+    // le_shell.cpp's own console thread, via its readline event hook
+    // (run_interactive's own comment) - to pick up and evaluate through
+    // le_repl_eval shortly after, same as it would a typed line. A real
+    // mutex (not lock-free, unlike is_rendering_/gui_show_requested_
+    // above) since this is a genuine multi-item FIFO, not a single flag/
+    // bit; contention is a non-issue (pushed only on a user click,
+    // popped only a few times a second at most).
+    std::mutex pending_tcl_commands_mutex_;
+    std::deque<std::string> pending_tcl_commands_;
+    // Backing storage for le_take_next_pending_tcl_command()'s own
+    // returned pointer - the popped std::string itself would otherwise
+    // be destroyed the moment it's removed from pending_tcl_commands_
+    // above, before the caller ever reads through the pointer.
+    std::string last_popped_tcl_command_;
+
+    // Single-slot cache backing le_object_property_count/le_object_
+    // property_at - rebuilt whenever a different LeObjectRef is
+    // requested. le::PropertyValue (generated/property.hpp) doubles as
+    // LeProperty's string-owning backing store directly - no separate
+    // wrapper type needed, its shape already matches LeProperty
+    // field-for-field.
+    LeObjectRef cached_object_property_ref{.kind = -1, .index = UINT32_MAX, .generation = 0};
+    std::vector<le::PropertyValue> cached_object_properties;
+
+    // Backs every le_X_property_path function (UPDATES.md item 19.2's
+    // dot-notation/chaining follow-up). le::PropertyValue owns its own
+    // std::string storage, and the LeProperty handed back to the caller
+    // is just raw c_str() pointers into that storage (same convention as
+    // every to_c(PropertyValue) call in this file) - those pointers must
+    // point somewhere that outlives the function call, not a local
+    // std::optional<PropertyValue>/vector that gets destroyed the moment
+    // le_X_property_path returns. This single slot is that backing
+    // store, "valid until the next call" like every other single-slot
+    // cache above - confirmed the hard way: a resolved value short
+    // enough for std::string's small-string optimization ("IN0") kept
+    // "working" by accident (its bytes were still sitting, unclobbered,
+    // in the just-freed stack slot), while a longer one (a formatted
+    // rects/polygons/paths coordinate list, heap-allocated) came back
+    // corrupted, since libc++ actually reused/overwrote that freed heap
+    // block before the caller read it.
+    le::PropertyValue cached_property_path_value;
+
+    // Backs le_message_count/le_message_at (UPDATES.md item 3) - every
+    // error/warning/info message produced by this handle's backend
+    // operations so far (currently just le_read_lef), in order, never
+    // cleared or reordered. std::deque, deliberately not std::vector:
+    // le_message_at() hands out a `const char*` promised valid "until
+    // the handle is destroyed" (this API's usual string-ownership
+    // convention), but std::vector::push_back can reallocate on growth,
+    // move-relocating every contained std::string - for a short (SSO)
+    // string that relocates its character buffer inline, invalidating
+    // any .c_str() a caller is still holding from an earlier call.
+    // std::deque::push_back never invalidates references/pointers to
+    // existing elements (only iterators), so it's the correct container
+    // here.
+    std::deque<std::string> messages;
+
+    // === Per-handle view/interaction state (formerly `le::Scene`) ===
+    //
+    // Selectable object references - the object kinds that have a
+    // rendered geometric representation in an Abstract or Layout view
+    // (E1: top-level Layout-view content - Blockage/Route/PhysicalPort
+    // ride RenderedShape the same way Terminal/Obstruction already do;
+    // Row is synthesized geometry with no backing Shape but still flows
+    // through this same origin mechanism). PlacementId is deliberately
+    // excluded - a Placement never enters the RenderedShape map at all
+    // (instance rendering is a separate, picture-cache-based mechanism
+    // at up to 1,000,000x scale - see src/instancing/), so it never
+    // becomes a HoverTarget::origin; its own hover/selection use a
+    // separate bbox hit-test (api.cpp).
+    using SelectionRef = std::variant<le::TerminalId, le::ObstructionId, le::BlockageId, le::RouteId, le::PhysicalPortId, le::RowId, le::RegionId>;
 
     /// @brief The result of a point hit-test (UPDATES.md 7.1): which
     /// selectable object was hit, plus a copy of the specific piece of
@@ -37,7 +234,7 @@ namespace le
     struct HoverTarget
     {
         SelectionRef origin;
-        Shape outline;
+        le::Shape outline;
 
         /// The exact ShapeId the hit RenderedShape was generated from
         /// (RenderedShape::shape_id) - nullopt only if the hit somehow
@@ -53,11 +250,11 @@ namespace le
         /// time - see generate_shapes_stage.hpp's expand_iterates) - so a
         /// piece index into *this* geometry isn't always addressable in
         /// Root. Callers that need a piece addressable in Root
-        /// (Scene::select/Move) re-hit-test directly against Root's own
-        /// raw ShapeData instead (see api.cpp's le_mouse_up) - this
+        /// (LeHandle::select/Move) re-hit-test directly against Root's
+        /// own raw ShapeData instead (see api.cpp's le_mouse_up) - this
         /// struct's own `outline` stays the rendered geometry, fine for
         /// hover's purely visual highlight.
-        std::optional<ShapeId> shape_id;
+        std::optional<le::ShapeId> shape_id;
     };
 
     /// @brief One selected piece (UPDATES.md item 21 - piece-granular;
@@ -66,8 +263,8 @@ namespace le
     /// dragged to select it, identified by its owning Shape's id plus
     /// which entry of that Shape's own rects/polygons/paths it is
     /// (`piece_kind`/`piece_index` - see Geometry::HitPiece, which
-    /// Scene::select()'s callers build these from). The Property Viewer
-    /// still resolves "the selected object" to the *owning Shape*
+    /// LeHandle::select()'s callers build these from). The Property
+    /// Viewer still resolves "the selected object" to the *owning Shape*
     /// (le_object_property_at/le_selected_object_ref in api.cpp only
     /// ever read `shape_id`, ignoring which piece) - properties are
     /// per-Shape, not per-piece, so that deliberately didn't change; only
@@ -88,8 +285,8 @@ namespace le
     /// alternative instead.
     struct ShapePiece
     {
-        ShapeId shape_id;
-        PieceKind piece_kind = PieceKind::RECT;
+        le::ShapeId shape_id;
+        le::PieceKind piece_kind = le::PieceKind::RECT;
         size_t piece_index = 0;
 
         friend auto operator<=>(const ShapePiece &, const ShapePiece &) = default;
@@ -109,15 +306,8 @@ namespace le
     /// above), so the variant gets one for free - lets selected_keys_
     /// below be a plain std::set<SelectedObject> instead of a parallel
     /// hand-rolled tuple structure.
-    using SelectedObject = std::variant<ShapePiece, RowId, PlacementId, RegionId>;
+    using SelectedObject = std::variant<ShapePiece, le::RowId, le::PlacementId, le::RegionId>;
 
-    /// @brief Per-handle mutable view state: which Abstract is displayed,
-    /// the viewport transform, per-layer visibility, and selection. Distinct
-    /// from the persistent Root database - the pipeline reads from this,
-    /// events write into it.
-    class Scene
-    {
-    public:
         // --- Currently displayed Abstract ---
         // Switching Abstracts clears selection, hover, and rulers -
         // selection/hover hold TerminalId/ObstructionId values scoped to
@@ -136,7 +326,7 @@ namespace le
         // Abstract's own unrelated coordinate space. A no-op (no clear,
         // no version bumps) if `id` is the same Abstract already
         // displayed.
-        void set_current_abstract(AbstractId id)
+        void set_current_abstract(le::AbstractId id)
         {
             if (id == current_abstract_)
                 return;
@@ -146,7 +336,7 @@ namespace le
             clear_hover();
             clear_rulers();
         }
-        AbstractId current_abstract() const { return current_abstract_; }
+        le::AbstractId current_abstract() const { return current_abstract_; }
 
         // --- Currently displayed Layout (Migration Step 3 Phase C) ---
         // A second, independent "current view" tracker mirroring
@@ -154,16 +344,14 @@ namespace le
         // ruler-clearing reasoning applies - Layout content isn't
         // selectable yet, but clearing keeps this consistent with the
         // Abstract path rather than leaving stale state around for when
-        // it is). Deliberately NOT the same field as LeHandle's own
-        // current_layout_id (api.cpp) - that one is the generated TCL
+        // it is). Deliberately NOT the same field as this handle's own
+        // current_layout_id (below) - that one is the generated TCL
         // surface's own default-scope tracker (what get_rows/get_placements/
         // etc. read), a genuinely separate concept from this GUI-rendering
-        // one, exactly the same "two trackers, moved together by whichever
-        // api.cpp caller changes the view" split current_abstract_ already
-        // has with handle->current_abstract_id - see that field's own
-        // api.cpp comment for the full reasoning, which applies here
-        // unchanged.
-        void set_current_layout(LayoutId id)
+        // one - two trackers, moved together by whichever api.cpp caller
+        // changes the view, see that field's own comment for the full
+        // reasoning, which applies here unchanged.
+        void set_current_layout(le::LayoutId id)
         {
             if (id == current_layout_id_)
                 return;
@@ -173,7 +361,7 @@ namespace le
             clear_hover();
             clear_rulers();
         }
-        LayoutId current_layout() const { return current_layout_id_; }
+        le::LayoutId current_layout() const { return current_layout_id_; }
 
         // --- Hierarchy depth (Migration Step 3 Phase C) ---
         // How many further levels of Placement -> Design a Layout view
@@ -201,12 +389,12 @@ namespace le
         // pan/scale/viewport_size each bump viewport_version() - a cheap
         // change signal for callers (e.g. PipelineCache) that would
         // otherwise need to snapshot and compare these fields by value.
-        void set_pan(Point pan)
+        void set_pan(le::Point pan)
         {
             pan_ = pan;
             ++viewport_version_;
         }
-        Point pan() const { return pan_; }
+        le::Point pan() const { return pan_; }
 
         // Ignores non-positive values (keeps the last valid scale) rather
         // than let a bad zoom value from a caller divide-by-zero downstream
@@ -242,12 +430,12 @@ namespace le
         // (0, 0) if bbox is nullopt (nothing to fit, e.g. an empty
         // Abstract) or the viewport has non-positive size, rather than
         // dividing by zero.
-        void fit_to_content(std::optional<Rect> bbox, int64_t padding_px)
+        void fit_to_content(std::optional<le::Rect> bbox, int64_t padding_px)
         {
             if (!bbox || viewport_width_px_ <= 0 || viewport_height_px_ <= 0)
             {
                 set_scale(1.0);
-                set_pan(Point{0, 0});
+                set_pan(le::Point{0, 0});
                 return;
             }
 
@@ -277,15 +465,15 @@ namespace le
             const int64_t pan_y = bbox->ll.y - static_cast<int64_t>((viewport_height_px_ / scale - content_height) / 2.0);
 
             set_scale(scale);
-            set_pan(Point{pan_x, pan_y});
+            set_pan(le::Point{pan_x, pan_y});
         }
 
         // --- Grid spacing (dbu) ---
         // Defaults assume the common "1 dbu = 1nm" convention (i.e. a
         // Technology declared with DATABASE MICRONS 1000, which most real
         // PDKs use) - 5 and 50 dbu then read as the requested 5nm minor /
-        // 50nm major defaults. Not otherwise unit-aware (Scene has no
-        // Technology reference to convert against) - a caller on a
+        // 50nm major defaults. Not otherwise unit-aware (this handle has
+        // no Technology reference to convert against) - a caller on a
         // Technology with different units should set explicit dbu values.
         // Non-positive values are rejected (keeps the last valid spacing),
         // same guard as set_scale, and setters bump visibility_version()
@@ -367,16 +555,16 @@ namespace le
         // handling (an arbitrary x/y from a mouse-down/up event, not
         // necessarily the currently stored position - see
         // le_mouse_down/le_mouse_up).
-        Point pixel_to_dbu(int32_t x_px, int32_t y_px) const
+        le::Point pixel_to_dbu(int32_t x_px, int32_t y_px) const
         {
             const double dbu_x = static_cast<double>(pan_.x) + static_cast<double>(x_px) / scale_;
             const double dbu_y = static_cast<double>(pan_.y) + (static_cast<double>(viewport_height_px_) - static_cast<double>(y_px)) / scale_;
-            return Point{static_cast<int64_t>(dbu_x), static_cast<int64_t>(dbu_y)};
+            return le::Point{static_cast<int64_t>(dbu_x), static_cast<int64_t>(dbu_y)};
         }
 
         // The dbu point currently under the mouse - nullopt if no position
         // has been set yet (see has_mouse_position).
-        std::optional<Point> mouse_dbu_position() const
+        std::optional<le::Point> mouse_dbu_position() const
         {
             if (!has_mouse_position_)
                 return std::nullopt;
@@ -389,9 +577,9 @@ namespace le
         // position exactly between two grid points snaps to whichever the
         // division rounds to). nullopt under the same conditions as
         // mouse_dbu_position().
-        std::optional<Point> snapped_mouse_position() const
+        std::optional<le::Point> snapped_mouse_position() const
         {
-            const std::optional<Point> dbu = mouse_dbu_position();
+            const std::optional<le::Point> dbu = mouse_dbu_position();
             if (!dbu)
                 return std::nullopt;
 
@@ -399,13 +587,13 @@ namespace le
             {
                 return static_cast<int64_t>(std::llround(static_cast<double>(v) / static_cast<double>(spacing))) * spacing;
             };
-            return Point{snap(dbu->x), snap(dbu->y)};
+            return le::Point{snap(dbu->x), snap(dbu->y)};
         }
 
         // --- Drag-select / drag-zoom gesture (UPDATES.md 7.1 items 5-6, 9.3) ---
         // Which high-level action a drag gesture should perform once it
-        // ends - Scene itself doesn't interpret this, it's purely a label
-        // the caller (le_mouse_down/le_zoom_drag_down, and later
+        // ends - this handle itself doesn't interpret this, it's purely a
+        // label the caller (le_mouse_down/le_zoom_drag_down, and later
         // le_mouse_up) attaches to and reads back, so the same rubber-band
         // machinery below serves both left-button drag-select and
         // right-button drag-zoom without duplicating it.
@@ -422,7 +610,7 @@ namespace le
         // le_mouse_up), which decide there whether the gesture was a
         // plain click or an actual drag (by comparing the down/up pixel
         // distance against a small threshold) and perform the
-        // corresponding action - Scene itself doesn't know which
+        // corresponding action - this handle itself doesn't know which
         // interpretation applies, it just tracks the raw gesture state
         // (plus which `kind` was requested) and derives drag_rect_dbu()
         // from it plus the current mouse position. `kind` defaults to
@@ -453,19 +641,19 @@ namespace le
         // progress, or no mouse position has been set yet (the drag's
         // "current" corner - mirrors mouse_dbu_position()'s own nullopt
         // condition).
-        std::optional<Rect> drag_rect_dbu() const
+        std::optional<le::Rect> drag_rect_dbu() const
         {
             if (!dragging_)
                 return std::nullopt;
 
-            const std::optional<Point> current = mouse_dbu_position();
+            const std::optional<le::Point> current = mouse_dbu_position();
             if (!current)
                 return std::nullopt;
 
-            const Point start = pixel_to_dbu(drag_start_x_px_, drag_start_y_px_);
-            return Rect{
-                .ll = Point{std::min(start.x, current->x), std::min(start.y, current->y)},
-                .ur = Point{std::max(start.x, current->x), std::max(start.y, current->y)},
+            const le::Point start = pixel_to_dbu(drag_start_x_px_, drag_start_y_px_);
+            return le::Rect{
+                .ll = le::Point{std::min(start.x, current->x), std::min(start.y, current->y)},
+                .ur = le::Point{std::max(start.x, current->x), std::max(start.y, current->y)},
             };
         }
 
@@ -522,11 +710,11 @@ namespace le
         // a new one never clears an existing one (resolved design
         // decision, UPDATES.md item 13). The *last* entry is "the active
         // ruler" new clicks append to, if and only if it exists and
-        // isn't finished - this class maintains that as an invariant
+        // isn't finished - this struct maintains that as an invariant
         // rather than something callers have to check for themselves.
         struct Ruler
         {
-            std::vector<Point> points;
+            std::vector<le::Point> points;
             bool finished = false;
         };
 
@@ -552,22 +740,22 @@ namespace le
         struct MoveState
         {
             bool armed = false;
-            std::optional<Point> anchor;
+            std::optional<le::Point> anchor;
             std::vector<SelectedObject> moving_pieces;
-            std::vector<Shape> moving_geometry;
+            std::vector<le::Shape> moving_geometry;
             bool free_form = false;
         };
 
         // Arms Move: snapshots the current selection (a no-op, stays
         // unarmed, if the selection is empty - nothing to move).
-        // `geometry` must be parallel to Scene::selection() at the moment
-        // of the call (one one-piece Shape per selected piece, in the
-        // same order - see Geometry::extract_piece) - api.cpp's
+        // `geometry` must be parallel to LeHandle::selection() at the
+        // moment of the call (one one-piece Shape per selected piece, in
+        // the same order - see Geometry::extract_piece) - api.cpp's
         // arm_move_unlocked builds it from Root right before calling
-        // this, since Scene itself has no Root access. Does not itself
-        // check Mode - callers gate this on Mode::EDIT (see api.cpp's
-        // LE_KEY_MOVE handler).
-        void arm_move(std::vector<Shape> geometry)
+        // this, since this handle's own view state has no Root access
+        // here. Does not itself check Mode - callers gate this on
+        // Mode::EDIT (see api.cpp's LE_KEY_MOVE handler).
+        void arm_move(std::vector<le::Shape> geometry)
         {
             if (selection_.empty())
                 return;
@@ -593,7 +781,7 @@ namespace le
         // the wrong base position. A no-op if Move isn't armed - nothing
         // to refresh. `geometry` must be parallel to moving_pieces, same
         // convention as arm_move's own parameter.
-        void refresh_move_geometry(std::vector<Shape> geometry)
+        void refresh_move_geometry(std::vector<le::Shape> geometry)
         {
             if (!move_.armed)
                 return;
@@ -620,25 +808,25 @@ namespace le
         // (or the ghost preview should show) - snapped_mouse_position()
         // minus the anchor, then unless `free_form`, constrained to
         // whichever axis has the larger magnitude (the other pinned to
-        // 0) - the same orthogonal-by-default rule Ruler::ruler_next_point
+        // 0) - the same orthogonal-by-default rule ruler_next_point
         // already uses, just as a relative delta instead of an absolute
         // point. nullopt if not armed, no anchor yet, or no mouse
         // position.
-        std::optional<Point> move_delta(bool free_form) const
+        std::optional<le::Point> move_delta(bool free_form) const
         {
             if (!move_.armed || !move_.anchor)
                 return std::nullopt;
 
-            const std::optional<Point> snapped = snapped_mouse_position();
+            const std::optional<le::Point> snapped = snapped_mouse_position();
             if (!snapped)
                 return std::nullopt;
 
             const int64_t dx = snapped->x - move_.anchor->x;
             const int64_t dy = snapped->y - move_.anchor->y;
             if (free_form)
-                return Point{dx, dy};
+                return le::Point{dx, dy};
 
-            return std::llabs(dx) >= std::llabs(dy) ? Point{dx, 0} : Point{0, dy};
+            return std::llabs(dx) >= std::llabs(dy) ? le::Point{dx, 0} : le::Point{0, dy};
         }
 
         // Clears all Move state - called both on commit (the second
@@ -678,11 +866,11 @@ namespace le
         // exactly) - UPDATES.md item 13's "orthogonal by default, shift
         // for non-orthogonal". `free_form` is passed in rather than read
         // from held keys internally - see set_ruler_free_form's own
-        // comment for why this class stays agnostic of api.hpp's
+        // comment for why this handle stays agnostic of api.hpp's
         // LE_KEY_SHIFT value.
-        std::optional<Point> ruler_next_point(bool free_form) const
+        std::optional<le::Point> ruler_next_point(bool free_form) const
         {
-            const std::optional<Point> snapped = snapped_mouse_position();
+            const std::optional<le::Point> snapped = snapped_mouse_position();
             if (!snapped)
                 return std::nullopt;
 
@@ -690,10 +878,10 @@ namespace le
             if (free_form || !has_active_last_point)
                 return snapped;
 
-            const Point &last = rulers_.back().points.back();
+            const le::Point &last = rulers_.back().points.back();
             const int64_t dx = std::llabs(snapped->x - last.x);
             const int64_t dy = std::llabs(snapped->y - last.y);
-            return dx >= dy ? Point{snapped->x, last.y} : Point{last.x, snapped->y};
+            return dx >= dy ? le::Point{snapped->x, last.y} : le::Point{last.x, snapped->y};
         }
 
         // Commits ruler_next_point(free_form). If there's no active
@@ -707,14 +895,14 @@ namespace le
         // new ruler right on top of it.
         void add_ruler_point(bool free_form)
         {
-            const std::optional<Point> point = ruler_next_point(free_form);
+            const std::optional<le::Point> point = ruler_next_point(free_form);
             if (!point)
                 return;
 
             const bool has_active = !rulers_.empty() && !rulers_.back().finished;
             if (has_active && !rulers_.back().points.empty())
             {
-                const Point &last = rulers_.back().points.back();
+                const le::Point &last = rulers_.back().points.back();
                 if (last.x == point->x && last.y == point->y)
                     return; // identical to the last committed point - a
                             // no-op rather than growing the polyline with
@@ -728,7 +916,7 @@ namespace le
             {
                 if (!rulers_.empty() && !rulers_.back().points.empty())
                 {
-                    const Point &last_finished = rulers_.back().points.back();
+                    const le::Point &last_finished = rulers_.back().points.back();
                     const double dx = static_cast<double>(point->x - last_finished.x);
                     const double dy = static_cast<double>(point->y - last_finished.y);
                     const double pixel_distance = std::sqrt(dx * dx + dy * dy) * scale_;
@@ -797,7 +985,7 @@ namespace le
         // Whether the current/next ruler point should ignore the
         // orthogonal constraint - a plain, key-code-agnostic flag;
         // api.cpp resyncs it (from its own knowledge of LE_KEY_SHIFT,
-        // which this class doesn't know the meaning of) on every key
+        // which this handle doesn't know the meaning of) on every key
         // event, so render-side code can read "free-form active right
         // now" every frame without needing to know what LE_KEY_SHIFT
         // means. Dedups (only bumps mouse_version_ on an actual change)
@@ -845,8 +1033,8 @@ namespace le
         // le_mouse_up reading is_key_held for shift-click/shift-drag,
         // rather than taking a shift parameter itself). Key codes are
         // opaque ints here - api.hpp's LeKeyCode enum gives them stable,
-        // platform-independent meaning at the C API boundary; Scene
-        // itself doesn't interpret them.
+        // platform-independent meaning at the C API boundary; this
+        // handle itself doesn't interpret them.
         void press_key(int32_t key_code) { held_keys_.insert(key_code); }
         void release_key(int32_t key_code) { held_keys_.erase(key_code); }
         bool is_key_held(int32_t key_code) const { return held_keys_.contains(key_code); }
@@ -901,13 +1089,13 @@ namespace le
             return it == layer_name_visible_.end() ? true : it->second;
         }
 
-        void set_purpose_visible(ViewLayerPurpose purpose, bool visible)
+        void set_purpose_visible(le::ViewLayerPurpose purpose, bool visible)
         {
             purpose_visible_[purpose] = visible;
             ++visibility_version_;
         }
 
-        bool is_purpose_visible(ViewLayerPurpose purpose) const
+        bool is_purpose_visible(le::ViewLayerPurpose purpose) const
         {
             auto it = purpose_visible_.find(purpose);
             return it == purpose_visible_.end() ? true : it->second;
@@ -916,7 +1104,7 @@ namespace le
         // The actual per-ViewLayer question Pipeline::filter_by_layer_visibility
         // filters on: visible only if both its layer-name axis and its
         // purpose axis are visible.
-        bool is_view_layer_visible(const std::string &layer_name, ViewLayerPurpose purpose) const
+        bool is_view_layer_visible(const std::string &layer_name, le::ViewLayerPurpose purpose) const
         {
             return is_layer_name_visible(layer_name) && is_purpose_visible(purpose);
         }
@@ -924,11 +1112,11 @@ namespace le
         // Read-only access to both maps directly, for a caller (api.cpp's
         // own view_render_options_for) building a ViewRenderOptions
         // snapshot to hand to the new pipelines module - copied by value
-        // there rather than threading a Scene reference/pointer into
+        // there rather than threading a reference/pointer into
         // ViewRenderOptions, which otherwise has no dependency on this
-        // module at all.
+        // handle's own type at all.
         const std::unordered_map<std::string, bool> &layer_name_visibility() const { return layer_name_visible_; }
-        const std::unordered_map<ViewLayerPurpose, bool> &purpose_visibility() const { return purpose_visible_; }
+        const std::unordered_map<le::ViewLayerPurpose, bool> &purpose_visibility() const { return purpose_visible_; }
 
         // Monotonic counter bumped by set_layer_name_visible/set_purpose_visible/
         // set_antialiasing_enabled - cheap for a caller to compare instead of
@@ -951,9 +1139,8 @@ namespace le
         // visually there while costing real rasterization time at
         // scale; a user who wants it can turn it back on. Reuses
         // visibility_version_ rather than a dedicated counter, same "a
-        // Scene-level render-config change" category
-        // set_layer_name_visible/set_purpose_visible already are, not a
-        // separate concern.
+        // render-config change" category set_layer_name_visible/
+        // set_purpose_visible already are, not a separate concern.
         bool antialiasing_enabled() const { return antialiasing_enabled_; }
         void set_antialiasing_enabled(bool enabled)
         {
@@ -980,18 +1167,18 @@ namespace le
             return it == layer_name_selectable_.end() ? true : it->second;
         }
 
-        void set_purpose_selectable(ViewLayerPurpose purpose, bool selectable)
+        void set_purpose_selectable(le::ViewLayerPurpose purpose, bool selectable)
         {
             purpose_selectable_[purpose] = selectable;
         }
 
-        bool is_purpose_selectable(ViewLayerPurpose purpose) const
+        bool is_purpose_selectable(le::ViewLayerPurpose purpose) const
         {
             auto it = purpose_selectable_.find(purpose);
             return it == purpose_selectable_.end() ? true : it->second;
         }
 
-        bool is_view_layer_selectable(const std::string &layer_name, ViewLayerPurpose purpose) const
+        bool is_view_layer_selectable(const std::string &layer_name, le::ViewLayerPurpose purpose) const
         {
             return is_layer_name_selectable(layer_name) && is_purpose_selectable(purpose);
         }
@@ -1021,7 +1208,7 @@ namespace le
         // le_mouse_up's drag-select branch (api.cpp) calls select() once
         // per enclosed piece, and a real design can put hundreds of
         // thousands of pieces under one shared Obstruction's OBS block.
-        void select(ShapeId shape_id, PieceKind piece_kind = PieceKind::RECT, size_t piece_index = 0)
+        void select(le::ShapeId shape_id, le::PieceKind piece_kind = le::PieceKind::RECT, size_t piece_index = 0)
         {
             select_object(SelectedObject{ShapePiece{.shape_id = shape_id, .piece_kind = piece_kind, .piece_index = piece_index}});
         }
@@ -1034,17 +1221,17 @@ namespace le
         // type that's actually one of the variant's own alternatives, and
         // an explicit overload set gives a real compile error at the call
         // site for anything else, not a confusing variant-construction one.
-        void select(RowId row_id) { select_object(SelectedObject{row_id}); }
-        void select(PlacementId placement_id) { select_object(SelectedObject{placement_id}); }
-        void select(RegionId region_id) { select_object(SelectedObject{region_id}); }
+        void select(le::RowId row_id) { select_object(SelectedObject{row_id}); }
+        void select(le::PlacementId placement_id) { select_object(SelectedObject{placement_id}); }
+        void select(le::RegionId region_id) { select_object(SelectedObject{region_id}); }
 
-        void deselect(ShapeId shape_id, PieceKind piece_kind = PieceKind::RECT, size_t piece_index = 0)
+        void deselect(le::ShapeId shape_id, le::PieceKind piece_kind = le::PieceKind::RECT, size_t piece_index = 0)
         {
             deselect_object(SelectedObject{ShapePiece{.shape_id = shape_id, .piece_kind = piece_kind, .piece_index = piece_index}});
         }
-        void deselect(RowId row_id) { deselect_object(SelectedObject{row_id}); }
-        void deselect(PlacementId placement_id) { deselect_object(SelectedObject{placement_id}); }
-        void deselect(RegionId region_id) { deselect_object(SelectedObject{region_id}); }
+        void deselect(le::RowId row_id) { deselect_object(SelectedObject{row_id}); }
+        void deselect(le::PlacementId placement_id) { deselect_object(SelectedObject{placement_id}); }
+        void deselect(le::RegionId region_id) { deselect_object(SelectedObject{region_id}); }
 
         void clear_selection()
         {
@@ -1062,7 +1249,7 @@ namespace le
         // over the current selection - fine since, unlike select()
         // itself, nothing performance-sensitive calls this today (no
         // per-enclosed-piece loop reaches it).
-        bool is_selected(ShapeId shape_id) const
+        bool is_selected(le::ShapeId shape_id) const
         {
             return std::ranges::any_of(selection_, [&](const SelectedObject &selected)
                                         {
@@ -1072,9 +1259,9 @@ namespace le
 
         // E1 - whole-object selected query, one overload per bare-id
         // alternative, same reasoning as the select() overload set above.
-        bool is_selected(RowId row_id) const { return selected_keys_.contains(SelectedObject{row_id}); }
-        bool is_selected(PlacementId placement_id) const { return selected_keys_.contains(SelectedObject{placement_id}); }
-        bool is_selected(RegionId region_id) const { return selected_keys_.contains(SelectedObject{region_id}); }
+        bool is_selected(le::RowId row_id) const { return selected_keys_.contains(SelectedObject{row_id}); }
+        bool is_selected(le::PlacementId placement_id) const { return selected_keys_.contains(SelectedObject{placement_id}); }
+        bool is_selected(le::RegionId region_id) const { return selected_keys_.contains(SelectedObject{region_id}); }
 
         const std::vector<SelectedObject> &selection() const { return selection_; }
         uint64_t selection_version() const { return selection_version_; }
@@ -1104,11 +1291,11 @@ namespace le
             std::erase(selection_, object);
             ++selection_version_;
         }
-        AbstractId current_abstract_;
-        LayoutId current_layout_id_;
+        le::AbstractId current_abstract_;
+        le::LayoutId current_layout_id_;
         int hierarchy_depth_ = 0;
         uint64_t hierarchy_version_ = 0;
-        Point pan_{0, 0};
+        le::Point pan_{0, 0};
         double scale_ = 1.0;
         int viewport_width_px_ = 0;
         int viewport_height_px_ = 0;
@@ -1141,11 +1328,11 @@ namespace le
         // GCELLGRID (BUGS_AND_ENHANCEMENTS.md E2 - "invisible by
         // default") - every other purpose still falls back to
         // is_purpose_visible()'s own "unknown key -> visible" default.
-        std::unordered_map<ViewLayerPurpose, bool> purpose_visible_{
-            {ViewLayerPurpose::TRACK_PREFERRED, false},
-            {ViewLayerPurpose::TRACK_NON_PREFERRED, false},
-            {ViewLayerPurpose::ROW, false},
-            {ViewLayerPurpose::GCELLGRID, false},
+        std::unordered_map<le::ViewLayerPurpose, bool> purpose_visible_{
+            {le::ViewLayerPurpose::TRACK_PREFERRED, false},
+            {le::ViewLayerPurpose::TRACK_NON_PREFERRED, false},
+            {le::ViewLayerPurpose::ROW, false},
+            {le::ViewLayerPurpose::GCELLGRID, false},
         };
         uint64_t visibility_version_ = 0;
         bool antialiasing_enabled_ = false;
@@ -1159,15 +1346,21 @@ namespace le
         // consistent with that rather than showing an active-looking
         // no-op. ROW stays selectable by default (BUGS_AND_ENHANCEMENTS.md
         // E1 - rows are meant to be selectable).
-        std::unordered_map<ViewLayerPurpose, bool> purpose_selectable_{
-            {ViewLayerPurpose::TRACK_PREFERRED, false},
-            {ViewLayerPurpose::TRACK_NON_PREFERRED, false},
-            {ViewLayerPurpose::GCELLGRID, false},
+        std::unordered_map<le::ViewLayerPurpose, bool> purpose_selectable_{
+            {le::ViewLayerPurpose::TRACK_PREFERRED, false},
+            {le::ViewLayerPurpose::TRACK_NON_PREFERRED, false},
+            {le::ViewLayerPurpose::GCELLGRID, false},
         };
         std::vector<SelectedObject> selection_;
         // signature (piece_signature) -> index into selection_ - see
         // select()'s own comment for why this exists.
         std::unordered_multimap<size_t, size_t> selection_index_;
         uint64_t selection_version_ = 0;
-    };
-}
+
+    public:
+        // Generated TCL property-reading cache - one cached_X_property_id/
+        // cached_X_properties pair per TCL-readable class not already covered
+        // by hand-written code above. Never edit generated_tcl/
+        // handle_fields.inc directly - regenerate via the regen-tcl skill.
+#include "generated_tcl/handle_fields.inc"
+};

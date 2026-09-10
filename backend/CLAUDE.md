@@ -57,41 +57,16 @@ none of these are duplicated here.
   `REGION` (Step 3 Phase A) are the purposes `LayoutGeometryStage`
   (`src/pipelines/stages/`) walks a `Layout`'s own direct content onto —
   see that module's own bullet below. Fully covered by `view_style_test.cpp`.
-- `src/scene/` — `Scene`, per-handle mutable view state: currently
-  displayed `AbstractId` *and*, independently, `LayoutId` (Migration Step
-  3 Phase C — `current_abstract()`/`current_layout()` are mutually
-  exclusive by convention, enforced by every `api.cpp` caller that
-  changes the view, not by `Scene` itself), a `hierarchy_depth()` (how
-  many further `Placement → Design` levels a Layout view recurses into
-  before falling back to a placed instance's own Abstract — see
-  `src/pipelines/`'s own `HierarchyResolver` bullet), pan/scale/viewport-size transform,
-  per-`ViewLayer` visibility, selection, and current interaction mode.
-  Distinct from the persistent `Root` database.
-  Layer visibility is keyed by `ViewLayerId`, not `LayerId` — a physical
-  layer has independently toggleable `TERMINAL`/`OBSTRUCTION` visibility.
-  Selection is `std::variant<TerminalId, ObstructionId>` — extend the
-  variant as more selectable kinds need it rather than generalizing early.
-  `Scene::Mode` (`SELECT`/`EDIT`, UPDATES.md item 11) is Select by
-  default — Select is the only mode where `le_mouse_up` changes the
-  current selection; Edit mode restricts mouse interaction to editing
-  whatever is already selected (behavior TBD, a later item).
-- `src/core/` — header-only generic building blocks (UPDATES.md item 16):
-  `RenderedShape`/`TinyShapeDot` (`pipelines`' own shape-generation output/
-  render-input type) and `VersionedStage<Key, Value>` — a single-slot
-  memoization primitive (`get(key, compute_fn)`) with its own monotonic
-  `version()`, bumped on every real recompute; `pipelines`' own
-  `MemoizingStage` (`src/pipelines/tbb_core.hpp`) is the oneTBB-flow-graph
-  equivalent for most stages, including `HierarchyResolver`'s own
-  per-`NodeKey` nodes since 2026-08-30 (see `src/pipelines/`'s own
-  bullet) — `top_layout_picture_stage_`, `HierarchyResolver`'s one
-  remaining `VersionedStage` use, is a thin cache in front of that
-  `MemoizingStage`-based graph, not a stand-in for it. A
-  downstream stage composes its own cache key from an upstream stage's
-  `version()` instead of manually re-deriving everything the upstream
-  depends on — the fix for a caching-bug class where a new upstream
-  trigger (e.g. `Root::mutation_version()`) had to be hand-copied into
-  every downstream key or a change silently went unseen. `CachedStage<Key,
-  Value>` is a backward-compatible alias for `VersionedStage`.
+- `src/core/` — header-only generic building blocks: `placement_geometry.hpp`
+  (a Placement's own world-space bbox plus the E1 top-level Placement
+  hit-test built on it, used by `api.cpp`'s Layout-view selection and by
+  the pipelines module) and `row_geometry.hpp` (a Row's own synthesized
+  footprint bbox, Row having no stored `Shape` of its own). `RenderedShape`/
+  `TinyShapeDot`/`VersionedStage`/`ShapeGenerationStage` (the pre-restart
+  `pipeline` module's own shape-generation output/render-input types and
+  memoization primitive) were removed with the rest of `pipelines.old` -
+  `pipelines`' own `MemoizingStage` (`src/pipelines/tbb_core.hpp`) is the
+  current oneTBB-flow-graph memoization primitive every stage uses instead.
 - `src/pipelines/` — the render pipeline, built on oneTBB's `flow::graph`
   (`backend/ONETBB_INTEGRATION.md`'s migration; replaced the earlier
   hand-rolled `src/pipeline`/`src/render`/`src/instancing` split, whose
@@ -392,20 +367,43 @@ none of these are duplicated here.
   would otherwise.
 - `src/api/` — `api.hpp`/`api.cpp`, the C API surface a Flutter plugin's
   Dart FFI binds to: an opaque `LeHandle` (`le_create`/`le_destroy`)
-  wrapping one `Root`/`ViewLayerSet`/`Scene` plus the `pipelines`-module
-  objects (`AbstractShapePipeline`/`LayoutShapePipeline`/
-  `FrameRenderPipeline`/`HierarchyResolver`) per handle (reused across
-  calls, not reconstructed per call); `le_read_lef`
-  (callable multiple times on one handle — e.g. tech file then macro
-  file(s)); `le_design_count`/`le_design_name`/`le_set_current_design`;
-  `le_set_pan`/`le_set_scale`/`le_set_viewport_size`; and
-  `le_render_pixel_buffer`. `api.hpp` must stay plain C — no `std::` types,
-  default arguments, or overloads in any public declaration — so it parses
-  cleanly for `ffigen`/Dart FFI; `LeHandle`'s real definition lives only in
-  `api.cpp`. Every function null-checks its handle and degrades gracefully
-  rather than crashing. Fully covered by `api_test.cpp`, using a small
-  hand-written `.lef` fixture. Depends on `database`, `geometry`, `scene`,
-  `view_style`, `pipelines`, `io`.
+  wrapping one `Root`/`ViewLayerSet` plus the pipelines module's own
+  `ViewRenderPipeline` per handle (reused across calls, not reconstructed
+  per call); `le_read_lef` (callable multiple times on one handle — e.g.
+  tech file then macro file(s)); `le_design_count`/`le_design_name`/
+  `le_set_current_design`; `le_set_pan`/`le_set_scale`/
+  `le_set_viewport_size`; and `le_render_pixel_buffer`. `api.hpp` must
+  stay plain C — no `std::` types, default arguments, or overloads in any
+  public declaration — so it parses cleanly for `ffigen`/Dart FFI;
+  `LeHandle`'s real definition lives in `api/le_handle.hpp` (included
+  only by `api.cpp` and its own tests, never by `api.hpp`). Every
+  function null-checks its handle and degrades gracefully rather than
+  crashing. Fully covered by `api_test.cpp`, using a small hand-written
+  `.lef` fixture; `le_handle_test.cpp` covers `LeHandle` itself in
+  isolation (constructed directly, no C API layer). Depends on
+  `database`, `geometry`, `editing`, `view_style`, `pipelines`, `io`.
+
+  `LeHandle` also owns every piece of per-handle mutable view/interaction
+  state (formerly a separate `le::Scene` class, folded directly onto
+  `LeHandle` since there's exactly one such state object per handle, not
+  two): currently displayed `AbstractId` *and*, independently, `LayoutId`
+  (Migration Step 3 Phase C — `current_abstract()`/`current_layout()` are
+  mutually exclusive by convention, enforced by every `api.cpp` caller
+  that changes the view, not by `LeHandle` itself), a `hierarchy_depth()`
+  (how many further `Placement → Design` levels a Layout view recurses
+  into before falling back to a placed instance's own Abstract — see
+  `src/pipelines/`'s own `HierarchyResolver` bullet), pan/scale/viewport-
+  size transform, per-`ViewLayer` visibility, selection, hover, rulers,
+  Move-drag state, and interaction mode. Layer visibility is keyed by
+  `ViewLayerId`, not `LayerId` — a physical layer has independently
+  toggleable `TERMINAL`/`OBSTRUCTION` visibility. Selection
+  (`LeHandle::SelectedObject`) is `std::variant<ShapePiece, RowId,
+  PlacementId, RegionId>` (E1) — extend the variant as more selectable
+  kinds need it rather than generalizing early. `LeHandle::Mode`
+  (`SELECT`/`EDIT`/`RULER`, UPDATES.md items 11/13) is Select by default —
+  Select is the only mode where `le_mouse_up` changes the current
+  selection; Edit mode restricts mouse interaction to editing whatever is
+  already selected.
 - `src/tcl/` — `le_api.i` (SWIG), `le_tcl_shim.hpp`/`.cpp`, `le_tcl_procs.tcl`:
   a Tcl-facing scripting surface wrapping `api.hpp` (see TCL_EXPLORATION.md),
   distinct from `src/api/`'s Dart-FFI-facing one — domain verb command
@@ -618,12 +616,12 @@ automatically, purely from schema graph structure — see
 `codegen/codegen/tcl_scope.py`'s own module docstring for the algorithm, and
 the `regen-tcl` skill for the full injection-point list. `le_set_current_design`/
 `le_set_current_design_by_id` (`api.cpp`) also move this alongside
-`Scene::current_abstract()` (the separate GUI-rendering "current view"),
+`LeHandle::current_abstract()` (the separate GUI-rendering "current view"),
 so selecting a Design means the same thing whether it came from a
 Dart-driven GUI or a TCL script's `open_design`; a script that builds an
 `Abstract` from scratch and calls `current_abstract <id>` directly (no
 `Design` to `open_design` into at all) still only touches this generated
-state, never `Scene`.
+state, never `LeHandle::current_abstract()`.
 
 `create_<type>` covers one flag per scalar field (`str`/`int`/`double`/
 `dbu`/`bool`/enum), one flag per *flattenable* embedded-struct field

@@ -29,12 +29,16 @@ extern "C"
 #endif
 
     /// @brief Opaque handle to one editor instance: a Root (database),
-    /// ViewLayerSet, Scene (view state), Pipeline, and Renderer, all with
-    /// the "one instance per Scene-equivalent lifetime, reused across
-    /// repeated calls" lifetime Pipeline/Renderer are designed around (see
-    /// pipeline.hpp/render.hpp) - a fresh Pipeline/Renderer per call would
-    /// defeat their internal caching entirely. Opaque so this header stays
-    /// C-compatible; the real struct is defined only in api.cpp.
+    /// ViewLayerSet, the pipelines module's own ViewRenderPipeline, and
+    /// every piece of per-handle mutable view/interaction state (current
+    /// Abstract/Layout, pan/zoom, layer visibility, selection, hover,
+    /// rulers, Move-drag state, interaction mode - formerly a separate
+    /// `le::Scene` class, since folded directly onto this struct), all
+    /// reused across repeated calls rather than reconstructed per call -
+    /// a fresh ViewRenderPipeline per call would defeat its own internal
+    /// MemoizingStage caching entirely. Opaque so this header stays
+    /// C-compatible; the real struct is defined only in api/le_handle.hpp
+    /// (included by api.cpp, never by this header).
     typedef struct LeHandle LeHandle;
 
 #include "generated_tcl/ids.inc"
@@ -127,7 +131,7 @@ extern "C"
 
     /// @brief Result of le_snapped_mouse_position(): the current mouse
     /// position's coordinates, snapped to the minor grid (mirrors
-    /// Scene::snapped_mouse_position - see UPDATES.md 5.3) and converted
+    /// LeHandle::snapped_mouse_position - see UPDATES.md 5.3) and converted
     /// from dbu to microns via the Root's Technology::database_units_microns
     /// (e.g. 1000 dbu/um -> 3 decimal digits of representable precision;
     /// dividing the already-integral snapped dbu value by this is exact to
@@ -310,10 +314,10 @@ extern "C"
     /// @brief Select the Design at `index`'s Layout view instead of its
     /// Abstract view - the two are mutually exclusive, only one view is
     /// "open" at a time (matches a real GUI showing one editor, not
-    /// both). Clears current_abstract_id (and Scene's own
-    /// current_abstract, so le_render_pixel_buffer() stops rendering the
-    /// old Abstract) the same way le_set_current_design_abstract/_by_id clear
-    /// current_layout_id (and Scene's own current_layout). Returns 0 on
+    /// both). Clears current_abstract_id (and LeHandle::current_abstract(),
+    /// so le_render_pixel_buffer() stops rendering the old Abstract) the
+    /// same way le_set_current_design_abstract/_by_id clear
+    /// current_layout_id (and LeHandle::current_layout()). Returns 0 on
     /// success, nonzero if handle is null or index is out of range - the
     /// current selection is left unchanged on failure. Once selected,
     /// le_render_pixel_buffer() renders this Layout's own content plus its
@@ -336,7 +340,7 @@ extern "C"
     /// @brief Sets le_hierarchy_depth(). Negative values are rejected (the
     /// current depth is left unchanged) rather than clamped - same
     /// "reject, don't silently clamp" convention le_set_scale uses for a
-    /// non-positive scale. Bumps Scene's own hierarchy_version() (only)
+    /// non-positive scale. Bumps LeHandle::hierarchy_version() (only)
     /// on an actual change, cheap for a caller to compare instead of
     /// snapshotting the depth by value. A no-op return value isn't
     /// distinguished from a successful no-op (same value set again) -
@@ -397,21 +401,21 @@ extern "C"
     /// (every purpose-column of it) together, not one column - a
     /// coarser-grained "layer visibility widget" model than one toggle per
     /// grid cell: see le_is_purpose_visible() for the other axis, and
-    /// Scene::is_view_layer_visible for how a specific column's effective
+    /// LeHandle::is_view_layer_visible for how a specific column's effective
     /// visibility combines both. Visible by default until toggled. Returns
-    /// true if handle or layer_name is null, matching Scene's
+    /// true if handle or layer_name is null, matching LeHandle's
     /// own "unknown name defaults to visible" default.
     bool le_is_layer_name_visible(LeHandle *handle, const char *layer_name);
 
     /// @brief Set the visibility of every ViewLayer whose LeLayerRow::name
     /// is `layer_name` - e.g. a layer-visibility widget's row-header
-    /// checkbox. Mirrors Scene::set_layer_name_visible directly (affects
+    /// checkbox. Mirrors LeHandle::set_layer_name_visible directly (affects
     /// rendering - see Pipeline::filter_by_layer_visibility). A no-op if
     /// handle or layer_name is null.
     void le_set_layer_name_visible(LeHandle *handle, const char *layer_name, bool visible);
 
     /// @brief Whether fill/stroke geometry paints antialias their own
-    /// edges (Scene::antialiasing_enabled()) - this also covers
+    /// edges (LeHandle::antialiasing_enabled()) - this also covers
     /// per-shape/per-placement design-content text (terminal/route labels,
     /// placement name labels, and their own small anchor-point cross
     /// markers - draw_group/draw_placement_labels, BUGS_AND_ENHANCEMENTS.md
@@ -426,7 +430,7 @@ extern "C"
     bool le_is_antialiasing_enabled(LeHandle *handle);
 
     /// @brief Toggle antialiasing - e.g. a view-options checkbox. Mirrors
-    /// Scene::set_antialiasing_enabled directly (affects rendering). A
+    /// LeHandle::set_antialiasing_enabled directly (affects rendering). A
     /// no-op if handle is null.
     void le_set_antialiasing_enabled(LeHandle *handle, bool enabled);
 
@@ -457,7 +461,7 @@ extern "C"
 
     /// @brief Set the visibility of every ViewLayer whose purpose is
     /// `purpose`, across every layer - e.g. a layer-visibility widget's
-    /// column-header checkbox. Mirrors Scene::set_purpose_visible directly
+    /// column-header checkbox. Mirrors LeHandle::set_purpose_visible directly
     /// (affects rendering). A no-op if handle is null.
     void le_set_purpose_visible(LeHandle *handle, int32_t purpose, int32_t visible);
 
@@ -469,9 +473,9 @@ extern "C"
     /// place ruler points instead - see le_finish_ruler/le_clear_rulers.
     /// Switched either via LE_KEY_SELECT_MODE/LE_KEY_EDIT_MODE/
     /// LE_KEY_RULER_MODE (keyboard) or le_set_mode (a Flutter UI event) -
-    /// both paths converge on the same Scene::Mode state. Switching to
+    /// both paths converge on the same LeHandle::Mode state. Switching to
     /// LE_MODE_RULER either way always finishes whatever ruler was
-    /// already in progress first (Scene::reset_ruler_mode), including
+    /// already in progress first (LeHandle::reset_ruler_mode), including
     /// when the mode is already Ruler - so re-selecting Ruler mode is
     /// itself a way to abandon an in-progress ruler.
     typedef enum LeMode
@@ -516,9 +520,9 @@ extern "C"
     /// Technology has been read yet to convert with.
     LeRulerPoint le_ruler_point_at(LeHandle *handle, int32_t ruler_index, int32_t point_index);
 
-    /// @brief Finishes the active ruler, if any (Scene::finish_active_ruler) -
+    /// @brief Finishes the active ruler, if any (LeHandle::finish_active_ruler) -
     /// the next click in Ruler mode starts a new ruler instead of
-    /// appending to this one, subject to Scene::add_ruler_point's own
+    /// appending to this one, subject to LeHandle::add_ruler_point's own
     /// minimum-distance guard against restarting too close to the point
     /// this call just finished at. Called by the frontend on a
     /// double-click (UPDATES.md item 13) - see flutter_plugin's
@@ -637,7 +641,7 @@ extern "C"
     int32_t le_is_layer_name_selectable(LeHandle *handle, const char *layer_name);
 
     /// @brief Set the selectability of every ViewLayer whose LeLayerRow::name
-    /// is `layer_name`. Mirrors Scene::set_layer_name_selectable directly.
+    /// is `layer_name`. Mirrors LeHandle::set_layer_name_selectable directly.
     /// A no-op if handle or layer_name is null.
     void le_set_layer_name_selectable(LeHandle *handle, const char *layer_name, int32_t selectable);
 
@@ -647,7 +651,7 @@ extern "C"
     int32_t le_is_purpose_selectable(LeHandle *handle, int32_t purpose);
 
     /// @brief Set the selectability of every ViewLayer whose purpose is
-    /// `purpose`, across every layer. Mirrors Scene::set_purpose_selectable
+    /// `purpose`, across every layer. Mirrors LeHandle::set_purpose_selectable
     /// directly. A no-op if handle is null.
     void le_set_purpose_selectable(LeHandle *handle, int32_t purpose, int32_t selectable);
 
@@ -656,7 +660,7 @@ extern "C"
     /// to the current scale (new_scale = scale * (1 + factor)) - positive
     /// zooms in, negative zooms out (e.g. 0.1 zooms in 10%, -0.1 zooms out
     /// 10%); a factor <= -1.0 (which would make new_scale non-positive) is
-    /// ignored, same guard as Scene::set_scale. `x`/`y` are in the same
+    /// ignored, same guard as LeHandle::set_scale. `x`/`y` are in the same
     /// pixel space as le_render_pixel_buffer()'s output image - top-left
     /// origin, y increasing downward (see api.hpp's LePixelBuffer) - not
     /// Renderer's own pre-Y-flip pixel space, since this is meant to be fed
@@ -675,14 +679,14 @@ extern "C"
 
     /// @brief Set the viewport size in pixels - also the size of the
     /// buffer le_render_pixel_buffer() produces. Mirrors
-    /// Scene::set_viewport_size directly.
+    /// LeHandle::set_viewport_size directly.
     void le_set_viewport_size(LeHandle *handle, int32_t width_px, int32_t height_px);
 
     /// @brief Fit the viewport's pan/scale to the currently selected
     /// Design's content bbox: uniform scale (no stretch) so the content
     /// fills the viewport set via le_set_viewport_size() with `padding_px`
     /// of margin on every side, pan centering it. Mirrors
-    /// Scene::fit_to_content, using Pipeline::generate_shapes' output for
+    /// LeHandle::fit_to_content, using Pipeline::generate_shapes' output for
     /// the bbox (same shapes le_render_pixel_buffer() would draw). A no-op
     /// if handle is null; degrades to scale 1.0 / pan (0, 0) if no Design
     /// is selected or its Abstract has no shapes, rather than crashing.
@@ -698,13 +702,13 @@ extern "C"
     /// API takes rather than requiring the caller to pre-convert. Uniform
     /// scale (no stretch) so it fills the viewport set via
     /// le_set_viewport_size() with `padding_px` of margin on every side,
-    /// pan centering it. Mirrors Scene::fit_to_content directly - the
+    /// pan centering it. Mirrors LeHandle::fit_to_content directly - the
     /// same "backend owns pan/scale entirely" fit-based approach
     /// le_fit_scene/le_zoom's own comments describe, just with a
     /// caller-supplied rect instead of a Design's own declared content
     /// bbox. A no-op if handle is null. A single-line (one axis
     /// zero-width) rect still fits correctly, using the other axis's own
-    /// scale - see Scene::fit_to_content's own comment; a zero-area or
+    /// scale - see LeHandle::fit_to_content's own comment; a zero-area or
     /// inverted (ur_x_um < ll_x_um or ur_y_um < ll_y_um) rect, or a
     /// non-positive viewport size, degrades to scale 1.0 / pan (0, 0)
     /// instead, same as le_fit_scene's own empty-content fallback.
@@ -712,38 +716,38 @@ extern "C"
 
     /// @brief Spacing (dbu) between minor grid dots, drawn behind the
     /// design by le_render_pixel_buffer() - see Renderer::draw_grid.
-    /// Mirrors Scene::minor_grid_spacing directly. Defaults to 5 (dbu),
+    /// Mirrors LeHandle::minor_grid_spacing directly. Defaults to 5 (dbu),
     /// matching a 5nm minor grid under the common "1 dbu = 1nm" Technology
     /// convention. Returns 0 if handle is null.
     int64_t le_minor_grid_spacing(LeHandle *handle);
 
     /// @brief Set the minor grid dot spacing (dbu). Mirrors
-    /// Scene::set_minor_grid_spacing directly (affects rendering) - values
+    /// LeHandle::set_minor_grid_spacing directly (affects rendering) - values
     /// <= 0 are ignored, same guard as le_set_scale. A no-op if handle is
     /// null.
     void le_set_minor_grid_spacing(LeHandle *handle, int64_t dbu);
 
     /// @brief Spacing (dbu) between major grid dots (drawn bolder than
     /// minor ones - see Renderer::draw_grid). Mirrors
-    /// Scene::major_grid_spacing directly. Defaults to 50 (dbu), matching
+    /// LeHandle::major_grid_spacing directly. Defaults to 50 (dbu), matching
     /// a 50nm major grid under the common "1 dbu = 1nm" Technology
     /// convention. Returns 0 if handle is null.
     int64_t le_major_grid_spacing(LeHandle *handle);
 
     /// @brief Set the major grid dot spacing (dbu). Mirrors
-    /// Scene::set_major_grid_spacing directly (affects rendering) - values
+    /// LeHandle::set_major_grid_spacing directly (affects rendering) - values
     /// <= 0 are ignored. A no-op if handle is null.
     void le_set_major_grid_spacing(LeHandle *handle, int64_t dbu);
 
     /// @brief On-screen text size (px) for every ruler label - tick
     /// values, each segment's own point-to-point distance, and a
     /// ruler's running total (UPDATES.md item 13). Mirrors
-    /// Scene::ruler_label_size_px directly. Defaults to 11.0. Returns 0
+    /// LeHandle::ruler_label_size_px directly. Defaults to 11.0. Returns 0
     /// if handle is null.
     double le_ruler_label_size(LeHandle *handle);
 
     /// @brief Set the ruler label text size (px). Mirrors
-    /// Scene::set_ruler_label_size_px directly (affects rendering) -
+    /// LeHandle::set_ruler_label_size_px directly (affects rendering) -
     /// values <= 0 are ignored, same guard as le_set_minor_grid_spacing.
     /// A no-op if handle is null.
     void le_set_ruler_label_size(LeHandle *handle, double px);
@@ -852,7 +856,7 @@ extern "C"
         LE_KEY_0 = 20,
         /// Switch to Select mode (UPDATES.md item 11) - an "action" code
         /// like LE_KEY_ZOOM/LE_KEY_FIT: le_key_down() calls
-        /// Scene::set_mode(Scene::Mode::SELECT) immediately, every call
+        /// LeHandle::set_mode(LeHandle::Mode::SELECT) immediately, every call
         /// (including key-repeat - idempotent, so no special one-shot
         /// handling is needed). Bare-only - fires only while neither
         /// LE_KEY_CTRL nor LE_KEY_SHIFT is currently held, so e.g. a
@@ -864,13 +868,13 @@ extern "C"
         LE_KEY_SELECT_MODE = 21,
         /// Switch to Edit mode (UPDATES.md item 11) - same shape as
         /// LE_KEY_SELECT_MODE, including the bare-only modifier gating,
-        /// calling Scene::set_mode(Scene::Mode::EDIT). While in Edit
+        /// calling LeHandle::set_mode(LeHandle::Mode::EDIT). While in Edit
         /// mode, le_mouse_up no longer changes the current selection -
         /// see its own doc comment.
         LE_KEY_EDIT_MODE = 22,
         /// Switch to Ruler mode (UPDATES.md item 13) - same idempotent,
         /// bare-only action-code shape as LE_KEY_SELECT_MODE/
-        /// LE_KEY_EDIT_MODE, but calls Scene::reset_ruler_mode() rather
+        /// LE_KEY_EDIT_MODE, but calls LeHandle::reset_ruler_mode() rather
         /// than a plain set_mode(): every call - including when already
         /// in Ruler mode, and including key-repeat - finishes whatever
         /// ruler was in progress, so re-pressing 'r' doubles as an
@@ -881,14 +885,14 @@ extern "C"
         /// Finishes the active ruler, if any (UPDATES.md item 13, see
         /// le_finish_ruler) - the Esc key. Idempotent/safe to fire on
         /// every call including key-repeat, same as every other action
-        /// code here: Scene::finish_active_ruler() is already a no-op
+        /// code here: LeHandle::finish_active_ruler() is already a no-op
         /// once there's nothing active to finish, and there's no active
         /// ruler at all outside Ruler mode (leaving it already finishes
-        /// whatever was in progress - see Scene::set_mode), so this
+        /// whatever was in progress - see LeHandle::set_mode), so this
         /// never needs mode-gating at the call site either. Also cancels
         /// an in-progress (not yet committed) Move, if any (UPDATES.md
         /// item 21, le_cancel_move) - same "always safe to fire" reasoning,
-        /// Scene::end_move() is a no-op once there's nothing to cancel.
+        /// LeHandle::end_move() is a no-op once there's nothing to cancel.
         /// Deliberately *not* modifier-gated, unlike every bare-only key
         /// above - Escape is a pure cancel/finish gesture, and a real
         /// ruler-drawing sequence routinely ends with LE_KEY_SHIFT (the
@@ -928,7 +932,7 @@ extern "C"
     ///   sends every "z" press as LE_KEY_ZOOM regardless of modifiers, so
     ///   this branches here rather than needing its own key code.
     ///   Otherwise: le_zoom() by a fixed factor, anchored at the
-    ///   current mouse position (Scene::mouse_x_px/mouse_y_px - i.e.
+    ///   current mouse position (LeHandle::mouse_x_px/mouse_y_px - i.e.
     ///   wherever le_set_mouse_position was last called for); zooms in,
     ///   or out if LE_KEY_SHIFT is currently held (le_is_key_held).
     /// - LE_KEY_FIT: le_fit_scene() with a fixed padding - or, if
@@ -1099,11 +1103,11 @@ extern "C"
     /// release (same threshold as above) is a no-op - fitting to a
     /// near-zero-size rectangle would produce an absurd scale; otherwise
     /// fits the viewport to the rectangle between the down and up points
-    /// (Scene::fit_to_content, no padding), the same fitting math
+    /// (LeHandle::fit_to_content, no padding), the same fitting math
     /// le_fit_scene() uses for a Design's own content bbox. Selection is
     /// untouched either way - this gesture is purely navigational.
     ///
-    /// Either way, ends the in-progress drag gesture (Scene::end_drag) -
+    /// Either way, ends the in-progress drag gesture (LeHandle::end_drag) -
     /// see le_mouse_down's own doc comment for the live rubber-band
     /// rectangle this also stops showing.
     void le_mouse_up(LeHandle *handle, int32_t x, int32_t y);
@@ -1121,13 +1125,13 @@ extern "C"
     /// to hold indefinitely. Null only if `handle` is null.
     const char *le_tooltip_message(LeHandle *handle);
 
-    /// @brief Number of currently selected objects (Scene::selection()).
+    /// @brief Number of currently selected objects (LeHandle::selection()).
     /// Indexes the `selection_index` parameter of le_selected_object_ref()
-    /// below - 0..le_selection_count()-1, in Scene::selection()'s own
+    /// below - 0..le_selection_count()-1, in LeHandle::selection()'s own
     /// (insertion) order. Returns 0 if handle is null.
     int32_t le_selection_count(LeHandle *handle);
 
-    /// @brief Monotonic counter (Scene::selection_version()) bumped on
+    /// @brief Monotonic counter (LeHandle::selection_version()) bumped on
     /// every actual selection change (a select()/deselect()/
     /// clear_selection() call that isn't a no-op) - a cheap way for a
     /// caller to tell whether anything selection-related has changed
@@ -1177,7 +1181,7 @@ extern "C"
     /// instead of stringly-typed, for the GUI's Property Viewer (UPDATES.md
     /// 7.2's later database-hierarchy redesign). Extended (E1,
     /// BUGS_AND_ENHANCEMENTS.md) with the six top-level Layout-view kinds
-    /// Scene::SelectedObject's own variant grew - le_selected_object_ref()
+    /// LeHandle::SelectedObject's own variant grew - le_selected_object_ref()
     /// dispatches each selected object to its own kind here so the
     /// Property Viewer shows real properties for a selected Row/
     /// Placement/Blockage/Route/PhysicalPort/Region, not just a Shape.
@@ -1238,7 +1242,7 @@ extern "C"
 
     /// @brief Number of property rows `ref` has (see LeProperty) - indexes
     /// le_object_property_at()'s own `index` parameter, 0..this-1. Read-
-    /// only: never mutates Scene::selection() or bumps selection_version(),
+    /// only: never mutates LeHandle::selection() or bumps selection_version(),
     /// so a Property Viewer can call this while navigating parent/child
     /// links without affecting canvas selection. Dispatches to the same
     /// by-id property builder each class's own le_X_property_count/_at
@@ -1258,7 +1262,7 @@ extern "C"
     /// Terminal/Obstruction's abstract, Abstract's design, Design's
     /// library) - the same parent-hop graph filter_field_tables() already
     /// declares for -filter validation, exposed here for GUI navigation
-    /// links. Read-only: never mutates Scene::selection(). Returns
+    /// links. Read-only: never mutates LeHandle::selection(). Returns
     /// le_object_invalid_ref() for LE_OBJECT_KIND_LIBRARY (no parent), a
     /// ref that doesn't resolve, or a null handle.
     LeObjectRef le_object_parent(LeHandle *handle, LeObjectRef ref);
@@ -1267,10 +1271,10 @@ extern "C"
     /// as a generic ref usable with le_object_property_count()/_at()/
     /// le_object_parent() - LE_OBJECT_KIND_SHAPE for a piece-granular
     /// ShapePiece selection (Terminal/Obstruction/Blockage/Route/
-    /// PhysicalPort - see Scene::SelectedObject's own comment), or the
+    /// PhysicalPort - see LeHandle::SelectedObject's own comment), or the
     /// matching whole-object kind (LE_OBJECT_KIND_ROW/_PLACEMENT/_REGION)
     /// for E1's bare-id alternatives. Read-only: never mutates
-    /// Scene::selection() or bumps selection_version(). Returns
+    /// LeHandle::selection() or bumps selection_version(). Returns
     /// le_object_invalid_ref() if handle is null or selection_index is
     /// out of range.
     LeObjectRef le_selected_object_ref(LeHandle *handle, int32_t selection_index);
@@ -1279,7 +1283,7 @@ extern "C"
     /// (BUGS_AND_ENHANCEMENTS.md E30) - the script-driven counterpart to
     /// le_mouse_up's own hit-test-driven selection. Only
     /// LE_OBJECT_KIND_SHAPE/_ROW/_PLACEMENT/_REGION are supported (the
-    /// same four kinds Scene::SelectedObject's own variant covers) - any
+    /// same four kinds LeHandle::SelectedObject's own variant covers) - any
     /// other kind, or a ref that doesn't resolve, is a no-op that appends
     /// an ERROR message rather than crashing or silently doing nothing.
     /// For LE_OBJECT_KIND_SHAPE specifically, this selects every piece of
@@ -1288,7 +1292,7 @@ extern "C"
     /// level granularity is reachable only via a real mouse hit-test
     /// (le_mouse_up), there's no "just this one piece" concept a bare
     /// ShapeId can express on its own. Does not clear the existing
-    /// selection first (mirrors Scene::select()'s own additive behavior,
+    /// selection first (mirrors LeHandle::select()'s own additive behavior,
     /// same as ctrl/shift-clicking) - call le_deselect_all() first for a
     /// script that wants to replace the selection outright. Returns 0 if
     /// this added at least one selection entry, nonzero otherwise

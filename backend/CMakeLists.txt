@@ -384,15 +384,10 @@ add_library(view_style INTERFACE)
 target_include_directories(view_style INTERFACE src)
 target_link_libraries(view_style INTERFACE database)
 
-# --- scene: header-only per-handle mutable view state (pan/zoom, selection, layer visibility) ---
-add_library(scene INTERFACE)
-target_include_directories(scene INTERFACE src)
-target_link_libraries(scene INTERFACE database view_style)
-
 # --- editing: header-only undo/redo command recording (UPDATES.md item 21) ---
 add_library(editing INTERFACE)
 target_include_directories(editing INTERFACE src)
-target_link_libraries(editing INTERFACE database scene)
+target_link_libraries(editing INTERFACE database)
 
 # --- core: header-only generic building blocks (RenderedShape/TinyShapeDot,
 # VersionedStage) shared by `pipelines` and by HierarchyResolver's own
@@ -401,7 +396,7 @@ target_link_libraries(editing INTERFACE database scene)
 # UPDATES.md item 16. ---
 add_library(core INTERFACE)
 target_include_directories(core INTERFACE src)
-target_link_libraries(core INTERFACE database scene view_style)
+target_link_libraries(core INTERFACE database view_style)
 
 # --- Skia (not vendored/built by this project - a pre-built checkout on
 # this machine). SKIA_DIR must contain out/MacStatic/{libskia.a,...} on
@@ -538,7 +533,7 @@ le_enable_coverage_instrumentation(io)
 # plain-C-parseable header for ffigen/Dart FFI - see api.hpp's own comment. ---
 add_library(api STATIC src/api/api.cpp)
 target_include_directories(api PUBLIC src/api)
-target_link_libraries(api PRIVATE database geometry scene editing view_style pipelines io)
+target_link_libraries(api PRIVATE database geometry editing view_style pipelines io)
 le_enable_coverage_instrumentation(api)
 
 # --- gui: Dear ImGui prototype - le_shell's own `show_gui` window,
@@ -988,7 +983,6 @@ add_executable(backend_tests
     src/database/tests/filter_test.cpp
     src/geometry/tests/geometry_test.cpp
     src/view_style/tests/view_style_test.cpp
-    src/scene/tests/scene_test.cpp
     src/editing/tests/editing_test.cpp
     src/io/tests/lef_reader_test.cpp
     src/io/tests/lef_reader_utils_test.cpp
@@ -996,8 +990,9 @@ add_executable(backend_tests
     src/io/tests/def_reader_test.cpp
     src/io/tests/def_writer_test.cpp
     src/api/tests/api_test.cpp
+    src/api/tests/le_handle_test.cpp
 )
-target_link_libraries(backend_tests PRIVATE database geometry view_style scene editing io api fmt::fmt GTest::gtest_main)
+target_link_libraries(backend_tests PRIVATE database geometry view_style editing pipelines io api fmt::fmt GTest::gtest_main)
 target_compile_definitions(backend_tests PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
     IO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures"

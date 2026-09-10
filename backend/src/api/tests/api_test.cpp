@@ -296,7 +296,7 @@ TEST_F(ApiFixture, SetModeToRulerDoesNotEagerlyCreateARuler)
 {
     le_set_mode(handle, LE_MODE_RULER);
     EXPECT_EQ(le_get_mode(handle), LE_MODE_RULER);
-    // Rulers start lazily on the first click (Scene::add_ruler_point) -
+    // Rulers start lazily on the first click (LeHandle::add_ruler_point) -
     // entering Ruler mode alone doesn't create an empty one.
     EXPECT_EQ(le_ruler_count(handle), 0);
 }
@@ -399,7 +399,7 @@ TEST_F(ApiFixture, RenderPixelBufferProducesTheRequestedDimensions)
 
     le_set_viewport_size(handle, 200, 200);
 
-    // Scene starts at scale 1.0 / pan (0, 0) - le_zoom to scale 10.0 (10
+    // The view starts at scale 1.0 / pan (0, 0) - le_zoom to scale 10.0 (10
     // px/dbu-micron-ish, matches DATABASE MICRONS 1000 -> 1000 dbu/micron)
     // anchored at image pixel (0, 200) (bottom-left corner, i.e. dbu (0,
     // 0) at the starting pan/scale) keeps pan pinned at (0, 0) exactly.
@@ -426,7 +426,7 @@ TEST_F(ApiFixture, SubPixelShapeIsNotRenderedAndIsNotSelectable)
 
     le_set_viewport_size(handle, 100, 100);
 
-    // Scene starts at scale 1.0 / pan (0, 0). PIN A's RECT is exactly 1x1
+    // The view starts at scale 1.0 / pan (0, 0). PIN A's RECT is exactly 1x1
     // dbu - at scale 1.0 that's exactly at (not below) the sub-pixel
     // threshold, so it renders normally there. Zooming out to scale 0.5,
     // anchored at pixel (0, 100) (dbu (0, 0) at the starting pan/scale -
@@ -696,8 +696,8 @@ TEST_F(ApiFixture, SetCurrentDesignByIdAlsoSetsTheGeneratedCurrentAbstract)
     // (open_design) select a Design through - both should mean the same
     // thing: get_terminals/get_shapes/etc.'s own default -of-omitted
     // scope (le_current_abstract - the generated has_current_access
-    // state, not Scene::current_abstract()) has to move too, not just
-    // whatever Scene renders.
+    // state, not LeHandle::current_abstract()) has to move too, not just
+    // whatever the render actually shows.
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
 
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
@@ -884,7 +884,7 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutWithZeroHierarchyDepthStillRendersOwnPl
 // Before this, le_mouse_up unconditionally hit-tested the Abstract path
 // even when a Layout view was active - clicking in Layout view hit
 // whatever stale/irrelevant Abstract content happened to exist, never
-// the Layout's own. These exercise the real, full click -> Scene::
+// the Layout's own. These exercise the real, full click -> LeHandle::
 // selection() -> le_selected_object_ref() path end-to-end, the same way
 // ClickSelectingAShapeReportsExactlyTheSamePropertiesAsGetPropertiesOnItsShapeId
 // already does for the Abstract path.
@@ -1221,7 +1221,7 @@ TEST_F(ApiFixture, LayerNameVisibilityDefaultsTrueAndRoundTrips)
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
 
     EXPECT_NE(le_is_layer_name_visible(handle, "M1"), 0);
-    // Unknown-to-null-handle/name default matches Scene's own default.
+    // Unknown-to-null-handle/name default matches LeHandle's own default.
     EXPECT_NE(le_is_layer_name_visible(nullptr, "M1"), 0);
     EXPECT_NE(le_is_layer_name_visible(handle, nullptr), 0);
 
@@ -1247,7 +1247,7 @@ TEST_F(ApiFixture, ReadLefDefaultsNonRoutingCutLayersToHidden)
     EXPECT_EQ(le_is_layer_name_visible(handle, "SLICE"), 0);
     // BOUNDARY isn't a physical layer (no LayerId of its own), so it's
     // untouched by the new default-hiding pass and stays visible via
-    // Scene's own default-true-until-toggled behavior.
+    // LeHandle's own default-true-until-toggled behavior.
     EXPECT_NE(le_is_layer_name_visible(handle, "BOUNDARY"), 0);
 }
 
@@ -1723,7 +1723,7 @@ TEST_F(ApiFixture, ZoomWithDegenerateFactorLeavesScaleAndPanUnchanged)
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // -> scale 0.01, pan (0, 0)
 
     // A factor <= -1.0 would make new_scale non-positive - must be
-    // ignored entirely (same guard as Scene::set_scale), not clamp to
+    // ignored entirely (same guard as LeHandle::set_scale), not clamp to
     // some fallback value.
     le_zoom(handle, -1.0, 50, 50);
 
@@ -1853,7 +1853,7 @@ TEST_F(ApiFixture, ZoomDragFitsTheDraggedRectToTheViewport)
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
 
-    // Scene starts at pan (0,0)/scale 1.0. Drag from pixel (0,100) [dbu
+    // The view starts at pan (0,0)/scale 1.0. Drag from pixel (0,100) [dbu
     // (0,0), via pixel_to_dbu] to pixel (10000,-9900) [dbu (10000,10000)] -
     // chosen so the resulting drag rect is exactly the macro's own
     // (0,0)-(10000,10000) bbox. Feeding that into fit_to_content (padding
@@ -1861,7 +1861,7 @@ TEST_F(ApiFixture, ZoomDragFitsTheDraggedRectToTheViewport)
     // state the existing le_zoom(handle, 100.0/10000.0-1.0, 0, 100)-based
     // zoom tests use - so this reuses their already-verified pixel
     // assertions (PIN A at device (20,20)-(80,80)) as proof the rect-zoom
-    // math matches Scene::fit_to_content exactly.
+    // math matches LeHandle::fit_to_content exactly.
     le_zoom_drag_down(handle, 0, 100);
     le_mouse_up(handle, 10000, -9900);
 
@@ -1914,7 +1914,7 @@ TEST_F(ApiFixture, SelectDragRectangleIsBlueZoomDragRectangleIsGreen)
     // channel is robust regardless of whether a grid dot lands on the
     // sampled pixel.
     le_mouse_down(handle, 10, 10);
-    le_set_mouse_position(handle, 90, 90); // Scene::drag_rect_dbu() needs a stored mouse position, not just the down-event x/y
+    le_set_mouse_position(handle, 90, 90); // LeHandle::drag_rect_dbu() needs a stored mouse position, not just the down-event x/y
 
     LePixelBuffer select_buffer = le_render_pixel_buffer(handle);
     ASSERT_NE(select_buffer.data, nullptr);
@@ -2100,7 +2100,7 @@ TEST_F(ApiFixture, RenderPixelBufferDrawsThePinRectAtItsExpectedLocation)
     // MACRO SIZE is 10x10 microns, PIN A's RECT is (2,2)-(8,8) microns.
     // DATABASE MICRONS 1000 -> 1 micron = 1000 dbu. Scale chosen so the
     // whole 10x10 micron (10000x10000 dbu) macro fills a 100x100px buffer.
-    // Scene starts at scale 1.0 / pan (0, 0) - le_zoom to that scale
+    // The view starts at scale 1.0 / pan (0, 0) - le_zoom to that scale
     // anchored at image pixel (0, 100) (dbu (0, 0) at the starting
     // pan/scale) keeps pan pinned at (0, 0) exactly.
     le_set_viewport_size(handle, 100, 100);
@@ -2498,7 +2498,7 @@ TEST_F(ApiFixture, SelectionVersionBumpsOnlyOnAnActualSelectionChange)
     // Reselecting the exact same shape (no shift, so it clears first then
     // reselects the same one) still changes it, since clear+reselect is
     // two real selection_ mutations even though the end state looks the
-    // same - le_selection_version reflects Scene::selection_version()
+    // same - le_selection_version reflects LeHandle::selection_version()
     // directly, not a "did the final state differ" comparison.
     le_mouse_down(handle, 25, 175);
     le_mouse_up(handle, 25, 175);
@@ -2730,7 +2730,7 @@ TEST_F(ApiFixture, ShiftHeldClickInRulerModeAllowsANonOrthogonalPoint)
     ASSERT_EQ(le_ruler_point_count(handle, 0), 1);
 
     // Without shift, this would snap orthogonal (whichever axis moved
-    // more wins, per Scene::ruler_next_point).
+    // more wins, per LeHandle::ruler_next_point).
     le_key_down(handle, LE_KEY_SHIFT);
     le_set_mouse_position(handle, 60, 140);
     le_mouse_down(handle, 60, 140);

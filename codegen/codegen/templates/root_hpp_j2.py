@@ -17,8 +17,8 @@ namespace {{schema.namespace}} {
         /// call - a cheap way for a caller (e.g. a render pipeline's own
         /// cache key) to tell whether *any* database content has changed
         /// since it last checked, without needing per-field/per-class
-        /// change tracking. Mirrors Scene::selection_version()'s existing
-        /// pattern (see scene.hpp) for the same reason: a hand-written,
+        /// change tracking. Mirrors LeHandle::selection_version()'s existing
+        /// pattern (see api/le_handle.hpp) for the same reason: a hand-written,
         /// domain-specific mutation site (e.g. api.cpp's own CRUD
         /// functions - see TCL_EXPLORATION.md) calls bump_mutation_version()
         /// explicitly, since not every mutation goes through a generated
