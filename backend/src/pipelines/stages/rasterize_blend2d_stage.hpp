@@ -144,6 +144,117 @@ namespace le
         ctx.stroke_line(BLLine(bounds.x0, bounds.y1, bounds.x1, bounds.y0));
     }
 
+    /// @brief Cache key for `render_text_bitmap` below - a label's own
+    /// rendered ink depends only on its text, the BLFont it was shaped
+    /// with (captured here by its own already-rounded pixel size, the
+    /// same `font_key` draw_view_shapes_blend2d's own font_cache is keyed
+    /// by), and its fill color (a ViewLayer's own outline_color, constant
+    /// for every shape on that layer - see draw_view_shapes_blend2d's own
+    /// per-layer setup).
+    struct TextBitmapCacheKey
+    {
+        std::string label;
+        int font_key;
+        uint32_t color;
+
+        bool operator==(const TextBitmapCacheKey &other) const noexcept
+        {
+            return font_key == other.font_key && color == other.color && label == other.label;
+        }
+    };
+
+    struct TextBitmapCacheKeyHash
+    {
+        std::size_t operator()(const TextBitmapCacheKey &key) const noexcept
+        {
+            std::size_t h = std::hash<std::string>()(key.label);
+            h = h * 31 + static_cast<std::size_t>(key.font_key);
+            h = h * 31 + static_cast<std::size_t>(key.color);
+            return h;
+        }
+    };
+
+    struct CachedTextBitmap
+    {
+        // Default-constructed (0x0) means "nothing to draw" (an empty
+        // label, or a shaped run with zero glyphs) - the caller checks
+        // width()/height() rather than treating every cache entry as
+        // real ink.
+        BLImage image;
+        // Device-pixel offset from the label's own baseline origin (the
+        // point draw_view_shapes_blend2d's text loop maps text.location
+        // through) to this image's own top-left corner.
+        BLPoint offset;
+    };
+
+    /// @brief Renders `label` in `font` once into a small, tightly-sized
+    /// BLImage - the direct analog of Skia's own internal glyph-bitmap
+    /// cache, which Blend2D's `fill_utf8_text` has no equivalent of (it
+    /// shapes and fills each glyph run as vector paths on every single
+    /// call - measured at ~0.84us/call for a 2-character label,
+    /// PIPELINE_REFACTOR_BENCHMARK_RESULTS.md). Blitting this bitmap
+    /// (draw_view_shapes_blend2d's own text loop, via its own
+    /// text_bitmap_cache) is dramatically cheaper than a fresh shape+fill
+    /// for every repeated occurrence of the same (label, size, color) -
+    /// the common case here, since `Text::label` is a Terminal's own pin
+    /// name (`TerminalData::name`, hierarchy_resolver_stage.hpp), shared
+    /// verbatim across every instance of the same library cell in a
+    /// design built from a small standard-cell library (measured ~8.6x
+    /// faster end to end on a synthetic 8-distinct-label workload).
+    ///
+    /// `BLTextMetrics::bounding_box` (font.h's own `get_text_metrics`) is
+    /// deliberately NOT used for sizing - confirmed by reading Blend2D's
+    /// own `font.cpp` (`bl_font_get_text_metrics`): its `y0`/`y1` are
+    /// unconditionally `0.0`, and its `x0`/`x1` come from only the FIRST
+    /// and LAST glyph's own individual bounds, not a true union of every
+    /// glyph in the run - both useless for a tight bitmap size (found by
+    /// a direct standalone check: a real "VDD" bounding_box came back
+    /// 2px tall). The font's own whole-font ascent/descent (`font.metrics()` -
+    /// already scaled for this BLFont's own pixel size) bound any
+    /// string's vertical extent correctly regardless of which glyphs it
+    /// contains; `metrics.advance.x` (the shaped run's own total advance,
+    /// not subject to the border-glyph bug above) bounds the horizontal
+    /// extent. A small (+-1px) pad on every side covers AA bleed past the
+    /// nominal glyph outline.
+    inline CachedTextBitmap render_text_bitmap(const BLFont &font, const std::string &label, BLRgba32 color)
+    {
+        CachedTextBitmap result;
+        if (label.empty())
+            return result;
+
+        BLGlyphBuffer gb;
+        gb.set_utf8_text(label.c_str(), label.size());
+        font.shape(gb);
+        if (gb.glyph_run().size == 0)
+            return result;
+
+        BLTextMetrics metrics;
+        font.get_text_metrics(gb, metrics);
+
+        const BLFontMetrics &font_metrics = font.metrics();
+        const double x0 = -1.0;
+        const double y0 = -static_cast<double>(font_metrics.ascent) - 1.0;
+        const double x1 = metrics.advance.x + 1.0;
+        const double y1 = static_cast<double>(font_metrics.descent) + 1.0;
+        const int width = std::max(1, static_cast<int>(std::ceil(x1 - x0)));
+        const int height = std::max(1, static_cast<int>(std::ceil(y1 - y0)));
+
+        result.image = BLImage(width, height, BL_FORMAT_PRGB32);
+        result.offset = BLPoint(x0, y0);
+
+        BLContext glyph_ctx(result.image);
+        glyph_ctx.clear_all();
+        glyph_ctx.set_fill_style(color);
+        // Shifted so the bitmap's own (0, 0) lands at (x0, y0) relative
+        // to the label's own baseline origin - the caller blits at
+        // (device_origin + offset), reconstructing that same relationship
+        // in device space.
+        glyph_ctx.fill_glyph_run(BLPoint(-x0, -y0), font, gb.glyph_run());
+        glyph_ctx.end();
+
+        return result;
+    }
+
     /// @brief Blend2D sibling of rasterize_stage.hpp's own `draw_view_shapes` -
     /// same per-layer/per-shape structure, same shapes_index-or-fallback
     /// viewport-culling dispatch, same path_outline_cache (Geometry::
@@ -152,9 +263,14 @@ namespace le
     /// (BLContext instead of SkCanvas).
     ///
     /// Text (Shape.texts) draws the generic per-shape TERMINAL/ROUTE label
-    /// case only (kLabelWidthRatio-scaled, floored at kMinLabelPixelSize,
-    /// centered at `text.location`, never truncated) - the placement-name
-    /// label case (rasterize_stage.hpp's own `is_placement_name_layer`
+    /// case only (kLabelWidthRatio-scaled, clamped to
+    /// [kMinLabelPixelSize, kMaxLabelPixelSize], centered at
+    /// `text.location`, never truncated), via a per-call
+    /// (label, font_key, color) rendered-glyph-bitmap cache
+    /// (`render_text_bitmap`/`text_bitmap_cache` below) rather than a
+    /// fresh vector shape+fill per occurrence - see that function's own
+    /// doc comment for why. The placement-name label case
+    /// (rasterize_stage.hpp's own `is_placement_name_layer`
     /// branch: index-paired with shape.rects, bottom-left-anchored,
     /// truncated to fit via truncate_text_to_width) is still a scoped-out
     /// gap here, not yet ported. Unlike Skia's UprightTextCanvas (which
@@ -198,20 +314,44 @@ namespace le
         BLContext &ctx, const ViewLayerShapes &shapes_by_layer, const ViewShapesIndexHandle &shapes_index, const Rect &query_bbox,
         const ViewLayerSet &view_layers, double scale,
         const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
-        std::unordered_map<const Path *, std::vector<Polygon>> &path_outline_cache)
+        std::unordered_map<const Path *, std::vector<Polygon>> &path_outline_cache,
+        std::unordered_map<int, BLFont> &font_cache,
+        std::unordered_map<TextBitmapCacheKey, CachedTextBitmap, TextBitmapCacheKeyHash> &text_bitmap_cache)
     {
         // Sized BLFont instances are cheap to build but not free (real
         // per-call work inside Blend2D, not just a struct copy) - cached
-        // here, keyed by rounded pixel size, so the many shapes on one
-        // layer that all resolve to the same on-screen text size (the
-        // common case - kLabelWidthRatio/kMinLabelPixelSize are both
-        // layer/shape-geometry-driven, not per-shape-random) share one
-        // BLFont instead of each building/discarding their own. Local to
-        // one call of this function (one node's own render), not shared
-        // across nodes/frames - default_blend2d_font_face() below is the
-        // one process-wide memoized thing here.
+        // here, keyed by rounded pixel size (clamped to
+        // [kMinLabelPixelSize, kMaxLabelPixelSize], so this map's own key
+        // space stays small regardless of zoom).
+        //
+        // BOTH `font_cache` and `text_bitmap_cache` are owned by the
+        // CALLER (RasterizeBlend2DStage - its own `font_cache_`/
+        // `text_bitmap_cache_` members) and passed in by reference here,
+        // deliberately shared across every node this stage renders (and
+        // across frames, for the lifetime of the stage) rather than
+        // scoped to one call of this function. An earlier version of this
+        // cache WAS per-call-local, on the (wrong) assumption that the
+        // dominant repetition was *intra-node* - many placements of the
+        // same library cell sharing one pin name within a single render.
+        // Direct instrumentation against the real aes_scaling benchmark
+        // fixture disproved that: HierarchyResolverStage renders each
+        // distinct AbstractId's own content exactly ONCE regardless of
+        // placement count (backend/CLAUDE.md's own HierarchyResolver
+        // bullet - "a design placed N times is still resolved once"),
+        // and every *repeat* placement instead reuses that one already-
+        // rendered node's own image via ComposeStage's compositing - so
+        // within any single call of THIS function, a given Terminal's own
+        // pin name appears exactly once. A per-call-local cache measured
+        // a 100% miss rate (83,000 draws, 83,000 misses) and was
+        // strictly slower than no cache at all (extra shape/measure/
+        // image-alloc/blit work on top of a fill that still only ever
+        // happened once). The REAL repetition this backend can actually
+        // exploit is *cross-node*: the same pin name (e.g. "A"/"Y"/"VDD")
+        // recurring across many DIFFERENT standard-cell types drawn from
+        // one small library, and the same font size/color recurring
+        // across many different terminals/layers - which only becomes
+        // visible once the cache's own lifetime spans more than one node.
         const BLFontFace &font_face = default_blend2d_font_face();
-        std::unordered_map<int, BLFont> font_cache;
 
         for (const ViewLayerId &view_layer_id : view_layers.all())
         {
@@ -473,7 +613,19 @@ namespace le
 
                 for (const Text &text : shape.texts)
                 {
-                    const double pixel_size = std::max(text.size * scale * kLabelWidthRatio, kMinLabelPixelSize);
+                    // Clamped at both ends: kMinLabelPixelSize keeps a
+                    // label legible when its own local geometry is tiny;
+                    // kMaxLabelPixelSize keeps it from growing without
+                    // bound when zoomed in close (a label only needs to
+                    // stay readable, not track the geometry's own on-screen
+                    // size 1:1) - and, since this backend renders each
+                    // distinct (label, font_key, color) into a cached
+                    // bitmap below, also bounds how many distinct sizes
+                    // that cache (and font_cache) ever needs to hold and
+                    // how large any one cached bitmap - and so any one
+                    // blit - ever gets, regardless of how far a user zooms
+                    // in (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md).
+                    const double pixel_size = std::clamp(text.size * scale * kLabelWidthRatio, kMinLabelPixelSize, kMaxLabelPixelSize);
                     const int font_key = std::max(1, static_cast<int>(std::lround(pixel_size)));
                     auto font_it = font_cache.find(font_key);
                     if (font_it == font_cache.end())
@@ -483,9 +635,28 @@ namespace le
                         font_it = font_cache.emplace(font_key, std::move(font)).first;
                     }
 
+                    // render_text_bitmap's own doc comment has the full
+                    // rationale - shaping+filling text as vector paths on
+                    // every call (fill_utf8_text, this loop's own earlier
+                    // form) is real, measured per-call cost with no
+                    // built-in Blend2D glyph cache to amortize it; a
+                    // cached bitmap turns every repeat of the same label/
+                    // size/color (the common case - Text::label is a
+                    // Terminal's own pin name, shared verbatim across
+                    // every instance of one library cell) into a cheap
+                    // blit instead.
+                    const TextBitmapCacheKey bitmap_key{text.label, font_key, stroke_color.value};
+                    auto bitmap_it = text_bitmap_cache.find(bitmap_key);
+                    if (bitmap_it == text_bitmap_cache.end())
+                        bitmap_it = text_bitmap_cache.emplace(bitmap_key, render_text_bitmap(font_it->second, text.label, stroke_color)).first;
+
+                    const CachedTextBitmap &bitmap = bitmap_it->second;
+                    if (bitmap.image.width() == 0 || bitmap.image.height() == 0)
+                        continue; // nothing to draw (e.g. an empty label)
+
                     // Maps this shape's own dbu-space label origin through
                     // the context's current (translate+scale+flip) transform
-                    // once, to a real device-pixel point, then draws under a
+                    // once, to a real device-pixel point, then blits under a
                     // plain identity transform at that point - see this
                     // function's own top-level doc comment for why that's
                     // sufficient here (no accumulated instance rotation to
@@ -493,8 +664,7 @@ namespace le
                     const BLPoint device_origin = ctx.final_transform().map_point(text.location.x, text.location.y);
                     ctx.save();
                     ctx.set_transform(BLMatrix2D::make_identity());
-                    ctx.set_fill_style(stroke_color);
-                    ctx.fill_utf8_text(device_origin, font_it->second, text.label.c_str(), text.label.size());
+                    ctx.blit_image(BLPoint(device_origin.x + bitmap.offset.x, device_origin.y + bitmap.offset.y), bitmap.image);
                     ctx.restore();
                 }
             };
@@ -600,7 +770,8 @@ namespace le
 
                 draw_view_shapes_blend2d(
                     ctx, data.shapes ? *data.shapes : kEmptyShapes, data.shapes_index, local_bbox, view_layers, options.scale,
-                    options.layer_name_visible, options.purpose_visible, node_outline_cache.outlines);
+                    options.layer_name_visible, options.purpose_visible, node_outline_cache.outlines,
+                    font_cache_, text_bitmap_cache_);
 
                 ctx.end();
 
@@ -647,6 +818,22 @@ namespace le
             std::unordered_map<const Path *, std::vector<Polygon>> outlines;
         };
         std::unordered_map<HierarchyId, NodePathOutlineCache, HierarchyIdHash> path_outline_cache_by_node_;
+
+        // Shared across every node this stage renders, and across every
+        // frame for this stage's own lifetime - see
+        // draw_view_shapes_blend2d's own doc comment for why this needs
+        // to be stage-wide (not per-node/per-call) to actually hit: the
+        // real repetition is the same pin name/font size/color recurring
+        // across many DIFFERENT nodes (distinct standard-cell Abstracts
+        // drawn from one small library), not within any single one.
+        // Unlike `path_outline_cache_by_node_` above, entries here never
+        // need invalidating - a (label, font_key, color) triple's own
+        // rendered ink never changes - so this only ever grows, bounded
+        // by the real number of distinct such triples a design's own
+        // content contains (typically small - hundreds to low thousands,
+        // each entry a few KB at most).
+        std::unordered_map<int, BLFont> font_cache_;
+        std::unordered_map<TextBitmapCacheKey, CachedTextBitmap, TextBitmapCacheKeyHash> text_bitmap_cache_;
 
         uint32_t thread_count_ = 8;
 

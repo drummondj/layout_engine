@@ -411,7 +411,7 @@ namespace le
                     for (std::size_t i = 0; i < shape.texts.size(); ++i)
                     {
                         const Text &text = shape.texts[i];
-                        const double pixel_size = std::max(text.size * scale, kMinLabelPixelSize);
+                        const double pixel_size = std::clamp(text.size * scale, kMinLabelPixelSize, kMaxLabelPixelSize);
                         if (i >= shape.rects.size())
                             continue;
                         const double width_px = static_cast<double>(shape.rects[i].ur.x - shape.rects[i].ll.x) * scale;
@@ -436,7 +436,7 @@ namespace le
 
                 for (const Text &text : shape.texts)
                 {
-                    const double pixel_size = std::max(text.size * scale * kLabelWidthRatio, kMinLabelPixelSize);
+                    const double pixel_size = std::clamp(text.size * scale * kLabelWidthRatio, kMinLabelPixelSize, kMaxLabelPixelSize);
 
                     SkFont font(default_typeface(), static_cast<SkScalar>(pixel_size));
                     font.setEdging(antialiasing_enabled ? SkFont::Edging::kAntiAlias : SkFont::Edging::kAlias);

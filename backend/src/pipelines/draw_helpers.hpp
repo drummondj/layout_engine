@@ -56,6 +56,18 @@ namespace le
     // instead of shrinking to unreadable specks.
     inline constexpr double kMinLabelPixelSize = 10.0;
 
+    // Maximum on-screen text size in pixels, regardless of how large the
+    // labeled geometry's own on-screen footprint grows (e.g. zoomed in
+    // close on a single cell) - a label only needs to stay legible, not
+    // grow without bound to match the geometry (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md's
+    // own text-rendering-cost investigation: capping this also bounds
+    // RasterizeBlend2DStage's own per-(label,size,color) glyph-bitmap
+    // cache to a small, fixed handful of distinct sizes instead of a
+    // continuously-changing one per zoom tick, and keeps each cached
+    // bitmap - and so each blit - small). Tunable; 24px comfortably
+    // exceeds what's needed for a short pin/cell name to read clearly.
+    inline constexpr double kMaxLabelPixelSize = 24.0;
+
     // Fraction of a terminal/route label's own local geometry width
     // (Text::size, Geometry::local_width_at) actually used for text size,
     // so the label doesn't touch/overflow the edges of the shape it's on.
