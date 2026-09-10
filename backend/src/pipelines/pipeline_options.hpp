@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include <variant>
+#include <vector>
 
 namespace le
 {
@@ -87,7 +88,7 @@ namespace le
         /// @brief Per-layer-name and per-purpose visibility toggles - a
         /// ViewLayer draws only if BOTH its own layer-name entry (if any)
         /// and its own purpose entry (if any) say visible; an unset key
-        /// in either map means visible (matches Scene::is_layer_name_visible/
+        /// in either map means visible (matches LeHandle::is_layer_name_visible/
         /// is_purpose_visible's own "unknown key -> visible" default, and
         /// draw_view_shapes_blend2d's own is_view_layer_visible mirrors
         /// that same logic exactly - see its own comment). Plain values,
@@ -102,19 +103,19 @@ namespace le
         /// equality instead of needing the caller to track its own
         /// version counter and hand back a fresh shared_ptr on every
         /// actual change. Empty by default (nothing hidden) - a caller
-        /// wanting Scene's own long-standing "ROW/TRACK_PREFERRED/
+        /// wanting LeHandle's own long-standing "ROW/TRACK_PREFERRED/
         /// TRACK_NON_PREFERRED/GCELLGRID hidden by default" convention
-        /// copies Scene::layer_name_visibility()/purpose_visibility()
+        /// copies LeHandle::layer_name_visibility()/purpose_visibility()
         /// in here directly (api.cpp's own view_render_options_for).
         std::unordered_map<std::string, bool> layer_name_visible;
         std::unordered_map<ViewLayerPurpose, bool> purpose_visible;
 
         /// @brief The user's own in-progress rubber-band drag rectangle
         /// (select or zoom), already resolved to a normalized dbu-space
-        /// Rect by Scene::drag_rect_dbu() - nullopt when no drag is in
+        /// Rect by LeHandle::drag_rect_dbu() - nullopt when no drag is in
         /// progress. A plain snapshot value, like every other field here,
-        /// not a live Scene* - this struct never carries live mutable UI
-        /// state, only values already resolved at the point a caller
+        /// not a live LeHandle* - this struct never carries live mutable
+        /// UI state, only values already resolved at the point a caller
         /// (api.cpp's own view_render_options_for) builds one. Drawn by
         /// ComposeStage directly (see that stage's own doc comment) - no
         /// separate overlay stage/node, so the ghost rectangle lives in
@@ -126,7 +127,59 @@ namespace le
         /// ComposeStage's own two drag-rect color pairs (draw_helpers.hpp)
         /// to draw with: a plain rubber-band select drag vs. a
         /// drag-to-zoom gesture get different colors so a user can tell
-        /// them apart while dragging (Scene::DragKind's own doc comment).
+        /// them apart while dragging (LeHandle::DragKind's own doc comment).
         bool drag_is_zoom = false;
+
+        /// @brief Every currently-selected piece's own dbu-space geometry
+        /// (`LeHandle::selection()`, already resolved to plain `Shape`s by
+        /// the caller - api.cpp's own view_render_options_for - the same
+        /// per-`SelectedObject`-kind resolution the pre-restart
+        /// `pipelines.old/stages/selection_overlay_stage.hpp` used:
+        /// `ShapePiece` via `Geometry::extract_piece`, `RowId` via
+        /// `row_footprint_bbox`, `RegionId` via its own `RegionData::rects`
+        /// directly, `PlacementId` via `placement_world_bbox`). One
+        /// `Shape` per selected piece, not indexed by which kind it came
+        /// from - `ComposeStage` only needs to stroke an outline around
+        /// each one, not know which selection-variant alternative
+        /// produced it. Empty when nothing is selected.
+        std::vector<Shape> selected_piece_outlines;
+
+        /// @brief `LeHandle::selection_version()` at the time this
+        /// snapshot was taken - `ComposeStage::options_did_change` compares
+        /// this (cheap) rather than deep-comparing
+        /// `selected_piece_outlines` by value (`Shape`/`Rect`/`Polygon`
+        /// have no `operator==` in this codebase - same reason
+        /// `drag_rect_dbu` above is compared field-by-field instead of
+        /// wholesale).
+        std::uint64_t selection_version = 0;
+
+        /// @brief The grid-snapped dbu point the mouse cursor currently
+        /// sits over (`LeHandle::snapped_mouse_position()`) - nullopt when
+        /// no mouse position has been set. Shown regardless of mode/
+        /// selectability (the cursor marker is meant to be visible at all
+        /// times a position is known, not just in Select mode - unlike
+        /// `hover_outline_dbu` below).
+        std::optional<Point> cursor_snapped_position_dbu;
+
+        /// @brief The hovered piece's own dbu-space outline geometry, if
+        /// any (`LeHandle::hover()`, already resolved by the caller -
+        /// api.cpp's own `le_set_mouse_position`, the same
+        /// `hit_test_abstract_point` used for a Select-mode click).
+        /// nullopt whenever nothing is hovered - including deliberately
+        /// whenever not in Select mode (the hover outline is a
+        /// Select-mode-only affordance, `LeHandle::set_mode`'s own
+        /// comment), which `le_set_mouse_position` enforces by never
+        /// setting a hover outside Select mode in the first place, not by
+        /// this struct filtering on mode itself.
+        std::optional<Shape> hover_outline_dbu;
+
+        /// @brief `LeHandle::mouse_version()` at the time this snapshot
+        /// was taken - covers both `cursor_snapped_position_dbu` and
+        /// `hover_outline_dbu` (both driven by the same mouse-move/mode
+        /// events, `LeHandle::mouse_version()`'s own doc comment) for
+        /// `ComposeStage::options_did_change`, the same cheap-version-
+        /// instead-of-deep-compare reasoning `selection_version` above
+        /// uses.
+        std::uint64_t mouse_version = 0;
     };
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include "../database/database.hpp"
+#include "../geometry/geometry.hpp"
 #include "../view_style/view_style.hpp"
 
 #include <blend2d/blend2d.h>
@@ -166,4 +167,80 @@ namespace le
     inline constexpr Color kZoomDragRectFillColor = {80, 255, 160, 60};
     inline constexpr Color kZoomDragRectStrokeColor = {80, 255, 160, 220};
     inline constexpr float kDragRectStrokeWidth = 2.0f;
+
+    // White selection outline (UPDATES.md item 7) - ported verbatim from
+    // pipelines.old/draw_helpers.hpp's own kSelectionOutlineColor/
+    // kSelectionOutlineStrokeWidth, same RGBA/width, so a user familiar
+    // with the pre-restart tool sees the exact same highlight.
+    inline constexpr Color kSelectionOutlineColor = {255, 255, 255, 255};
+    inline constexpr double kSelectionOutlineStrokeWidth = 2.0;
+
+    // Red grid-snap cursor box (UPDATES.md 7.1 item 1) and yellow hover
+    // outline (UPDATES.md 7.1) - both ported verbatim from
+    // pipelines.old/draw_helpers.hpp's own kCursorBoxColor/
+    // kCursorBoxStrokeWidth/kCursorBoxSizePx/kHoverOutlineColor/
+    // kHoverOutlineStrokeWidth, same RGBA/width/size.
+    inline constexpr Color kCursorBoxColor = {255, 0, 0, 255};
+    inline constexpr double kCursorBoxStrokeWidth = 1.0;
+    inline constexpr double kCursorBoxSizePx = 7.0;
+    inline constexpr Color kHoverOutlineColor = {255, 255, 0, 255};
+    inline constexpr double kHoverOutlineStrokeWidth = 2.0;
+
+    /// @brief Strokes `piece`'s own geometry (already mapped to device-
+    /// pixel space by the caller's own `to_pixel` - see `ComposeStage`'s
+    /// own doc comment for why its top-level composite canvas has no
+    /// ambient transform to draw through directly, unlike
+    /// `RasterizeBlend2DStage`'s own per-node canvas) with `color`/
+    /// `stroke_width` - shared by every ComposeStage overlay that traces
+    /// one piece's own outline (selection, hover, Move-ghost): each is
+    /// just a different color/width/dash on the exact same "trace each
+    /// rect/polygon/path's own buffered outline" technique, ported from
+    /// pipelines.old/draw_helpers.hpp's own draw_selected_piece_outline/
+    /// draw_hover_outline/draw_move_ghost (near-identical bodies there
+    /// too, just duplicated three ways under Skia - unified into one
+    /// helper here since Blend2D's own `BLContext` state (fill/stroke
+    /// style, dash array) needs setting by the caller anyway, right next
+    /// to whichever color/width/dash *this* overlay uses, not hidden
+    /// inside a helper that would otherwise need a color/width/dash
+    /// parameter per overlay kind). A Path traces its own *buffered
+    /// outline polygon* (`Geometry::path_to_polygons`), not a stroke
+    /// along its centerline - matching exactly what
+    /// `Geometry::find_hit_piece`/`fully_enclosed_pieces` themselves test
+    /// against, so a highlight traces what's actually
+    /// clickable/selected/hit, not an invisible centerline that would
+    /// collapse into a solid-looking blob for a path whose width is
+    /// comparable to its own length (a real reported bug against
+    /// synthetic stress-test geometry shaped exactly like that).
+    ///
+    /// Caller's own responsibility: `ctx.set_stroke_style`/
+    /// `set_stroke_width`/dash state, called once before this (per-layer-
+    /// style, not per-piece) if drawing several pieces with the same
+    /// style in a row - this function only ever calls `ctx.stroke_path`.
+    template <typename ToPixel>
+    inline void stroke_piece_outline(BLContext &ctx, const Shape &piece, ToPixel &&to_pixel)
+    {
+        auto stroke_polygon = [&](const Polygon &polygon)
+        {
+            if (polygon.points.empty())
+                return;
+
+            BLPath path;
+            const BLPoint first = to_pixel(polygon.points.front());
+            path.move_to(first);
+            for (size_t i = 1; i < polygon.points.size(); ++i)
+                path.line_to(to_pixel(polygon.points[i]));
+            path.close();
+            ctx.stroke_path(path);
+        };
+
+        for (const Rect &rect : piece.rects)
+            stroke_polygon(Geometry::rect_to_polygon(rect));
+
+        for (const Polygon &polygon : piece.polygons)
+            stroke_polygon(polygon);
+
+        for (const Path &path : piece.paths)
+            for (const Polygon &buffered : Geometry::path_to_polygons(path))
+                stroke_polygon(buffered);
+    }
 }

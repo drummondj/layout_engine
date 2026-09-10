@@ -57,6 +57,77 @@ namespace
     // exactly the dbu point at the viewport's own bottom-left pixel
     // corner - viewport.ll - and the top-right corner is pan plus the
     // pixel size converted to dbu via the same scale.
+    // Resolves one LeHandle::SelectedObject alternative to its own
+    // dbu-space outline geometry, for ComposeStage's own selection
+    // overlay - the exact per-kind resolution the pre-restart
+    // pipelines.old/stages/selection_overlay_stage.hpp used against a
+    // live Scene/Root pair, ported here since that stage (and the
+    // pipeline it lived in) were both deleted with the rest of that
+    // module. `remaining_depth` is only meaningful for a PlacementId
+    // alternative (Layout-view top-level selection, E1) - Abstract-view
+    // selection never produces one (see LeHandle::SelectionRef's own
+    // comment for why a Placement never becomes a ShapePiece either).
+    std::optional<le::Shape> resolve_selected_outline(const LeHandle *handle, const LeHandle::SelectedObject &selected, int remaining_depth)
+    {
+        return std::visit(
+            [&](const auto &s) -> std::optional<le::Shape>
+            {
+                using T = std::decay_t<decltype(s)>;
+                if constexpr (std::is_same_v<T, LeHandle::ShapePiece>)
+                {
+                    if (const le::ShapeData *data = handle->root.get_shape(s.shape_id))
+                        return le::Geometry::extract_piece(*data, s.piece_kind, s.piece_index);
+                    return std::nullopt;
+                }
+                else if constexpr (std::is_same_v<T, le::RowId>)
+                {
+                    if (auto bbox = le::row_footprint_bbox(handle->root, s))
+                        return le::Shape{.rects = {*bbox}};
+                    return std::nullopt;
+                }
+                else if constexpr (std::is_same_v<T, le::RegionId>)
+                {
+                    if (const le::RegionData *region = handle->root.get_region(s))
+                        return le::Shape{.rects = region->rects};
+                    return std::nullopt;
+                }
+                else // le::PlacementId
+                {
+                    if (!handle->current_layout().valid())
+                        return std::nullopt;
+                    if (auto bbox = le::placement_world_bbox(handle->root, s, remaining_depth))
+                        return le::Shape{.rects = {*bbox}};
+                    return std::nullopt;
+                }
+            },
+            selected);
+    }
+
+    // The SelectionRef a hover hit's own shape_id belongs to (LeHandle::
+    // HoverTarget::origin) - a Terminal-port Shape resolves to its owning
+    // Terminal (not the TerminalPortId itself - SelectionRef's own
+    // variant only has TerminalId, matching hover/selection always
+    // operating at Terminal granularity even though a Terminal can have
+    // several ports), an Obstruction Shape resolves directly (Shape.
+    // obstruction already is one). nullopt for anything else (a Shape
+    // hit-testing itself already only ever returns must be one of these
+    // two in an Abstract view, but this stays defensive rather than
+    // assuming).
+    std::optional<LeHandle::SelectionRef> shape_selection_ref(const le::Root &root, le::ShapeId shape_id)
+    {
+        const le::ShapeData *shape = root.get_shape(shape_id);
+        if (!shape)
+            return std::nullopt;
+        if (shape->terminal_port.valid())
+        {
+            if (const le::TerminalPortData *port = root.get_terminal_port(shape->terminal_port))
+                return LeHandle::SelectionRef{port->terminal};
+        }
+        if (shape->obstruction.valid())
+            return LeHandle::SelectionRef{shape->obstruction};
+        return std::nullopt;
+    }
+
     le::ViewRenderOptions view_render_options_for(const LeHandle *handle)
     {
         le::ViewRenderOptions options;
@@ -67,6 +138,13 @@ namespace
         options.antialiasing_enabled = handle->antialiasing_enabled();
         options.layer_name_visible = handle->layer_name_visibility();
         options.purpose_visible = handle->purpose_visibility();
+
+        options.selection_version = handle->selection_version();
+        options.selected_piece_outlines.reserve(handle->selection().size());
+        const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
+        for (const LeHandle::SelectedObject &selected : handle->selection())
+            if (auto outline = resolve_selected_outline(handle, selected, remaining_depth))
+                options.selected_piece_outlines.push_back(std::move(*outline));
 
         if (handle->current_layout().valid())
             options.top_level = handle->current_layout();
@@ -86,6 +164,11 @@ namespace
             options.drag_rect_dbu = handle->drag_rect_dbu();
             options.drag_is_zoom = handle->drag_kind() == LeHandle::DragKind::ZOOM;
         }
+
+        options.mouse_version = handle->mouse_version();
+        options.cursor_snapped_position_dbu = handle->snapped_mouse_position();
+        if (handle->hover().has_value())
+            options.hover_outline_dbu = handle->hover()->outline;
 
         return options;
     }
@@ -1928,14 +2011,39 @@ extern "C"
 
         handle->set_mouse_position(x, y);
 
-        // Hover hit-testing is deferred pending the new pipelines
-        // module's own Hot tier (PIPELINE_REFACTOR.md) - this used
-        // layout_shape_pipeline/abstract_shape_pipeline +
-        // le::hit_test_point, both from the deleted pre-restart
-        // pipelines module. No hover outline for now rather than a
-        // stale/incorrect one (see le_render_pixel_buffer's own comment
-        // for what *is* wired up so far).
-        handle->clear_hover();
+        // Hover is a Select-mode-only affordance (LeHandle::set_mode's
+        // own comment - it signals "this is a selection candidate",
+        // meaningless while placing ruler points or editing) and, for
+        // now, an Abstract-view-only one - Layout-view own-shape
+        // hit-testing (Row/Region/Blockage/Route/PhysicalPort) is a
+        // separate, not-yet-built gap (whole-placement hover has no
+        // HoverTarget path at all - a Placement never enters
+        // SelectionRef, see its own comment). Reuses the exact same
+        // hit_test_abstract_point select_in_abstract_view_unlocked's own
+        // click path already calls - hover is just a point hit-test with
+        // no click/selection side effect.
+        if (handle->mode() != LeHandle::Mode::SELECT || handle->current_layout().valid())
+        {
+            handle->clear_hover();
+            return;
+        }
+
+        const le::AbstractId abstract_id = handle->current_abstract();
+        const le::Point dbu_point = handle->pixel_to_dbu(x, y);
+        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
+        { return handle->is_view_layer_selectable(layer_name, purpose); };
+
+        const auto hit = le::hit_test_abstract_point(handle->root, handle->view_layers, abstract_id, dbu_point, handle->scale(), is_selectable);
+        if (!hit)
+        {
+            handle->clear_hover();
+            return;
+        }
+
+        if (const auto origin = shape_selection_ref(handle->root, hit->shape_id))
+            handle->set_hover(LeHandle::HoverTarget{.origin = *origin, .outline = hit->outline, .shape_id = hit->shape_id});
+        else
+            handle->clear_hover();
     }
 
     void le_clear_mouse_position(LeHandle *handle)
