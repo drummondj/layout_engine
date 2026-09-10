@@ -123,48 +123,15 @@ namespace le
             std::unordered_map<HierarchyId, sk_sp<SkImage>, HierarchyIdHash> composed_cache;
             draw_node_and_children(*canvas, options.top_level, own_it->second, *input->culled, input->images, composed_cache, options.scale);
 
-            // Drag-rectangle ghost overlay (select or zoom, ViewRenderOptions::
-            // drag_rect_dbu/drag_is_zoom's own doc comment) - drawn directly
-            // here, last, on top of the fully-composed frame, rather than as
-            // a separate stage/node: it's cheap (two drawRect calls, no
-            // rasterization of its own to cache) and this way the whole
-            // ghost-rectangle feature lives in this one graph, matching the
-            // pre-restart design's own choice to draw the equivalent mouse
-            // overlay as one final un-rasterized pass rather than a cached
-            // picture (src/pipelines.old/stages/compose_stage.hpp, git
-            // history). `top_own_image`'s own pixel dimensions are exactly
-            // `options.viewport` rasterized at `options.scale`
-            // (RasterizeStage's/RasterizeBlend2DStage's own convention for
-            // `id == options.top_level`), so mapping `drag_rect_dbu` (in
-            // that same top_level-local dbu space) into this canvas's own
-            // pixel space needs only that one scale/origin, the same
-            // translate+scale+y-flip convention used everywhere else in
-            // this module.
-            if (options.drag_rect_dbu.has_value())
-            {
-                const Rect &drag = *options.drag_rect_dbu;
-                const auto to_pixel_x = [&](int64_t dbu_x)
-                { return static_cast<SkScalar>(static_cast<double>(dbu_x - options.viewport.ll.x) * options.scale); };
-                const auto to_pixel_y = [&](int64_t dbu_y)
-                { return static_cast<SkScalar>(static_cast<double>(top_own_image->height()) - static_cast<double>(dbu_y - options.viewport.ll.y) * options.scale); };
-                const SkRect rect = SkRect::MakeLTRB(to_pixel_x(drag.ll.x), to_pixel_y(drag.ur.y), to_pixel_x(drag.ur.x), to_pixel_y(drag.ll.y));
-
-                const Color &fill_color = options.drag_is_zoom ? kZoomDragRectFillColor : kDragRectFillColor;
-                const Color &stroke_color = options.drag_is_zoom ? kZoomDragRectStrokeColor : kDragRectStrokeColor;
-
-                SkPaint fill;
-                fill.setAntiAlias(true);
-                fill.setStyle(SkPaint::kFill_Style);
-                fill.setColor(to_sk_color(fill_color));
-                canvas->drawRect(rect, fill);
-
-                SkPaint stroke;
-                stroke.setAntiAlias(true);
-                stroke.setStyle(SkPaint::kStroke_Style);
-                stroke.setStrokeWidth(kDragRectStrokeWidth);
-                stroke.setColor(to_sk_color(stroke_color));
-                canvas->drawRect(rect, stroke);
-            }
+            // Overlay passes - each drawn directly onto the already-fully-
+            // composed canvas, last, rather than as a separate stage/node
+            // (see draw_drag_rect_overlay's own doc comment for why). As
+            // more of these accumulate (select/edit highlighting, hover,
+            // ruler - the Hot-tier gap this class's own doc comment names),
+            // each gets its own similarly-scoped function and its own call
+            // here, rather than one function's worth of inline drawing
+            // logic per layer.
+            draw_drag_rect_overlay(*canvas, options, top_own_image->height());
 
             SkPixmap pixmap;
             if (surface->peekPixels(&pixmap))
@@ -210,6 +177,55 @@ namespace le
         }
 
     private:
+        /// @brief Draws the select/zoom rubber-band drag-rectangle ghost
+        /// overlay (ViewRenderOptions::drag_rect_dbu/drag_is_zoom's own
+        /// doc comment) directly onto `canvas` - a no-op when no drag is
+        /// in progress. Drawn last, directly here, rather than as a
+        /// separate stage/node: it's cheap (two drawRect calls, no
+        /// rasterization of its own to cache) and this way the whole
+        /// ghost-rectangle feature lives in ComposeStage's own one graph,
+        /// matching the pre-restart design's own choice to draw the
+        /// equivalent mouse overlay as one final un-rasterized pass
+        /// rather than a cached picture (src/pipelines.old/stages/compose_stage.hpp,
+        /// git history).
+        ///
+        /// `pixel_height` is `canvas`'s own pixel height (the caller's
+        /// `top_own_image->height()` - exactly `options.viewport`
+        /// rasterized at `options.scale`, RasterizeStage's/
+        /// RasterizeBlend2DStage's own convention for `id ==
+        /// options.top_level`), so mapping `drag_rect_dbu` (in that same
+        /// top_level-local dbu space) into `canvas`'s own pixel space
+        /// needs only that one scale/origin, the same translate+scale+
+        /// y-flip convention used everywhere else in this module.
+        static void draw_drag_rect_overlay(SkCanvas &canvas, const ViewRenderOptions &options, int pixel_height)
+        {
+            if (!options.drag_rect_dbu.has_value())
+                return;
+
+            const Rect &drag = *options.drag_rect_dbu;
+            const auto to_pixel_x = [&](int64_t dbu_x)
+            { return static_cast<SkScalar>(static_cast<double>(dbu_x - options.viewport.ll.x) * options.scale); };
+            const auto to_pixel_y = [&](int64_t dbu_y)
+            { return static_cast<SkScalar>(static_cast<double>(pixel_height) - static_cast<double>(dbu_y - options.viewport.ll.y) * options.scale); };
+            const SkRect rect = SkRect::MakeLTRB(to_pixel_x(drag.ll.x), to_pixel_y(drag.ur.y), to_pixel_x(drag.ur.x), to_pixel_y(drag.ll.y));
+
+            const Color &fill_color = options.drag_is_zoom ? kZoomDragRectFillColor : kDragRectFillColor;
+            const Color &stroke_color = options.drag_is_zoom ? kZoomDragRectStrokeColor : kDragRectStrokeColor;
+
+            SkPaint fill;
+            fill.setAntiAlias(true);
+            fill.setStyle(SkPaint::kFill_Style);
+            fill.setColor(to_sk_color(fill_color));
+            canvas.drawRect(rect, fill);
+
+            SkPaint stroke;
+            stroke.setAntiAlias(true);
+            stroke.setStyle(SkPaint::kStroke_Style);
+            stroke.setStrokeWidth(kDragRectStrokeWidth);
+            stroke.setColor(to_sk_color(stroke_color));
+            canvas.drawRect(rect, stroke);
+        }
+
         /// @brief Draws `own`'s own image onto `canvas` (already at
         /// `own.image`'s own pixel dimensions), then each of `id`'s own
         /// surviving placements' fully-composed child image on top, at
