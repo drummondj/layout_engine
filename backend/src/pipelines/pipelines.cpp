@@ -238,7 +238,7 @@ namespace le
         static const BLFontFace face = []() -> BLFontFace
         {
             BLFontFace f;
-            const std::string primary_path = std::string(LE_FONT_DIR) + "/DejaVuSans.ttf";
+            const std::string primary_path = std::string(LE_FONT_DIR) + "/DejaVuSansMono.ttf";
             BLResult err = f.create_from_file(primary_path.c_str());
             if (err == BL_SUCCESS)
             {
@@ -263,7 +263,7 @@ namespace le
                 const std::string exe_path(buf);
                 const size_t slash = exe_path.find_last_of('/');
                 const std::string exe_dir = slash == std::string::npos ? "." : (slash == 0 ? "/" : exe_path.substr(0, slash));
-                const std::string fallback_path = exe_dir + "/fonts/DejaVuSans.ttf";
+                const std::string fallback_path = exe_dir + "/fonts/DejaVuSansMono.ttf";
                 BLFontFace f2;
                 err = f2.create_from_file(fallback_path.c_str());
                 if (err == BL_SUCCESS)
