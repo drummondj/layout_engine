@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.43.0",
+    version="0.44.0",
     classes=[
         Klass(
             name="Technology",
@@ -2235,6 +2235,19 @@ schema = Schema(
         Klass(
             name="Instance",
             description="An instance of another design, or a placeholder for source code that could not be fully read",
+            # Name uniqueness is enforced per-Schematic by the generated
+            # unique_per_parent index (create_instance returns an invalid
+            # id on collision), same shape as Port.name/Net.name on this
+            # same parent klass - see Field.unique_per_parent's own
+            # docstring and le_tcl_shim.hpp's own "IDs" comment.
+            # tcl_id_field is still needed even though `name` is now
+            # index=True: tcl_indexed_id_field() deliberately excludes
+            # unique_per_parent fields (no *global* Root lookup exists for
+            # them), so the TCL generator still can't auto-derive a
+            # name-based friendly id the way it does for a plain
+            # index=True field - resolve_instance_id stays hand-written
+            # (mirrors resolve_port_id/resolve_net_id).
+            tcl_id_field="name",
             fields=[
                 Field(
                     name="schematic",
@@ -2244,9 +2257,11 @@ schema = Schema(
                 ),
                 Field(
                     name="name",
-                    description="The name of the instance",
+                    description="The name of the instance - unique within its parent Schematic (see unique_per_parent)",
                     type="str",
                     example="U1",
+                    index=True,
+                    unique_per_parent=True,
                 ),
                 Field(
                     name="reference_name",

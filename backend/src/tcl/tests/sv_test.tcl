@@ -40,6 +40,13 @@ check "get_schematics -of top count" 1 [llength $schematic_tokens]
 set schematic_token [lindex $schematic_tokens 0]
 puts "ok: top schematic token = $schematic_token"
 
+# Instance's friendly id is now name-based (unique_per_parent, scoped to
+# its own Schematic - see schema.py's own Instance.name comment), so
+# resolving one below (get_pins -of $instance_token) needs the same
+# current_schematic selection Port/Net-by-name resolution already
+# requires - see le_tcl_shim.hpp's own "IDs" comment.
+current_schematic $schematic_token
+
 # WIDTH defaults to 2 - two generate-created INV instances plus the two
 # hand-written AND2 instances (see gate_netlist_clean.v).
 check "instance count" 4 [llength [get_instances -of $schematic_token]]

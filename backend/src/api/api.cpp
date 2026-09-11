@@ -3025,6 +3025,32 @@ extern "C"
         return net ? net->name.c_str() : nullptr;
     }
 
+    LeInstanceId le_instance_by_name(LeHandle *handle, const char *name)
+    {
+        const LeInstanceId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!handle || !name)
+            return invalid;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        for (const le::InstanceId id : handle->root.get_schematic_instances(handle->current_schematic_id))
+        {
+            const le::InstanceData *instance = handle->root.get_instance(id);
+            if (instance && instance->name == name)
+                return to_c(id);
+        }
+        return invalid;
+    }
+
+    const char *le_instance_name(LeHandle *handle, LeInstanceId id)
+    {
+        if (!handle)
+            return nullptr;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        const le::InstanceData *instance = handle->root.get_instance(from_c(id));
+        return instance ? instance->name.c_str() : nullptr;
+    }
+
     int32_t le_search_terminal(LeHandle *handle, const char *filter_expression)
     {
         if (!handle || !filter_expression)

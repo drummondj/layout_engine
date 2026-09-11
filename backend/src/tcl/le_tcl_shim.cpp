@@ -263,7 +263,7 @@ namespace
         return le_layout_via_by_name(session(), std::string(sv.substr(kLayoutViaPrefix.size())).c_str());
     }
 
-    // Port/Net - same unique_per_parent shape as Row/Placement/etc.
+    // Port/Net/Instance - same unique_per_parent shape as Row/Placement/etc.
     // above (each name is scoped to its own Schematic, not global), so
     // the same hand-written prefix/format/resolve triple, scoped through
     // le_port_by_name/le_port_name (handle->current_schematic_id-scoped,
@@ -313,6 +313,29 @@ namespace
         if (sv.substr(0, kNetPrefix.size()) != kNetPrefix)
             return invalid;
         return le_net_by_name(session(), std::string(sv.substr(kNetPrefix.size())).c_str());
+    }
+
+    constexpr std::string_view kInstancePrefix = "instance:";
+
+    std::string format_instance_id(const char *name)
+    {
+        return std::string(kInstancePrefix) + (name ? name : "");
+    }
+
+    std::string format_instance_id(LeInstanceId id)
+    {
+        return format_instance_id(le_instance_name(session(), id));
+    }
+
+    LeInstanceId resolve_instance_id(const char *s)
+    {
+        const LeInstanceId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!s)
+            return invalid;
+        std::string_view sv(s);
+        if (sv.substr(0, kInstancePrefix.size()) != kInstancePrefix)
+            return invalid;
+        return le_instance_by_name(session(), std::string(sv.substr(kInstancePrefix.size())).c_str());
     }
 
     // Obstruction/TerminalPort/Shape have no name field - their friendly
