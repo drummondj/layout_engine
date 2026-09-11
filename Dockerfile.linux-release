@@ -219,7 +219,7 @@ WORKDIR /workspace/backend
 # Debug/ctest tree, which isn't shipped either way) - a shipped release
 # binary shouldn't carry Tracy's own profiling instrumentation.
 ARG BACKEND_BUILD_JOBS=2
-RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug -DCMAKE_VERBOSE_MAKEFILE=ON \
+RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug \
  && cmake --build build-linux -j ${BACKEND_BUILD_JOBS} \
  && ctest --test-dir build-linux --output-on-failure \
  && cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release -DLE_ENABLE_TRACY=OFF \

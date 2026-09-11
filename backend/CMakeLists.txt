@@ -471,9 +471,31 @@ add_library(database INTERFACE)
 target_include_directories(database INTERFACE src/database src/database/generated)
 
 # --- geometry: header-only Boost.Geometry wrapper over database types ---
+#
+# Links database's own includes plus Boost_INCLUDE_DIRS directly, not
+# Boost::boost - a real, confirmed bug on any platform where
+# find_package(Boost REQUIRED) below resolves via CMake's bundled legacy
+# FindBoost.cmake MODULE (no real Boost CMake CONFIG package installed,
+# e.g. Dockerfile.linux-release/rocky8-bootstrap.sh's raw-source-plus-
+# BOOST_ROOT approach - see this file's own find_package(Boost REQUIRED)
+# comment above for why slang's own vendored fallback claims
+# Boost::headers first). That legacy module, seeing Boost::headers
+# already claimed by slang's own incomplete single-header stand-in,
+# defines Boost::boost as a bare `ALIAS Boost::headers` instead of an
+# independent target pointing at the real BOOST_ROOT-detected includes -
+# so geometry/io silently built against slang's own tiny vendored
+# boost_unordered shim (no boost/geometry.hpp at all) even though
+# find_package's own status message correctly reported finding real
+# Boost. Confirmed via a minimal local repro reproducing the exact
+# compile line (-DSLANG_BOOST_SINGLE_HEADER, no -I for real Boost) -
+# never hit on the macOS/Ubuntu dev machines, which have a real Boost
+# CMake CONFIG package installed system-wide (a different, apparently
+# collision-free code path). Boost_INCLUDE_DIRS itself is unaffected by
+# any of this target-aliasing, so using it directly sidesteps the whole
+# landmine on every platform uniformly.
 add_library(geometry INTERFACE)
-target_include_directories(geometry INTERFACE src)
-target_link_libraries(geometry INTERFACE database Boost::boost)
+target_include_directories(geometry INTERFACE src ${Boost_INCLUDE_DIRS})
+target_link_libraries(geometry INTERFACE database)
 
 # --- view_style: header-only ViewLayer/purpose/color config, distinct from
 # the LEF-mirroring database - see CLAUDE.md for why these aren't schema/cmg-generated ---
