@@ -7,6 +7,7 @@
 #include "../core/row_geometry.hpp"
 #include "../io/lef_reader.hpp"
 #include "../io/def_reader.hpp"
+#include "../sv/sv_reader.hpp"
 #include "../io/lef_writer.hpp"
 #include "../io/def_writer.hpp"
 #include "../view_style/view_style.hpp"
@@ -1283,6 +1284,41 @@ extern "C"
             handle->current_technology_id = technology_ids.front();
 
         return 0;
+    }
+
+    int le_read_verilog(LeHandle *handle, const char *const *filenames, int32_t filename_count, int32_t is_netlist)
+    {
+        if (!handle)
+            return 1;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        if (!filenames || filename_count <= 0)
+        {
+            handle->messages.push_back("ERROR: read_verilog: filenames is null or empty");
+            return 1;
+        }
+
+        std::vector<std::string> filename_strings;
+        filename_strings.reserve(static_cast<size_t>(filename_count));
+        for (int32_t i = 0; i < filename_count; ++i)
+            filename_strings.emplace_back(filenames[i] ? filenames[i] : "");
+
+        const std::filesystem::path first_path(filename_strings.front());
+        le::SVReader reader;
+        const int result = is_netlist
+            ? reader.read_netlist(filename_strings, handle->root, first_path.stem().string())
+            : reader.read_rtl(filename_strings, handle->root, first_path.stem().string());
+        for (const auto &msg : reader.messages())
+            handle->messages.push_back(msg);
+        return result;
+    }
+
+    int32_t le_link_unresolved_instances(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+        return static_cast<int32_t>(le::SVReader::link_unresolved_instances(handle->root));
     }
 
     int le_write_lef(LeHandle *handle, const char *path,

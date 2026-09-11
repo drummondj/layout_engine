@@ -138,20 +138,52 @@ set_target_properties(def_static PROPERTIES
 add_dependencies(def_static def_lib)
 
 # --- Third-party dependencies ---
-# spdlog/fmt fall back to FetchContent (same pattern as googletest/
-# googlebenchmark below) when no system install is found - neither ships in
-# RHEL8 BaseOS/AppStream/CRB by default, needed for a rootless Rocky 8
-# build with no system package installs available at all (see
-# backend/scripts/rocky8-bootstrap.sh). macOS/Ubuntu (where find_package
-# already succeeds via Homebrew/apt) are unaffected - this only activates
-# when the system copy is missing, on any platform.
-find_package(fmt CONFIG QUIET)
+# fmt is pinned via a hard-required exact-version find_package (not the
+# "prefer system, else fetch" pattern spdlog below still uses) -
+# discovered empirically while adding the slang dependency further down
+# (SystemVerilog/Verilog reader, SYSTEMVERILOG.md): a CMake target name
+# is process-global, so this project's own fmt::fmt and slang's own
+# internal fmt::fmt lookup (it declares its own FetchContent dependency
+# on fmt, gated at >= 12.1) must resolve to the *same* target or one
+# add_library() collides with the other. An unversioned/loosely-versioned
+# find_package(fmt) is at the mercy of whatever happens to be installed
+# system-wide (this dev machine's system fmt is 9.1.0) - EXACT here
+# guarantees this project's own fmt::fmt is always *this* FetchContent-
+# built 11.0.2, regardless of host environment, which is what lets the
+# FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER override on the slang block
+# below correctly dedupe slang's own fmt redeclaration against this one
+# rather than either silently using a wrong system version or trying to
+# build a second, colliding copy.
+find_package(fmt 11.0.2 EXACT CONFIG QUIET)
 if(NOT fmt_FOUND)
     FetchContent_Declare(fmt URL https://github.com/fmtlib/fmt/archive/refs/tags/11.0.2.zip)
     FetchContent_MakeAvailable(fmt)
 endif()
 
-find_package(spdlog CONFIG QUIET)
+# spdlog falls back to FetchContent (same pattern as googletest/
+# googlebenchmark below) when no system install is found - it doesn't
+# ship in RHEL8 BaseOS/AppStream/CRB by default, needed for a rootless
+# Rocky 8 build with no system package installs available at all (see
+# backend/scripts/rocky8-bootstrap.sh). macOS/Ubuntu (where find_package
+# already succeeds via Homebrew/apt) are unaffected - this only activates
+# when the system copy is missing, on any platform.
+#
+# Version-gated at >= 1.14 (not a plain unversioned find_package) for a
+# reason discovered only after fmt above was pinned EXACT/deterministic
+# (see that block's own comment): a *precompiled* system spdlog package
+# (this dev machine's is 1.12.0, a real .so) bakes in whichever fmt ABI
+# it happened to be built against (this machine's system fmt 9.1.0) into
+# its own compiled symbol names (fmt::v9::... vs our fmt::v11::...) -
+# linking it against this project's own, differently-versioned fmt::fmt
+# fails at *link* time (undefined reference to spdlog::details::log_msg
+# constructors, header-level usage compiled fine) even though it never
+# had this problem before fmt's own version was pinned deterministically.
+# Requiring a floor the system package doesn't meet forces this project's
+# own FetchContent-built spdlog every time, built fresh against whatever
+# fmt::fmt this project actually uses (SPDLOG_FMT_EXTERNAL=ON below) -
+# consistent, reproducible, and no longer at the mercy of whatever
+# unrelated fmt version happened to compile the host's system package.
+find_package(spdlog 1.14 CONFIG QUIET)
 if(NOT spdlog_FOUND)
     # Without this, spdlog vendors its own internal fmt copy, conflicting
     # with the many targets in this file that link fmt::fmt directly.
@@ -160,6 +192,71 @@ if(NOT spdlog_FOUND)
     FetchContent_MakeAvailable(spdlog)
 endif()
 
+# --- slang (SystemVerilog/Verilog frontend for src/sv's netlist/RTL
+# reader - see SYSTEMVERILOG.md). Pinned to the v11.0 tagged release (not
+# master) - unlike Blend2D/AsmJit above, slang publishes real tags, so it
+# follows fmt/spdlog's pin-to-release-zip convention instead. No
+# find_package fallback of our own (unlikely to be a preinstalled system
+# package on any target platform, including the Rocky 8 rootless build) -
+# straight to FetchContent, same as Blend2D. slang builds one single
+# CMake target, slang::slang (its own source/CMakeLists.txt does
+# add_library(slang_slang ...) + ALIAS) - there is no separate
+# syntax-only sub-target; "syntax-only vs full elaboration" is a choice
+# of which slang API src/sv's own reader code calls, not a link-time one.
+#
+# slang's own external/CMakeLists.txt declares its *own* "fmt"
+# FetchContent dependency, gated at >= 12.1 via FIND_PACKAGE_ARGS (CMake
+# 3.24+'s FetchContent+find_package integration - tries find_package()
+# first, falling back to fetching its own copy). Bumping this whole
+# project's fmt to 12.1 to satisfy that floor was tried and reverted: fmt
+# 12.x renamed/removed fmt::basic_format_string, which both the system
+# spdlog package on this dev machine (1.12.0) *and* the newest spdlog
+# release this project could pin to (1.14.1) still reference - a real
+# compile break neither this project nor slang's own vendored dependency
+# graph has a ready answer for yet. Since slang's actual behavior is to
+# *always* end up with some real fmt >= 12.1 one way or another
+# (reusing a satisfying system/already-available one, or fetching its
+# pinned 12.1.0 otherwise) - there's no lower version we can hand it that
+# it will just accept - FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER instead
+# forces its FIND_PACKAGE_ARGS-decorated redeclaration of "fmt" back to
+# plain FetchContent name-based dedup: since this project's own fmt block
+# above is now *guaranteed* (EXACT-pinned find_package) to have already
+# declared and populated "fmt" as 11.0.2 by the time this line runs,
+# slang's own FetchContent_MakeAvailable(fmt) call becomes a no-op reuse
+# of that already-populated 11.0.2, rather than either colliding with it
+# or fetching a second, separately-versioned copy. This is a real,
+# accepted risk (flagged in the linked plan's own build-spike step):
+# slang's source is nominally tested against 12.1, and building it
+# against 11.0.2 instead depends on slang's own use of fmt being
+# API-compatible across that gap - verified empirically by this build
+# actually succeeding, not assumed on paper.
+set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER)
+set(SLANG_INCLUDE_TESTS OFF CACHE BOOL "" FORCE)
+set(SLANG_INCLUDE_TOOLS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    slang
+    URL https://github.com/MikePopoloski/slang/archive/refs/tags/v11.0.zip
+)
+FetchContent_MakeAvailable(slang)
+
+# find_package(Boost REQUIRED) runs *after* the slang block above -
+# discovered empirically during the slang build spike, the mirror image
+# of the fmt situation: slang's own external/CMakeLists.txt does its own
+# internal find_package(Boost 1.87.0 CONFIG QUIET), and only when that
+# fails (this dev machine's system Boost is 1.83.0 - too old to satisfy
+# 1.87.0, though functionally almost certainly fine for what slang
+# actually uses it for, an unordered_flat_map-style header) does it
+# define its own vendored fallback, add_library(Boost::headers ALIAS
+# boost_unordered) - unlike fmt, there's no version we can bump our own
+# Boost pin to (it's a real system package, not FetchContent-managed
+# here), so the two can't be made to share one real target the way fmt's
+# two consumers now do. Running slang's block first lets its own
+# fallback claim Boost::headers while nothing else has - the real
+# upstream Boost CMake package's own target-definition logic (which our
+# own find_package(Boost REQUIRED) below triggers) guards each target
+# with if(NOT TARGET ...) before defining it, so it cleanly skips
+# redefining the one slang's fallback already created, rather than
+# colliding with it the way this failed when the order was reversed.
 find_package(Boost REQUIRED)
 
 FetchContent_Declare(
@@ -527,13 +624,27 @@ target_link_libraries(io
 )
 le_enable_coverage_instrumentation(io)
 
+# --- sv: SystemVerilog/Verilog netlist+RTL reader (SYSTEMVERILOG.md) ---
+add_library(sv STATIC src/sv/sv_reader.cpp)
+target_include_directories(sv PUBLIC src/sv)
+# slang::slang PUBLIC (not PRIVATE): sv_reader.hpp - sv's own PUBLIC header -
+# #includes slang/ast/SemanticFacts.h directly (SVReader::
+# signal_direction_from_parser's public signature takes a real
+# slang::ast::ArgumentDirection, matching LEFReader::signal_direction_from_parser's
+# own directly-unit-testable pure-conversion convention) - so any
+# consumer of that header (api.cpp) needs slang's own include path too,
+# not just sv's own .cpp files. Same reasoning as io's own PUBLIC
+# spdlog::spdlog dependency above.
+target_link_libraries(sv PUBLIC database spdlog::spdlog slang::slang PRIVATE fmt::fmt)
+le_enable_coverage_instrumentation(sv)
+
 # --- api: the C API surface a Flutter plugin's Dart FFI binds to (see
 # README's `api` module entry). Compiled (not header-only): the opaque
 # LeHandle's real definition must stay out of api.hpp, which needs to be a
 # plain-C-parseable header for ffigen/Dart FFI - see api.hpp's own comment. ---
 add_library(api STATIC src/api/api.cpp)
 target_include_directories(api PUBLIC src/api)
-target_link_libraries(api PRIVATE database geometry editing view_style pipelines io)
+target_link_libraries(api PRIVATE database geometry editing view_style pipelines io sv)
 le_enable_coverage_instrumentation(api)
 
 # --- gui: Dear ImGui prototype - le_shell's own `show_gui` window,
@@ -843,6 +954,20 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/othercell.lef
     )
 
+    # Regression check for the SystemVerilog/Verilog TCL wiring
+    # (SYSTEMVERILOG.md, src/tcl/tests/sv_test.tcl) - read_verilog plus
+    # the generated get_designs/get_schematics/get_instances/get_ports/
+    # get_pins surface, against the same gate_netlist_clean.v fixture
+    # src/sv/tests's own C++ tests already use.
+    add_test(
+        NAME le_tcl_sv
+        COMMAND ${TCL_TCLSH}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/sv_test.tcl
+            $<TARGET_FILE:le_tcl>
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures/gate_netlist_clean.v
+    )
+
     # le_shell (src/tcl/le_shell.cpp) - the interactive/batch Tcl console,
     # not linked against le_tcl itself (it dynamically `load`s the built
     # shared module at startup, same as tclsh would) - only needs Tcl
@@ -991,12 +1116,14 @@ add_executable(backend_tests
     src/io/tests/def_writer_test.cpp
     src/api/tests/api_test.cpp
     src/api/tests/le_handle_test.cpp
+    src/sv/tests/sv_reader_test.cpp
 )
-target_link_libraries(backend_tests PRIVATE database geometry view_style editing pipelines io api fmt::fmt GTest::gtest_main)
+target_link_libraries(backend_tests PRIVATE database geometry view_style editing pipelines io api sv fmt::fmt GTest::gtest_main)
 target_compile_definitions(backend_tests PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
     IO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures"
     API_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures"
+    SV_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures"
     LEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/bin/lefdiff"
     DEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/TEST"
     DEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/bin/defdiff"

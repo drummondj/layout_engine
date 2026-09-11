@@ -363,6 +363,16 @@ int read_def(const char *path)
     return le_read_def(session(), path);
 }
 
+int read_verilog_cmd(const char *path, int is_netlist)
+{
+    return le_read_verilog(session(), &path, 1, is_netlist);
+}
+
+int link_unresolved_instances_cmd()
+{
+    return le_link_unresolved_instances(session());
+}
+
 int design_count()
 {
     return le_design_count(session());

@@ -188,6 +188,31 @@ extern "C"
     /// even when no LEF has been read into this handle yet.
     int le_read_def(LeHandle *handle, const char *path);
 
+    /// @brief Reads one or more SystemVerilog/Verilog files (filenames/
+    /// filename_count - a plain C array, not std::vector, matching every
+    /// other multi-value api.hpp entry point) into this handle's shared
+    /// Root via SVReader, deriving a library name from the first file's
+    /// stem. is_netlist nonzero selects the full-elaboration netlist
+    /// flavor (SVReader::read_netlist - accurate parameter/generate
+    /// resolution, for a real gate-level netlist); zero selects the
+    /// syntax-only RTL flavor (SVReader::read_rtl - tolerates invalid/
+    /// unsupported content by storing it as a logic-cloud Instance, see
+    /// Instance.rtl_text). Automatically re-resolves any newly-resolvable
+    /// Instance.reference_design against Designs already in this session
+    /// (SVReader::link_unresolved_instances - also directly callable via
+    /// le_link_unresolved_instances for a later read, e.g. an LEF read
+    /// after this one supplies a previously-missing leaf cell). Same
+    /// 0/nonzero + handle->messages convention as le_read_lef/le_read_def.
+    int le_read_verilog(LeHandle *handle, const char *const *filenames, int32_t filename_count, int32_t is_netlist);
+
+    /// @brief Re-resolves Instance.reference_design for every Instance in
+    /// this handle's Root whose reference_design is currently unset,
+    /// matching reference_name against Design.name (SVReader::
+    /// link_unresolved_instances) - e.g. after a later le_read_lef
+    /// supplies a leaf cell a prior le_read_verilog call left unresolved.
+    /// Returns the number of Instances newly resolved.
+    int32_t le_link_unresolved_instances(LeHandle *handle);
+
     /// @brief What Technology layer content le_write_lef() also includes
     /// alongside (or instead of) the written Abstract's own MACRO -
     /// crosses the FFI boundary as a plain int32_t like every other small

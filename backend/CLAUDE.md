@@ -365,12 +365,54 @@ none of these are duplicated here.
   `SetUp()` pre-populates the Technology/Library with exactly the layer
   names/macro names it references, playing the role a real LEF read
   would otherwise.
+- `src/sv/` — `sv_reader.{hpp,cpp}`, `SVReader`: reads SystemVerilog/
+  Verilog into the logical connectivity model (`Schematic`/`Port`/`Net`/
+  `Instance`/`Pin` — see `SCHEMA.md`'s "SystemVerilog Reading Flow"),
+  using the vendored [slang](https://sv-lang.com) frontend (fetched via
+  CMake `FetchContent`, pinned to the `v11.0` tag — see `CMakeLists.txt`'s
+  own `slang` block for the real fmt/spdlog/Boost version-collision fixes
+  that took to get it linking cleanly into this project's own dependency
+  graph, not just a plain `add_subdirectory`). Two entry points, mirroring
+  `LEFReader`/`DEFReader`'s one-function-per-reading-mode convention
+  rather than a single flag-driven call: `read_netlist` (full
+  `slang::ast::Compilation` elaboration — accurate parameter/generate-
+  block resolution, for a real gate-level netlist, but does not tolerate
+  errors in a module's own structural content) and `read_rtl`
+  (`slang::syntax::SyntaxTree` only, no elaboration — tolerant of invalid
+  or unsupported content, storing it directly on an `Instance` rather
+  than a separate klass — see `Instance.rtl_text`'s own schema.py
+  comment). Both flavors share a get-or-create-Design/Schematic helper
+  (mirroring `LEFReader::lefrMacroBeginCbkFn`'s own reuse-or-create
+  pattern) and end by calling `link_unresolved_instances` — a standalone,
+  re-runnable static method that resolves any `Instance` whose
+  `reference_name` doesn't yet have a matching `Design` (the common case
+  for a netlist referencing standard cells not yet read via LEF), so it
+  can pick up a `Design` created by a *later* read on the same `Root`
+  too. A connection's value (net vs. a bus bit-select vs. an
+  unstructured raw expression, see `Pin.net`/`.net_bit_index`/
+  `.raw_expression`) is classified from a real elaborated `Expression` in
+  the netlist flavor, but from the connection's own verbatim source text
+  in the RTL flavor (no elaborated `Expression` exists to classify — RTL
+  flavor also doesn't evaluate bit widths at all, unlike the netlist
+  flavor's use of the elaborated `Type`, so its own `Port.msb`/`.lsb`
+  always come back unset regardless of the real declared width). Fully
+  covered by `sv_reader_test.cpp`, including a spike-turned-permanent
+  test fixture (`rtl_invalid_body.sv`) confirming slang's own diagnostic-
+  location filtering behaves as the RTL flavor's per-construct fallback
+  design assumes. `src/tcl/tests/sv_test.tcl` (`le_tcl_sv` ctest target)
+  exercises the same reader through `read_verilog -netlist|-rtl` and the
+  generated TCL `get_<type>` surface (`link` — the TCL-facing name for
+  `link_unresolved_instances` — isn't itself exercised there yet) —
+  unverified as of this writing on any machine actually able to build
+  `le_tcl` (see `src/tcl/`'s own Open-gaps-adjacent Skia dependency).
 - `src/api/` — `api.hpp`/`api.cpp`, the C API surface a Flutter plugin's
   Dart FFI binds to: an opaque `LeHandle` (`le_create`/`le_destroy`)
   wrapping one `Root`/`ViewLayerSet` plus the pipelines module's own
   `ViewRenderPipeline` per handle (reused across calls, not reconstructed
   per call); `le_read_lef` (callable multiple times on one handle — e.g.
-  tech file then macro file(s)); `le_design_count`/`le_design_name`/
+  tech file then macro file(s)); `le_read_verilog`/
+  `le_link_unresolved_instances` (`SVReader`, `src/sv/`'s own bullet
+  above); `le_design_count`/`le_design_name`/
   `le_set_current_design`; `le_set_pan`/`le_set_scale`/
   `le_set_viewport_size`; and `le_render_pixel_buffer`. `api.hpp` must
   stay plain C — no `std::` types, default arguments, or overloads in any

@@ -77,6 +77,8 @@
 
 int read_lef(const char *path);
 int read_def(const char *path);
+int read_verilog_cmd(const char *path, int is_netlist);
+int link_unresolved_instances_cmd();
 int design_count();
 const char *design_name(int index);
 int message_count();

@@ -4084,6 +4084,54 @@ TEST_F(ApiFixture, DeleteTerminalPortCascadesToItsShapesAndIsIdempotentlySafeAft
     EXPECT_NE(le_delete_terminal_port(nullptr, port_id), 0);
 }
 
+TEST_F(ApiFixture, DeleteInstanceCascadesToItsPins)
+{
+    // create_instance's generated body needs a Technology present for
+    // micron-to-dbu conversion of its own optional location field, even
+    // though this test leaves location unset - same requirement every
+    // other create_<type> with a dbu-typed compound field has.
+    le_create_technology(handle, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
+    const LeLibraryId library_id = le_create_library(handle, "LIB");
+    const LeDesignId design_id = le_create_design(handle, library_id, "TOP");
+    const LeSchematicId schematic_id = le_create_schematic(handle, design_id);
+    const LeInstanceId instance_id = le_create_instance(handle, schematic_id, LeDesignId{.index = UINT32_MAX, .generation = 0}, "U1", "BUFX1", 0, 0.0, 0.0, nullptr, nullptr, nullptr);
+    const LePinId pin_id = le_create_pin(handle, instance_id, LeNetId{.index = UINT32_MAX, .generation = 0}, "A", nullptr, 0, 0, nullptr);
+    ASSERT_NE(pin_id.index, UINT32_MAX);
+
+    EXPECT_EQ(le_delete_instance(handle, instance_id), 0);
+    EXPECT_EQ(le_instance_property_count(handle, instance_id), 0);
+    // Cascade: the pin it owned is gone too, not left as unreachable garbage.
+    EXPECT_EQ(le_pin_property_count(handle, pin_id), 0);
+    EXPECT_NE(le_delete_instance(handle, instance_id), 0);
+}
+
+TEST_F(ApiFixture, DeleteSchematicCascadesThroughPortsNetsInstancesAndTheirPins)
+{
+    // See DeleteInstanceCascadesToItsPins's own comment - create_instance
+    // needs a Technology present regardless of whether location is used.
+    le_create_technology(handle, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
+    const LeLibraryId library_id = le_create_library(handle, "LIB");
+    const LeDesignId design_id = le_create_design(handle, library_id, "TOP");
+    const LeSchematicId schematic_id = le_create_schematic(handle, design_id);
+    const LePortId port_id = le_create_port(handle, schematic_id, "clk", "INPUT", 0, 0, 0, 0);
+    const LeNetId net_id = le_create_net(handle, schematic_id, port_id, "clk", 0, 0, 0, 0);
+    const LeInstanceId instance_id = le_create_instance(handle, schematic_id, LeDesignId{.index = UINT32_MAX, .generation = 0}, "U1", "BUFX1", 0, 0.0, 0.0, nullptr, nullptr, nullptr);
+    const LePinId pin_id = le_create_pin(handle, instance_id, net_id, "A", nullptr, 0, 0, nullptr);
+    ASSERT_NE(port_id.index, UINT32_MAX);
+    ASSERT_NE(net_id.index, UINT32_MAX);
+    ASSERT_NE(pin_id.index, UINT32_MAX);
+
+    EXPECT_EQ(le_delete_schematic(handle, schematic_id), 0);
+    EXPECT_EQ(le_schematic_property_count(handle, schematic_id), 0);
+    // Cascade: every port/net/instance it owned, and every pin those
+    // instances owned, is gone too - not left as unreachable garbage.
+    EXPECT_EQ(le_port_property_count(handle, port_id), 0);
+    EXPECT_EQ(le_net_property_count(handle, net_id), 0);
+    EXPECT_EQ(le_instance_property_count(handle, instance_id), 0);
+    EXPECT_EQ(le_pin_property_count(handle, pin_id), 0);
+    EXPECT_NE(le_delete_schematic(handle, schematic_id), 0);
+}
+
 TEST_F(ApiFixture, SearchTerminalPortFindsMatchesUsingUpdatesMdItem15SExampleExpression)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);

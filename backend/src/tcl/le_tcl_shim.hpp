@@ -115,6 +115,13 @@
 
 int read_lef(const char *path);
 int read_def(const char *path);
+// A Tcl caller reading multiple SystemVerilog/Verilog files does so via
+// repeated calls into the same session - each call's own get-or-create-
+// by-name Design/Schematic handling (SVReader) makes that work naturally,
+// so this shim only needs to marshal one path across the SWIG boundary
+// (same "no new typemap needed" shape read_lef/read_def already have).
+int read_verilog_cmd(const char *path, int is_netlist);
+int link_unresolved_instances_cmd();
 int design_count();
 const char *design_name(int index);
 int message_count();

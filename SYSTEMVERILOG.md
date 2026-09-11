@@ -13,7 +13,7 @@ When reading RTL we only care about connectivity of ports, and pre-existing inst
 How to support this (please review this):
 
 1. Read all ports, modules and instances as though they were a netlist
-2. Convert RTL code into "LogicCloud" objects. LogicClouds act as Instances and can be connected like Instances, but just contain RTL code as a blog of text, rather than a compete understanding of the function.
+2. Convert RTL code into "LogicCloud" objects. LogicClouds act as Instances and can be connected like Instances, but just contain RTL code as a blog of text, rather than a compete understanding of the function. You may extend the Design and Instance classes to support this.
 3. Possibly allow invalid RTL to be read in and just stored in the LogicCloud as is.
 
 Please choose a systemverilog parser that can handle the requirements above. I have used https://sv-lang.com inthe past, but it does have much more functionally than we require, and requires correct SystemVerilog syntax.

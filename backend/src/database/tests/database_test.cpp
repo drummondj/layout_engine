@@ -563,3 +563,56 @@ TEST(Pool, ErasedIdIsNotReused)
     ASSERT_NE(pool.get(second), nullptr);
     EXPECT_DOUBLE_EQ(pool.get(second)->database_units_microns, 2.0);
 }
+
+TEST(Database, PortNetInstancePinRelationshipsRoundTrip)
+{
+    Root root;
+    LibraryId library_id = root.create_library(LibraryData{.name = "LIB"});
+    DesignId design_id = root.create_design(DesignData{.library = library_id, .name = "TOP"});
+    SchematicId schematic_id = root.create_schematic(SchematicData{.design = design_id});
+
+    PortId port_id = root.create_port(PortData{.schematic = schematic_id, .name = "clk", .direction = SignalDirection::INPUT});
+    NetId net_id = root.create_net(NetData{.schematic = schematic_id, .name = "clk", .port = port_id});
+    InstanceId instance_id = root.create_instance(InstanceData{.schematic = schematic_id, .name = "U1", .reference_name = "BUFX1"});
+    PinId pin_id = root.create_pin(PinData{.instance = instance_id, .name = "A", .net = net_id});
+
+    EXPECT_EQ(root.get_schematic_ports(schematic_id), std::vector<PortId>{port_id});
+    EXPECT_EQ(root.get_schematic_nets(schematic_id), std::vector<NetId>{net_id});
+    EXPECT_EQ(root.get_schematic_instances(schematic_id), std::vector<InstanceId>{instance_id});
+    EXPECT_EQ(root.get_instance_pins(instance_id), std::vector<PinId>{pin_id});
+
+    ASSERT_NE(root.get_net(net_id), nullptr);
+    EXPECT_EQ(root.get_net(net_id)->port, port_id);
+    ASSERT_NE(root.get_pin(pin_id), nullptr);
+    EXPECT_EQ(root.get_pin(pin_id)->net, net_id);
+    EXPECT_EQ(root.get_pin(pin_id)->instance, instance_id);
+}
+
+TEST(Database, InstanceStandingInForUnreadableSourceHasNoReferenceDesignButCanStillHavePins)
+{
+    Root root;
+    LibraryId library_id = root.create_library(LibraryData{.name = "LIB"});
+    DesignId design_id = root.create_design(DesignData{.library = library_id, .name = "TOP"});
+    SchematicId schematic_id = root.create_schematic(SchematicData{.design = design_id});
+
+    InstanceId instance_id = root.create_instance(InstanceData{
+        .schematic = schematic_id,
+        .name = "always_ff_1",
+        .rtl_text = "always_ff @(posedge clk) begin ... end",
+    });
+    PinId pin_id = root.create_pin(PinData{.instance = instance_id, .name = "clk", .raw_expression = "clk"});
+
+    const InstanceData *instance = root.get_instance(instance_id);
+    ASSERT_NE(instance, nullptr);
+    EXPECT_FALSE(instance->reference_design.valid());
+    EXPECT_FALSE(instance->reference_name.has_value());
+    ASSERT_TRUE(instance->rtl_text.has_value());
+    EXPECT_EQ(*instance->rtl_text, "always_ff @(posedge clk) begin ... end");
+
+    EXPECT_EQ(root.get_instance_pins(instance_id), std::vector<PinId>{pin_id});
+    const PinData *pin = root.get_pin(pin_id);
+    ASSERT_NE(pin, nullptr);
+    EXPECT_FALSE(pin->net.valid());
+    ASSERT_TRUE(pin->raw_expression.has_value());
+    EXPECT_EQ(*pin->raw_expression, "clk");
+}
