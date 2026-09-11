@@ -50,6 +50,46 @@ namespace
     // compiler/optimization level.
     constexpr const char *kRenderFrameName = "le_render_pixel_buffer";
 
+    // Rebuilds handle->view_layers for its currently-selected Technology
+    // and stamps view_layers_built_at_version so ensure_view_layers_current()
+    // (below) can tell it's current again. The one place this used to
+    // happen inline (le_read_lef) now calls this too, so the two can't
+    // drift out of sync.
+    void rebuild_view_layers(LeHandle *handle, le::TechnologyId technology_id)
+    {
+        handle->view_layers = le::ViewLayerSet::build_for_technology(handle->root, technology_id);
+        handle->view_layers_built_at_version = handle->root.mutation_version();
+    }
+
+    // handle->view_layers used to only ever get rebuilt inside le_read_lef
+    // - a layer created directly (le_create_layer, generated CRUD) rather
+    // than via a LEF read silently never showed up in it, an easy-to-miss
+    // staleness bug (confirmed: le_layer_count/le_layer_at/le_purpose_count/
+    // le_purpose_at all read view_layers directly with no freshness check
+    // at all). Called at the top of those four read-only accessors -
+    // cheap when already current (one integer compare), rebuilds via the
+    // same ViewLayerSet::build_for_technology call le_read_lef's own
+    // rebuild already made unconditionally on every read regardless of
+    // whether anything new was actually added, so this isn't a new cost
+    // class, just a new trigger for an existing one.
+    //
+    // Scope note: this fixes the four read accessors specifically (the
+    // ones with failing test coverage) - hit_test_abstract_point/_rect
+    // and select_in_abstract_view_unlocked's own direct view_layers reads
+    // elsewhere in this file have the same underlying staleness exposure
+    // (a layer created via le_create_layer, then hit-tested/rendered
+    // before any subsequent le_read_lef call) but aren't covered by any
+    // failing test today and are deliberately left untouched here - a
+    // real, separate gap, not silently papered over.
+    void ensure_view_layers_current(LeHandle *handle)
+    {
+        if (!handle->current_technology_id.valid())
+            return;
+        if (handle->view_layers_built_at_version == handle->root.mutation_version())
+            return;
+        rebuild_view_layers(handle, handle->current_technology_id);
+    }
+
     // Builds a ViewRenderOptions snapshot of `handle`'s own current
     // root/view state, for le_render_pixel_buffer's own
     // view_render_pipeline.run() call. LeHandle's own pan/scale/viewport-size convention
@@ -1231,7 +1271,7 @@ extern "C"
                     handle->set_layer_name_visible(layer->name, false);
             }
 
-            handle->view_layers = le::ViewLayerSet::build_for_technology(handle->root, technology_ids.front());
+            rebuild_view_layers(handle, technology_ids.front());
 
             // Also selects the singleton Technology as the current one for
             // the generated TCL current-instance mechanism (see
@@ -1673,6 +1713,7 @@ extern "C"
         if (!handle)
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
+        ensure_view_layers_current(handle);
         return static_cast<int32_t>(handle->view_layers.rows().size());
     }
 
@@ -1682,6 +1723,7 @@ extern "C"
         if (!handle || row_index < 0)
             return invalid;
         std::lock_guard<std::mutex> lock(handle->mutex_);
+        ensure_view_layers_current(handle);
 
         const auto &rows = handle->view_layers.rows();
         if (static_cast<size_t>(row_index) >= rows.size())
@@ -1704,6 +1746,7 @@ extern "C"
         if (!handle)
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
+        ensure_view_layers_current(handle);
         return static_cast<int32_t>(handle->view_layers.purposes().size());
     }
 
@@ -1712,6 +1755,7 @@ extern "C"
         if (!handle || index < 0)
             return -1;
         std::lock_guard<std::mutex> lock(handle->mutex_);
+        ensure_view_layers_current(handle);
 
         const auto purposes = handle->view_layers.purposes();
         if (static_cast<size_t>(index) >= purposes.size())
@@ -3293,6 +3337,17 @@ extern "C"
             LeHandle *handle;
             ~RenderingGuard() { handle->is_rendering_.store(false, std::memory_order_relaxed); }
         } rendering_guard{handle};
+
+        // A viewport that hasn't been sized yet (le_set_viewport_size
+        // never called - LeHandle's own viewport_width_px_/
+        // viewport_height_px_ both default to 0) has nothing to render -
+        // short-circuit before the pipeline runs at all, rather than
+        // letting it clamp a degenerate 0x0 request up to some minimum
+        // internally (Blend2D itself can't construct a zero-sized
+        // BLImage) and leak that clamped size back out as a misleading
+        // non-empty result.
+        if (handle->viewport_width_px() <= 0 || handle->viewport_height_px() <= 0)
+            return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
 
         // FrameMarkStart/End (named), not plain FrameMark - a frame here
         // only ever happens on demand (whenever something changed and the

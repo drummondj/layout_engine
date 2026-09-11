@@ -62,6 +62,14 @@ struct LeHandle
 {
     le::Root root;
     le::ViewLayerSet view_layers;
+    // root.mutation_version() as of the most recent view_layers rebuild -
+    // see api.cpp's own ensure_view_layers_current() for why this exists
+    // (view_layers used to only ever get rebuilt inside le_read_lef,
+    // silently going stale after e.g. a plain le_create_layer call).
+    // UINT64_MAX (never a real mutation_version(), which starts at 0 and
+    // only increases) rather than 0, so "never built yet" can't
+    // accidentally alias a real, already-current version.
+    uint64_t view_layers_built_at_version = UINT64_MAX;
 
     // Blend2D-backed (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) - the
     // earlier Skia-based RasterizeStage/ViewRenderPipelineImpl backend-

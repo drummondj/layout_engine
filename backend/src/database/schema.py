@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.42.0",
+    version="0.43.0",
     classes=[
         Klass(
             name="Technology",
@@ -2332,6 +2332,12 @@ schema = Schema(
                     example=0,
                     is_optional=True,
                 ),
+                Field(
+                    name="net",
+                    description="The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name)",
+                    type="Net",
+                    is_optional=True,
+                ),
             ],
         ),
         Klass(
@@ -2364,12 +2370,6 @@ schema = Schema(
                     description="Least-significant bit index of a bus net - unset for a scalar net",
                     type="int",
                     example=0,
-                    is_optional=True,
-                ),
-                Field(
-                    name="port",
-                    description="The top-level port this net corresponds to, if any (Verilog gives every port an implicit net of the same name)",
-                    type="Port",
                     is_optional=True,
                 ),
             ],

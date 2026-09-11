@@ -571,8 +571,8 @@ TEST(Database, PortNetInstancePinRelationshipsRoundTrip)
     DesignId design_id = root.create_design(DesignData{.library = library_id, .name = "TOP"});
     SchematicId schematic_id = root.create_schematic(SchematicData{.design = design_id});
 
-    PortId port_id = root.create_port(PortData{.schematic = schematic_id, .name = "clk", .direction = SignalDirection::INPUT});
-    NetId net_id = root.create_net(NetData{.schematic = schematic_id, .name = "clk", .port = port_id});
+    NetId net_id = root.create_net(NetData{.schematic = schematic_id, .name = "clk"});
+    PortId port_id = root.create_port(PortData{.schematic = schematic_id, .name = "clk", .direction = SignalDirection::INPUT, .net = net_id});
     InstanceId instance_id = root.create_instance(InstanceData{.schematic = schematic_id, .name = "U1", .reference_name = "BUFX1"});
     PinId pin_id = root.create_pin(PinData{.instance = instance_id, .name = "A", .net = net_id});
 
@@ -581,8 +581,8 @@ TEST(Database, PortNetInstancePinRelationshipsRoundTrip)
     EXPECT_EQ(root.get_schematic_instances(schematic_id), std::vector<InstanceId>{instance_id});
     EXPECT_EQ(root.get_instance_pins(instance_id), std::vector<PinId>{pin_id});
 
-    ASSERT_NE(root.get_net(net_id), nullptr);
-    EXPECT_EQ(root.get_net(net_id)->port, port_id);
+    ASSERT_NE(root.get_port(port_id), nullptr);
+    EXPECT_EQ(root.get_port(port_id)->net, net_id);
     ASSERT_NE(root.get_pin(pin_id), nullptr);
     EXPECT_EQ(root.get_pin(pin_id)->net, net_id);
     EXPECT_EQ(root.get_pin(pin_id)->instance, instance_id);

@@ -43,22 +43,26 @@ namespace le
             return id;
         }
 
-        PortId get_or_create_port(Root &root, SchematicId schematic_id, const std::string &name,
-                                   SignalDirection direction, std::optional<int> msb, std::optional<int> lsb)
-        {
-            PortId id = root.get_port_by_name(schematic_id, name);
-            if (!id.valid())
-                id = root.create_port(PortData{
-                    .schematic = schematic_id, .name = name, .direction = direction, .msb = msb, .lsb = lsb});
-            return id;
-        }
-
-        NetId get_or_create_net(Root &root, SchematicId schematic_id, const std::string &name,
-                                 PortId port_id = PortId{})
+        NetId get_or_create_net(Root &root, SchematicId schematic_id, const std::string &name)
         {
             NetId id = root.get_net_by_name(schematic_id, name);
             if (!id.valid())
-                id = root.create_net(NetData{.schematic = schematic_id, .name = name, .port = port_id});
+                id = root.create_net(NetData{.schematic = schematic_id, .name = name});
+            return id;
+        }
+
+        PortId get_or_create_port(Root &root, SchematicId schematic_id, const std::string &name,
+                                   SignalDirection direction, std::optional<int> msb, std::optional<int> lsb,
+                                   NetId net_id = NetId{})
+        {
+            PortId id = root.get_port_by_name(schematic_id, name);
+            if (!id.valid())
+                id = root.create_port(PortData{.schematic = schematic_id,
+                                               .name = name,
+                                               .direction = direction,
+                                               .msb = msb,
+                                               .lsb = lsb,
+                                               .net = net_id});
             return id;
         }
 
@@ -182,10 +186,14 @@ namespace le
                 bit_range_from_type(port.getType(), msb, lsb);
 
                 const std::string name(port.name);
-                const PortId port_id = get_or_create_port(
-                    root, schematic_id, name, SVReader::signal_direction_from_parser(port.direction), msb, lsb);
-                // Verilog gives every port an implicit net of the same name.
-                get_or_create_net(root, schematic_id, name, port_id);
+                // Verilog gives every port an implicit net of the same name -
+                // created first so the Port record below can reference it
+                // directly (Port.net, not the other way around - Net has no
+                // back-reference to any Pin/Port, matching Pin.net's own
+                // shape uniformly for every connection endpoint).
+                const NetId net_id = get_or_create_net(root, schematic_id, name);
+                get_or_create_port(
+                    root, schematic_id, name, SVReader::signal_direction_from_parser(port.direction), msb, lsb, net_id);
             }
         }
 
@@ -660,9 +668,12 @@ namespace le
             {
                 for (const auto &port_info : ports_it->second)
                 {
-                    const PortId port_id =
-                        get_or_create_port(root, schematic_id, port_info.name, port_info.direction, std::nullopt, std::nullopt);
-                    get_or_create_net(root, schematic_id, port_info.name, port_id);
+                    // Net created first so Port can reference it directly -
+                    // see populate_ports' own comment (read_netlist's half
+                    // of this reader) for why the reference lives on Port.
+                    const NetId net_id = get_or_create_net(root, schematic_id, port_info.name);
+                    get_or_create_port(root, schematic_id, port_info.name, port_info.direction, std::nullopt,
+                                       std::nullopt, net_id);
                 }
             }
 
