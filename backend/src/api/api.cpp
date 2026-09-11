@@ -2929,6 +2929,58 @@ extern "C"
         return layout_via ? layout_via->name.c_str() : nullptr;
     }
 
+    LePortId le_port_by_name(LeHandle *handle, const char *name)
+    {
+        const LePortId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!handle || !name)
+            return invalid;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        for (const le::PortId id : handle->root.get_schematic_ports(handle->current_schematic_id))
+        {
+            const le::PortData *port = handle->root.get_port(id);
+            if (port && port->name == name)
+                return to_c(id);
+        }
+        return invalid;
+    }
+
+    const char *le_port_name(LeHandle *handle, LePortId id)
+    {
+        if (!handle)
+            return nullptr;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        const le::PortData *port = handle->root.get_port(from_c(id));
+        return port ? port->name.c_str() : nullptr;
+    }
+
+    LeNetId le_net_by_name(LeHandle *handle, const char *name)
+    {
+        const LeNetId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!handle || !name)
+            return invalid;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        for (const le::NetId id : handle->root.get_schematic_nets(handle->current_schematic_id))
+        {
+            const le::NetData *net = handle->root.get_net(id);
+            if (net && net->name == name)
+                return to_c(id);
+        }
+        return invalid;
+    }
+
+    const char *le_net_name(LeHandle *handle, LeNetId id)
+    {
+        if (!handle)
+            return nullptr;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        const le::NetData *net = handle->root.get_net(from_c(id));
+        return net ? net->name.c_str() : nullptr;
+    }
+
     int32_t le_search_terminal(LeHandle *handle, const char *filter_expression)
     {
         if (!handle || !filter_expression)

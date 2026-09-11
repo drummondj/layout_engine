@@ -201,12 +201,12 @@ void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_u
 /// current view via le_render_pixel_buffer (the same output the app's own
 /// Texture uses, and the same call le_shell's own viewport_width()/
 /// viewport_height() above already make - no GUI needed) and encodes it
-/// as an RGBA8888 PNG at `path` via SkPngEncoder (same approach
-/// render_preview.cpp's own write_png uses, scoped to this Tcl-facing
-/// shim rather than api.hpp - the Flutter app never needs to write a PNG
-/// of its own render, only a script/debugging session does). Returns 0
-/// on success, nonzero if the buffer is empty (e.g. no viewport size set)
-/// or the file couldn't be opened/encoded.
+/// as an RGBA8888 PNG at `path` via Blend2D's own built-in PNG codec
+/// (BLImage::write_to_file - scoped to this Tcl-facing shim rather than
+/// api.hpp - the Flutter app never needs to write a PNG of its own
+/// render, only a script/debugging session does). Returns 0 on success,
+/// nonzero if the buffer is empty (e.g. no viewport size set) or the
+/// file couldn't be opened/encoded.
 int dump_png_cmd(const char *path);
 
 /// @brief Backing for the `write_lef` Tcl command (BUGS_AND_ENHANCEMENTS.md

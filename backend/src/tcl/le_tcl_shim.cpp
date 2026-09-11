@@ -2,10 +2,7 @@
 
 #include "api.hpp"
 
-#include "include/core/SkImageInfo.h"
-#include "include/core/SkPixmap.h"
-#include "include/core/SkStream.h"
-#include "include/encode/SkPngEncoder.h"
+#include <blend2d/blend2d.h>
 
 #include <charconv>
 #include <cstdint>
@@ -266,6 +263,58 @@ namespace
         return le_layout_via_by_name(session(), std::string(sv.substr(kLayoutViaPrefix.size())).c_str());
     }
 
+    // Port/Net - same unique_per_parent shape as Row/Placement/etc.
+    // above (each name is scoped to its own Schematic, not global), so
+    // the same hand-written prefix/format/resolve triple, scoped through
+    // le_port_by_name/le_port_name (handle->current_schematic_id-scoped,
+    // see api.cpp's own comment).
+
+    constexpr std::string_view kPortPrefix = "port:";
+
+    std::string format_port_id(const char *name)
+    {
+        return std::string(kPortPrefix) + (name ? name : "");
+    }
+
+    std::string format_port_id(LePortId id)
+    {
+        return format_port_id(le_port_name(session(), id));
+    }
+
+    LePortId resolve_port_id(const char *s)
+    {
+        const LePortId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!s)
+            return invalid;
+        std::string_view sv(s);
+        if (sv.substr(0, kPortPrefix.size()) != kPortPrefix)
+            return invalid;
+        return le_port_by_name(session(), std::string(sv.substr(kPortPrefix.size())).c_str());
+    }
+
+    constexpr std::string_view kNetPrefix = "net:";
+
+    std::string format_net_id(const char *name)
+    {
+        return std::string(kNetPrefix) + (name ? name : "");
+    }
+
+    std::string format_net_id(LeNetId id)
+    {
+        return format_net_id(le_net_name(session(), id));
+    }
+
+    LeNetId resolve_net_id(const char *s)
+    {
+        const LeNetId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!s)
+            return invalid;
+        std::string_view sv(s);
+        if (sv.substr(0, kNetPrefix.size()) != kNetPrefix)
+            return invalid;
+        return le_net_by_name(session(), std::string(sv.substr(kNetPrefix.size())).c_str());
+    }
+
     // Obstruction/TerminalPort/Shape have no name field - their friendly
     // id is just their existing packed integer, type-prefixed for
     // self-description. A malformed string or wrong-type prefix (e.g. a
@@ -483,14 +532,37 @@ int dump_png_cmd(const char *path)
     if (!buffer.data || buffer.width <= 0 || buffer.height <= 0)
         return 1;
 
-    const SkImageInfo info = SkImageInfo::Make(buffer.width, buffer.height, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
-    SkPixmap pixmap(info, buffer.data, static_cast<size_t>(buffer.row_bytes));
-
-    SkFILEWStream stream(path);
-    if (!stream.isValid())
+    BLImage image(buffer.width, buffer.height, BL_FORMAT_PRGB32);
+    if (image.is_empty())
         return 1;
 
-    return SkPngEncoder::Encode(&stream, pixmap, SkPngEncoder::Options{}) ? 0 : 1;
+    BLImageData image_data;
+    if (image.get_data(&image_data) != BL_SUCCESS)
+        return 1;
+
+    // LePixelBuffer is literal RGBA byte order (api.hpp's own contract -
+    // ComposeStage's own BGRA-to-RGBA swap, compose_stage.hpp, exists
+    // specifically to produce this for consumers like this one), while
+    // BL_FORMAT_PRGB32 is premultiplied BGRA in memory on this little-
+    // endian target (same finding that swap's own comment documents) -
+    // this is the mirror-image conversion, swapping back on the way in.
+    auto *dst_base = static_cast<uint8_t *>(image_data.pixel_data);
+    for (int y = 0; y < buffer.height; ++y)
+    {
+        const uint8_t *src_row = buffer.data + static_cast<std::ptrdiff_t>(y) * buffer.row_bytes;
+        uint8_t *dst_row = dst_base + static_cast<std::ptrdiff_t>(y) * image_data.stride;
+        for (int x = 0; x < buffer.width; ++x)
+        {
+            const uint8_t *src_px = src_row + static_cast<std::ptrdiff_t>(x) * 4;
+            uint8_t *dst_px = dst_row + static_cast<std::ptrdiff_t>(x) * 4;
+            dst_px[0] = src_px[2]; // B <- R
+            dst_px[1] = src_px[1]; // G <- G
+            dst_px[2] = src_px[0]; // R <- B
+            dst_px[3] = src_px[3]; // A <- A
+        }
+    }
+
+    return image.write_to_file(path) == BL_SUCCESS ? 0 : 1;
 }
 
 bool get_layer_visible_cmd(const char *layer_name)

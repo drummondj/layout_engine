@@ -1487,6 +1487,16 @@ extern "C"
     LeLayoutViaId le_layout_via_by_name(LeHandle *handle, const char *name);
     const char *le_layout_via_name(LeHandle *handle, LeLayoutViaId id);
 
+    /// @brief Port/Net friendly-id lookup pair - same shape and reasoning
+    /// as le_row_by_name/le_row_name above (Port.name/Net.name are each
+    /// unique_per_parent, scoped to their own Schematic, not global), but
+    /// scoped to `handle->current_schematic_id` (the Schematic-view analog
+    /// of `handle->current_layout_id`) instead.
+    LePortId le_port_by_name(LeHandle *handle, const char *name);
+    const char *le_port_name(LeHandle *handle, LePortId id);
+    LeNetId le_net_by_name(LeHandle *handle, const char *name);
+    const char *le_net_name(LeHandle *handle, LeNetId id);
+
     /// @brief Number of property rows for the Terminal at `id` - same
     /// name/value table shape (LeProperty) le_object_property_count/_at
     /// use for LE_OBJECT_KIND_TERMINAL, but addressed directly by id, for

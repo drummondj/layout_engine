@@ -495,78 +495,6 @@ add_library(core INTERFACE)
 target_include_directories(core INTERFACE src)
 target_link_libraries(core INTERFACE database view_style)
 
-# --- Skia (not vendored/built by this project - a pre-built checkout on
-# this machine). SKIA_DIR must contain out/MacStatic/{libskia.a,...} on
-# macOS or out/Linux/{libskia.a,...} on Linux (see docker-compose.yml /
-# Dockerfile.linux-ci for how the Linux checkout is built - raster-only,
-# no GPU backend, matching the macOS build), each built with
-# is_component_build=false (static). Link set (include path, libskia.a,
-# system harfbuzz/icu, plus platform-specific font-manager libs) was
-# determined empirically by linking a minimal SkPictureRecorder/SkSurface
-# program against the macOS checkout - see BENCHMARKS.md/CLAUDE.md for why
-# no GPU (Ganesh/Metal) frameworks are needed: we only use the raster (CPU)
-# surface APIs, and static linking never pulls in the unused GPU object
-# files. Machine-specific - not portable/committed; override -DSKIA_DIR=...
-# to point at a different checkout.
-if(APPLE)
-    set(SKIA_DIR "/Volumes/Docking/Projects/synthosilicon/skia/skia" CACHE PATH
-        "Path to a built Skia checkout (must contain out/MacStatic/libskia.a)")
-    set(SKIA_OUT_DIR "${SKIA_DIR}/out/MacStatic")
-else()
-    set(SKIA_DIR "/skia/skia" CACHE PATH
-        "Path to a built Skia checkout (must contain out/Linux/libskia.a)")
-    set(SKIA_OUT_DIR "${SKIA_DIR}/out/Linux")
-endif()
-# A Rocky-8-rootless-build Skia checkout is configured with
-# skia_use_system_harfbuzz=false/skia_use_system_icu=false/
-# skia_use_system_libwebp=false/skia_use_system_expat=false (see
-# backend/scripts/rocky8-bootstrap.sh) - RHEL8's own harfbuzz (~1.7.5) and
-# icu (~60) are old enough relative to a modern Skia commit that linking
-# against them as system libs (what the existing Docker/Ubuntu Linux CI
-# recipe still does, Dockerfile.linux-ci's skia_use_system_harfbuzz=true
-# etc.) is a real version-skew risk there, and libwebp-devel's presence on
-# a locked-down RHEL8 box at all is uncertain - so that build instead lets
-# libskia.a bundle its own copies of all four internally, statically, and
-# this target must not *also* link separate copies of them in that case.
-# Default OFF: unconditionally linking these has been this project's own
-# working Docker/Ubuntu Linux CI setup all along - don't change that
-# path's behavior, only add a new opt-in for the rootless one.
-option(LE_SKIA_VENDORS_THIRD_PARTY
-    "Skia was built with skia_use_system_harfbuzz/icu/libwebp/expat=false (bundles its own copies into libskia.a) - don't link system harfbuzz/icu/webp separately"
-    OFF)
-
-add_library(skia INTERFACE)
-target_include_directories(skia INTERFACE ${SKIA_DIR})
-target_link_libraries(skia INTERFACE
-    ${SKIA_OUT_DIR}/libskia.a
-    jpeg
-    png
-    z
-)
-if(NOT LE_SKIA_VENDORS_THIRD_PARTY)
-    target_link_libraries(skia INTERFACE harfbuzz icuuc icudata webp webpdemux)
-endif()
-if(APPLE)
-    target_link_directories(skia INTERFACE /opt/homebrew/lib /opt/homebrew/opt/icu4c/lib)
-    target_link_libraries(skia INTERFACE
-        "-framework CoreText"
-        "-framework CoreFoundation"
-        "-framework CoreGraphics"
-        "-framework CoreServices"
-    )
-else()
-    # Linux Skia is built with skia_use_freetype=true (see
-    # Dockerfile.linux-ci / rocky8-bootstrap.sh) - not statically bundled
-    # into libskia.a the way the platform frameworks are on macOS, so the
-    # final consumer needs to link it explicitly regardless of whether
-    # that consumer's own code ever exercises Skia's font machinery
-    # (le_tcl - the only remaining Skia consumer, PNG export via
-    # dump_png_cmd - doesn't). fontconfig is deliberately NOT linked here
-    # (both Dockerfile.linux-ci and rocky8-bootstrap.sh now build Skia
-    # with skia_use_fontconfig=false too).
-    target_link_libraries(skia INTERFACE freetype)
-endif()
-
 # --- pipelines: PIPELINE_REFACTOR.md restart - the Cold/Warm/Hot
 # ViewRenderPipeline, built on oneTBB's flow::graph (tbb_core.hpp's
 # MemoizingStage/FanInCollectStage). The pre-restart module (STATIC,
@@ -578,12 +506,14 @@ endif()
 # Rasterization/Compose stages, which do need a real compiled TU -
 # pipelines.cpp defines default_blend2d_font_face() for the same reason the
 # pre-restart module's own compiled TU existed (see that file's own
-# comment). No `skia` dependency at all anymore
+# comment). No Skia dependency anywhere in this project anymore
 # (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md - the earlier Skia-based
 # RasterizeStage and its own Skia-based ComposeStage sibling are both
 # gone, RasterizeBlend2DStage/Blend2D-native ComposeStage are the only
-# Rasterize/Compose implementations now) - `le_tcl` (below) still links
-# `skia` directly, an unrelated, independent consumer for PNG export.
+# Rasterize/Compose implementations now) - le_tcl's own last remaining
+# Skia consumer, dump_png_cmd's PNG export, was ported onto Blend2D's own
+# built-in PNG codec (BLImage::write_to_file) too, so the `skia` CMake
+# target that used to exist here (a pre-built checkout, SKIA_DIR) is gone.
 add_library(pipelines STATIC src/pipelines/pipelines.cpp)
 target_include_directories(pipelines PUBLIC src)
 
@@ -693,7 +623,16 @@ target_include_directories(gui PRIVATE ${icon_font_header_SOURCE_DIR})
 # local-dev prototype, same as this project's own fixture-path compile
 # definitions elsewhere (e.g. API_TEST_FIXTURES_DIR).
 target_compile_definitions(gui PRIVATE LE_LUCIDE_FONT_PATH="${lucide_font_SOURCE_DIR}/lucide.ttf")
-target_link_libraries(gui PUBLIC api imgui_lib)
+# spdlog::spdlog directly (not just transitively through api, which links
+# pipelines - spdlog's own consumer - PRIVATE, so nothing propagates this
+# far): le_gui.cpp uses spdlog/fmt directly, and without this it silently
+# picks up whatever system fmt/spdlog headers happen to be on the default
+# include path at compile time instead of this project's own pinned
+# fmt::fmt (EXACT-pinned, see that block's own CMakeLists.txt comment) -
+# a real link-time ABI mismatch (fmt::v9 object code linked against this
+# project's own fmt::v11 library), same class of bug io's own PUBLIC
+# spdlog::spdlog dependency exists to avoid.
+target_link_libraries(gui PUBLIC api imgui_lib spdlog::spdlog)
 if(APPLE)
     target_link_libraries(gui PRIVATE "-framework Cocoa" "-framework IOKit" "-framework OpenGL")
 else()
@@ -732,15 +671,13 @@ if(SWIG_FOUND AND TCL_FOUND)
     )
     set_property(TARGET le_tcl PROPERTY SWIG_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/src/api ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl)
     target_include_directories(le_tcl PRIVATE src/api src/tcl ${TCL_INCLUDE_PATH})
-    # `skia` alongside `api` - `pipelines` (api's own dependency) has no
-    # Skia dependency at all anymore (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md -
-    # RasterizeBlend2DStage/Blend2D-native ComposeStage are the only
-    # Rasterize/Compose implementations now), so nothing propagates Skia's
-    # own include path this far; le_tcl_shim.cpp needs it directly, as the
-    # sole remaining Skia consumer (dump_png_cmd's own SkPngEncoder use for
-    # PNG export - skia is an INTERFACE library, just the include path, no
-    # separate binary to link).
-    target_link_libraries(le_tcl PRIVATE api skia ${TCL_LIBRARY})
+    # blend2d::blend2d alongside `api` - `pipelines` (api's own dependency)
+    # links it too, but only PUBLIC-propagates it as far as api, not this
+    # far; le_tcl_shim.cpp needs it directly for dump_png_cmd's own
+    # BLImage::write_to_file PNG export (no Skia dependency anywhere in
+    # this project anymore - see the `pipelines` target's own comment
+    # above).
+    target_link_libraries(le_tcl PRIVATE api blend2d::blend2d ${TCL_LIBRARY})
     # Hide this target's own copy of the vendored LEF parser's symbols
     # (everything under the LefDefParser:: namespace -
     # src/tcl/le_tcl_unexported_symbols.txt). Without this, a process
