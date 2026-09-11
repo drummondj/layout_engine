@@ -38,11 +38,10 @@ its own log file.
 ## 0. Before you start
 
 You'll need outbound network access to: your configured `dnf` repos
-(including `crb`/CodeReady-Builder — see step 1), `github.com`, a Boost
-download mirror, and `skia.googlesource.com`. If any of these are
-blocked, later steps will fail with a clear "download failed" — check
-reachability for that specific one rather than assuming it's something
-else.
+(including `crb`/CodeReady-Builder — see step 1), `github.com`, and a
+Boost download mirror. If any of these are blocked, later steps will fail
+with a clear "download failed" — check reachability for that specific one
+rather than assuming it's something else.
 
 ## 1. Bootstrap the toolchain
 
@@ -51,23 +50,22 @@ backend/scripts/rocky8-bootstrap.sh
 ```
 
 This assembles a compiler (`gcc-toolset-13`), CMake, Ninja, Boost, SWIG,
-GTK3 (+ its full build dependency closure), and a from-source Skia build —
-all via rootless RPM extraction (`rpm2cpio`/`cpio`, never `dnf install`)
-and upstream release tarballs, into `~/.local/layout_engine_toolchain`. It
-takes a while (Skia alone is a real build). **No need to add your own
-`tee`** — it automatically logs its own full output (still shown live on
-screen too) to a timestamped file under
+and GTK3 (+ its full build dependency closure) — all via rootless RPM
+extraction (`rpm2cpio`/`cpio`, never `dnf install`) and upstream release
+tarballs, into `~/.local/layout_engine_toolchain`. **No need to add your
+own `tee`** — it automatically logs its own full output (still shown live
+on screen too) to a timestamped file under
 `~/.local/layout_engine_toolchain/logs/bootstrap-<timestamp>.log`, also
 symlinked as `latest.log` for convenience; the path is printed at both the
 start and end of the run.
 
 It's idempotent and broken into stages (`check-tools`, `rpms`, `cmake`,
-`ninja`, `boost`, `swig`, `skia`) — if it fails partway, fix whatever the
+`ninja`, `boost`, `bison`, `swig`) — if it fails partway, fix whatever the
 log points at and re-run either the whole script (already-done stages
 skip themselves) or just the failed stage by name, e.g.:
 
 ```
-backend/scripts/rocky8-bootstrap.sh skia
+backend/scripts/rocky8-bootstrap.sh swig
 ```
 
 **If this fails and you're stuck:** send the log file it names in its own
@@ -81,9 +79,9 @@ source backend/scripts/rocky8-env.sh
 ```
 
 Not run — **sourced**, every new shell session, before any of the steps
-below. This sets `CC`/`CXX`/`PATH`/`PKG_CONFIG_PATH`/`BOOST_ROOT`/
-`SKIA_DIR`/etc. to point at what step 1 built. It prints what it set on
-success; if it instead prints an error about
+below. This sets `CC`/`CXX`/`PATH`/`PKG_CONFIG_PATH`/`BOOST_ROOT`/etc. to
+point at what step 1 built. It prints what it set on success; if it
+instead prints an error about
 `~/.local/layout_engine_toolchain/root` not being found, step 1 didn't
 complete — go back and fix that first.
 
@@ -136,7 +134,7 @@ buildable tree" version.
 ```
 cd backend
 
-cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug -DSKIA_DIR="${SKIA_DIR}" -DLE_SKIA_VENDORS_THIRD_PARTY=ON \
+cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug \
     2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/backend-configure-debug.log"
 
 cmake --build build-linux -j \
@@ -145,21 +143,12 @@ cmake --build build-linux -j \
 ctest --test-dir build-linux --output-on-failure \
     2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/backend-ctest.log"
 
-cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release -DSKIA_DIR="${SKIA_DIR}" -DLE_SKIA_VENDORS_THIRD_PARTY=ON \
+cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release \
     2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/backend-configure-release.log"
 
 cmake --build build_release-linux --target api pipelines io le_shell le_tcl -j \
     2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/backend-build-release.log"
 ```
-
-`-DLE_SKIA_VENDORS_THIRD_PARTY=ON` must be passed explicitly at configure
-time, both times — `rocky8-env.sh` also sets it as a shell `ENV` var, but
-that alone does nothing: `backend/CMakeLists.txt`'s `option(...)` never
-reads `$ENV{LE_SKIA_VENDORS_THIRD_PARTY}`, only an actual `-D` flag. Left
-off, CMake defaults it OFF and tries to link a system `libwebp`/`libjpeg`
-that Skia bundled instead — a real `-lwebp: No such file or directory`
-link failure, found via the new GitHub Releases build path (see
-`.github/workflows/release.yml`) hitting exactly this.
 
 Two trees on purpose: `build-linux` (Debug) is what `ctest` runs against;
 `build_release-linux` (Release) is what the actual `le_shell` binary
@@ -169,9 +158,7 @@ links — see `backend/CLAUDE.md`'s Build section. Step 5 below needs
 
 **Expect real test failures here** — beyond the "does it link at all"
 question, `ctest`'s actual pass/fail results are the first real signal
-about whether the RHEL8-specific choices in `backend/CMakeLists.txt` (the
-system-linked vs. Skia-vendored split for freetype/harfbuzz/icu/jpeg/png/
-webp/zlib — see that file's own `LE_SKIA_VENDORS_THIRD_PARTY` comment)
+about whether the RHEL8-specific choices in `backend/CMakeLists.txt`
 actually hold up. `ctest`'s own `--output-on-failure` output goes into
 `backend-ctest.log` above; that's the one to send back for a test failure
 specifically (not the configure/build logs, unless the failure is a build

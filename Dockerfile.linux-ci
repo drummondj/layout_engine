@@ -5,10 +5,20 @@
 #
 # Source code is NOT copied into this image - docker-compose.yml bind-
 # mounts the repo at /workspace at *run* time, so editing source doesn't
-# invalidate any image layer below. Only the OS/toolchain/Skia setup
-# happens at build time, since that's the expensive, rarely-changing part.
+# invalidate any image layer below. Only the OS/toolchain setup happens at
+# build time, since that's the expensive, rarely-changing part.
 
-# ---- base: system packages needed by every later stage ----
+# ---- base: system packages needed by every later stage. No Skia
+# dependency anywhere in this project anymore (see backend/CMakeLists.txt's
+# own `pipelines` target comment) - Blend2D (FetchContent, vendored/built
+# from source, statically linked) is the only Rasterize/Compose backend,
+# and le_tcl's own former Skia PNG-export path now uses Blend2D's built-in
+# PNG codec too, so this stage no longer needs a Skia build or any of its
+# font/image-codec support libraries (harfbuzz/icu/jpeg/png/zlib/webp/
+# fontconfig/freetype) - Blend2D has its own built-in font engine and
+# image codecs, loading its one bundled font file directly from
+# LE_FONT_DIR (backend/CMakeLists.txt) rather than any system font
+# manager. ----
 FROM ubuntu:24.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -16,8 +26,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl unzip xz-utils bison flex \
     libboost-dev libspdlog-dev libfmt-dev \
     tcl8.6-dev tk8.6-dev swig \
-    libharfbuzz-dev libicu-dev libjpeg-dev libpng-dev zlib1g-dev libwebp-dev \
-    libfontconfig1-dev libfreetype6-dev fontconfig fonts-dejavu-core \
     # GLFW's own Linux/X11 backend (backend/src/gui/, le_shell's `show_gui`) -
     # backend/CLAUDE.md's own "Open gaps" flagged these as a known, not-yet-
     # done requirement; CMakeLists.txt's own find_package(glfw3)/FetchContent
@@ -37,76 +45,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # own "Linux/Rocky8 TBB acquisition... NOT-yet-solved" comment was
     # right that this was never actually wired up here).
     libtbb-dev \
- && fc-cache -f \
  && rm -rf /var/lib/apt/lists/*
-
-# ---- skia: a raster-only static Skia build for Linux, matching this
-# project's macOS checkout (see backend/CMakeLists.txt's `skia` target and
-# backend/CLAUDE.md's "Open gaps") - no GPU backend, since only CPU raster
-# surface APIs are used anywhere in this project. Pinned to the exact
-# commit the macOS dev checkout is on (`git -C
-# /Volumes/Docking/Projects/synthosilicon/skia/skia log -1`) for parity,
-# not a floating branch. This is the single expensive, rarely-changing
-# layer - it does not depend on anything in this repo, so it's cached
-# across every backend source change. ----
-FROM base AS skia
-WORKDIR /skia
-RUN git clone https://skia.googlesource.com/skia.git . \
- && git checkout 9f330f1704305686dafa9eeef11de77caa5314b1 \
- && python3 tools/git-sync-deps \
- && python3 bin/fetch-gn
-# ninja parallelism capped (not `nproc`) - Skia's official-build C++
-# compiles are memory-heavy per translation unit; uncap via
-# --build-arg SKIA_NINJA_JOBS=N on a machine with more RAM available to
-# the Docker VM than this one's default (~8GB).
-ARG SKIA_NINJA_JOBS=4
-# TARGETARCH is auto-populated by buildx (amd64/arm64) - must match the
-# actual build host, not be hardcoded, or GN configures a cross-compile
-# with no cross toolchain/sysroot set up and the ninja step fails.
-ARG TARGETARCH
-RUN GN_CPU=$( [ "${TARGETARCH}" = "arm64" ] && echo arm64 || echo x64 ) && \
-    bin/gn gen out/Linux --args=" \
-    is_official_build=true \
-    is_component_build=false \
-    is_debug=false \
-    target_cpu=\"${GN_CPU}\" \
-    cc=\"clang\" \
-    cxx=\"clang++\" \
-    skia_enable_gpu=false \
-    skia_use_gl=false \
-    skia_use_vulkan=false \
-    skia_use_egl=false \
-    skia_enable_fontmgr_custom_directory=true \
-    skia_enable_fontmgr_custom_embedded=false \
-    skia_enable_fontmgr_custom_empty=false \
-    skia_use_fontconfig=false \
-    skia_use_freetype=true \
-    skia_use_system_freetype2=true \
-    skia_use_system_harfbuzz=true \
-    skia_use_system_libjpeg_turbo=true \
-    skia_use_system_libpng=true \
-    skia_use_system_libwebp=true \
-    skia_use_system_zlib=true \
-    skia_use_system_icu=true \
-    skia_use_system_expat=true \
-    extra_cflags=[\"-I/usr/include/harfbuzz\"] \
-    " \
- && ninja -C out/Linux -j "${SKIA_NINJA_JOBS}" skia
 
 # ---- backend: build/test environment for the C++ core (le_shell/le_tcl
 # included). Source is bind-mounted at /workspace by docker-compose; this
-# stage only provides the toolchain + prebuilt Skia. ----
-FROM skia AS backend
-ENV SKIA_DIR=/skia
-# Build-job parallelism capped (not bare `-j`/nproc) for the same reason as
-# SKIA_NINJA_JOBS above: several translation units here (geometry_test.cpp's
-# Boost.Geometry instantiations, pipeline_benchmark.cpp pulling in
-# googlebenchmark + Skia headers) are memory-heavy enough per-cc1plus that
-# nproc-wide parallelism (10 jobs on this VM's 10 CPUs) OOM-kills the
-# compiler on the ~8GB-default Docker VM. ENV (not ARG) because this is read
-# inside CMD, which runs at container-start time, not image-build time -
-# override via `docker compose run -e BACKEND_BUILD_JOBS=N backend` on a
-# machine with more RAM available to the Docker VM.
+# stage only provides the toolchain. ----
+FROM base AS backend
+# Build-job parallelism capped (not bare `-j`/nproc): several translation
+# units here (geometry_test.cpp's Boost.Geometry instantiations,
+# pipeline_benchmark.cpp pulling in googlebenchmark) are memory-heavy
+# enough per-cc1plus that nproc-wide parallelism (10 jobs on this VM's 10
+# CPUs) OOM-kills the compiler on the ~8GB-default Docker VM. ENV (not ARG)
+# because this is read inside CMD, which runs at container-start time, not
+# image-build time - override via `docker compose run -e
+# BACKEND_BUILD_JOBS=N backend` on a machine with more RAM available to
+# the Docker VM.
 ENV BACKEND_BUILD_JOBS=2
 WORKDIR /workspace/backend
 # Separate build-linux/build_release-linux trees, not the plain build/
@@ -169,9 +122,9 @@ CMD ["bash", "-c", "\
     python3 -m pip install --no-cache-dir --break-system-packages ../codegen && \
     cmg --schema src/database/schema.py --output src/database/generated && \
     cmg --schema src/database/schema.py --output src --target tcl && \
-    cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug -DSKIA_DIR=${SKIA_DIR} && \
+    cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug && \
     cmake --build build-linux -j ${BACKEND_BUILD_JOBS} && \
     ctest --test-dir build-linux --output-on-failure && \
-    cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release -DSKIA_DIR=${SKIA_DIR} && \
+    cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release && \
     cmake --build build_release-linux --target api pipelines io le_shell le_tcl -j ${BACKEND_BUILD_JOBS} \
 "]

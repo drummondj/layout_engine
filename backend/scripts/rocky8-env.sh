@@ -33,8 +33,8 @@ _le_gcc_root="$_le_root/opt/rh/gcc-toolset-13/root/usr"
 # --- Compiler (gcc-toolset-13, rootlessly extracted via rpm2cpio) ---
 export CC="$_le_gcc_root/bin/gcc"
 export CXX="$_le_gcc_root/bin/g++"
-# Belt-and-braces alongside CC/CXX above - some tools (Skia's GN, Flutter's
-# own build) invoke `gcc`/`g++` by bare name rather than respecting CC/CXX,
+# Belt-and-braces alongside CC/CXX above - some tools (Flutter's own
+# build) invoke `gcc`/`g++` by bare name rather than respecting CC/CXX,
 # so PATH needs the real one found first too. Reconfigure (fresh build
 # directory) after changing CC/CXX on an existing build - CMake caches the
 # compiler path at first configure and won't pick up a change to these
@@ -61,14 +61,6 @@ export PKG_CONFIG_PATH="$_le_root/usr/lib64/pkgconfig:$_le_root/usr/share/pkgcon
 
 # --- Vendored (upstream tarball) deps ---
 export BOOST_ROOT="$LE_TOOLCHAIN_ROOT/boost"
-export SKIA_DIR="$LE_TOOLCHAIN_ROOT/skia/skia"
-# Tells backend/CMakeLists.txt's skia target (and both flutter_plugin
-# CMakeLists.txt files, forwarded via frontend/linux/CMakeLists.txt) that
-# this SKIA_DIR checkout was built with skia_use_system_harfbuzz/icu/
-# libwebp/expat=false - see backend/CMakeLists.txt's own comment on
-# LE_SKIA_VENDORS_THIRD_PARTY for why (RHEL8's harfbuzz/icu are too old
-# relative to a modern Skia commit to trust as system libs).
-export LE_SKIA_VENDORS_THIRD_PARTY=ON
 
 unset _le_root _le_gcc_root
 
@@ -77,7 +69,6 @@ rocky8-env.sh: activated toolchain at $LE_TOOLCHAIN_ROOT
   CC             = $CC
   CXX            = $CXX
   BOOST_ROOT     = $BOOST_ROOT
-  SKIA_DIR       = $SKIA_DIR
 Configure the backend with:
-  cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug -DSKIA_DIR=\${SKIA_DIR}
+  cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug
 EOF

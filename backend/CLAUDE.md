@@ -1,9 +1,9 @@
 # Layout Engine MVP — Backend
 
 C++23 backend that reads LEF/DEF and SystemVerilog EDA data into an in-memory
-database, then renders it through a layer-based pipeline into Skia commands
-consumed by a Flutter plugin. This is an MVP/proof-of-concept: the goal right
-now is finding the right architecture for editing hierarchical designs with
+database, then renders it through a layer-based, Blend2D-backed pipeline into
+pixel buffers displayed by `le_shell`'s own GUI. This is an MVP/proof-of-concept:
+the goal right now is finding the right architecture for editing hierarchical designs with
 millions of objects, not shipping features. See `README.md` for the full
 brief and the live plan checklist; see `BENCHMARKS.md` for benchmark history
 and design-decision writeups; see `LEFDEF_BUGS.md` for confirmed bugs in
@@ -235,8 +235,9 @@ none of these are duplicated here.
   own comment has the exact fixture shape) mirrors the old modules'
   benchmark coverage; see `BENCHMARKS.md` for numbers and history.
   Single-threaded internally — see README's Threading open design
-  question. Depends on a machine-specific Skia checkout, not committed
-  to this repo — see Open gaps below.
+  question. No external, machine-specific checkout to provision — Blend2D
+  is fetched and statically built via CMake `FetchContent` (see the Open
+  Gaps entry below for the Skia checkout this once required).
 - `src/io/` — format readers/writers. `lef_reader.{hpp,cpp}`/
   `lef_writer.{hpp,cpp}` drive the vendored `lefr*`/`lefw*` LEF-parser C
   API and populate/walk `Root` via the generated create/get API. Tested
@@ -403,8 +404,10 @@ none of these are duplicated here.
   exercises the same reader through `read_verilog -netlist|-rtl` and the
   generated TCL `get_<type>` surface (`link` — the TCL-facing name for
   `link_unresolved_instances` — isn't itself exercised there yet) —
-  unverified as of this writing on any machine actually able to build
-  `le_tcl` (see `src/tcl/`'s own Open-gaps-adjacent Skia dependency).
+  originally unverified end-to-end (`le_tcl` couldn't build at all without
+  a Skia checkout this environment lacked), now confirmed passing via a
+  real `ctest -R le_tcl_sv` run once Skia was removed from the build
+  entirely (see the Open Gaps entry below).
 - `src/api/` — `api.hpp`/`api.cpp`, the C API surface a Flutter plugin's
   Dart FFI binds to: an opaque `LeHandle` (`le_create`/`le_destroy`)
   wrapping one `Root`/`ViewLayerSet` plus the pipelines module's own
@@ -839,34 +842,33 @@ because the mechanism can't reach them; this has no bearing on
   design). Deep per-shape selection into instanced content (as opposed
   to whole-placement selection) remains deliberately out of scope - a
   real, documented deferral, not a gap found later; per-instance culling
-  (skipping an off-screen instance's own `concat`+`drawPicture` call
-  before it reaches Skia's own quickReject) was also deliberately not
-  added - the Phase D benchmark numbers are the ones to revisit before
-  deciding whether it's actually needed.
-- Skia isn't vendored/built by this project — the top-level
-  `CMakeLists.txt`'s own `skia` target points `SKIA_DIR` at a pre-built checkout
-  (default `/Volumes/Docking/Projects/synthosilicon/skia/skia`, override with
-  `-DSKIA_DIR=...`). That checkout must have `out/MacStatic/libskia.a`
-  built with `is_component_build=false` (static). Links `libskia.a` +
-  Homebrew `harfbuzz`/`icu4c`/`jpeg`/`png`/`z`/`webp`/`webpdemux` + macOS
-  `CoreText`/`CoreFoundation`/`CoreGraphics`/`CoreServices` frameworks — no
-  GPU (Ganesh/Metal) frameworks needed, only raster (CPU) surface APIs are
-  used.
+  (skipping an off-screen instance's own draw call before it reaches
+  viewport culling) was also deliberately not added - the Phase D
+  benchmark numbers are the ones to revisit before deciding whether it's
+  actually needed.
+- ~~Skia isn't vendored/built by this project~~ — resolved by removing
+  Skia entirely. Blend2D (`src/pipelines/`'s only Rasterize/Compose
+  backend now) is fetched and statically built via CMake `FetchContent`
+  (see `CMakeLists.txt`'s own Blend2D block), so there's no external
+  pre-built checkout to provision on any platform anymore.
 - ~~Linux build needs a fontconfig/FreeType-backed `SkFontMgr`~~ — done
-  (Docker/Ubuntu Linux CI session), then revised again: `pipelines.cpp`'s
-  Linux `default_typeface()` now loads from a bundled font directory
-  (`SkFontMgr_New_Custom_Directory`, `LE_FONT_DIR` — defaults to
-  `assets/fonts/`, committed to the repo) rather than system fontconfig —
-  a locked-down rootless-build target machine (see the Rocky 8 bullet
-  below) can't be assumed to have any fonts installed or fontconfig
-  configured at all, and a missing font under the fontconfig path failed
-  silently (blank labels, no error).
+  (Docker/Ubuntu Linux CI session), then revised again, then superseded
+  entirely by the Skia removal above: `pipelines.cpp`'s
+  `default_blend2d_font_face()` (`blend2d_font.hpp`) loads its one
+  bundled font file directly (`LE_FONT_DIR` — defaults to
+  `assets/fonts/`, committed to the repo) rather than any system font
+  manager — Blend2D has no font-manager abstraction to fall back on the
+  way Skia's CoreText path did on macOS. Bundled-font-file loading was
+  always the point here (a locked-down rootless-build target machine,
+  see the Rocky 8 bullet below, can't be assumed to have any fonts
+  installed or fontconfig configured at all), so this behavior carried
+  over unchanged, just under a new function/mechanism name.
 - **Rootless Rocky Linux 8 build** (no root, no system package installs,
   no Docker) — `backend/scripts/rocky8-bootstrap.sh`/`rocky8-env.sh`
   assemble a toolchain (gcc-toolset-13, CMake/Ninja/Boost/SWIG, GTK3 +
-  closure, Skia's own third-party-vendored build) entirely via rootless
-  RPM extraction (`rpm2cpio`/`cpio`, no `dnf install`) and upstream
-  release tarballs into `~/.local/layout_engine_toolchain`. Unverified
+  closure) entirely via rootless RPM extraction (`rpm2cpio`/`cpio`, no
+  `dnf install`) and upstream release tarballs into
+  `~/.local/layout_engine_toolchain`. Unverified
   against a real Rocky 8 machine as of this writing — expect real
   iteration, same as the Docker/Ubuntu path needed. Its own GTK3
   provisioning predates `le_gui` (GLFW-based, no GTK dependency at all)

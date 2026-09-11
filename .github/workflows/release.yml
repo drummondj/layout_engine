@@ -31,8 +31,8 @@ jobs:
       # Exports the `export` stage's filesystem (just the app bundle - see
       # Dockerfile.linux-release's own final stage) directly to ./dist, no
       # docker create/cp needed. cache-from/to type=gha keeps the
-      # expensive Skia build stage cached between runs as long as its own
-      # Dockerfile layer doesn't change.
+      # expensive toolchain/oneTBB build stages cached between runs as
+      # long as their own Dockerfile layers don't change.
       - name: Build release bundle
         uses: docker/build-push-action@v6
         with:
