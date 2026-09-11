@@ -318,7 +318,7 @@ stage_swig() {
         ok "swig already present at $LE_ROOT/usr/bin/swig (skipping)"
         return 0
     fi
-    log "building SWIG $version from source (not gambling on EPEL reachability - see this script's own header comment. --without-pcre2 avoids a whole extra library dependency and SWIG's core functionality doesn't need it)"
+    log "building SWIG $version from source (not gambling on EPEL reachability - see this script's own header comment. --without-pcre avoids a whole extra library dependency and SWIG's core functionality doesn't need it - note the flag is --without-pcre, not --without-pcre2: SWIG's configure silently ignores the latter and still probes for pcre2-config, a real failure confirmed via Dockerfile.linux-release hitting the exact same mistake)"
     if [ -z "${CC:-}" ] || [ -z "${CXX:-}" ]; then
         fail "CC/CXX not set - run the gcc-toolset stage (part of 'rpms') and 'source backend/scripts/rocky8-env.sh' before running this stage, so SWIG itself builds with the same modern compiler as everything else"
         return 1
@@ -345,7 +345,7 @@ stage_swig() {
     (
         cd "$src_dir" &&
         ./autogen.sh &&
-        ./configure --without-pcre2 --prefix="$LE_ROOT/usr" &&
+        ./configure --without-pcre --prefix="$LE_ROOT/usr" &&
         make -j "$(nproc)" &&
         make install
     ) || { fail "SWIG build failed - see output above"; return 1; }

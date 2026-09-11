@@ -36,9 +36,14 @@
 # the `source` stage's own comment below) - zlib-devel/libpng-devel/
 # libjpeg-turbo-devel/freetype-devel/pcre2-devel used to be here only for
 # Skia's own build and are gone; the `tools` stage's own SWIG build passes
-# --without-pcre2 (same as backend/scripts/rocky8-bootstrap.sh's own
-# stage_swig) rather than reintroducing pcre2-devel just for that - SWIG's
-# core functionality doesn't need PCRE2-backed regex support. ----
+# --without-pcre (confirmed via a real failed build here: SWIG's configure
+# doesn't recognize --without-pcre2 at all - it silently ignores it and
+# still probes for pcre2-config - --without-pcre is the flag its own error
+# message names) rather than reintroducing pcre2-devel just for that -
+# SWIG's core functionality doesn't need PCRE2-backed regex support.
+# backend/scripts/rocky8-bootstrap.sh's own stage_swig has this same
+# --without-pcre2 mistake (marked unverified against a real Rocky 8
+# machine in backend/CLAUDE.md's Open gaps section) - fixed there too. ----
 FROM rockylinux:8 AS base
 RUN dnf install -y dnf-plugins-core \
  && (dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb || true) \
@@ -90,7 +95,7 @@ RUN curl -fL -o /tmp/bison.tar.gz \
 RUN curl -fL -o /tmp/swig.tar.gz \
       https://github.com/swig/swig/archive/refs/tags/v4.2.1.tar.gz \
  && mkdir -p /tmp/swig && tar -xzf /tmp/swig.tar.gz -C /tmp/swig --strip-components=1 \
- && cd /tmp/swig && ./autogen.sh && ./configure --without-pcre2 --prefix=/usr/local \
+ && cd /tmp/swig && ./autogen.sh && ./configure --without-pcre --prefix=/usr/local \
  && make -j"$(nproc)" && make install \
  && rm -rf /tmp/swig /tmp/swig.tar.gz
 
