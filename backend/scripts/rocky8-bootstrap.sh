@@ -20,7 +20,7 @@
 # With no arguments, runs every stage in order. Pass one or more stage
 # names (see STAGE_NAMES below) to run only those, e.g. to retry a single
 # failed stage:
-#   backend/scripts/rocky8-bootstrap.sh skia
+#   backend/scripts/rocky8-bootstrap.sh swig
 #
 # After this completes, `source backend/scripts/rocky8-env.sh` before
 # configuring the actual CMake/Flutter builds.
@@ -40,7 +40,7 @@ STAGE_DOWNLOADS="$LE_TOOLCHAIN_ROOT/.rpm-downloads"
 LE_ROOT="$LE_TOOLCHAIN_ROOT/root"
 LOG_DIR="$LE_TOOLCHAIN_ROOT/logs"
 
-STAGE_NAMES=(check-tools rpms cmake ninja boost bison swig skia)
+STAGE_NAMES=(check-tools rpms cmake ninja boost bison swig)
 
 log()  { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m  ok:\033[0m %s\n' "$*"; }
@@ -66,13 +66,10 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 # the system. Only meant for packages where that's actually the right
 # call (see extract_rpm_closure_if_missing below for the alternative, and
 # stage_rpms's own comments for which packages need which): the compiler
-# and CMake/Skia's own vendored-vs-system choices are pinned to a *known*
-# version deliberately, because RHEL8's own stock versions of those are
-# either too old to work at all (GCC 8.5 has no real C++20/23 support) or
-# a real, specific version-skew risk already reasoned through elsewhere
-# (RHEL8's harfbuzz/icu vs. a modern Skia commit) - "is something already
-# installed" isn't a good enough question for those; the actual version
-# matters, not just presence. ---
+# is pinned to a *known* version deliberately, because RHEL8's own stock
+# version can't work at all (GCC 8.5 has no real C++20/23 support) -
+# "is something already installed" isn't a good enough question for that;
+# the actual version matters, not just presence. ---
 # RPM package names whose closure gets pulled in transitively by basically
 # everything on a RHEL-family system (via "Requires: filesystem" et al) but
 # that ship nothing this toolchain actually needs - only the base OS
@@ -131,7 +128,7 @@ extract_rpm_closure() {
 # installed on the system (`rpm -q`, works without root - just a query,
 # not an install). For version-stable packages where basically any
 # version RHEL8 would have packaged at all is good enough (GTK3 + its
-# closure, Tcl/Tk, the Skia system-linked subset) - unlike
+# closure, Tcl/Tk) - unlike
 # extract_rpm_closure's own callers, there's no specific minimum version
 # these need beyond "exists". Checking only the top-level package, not
 # its transitive closure, is deliberately sufficient: dnf/rpm itself
@@ -186,7 +183,7 @@ stage_check_tools() {
 }
 
 stage_rpms() {
-    log "Stage: RPM-extracted dependencies (compiler, Tcl/Tk, GTK3 + closure, Skia's system-linked subset)"
+    log "Stage: RPM-extracted dependencies (compiler, Tcl/Tk, GTK3 + closure)"
 
     # --- Compiler: gcc-toolset-13 (self-contained under /opt/rh/gcc-toolset-13).
     # Always extracted regardless of what's already installed - RHEL8's
@@ -200,16 +197,13 @@ stage_rpms() {
     # --- Everything below this point is a version-stable package where
     # "is it already installed" is a good enough question - basically any
     # version RHEL8 would have packaged works fine for these, unlike the
-    # compiler above or Skia's harfbuzz/icu/libwebp/expat choice (a real,
-    # specific version-skew concern, handled separately via
-    # LE_SKIA_VENDORS_THIRD_PARTY - see backend/CMakeLists.txt's own
-    # comment). Checked via extract_rpm_closure_if_missing (see its own
-    # comment) rather than unconditionally extracting a redundant private
-    # copy on top of a perfectly good system one - a real, if harmless,
-    # waste this stage used to always pay regardless of what the machine
-    # already had, especially likely for GTK3's own large closure on a
-    # machine that (per its confirmed real display) probably already has
-    # a working desktop GTK3 stack. ---
+    # compiler above. Checked via extract_rpm_closure_if_missing (see its
+    # own comment) rather than unconditionally extracting a redundant
+    # private copy on top of a perfectly good system one - a real, if
+    # harmless, waste this stage used to always pay regardless of what the
+    # machine already had, especially likely for GTK3's own large closure
+    # on a machine that (per its confirmed real display) probably already
+    # has a working desktop GTK3 stack. ---
 
     # --- Tcl/Tk (real runtime need - le_tcl_bridge.cpp #includes tcl.h
     # directly, and the le_tcl SWIG target links against it) - likely
@@ -226,28 +220,12 @@ stage_rpms() {
     # authoritative - `dnf download --resolve --alldeps gtk3-devel` above
     # is what actually determines the real closure; the extra packages
     # below cover things gtk3-devel's own closure may not pull in
-    # directly (Mesa GL/EGL for Flutter's own compositor, separate from
-    # this project's GPU-free Skia raster path). ---
+    # directly (Mesa GL/EGL for Flutter's own compositor). ---
     extract_rpm_closure_if_missing gtk3-devel || return 1
     extract_rpm_closure_if_missing mesa-libGL-devel || return 1
     extract_rpm_closure_if_missing mesa-libEGL-devel || return 1
     extract_rpm_closure_if_missing mesa-dri-drivers || return 1
     extract_rpm_closure_if_missing mesa-libgbm || return 1
-
-    # --- Skia's system-linked subset only (frozen/stable-ABI ones -
-    # harfbuzz/icu/libwebp/expat are vendored from Skia's own third_party/
-    # sources instead, see the skia stage below, since RHEL8's versions of
-    # those are old enough relative to a modern Skia commit to be a real
-    # risk - see backend/CMakeLists.txt's LE_SKIA_VENDORS_THIRD_PARTY
-    # comment). freetype-devel is the riskiest of this subset (RHEL8's is
-    # ~2.9.1) - if Skia link/API errors mention it specifically, that's
-    # the first thing to also flip to vendored (skia_use_system_freetype2
-    # isn't wired to LE_SKIA_VENDORS_THIRD_PARTY today - would need adding
-    # if it comes to that). ---
-    extract_rpm_closure_if_missing zlib-devel || return 1
-    extract_rpm_closure_if_missing libpng-devel || return 1
-    extract_rpm_closure_if_missing libjpeg-turbo-devel || return 1
-    extract_rpm_closure_if_missing freetype-devel || return 1
 
     ok "all RPM-extracted dependencies staged under $LE_ROOT"
 }
@@ -374,62 +352,6 @@ stage_swig() {
     ok "swig $version -> $LE_ROOT/usr/bin/swig"
 }
 
-stage_skia() {
-    local dir="$LE_TOOLCHAIN_ROOT/skia"
-    local skia_dir="$dir/skia"
-    if [ -f "$skia_dir/out/Linux/libskia.a" ]; then
-        ok "libskia.a already built at $skia_dir/out/Linux (skipping - remove that file to force a rebuild)"
-        return 0
-    fi
-    if [ -z "${CC:-}" ] || [ -z "${CXX:-}" ]; then
-        fail "CC/CXX not set - source backend/scripts/rocky8-env.sh (after the rpms/cmake/ninja/swig stages) before running this stage"
-        return 1
-    fi
-    log "cloning/building Skia (raster-only, no GPU backend - matches this project's macOS/Docker Skia builds exactly, see Dockerfile.linux-ci)"
-    mkdir -p "$dir"
-    if [ ! -d "$skia_dir/.git" ]; then
-        git clone https://skia.googlesource.com/skia.git "$skia_dir" || { fail "clone failed - is skia.googlesource.com reachable?"; return 1; }
-    fi
-    (
-        cd "$skia_dir" &&
-        # Same pinned commit as Dockerfile.linux-ci's own Skia stage - keep
-        # these in sync by hand if that commit is ever bumped there.
-        git checkout 9f330f1704305686dafa9eeef11de77caa5314b1 &&
-        python3 tools/git-sync-deps &&
-        python3 bin/fetch-gn &&
-        bin/gn gen out/Linux --args="
-            is_official_build=true
-            is_component_build=false
-            is_debug=false
-            target_cpu=\"x64\"
-            cc=\"$CC\"
-            cxx=\"$CXX\"
-            skia_enable_gpu=false
-            skia_use_gl=false
-            skia_use_vulkan=false
-            skia_use_egl=false
-            skia_enable_fontmgr_custom_directory=true
-            skia_enable_fontmgr_custom_embedded=false
-            skia_enable_fontmgr_custom_empty=false
-            skia_use_fontconfig=false
-            skia_use_freetype=true
-            skia_use_system_freetype2=true
-            skia_use_system_harfbuzz=false
-            skia_use_system_libjpeg_turbo=true
-            skia_use_system_libpng=true
-            skia_use_system_libwebp=false
-            skia_use_system_zlib=true
-            skia_use_system_icu=false
-            skia_use_system_expat=false
-        " &&
-        ninja -C out/Linux -j "$(nproc)" skia
-    ) || {
-        fail "Skia GN configure or ninja build failed - see output above. Common cause: a system-linked header (freetype/jpeg/png/zlib, extracted into \$LE_TOOLCHAIN_ROOT/root/usr) not found at its expected path - may need extra_cflags/extra_ldflags added to the bin/gn gen args above pointing at \$LE_ROOT/usr/include and \$LE_ROOT/usr/lib64, the same way Dockerfile.linux-ci already needed one such flag for Debian's own nonstandard harfbuzz header layout."
-        return 1
-    }
-    ok "Skia built -> $skia_dir (SKIA_DIR)"
-}
-
 run_stage() {
     case "$1" in
         check-tools) stage_check_tools ;;
@@ -439,7 +361,6 @@ run_stage() {
         boost)       stage_boost ;;
         bison)       stage_bison ;;
         swig)        stage_swig ;;
-        skia)        stage_skia ;;
         *)
             fail "unknown stage '$1' - valid stages: ${STAGE_NAMES[*]}"
             return 1
@@ -457,7 +378,7 @@ main() {
     for stage in "${stages[@]}"; do
         if ! run_stage "$stage"; then
             failed+=("$stage")
-            # cmake/ninja/swig/skia all need CC/CXX/PATH from a sourced
+            # cmake/ninja/swig all need CC/CXX/PATH from a sourced
             # rocky8-env.sh - if rpms just landed in this same invocation,
             # source it now so later stages in this same run see the
             # gcc-toolset compiler without requiring a second manual step.

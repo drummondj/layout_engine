@@ -812,3 +812,75 @@ TEST(Geometry, InstanceTransformHandlesANonZeroLocalBboxLowerLeft)
     expect_point_eq(world_s.ll, location); // same size as N (180-degree rotation)
     expect_point_eq(world_s.ur, Point{1500, 2600});
 }
+
+TEST(Geometry, ComposeAppliesInnerThenOuter)
+{
+    // outer translates by (1000, 2000); inner places a square's own ll at
+    // (10, 10) under orientation W (which swaps axes). Composing them and
+    // applying to the square's own local bbox directly should land at the
+    // same place as applying inner then outer by hand, one step at a time.
+    const Rect local_bbox{.ll = {0, 0}, .ur = {100, 100}};
+    const Geometry::InstanceTransform inner = Geometry::instance_transform(Orientation::W, local_bbox, Point{10, 10});
+    const Geometry::InstanceTransform outer{.linear = Geometry::orientation_linear(Orientation::N), .translation = Point{1000, 2000}};
+
+    const Rect inner_world = Geometry::transform_bbox(inner, local_bbox);
+    const Rect expected = Rect{.ll = {inner_world.ll.x + 1000, inner_world.ll.y + 2000}, .ur = {inner_world.ur.x + 1000, inner_world.ur.y + 2000}};
+
+    const Geometry::InstanceTransform composed = Geometry::compose(outer, inner);
+    const Rect actual = Geometry::transform_bbox(composed, local_bbox);
+    expect_point_eq(actual.ll, expected.ll);
+    expect_point_eq(actual.ur, expected.ur);
+}
+
+TEST(Geometry, ComposeWithIdentityIsANoOp)
+{
+    const Rect local_bbox{.ll = {0, 0}, .ur = {200, 100}};
+    const Geometry::InstanceTransform t = Geometry::instance_transform(Orientation::E, local_bbox, Point{50, 60});
+    const Geometry::InstanceTransform identity = Geometry::identity_transform();
+
+    const Rect direct = Geometry::transform_bbox(t, local_bbox);
+    const Rect via_outer_identity = Geometry::transform_bbox(Geometry::compose(identity, t), local_bbox);
+    const Rect via_inner_identity = Geometry::transform_bbox(Geometry::compose(t, identity), local_bbox);
+
+    expect_point_eq(via_outer_identity.ll, direct.ll);
+    expect_point_eq(via_outer_identity.ur, direct.ur);
+    expect_point_eq(via_inner_identity.ll, direct.ll);
+    expect_point_eq(via_inner_identity.ur, direct.ur);
+}
+
+TEST(Geometry, InvertUndoesEveryOrientationAndTranslation)
+{
+    // Composing a transform with its own invert() (in either order) must
+    // collapse back to identity - confirmed here by checking a bbox
+    // survives transform-then-untransform unchanged, for every one of the
+    // 8 orientations and a non-trivial translation.
+    const Rect local_bbox{.ll = {0, 0}, .ur = {200, 100}};
+    for (Orientation o : {Orientation::N, Orientation::S, Orientation::E, Orientation::W, Orientation::FN, Orientation::FS, Orientation::FE, Orientation::FW})
+    {
+        const Geometry::InstanceTransform t = Geometry::instance_transform(o, local_bbox, Point{700, -300});
+        const Geometry::InstanceTransform inverse = Geometry::invert(t);
+
+        const Rect round_trip_outer = Geometry::transform_bbox(Geometry::compose(inverse, t), local_bbox);
+        expect_point_eq(round_trip_outer.ll, local_bbox.ll);
+        expect_point_eq(round_trip_outer.ur, local_bbox.ur);
+
+        const Rect round_trip_inner = Geometry::transform_bbox(Geometry::compose(t, inverse), local_bbox);
+        expect_point_eq(round_trip_inner.ll, local_bbox.ll);
+        expect_point_eq(round_trip_inner.ur, local_bbox.ur);
+    }
+}
+
+TEST(Geometry, InvertBringsAWorldRectBackToLocalSpace)
+{
+    // The actual use case (ViewportCullStage): a world-space rect run
+    // through invert(t) should land exactly where the un-transformed
+    // local rect would have to be for transform_bbox(t, .) to reproduce
+    // the original world-space rect.
+    const Rect local_bbox{.ll = {0, 0}, .ur = {200, 100}};
+    const Geometry::InstanceTransform t = Geometry::instance_transform(Orientation::FE, local_bbox, Point{300, 400});
+    const Rect world_bbox = Geometry::transform_bbox(t, local_bbox);
+
+    const Rect recovered_local = Geometry::transform_bbox(Geometry::invert(t), world_bbox);
+    expect_point_eq(recovered_local.ll, local_bbox.ll);
+    expect_point_eq(recovered_local.ur, local_bbox.ur);
+}

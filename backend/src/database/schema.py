@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.41.0",
+    version="0.43.0",
     classes=[
         Klass(
             name="Technology",
@@ -2190,11 +2190,11 @@ schema = Schema(
         Klass(
             name="Schematic",
             description="A logical connectivity view (netlist)",
-            # "Current view" anchor for get_instances' own default (-of
-            # omitted) scope - see codegen/codegen/tcl_scope.py. Nothing
-            # populates Schematic/Instance data yet (no SystemVerilog
-            # reader exists), but the TCL surface is generated uniformly
-            # regardless.
+            # "Current view" anchor for get_instances/get_ports/get_nets'
+            # own default (-of omitted) scope - see
+            # codegen/codegen/tcl_scope.py. Populated by the SystemVerilog/
+            # Verilog reader (src/sv/) - see SCHEMA.md's "SystemVerilog
+            # Reading Flow" note.
             has_current_access=True,
             fields=[
                 Field(
@@ -2210,11 +2210,31 @@ schema = Schema(
                     is_list=True,
                     is_child=True,
                 ),
+                Field(
+                    name="ports",
+                    description="Top-level ports (Verilog module input/output/inout)",
+                    type="Port",
+                    is_list=True,
+                    is_child=True,
+                ),
+                Field(
+                    name="nets",
+                    description="Internal connectivity nets (Verilog wire/reg/logic used for connectivity)",
+                    type="Net",
+                    is_list=True,
+                    is_child=True,
+                ),
             ],
         ),
+        # An Instance may also stand in for source code that could not be
+        # fully read (a "logic cloud" - see rtl_text below). This is
+        # deliberately not a separate klass: it keeps every connectivity
+        # walk (Net -> Pin -> Instance) a single, uniform edge, whether the
+        # Instance is a fully resolved reference, a reference to a design
+        # that hasn't been read yet, or unreadable source.
         Klass(
             name="Instance",
-            description="An instance of another design",
+            description="An instance of another design, or a placeholder for source code that could not be fully read",
             fields=[
                 Field(
                     name="schematic",
@@ -2230,19 +2250,170 @@ schema = Schema(
                 ),
                 Field(
                     name="reference_name",
-                    description="The name of the reference design",
+                    description="The name of the referenced design, if known",
                     type="str",
                     example="BUFX1",
+                    is_optional=True,
                 ),
                 Field(
                     name="reference_design",
-                    description="The ID of the reference design after linking",
+                    description="The referenced design, once resolved - unset until then, and never set for a placeholder instance (see rtl_text)",
                     type="Design",
+                    is_optional=True,
                 ),
                 Field(
                     name="location",
                     description="The location of the lower-left corner of this instance",
                     type="Point",
+                    is_optional=True,
+                ),
+                Field(
+                    name="pins",
+                    description="Pin connections on this instance",
+                    type="Pin",
+                    is_list=True,
+                    is_child=True,
+                ),
+                Field(
+                    name="rtl_text",
+                    description="The original source text, if this instance is a placeholder for source code that could not be fully read - unset for a normal instance",
+                    type="str",
+                    is_optional=True,
+                ),
+                Field(
+                    name="source_file",
+                    description="The file rtl_text came from, if known",
+                    type="str",
+                    example="cpu_core.sv",
+                    is_optional=True,
+                ),
+                Field(
+                    name="diagnostic_summary",
+                    description="A short explanation of why this instance's source could not be fully read, if available",
+                    type="str",
+                    is_optional=True,
+                ),
+            ],
+        ),
+        Klass(
+            name="Port",
+            description="Logical top-level port of a Schematic (Verilog module input/output/inout)",
+            fields=[
+                Field(
+                    name="schematic",
+                    description="Parent schematic",
+                    type="Schematic",
+                    parent="ports",
+                ),
+                Field(
+                    name="name",
+                    description="The name of the port - unique within its parent Schematic (see unique_per_parent)",
+                    type="str",
+                    example="clk",
+                    index=True,
+                    unique_per_parent=True,
+                ),
+                Field(
+                    name="direction",
+                    description="The direction of the port",
+                    type="SignalDirection",
+                ),
+                Field(
+                    name="msb",
+                    description="Most-significant bit index of a bus port (Verilog [msb:lsb]) - unset for a scalar (1-bit) port",
+                    type="int",
+                    example=7,
+                    is_optional=True,
+                ),
+                Field(
+                    name="lsb",
+                    description="Least-significant bit index of a bus port - unset for a scalar port (mirrors msb)",
+                    type="int",
+                    example=0,
+                    is_optional=True,
+                ),
+                Field(
+                    name="net",
+                    description="The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name)",
+                    type="Net",
+                    is_optional=True,
+                ),
+            ],
+        ),
+        Klass(
+            name="Net",
+            description="Logical connectivity net within a Schematic (Verilog wire/reg/logic)",
+            fields=[
+                Field(
+                    name="schematic",
+                    description="Parent schematic",
+                    type="Schematic",
+                    parent="nets",
+                ),
+                Field(
+                    name="name",
+                    description="The name of the net - unique within its parent Schematic (see unique_per_parent)",
+                    type="str",
+                    example="n42",
+                    index=True,
+                    unique_per_parent=True,
+                ),
+                Field(
+                    name="msb",
+                    description="Most-significant bit index of a bus net - unset for a scalar (1-bit) net",
+                    type="int",
+                    example=3,
+                    is_optional=True,
+                ),
+                Field(
+                    name="lsb",
+                    description="Least-significant bit index of a bus net - unset for a scalar net",
+                    type="int",
+                    example=0,
+                    is_optional=True,
+                ),
+            ],
+        ),
+        Klass(
+            name="Pin",
+            description="Logical connection point on an Instance (Verilog instance port connection)",
+            fields=[
+                Field(
+                    name="instance",
+                    description="Parent instance",
+                    type="Instance",
+                    parent="pins",
+                ),
+                Field(
+                    name="name",
+                    description="The pin name as connected in source, e.g. the A in .A(net23)",
+                    type="str",
+                    example="A",
+                ),
+                Field(
+                    name="direction",
+                    description="The pin's direction, if known",
+                    type="SignalDirection",
+                    is_optional=True,
+                ),
+                Field(
+                    name="net",
+                    description="The net this pin connects to, if any",
+                    type="Net",
+                    is_optional=True,
+                ),
+                Field(
+                    name="net_bit_index",
+                    description="Selects one bit of a multi-bit net when this pin itself connects to a single bit, e.g. .A(bus[2]) - unset when connecting to a whole net",
+                    type="int",
+                    example=2,
+                    is_optional=True,
+                ),
+                Field(
+                    name="raw_expression",
+                    description="The connection expression exactly as written in the source",
+                    type="str",
+                    example="{a, b}",
                     is_optional=True,
                 ),
             ],

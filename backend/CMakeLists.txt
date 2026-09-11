@@ -138,20 +138,52 @@ set_target_properties(def_static PROPERTIES
 add_dependencies(def_static def_lib)
 
 # --- Third-party dependencies ---
-# spdlog/fmt fall back to FetchContent (same pattern as googletest/
-# googlebenchmark below) when no system install is found - neither ships in
-# RHEL8 BaseOS/AppStream/CRB by default, needed for a rootless Rocky 8
-# build with no system package installs available at all (see
-# backend/scripts/rocky8-bootstrap.sh). macOS/Ubuntu (where find_package
-# already succeeds via Homebrew/apt) are unaffected - this only activates
-# when the system copy is missing, on any platform.
-find_package(fmt CONFIG QUIET)
+# fmt is pinned via a hard-required exact-version find_package (not the
+# "prefer system, else fetch" pattern spdlog below still uses) -
+# discovered empirically while adding the slang dependency further down
+# (SystemVerilog/Verilog reader, SYSTEMVERILOG.md): a CMake target name
+# is process-global, so this project's own fmt::fmt and slang's own
+# internal fmt::fmt lookup (it declares its own FetchContent dependency
+# on fmt, gated at >= 12.1) must resolve to the *same* target or one
+# add_library() collides with the other. An unversioned/loosely-versioned
+# find_package(fmt) is at the mercy of whatever happens to be installed
+# system-wide (this dev machine's system fmt is 9.1.0) - EXACT here
+# guarantees this project's own fmt::fmt is always *this* FetchContent-
+# built 11.0.2, regardless of host environment, which is what lets the
+# FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER override on the slang block
+# below correctly dedupe slang's own fmt redeclaration against this one
+# rather than either silently using a wrong system version or trying to
+# build a second, colliding copy.
+find_package(fmt 11.0.2 EXACT CONFIG QUIET)
 if(NOT fmt_FOUND)
     FetchContent_Declare(fmt URL https://github.com/fmtlib/fmt/archive/refs/tags/11.0.2.zip)
     FetchContent_MakeAvailable(fmt)
 endif()
 
-find_package(spdlog CONFIG QUIET)
+# spdlog falls back to FetchContent (same pattern as googletest/
+# googlebenchmark below) when no system install is found - it doesn't
+# ship in RHEL8 BaseOS/AppStream/CRB by default, needed for a rootless
+# Rocky 8 build with no system package installs available at all (see
+# backend/scripts/rocky8-bootstrap.sh). macOS/Ubuntu (where find_package
+# already succeeds via Homebrew/apt) are unaffected - this only activates
+# when the system copy is missing, on any platform.
+#
+# Version-gated at >= 1.14 (not a plain unversioned find_package) for a
+# reason discovered only after fmt above was pinned EXACT/deterministic
+# (see that block's own comment): a *precompiled* system spdlog package
+# (this dev machine's is 1.12.0, a real .so) bakes in whichever fmt ABI
+# it happened to be built against (this machine's system fmt 9.1.0) into
+# its own compiled symbol names (fmt::v9::... vs our fmt::v11::...) -
+# linking it against this project's own, differently-versioned fmt::fmt
+# fails at *link* time (undefined reference to spdlog::details::log_msg
+# constructors, header-level usage compiled fine) even though it never
+# had this problem before fmt's own version was pinned deterministically.
+# Requiring a floor the system package doesn't meet forces this project's
+# own FetchContent-built spdlog every time, built fresh against whatever
+# fmt::fmt this project actually uses (SPDLOG_FMT_EXTERNAL=ON below) -
+# consistent, reproducible, and no longer at the mercy of whatever
+# unrelated fmt version happened to compile the host's system package.
+find_package(spdlog 1.14 CONFIG QUIET)
 if(NOT spdlog_FOUND)
     # Without this, spdlog vendors its own internal fmt copy, conflicting
     # with the many targets in this file that link fmt::fmt directly.
@@ -160,6 +192,71 @@ if(NOT spdlog_FOUND)
     FetchContent_MakeAvailable(spdlog)
 endif()
 
+# --- slang (SystemVerilog/Verilog frontend for src/sv's netlist/RTL
+# reader - see SYSTEMVERILOG.md). Pinned to the v11.0 tagged release (not
+# master) - unlike Blend2D/AsmJit above, slang publishes real tags, so it
+# follows fmt/spdlog's pin-to-release-zip convention instead. No
+# find_package fallback of our own (unlikely to be a preinstalled system
+# package on any target platform, including the Rocky 8 rootless build) -
+# straight to FetchContent, same as Blend2D. slang builds one single
+# CMake target, slang::slang (its own source/CMakeLists.txt does
+# add_library(slang_slang ...) + ALIAS) - there is no separate
+# syntax-only sub-target; "syntax-only vs full elaboration" is a choice
+# of which slang API src/sv's own reader code calls, not a link-time one.
+#
+# slang's own external/CMakeLists.txt declares its *own* "fmt"
+# FetchContent dependency, gated at >= 12.1 via FIND_PACKAGE_ARGS (CMake
+# 3.24+'s FetchContent+find_package integration - tries find_package()
+# first, falling back to fetching its own copy). Bumping this whole
+# project's fmt to 12.1 to satisfy that floor was tried and reverted: fmt
+# 12.x renamed/removed fmt::basic_format_string, which both the system
+# spdlog package on this dev machine (1.12.0) *and* the newest spdlog
+# release this project could pin to (1.14.1) still reference - a real
+# compile break neither this project nor slang's own vendored dependency
+# graph has a ready answer for yet. Since slang's actual behavior is to
+# *always* end up with some real fmt >= 12.1 one way or another
+# (reusing a satisfying system/already-available one, or fetching its
+# pinned 12.1.0 otherwise) - there's no lower version we can hand it that
+# it will just accept - FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER instead
+# forces its FIND_PACKAGE_ARGS-decorated redeclaration of "fmt" back to
+# plain FetchContent name-based dedup: since this project's own fmt block
+# above is now *guaranteed* (EXACT-pinned find_package) to have already
+# declared and populated "fmt" as 11.0.2 by the time this line runs,
+# slang's own FetchContent_MakeAvailable(fmt) call becomes a no-op reuse
+# of that already-populated 11.0.2, rather than either colliding with it
+# or fetching a second, separately-versioned copy. This is a real,
+# accepted risk (flagged in the linked plan's own build-spike step):
+# slang's source is nominally tested against 12.1, and building it
+# against 11.0.2 instead depends on slang's own use of fmt being
+# API-compatible across that gap - verified empirically by this build
+# actually succeeding, not assumed on paper.
+set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER)
+set(SLANG_INCLUDE_TESTS OFF CACHE BOOL "" FORCE)
+set(SLANG_INCLUDE_TOOLS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    slang
+    URL https://github.com/MikePopoloski/slang/archive/refs/tags/v11.0.zip
+)
+FetchContent_MakeAvailable(slang)
+
+# find_package(Boost REQUIRED) runs *after* the slang block above -
+# discovered empirically during the slang build spike, the mirror image
+# of the fmt situation: slang's own external/CMakeLists.txt does its own
+# internal find_package(Boost 1.87.0 CONFIG QUIET), and only when that
+# fails (this dev machine's system Boost is 1.83.0 - too old to satisfy
+# 1.87.0, though functionally almost certainly fine for what slang
+# actually uses it for, an unordered_flat_map-style header) does it
+# define its own vendored fallback, add_library(Boost::headers ALIAS
+# boost_unordered) - unlike fmt, there's no version we can bump our own
+# Boost pin to (it's a real system package, not FetchContent-managed
+# here), so the two can't be made to share one real target the way fmt's
+# two consumers now do. Running slang's block first lets its own
+# fallback claim Boost::headers while nothing else has - the real
+# upstream Boost CMake package's own target-definition logic (which our
+# own find_package(Boost REQUIRED) below triggers) guards each target
+# with if(NOT TARGET ...) before defining it, so it cleanly skips
+# redefining the one slang's fallback already created, rather than
+# colliding with it the way this failed when the order was reversed.
 find_package(Boost REQUIRED)
 
 FetchContent_Declare(
@@ -178,6 +275,46 @@ set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googlebenchmark)
+
+# --- Blend2D (a side-experiment alternative Rasterize backend to Skia's -
+# see rasterize_blend2d_stage.hpp's own doc comment; PIPELINE_REFACTOR_BENCHMARK_RESULTS.md
+# has the benchmark comparisons this exists to produce) + its own required
+# AsmJit dependency (Blend2D's JIT-compiled rendering pipelines need it;
+# its own CMakeLists.txt looks for a sibling/vendored `3rdparty/asmjit`
+# directory via the ASMJIT_DIR cache variable, auto-detected only if not
+# already set - see the block below).
+#
+# Neither project publishes tagged releases (confirmed: blend2d/blend2d
+# and asmjit/asmjit both have zero tags on GitHub, development happens
+# directly on `master`) - pinned to a specific commit SHA each instead of
+# the `URL .../refs/tags/vX.Y.Z.zip` convention every other FetchContent
+# dependency in this file uses, via GitHub's own "archive of one commit"
+# zip URL (same mechanism, just a commit hash instead of a tag name).
+#
+# AsmJit is fetched via FetchContent_Populate (NOT FetchContent_MakeAvailable)
+# deliberately - it only needs to be *present on disk* here, not built as
+# its own top-level subdirectory: Blend2D's own CMakeLists.txt does its
+# own `add_subdirectory(${ASMJIT_DIR} ...)` internally once ASMJIT_DIR is
+# set, so calling MakeAvailable(asmjit) ourselves as well would add the
+# same source directory to the build twice - a real CMake error, not just
+# redundant work.
+FetchContent_Declare(
+    asmjit
+    URL https://github.com/asmjit/asmjit/archive/e24347521858616d2d070375ad0d52512e6e44ba.zip
+)
+FetchContent_GetProperties(asmjit)
+if(NOT asmjit_POPULATED)
+    FetchContent_Populate(asmjit)
+endif()
+set(ASMJIT_DIR "${asmjit_SOURCE_DIR}" CACHE PATH "Location of 'asmjit' (fetched, see the Blend2D block above)")
+
+set(BLEND2D_STATIC ON CACHE BOOL "" FORCE)
+set(BLEND2D_TEST OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    blend2d
+    URL https://github.com/blend2d/blend2d/archive/58ca9460b4138af6e793184682e9324e0a8053b2.zip
+)
+FetchContent_MakeAvailable(blend2d)
 
 # --- oneTBB (backend/ONETBB_INTEGRATION.md migration - src/pipelines
 # replaced pipeline/render/instancing at the Phase 5 cutover, and `api`
@@ -319,7 +456,7 @@ FetchContent_MakeAvailable(lucide_font)
 # never valid once le_shell is copied to another machine; le_gui.cpp's
 # own runtime fallback looks for a file named exactly "lucide.ttf" right
 # next to the running executable when that compile-time path doesn't
-# exist (mirroring pipelines.cpp's default_typeface() fallback). Having a
+# exist (mirroring pipelines.cpp's default_blend2d_font_face() fallback). Having a
 # real copy sitting right next to le_shell in the build tree also means
 # Dockerfile.linux-release's own bundle stage can just `cp` it alongside
 # le_shell the same simple way it already does for every other bundled
@@ -344,15 +481,10 @@ add_library(view_style INTERFACE)
 target_include_directories(view_style INTERFACE src)
 target_link_libraries(view_style INTERFACE database)
 
-# --- scene: header-only per-handle mutable view state (pan/zoom, selection, layer visibility) ---
-add_library(scene INTERFACE)
-target_include_directories(scene INTERFACE src)
-target_link_libraries(scene INTERFACE database view_style)
-
 # --- editing: header-only undo/redo command recording (UPDATES.md item 21) ---
 add_library(editing INTERFACE)
 target_include_directories(editing INTERFACE src)
-target_link_libraries(editing INTERFACE database scene)
+target_link_libraries(editing INTERFACE database)
 
 # --- core: header-only generic building blocks (RenderedShape/TinyShapeDot,
 # VersionedStage) shared by `pipelines` and by HierarchyResolver's own
@@ -361,114 +493,42 @@ target_link_libraries(editing INTERFACE database scene)
 # UPDATES.md item 16. ---
 add_library(core INTERFACE)
 target_include_directories(core INTERFACE src)
-target_link_libraries(core INTERFACE database scene view_style)
+target_link_libraries(core INTERFACE database view_style)
 
-# --- Skia (not vendored/built by this project - a pre-built checkout on
-# this machine). SKIA_DIR must contain out/MacStatic/{libskia.a,...} on
-# macOS or out/Linux/{libskia.a,...} on Linux (see docker-compose.yml /
-# Dockerfile.linux-ci for how the Linux checkout is built - raster-only,
-# no GPU backend, matching the macOS build), each built with
-# is_component_build=false (static). Link set (include path, libskia.a,
-# system harfbuzz/icu, plus platform-specific font-manager libs) was
-# determined empirically by linking a minimal SkPictureRecorder/SkSurface
-# program against the macOS checkout - see BENCHMARKS.md/CLAUDE.md for why
-# no GPU (Ganesh/Metal) frameworks are needed: we only use the raster (CPU)
-# surface APIs, and static linking never pulls in the unused GPU object
-# files. Machine-specific - not portable/committed; override -DSKIA_DIR=...
-# to point at a different checkout.
-if(APPLE)
-    set(SKIA_DIR "/Volumes/Docking/Projects/synthosilicon/skia/skia" CACHE PATH
-        "Path to a built Skia checkout (must contain out/MacStatic/libskia.a)")
-    set(SKIA_OUT_DIR "${SKIA_DIR}/out/MacStatic")
-else()
-    set(SKIA_DIR "/skia/skia" CACHE PATH
-        "Path to a built Skia checkout (must contain out/Linux/libskia.a)")
-    set(SKIA_OUT_DIR "${SKIA_DIR}/out/Linux")
-endif()
-# A Rocky-8-rootless-build Skia checkout is configured with
-# skia_use_system_harfbuzz=false/skia_use_system_icu=false/
-# skia_use_system_libwebp=false/skia_use_system_expat=false (see
-# backend/scripts/rocky8-bootstrap.sh) - RHEL8's own harfbuzz (~1.7.5) and
-# icu (~60) are old enough relative to a modern Skia commit that linking
-# against them as system libs (what the existing Docker/Ubuntu Linux CI
-# recipe still does, Dockerfile.linux-ci's skia_use_system_harfbuzz=true
-# etc.) is a real version-skew risk there, and libwebp-devel's presence on
-# a locked-down RHEL8 box at all is uncertain - so that build instead lets
-# libskia.a bundle its own copies of all four internally, statically, and
-# this target must not *also* link separate copies of them in that case.
-# Default OFF: unconditionally linking these has been this project's own
-# working Docker/Ubuntu Linux CI setup all along - don't change that
-# path's behavior, only add a new opt-in for the rootless one.
-option(LE_SKIA_VENDORS_THIRD_PARTY
-    "Skia was built with skia_use_system_harfbuzz/icu/libwebp/expat=false (bundles its own copies into libskia.a) - don't link system harfbuzz/icu/webp separately"
-    OFF)
-
-add_library(skia INTERFACE)
-target_include_directories(skia INTERFACE ${SKIA_DIR})
-target_link_libraries(skia INTERFACE
-    ${SKIA_OUT_DIR}/libskia.a
-    jpeg
-    png
-    z
-)
-if(NOT LE_SKIA_VENDORS_THIRD_PARTY)
-    target_link_libraries(skia INTERFACE harfbuzz icuuc icudata webp webpdemux)
-endif()
-if(APPLE)
-    target_link_directories(skia INTERFACE /opt/homebrew/lib /opt/homebrew/opt/icu4c/lib)
-    target_link_libraries(skia INTERFACE
-        "-framework CoreText"
-        "-framework CoreFoundation"
-        "-framework CoreGraphics"
-        "-framework CoreServices"
-    )
-else()
-    # Linux Skia is built with skia_use_freetype=true (see
-    # Dockerfile.linux-ci / rocky8-bootstrap.sh) - not statically bundled
-    # into libskia.a the way the platform frameworks are on macOS, so the
-    # final consumer (render, below) needs to link it explicitly.
-    # fontconfig is deliberately NOT linked here (both Dockerfile.linux-ci
-    # and rocky8-bootstrap.sh now build Skia with skia_use_fontconfig=false
-    # too) - default_typeface() (render.cpp) uses a bundled font directory
-    # instead, not system fontconfig, so the app doesn't depend on the
-    # target machine having any fonts installed at all.
-    target_link_libraries(skia INTERFACE freetype)
-endif()
-
-# --- pipelines: dbu->pixel transform + Skia SkPicture generation, built on
-# oneTBB's flow::graph (backend/ONETBB_INTEGRATION.md migration, Phase 5c
-# cutover) - the direct replacement for the former pipeline/render/
-# instancing modules (deleted; see git history for their own doc comments,
-# preserved in this module's own stage-class comments as "oneTBB port of
-# src/render/stages/..." provenance notes). Compiled (not header-only) so
-# pipelines.cpp alone pulls in the CoreText font manager's
-# ApplicationServices.h - see default_typeface()'s own comment (in
-# draw_helpers.hpp) for why that can't be a header-only detail. ---
-add_library(pipelines STATIC src/pipelines/pipelines.cpp src/pipelines/upright_text_canvas.cpp)
+# --- pipelines: PIPELINE_REFACTOR.md restart - the Cold/Warm/Hot
+# ViewRenderPipeline, built on oneTBB's flow::graph (tbb_core.hpp's
+# MemoizingStage/FanInCollectStage). The pre-restart module (STATIC,
+# compiled for its own Skia/CoreText default_typeface() - see git history)
+# has been moved to src/pipelines.old/ and is being rebuilt one stage at a
+# time (PIPELINE_REFACTOR.md's own methodology). Was header-only (INTERFACE)
+# through the Cold tier and Warm stage 1 (ViewportCullStage, no Skia
+# dependency); reverted to STATIC here with the Warm tier's own
+# Rasterization/Compose stages, which do need a real compiled TU -
+# pipelines.cpp defines default_blend2d_font_face() for the same reason the
+# pre-restart module's own compiled TU existed (see that file's own
+# comment). No Skia dependency anywhere in this project anymore
+# (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md - the earlier Skia-based
+# RasterizeStage and its own Skia-based ComposeStage sibling are both
+# gone, RasterizeBlend2DStage/Blend2D-native ComposeStage are the only
+# Rasterize/Compose implementations now) - le_tcl's own last remaining
+# Skia consumer, dump_png_cmd's PNG export, was ported onto Blend2D's own
+# built-in PNG codec (BLImage::write_to_file) too, so the `skia` CMake
+# target that used to exist here (a pre-built checkout, SKIA_DIR) is gone.
+add_library(pipelines STATIC src/pipelines/pipelines.cpp)
 target_include_directories(pipelines PUBLIC src)
-target_link_libraries(pipelines PUBLIC database geometry scene view_style core skia fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
 
-# upright_text_canvas.cpp holds UprightTextCanvas's sole out-of-line virtual
-# (its destructor - see the class's own comment, upright_text_canvas.hpp) so
-# its vtable/typeinfo are emitted exactly once, here, rather than vaguely-
-# linked into every TU that constructs one. -fno-rtti matches this vendored
-# Skia build: SkPaintFilterCanvas/SkCanvas have vtables but no `typeinfo for`
-# symbol anywhere in libskia.a (Skia's own official build disables RTTI for
-# its core classes) - a normal RTTI-enabled TU defining this class's vtable
-# fails to link ("Undefined symbols: typeinfo for SkPaintFilterCanvas").
-set_source_files_properties(src/pipelines/upright_text_canvas.cpp PROPERTIES COMPILE_OPTIONS "-fno-rtti")
+target_link_libraries(pipelines PUBLIC database view_style core blend2d::blend2d fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
 
-# LE_FONT_DIR: Linux's default_typeface() (pipelines.cpp) loads its default
-# font from this bundled directory (backend/assets/fonts, committed to the
-# repo - DejaVu Sans, Bitstream-Vera licensed) instead of system fontconfig,
-# so rendering doesn't depend on the target machine having any fonts
-# installed at all - see pipelines.cpp's own comment. Not used on macOS
-# (CoreText path). Override for a different bundled font set.
-if(NOT APPLE)
-    set(LE_FONT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" CACHE PATH
-        "Directory of .ttf/.ttc/.otf/.pfb files default_typeface() loads from on Linux")
-    target_compile_definitions(pipelines PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
-endif()
+# LE_FONT_DIR: default_blend2d_font_face() (pipelines.cpp/blend2d_font.hpp)
+# loads its font from this bundled directory rather than system
+# fontconfig, so text labels still render on a locked-down target machine
+# with no fonts installed at all, on every platform - Blend2D has no
+# font-manager abstraction to fall back on the way Skia's CoreText path
+# does on macOS, so it always loads one specific bundled file from here
+# directly - see pipelines.cpp's own comment.
+set(LE_FONT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" CACHE PATH
+    "Directory of bundled fonts default_blend2d_font_face() (pipelines.cpp) loads from")
+target_compile_definitions(pipelines PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
 
 # --- io: LEF/DEF file readers ---
 add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp src/io/def_writer.cpp)
@@ -494,13 +554,27 @@ target_link_libraries(io
 )
 le_enable_coverage_instrumentation(io)
 
+# --- sv: SystemVerilog/Verilog netlist+RTL reader (SYSTEMVERILOG.md) ---
+add_library(sv STATIC src/sv/sv_reader.cpp)
+target_include_directories(sv PUBLIC src/sv)
+# slang::slang PUBLIC (not PRIVATE): sv_reader.hpp - sv's own PUBLIC header -
+# #includes slang/ast/SemanticFacts.h directly (SVReader::
+# signal_direction_from_parser's public signature takes a real
+# slang::ast::ArgumentDirection, matching LEFReader::signal_direction_from_parser's
+# own directly-unit-testable pure-conversion convention) - so any
+# consumer of that header (api.cpp) needs slang's own include path too,
+# not just sv's own .cpp files. Same reasoning as io's own PUBLIC
+# spdlog::spdlog dependency above.
+target_link_libraries(sv PUBLIC database spdlog::spdlog slang::slang PRIVATE fmt::fmt)
+le_enable_coverage_instrumentation(sv)
+
 # --- api: the C API surface a Flutter plugin's Dart FFI binds to (see
 # README's `api` module entry). Compiled (not header-only): the opaque
 # LeHandle's real definition must stay out of api.hpp, which needs to be a
 # plain-C-parseable header for ffigen/Dart FFI - see api.hpp's own comment. ---
 add_library(api STATIC src/api/api.cpp)
 target_include_directories(api PUBLIC src/api)
-target_link_libraries(api PRIVATE database geometry scene editing view_style pipelines io)
+target_link_libraries(api PRIVATE database geometry editing view_style pipelines io sv)
 le_enable_coverage_instrumentation(api)
 
 # --- gui: Dear ImGui prototype - le_shell's own `show_gui` window,
@@ -549,7 +623,16 @@ target_include_directories(gui PRIVATE ${icon_font_header_SOURCE_DIR})
 # local-dev prototype, same as this project's own fixture-path compile
 # definitions elsewhere (e.g. API_TEST_FIXTURES_DIR).
 target_compile_definitions(gui PRIVATE LE_LUCIDE_FONT_PATH="${lucide_font_SOURCE_DIR}/lucide.ttf")
-target_link_libraries(gui PUBLIC api imgui_lib)
+# spdlog::spdlog directly (not just transitively through api, which links
+# pipelines - spdlog's own consumer - PRIVATE, so nothing propagates this
+# far): le_gui.cpp uses spdlog/fmt directly, and without this it silently
+# picks up whatever system fmt/spdlog headers happen to be on the default
+# include path at compile time instead of this project's own pinned
+# fmt::fmt (EXACT-pinned, see that block's own CMakeLists.txt comment) -
+# a real link-time ABI mismatch (fmt::v9 object code linked against this
+# project's own fmt::v11 library), same class of bug io's own PUBLIC
+# spdlog::spdlog dependency exists to avoid.
+target_link_libraries(gui PUBLIC api imgui_lib spdlog::spdlog)
 if(APPLE)
     target_link_libraries(gui PRIVATE "-framework Cocoa" "-framework IOKit" "-framework OpenGL")
 else()
@@ -588,12 +671,13 @@ if(SWIG_FOUND AND TCL_FOUND)
     )
     set_property(TARGET le_tcl PROPERTY SWIG_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/src/api ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl)
     target_include_directories(le_tcl PRIVATE src/api src/tcl ${TCL_INCLUDE_PATH})
-    # `skia` alongside `api` - api links pipelines (which owns Skia's own
-    # include path) PRIVATE, so it doesn't propagate this far; le_tcl_shim.cpp
-    # needs it directly now too (dump_png_cmd's own SkPngEncoder use, same
-    # reasoning pipelines.cpp's own direct Skia use has - skia is an
-    # INTERFACE library, just the include path, no separate binary to link).
-    target_link_libraries(le_tcl PRIVATE api skia ${TCL_LIBRARY})
+    # blend2d::blend2d alongside `api` - `pipelines` (api's own dependency)
+    # links it too, but only PUBLIC-propagates it as far as api, not this
+    # far; le_tcl_shim.cpp needs it directly for dump_png_cmd's own
+    # BLImage::write_to_file PNG export (no Skia dependency anywhere in
+    # this project anymore - see the `pipelines` target's own comment
+    # above).
+    target_link_libraries(le_tcl PRIVATE api blend2d::blend2d ${TCL_LIBRARY})
     # Hide this target's own copy of the vendored LEF parser's symbols
     # (everything under the LefDefParser:: namespace -
     # src/tcl/le_tcl_unexported_symbols.txt). Without this, a process
@@ -807,6 +891,20 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/othercell.lef
     )
 
+    # Regression check for the SystemVerilog/Verilog TCL wiring
+    # (SYSTEMVERILOG.md, src/tcl/tests/sv_test.tcl) - read_verilog plus
+    # the generated get_designs/get_schematics/get_instances/get_ports/
+    # get_pins surface, against the same gate_netlist_clean.v fixture
+    # src/sv/tests's own C++ tests already use.
+    add_test(
+        NAME le_tcl_sv
+        COMMAND ${TCL_TCLSH}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/sv_test.tcl
+            $<TARGET_FILE:le_tcl>
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures/gate_netlist_clean.v
+    )
+
     # le_shell (src/tcl/le_shell.cpp) - the interactive/batch Tcl console,
     # not linked against le_tcl itself (it dynamically `load`s the built
     # shared module at startup, same as tclsh would) - only needs Tcl
@@ -947,7 +1045,6 @@ add_executable(backend_tests
     src/database/tests/filter_test.cpp
     src/geometry/tests/geometry_test.cpp
     src/view_style/tests/view_style_test.cpp
-    src/scene/tests/scene_test.cpp
     src/editing/tests/editing_test.cpp
     src/io/tests/lef_reader_test.cpp
     src/io/tests/lef_reader_utils_test.cpp
@@ -955,27 +1052,58 @@ add_executable(backend_tests
     src/io/tests/def_reader_test.cpp
     src/io/tests/def_writer_test.cpp
     src/api/tests/api_test.cpp
+    src/api/tests/le_handle_test.cpp
+    src/sv/tests/sv_reader_test.cpp
 )
-target_link_libraries(backend_tests PRIVATE database geometry view_style scene editing io api fmt::fmt GTest::gtest_main)
+target_link_libraries(backend_tests PRIVATE database geometry view_style editing pipelines io api sv fmt::fmt GTest::gtest_main)
 target_compile_definitions(backend_tests PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
     IO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures"
     API_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures"
+    SV_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures"
     LEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/bin/lefdiff"
     DEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/TEST"
     DEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/bin/defdiff"
 )
 add_dependencies(backend_tests lef_lib def_lib)
-target_sources(backend_tests PRIVATE src/pipelines/tests/pipelines_test.cpp src/pipelines/tests/render_pipelines_test.cpp src/pipelines/tests/hierarchy_resolver_test.cpp src/pipelines/tests/draw_helpers_test.cpp src/pipelines/tests/upright_text_canvas_test.cpp)
-target_link_libraries(backend_tests PRIVATE pipelines)
 le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
 
+# --- pipelines_tests: the new (PIPELINE_REFACTOR.md) pipelines module's own
+# test binary, deliberately separate from backend_tests - developed and
+# benchmarked standalone against database/view_style alone, integration
+# with api/backend_tests deferred until the module is far enough along to
+# replace src/pipelines.old's own equivalents there. ---
+add_executable(pipelines_tests
+    src/pipelines/tests/layer_generation_stage_test.cpp
+    src/pipelines/tests/hierarchy_resolver_stage_test.cpp
+    src/pipelines/tests/via_shapes_test.cpp
+    src/pipelines/tests/view_render_pipeline_test.cpp
+    src/pipelines/tests/viewport_cull_stage_test.cpp
+    src/pipelines/tests/rasterize_blend2d_stage_test.cpp
+    src/pipelines/tests/compose_stage_test.cpp
+)
+target_link_libraries(pipelines_tests PRIVATE database geometry view_style pipelines blend2d::blend2d GTest::gtest_main)
+gtest_discover_tests(pipelines_tests)
+
 # --- benchmarks ---
-add_executable(pipeline_benchmarks src/pipelines/benchmarks/pipeline_benchmark.cpp)
-target_link_libraries(pipeline_benchmarks PRIVATE database geometry scene pipelines io api benchmark::benchmark)
+# --- pipeline_benchmarks: PIPELINE_REFACTOR.md's own per-stage benchmarks,
+# standalone against database/view_style/io - see aes_scaling_fixture.hpp
+# for the shared 1x1/2x1/2x2/3x2/3x3 tiling fixture every stage benchmark
+# uses (PIPELINE_REFACTOR.md's own "Benchmarking" section). Deliberately no
+# `scene`/`api` dependency yet - those return once a stage/benchmark
+# actually needs them. ---
+add_executable(pipeline_benchmarks
+    src/pipelines/benchmarks/benchmark_main.cpp
+    src/pipelines/benchmarks/layer_generation_benchmark.cpp
+    src/pipelines/benchmarks/hierarchy_resolver_benchmark.cpp
+    src/pipelines/benchmarks/viewport_cull_benchmark.cpp
+    src/pipelines/benchmarks/rasterize_blend2d_benchmark.cpp
+    src/pipelines/benchmarks/compose_benchmark.cpp
+    src/pipelines/benchmarks/warm_tier_benchmark.cpp
+)
+target_link_libraries(pipeline_benchmarks PRIVATE database geometry view_style pipelines io benchmark::benchmark)
 target_compile_definitions(pipeline_benchmarks PRIVATE
-    BENCHMARK_DATA_DIR="${CMAKE_BINARY_DIR}/benchmark_data"
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_data"
 )
 # Not instrumented for its own coverage (benchmarks aren't run under the
@@ -985,13 +1113,10 @@ target_compile_definitions(pipeline_benchmarks PRIVATE
 # target also passes -fprofile-instr-generate, or the link fails.
 le_enable_coverage_instrumentation(pipeline_benchmarks)
 
-# --- render_preview: dev-only tool, rasterizes each given LEF file's Designs
-# to PNGs (preview/<lef-stem>__<design-name>.png) so they can be visually
-# sanity-checked without waiting for Flutter texture wiring. Not a benchmark
-# or a test - not run by ctest or the coverage target. ---
-add_executable(render_preview src/pipelines/benchmarks/render_preview.cpp)
-target_link_libraries(render_preview PRIVATE database geometry scene pipelines io)
-le_enable_coverage_instrumentation(render_preview)
+# render_preview (rasterizes a LEF's Designs to PNGs via the real render
+# pipeline) is out for now - it depends on the pre-restart FrameRenderPipeline/
+# HierarchyResolver (src/pipelines.old/), which PIPELINE_REFACTOR.md's Warm/Hot
+# tiers haven't rebuilt yet. Restore once those exist.
 
 # --- generate_tiled_design: dev-only data-generation tool
 # (BUGS_AND_ENHANCEMENTS.md E31) - tiles a real LEF+DEF design's own
@@ -1003,18 +1128,9 @@ add_executable(generate_tiled_design src/pipelines/benchmarks/generate_tiled_des
 target_link_libraries(generate_tiled_design PRIVATE database io)
 le_enable_coverage_instrumentation(generate_tiled_design)
 
-# --- profile_tiled_render: dev-only headless profiling driver
-# (BUGS_AND_ENHANCEMENTS.md E31) - loads a real Layout-bearing DEF (meant
-# for generate_tiled_design's own output) and runs the real
-# HierarchyResolver::render_layout_frame production code path directly,
-# with no GUI/window at all, so it can run under `tracy-capture` for a
-# fully headless Tracy profile of a real large-scale render. Not a
-# benchmark (no Google Benchmark harness/reported numbers of its own,
-# see pipeline_benchmarks for that) and not a test - not run by ctest or
-# the coverage target.
-add_executable(profile_tiled_render src/pipelines/benchmarks/profile_tiled_render.cpp)
-target_link_libraries(profile_tiled_render PRIVATE database geometry scene pipelines io)
-le_enable_coverage_instrumentation(profile_tiled_render)
+# profile_tiled_render (headless Tracy-profiling driver for
+# HierarchyResolver::render_layout_frame) is out for the same reason
+# render_preview is, above - restore once the Warm/Hot tiers exist.
 
 # --- spatial_index_benchmark: dev-only benchmark (BUGS_AND_ENHANCEMENTS.md
 # E31 zoom/pan-tick follow-up) - quantifies a Boost.Geometry Index rtree's
@@ -1024,6 +1140,12 @@ le_enable_coverage_instrumentation(profile_tiled_render)
 add_executable(spatial_index_benchmark src/pipelines/benchmarks/spatial_index_benchmark.cpp)
 target_link_libraries(spatial_index_benchmark PRIVATE database geometry io)
 le_enable_coverage_instrumentation(spatial_index_benchmark)
+
+# --- blend2d_smoke_test: throwaway build/link verification for the
+# Blend2D FetchContent chain above - see that block's own comment and
+# blend2d_smoke_test.cpp's own header. Not run by ctest.
+add_executable(blend2d_smoke_test src/pipelines/benchmarks/blend2d_smoke_test.cpp)
+target_link_libraries(blend2d_smoke_test PRIVATE blend2d::blend2d)
 
 # --- lef_roundtrip_diff: dev-only progress-tracking tool for UPDATES.md
 # item 12 (LEF syntax completion) - reads a LEF file (default:

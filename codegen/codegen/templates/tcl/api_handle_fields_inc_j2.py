@@ -1,6 +1,6 @@
 TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl skill
 // (codegen --target tcl). #include'd once inside struct LeHandle's body
-// (api.cpp), right before its closing brace.
+// (api/le_handle.hpp), right before its closing brace.
 //
 // Single-slot property-table caches, same pattern as the hand-written
 // cached_terminal_property_id/cached_terminal_properties pair (see that

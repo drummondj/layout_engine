@@ -8,8 +8,8 @@ namespace le
     /// OBS LAYER line), so addressing exactly one piece needs both a kind
     /// and an index into that kind's own vector. See
     /// Geometry::find_hit_piece/fully_enclosed_pieces/extract_piece/
-    /// transform_piece_in_place (geometry.hpp) and Scene::SelectedObject/
-    /// HoverTarget (scene.hpp).
+    /// transform_piece_in_place (geometry.hpp) and LeHandle::SelectedObject/
+    /// HoverTarget (api/le_handle.hpp).
     enum class PieceKind
     {
         RECT,

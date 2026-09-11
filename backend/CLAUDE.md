@@ -1,9 +1,9 @@
 # Layout Engine MVP — Backend
 
 C++23 backend that reads LEF/DEF and SystemVerilog EDA data into an in-memory
-database, then renders it through a layer-based pipeline into Skia commands
-consumed by a Flutter plugin. This is an MVP/proof-of-concept: the goal right
-now is finding the right architecture for editing hierarchical designs with
+database, then renders it through a layer-based, Blend2D-backed pipeline into
+pixel buffers displayed by `le_shell`'s own GUI. This is an MVP/proof-of-concept:
+the goal right now is finding the right architecture for editing hierarchical designs with
 millions of objects, not shipping features. See `README.md` for the full
 brief and the live plan checklist; see `BENCHMARKS.md` for benchmark history
 and design-decision writeups; see `LEFDEF_BUGS.md` for confirmed bugs in
@@ -57,41 +57,16 @@ none of these are duplicated here.
   `REGION` (Step 3 Phase A) are the purposes `LayoutGeometryStage`
   (`src/pipelines/stages/`) walks a `Layout`'s own direct content onto —
   see that module's own bullet below. Fully covered by `view_style_test.cpp`.
-- `src/scene/` — `Scene`, per-handle mutable view state: currently
-  displayed `AbstractId` *and*, independently, `LayoutId` (Migration Step
-  3 Phase C — `current_abstract()`/`current_layout()` are mutually
-  exclusive by convention, enforced by every `api.cpp` caller that
-  changes the view, not by `Scene` itself), a `hierarchy_depth()` (how
-  many further `Placement → Design` levels a Layout view recurses into
-  before falling back to a placed instance's own Abstract — see
-  `src/pipelines/`'s own `HierarchyResolver` bullet), pan/scale/viewport-size transform,
-  per-`ViewLayer` visibility, selection, and current interaction mode.
-  Distinct from the persistent `Root` database.
-  Layer visibility is keyed by `ViewLayerId`, not `LayerId` — a physical
-  layer has independently toggleable `TERMINAL`/`OBSTRUCTION` visibility.
-  Selection is `std::variant<TerminalId, ObstructionId>` — extend the
-  variant as more selectable kinds need it rather than generalizing early.
-  `Scene::Mode` (`SELECT`/`EDIT`, UPDATES.md item 11) is Select by
-  default — Select is the only mode where `le_mouse_up` changes the
-  current selection; Edit mode restricts mouse interaction to editing
-  whatever is already selected (behavior TBD, a later item).
-- `src/core/` — header-only generic building blocks (UPDATES.md item 16):
-  `RenderedShape`/`TinyShapeDot` (`pipelines`' own shape-generation output/
-  render-input type) and `VersionedStage<Key, Value>` — a single-slot
-  memoization primitive (`get(key, compute_fn)`) with its own monotonic
-  `version()`, bumped on every real recompute; `pipelines`' own
-  `MemoizingStage` (`src/pipelines/tbb_core.hpp`) is the oneTBB-flow-graph
-  equivalent for most stages, including `HierarchyResolver`'s own
-  per-`NodeKey` nodes since 2026-08-30 (see `src/pipelines/`'s own
-  bullet) — `top_layout_picture_stage_`, `HierarchyResolver`'s one
-  remaining `VersionedStage` use, is a thin cache in front of that
-  `MemoizingStage`-based graph, not a stand-in for it. A
-  downstream stage composes its own cache key from an upstream stage's
-  `version()` instead of manually re-deriving everything the upstream
-  depends on — the fix for a caching-bug class where a new upstream
-  trigger (e.g. `Root::mutation_version()`) had to be hand-copied into
-  every downstream key or a change silently went unseen. `CachedStage<Key,
-  Value>` is a backward-compatible alias for `VersionedStage`.
+- `src/core/` — header-only generic building blocks: `placement_geometry.hpp`
+  (a Placement's own world-space bbox plus the E1 top-level Placement
+  hit-test built on it, used by `api.cpp`'s Layout-view selection and by
+  the pipelines module) and `row_geometry.hpp` (a Row's own synthesized
+  footprint bbox, Row having no stored `Shape` of its own). `RenderedShape`/
+  `TinyShapeDot`/`VersionedStage`/`ShapeGenerationStage` (the pre-restart
+  `pipeline` module's own shape-generation output/render-input types and
+  memoization primitive) were removed with the rest of `pipelines.old` -
+  `pipelines`' own `MemoizingStage` (`src/pipelines/tbb_core.hpp`) is the
+  current oneTBB-flow-graph memoization primitive every stage uses instead.
 - `src/pipelines/` — the render pipeline, built on oneTBB's `flow::graph`
   (`backend/ONETBB_INTEGRATION.md`'s migration; replaced the earlier
   hand-rolled `src/pipeline`/`src/render`/`src/instancing` split, whose
@@ -260,8 +235,9 @@ none of these are duplicated here.
   own comment has the exact fixture shape) mirrors the old modules'
   benchmark coverage; see `BENCHMARKS.md` for numbers and history.
   Single-threaded internally — see README's Threading open design
-  question. Depends on a machine-specific Skia checkout, not committed
-  to this repo — see Open gaps below.
+  question. No external, machine-specific checkout to provision — Blend2D
+  is fetched and statically built via CMake `FetchContent` (see the Open
+  Gaps entry below for the Skia checkout this once required).
 - `src/io/` — format readers/writers. `lef_reader.{hpp,cpp}`/
   `lef_writer.{hpp,cpp}` drive the vendored `lefr*`/`lefw*` LEF-parser C
   API and populate/walk `Root` via the generated create/get API. Tested
@@ -390,22 +366,89 @@ none of these are duplicated here.
   `SetUp()` pre-populates the Technology/Library with exactly the layer
   names/macro names it references, playing the role a real LEF read
   would otherwise.
+- `src/sv/` — `sv_reader.{hpp,cpp}`, `SVReader`: reads SystemVerilog/
+  Verilog into the logical connectivity model (`Schematic`/`Port`/`Net`/
+  `Instance`/`Pin` — see `SCHEMA.md`'s "SystemVerilog Reading Flow"),
+  using the vendored [slang](https://sv-lang.com) frontend (fetched via
+  CMake `FetchContent`, pinned to the `v11.0` tag — see `CMakeLists.txt`'s
+  own `slang` block for the real fmt/spdlog/Boost version-collision fixes
+  that took to get it linking cleanly into this project's own dependency
+  graph, not just a plain `add_subdirectory`). Two entry points, mirroring
+  `LEFReader`/`DEFReader`'s one-function-per-reading-mode convention
+  rather than a single flag-driven call: `read_netlist` (full
+  `slang::ast::Compilation` elaboration — accurate parameter/generate-
+  block resolution, for a real gate-level netlist, but does not tolerate
+  errors in a module's own structural content) and `read_rtl`
+  (`slang::syntax::SyntaxTree` only, no elaboration — tolerant of invalid
+  or unsupported content, storing it directly on an `Instance` rather
+  than a separate klass — see `Instance.rtl_text`'s own schema.py
+  comment). Both flavors share a get-or-create-Design/Schematic helper
+  (mirroring `LEFReader::lefrMacroBeginCbkFn`'s own reuse-or-create
+  pattern) and end by calling `link_unresolved_instances` — a standalone,
+  re-runnable static method that resolves any `Instance` whose
+  `reference_name` doesn't yet have a matching `Design` (the common case
+  for a netlist referencing standard cells not yet read via LEF), so it
+  can pick up a `Design` created by a *later* read on the same `Root`
+  too. A connection's value (net vs. a bus bit-select vs. an
+  unstructured raw expression, see `Pin.net`/`.net_bit_index`/
+  `.raw_expression`) is classified from a real elaborated `Expression` in
+  the netlist flavor, but from the connection's own verbatim source text
+  in the RTL flavor (no elaborated `Expression` exists to classify — RTL
+  flavor also doesn't evaluate bit widths at all, unlike the netlist
+  flavor's use of the elaborated `Type`, so its own `Port.msb`/`.lsb`
+  always come back unset regardless of the real declared width). Fully
+  covered by `sv_reader_test.cpp`, including a spike-turned-permanent
+  test fixture (`rtl_invalid_body.sv`) confirming slang's own diagnostic-
+  location filtering behaves as the RTL flavor's per-construct fallback
+  design assumes. `src/tcl/tests/sv_test.tcl` (`le_tcl_sv` ctest target)
+  exercises the same reader through `read_verilog -netlist|-rtl` and the
+  generated TCL `get_<type>` surface (`link` — the TCL-facing name for
+  `link_unresolved_instances` — isn't itself exercised there yet) —
+  originally unverified end-to-end (`le_tcl` couldn't build at all without
+  a Skia checkout this environment lacked), now confirmed passing via a
+  real `ctest -R le_tcl_sv` run once Skia was removed from the build
+  entirely (see the Open Gaps entry below).
 - `src/api/` — `api.hpp`/`api.cpp`, the C API surface a Flutter plugin's
   Dart FFI binds to: an opaque `LeHandle` (`le_create`/`le_destroy`)
-  wrapping one `Root`/`ViewLayerSet`/`Scene` plus the `pipelines`-module
-  objects (`AbstractShapePipeline`/`LayoutShapePipeline`/
-  `FrameRenderPipeline`/`HierarchyResolver`) per handle (reused across
-  calls, not reconstructed per call); `le_read_lef`
-  (callable multiple times on one handle — e.g. tech file then macro
-  file(s)); `le_design_count`/`le_design_name`/`le_set_current_design`;
-  `le_set_pan`/`le_set_scale`/`le_set_viewport_size`; and
-  `le_render_pixel_buffer`. `api.hpp` must stay plain C — no `std::` types,
-  default arguments, or overloads in any public declaration — so it parses
-  cleanly for `ffigen`/Dart FFI; `LeHandle`'s real definition lives only in
-  `api.cpp`. Every function null-checks its handle and degrades gracefully
-  rather than crashing. Fully covered by `api_test.cpp`, using a small
-  hand-written `.lef` fixture. Depends on `database`, `geometry`, `scene`,
-  `view_style`, `pipelines`, `io`.
+  wrapping one `Root`/`ViewLayerSet` plus the pipelines module's own
+  `ViewRenderPipeline` per handle (reused across calls, not reconstructed
+  per call); `le_read_lef` (callable multiple times on one handle — e.g.
+  tech file then macro file(s)); `le_read_verilog`/
+  `le_link_unresolved_instances` (`SVReader`, `src/sv/`'s own bullet
+  above); `le_design_count`/`le_design_name`/
+  `le_set_current_design`; `le_set_pan`/`le_set_scale`/
+  `le_set_viewport_size`; and `le_render_pixel_buffer`. `api.hpp` must
+  stay plain C — no `std::` types, default arguments, or overloads in any
+  public declaration — so it parses cleanly for `ffigen`/Dart FFI;
+  `LeHandle`'s real definition lives in `api/le_handle.hpp` (included
+  only by `api.cpp` and its own tests, never by `api.hpp`). Every
+  function null-checks its handle and degrades gracefully rather than
+  crashing. Fully covered by `api_test.cpp`, using a small hand-written
+  `.lef` fixture; `le_handle_test.cpp` covers `LeHandle` itself in
+  isolation (constructed directly, no C API layer). Depends on
+  `database`, `geometry`, `editing`, `view_style`, `pipelines`, `io`.
+
+  `LeHandle` also owns every piece of per-handle mutable view/interaction
+  state (formerly a separate `le::Scene` class, folded directly onto
+  `LeHandle` since there's exactly one such state object per handle, not
+  two): currently displayed `AbstractId` *and*, independently, `LayoutId`
+  (Migration Step 3 Phase C — `current_abstract()`/`current_layout()` are
+  mutually exclusive by convention, enforced by every `api.cpp` caller
+  that changes the view, not by `LeHandle` itself), a `hierarchy_depth()`
+  (how many further `Placement → Design` levels a Layout view recurses
+  into before falling back to a placed instance's own Abstract — see
+  `src/pipelines/`'s own `HierarchyResolver` bullet), pan/scale/viewport-
+  size transform, per-`ViewLayer` visibility, selection, hover, rulers,
+  Move-drag state, and interaction mode. Layer visibility is keyed by
+  `ViewLayerId`, not `LayerId` — a physical layer has independently
+  toggleable `TERMINAL`/`OBSTRUCTION` visibility. Selection
+  (`LeHandle::SelectedObject`) is `std::variant<ShapePiece, RowId,
+  PlacementId, RegionId>` (E1) — extend the variant as more selectable
+  kinds need it rather than generalizing early. `LeHandle::Mode`
+  (`SELECT`/`EDIT`/`RULER`, UPDATES.md items 11/13) is Select by default —
+  Select is the only mode where `le_mouse_up` changes the current
+  selection; Edit mode restricts mouse interaction to editing whatever is
+  already selected.
 - `src/tcl/` — `le_api.i` (SWIG), `le_tcl_shim.hpp`/`.cpp`, `le_tcl_procs.tcl`:
   a Tcl-facing scripting surface wrapping `api.hpp` (see TCL_EXPLORATION.md),
   distinct from `src/api/`'s Dart-FFI-facing one — domain verb command
@@ -618,12 +661,12 @@ automatically, purely from schema graph structure — see
 `codegen/codegen/tcl_scope.py`'s own module docstring for the algorithm, and
 the `regen-tcl` skill for the full injection-point list. `le_set_current_design`/
 `le_set_current_design_by_id` (`api.cpp`) also move this alongside
-`Scene::current_abstract()` (the separate GUI-rendering "current view"),
+`LeHandle::current_abstract()` (the separate GUI-rendering "current view"),
 so selecting a Design means the same thing whether it came from a
 Dart-driven GUI or a TCL script's `open_design`; a script that builds an
 `Abstract` from scratch and calls `current_abstract <id>` directly (no
 `Design` to `open_design` into at all) still only touches this generated
-state, never `Scene`.
+state, never `LeHandle::current_abstract()`.
 
 `create_<type>` covers one flag per scalar field (`str`/`int`/`double`/
 `dbu`/`bool`/enum), one flag per *flattenable* embedded-struct field
@@ -799,34 +842,33 @@ because the mechanism can't reach them; this has no bearing on
   design). Deep per-shape selection into instanced content (as opposed
   to whole-placement selection) remains deliberately out of scope - a
   real, documented deferral, not a gap found later; per-instance culling
-  (skipping an off-screen instance's own `concat`+`drawPicture` call
-  before it reaches Skia's own quickReject) was also deliberately not
-  added - the Phase D benchmark numbers are the ones to revisit before
-  deciding whether it's actually needed.
-- Skia isn't vendored/built by this project — the top-level
-  `CMakeLists.txt`'s own `skia` target points `SKIA_DIR` at a pre-built checkout
-  (default `/Volumes/Docking/Projects/synthosilicon/skia/skia`, override with
-  `-DSKIA_DIR=...`). That checkout must have `out/MacStatic/libskia.a`
-  built with `is_component_build=false` (static). Links `libskia.a` +
-  Homebrew `harfbuzz`/`icu4c`/`jpeg`/`png`/`z`/`webp`/`webpdemux` + macOS
-  `CoreText`/`CoreFoundation`/`CoreGraphics`/`CoreServices` frameworks — no
-  GPU (Ganesh/Metal) frameworks needed, only raster (CPU) surface APIs are
-  used.
+  (skipping an off-screen instance's own draw call before it reaches
+  viewport culling) was also deliberately not added - the Phase D
+  benchmark numbers are the ones to revisit before deciding whether it's
+  actually needed.
+- ~~Skia isn't vendored/built by this project~~ — resolved by removing
+  Skia entirely. Blend2D (`src/pipelines/`'s only Rasterize/Compose
+  backend now) is fetched and statically built via CMake `FetchContent`
+  (see `CMakeLists.txt`'s own Blend2D block), so there's no external
+  pre-built checkout to provision on any platform anymore.
 - ~~Linux build needs a fontconfig/FreeType-backed `SkFontMgr`~~ — done
-  (Docker/Ubuntu Linux CI session), then revised again: `pipelines.cpp`'s
-  Linux `default_typeface()` now loads from a bundled font directory
-  (`SkFontMgr_New_Custom_Directory`, `LE_FONT_DIR` — defaults to
-  `assets/fonts/`, committed to the repo) rather than system fontconfig —
-  a locked-down rootless-build target machine (see the Rocky 8 bullet
-  below) can't be assumed to have any fonts installed or fontconfig
-  configured at all, and a missing font under the fontconfig path failed
-  silently (blank labels, no error).
+  (Docker/Ubuntu Linux CI session), then revised again, then superseded
+  entirely by the Skia removal above: `pipelines.cpp`'s
+  `default_blend2d_font_face()` (`blend2d_font.hpp`) loads its one
+  bundled font file directly (`LE_FONT_DIR` — defaults to
+  `assets/fonts/`, committed to the repo) rather than any system font
+  manager — Blend2D has no font-manager abstraction to fall back on the
+  way Skia's CoreText path did on macOS. Bundled-font-file loading was
+  always the point here (a locked-down rootless-build target machine,
+  see the Rocky 8 bullet below, can't be assumed to have any fonts
+  installed or fontconfig configured at all), so this behavior carried
+  over unchanged, just under a new function/mechanism name.
 - **Rootless Rocky Linux 8 build** (no root, no system package installs,
   no Docker) — `backend/scripts/rocky8-bootstrap.sh`/`rocky8-env.sh`
   assemble a toolchain (gcc-toolset-13, CMake/Ninja/Boost/SWIG, GTK3 +
-  closure, Skia's own third-party-vendored build) entirely via rootless
-  RPM extraction (`rpm2cpio`/`cpio`, no `dnf install`) and upstream
-  release tarballs into `~/.local/layout_engine_toolchain`. Unverified
+  closure) entirely via rootless RPM extraction (`rpm2cpio`/`cpio`, no
+  `dnf install`) and upstream release tarballs into
+  `~/.local/layout_engine_toolchain`. Unverified
   against a real Rocky 8 machine as of this writing — expect real
   iteration, same as the Docker/Ubuntu path needed. Its own GTK3
   provisioning predates `le_gui` (GLFW-based, no GTK dependency at all)

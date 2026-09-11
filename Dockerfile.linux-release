@@ -30,10 +30,12 @@
 # included) - dnf install, not rootless RPM extraction, since this
 # container has real root. Package names confirmed real via
 # backend/scripts/rocky8-bootstrap.sh's own real run logs against a real
-# Rocky 8 machine this session (tcl-devel/tk-devel/mesa-*/zlib-devel/
-# libpng-devel/libjpeg-turbo-devel/freetype-devel all showed as
+# Rocky 8 machine this session (tcl-devel/tk-devel/mesa-* all showed as
 # already-installed there; the gcc-toolset-13-* packages downloaded
-# successfully). ----
+# successfully). No Skia dependency anywhere in this project anymore (see
+# the `source` stage's own comment below) - zlib-devel/libpng-devel/
+# libjpeg-turbo-devel/freetype-devel used to be here only for Skia's own
+# build and are gone; pcre2-devel was Skia's own regex dependency too. ----
 FROM rockylinux:8 AS base
 RUN dnf install -y dnf-plugins-core \
  && (dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb || true) \
@@ -41,7 +43,6 @@ RUN dnf install -y dnf-plugins-core \
     gcc-toolset-13-gcc-c++ gcc-toolset-13-libstdc++-devel gcc-toolset-13-binutils make \
     tcl-devel tk-devel \
     mesa-libGL-devel mesa-libEGL-devel mesa-dri-drivers mesa-libgbm xz-devel \
-    zlib-devel libpng-devel libjpeg-turbo-devel freetype-devel pcre2-devel \
     # GLFW's own Linux/X11 backend (backend/src/gui/, le_shell's `show_gui`) -
     # CMakeLists.txt's own find_package(glfw3)/FetchContent fallback builds
     # GLFW from source here, which needs these dev headers present to
@@ -108,9 +109,8 @@ ENV BOOST_ROOT=/opt/boost
 # 2018-era API isn't the oneapi::tbb:: surface this project's own
 # tbb_core.hpp uses either) - genuinely "NOT-yet-solved" until this stage,
 # per CMakeLists.txt's own TBB_DIR comment. v2023.1.0 matches the macOS
-# dev machine's own Homebrew tbb version for parity, same reasoning as
-# Skia's own pinned-commit comment below. TBB_TEST=OFF skips building its
-# own test suite (not needed, meaningfully faster).
+# dev machine's own Homebrew tbb version for parity. TBB_TEST=OFF skips
+# building its own test suite (not needed, meaningfully faster).
 #
 # -DTBB_ENABLE_IPO=OFF, not -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF (an
 # earlier version of this stage set only the latter) - oneTBB's own
@@ -145,59 +145,25 @@ RUN git clone --branch v2023.1.0 --depth 1 https://github.com/uxlfoundation/oneT
 # prefix.
 ENV CMAKE_PREFIX_PATH=/opt/tbb
 
-# ---- skia: raster-only static Skia build, same pinned commit as this
-# project's other two Linux build paths (Dockerfile.linux-ci,
-# rocky8-bootstrap.sh) - keep in sync by hand if that commit is ever
-# bumped. GN args mirror rocky8-bootstrap.sh's stage_skia exactly (system
-# zlib/libpng/libjpeg-turbo/freetype, vendored harfbuzz/icu/libwebp/expat -
-# RHEL8's own versions of the latter four are too old relative to this
-# Skia commit to trust as system libs), not Dockerfile.linux-ci's Ubuntu
-# recipe (system harfbuzz/icu/libwebp/expat, since Ubuntu 24.04's are
-# recent enough) - same base OS as the rootless path here, so the same
-# split applies. Uses gcc-toolset-13 (CC/CXX from the base stage), not
-# clang - avoids pulling in EPEL/LLVM for no benefit, matching
-# rocky8-bootstrap.sh's own choice. ----
-FROM tbb AS skia
-WORKDIR /skia
-RUN git clone https://skia.googlesource.com/skia.git . \
- && git checkout 9f330f1704305686dafa9eeef11de77caa5314b1 \
- && python3 tools/git-sync-deps \
- && python3 bin/fetch-gn
-RUN bin/gn gen out/Linux --args=" \
-    is_official_build=true \
-    is_component_build=false \
-    is_debug=false \
-    target_cpu=\"x64\" \
-    cc=\"${CC}\" \
-    cxx=\"${CXX}\" \
-    skia_enable_gpu=false \
-    skia_use_gl=false \
-    skia_use_vulkan=false \
-    skia_use_egl=false \
-    skia_enable_fontmgr_custom_directory=true \
-    skia_enable_fontmgr_custom_embedded=false \
-    skia_enable_fontmgr_custom_empty=false \
-    skia_use_fontconfig=false \
-    skia_use_freetype=true \
-    skia_use_system_freetype2=true \
-    skia_use_system_harfbuzz=false \
-    skia_use_system_libjpeg_turbo=true \
-    skia_use_system_libpng=true \
-    skia_use_system_libwebp=false \
-    skia_use_system_zlib=true \
-    skia_use_system_icu=false \
-    skia_use_system_expat=false \
-    " \
- && ninja -C out/Linux -j "$(nproc)" skia
-ENV SKIA_DIR=/skia
-ENV LE_SKIA_VENDORS_THIRD_PARTY=ON
-
 # ---- source: the whole repo, copied in fresh (not bind-mounted - this is
 # a one-shot CI build, not an interactive dev container). Kept as its own
-# stage so every layer before it (the expensive toolchain/Skia stages
-# above) stays cached across workflow runs regardless of what source
-# changed - see .github/workflows/release.yml's GHA cache config. ----
-FROM skia AS source
+# stage so every layer before it (the expensive toolchain stages above)
+# stays cached across workflow runs regardless of what source changed -
+# see .github/workflows/release.yml's GHA cache config.
+#
+# No Skia dependency anywhere in this project anymore (see
+# backend/CMakeLists.txt's own `pipelines` target comment) - a `skia`
+# stage used to sit here, built from source against the `tbb` stage below
+# (same pinned commit as Dockerfile.linux-ci's own former Skia stage,
+# git history has the exact GN args if ever needed again for reference).
+# Blend2D (FetchContent, vendored/built from source, statically linked) is
+# the only Rasterize/Compose backend now, and le_tcl's own former Skia
+# PNG-export path uses Blend2D's built-in PNG codec too - so this stage
+# now builds straight on `tbb`, not a `skia` stage, and the base stage's
+# own image-codec/font packages (zlib/libpng/libjpeg-turbo/freetype,
+# needed only for Skia's own build) are gone from here too (see the base
+# stage's own comment). ----
+FROM tbb AS source
 WORKDIR /workspace
 COPY . .
 
@@ -230,33 +196,25 @@ RUN cmg --schema /workspace/backend/src/database/schema.py \
 # repo, see backend/CLAUDE.md's Build section. ----
 FROM codegen AS backend
 WORKDIR /workspace/backend
-# -DLE_SKIA_VENDORS_THIRD_PARTY=ON must be passed explicitly here, not
-# just left as the ENV var set in the skia stage above - CMake's
-# option(LE_SKIA_VENDORS_THIRD_PARTY ... OFF) (backend/CMakeLists.txt)
-# never reads $ENV{LE_SKIA_VENDORS_THIRD_PARTY}, so the env var alone is a
-# no-op at configure time (confirmed by hitting exactly this: `-lwebp`/
-# `-lwebpdemux` link errors from CMake still defaulting it OFF and trying
-# to link system webp, which Skia bundled instead of linking here).
-#
 # BACKEND_BUILD_JOBS (not a bare `-j`/nproc): same reasoning as
 # Dockerfile.linux-ci's own identically-named ENV - a handful of
-# translation units (pipeline_benchmark.cpp pulling in googlebenchmark +
-# Skia headers, geometry_test.cpp's Boost.Geometry instantiations) are
-# memory-heavy enough per-cc1plus that full nproc-wide parallelism
-# OOM-kills the compiler on a memory-constrained builder - confirmed by
-# hitting exactly that ("g++: fatal error: Killed signal terminated
-# program cc1plus") under full parallelism on this Mac's Docker Desktop
-# VM. Override via --build-arg BACKEND_BUILD_JOBS=N on a machine/runner
-# with more memory available.
+# translation units (pipeline_benchmark.cpp pulling in googlebenchmark,
+# geometry_test.cpp's Boost.Geometry instantiations) are memory-heavy
+# enough per-cc1plus that full nproc-wide parallelism OOM-kills the
+# compiler on a memory-constrained builder - confirmed by hitting exactly
+# that ("g++: fatal error: Killed signal terminated program cc1plus")
+# under full parallelism on this Mac's Docker Desktop VM. Override via
+# --build-arg BACKEND_BUILD_JOBS=N on a machine/runner with more memory
+# available.
 #
 # -DLE_ENABLE_TRACY=OFF on the Release-tree configure only (not the
 # Debug/ctest tree, which isn't shipped either way) - a shipped release
 # binary shouldn't carry Tracy's own profiling instrumentation.
 ARG BACKEND_BUILD_JOBS=2
-RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug -DSKIA_DIR=${SKIA_DIR} -DLE_SKIA_VENDORS_THIRD_PARTY=ON \
+RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug \
  && cmake --build build-linux -j ${BACKEND_BUILD_JOBS} \
  && ctest --test-dir build-linux --output-on-failure \
- && cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release -DSKIA_DIR=${SKIA_DIR} -DLE_SKIA_VENDORS_THIRD_PARTY=ON -DLE_ENABLE_TRACY=OFF \
+ && cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release -DLE_ENABLE_TRACY=OFF \
  && cmake --build build_release-linux --target api pipelines io le_shell le_tcl -j ${BACKEND_BUILD_JOBS}
 
 # ---- bundle: the release asset's actual content, nothing else - just the

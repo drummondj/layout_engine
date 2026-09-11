@@ -1264,6 +1264,65 @@ register_command_help read_def \
         {<path> {type file required 1 description {DEF file to read}}}
     }
 
+# read_verilog/link (SYSTEMVERILOG.md) - no `rename` dance needed here,
+# same reasoning as write_lef/write_def just below: read_verilog_cmd/
+# link_unresolved_instances_cmd (le_tcl_shim.cpp) are already distinctly
+# named from the proc names defined here (link's own underlying C++/API/
+# shim names stay link_unresolved_instances/le_link_unresolved_instances -
+# only this TCL-facing command name is shortened). Hand-rolled
+# flag parsing, same shape as write_lef's own below - -netlist/-rtl are
+# bare mutually-exclusive flags (exactly one required) rather than
+# {flag value} pairs.
+proc read_verilog {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "read_verilog -netlist|-rtl <path> \[-help\] - Reads a SystemVerilog/Verilog file"
+    }
+    set is_netlist -1
+    set positional {}
+    foreach arg $args {
+        switch -- $arg {
+            -netlist {
+                if {$is_netlist == 0} {
+                    error "read_verilog: -netlist and -rtl are mutually exclusive"
+                }
+                set is_netlist 1
+            }
+            -rtl {
+                if {$is_netlist == 1} {
+                    error "read_verilog: -netlist and -rtl are mutually exclusive"
+                }
+                set is_netlist 0
+            }
+            default {
+                lappend positional $arg
+            }
+        }
+    }
+    if {$is_netlist < 0} {
+        error "read_verilog: exactly one of -netlist or -rtl is required"
+    }
+    if {[llength $positional] != 1} {
+        error "read_verilog: expected exactly one <path> argument, got \"$args\""
+    }
+    return [read_verilog_cmd [lindex $positional 0] $is_netlist]
+}
+register_command_help read_verilog \
+    "read_verilog -netlist|-rtl <path> \[-help\] - Reads a SystemVerilog/Verilog file" \
+    "Reads one file into this session's shared Root, populating Schematic/Port/Net/Instance/Pin. -netlist requires accurate parameter/generate elaboration (does not tolerate errors in structural content); -rtl tolerates invalid/unsupported content by storing it as a logic-cloud Instance (see the Instance klass's own rtl_text field). Reading multiple files calls this repeatedly - each call's own get-or-create-by-name Design/Schematic handling makes that work naturally. Automatically re-links any newly-resolvable Instance against Designs already in this session (see link). Returns 0 on success; a nonzero code or a message in le_message_count/le_message_at (see get_messages) on a parse problem." \
+    {
+        {-netlist {type flag required 0 description {Full-elaboration flavor for a gate-level netlist}}}
+        {-rtl {type flag required 0 description {Syntax-only flavor, tolerant of invalid/unsupported content}}}
+        {<path> {type file required 1 description {SystemVerilog/Verilog file to read}}}
+    }
+
+proc link {} {
+    return [link_unresolved_instances_cmd]
+}
+register_command_help link \
+    "link - Re-resolves unlinked Instance references" \
+    "Re-resolves Instance.reference_design for every Instance in this session with an unresolved reference, matching its reference_name against Design.name - e.g. after a later read_lef supplies a leaf cell a prior read_verilog call left unresolved. Called automatically at the end of every read_verilog too. Returns the number of Instances newly resolved." \
+    {}
+
 # write_lef/write_def (BUGS_AND_ENHANCEMENTS.md E28) - no `rename` dance
 # needed here unlike read_lef/read_def above: write_lef_cmd/write_def_cmd
 # (le_tcl_shim.cpp) are already distinctly named from the write_lef/

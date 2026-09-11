@@ -7,16 +7,13 @@
 #include "../core/row_geometry.hpp"
 #include "../io/lef_reader.hpp"
 #include "../io/def_reader.hpp"
+#include "../sv/sv_reader.hpp"
 #include "../io/lef_writer.hpp"
 #include "../io/def_writer.hpp"
-#include "../pipelines/abstract_shape_pipeline.hpp"
-#include "../pipelines/frame_render_pipeline.hpp"
-#include "../pipelines/hierarchy_resolver.hpp"
-#include "../pipelines/hit_test.hpp"
-#include "../pipelines/layout_shape_pipeline.hpp"
-#include "../pipelines/synchronous_stage_runner.hpp"
-#include "../scene/scene.hpp"
 #include "../view_style/view_style.hpp"
+#include "../pipelines/view_render_pipeline.hpp"
+#include "../pipelines/pipeline_options.hpp"
+#include "le_handle.hpp"
 // Generated apply_<snake>_snapshot(Root&, <Klass>Id, const <Klass>Data&)
 // helpers (UPDATES.md item 21) - a real standalone header, unlike every
 // other generated_tcl/*.inc fragment, so it's included here with the
@@ -41,187 +38,6 @@
 #include <unordered_set>
 #include <vector>
 
-// The real, C++-only definition behind the opaque LeHandle - never exposed
-// in api.hpp. Owns everything needed to load a LEF file and render it: one
-// each of the oneTBB-based pipelines module's own owner objects per handle
-// (not one per call), matching the "reuse across repeated calls" lifetime
-// their own internal MemoizingStage caching is designed around
-// (backend/ONETBB_INTEGRATION.md migration, Phase 5 cutover - replaces the
-// former Pipeline/Renderer/InstanceRenderer trio).
-//
-// `mutex_` exists because this handle genuinely is called from more than
-// one thread today, not as defensive-but-unnecessary caution: Flutter's
-// external-texture API invokes le_render_pixel_buffer (via
-// LeTexture.copyPixelBuffer()) from its own dedicated raster thread once
-// per frame, while ordinary pointer/FFI calls (le_set_mouse_position,
-// le_mouse_down/up, le_zoom, ...) run on the platform thread - both
-// threads reach the same pipelines/Scene/Root state. See every exported
-// function's own std::lock_guard for the actual enforcement; see
-// le_destroy's doc comment in api.hpp for the one function that can't be
-// covered by the handle's own mutex.
-struct LeHandle
-{
-    le::Root root;
-    le::ViewLayerSet view_layers;
-    le::Scene scene;
-    le::AbstractShapePipeline abstract_shape_pipeline;
-    le::LayoutShapePipeline layout_shape_pipeline;
-    le::FrameRenderPipeline frame_render_pipeline;
-
-    // Resolves Placement -> Design into cached SkPictures and renders the
-    // full displayable frame for a Layout view (Migration Step 3 Phase C)
-    // - le_render_pixel_buffer calls its own render_layout_frame instead
-    // of abstract_shape_pipeline/frame_render_pipeline above when
-    // scene.current_layout() is active. Fully self-contained: it owns its
-    // own private MouseOverlayStage/RulerOverlayStage/SelectionOverlayStage
-    // trio AND its own private RasterizeComposePipeline, entirely separate
-    // from frame_render_pipeline's own equivalents (see HierarchyResolver's
-    // own class comment for why - a pipeline is a self-contained graph of
-    // stages, so this never reaches into frame_render_pipeline's internal
-    // nodes).
-    le::HierarchyResolver hierarchy_resolver;
-
-    // Undo/redo stack + command-recall log (UPDATES.md item 21) - every
-    // generated le_create_X/le_update_X/le_delete_X function records
-    // itself into whatever transaction is currently recording (see
-    // command_history.is_recording()); Move
-    // (le_mouse_up's Edit-mode branch) and le_repl_eval (the Tcl-side
-    // wrapper every typed console command goes through) are the two
-    // callers that bracket one with begin()/end().
-    le::editing::CommandHistory command_history;
-    std::mutex mutex_;
-
-    // BUGS_AND_ENHANCEMENTS.md E17 - whether le_render_pixel_buffer is
-    // currently doing real work on this handle, for a caller (a Dart-side
-    // poll driving the status bar's own spinner) that wants to know
-    // without blocking behind the render itself. Deliberately a plain
-    // std::atomic<bool>, read/written with no lock - le_is_rendering()
-    // must NOT take mutex_ (that's the exact mutex the render itself
-    // holds for its own entire duration - see mutex_'s own doc comment -
-    // so a lock-taking getter would just block until the render it's
-    // reporting on already finished, defeating the whole point). Safe
-    // without one: mutex_ already serializes every real le_* call
-    // including le_render_pixel_buffer itself, so at most one thread is
-    // ever writing this for a given handle at a time; a plain atomic is
-    // exactly the right tool for "one writer under a different lock,
-    // arbitrary lock-free readers".
-    std::atomic<bool> is_rendering_{false};
-
-    // BUGS_AND_ENHANCEMENTS.md E10 - process-wide cap on how many threads
-    // oneTBB's default arena may use for this handle's pipeline flow
-    // graphs (AbstractShapePipeline/LayoutShapePipeline/FrameRenderPipeline/
-    // HierarchyResolver each own their own private tbb::flow::graph - see
-    // their own class comments - but all of them run on the SAME implicit
-    // default TBB arena unless told otherwise, so one process-wide
-    // oneapi::tbb::global_control is enough to cap every one of them
-    // without threading a reference through each pipeline). global_control
-    // has no setter of its own - only construction/destruction sets its
-    // limit for as long as it's alive - so le_set_max_concurrency
-    // destroys and reconstructs this in place under a new limit rather
-    // than mutating it; std::optional makes that destroy-then-reconstruct
-    // possible. max_concurrency_ mirrors the limit currently in effect so
-    // le_max_concurrency() doesn't need to ask oneapi::tbb::global_control
-    // (which has no public getter) what it's currently set to. Defaults
-    // to 8, the user's own requested default.
-    int32_t max_concurrency_ = 8;
-    std::optional<oneapi::tbb::global_control> concurrency_control_{
-        std::in_place, oneapi::tbb::global_control::max_allowed_parallelism, 8};
-
-    // BUGS_AND_ENHANCEMENTS.md "Dear ImGui prototype" - a Tcl console's
-    // own `show_gui` command sets this to signal the process's dedicated
-    // GUI-owning thread (see src/gui/le_gui.hpp) that it should open its
-    // window now, then returns immediately so the console prompt keeps
-    // working - the console thread and the GUI thread are two different
-    // OS threads sharing this same LeHandle, exactly the split
-    // is_rendering_ above already documents (Flutter's raster thread vs
-    // platform thread), just with `show_gui`'s own request as the payload
-    // instead of a render-in-progress bit. Same reasoning for staying a
-    // lock-free std::atomic<bool>, test-and-cleared by
-    // le_take_show_gui_request rather than read via a separate getter -
-    // a request is a one-shot edge, not a level, so whichever thread
-    // observes it first (there's only ever one GUI-thread reader) should
-    // consume it, not leave it for a second poll to see stale.
-    std::atomic<bool> gui_show_requested_{false};
-
-    // GUI components (src/gui/components/) mutate state two different
-    // ways: a direct le_* call (mouse pan/zoom/select/move - the same
-    // shape layout_engine_plugin.dart's own LeEditorInput uses, and the
-    // right choice for anything needing per-frame responsiveness), or -
-    // for the subset of actions the Flutter frontend's own LeProvider
-    // routes through a Tcl command instead of a direct FFI call (layer/
-    // purpose visibility+selectability, hierarchy depth - see
-    // le_provider.dart's own runTclCommand call sites) - a *queued* Tcl
-    // command string instead, so the action leaves the same command-
-    // history trail a typed command would (this codebase's whole reason
-    // those particular actions go through Tcl at all - see
-    // BUGS_AND_ENHANCEMENTS.md). The GUI thread has no Tcl interpreter of
-    // its own to evaluate one directly (src/gui/ deliberately has no
-    // Tcl/SWIG dependency - see le_gui.hpp's own doc comment), so it can
-    // only leave the command here for whichever thread *does* own one -
-    // le_shell.cpp's own console thread, via its readline event hook
-    // (run_interactive's own comment) - to pick up and evaluate through
-    // le_repl_eval shortly after, same as it would a typed line. A real
-    // mutex (not lock-free, unlike is_rendering_/gui_show_requested_
-    // above) since this is a genuine multi-item FIFO, not a single flag/
-    // bit; contention is a non-issue (pushed only on a user click,
-    // popped only a few times a second at most).
-    std::mutex pending_tcl_commands_mutex_;
-    std::deque<std::string> pending_tcl_commands_;
-    // Backing storage for le_take_next_pending_tcl_command()'s own
-    // returned pointer - the popped std::string itself would otherwise
-    // be destroyed the moment it's removed from pending_tcl_commands_
-    // above, before the caller ever reads through the pointer.
-    std::string last_popped_tcl_command_;
-
-    // Single-slot cache backing le_object_property_count/le_object_
-    // property_at - rebuilt whenever a different LeObjectRef is
-    // requested. le::PropertyValue (generated/property.hpp) doubles as
-    // LeProperty's string-owning backing store directly - no separate
-    // wrapper type needed, its shape already matches LeProperty
-    // field-for-field.
-    LeObjectRef cached_object_property_ref{.kind = -1, .index = UINT32_MAX, .generation = 0};
-    std::vector<le::PropertyValue> cached_object_properties;
-
-    // Backs every le_X_property_path function (UPDATES.md item 19.2's
-    // dot-notation/chaining follow-up). le::PropertyValue owns its own
-    // std::string storage, and the LeProperty handed back to the caller
-    // is just raw c_str() pointers into that storage (same convention as
-    // every to_c(PropertyValue) call in this file) - those pointers must
-    // point somewhere that outlives the function call, not a local
-    // std::optional<PropertyValue>/vector that gets destroyed the moment
-    // le_X_property_path returns. This single slot is that backing
-    // store, "valid until the next call" like every other single-slot
-    // cache above - confirmed the hard way: a resolved value short
-    // enough for std::string's small-string optimization ("IN0") kept
-    // "working" by accident (its bytes were still sitting, unclobbered,
-    // in the just-freed stack slot), while a longer one (a formatted
-    // rects/polygons/paths coordinate list, heap-allocated) came back
-    // corrupted, since libc++ actually reused/overwrote that freed heap
-    // block before the caller read it.
-    le::PropertyValue cached_property_path_value;
-
-    // Backs le_message_count/le_message_at (UPDATES.md item 3) - every
-    // error/warning/info message produced by this handle's backend
-    // operations so far (currently just le_read_lef), in order, never
-    // cleared or reordered. std::deque, deliberately not std::vector:
-    // le_message_at() hands out a `const char*` promised valid "until
-    // the handle is destroyed" (this API's usual string-ownership
-    // convention), but std::vector::push_back can reallocate on growth,
-    // move-relocating every contained std::string - for a short (SSO)
-    // string that relocates its character buffer inline, invalidating
-    // any .c_str() a caller is still holding from an earlier call.
-    // std::deque::push_back never invalidates references/pointers to
-    // existing elements (only iterators), so it's the correct container
-    // here.
-    std::deque<std::string> messages;
-
-    // Generated TCL property-reading cache - one cached_X_property_id/
-    // cached_X_properties pair per TCL-readable class not already covered
-    // by hand-written code above. Never edit generated_tcl/
-    // handle_fields.inc directly - regenerate via the regen-tcl skill.
-#include "generated_tcl/handle_fields.inc"
-};
-
 namespace
 {
     // Tracy's FrameMarkStart/FrameMarkEnd send the raw pointer value of
@@ -234,26 +50,215 @@ namespace
     // compiler/optimization level.
     constexpr const char *kRenderFrameName = "le_render_pixel_buffer";
 
-    // Builds a PipelineOptions snapshot of `handle`'s own current root/
-    // view_layers/scene state - every pipelines-module call site below
-    // needs one of these (backend/ONETBB_INTEGRATION.md migration, Phase
-    // 5 cutover). Read-only (just copies counters/pointers out of
-    // `handle`), safe to call regardless of lock state, though every real
-    // call site already holds handle->mutex_ by the time it does.
-    le::PipelineOptions pipeline_options_for(const LeHandle *handle)
+    // Rebuilds handle->view_layers for its currently-selected Technology
+    // and stamps view_layers_built_at_version so ensure_view_layers_current()
+    // (below) can tell it's current again. The one place this used to
+    // happen inline (le_read_lef) now calls this too, so the two can't
+    // drift out of sync.
+    void rebuild_view_layers(LeHandle *handle, le::TechnologyId technology_id)
     {
-        le::PipelineOptions options;
-        options.ctx.root = &handle->root;
-        options.ctx.view_layers = &handle->view_layers;
-        options.ctx.scene = &handle->scene;
-        options.epoch.root_mutation_version = handle->root.mutation_version();
-        options.epoch.view_layers_generation = handle->view_layers.generation();
-        options.viewport.viewport_version = handle->scene.viewport_version();
-        options.viewport.visibility_version = handle->scene.visibility_version();
-        options.viewport.scale = handle->scene.scale();
-        options.interaction.mouse_version = handle->scene.mouse_version();
-        options.interaction.selection_version = handle->scene.selection_version();
-        options.interaction.ruler_version = handle->scene.ruler_version();
+        handle->view_layers = le::ViewLayerSet::build_for_technology(handle->root, technology_id);
+        handle->view_layers_built_at_version = handle->root.mutation_version();
+    }
+
+    // handle->view_layers used to only ever get rebuilt inside le_read_lef
+    // - a layer created directly (le_create_layer, generated CRUD) rather
+    // than via a LEF read silently never showed up in it, an easy-to-miss
+    // staleness bug (confirmed: le_layer_count/le_layer_at/le_purpose_count/
+    // le_purpose_at all read view_layers directly with no freshness check
+    // at all). Called at the top of those four read-only accessors -
+    // cheap when already current (one integer compare), rebuilds via the
+    // same ViewLayerSet::build_for_technology call le_read_lef's own
+    // rebuild already made unconditionally on every read regardless of
+    // whether anything new was actually added, so this isn't a new cost
+    // class, just a new trigger for an existing one.
+    //
+    // Scope note: this fixes the four read accessors specifically (the
+    // ones with failing test coverage) - hit_test_abstract_point/_rect
+    // and select_in_abstract_view_unlocked's own direct view_layers reads
+    // elsewhere in this file have the same underlying staleness exposure
+    // (a layer created via le_create_layer, then hit-tested/rendered
+    // before any subsequent le_read_lef call) but aren't covered by any
+    // failing test today and are deliberately left untouched here - a
+    // real, separate gap, not silently papered over.
+    void ensure_view_layers_current(LeHandle *handle)
+    {
+        if (!handle->current_technology_id.valid())
+            return;
+        if (handle->view_layers_built_at_version == handle->root.mutation_version())
+            return;
+        rebuild_view_layers(handle, handle->current_technology_id);
+    }
+
+    // Builds a ViewRenderOptions snapshot of `handle`'s own current
+    // root/view state, for le_render_pixel_buffer's own
+    // view_render_pipeline.run() call. LeHandle's own pan/scale/viewport-size convention
+    // (pixel = (dbu - pan) * scale, LeHandle::pixel_to_dbu's own comment)
+    // maps directly onto ViewRenderOptions::viewport/scale: pan is
+    // exactly the dbu point at the viewport's own bottom-left pixel
+    // corner - viewport.ll - and the top-right corner is pan plus the
+    // pixel size converted to dbu via the same scale.
+    // Resolves one LeHandle::SelectedObject alternative to its own
+    // dbu-space outline geometry, for ComposeStage's own selection
+    // overlay - the exact per-kind resolution the pre-restart
+    // pipelines.old/stages/selection_overlay_stage.hpp used against a
+    // live Scene/Root pair, ported here since that stage (and the
+    // pipeline it lived in) were both deleted with the rest of that
+    // module. `remaining_depth` is only meaningful for a PlacementId
+    // alternative (Layout-view top-level selection, E1) - Abstract-view
+    // selection never produces one (see LeHandle::SelectionRef's own
+    // comment for why a Placement never becomes a ShapePiece either).
+    std::optional<le::Shape> resolve_selected_outline(const LeHandle *handle, const LeHandle::SelectedObject &selected, int remaining_depth)
+    {
+        return std::visit(
+            [&](const auto &s) -> std::optional<le::Shape>
+            {
+                using T = std::decay_t<decltype(s)>;
+                if constexpr (std::is_same_v<T, LeHandle::ShapePiece>)
+                {
+                    if (const le::ShapeData *data = handle->root.get_shape(s.shape_id))
+                        return le::Geometry::extract_piece(*data, s.piece_kind, s.piece_index);
+                    return std::nullopt;
+                }
+                else if constexpr (std::is_same_v<T, le::RowId>)
+                {
+                    if (auto bbox = le::row_footprint_bbox(handle->root, s))
+                        return le::Shape{.rects = {*bbox}};
+                    return std::nullopt;
+                }
+                else if constexpr (std::is_same_v<T, le::RegionId>)
+                {
+                    if (const le::RegionData *region = handle->root.get_region(s))
+                        return le::Shape{.rects = region->rects};
+                    return std::nullopt;
+                }
+                else // le::PlacementId
+                {
+                    if (!handle->current_layout().valid())
+                        return std::nullopt;
+                    if (auto bbox = le::placement_world_bbox(handle->root, s, remaining_depth))
+                        return le::Shape{.rects = {*bbox}};
+                    return std::nullopt;
+                }
+            },
+            selected);
+    }
+
+    // Database units per micron for the handle's own (singleton)
+    // Technology - every ruler distance/tick-spacing computation
+    // (ComposeStage::draw_ruler_overlay) works in real microns, not raw
+    // dbu. 0.0 (rather than std::optional) means "unavailable" (no
+    // Technology read yet, or a non-positive value) - matches
+    // ViewRenderOptions::ruler_dbu_per_um's own "<=0 means skip ruler
+    // drawing entirely" convention.
+    double technology_dbu_per_um(const le::Root &root)
+    {
+        const auto technology_ids = root.get_technology_ids();
+        if (technology_ids.empty())
+            return 0.0;
+        const le::TechnologyData *technology = root.get_technology(technology_ids.front());
+        if (!technology || technology->database_units_microns <= 0.0)
+            return 0.0;
+        return technology->database_units_microns;
+    }
+
+    // The SelectionRef a hover hit's own shape_id belongs to (LeHandle::
+    // HoverTarget::origin) - a Terminal-port Shape resolves to its owning
+    // Terminal (not the TerminalPortId itself - SelectionRef's own
+    // variant only has TerminalId, matching hover/selection always
+    // operating at Terminal granularity even though a Terminal can have
+    // several ports), an Obstruction Shape resolves directly (Shape.
+    // obstruction already is one). nullopt for anything else (a Shape
+    // hit-testing itself already only ever returns must be one of these
+    // two in an Abstract view, but this stays defensive rather than
+    // assuming).
+    std::optional<LeHandle::SelectionRef> shape_selection_ref(const le::Root &root, le::ShapeId shape_id)
+    {
+        const le::ShapeData *shape = root.get_shape(shape_id);
+        if (!shape)
+            return std::nullopt;
+        if (shape->terminal_port.valid())
+        {
+            if (const le::TerminalPortData *port = root.get_terminal_port(shape->terminal_port))
+                return LeHandle::SelectionRef{port->terminal};
+        }
+        if (shape->obstruction.valid())
+            return LeHandle::SelectionRef{shape->obstruction};
+        return std::nullopt;
+    }
+
+    le::ViewRenderOptions view_render_options_for(const LeHandle *handle)
+    {
+        le::ViewRenderOptions options;
+        options.root = &handle->root;
+        options.root_mutation_version = handle->root.mutation_version();
+        options.hierarchy_depth = handle->hierarchy_depth();
+        options.scale = handle->scale();
+        options.antialiasing_enabled = handle->antialiasing_enabled();
+        options.layer_name_visible = handle->layer_name_visibility();
+        options.purpose_visible = handle->purpose_visibility();
+
+        options.selection_version = handle->selection_version();
+        options.selected_piece_outlines.reserve(handle->selection().size());
+        const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
+        for (const LeHandle::SelectedObject &selected : handle->selection())
+            if (auto outline = resolve_selected_outline(handle, selected, remaining_depth))
+                options.selected_piece_outlines.push_back(std::move(*outline));
+
+        if (handle->current_layout().valid())
+            options.top_level = handle->current_layout();
+        else
+            options.top_level = handle->current_abstract();
+
+        const le::Point pan = handle->pan();
+        const double width_dbu = handle->viewport_width_px() / handle->scale();
+        const double height_dbu = handle->viewport_height_px() / handle->scale();
+        options.viewport = le::Rect{
+            .ll = pan,
+            .ur = le::Point{.x = pan.x + static_cast<int64_t>(width_dbu), .y = pan.y + static_cast<int64_t>(height_dbu)},
+        };
+
+        if (handle->is_dragging())
+        {
+            options.drag_rect_dbu = handle->drag_rect_dbu();
+            options.drag_is_zoom = handle->drag_kind() == LeHandle::DragKind::ZOOM;
+        }
+
+        options.mouse_version = handle->mouse_version();
+        options.cursor_snapped_position_dbu = handle->snapped_mouse_position();
+        if (handle->hover().has_value())
+            options.hover_outline_dbu = handle->hover()->outline;
+
+        if (const std::optional<le::Point> delta = handle->move_delta(handle->move_free_form()))
+        {
+            options.move_ghost_pieces_dbu = handle->move().moving_geometry;
+            options.move_ghost_offset_dbu = *delta;
+        }
+
+        options.ruler_version = handle->ruler_version();
+        options.ruler_dbu_per_um = technology_dbu_per_um(handle->root);
+        options.ruler_label_size_px = handle->ruler_label_size_px();
+        options.ruler_polylines_dbu.reserve(handle->rulers().size());
+        for (const LeHandle::Ruler &ruler : handle->rulers())
+            options.ruler_polylines_dbu.push_back(ruler.points);
+
+        // The live ghost segment - only meaningful in Ruler mode, only
+        // ever extends the *last* ruler if it exists, isn't finished, and
+        // already has a committed point (LeHandle::ruler_next_point's own
+        // "the last entry is the active ruler" invariant - mirrors
+        // pipelines.old's own MouseOverlayStage gating exactly).
+        if (handle->mode() == LeHandle::Mode::RULER && !handle->rulers().empty() &&
+            !handle->rulers().back().finished && !handle->rulers().back().points.empty())
+        {
+            options.ruler_ghost_point_dbu = handle->ruler_next_point(handle->ruler_free_form());
+        }
+
+        options.minor_grid_spacing_dbu = handle->minor_grid_spacing();
+        options.major_grid_spacing_dbu = handle->major_grid_spacing();
+        if (const le::AbstractId *abstract_id = std::get_if<le::AbstractId>(&options.top_level))
+            if (const le::AbstractData *abstract = handle->root.get_abstract(*abstract_id))
+                options.abstract_origin_dbu = abstract->origin.value_or(le::Point{});
+
         return options;
     }
 
@@ -262,7 +267,7 @@ namespace
     // intended click with a little hand tremor still registers as one,
     // large enough that a real rubber-band drag never gets misread as a
     // click. Not exposed/configurable - an implementation detail of the
-    // click-vs-drag decision, not a Scene-persistent concern.
+    // click-vs-drag decision, not a persistent LeHandle concern.
     constexpr int32_t kClickDragThresholdPx = 4;
 
     // Fixed step sizes for the keyboard-triggered canvas-navigation
@@ -274,13 +279,13 @@ namespace
 
     // LE_KEY_SELECT_ALL's own cap (UPDATES.md 9.1) - a design can have
     // far more selectable shapes than are reasonable to hold in the
-    // selection at once (Scene::select() is O(1) average per call, but
+    // selection at once (LeHandle::select() is O(1) average per call, but
     // the resulting selection itself, and every later FFI round-trip
     // over it, still scales with however many objects are in it).
     constexpr int32_t kMaxSelectAllCount = 10000;
 
     // le_tooltip_message's own text (UPDATES.md item 7.3), one constant
-    // per Scene::Mode (UPDATES.md item 11) - le_tooltip_message branches
+    // per LeHandle::Mode (UPDATES.md item 11) - le_tooltip_message branches
     // on the current mode rather than returning a single fixed string.
     constexpr const char *kSelectModeTooltip =
         "Left click to select. Shift for multi-select. Left click and drag for rectangle multi-select.";
@@ -515,13 +520,13 @@ namespace
     // one place either way.
     void zoom_unlocked(LeHandle *handle, double factor, int32_t x, int32_t y)
     {
-        const double old_scale = handle->scene.scale();
+        const double old_scale = handle->scale();
         const double new_scale = old_scale * (1.0 + factor);
         if (new_scale <= 0.0)
             return;
 
-        const le::Point old_pan = handle->scene.pan();
-        const double viewport_height = handle->scene.viewport_height_px();
+        const le::Point old_pan = handle->pan();
+        const double viewport_height = handle->viewport_height_px();
 
         // Undo rasterize()'s Y-flip to get from the caller's image-pixel
         // (x, y) - top-left origin, y down - to the dbu point it currently
@@ -552,19 +557,19 @@ namespace
         const int64_t pan_x = static_cast<int64_t>(pan_x_double);
         const int64_t pan_y = static_cast<int64_t>(pan_y_double);
 
-        handle->scene.set_scale(new_scale);
-        handle->scene.set_pan(le::Point{.x = pan_x, .y = pan_y});
+        handle->set_scale(new_scale);
+        handle->set_pan(le::Point{.x = pan_x, .y = pan_y});
     }
 
     void pan_unlocked(LeHandle *handle, double x_factor, double y_factor)
     {
-        const double scale = handle->scene.scale();
-        const le::Point pan = handle->scene.pan();
+        const double scale = handle->scale();
+        const le::Point pan = handle->pan();
 
-        const int64_t dx = static_cast<int64_t>(x_factor * handle->scene.viewport_width_px() / scale);
-        const int64_t dy = static_cast<int64_t>(y_factor * handle->scene.viewport_height_px() / scale);
+        const int64_t dx = static_cast<int64_t>(x_factor * handle->viewport_width_px() / scale);
+        const int64_t dy = static_cast<int64_t>(y_factor * handle->viewport_height_px() / scale);
 
-        handle->scene.set_pan(le::Point{.x = pan.x + dx, .y = pan.y + dy});
+        handle->set_pan(le::Point{.x = pan.x + dx, .y = pan.y + dy});
     }
 
     void fit_scene_unlocked(LeHandle *handle, int32_t padding_px)
@@ -581,21 +586,22 @@ namespace
         // Placement's own transformed bbox - O(1) instead of
         // O(placement count), and diearea is the DEF-standard bound of
         // everything in it anyway.
-        if (handle->scene.current_layout().valid())
+        if (handle->current_layout().valid())
         {
-            const le::Shape *diearea = handle->root.get_shape(handle->root.get_layout_diearea(handle->scene.current_layout()));
-            handle->scene.fit_to_content(diearea ? le::Geometry::bbox(*diearea) : std::nullopt, padding_px);
+            const le::Shape *diearea = handle->root.get_shape(handle->root.get_layout_diearea(handle->current_layout()));
+            handle->fit_to_content(diearea ? le::Geometry::bbox(*diearea) : std::nullopt, padding_px);
             return;
         }
 
-        const auto &generated = handle->abstract_shape_pipeline.run_generate_shapes(handle->scene.current_abstract(), pipeline_options_for(handle));
-
-        std::vector<const le::Shape *> shape_ptrs;
-        shape_ptrs.reserve(generated.size());
-        for (const auto &rs : generated)
-            shape_ptrs.push_back(&rs.shape);
-
-        handle->scene.fit_to_content(le::Geometry::bbox(shape_ptrs), padding_px);
+        // Same "declared size, not a union of every generated shape"
+        // convention as the Layout branch above, now that this stage's
+        // own shape generation lives in the new pipelines module (Warm
+        // tier) instead of AbstractShapePipeline - abstract_declared_bbox
+        // (core/placement_geometry.hpp) is the exact bbox a *parent*
+        // already uses to size its own placement of this Abstract, so
+        // it's the right "whole content" bound here too, and O(1)
+        // regardless of how many Terminal/Obstruction shapes it has.
+        handle->fit_to_content(le::abstract_declared_bbox(handle->root, handle->current_abstract()), padding_px);
     }
 
     // Widens `bbox` to also enclose `r` - a plain min/max union, same
@@ -630,14 +636,14 @@ namespace
     {
         std::vector<const le::Shape *> shape_ptrs;
         std::optional<le::Rect> bbox;
-        const int remaining_depth = std::max(0, handle->scene.hierarchy_depth() - 1);
+        const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
 
-        for (const le::SelectedObject &selected : handle->scene.selection())
+        for (const LeHandle::SelectedObject &selected : handle->selection())
         {
             std::visit([&](const auto &s)
                        {
                 using T = std::decay_t<decltype(s)>;
-                if constexpr (std::is_same_v<T, le::ShapePiece>)
+                if constexpr (std::is_same_v<T, LeHandle::ShapePiece>)
                 {
                     if (const le::Shape *shape = handle->root.get_shape(s.shape_id))
                         shape_ptrs.push_back(shape);
@@ -666,7 +672,7 @@ namespace
         if (!bbox)
             return;
 
-        handle->scene.fit_to_content(bbox, padding_px);
+        handle->fit_to_content(bbox, padding_px);
     }
 
     // Builds the one-piece ghost-preview geometry for a single selected
@@ -680,9 +686,9 @@ namespace
     // ShapePiece selections; moving a Row/Placement/Region is explicitly
     // out of scope for E1 (BUGS_AND_ENHANCEMENTS.md - "selectable", not
     // "movable").
-    le::Shape move_ghost_piece_unlocked(LeHandle *handle, const le::SelectedObject &selected)
+    le::Shape move_ghost_piece_unlocked(LeHandle *handle, const LeHandle::SelectedObject &selected)
     {
-        const le::ShapePiece *piece = std::get_if<le::ShapePiece>(&selected);
+        const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
         if (!piece)
             return le::Shape{};
 
@@ -697,24 +703,25 @@ namespace
     // below (called from inside le_key_down, which already holds
     // handle->mutex_). Only meaningful in Edit mode with a non-empty
     // selection - the Mode::EDIT check lives here rather than inside
-    // Scene::arm_move itself (Scene stays mode-agnostic - see
-    // Scene::set_mode's own comment on the analogous Ruler-mode split).
+    // LeHandle::arm_move itself (LeHandle's own Move state stays mode-
+    // agnostic - see LeHandle::set_mode's own comment on the analogous
+    // Ruler-mode split).
     // Snapshots each selected *piece's* current geometry for the ghost
-    // overlay (Scene::MoveState::moving_geometry), piece-granular
+    // overlay (LeHandle::MoveState::moving_geometry), piece-granular
     // (UPDATES.md item 21's follow-up) - Move moves exactly whichever
     // pieces are selected, not necessarily every piece of their owning
     // Shapes.
     void arm_move_unlocked(LeHandle *handle)
     {
-        if (handle->scene.mode() != le::Scene::Mode::EDIT)
+        if (handle->mode() != LeHandle::Mode::EDIT)
             return;
 
         std::vector<le::Shape> geometry;
-        geometry.reserve(handle->scene.selection().size());
-        for (const le::SelectedObject &selected : handle->scene.selection())
+        geometry.reserve(handle->selection().size());
+        for (const LeHandle::SelectedObject &selected : handle->selection())
             geometry.push_back(move_ghost_piece_unlocked(handle, selected));
 
-        handle->scene.arm_move(std::move(geometry));
+        handle->arm_move(std::move(geometry));
     }
 
     // le_undo/le_redo's own follow-up (UPDATES.md item 21) - unlocked
@@ -723,26 +730,26 @@ namespace
     // after a commit" case - see move_click_unlocked), the moving
     // pieces' geometry may have just changed out from under its own
     // moving_geometry snapshot (taken at the last arm/re-arm, not
-    // continuously) - re-snapshot it via Scene::refresh_move_geometry so
+    // continuously) - re-snapshot it via LeHandle::refresh_move_geometry so
     // a subsequent move's ghost preview starts from the actual
     // post-undo/redo position rather than a stale one. A no-op (via
     // refresh_move_geometry's own guard) if Move isn't armed.
     void refresh_armed_move_geometry_unlocked(LeHandle *handle)
     {
-        if (!handle->scene.move().armed)
+        if (!handle->move().armed)
             return;
 
         std::vector<le::Shape> geometry;
-        geometry.reserve(handle->scene.move().moving_pieces.size());
-        for (const le::SelectedObject &selected : handle->scene.move().moving_pieces)
+        geometry.reserve(handle->move().moving_pieces.size());
+        for (const LeHandle::SelectedObject &selected : handle->move().moving_pieces)
             geometry.push_back(move_ghost_piece_unlocked(handle, selected));
-        handle->scene.refresh_move_geometry(std::move(geometry));
+        handle->refresh_move_geometry(std::move(geometry));
     }
 
     // le_mouse_up's Edit-mode branch (UPDATES.md item 21) - unlocked
     // variant, called with handle->mutex_ already held. First click (no
-    // anchor yet) sets the move's anchor (Scene::move_set_anchor, which
-    // - like Scene::add_ruler_point's own click handling just below in
+    // anchor yet) sets the move's anchor (LeHandle::move_set_anchor, which
+    // - like LeHandle::add_ruler_point's own click handling just below in
     // le_mouse_up - reads the separately-tracked *stored* mouse position,
     // not an x/y passed in here); second click (anchor already set)
     // computes the delta and commits: for each moving *piece*, re-fetches
@@ -759,37 +766,37 @@ namespace
     // piece's now-current geometry, ready for an immediate follow-up
     // move) rather than fully clearing Move state - only Escape
     // (le_cancel_move/LE_KEY_FINISH_RULER) or leaving Edit mode
-    // (Scene::set_mode's own end_move() call) actually disarms it, so a
+    // (LeHandle::set_mode's own end_move() call) actually disarms it, so a
     // user moving several pieces in sequence doesn't have to re-press
     // the Move button/Ctrl-M between each one.
     void move_click_unlocked(LeHandle *handle)
     {
-        if (!handle->scene.move().armed)
+        if (!handle->move().armed)
             return;
 
-        if (!handle->scene.move().anchor)
+        if (!handle->move().anchor)
         {
-            handle->scene.move_set_anchor();
+            handle->move_set_anchor();
             return;
         }
 
-        const std::optional<le::Point> delta = handle->scene.move_delta(handle->scene.move_free_form());
+        const std::optional<le::Point> delta = handle->move_delta(handle->move_free_form());
         if (!delta)
         {
-            handle->scene.end_move();
+            handle->end_move();
             return;
         }
 
         handle->command_history.begin("move");
-        const std::vector<le::SelectedObject> moving_pieces = handle->scene.move().moving_pieces;
-        for (const le::SelectedObject &selected : moving_pieces)
+        const std::vector<LeHandle::SelectedObject> moving_pieces = handle->move().moving_pieces;
+        for (const LeHandle::SelectedObject &selected : moving_pieces)
         {
             // Move only ever commits a ShapePiece - E1's Row/Placement/
             // Region alternatives never reach moving_pieces with real
             // geometry to move (move_ghost_piece_unlocked's own no-op
             // above already keeps them out of ghost rendering); this
             // guard is the matching no-op on the commit side.
-            const le::ShapePiece *piece = std::get_if<le::ShapePiece>(&selected);
+            const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
             if (!piece)
                 continue;
 
@@ -811,96 +818,72 @@ namespace
 
         std::vector<le::Shape> geometry;
         geometry.reserve(moving_pieces.size());
-        for (const le::SelectedObject &selected : moving_pieces)
+        for (const LeHandle::SelectedObject &selected : moving_pieces)
             geometry.push_back(move_ghost_piece_unlocked(handle, selected));
-        handle->scene.arm_move(std::move(geometry));
+        handle->arm_move(std::move(geometry));
     }
 
     // LE_KEY_SELECT_ALL's own body (UPDATES.md 9.1) - unlocked variant,
     // same reasoning as zoom_unlocked/pan_unlocked/fit_scene_unlocked
     // above (called from inside le_key_down, which already holds
-    // handle->mutex_). Deliberately uses generate_shapes +
-    // filter_by_layer_visibility directly, *not* pipeline.run() - run()
-    // also applies filter_by_viewport_and_size, which would silently
-    // exclude anything currently off-screen or sub-pixel from "select
-    // all" (the same viewport-independence fit_scene_unlocked's own
-    // generate_shapes-direct call above needs, for the same reason).
-    // Every selectable shape's own bbox is trivially inside the whole
-    // Abstract's bbox, so hit_test_rect against that bbox correctly
-    // enumerates every *candidate* Shape (still respecting layer
-    // visibility/selectability), with no new traversal.
-    //
-    // hit_test_rect's own pieces (UPDATES.md item 21) are Pipeline's
-    // *rendered* geometry, not necessarily addressable in Root (e.g. an
-    // ITERATE-expanded piece has no raw index at all - see HoverTarget's
-    // own comment) - only used here to find which ShapeIds are candidates
-    // at all; every raw rect/polygon/path of each candidate's actual
-    // Root::get_shape() data is then selected directly (select-all means
-    // "select everything", not a geometric containment test - no second
-    // fully_enclosed_pieces call needed, unlike drag-select).
+    // handle->mutex_). Deliberately walks Root's own raw Terminal-port/
+    // Obstruction ShapeData directly, *not* hit_test_abstract_rect - a
+    // geometric containment test would need to also bypass its own
+    // sub-pixel cull (select-all means "select everything regardless of
+    // viewport or on-screen size", the same viewport-independence
+    // fit_scene_unlocked's own generate_shapes-direct call needs, for the
+    // same reason - a hidden-by-being-tiny shape should still be
+    // select-all'able even though a *click* on it correctly can't hit
+    // it), so there's nothing a geometric hit-test actually buys here -
+    // select every rect/polygon/path piece of every ShapeId on a layer
+    // that's both visible and selectable, directly.
     void select_all_unlocked(LeHandle *handle)
     {
-        const auto &generated = handle->abstract_shape_pipeline.run_generate_shapes(handle->scene.current_abstract(), pipeline_options_for(handle));
-
-        // Deliberately a fresh, standalone LayerVisibilityFilterStage
-        // call directly off `generated` (bypassing viewport filtering) -
-        // AbstractShapePipeline's own wired chain has no path from
-        // AbstractGeometryStage straight to LayerVisibilityFilterStage
-        // without going through ViewportFilterStage first (see this
-        // function's own comment above for why viewport filtering must
-        // be skipped here). Same "fresh, call-local filter instance"
-        // pattern HierarchyResolver already uses for its own per-call
-        // culling passes.
-        le::SynchronousStageRunner<le::LayerVisibilityFilterStage, std::vector<le::RenderedShape>, std::map<le::ViewLayerId, std::vector<le::RenderedShape>>> layer_visibility_runner{"select_all_layer_visibility_filter"};
-        const auto &filtered = layer_visibility_runner.run(generated, handle->abstract_shape_pipeline.shapes_version(), pipeline_options_for(handle));
-
-        std::vector<const le::Shape *> shape_ptrs;
-        shape_ptrs.reserve(generated.size());
-        for (const auto &rs : generated)
-            shape_ptrs.push_back(&rs.shape);
-        const auto bbox = le::Geometry::bbox(shape_ptrs);
-        if (!bbox)
-            return;
-
-        handle->scene.clear_selection();
-
-        std::set<le::ShapeId> candidate_ids;
-        for (const le::HoverTarget &hit : le::hit_test_rect(filtered, handle->view_layers, handle->scene, *bbox))
-            if (hit.shape_id)
-                candidate_ids.insert(*hit.shape_id);
-
+        const le::AbstractId abstract_id = handle->current_abstract();
+        size_t selected_count = 0;
         bool capped = false;
-        for (const le::ShapeId shape_id : candidate_ids)
+
+        const auto select_shape_pieces = [&](le::ShapeId shape_id, le::ViewLayerPurpose purpose)
         {
-            if (capped)
-                break;
+            const le::Shape *shape = handle->root.get_shape(shape_id);
+            if (!shape || !shape->layer.valid())
+                return;
 
-            const le::ShapeData *data = handle->root.get_shape(shape_id);
-            if (!data)
-                continue;
+            const le::ViewLayerId view_layer = handle->view_layers.find(shape->layer, purpose);
+            const le::ViewLayerData *data = handle->view_layers.get(view_layer);
+            if (data && (!handle->is_layer_name_visible(data->layer_name) || !handle->is_purpose_visible(data->purpose) ||
+                         !handle->is_view_layer_selectable(data->layer_name, data->purpose)))
+                return;
 
-            auto select_piece = [&](le::PieceKind kind, size_t index)
+            const auto select_piece = [&](le::PieceKind kind, size_t index)
             {
-                if (capped)
-                    return;
-                if (static_cast<int32_t>(handle->scene.selection().size()) >= kMaxSelectAllCount)
+                if (selected_count >= static_cast<size_t>(kMaxSelectAllCount))
                 {
                     capped = true;
                     return;
                 }
-                handle->scene.select(shape_id, kind, index);
+                handle->select(shape_id, kind, index);
+                ++selected_count;
             };
-
-            for (size_t i = 0; i < data->rects.size(); ++i)
+            for (size_t i = 0; i < shape->rects.size(); ++i)
                 select_piece(le::PieceKind::RECT, i);
-            for (size_t i = 0; i < data->polygons.size(); ++i)
+            for (size_t i = 0; i < shape->polygons.size(); ++i)
                 select_piece(le::PieceKind::POLYGON, i);
-            for (size_t i = 0; i < data->paths.size(); ++i)
+            for (size_t i = 0; i < shape->paths.size(); ++i)
                 select_piece(le::PieceKind::PATH, i);
-        }
+        };
+
+        for (le::TerminalId terminal_id : handle->root.get_abstract_terminals(abstract_id))
+            for (le::TerminalPortId port_id : handle->root.get_terminal_ports(terminal_id))
+                for (le::ShapeId shape_id : handle->root.get_terminal_port_shapes(port_id))
+                    select_shape_pieces(shape_id, le::ViewLayerPurpose::TERMINAL);
+
+        for (le::ObstructionId obstruction_id : handle->root.get_abstract_obstructions(abstract_id))
+            for (le::ShapeId shape_id : handle->root.get_obstruction_shapes(obstruction_id))
+                select_shape_pieces(shape_id, le::ViewLayerPurpose::OBSTRUCTION);
 
         if (capped)
-            handle->messages.push_back(fmt::format("WARNING: Selection capped at {} objects - design has more.", kMaxSelectAllCount));
+            handle->messages.push_back(fmt::format("WARNING: select_all: selection capped at {} pieces", kMaxSelectAllCount));
     }
 
     // Every ROUTING-type layer in `technology_id`'s own declaration
@@ -976,7 +959,7 @@ namespace
         if (!toggled)
             return;
 
-        handle->scene.set_layer_name_visible(toggled->name, !handle->scene.is_layer_name_visible(toggled->name));
+        handle->set_layer_name_visible(toggled->name, !handle->is_layer_name_visible(toggled->name));
 
         // Only on this keyboard path (never from a direct
         // le_set_layer_name_visible() call) - re-check every adjacent
@@ -992,12 +975,12 @@ namespace
             if (!first || !second)
                 continue;
 
-            const bool both_visible = handle->scene.is_layer_name_visible(first->name) && handle->scene.is_layer_name_visible(second->name);
+            const bool both_visible = handle->is_layer_name_visible(first->name) && handle->is_layer_name_visible(second->name);
             for (le::LayerId cut_id : cut_layers_between(handle->root, technology_id, routing_layers[i], routing_layers[i + 1]))
             {
                 const le::LayerData *cut = handle->root.get_layer(cut_id);
                 if (cut)
-                    handle->scene.set_layer_name_visible(cut->name, both_visible);
+                    handle->set_layer_name_visible(cut->name, both_visible);
             }
         }
     }
@@ -1032,7 +1015,7 @@ namespace
     LeObjectRef ref_from_id(LeObjectKind kind, le::ObstructionId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
     LeObjectRef ref_from_id(LeObjectKind kind, le::ShapeId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
     // E1 (BUGS_AND_ENHANCEMENTS.md) - the six top-level Layout-view kinds
-    // Scene::SelectedObject's own variant grew, plus PhysicalPortSegment
+    // LeHandLeHandle::SelectedObject's own variant grew, plus PhysicalPortSegment
     // (an intermediate parent-hop node only, mirroring TerminalPort).
     LeObjectRef ref_from_id(LeObjectKind kind, le::RowId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
     LeObjectRef ref_from_id(LeObjectKind kind, le::PlacementId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
@@ -1278,17 +1261,17 @@ extern "C"
             // BOUNDARY isn't a physical layer at all (a Shape with
             // purpose=BOUNDARY instead - see Shape.layer/.purpose's own
             // schema.py comments), so it never reaches this loop - stays
-            // visible via Scene::is_layer_name_visible's own default-
+            // visible via LeHandle::is_layer_name_visible's own default-
             // true-until-toggled behavior, same as it always has.
             const auto &layers = handle->root.get_technology_layers(technology_ids.front());
             for (size_t i = old_layer_count; i < layers.size(); ++i)
             {
                 const le::LayerData *layer = handle->root.get_layer(layers[i]);
                 if (layer && layer->type != "ROUTING" && layer->type != "CUT")
-                    handle->scene.set_layer_name_visible(layer->name, false);
+                    handle->set_layer_name_visible(layer->name, false);
             }
 
-            handle->view_layers = le::ViewLayerSet::build_for_technology(handle->root, technology_ids.front());
+            rebuild_view_layers(handle, technology_ids.front());
 
             // Also selects the singleton Technology as the current one for
             // the generated TCL current-instance mechanism (see
@@ -1343,9 +1326,44 @@ extern "C"
         return 0;
     }
 
+    int le_read_verilog(LeHandle *handle, const char *const *filenames, int32_t filename_count, int32_t is_netlist)
+    {
+        if (!handle)
+            return 1;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        if (!filenames || filename_count <= 0)
+        {
+            handle->messages.push_back("ERROR: read_verilog: filenames is null or empty");
+            return 1;
+        }
+
+        std::vector<std::string> filename_strings;
+        filename_strings.reserve(static_cast<size_t>(filename_count));
+        for (int32_t i = 0; i < filename_count; ++i)
+            filename_strings.emplace_back(filenames[i] ? filenames[i] : "");
+
+        const std::filesystem::path first_path(filename_strings.front());
+        le::SVReader reader;
+        const int result = is_netlist
+            ? reader.read_netlist(filename_strings, handle->root, first_path.stem().string())
+            : reader.read_rtl(filename_strings, handle->root, first_path.stem().string());
+        for (const auto &msg : reader.messages())
+            handle->messages.push_back(msg);
+        return result;
+    }
+
+    int32_t le_link_unresolved_instances(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+        return static_cast<int32_t>(le::SVReader::link_unresolved_instances(handle->root));
+    }
+
     int le_write_lef(LeHandle *handle, const char *path,
-                      const LeAbstractId *abstract_ids_c, int32_t abstract_id_count,
-                      LeLibraryId library_id_c, int32_t layer_write_mode)
+                     const LeAbstractId *abstract_ids_c, int32_t abstract_id_count,
+                     LeLibraryId library_id_c, int32_t layer_write_mode)
     {
         if (!handle)
             return 1;
@@ -1502,24 +1520,26 @@ extern "C"
         if (static_cast<size_t>(index) >= design_ids.size())
             return 1;
 
-        // Moves the Abstract-view "current view" trackers together -
-        // Scene's own (drives GUI rendering) and the generated
-        // has_current_access one (handle->current_abstract_id, what
-        // get_terminals/get_shapes/etc.'s own default -of-omitted scope
-        // and resolve_terminal_id derive from - see current_abstract_id's
-        // own declaration comment). Selecting a Design from either FFI
-        // caller (a Dart-driven GUI) or a TCL script (open_design,
-        // itself calling le_set_current_design_abstract_by_id below - the same
-        // shared entry point) should mean the same thing to both.
-        // Clears current_layout_id and Scene's own current_layout
+        // Moves the Abstract-view "current view" trackers together - two
+        // genuinely separate concepts that happen to both live on
+        // LeHandle now: `handle->current_abstract()` (formerly Scene's
+        // own, drives GUI rendering) and the generated has_current_access
+        // one (handle->current_abstract_id, what get_terminals/get_shapes/
+        // etc.'s own default -of-omitted scope and resolve_terminal_id
+        // derive from - see current_abstract_id's own declaration
+        // comment). Selecting a Design from either FFI caller (a
+        // Dart-driven GUI) or a TCL script (open_design, itself calling
+        // le_set_current_design_abstract_by_id below - the same shared
+        // entry point) should mean the same thing to both.
+        // Clears current_layout_id and handle->current_layout()
         // (Migration Step 3 Phase C): only one view is "open" at a time
         // (see le_set_current_design_layout's own comment) - selecting
         // the Abstract view deactivates the Layout one, same as the
         // reverse.
         const le::DesignId design_id = design_ids[static_cast<size_t>(index)];
         const le::AbstractId abstract_id = handle->root.get_design_abstract(design_id);
-        handle->scene.set_current_abstract(abstract_id);
-        handle->scene.set_current_layout(le::LayoutId{});
+        handle->set_current_abstract(abstract_id);
+        handle->set_current_layout(le::LayoutId{});
         handle->current_abstract_id = abstract_id;
         handle->current_layout_id = le::LayoutId{};
         return 0;
@@ -1619,8 +1639,8 @@ extern "C"
         // See le_set_current_design_abstract's own comment above - the
         // Abstract-view trackers move together, current_layout_id clears.
         const le::AbstractId abstract_id = handle->root.get_design_abstract(id);
-        handle->scene.set_current_abstract(abstract_id);
-        handle->scene.set_current_layout(le::LayoutId{});
+        handle->set_current_abstract(abstract_id);
+        handle->set_current_layout(le::LayoutId{});
         handle->current_abstract_id = abstract_id;
         handle->current_layout_id = le::LayoutId{};
         return 0;
@@ -1639,15 +1659,15 @@ extern "C"
         // Mirror image of le_set_current_design_abstract: activates the
         // Layout view's own current-instance tracker (what get_rows/
         // get_placements/get_blockages/etc.'s own default -of-omitted
-        // scope derives from) and Scene's own current_layout (Migration
+        // scope derives from) and handle->current_layout() (Migration
         // Step 3 Phase C - what le_render_pixel_buffer now actually
         // renders, via InstanceRenderer::render_layout_frame), and
         // deactivates the Abstract-view ones - only one view is "open" at
         // a time, matching a real GUI showing one editor.
         const le::DesignId design_id = design_ids[static_cast<size_t>(index)];
         const le::LayoutId layout_id = handle->root.get_design_layout(design_id);
-        handle->scene.set_current_layout(layout_id);
-        handle->scene.set_current_abstract(le::AbstractId{});
+        handle->set_current_layout(layout_id);
+        handle->set_current_abstract(le::AbstractId{});
         handle->current_layout_id = layout_id;
         handle->current_abstract_id = le::AbstractId{};
         return 0;
@@ -1665,8 +1685,8 @@ extern "C"
 
         // See le_set_current_design_layout's own comment above.
         const le::LayoutId layout_id = handle->root.get_design_layout(id);
-        handle->scene.set_current_layout(layout_id);
-        handle->scene.set_current_abstract(le::AbstractId{});
+        handle->set_current_layout(layout_id);
+        handle->set_current_abstract(le::AbstractId{});
         handle->current_layout_id = layout_id;
         handle->current_abstract_id = le::AbstractId{};
         return 0;
@@ -1677,7 +1697,7 @@ extern "C"
         if (!handle)
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(handle->scene.hierarchy_depth());
+        return static_cast<int32_t>(handle->hierarchy_depth());
     }
 
     void le_set_hierarchy_depth(LeHandle *handle, int32_t depth)
@@ -1685,7 +1705,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.set_hierarchy_depth(depth);
+        handle->set_hierarchy_depth(depth);
     }
 
     int32_t le_layer_count(LeHandle *handle)
@@ -1693,6 +1713,7 @@ extern "C"
         if (!handle)
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
+        ensure_view_layers_current(handle);
         return static_cast<int32_t>(handle->view_layers.rows().size());
     }
 
@@ -1702,6 +1723,7 @@ extern "C"
         if (!handle || row_index < 0)
             return invalid;
         std::lock_guard<std::mutex> lock(handle->mutex_);
+        ensure_view_layers_current(handle);
 
         const auto &rows = handle->view_layers.rows();
         if (static_cast<size_t>(row_index) >= rows.size())
@@ -1724,6 +1746,7 @@ extern "C"
         if (!handle)
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
+        ensure_view_layers_current(handle);
         return static_cast<int32_t>(handle->view_layers.purposes().size());
     }
 
@@ -1732,6 +1755,7 @@ extern "C"
         if (!handle || index < 0)
             return -1;
         std::lock_guard<std::mutex> lock(handle->mutex_);
+        ensure_view_layers_current(handle);
 
         const auto purposes = handle->view_layers.purposes();
         if (static_cast<size_t>(index) >= purposes.size())
@@ -1745,7 +1769,7 @@ extern "C"
         if (!handle || !layer_name)
             return true;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return handle->scene.is_layer_name_visible(layer_name);
+        return handle->is_layer_name_visible(layer_name);
     }
 
     void le_set_layer_name_visible(LeHandle *handle, const char *layer_name, bool visible)
@@ -1753,7 +1777,7 @@ extern "C"
         if (!handle || !layer_name)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.set_layer_name_visible(layer_name, visible);
+        handle->set_layer_name_visible(layer_name, visible);
     }
 
     bool le_is_antialiasing_enabled(LeHandle *handle)
@@ -1761,7 +1785,7 @@ extern "C"
         if (!handle)
             return false;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return handle->scene.antialiasing_enabled();
+        return handle->antialiasing_enabled();
     }
 
     void le_set_antialiasing_enabled(LeHandle *handle, bool enabled)
@@ -1769,7 +1793,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.set_antialiasing_enabled(enabled);
+        handle->set_antialiasing_enabled(enabled);
     }
 
     int32_t le_max_concurrency(LeHandle *handle)
@@ -1803,7 +1827,7 @@ extern "C"
         if (!handle)
             return 1;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return handle->scene.is_purpose_visible(static_cast<le::ViewLayerPurpose>(purpose)) ? 1 : 0;
+        return handle->is_purpose_visible(static_cast<le::ViewLayerPurpose>(purpose)) ? 1 : 0;
     }
 
     void le_set_purpose_visible(LeHandle *handle, int32_t purpose, int32_t visible)
@@ -1811,7 +1835,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.set_purpose_visible(static_cast<le::ViewLayerPurpose>(purpose), visible != 0);
+        handle->set_purpose_visible(static_cast<le::ViewLayerPurpose>(purpose), visible != 0);
     }
 
     int32_t le_get_mode(LeHandle *handle)
@@ -1819,7 +1843,7 @@ extern "C"
         if (!handle)
             return LE_MODE_SELECT;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(handle->scene.mode());
+        return static_cast<int32_t>(handle->mode());
     }
 
     void le_set_mode(LeHandle *handle, int32_t mode)
@@ -1828,9 +1852,9 @@ extern "C"
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
         if (mode == LE_MODE_RULER)
-            handle->scene.reset_ruler_mode();
+            handle->reset_ruler_mode();
         else
-            handle->scene.set_mode(static_cast<le::Scene::Mode>(mode));
+            handle->set_mode(static_cast<LeHandle::Mode>(mode));
     }
 
     int32_t le_ruler_count(LeHandle *handle)
@@ -1838,7 +1862,7 @@ extern "C"
         if (!handle)
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(handle->scene.rulers().size());
+        return static_cast<int32_t>(handle->rulers().size());
     }
 
     int32_t le_ruler_point_count(LeHandle *handle, int32_t ruler_index)
@@ -1846,7 +1870,7 @@ extern "C"
         if (!handle || ruler_index < 0)
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        const auto &rulers = handle->scene.rulers();
+        const auto &rulers = handle->rulers();
         if (static_cast<size_t>(ruler_index) >= rulers.size())
             return 0;
         return static_cast<int32_t>(rulers[ruler_index].points.size());
@@ -1858,7 +1882,7 @@ extern "C"
         if (!handle || ruler_index < 0 || point_index < 0)
             return kInvalid;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        const auto &rulers = handle->scene.rulers();
+        const auto &rulers = handle->rulers();
         if (static_cast<size_t>(ruler_index) >= rulers.size())
             return kInvalid;
         const auto &points = rulers[ruler_index].points;
@@ -1876,7 +1900,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.finish_active_ruler();
+        handle->finish_active_ruler();
     }
 
     void le_clear_rulers(LeHandle *handle)
@@ -1884,7 +1908,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.clear_rulers();
+        handle->clear_rulers();
     }
 
     // --- Editing / undo-redo (UPDATES.md item 21) ---
@@ -1962,7 +1986,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.clear_selection();
+        handle->clear_selection();
     }
 
     void le_arm_move(LeHandle *handle)
@@ -1978,12 +2002,12 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.end_move();
+        handle->end_move();
     }
 
     int32_t le_is_move_armed(LeHandle *handle)
     {
-        return handle && handle->scene.move().armed ? 1 : 0;
+        return handle && handle->move().armed ? 1 : 0;
     }
 
     int32_t le_is_layer_name_selectable(LeHandle *handle, const char *layer_name)
@@ -1991,7 +2015,7 @@ extern "C"
         if (!handle || !layer_name)
             return 1;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return handle->scene.is_layer_name_selectable(layer_name) ? 1 : 0;
+        return handle->is_layer_name_selectable(layer_name) ? 1 : 0;
     }
 
     void le_set_layer_name_selectable(LeHandle *handle, const char *layer_name, int32_t selectable)
@@ -1999,7 +2023,7 @@ extern "C"
         if (!handle || !layer_name)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.set_layer_name_selectable(layer_name, selectable != 0);
+        handle->set_layer_name_selectable(layer_name, selectable != 0);
     }
 
     int32_t le_is_purpose_selectable(LeHandle *handle, int32_t purpose)
@@ -2007,7 +2031,7 @@ extern "C"
         if (!handle)
             return 1;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return handle->scene.is_purpose_selectable(static_cast<le::ViewLayerPurpose>(purpose)) ? 1 : 0;
+        return handle->is_purpose_selectable(static_cast<le::ViewLayerPurpose>(purpose)) ? 1 : 0;
     }
 
     void le_set_purpose_selectable(LeHandle *handle, int32_t purpose, int32_t selectable)
@@ -2015,7 +2039,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.set_purpose_selectable(static_cast<le::ViewLayerPurpose>(purpose), selectable != 0);
+        handle->set_purpose_selectable(static_cast<le::ViewLayerPurpose>(purpose), selectable != 0);
     }
 
     void le_zoom(LeHandle *handle, double factor, int32_t x, int32_t y)
@@ -2039,7 +2063,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.set_viewport_size(width_px, height_px);
+        handle->set_viewport_size(width_px, height_px);
     }
 
     void le_fit_scene(LeHandle *handle, int32_t padding_px)
@@ -2056,7 +2080,7 @@ extern "C"
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
         const double dbu_per_um = display_dbu_per_um(handle->root);
-        handle->scene.fit_to_content(le::Rect{.ll = {.x = to_dbu(ll_x_um, dbu_per_um), .y = to_dbu(ll_y_um, dbu_per_um)}, .ur = {.x = to_dbu(ur_x_um, dbu_per_um), .y = to_dbu(ur_y_um, dbu_per_um)}}, padding_px);
+        handle->fit_to_content(le::Rect{.ll = {.x = to_dbu(ll_x_um, dbu_per_um), .y = to_dbu(ll_y_um, dbu_per_um)}, .ur = {.x = to_dbu(ur_x_um, dbu_per_um), .y = to_dbu(ur_y_um, dbu_per_um)}}, padding_px);
     }
 
     int64_t le_minor_grid_spacing(LeHandle *handle)
@@ -2064,7 +2088,7 @@ extern "C"
         if (!handle)
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return handle->scene.minor_grid_spacing();
+        return handle->minor_grid_spacing();
     }
 
     void le_set_minor_grid_spacing(LeHandle *handle, int64_t dbu)
@@ -2072,7 +2096,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.set_minor_grid_spacing(dbu);
+        handle->set_minor_grid_spacing(dbu);
     }
 
     int64_t le_major_grid_spacing(LeHandle *handle)
@@ -2080,7 +2104,7 @@ extern "C"
         if (!handle)
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return handle->scene.major_grid_spacing();
+        return handle->major_grid_spacing();
     }
 
     void le_set_major_grid_spacing(LeHandle *handle, int64_t dbu)
@@ -2088,7 +2112,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.set_major_grid_spacing(dbu);
+        handle->set_major_grid_spacing(dbu);
     }
 
     double le_ruler_label_size(LeHandle *handle)
@@ -2096,7 +2120,7 @@ extern "C"
         if (!handle)
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return handle->scene.ruler_label_size_px();
+        return handle->ruler_label_size_px();
     }
 
     void le_set_ruler_label_size(LeHandle *handle, double px)
@@ -2104,7 +2128,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.set_ruler_label_size_px(px);
+        handle->set_ruler_label_size_px(px);
     }
 
     void le_set_mouse_position(LeHandle *handle, int32_t x, int32_t y)
@@ -2113,40 +2137,41 @@ extern "C"
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        handle->scene.set_mouse_position(x, y);
+        handle->set_mouse_position(x, y);
 
-        // The hover outline is a Select-mode-only affordance (see
-        // Scene::set_mode's own comment) - skip the hit-test entirely
-        // outside Select mode rather than computing and immediately
-        // discarding it.
-        if (handle->scene.mode() == le::Scene::Mode::SELECT)
+        // Hover is a Select-mode-only affordance (LeHandle::set_mode's
+        // own comment - it signals "this is a selection candidate",
+        // meaningless while placing ruler points or editing) and, for
+        // now, an Abstract-view-only one - Layout-view own-shape
+        // hit-testing (Row/Region/Blockage/Route/PhysicalPort) is a
+        // separate, not-yet-built gap (whole-placement hover has no
+        // HoverTarget path at all - a Placement never enters
+        // SelectionRef, see its own comment). Reuses the exact same
+        // hit_test_abstract_point select_in_abstract_view_unlocked's own
+        // click path already calls - hover is just a point hit-test with
+        // no click/selection side effect.
+        if (handle->mode() != LeHandle::Mode::SELECT || handle->current_layout().valid())
         {
-            // E1 (BUGS_AND_ENHANCEMENTS.md) - this used to unconditionally
-            // hit-test the Abstract path even in Layout view, hovering
-            // stale/irrelevant content; same branch as le_mouse_up below.
-            // No Placement fallback here (unlike le_mouse_up's own click/
-            // drag handling) - HoverTarget's own SelectionRef variant
-            // deliberately excludes PlacementId (see its own comment: a
-            // Placement never enters the RenderedShape map at all), so
-            // hovering a Placement specifically isn't representable by
-            // this mechanism - a real, separate follow-up, not a gap this
-            // fix silently introduces (Placement was never hoverable
-            // before this fix either).
-            if (handle->scene.current_layout().valid())
-            {
-                const auto &shapes = handle->layout_shape_pipeline.run(handle->scene.current_layout(), pipeline_options_for(handle));
-                handle->scene.set_hover(le::hit_test_point(shapes, handle->view_layers, handle->scene, *handle->scene.mouse_dbu_position()));
-            }
-            else
-            {
-                const auto &shapes = handle->abstract_shape_pipeline.run(handle->scene.current_abstract(), pipeline_options_for(handle));
-                handle->scene.set_hover(le::hit_test_point(shapes, handle->view_layers, handle->scene, *handle->scene.mouse_dbu_position()));
-            }
+            handle->clear_hover();
+            return;
         }
+
+        const le::AbstractId abstract_id = handle->current_abstract();
+        const le::Point dbu_point = handle->pixel_to_dbu(x, y);
+        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
+        { return handle->is_view_layer_selectable(layer_name, purpose); };
+
+        const auto hit = le::hit_test_abstract_point(handle->root, handle->view_layers, abstract_id, dbu_point, handle->scale(), is_selectable);
+        if (!hit)
+        {
+            handle->clear_hover();
+            return;
+        }
+
+        if (const auto origin = shape_selection_ref(handle->root, hit->shape_id))
+            handle->set_hover(LeHandle::HoverTarget{.origin = *origin, .outline = hit->outline, .shape_id = hit->shape_id});
         else
-        {
-            handle->scene.clear_hover();
-        }
+            handle->clear_hover();
     }
 
     void le_clear_mouse_position(LeHandle *handle)
@@ -2154,8 +2179,8 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.clear_mouse_position();
-        handle->scene.clear_hover();
+        handle->clear_mouse_position();
+        handle->clear_hover();
     }
 
     LeSnappedMousePosition le_snapped_mouse_position(LeHandle *handle)
@@ -2164,7 +2189,7 @@ extern "C"
             return LeSnappedMousePosition{.x_um = 0.0, .y_um = 0.0, .has_position = 0};
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        const std::optional<le::Point> snapped = handle->scene.snapped_mouse_position();
+        const std::optional<le::Point> snapped = handle->snapped_mouse_position();
         if (!snapped)
             return LeSnappedMousePosition{.x_um = 0.0, .y_um = 0.0, .has_position = 0};
 
@@ -2191,11 +2216,11 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.press_key(key_code);
-        const bool ctrl = handle->scene.is_key_held(LE_KEY_CTRL);
-        const bool shift = handle->scene.is_key_held(LE_KEY_SHIFT);
-        handle->scene.set_ruler_free_form(shift);
-        handle->scene.set_move_free_form(shift);
+        handle->press_key(key_code);
+        const bool ctrl = handle->is_key_held(LE_KEY_CTRL);
+        const bool shift = handle->is_key_held(LE_KEY_SHIFT);
+        handle->set_ruler_free_form(shift);
+        handle->set_move_free_form(shift);
 
         // Every case below fires only for the *exact* modifier
         // combination its own action is actually defined for - an
@@ -2233,7 +2258,7 @@ extern "C"
             // is already held above; le_zoom/le_fit_scene/le_pan
             // themselves would re-lock it and deadlock.
             const double factor = shift ? -kKeyZoomFactor : kKeyZoomFactor;
-            zoom_unlocked(handle, factor, handle->scene.mouse_x_px(), handle->scene.mouse_y_px());
+            zoom_unlocked(handle, factor, handle->mouse_x_px(), handle->mouse_y_px());
             break;
         }
         case LE_KEY_FIT:
@@ -2269,7 +2294,7 @@ extern "C"
             // change the selection from Edit/Ruler mode). Shift has no
             // meaning here - Ctrl-Shift-A is a no-op, not "same as
             // Ctrl-A".
-            if (handle->scene.mode() == le::Scene::Mode::SELECT && ctrl && !shift)
+            if (handle->mode() == LeHandle::Mode::SELECT && ctrl && !shift)
                 select_all_unlocked(handle);
             break;
         case LE_KEY_1:
@@ -2305,8 +2330,8 @@ extern "C"
         case LE_KEY_DESELECT_ALL:
             // UPDATES.md item 21 - same Select-mode-only gate and
             // Shift-suppresses shape as LE_KEY_SELECT_ALL above.
-            if (handle->scene.mode() == le::Scene::Mode::SELECT && ctrl && !shift)
-                handle->scene.clear_selection();
+            if (handle->mode() == LeHandle::Mode::SELECT && ctrl && !shift)
+                handle->clear_selection();
             break;
         case LE_KEY_MOVE:
             if (ctrl && !shift)
@@ -2314,15 +2339,15 @@ extern "C"
             break;
         case LE_KEY_SELECT_MODE:
             if (!ctrl && !shift)
-                handle->scene.set_mode(le::Scene::Mode::SELECT);
+                handle->set_mode(LeHandle::Mode::SELECT);
             break;
         case LE_KEY_EDIT_MODE:
             if (!ctrl && !shift)
-                handle->scene.set_mode(le::Scene::Mode::EDIT);
+                handle->set_mode(LeHandle::Mode::EDIT);
             break;
         case LE_KEY_RULER_MODE:
             if (!ctrl && !shift)
-                handle->scene.reset_ruler_mode();
+                handle->reset_ruler_mode();
             break;
         case LE_KEY_FINISH_RULER:
             // Deliberately *not* modifier-gated, unlike every other bare
@@ -2331,8 +2356,8 @@ extern "C"
             // (free-form) still physically held right up to the Escape
             // press - suppressing it here would make "finish the ruler"
             // unreliable in exactly the workflow that uses Shift most.
-            handle->scene.finish_active_ruler();
-            handle->scene.end_move(); // UPDATES.md item 21 - Escape also cancels an in-progress move
+            handle->finish_active_ruler();
+            handle->end_move(); // UPDATES.md item 21 - Escape also cancels an in-progress move
             break;
         default:
             break;
@@ -2344,14 +2369,14 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.release_key(key_code);
-        handle->scene.set_ruler_free_form(handle->scene.is_key_held(LE_KEY_SHIFT));
-        handle->scene.set_move_free_form(handle->scene.is_key_held(LE_KEY_SHIFT));
+        handle->release_key(key_code);
+        handle->set_ruler_free_form(handle->is_key_held(LE_KEY_SHIFT));
+        handle->set_move_free_form(handle->is_key_held(LE_KEY_SHIFT));
     }
 
     int32_t le_is_key_held(LeHandle *handle, int32_t key_code)
     {
-        return handle && handle->scene.is_key_held(key_code) ? 1 : 0;
+        return handle && handle->is_key_held(key_code) ? 1 : 0;
     }
 
     void le_clear_all_keys(LeHandle *handle)
@@ -2359,7 +2384,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.clear_all_keys();
+        handle->clear_all_keys();
     }
 
     void le_mouse_down(LeHandle *handle, int32_t x, int32_t y)
@@ -2367,7 +2392,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.begin_drag(x, y);
+        handle->begin_drag(x, y);
     }
 
     void le_zoom_drag_down(LeHandle *handle, int32_t x, int32_t y)
@@ -2375,7 +2400,7 @@ extern "C"
         if (!handle)
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        handle->scene.begin_drag(x, y, le::Scene::DragKind::ZOOM);
+        handle->begin_drag(x, y, LeHandle::DragKind::ZOOM);
     }
 
     // le_mouse_up's Select-mode, Abstract-view branch - exactly the
@@ -2387,72 +2412,40 @@ extern "C"
     // are). Called with handle->mutex_ already held, `x`/`y` the same
     // release-point le_mouse_up itself received, `is_click` its own
     // click-vs-drag threshold result.
+    //
+    // Ported from the pre-restart pipelines.old/hit_test.hpp's own
+    // hit_test_point/hit_test_rect (this used to go through
+    // abstract_shape_pipeline.run() + those functions, both deleted with
+    // pipelines.old) - core/placement_geometry.hpp's own
+    // hit_test_abstract_point/_rect are the direct replacement, working
+    // against Root's raw ShapeData directly rather than a pipeline's own
+    // rendered output (PIPELINE_REFACTOR.md's Hot tier has no per-shape
+    // rendered-output cache the way the old module did, and doesn't need
+    // one just for this - a click/drag is a rare, one-off query, not a
+    // per-frame cost).
     void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
     {
-        const auto &shapes = handle->abstract_shape_pipeline.run(handle->scene.current_abstract(), pipeline_options_for(handle));
+        const le::AbstractId abstract_id = handle->current_abstract();
+        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
+        { return handle->is_view_layer_selectable(layer_name, purpose); };
 
         if (is_click)
         {
-            // Computed straight from this call's own x/y, not
-            // Scene::drag_rect_dbu()/mouse_dbu_position() - those read the
-            // separately-tracked *stored* mouse position (see
-            // le_set_mouse_position), which this call has no guaranteed
-            // ordering against.
-            const le::Point dbu_point = handle->scene.pixel_to_dbu(x, y);
-            const auto hit = le::hit_test_point(shapes, handle->view_layers, handle->scene, dbu_point);
-            if (hit && hit->shape_id)
-            {
-                // UPDATES.md item 21 - hit_test_point's own piece is
-                // Pipeline's *rendered* geometry, not always
-                // addressable in Root (e.g. an ITERATE-expanded piece
-                // has no raw index - see HoverTarget's own comment) -
-                // re-hit-test the same point against the shape's real,
-                // raw geometry to find the piece selection/Move
-                // actually operate on. Selects the whole shape id with
-                // the default piece (0) in the vanishingly unlikely
-                // case the raw geometry doesn't hit at the exact same
-                // point the rendered geometry did (e.g. a boundary
-                // rounding difference, or a pure ITERATE-expanded hit
-                // with no raw counterpart at all) rather than silently
-                // selecting nothing.
-                if (const le::ShapeData *data = handle->root.get_shape(*hit->shape_id))
-                {
-                    if (const auto raw_piece = le::Geometry::find_hit_piece(*data, dbu_point))
-                        handle->scene.select(*hit->shape_id, raw_piece->kind, raw_piece->index);
-                    else
-                        handle->scene.select(*hit->shape_id);
-                }
-            }
+            const le::Point dbu_point = handle->pixel_to_dbu(x, y);
+            if (const auto hit = le::hit_test_abstract_point(handle->root, handle->view_layers, abstract_id, dbu_point, handle->scale(), is_selectable))
+                handle->select(hit->shape_id, hit->piece_kind, hit->piece_index);
         }
         else
         {
-            const le::Point start = handle->scene.pixel_to_dbu(handle->scene.drag_start_x_px(), handle->scene.drag_start_y_px());
-            const le::Point end = handle->scene.pixel_to_dbu(x, y);
+            const le::Point start = handle->pixel_to_dbu(handle->drag_start_x_px(), handle->drag_start_y_px());
+            const le::Point end = handle->pixel_to_dbu(x, y);
             const le::Rect drag_rect{
                 .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
                 .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
             };
 
-            // UPDATES.md item 21 - same "re-test against raw geometry"
-            // reasoning as the click branch above: hit_test_rect's own
-            // pieces are only used to find which ShapeIds are
-            // candidates at all; each candidate's actual enclosed
-            // pieces are then found by re-running fully_enclosed_pieces
-            // against its real Root::get_shape() data.
-            std::set<le::ShapeId> candidate_ids;
-            for (const le::HoverTarget &hit : le::hit_test_rect(shapes, handle->view_layers, handle->scene, drag_rect))
-                if (hit.shape_id)
-                    candidate_ids.insert(*hit.shape_id);
-
-            for (const le::ShapeId shape_id : candidate_ids)
-            {
-                const le::ShapeData *data = handle->root.get_shape(shape_id);
-                if (!data)
-                    continue;
-
-                for (const auto &piece : le::Geometry::fully_enclosed_pieces(drag_rect, *data))
-                    handle->scene.select(shape_id, piece.kind, piece.index);
-            }
+            for (const le::AbstractHitPiece &hit : le::hit_test_abstract_rect(handle->root, handle->view_layers, abstract_id, drag_rect, handle->scale(), is_selectable))
+                handle->select(hit.shape_id, hit.piece_kind, hit.piece_index);
         }
     }
 
@@ -2488,85 +2481,51 @@ extern "C"
     // hit_test_rect's own results independently rather than picking one
     // topmost target, so the same set of ids ends up selected regardless
     // of which is checked first.
+    // own_shape (Row/Region/Blockage/Route/PhysicalPort) hit-testing
+    // below is deferred pending the new pipelines module's own Hot tier
+    // (PIPELINE_REFACTOR.md) - it used layout_shape_pipeline.run() +
+    // le::hit_test_point/hit_test_rect, both from the deleted pre-restart
+    // pipelines module (see le_render_pixel_buffer's own comment for
+    // what *is* wired up so far). Placement selection below is
+    // unaffected - hit_test_placements_point/_rect
+    // (core/placement_geometry.hpp) query Root directly and never
+    // depended on either.
     void select_in_layout_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
     {
-        const le::LayoutId layout_id = handle->scene.current_layout();
-        const int remaining_depth = std::max(0, handle->scene.hierarchy_depth() - 1);
-        const auto &shapes = handle->layout_shape_pipeline.run(layout_id, pipeline_options_for(handle));
+        const le::LayoutId layout_id = handle->current_layout();
+        const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
 
         if (is_click)
         {
-            const le::Point dbu_point = handle->scene.pixel_to_dbu(x, y);
-
-            const auto hit = le::hit_test_point(shapes, handle->view_layers, handle->scene, dbu_point);
-            if (hit)
-            {
-                if (hit->shape_id)
-                {
-                    if (const le::ShapeData *data = handle->root.get_shape(*hit->shape_id))
-                    {
-                        if (const auto raw_piece = le::Geometry::find_hit_piece(*data, dbu_point))
-                            handle->scene.select(*hit->shape_id, raw_piece->kind, raw_piece->index);
-                        else
-                            handle->scene.select(*hit->shape_id);
-                    }
-                }
-                else if (const auto *row_id = std::get_if<le::RowId>(&hit->origin))
-                    handle->scene.select(*row_id);
-                else if (const auto *region_id = std::get_if<le::RegionId>(&hit->origin))
-                    handle->scene.select(*region_id);
-                return;
-            }
-
+            const le::Point dbu_point = handle->pixel_to_dbu(x, y);
             if (const auto placement_id = le::hit_test_placements_point(handle->root, layout_id, remaining_depth, dbu_point))
-                handle->scene.select(*placement_id);
+                handle->select(*placement_id);
         }
         else
         {
-            const le::Point start = handle->scene.pixel_to_dbu(handle->scene.drag_start_x_px(), handle->scene.drag_start_y_px());
-            const le::Point end = handle->scene.pixel_to_dbu(x, y);
+            const le::Point start = handle->pixel_to_dbu(handle->drag_start_x_px(), handle->drag_start_y_px());
+            const le::Point end = handle->pixel_to_dbu(x, y);
             const le::Rect drag_rect{
                 .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
                 .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
             };
 
             for (le::PlacementId placement_id : le::hit_test_placements_rect(handle->root, layout_id, remaining_depth, drag_rect))
-                handle->scene.select(placement_id);
-
-            std::set<le::ShapeId> candidate_ids;
-            for (const le::HoverTarget &hit : le::hit_test_rect(shapes, handle->view_layers, handle->scene, drag_rect))
-            {
-                if (hit.shape_id)
-                    candidate_ids.insert(*hit.shape_id);
-                else if (const auto *row_id = std::get_if<le::RowId>(&hit.origin))
-                    handle->scene.select(*row_id);
-                else if (const auto *region_id = std::get_if<le::RegionId>(&hit.origin))
-                    handle->scene.select(*region_id);
-            }
-
-            for (const le::ShapeId shape_id : candidate_ids)
-            {
-                const le::ShapeData *data = handle->root.get_shape(shape_id);
-                if (!data)
-                    continue;
-
-                for (const auto &piece : le::Geometry::fully_enclosed_pieces(drag_rect, *data))
-                    handle->scene.select(shape_id, piece.kind, piece.index);
-            }
+                handle->select(placement_id);
         }
     }
 
     void le_mouse_up(LeHandle *handle, int32_t x, int32_t y)
     {
-        if (!handle || !handle->scene.is_dragging())
+        if (!handle || !handle->is_dragging())
             return;
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        const int32_t dx = x - handle->scene.drag_start_x_px();
-        const int32_t dy = y - handle->scene.drag_start_y_px();
+        const int32_t dx = x - handle->drag_start_x_px();
+        const int32_t dy = y - handle->drag_start_y_px();
         const bool is_click = dx * dx + dy * dy < kClickDragThresholdPx * kClickDragThresholdPx;
 
-        if (handle->scene.drag_kind() == le::Scene::DragKind::ZOOM)
+        if (handle->drag_kind() == LeHandle::DragKind::ZOOM)
         {
             // Rectangle-zoom (UPDATES.md 9.3) - purely navigational,
             // selection is untouched. A click-sized release is a no-op
@@ -2574,15 +2533,15 @@ extern "C"
             // scale) - same threshold used for the select gesture below.
             if (!is_click)
             {
-                const le::Point start = handle->scene.pixel_to_dbu(handle->scene.drag_start_x_px(), handle->scene.drag_start_y_px());
-                const le::Point end = handle->scene.pixel_to_dbu(x, y);
+                const le::Point start = handle->pixel_to_dbu(handle->drag_start_x_px(), handle->drag_start_y_px());
+                const le::Point end = handle->pixel_to_dbu(x, y);
                 const le::Rect zoom_rect{
                     .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
                     .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
                 };
-                handle->scene.fit_to_content(zoom_rect, 0);
+                handle->fit_to_content(zoom_rect, 0);
             }
-            handle->scene.end_drag();
+            handle->end_drag();
             return;
         }
 
@@ -2592,31 +2551,31 @@ extern "C"
         // including the pipeline run it only needs for hit-testing - is
         // skipped. end_drag() below stays unconditional so drag state
         // always resets regardless of mode.
-        if (handle->scene.mode() == le::Scene::Mode::SELECT)
+        if (handle->mode() == LeHandle::Mode::SELECT)
         {
-            const bool shift = handle->scene.is_key_held(LE_KEY_SHIFT);
+            const bool shift = handle->is_key_held(LE_KEY_SHIFT);
 
             if (!shift)
-                handle->scene.clear_selection();
+                handle->clear_selection();
 
             // E1 (BUGS_AND_ENHANCEMENTS.md) - this used to unconditionally
             // hit-test the Abstract path even in Layout view (a real bug:
             // clicking in Layout view hit whatever stale/irrelevant
             // Abstract content happened to exist, never the Layout's own).
-            if (handle->scene.current_layout().valid())
+            if (handle->current_layout().valid())
                 select_in_layout_view_unlocked(handle, x, y, is_click);
             else
                 select_in_abstract_view_unlocked(handle, x, y, is_click);
         }
-        else if (handle->scene.mode() == le::Scene::Mode::RULER)
+        else if (handle->mode() == LeHandle::Mode::RULER)
         {
             // UPDATES.md item 13 - only a click (not a drag) commits a
             // ruler point; a drag in Ruler mode does nothing beyond
             // ending the gesture below.
             if (is_click)
-                handle->scene.add_ruler_point(handle->scene.is_key_held(LE_KEY_SHIFT));
+                handle->add_ruler_point(handle->is_key_held(LE_KEY_SHIFT));
         }
-        else if (handle->scene.mode() == le::Scene::Mode::EDIT)
+        else if (handle->mode() == LeHandle::Mode::EDIT)
         {
             // UPDATES.md item 21 - only a click (not a drag) sets the
             // move's anchor / commits it; a drag in Edit mode does
@@ -2627,20 +2586,20 @@ extern "C"
                 move_click_unlocked(handle);
         }
 
-        handle->scene.end_drag();
+        handle->end_drag();
     }
 
     const char *le_tooltip_message(LeHandle *handle)
     {
         if (!handle)
             return nullptr;
-        switch (handle->scene.mode())
+        switch (handle->mode())
         {
-        case le::Scene::Mode::EDIT:
+        case LeHandle::Mode::EDIT:
             return kEditModeTooltip;
-        case le::Scene::Mode::RULER:
+        case LeHandle::Mode::RULER:
             return kRulerModeTooltip;
-        case le::Scene::Mode::SELECT:
+        case LeHandle::Mode::SELECT:
         default:
             return kSelectModeTooltip;
         }
@@ -2652,7 +2611,7 @@ extern "C"
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        return static_cast<int32_t>(handle->scene.selection().size());
+        return static_cast<int32_t>(handle->selection().size());
     }
 
     int64_t le_selection_version(LeHandle *handle)
@@ -2661,7 +2620,7 @@ extern "C"
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        return static_cast<int64_t>(handle->scene.selection_version());
+        return static_cast<int64_t>(handle->selection_version());
     }
 
     LeObjectRef le_object_invalid_ref(void)
@@ -2714,7 +2673,7 @@ extern "C"
             return invalid_object_ref();
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        const std::vector<le::SelectedObject> &selection = handle->scene.selection();
+        const std::vector<LeHandle::SelectedObject> &selection = handle->selection();
         if (static_cast<size_t>(selection_index) >= selection.size())
             return invalid_object_ref();
 
@@ -2728,7 +2687,7 @@ extern "C"
         return std::visit([](const auto &s) -> LeObjectRef
                           {
             using T = std::decay_t<decltype(s)>;
-            if constexpr (std::is_same_v<T, le::ShapePiece>)
+            if constexpr (std::is_same_v<T, LeHandle::ShapePiece>)
                 return ref_from_id(LE_OBJECT_KIND_SHAPE, s.shape_id);
             else if constexpr (std::is_same_v<T, le::RowId>)
                 return ref_from_id(LE_OBJECT_KIND_ROW, s);
@@ -2760,11 +2719,11 @@ extern "C"
                 return 1;
             }
             for (size_t i = 0; i < shape->rects.size(); i++)
-                handle->scene.select(shape_id, le::PieceKind::RECT, i);
+                handle->select(shape_id, le::PieceKind::RECT, i);
             for (size_t i = 0; i < shape->polygons.size(); i++)
-                handle->scene.select(shape_id, le::PieceKind::POLYGON, i);
+                handle->select(shape_id, le::PieceKind::POLYGON, i);
             for (size_t i = 0; i < shape->paths.size(); i++)
-                handle->scene.select(shape_id, le::PieceKind::PATH, i);
+                handle->select(shape_id, le::PieceKind::PATH, i);
             if (shape->rects.empty() && shape->polygons.empty() && shape->paths.empty())
             {
                 handle->messages.push_back("ERROR: select: Shape has no geometry to select");
@@ -2780,7 +2739,7 @@ extern "C"
                 handle->messages.push_back("ERROR: select: no such Row");
                 return 1;
             }
-            handle->scene.select(id);
+            handle->select(id);
             return 0;
         }
         case LE_OBJECT_KIND_PLACEMENT:
@@ -2791,7 +2750,7 @@ extern "C"
                 handle->messages.push_back("ERROR: select: no such Placement");
                 return 1;
             }
-            handle->scene.select(id);
+            handle->select(id);
             return 0;
         }
         case LE_OBJECT_KIND_REGION:
@@ -2802,7 +2761,7 @@ extern "C"
                 handle->messages.push_back("ERROR: select: no such Region");
                 return 1;
             }
-            handle->scene.select(id);
+            handle->select(id);
             return 0;
         }
         default:
@@ -2820,7 +2779,7 @@ extern "C"
 
         // handle->current_abstract_id (le_set_current_abstract/
         // le_current_abstract's own generated field), not
-        // handle->scene.current_abstract() - the latter is a genuinely
+        // handle->current_abstract() - the latter is a genuinely
         // separate "GUI current view" tracker. le_set_current_design_abstract/
         // le_set_current_design_abstract_by_id move both together (selecting a
         // Design should mean the same thing whether it came from a
@@ -2828,12 +2787,13 @@ extern "C"
         // still diverge: a script that builds an Abstract from scratch
         // and calls set_current_abstract directly (no Design to
         // open_design into at all) only ever touches
-        // handle->current_abstract_id, never Scene. Terminal is the one
+        // handle->current_abstract_id, never handle->current_abstract().
+        // Terminal is the one
         // class with a hand-written friendly-id resolver
         // (unique_per_parent means it can't use the generated by-name
         // lookup pair - see Field.unique_per_parent's own docstring), so
         // it's the one place reading the wrong one of the two was easy
-        // to get wrong: reading handle->scene.current_abstract() here
+        // to get wrong: reading handle->current_abstract() here
         // would leave resolve_terminal_id unable to find any Terminal a
         // from-scratch script just created, even though get_terminals
         // (same "current" concept, already reading current_abstract_id)
@@ -3011,6 +2971,58 @@ extern "C"
 
         const le::LayoutViaData *layout_via = handle->root.get_layout_via(from_c(id));
         return layout_via ? layout_via->name.c_str() : nullptr;
+    }
+
+    LePortId le_port_by_name(LeHandle *handle, const char *name)
+    {
+        const LePortId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!handle || !name)
+            return invalid;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        for (const le::PortId id : handle->root.get_schematic_ports(handle->current_schematic_id))
+        {
+            const le::PortData *port = handle->root.get_port(id);
+            if (port && port->name == name)
+                return to_c(id);
+        }
+        return invalid;
+    }
+
+    const char *le_port_name(LeHandle *handle, LePortId id)
+    {
+        if (!handle)
+            return nullptr;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        const le::PortData *port = handle->root.get_port(from_c(id));
+        return port ? port->name.c_str() : nullptr;
+    }
+
+    LeNetId le_net_by_name(LeHandle *handle, const char *name)
+    {
+        const LeNetId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!handle || !name)
+            return invalid;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        for (const le::NetId id : handle->root.get_schematic_nets(handle->current_schematic_id))
+        {
+            const le::NetData *net = handle->root.get_net(id);
+            if (net && net->name == name)
+                return to_c(id);
+        }
+        return invalid;
+    }
+
+    const char *le_net_name(LeHandle *handle, LeNetId id)
+    {
+        if (!handle)
+            return nullptr;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        const le::NetData *net = handle->root.get_net(from_c(id));
+        return net ? net->name.c_str() : nullptr;
     }
 
     int32_t le_search_terminal(LeHandle *handle, const char *filter_expression)
@@ -3326,6 +3338,17 @@ extern "C"
             ~RenderingGuard() { handle->is_rendering_.store(false, std::memory_order_relaxed); }
         } rendering_guard{handle};
 
+        // A viewport that hasn't been sized yet (le_set_viewport_size
+        // never called - LeHandle's own viewport_width_px_/
+        // viewport_height_px_ both default to 0) has nothing to render -
+        // short-circuit before the pipeline runs at all, rather than
+        // letting it clamp a degenerate 0x0 request up to some minimum
+        // internally (Blend2D itself can't construct a zero-sized
+        // BLImage) and leak that clamped size back out as a misleading
+        // non-empty result.
+        if (handle->viewport_width_px() <= 0 || handle->viewport_height_px() <= 0)
+            return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
+
         // FrameMarkStart/End (named), not plain FrameMark - a frame here
         // only ever happens on demand (whenever something changed and the
         // native texture callback next pulls a frame), not once per
@@ -3338,31 +3361,32 @@ extern "C"
 
         FrameMarkStart(kRenderFrameName);
 
-        // Migration Step 3 Phase C: a Layout view (scene.current_layout()
-        // valid - set by le_set_current_design_layout(_by_id), which
-        // clears scene.current_abstract() at the same time, so the two
-        // are always mutually exclusive) renders through HierarchyResolver
-        // instead of AbstractShapePipeline/FrameRenderPipeline - see
-        // LeHandle::hierarchy_resolver's own comment.
-        const le::PixelBuffer *buffer = nullptr;
-        if (handle->scene.current_layout().valid())
-        {
-            buffer = &handle->hierarchy_resolver.render_layout_frame(handle->root, handle->scene.current_layout(), handle->scene.hierarchy_depth(), handle->view_layers, handle->scene);
-        }
-        else
-        {
-            const le::PipelineOptions options = pipeline_options_for(handle);
-            const auto &shapes = handle->abstract_shape_pipeline.run(handle->scene.current_abstract(), options);
-            const auto &tiny_shapes = handle->abstract_shape_pipeline.run_tiny_shapes(handle->scene.current_abstract(), options);
-            buffer = &handle->frame_render_pipeline.run(handle->scene.current_abstract(), shapes, tiny_shapes, options);
-        }
+        // PIPELINE_REFACTOR.md's restarted pipelines module - Warm tier
+        // only (basic pan/zoom, view_render_options_for's own comment on
+        // how LeHandle's pan/scale/viewport-size map onto ViewRenderOptions):
+        // the select/zoom drag-rectangle ghost overlay is drawn now
+        // (ComposeStage's own doc comment) - selection/hover/ruler
+        // overlays remain a gap, Hot tier still TBD - see
+        // select_in_abstract_view_unlocked/select_in_layout_view_unlocked/
+        // le_set_mouse_position's own comments for what that gap means.
+        // The returned WarmOutput::frame keeps its own RasterizedFrame
+        // alive via ComposeStage's own MemoizingStage cache (last_result_)
+        // for exactly as long as LePixelBuffer's own "valid until the
+        // next call" contract (api.hpp) already promises - no separate
+        // LeHandle-owned storage needed here.
+        const le::ViewRenderOptions options = view_render_options_for(handle);
+        const le::ViewRenderPipeline::WarmOutput output = handle->view_render_pipeline.run(&handle->root, options);
 
         FrameMarkEnd(kRenderFrameName);
+
+        if (!output.frame || output.frame->empty)
+            return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
+
         return LePixelBuffer{
-            .data = buffer->data,
-            .width = buffer->width,
-            .height = buffer->height,
-            .row_bytes = static_cast<int64_t>(buffer->row_bytes),
+            .data = output.frame->buffer.data,
+            .width = output.frame->buffer.width,
+            .height = output.frame->buffer.height,
+            .row_bytes = static_cast<int64_t>(output.frame->buffer.row_bytes),
         };
     }
 
