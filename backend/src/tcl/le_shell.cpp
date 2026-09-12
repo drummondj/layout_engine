@@ -66,13 +66,20 @@
 #include <readline/history.h>
 #include <readline/readline.h>
 
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <sys/stat.h>
 #include <thread>
 #include <vector>
+
+#if defined(__linux__)
+#include <limits.h>
+#include <unistd.h>
+#endif
 
 namespace
 {
@@ -80,6 +87,48 @@ namespace
     std::string g_procs_path;
 
     LeHandle *g_injected_handle = nullptr;
+
+    // Same two-step fallback as le_gui.cpp's own resolve_lucide_font_path()
+    // (for the exact same reason): `default_value` is this build tree's
+    // own absolute path (correct for a local dev/ctest run, where it
+    // genuinely still exists), but never valid once le_shell is copied
+    // elsewhere - e.g. Dockerfile.linux-release's `bundle` stage, which
+    // copies le_shell/le_tcl.so/le_tcl_procs.tcl flat into one directory,
+    // not this build tree's own layout. A real, repeated report (`load`
+    // failing with "No such file or directory" against the baked-in
+    // build-tree path) confirmed this. Checked via stat() first so a
+    // genuinely missing file is diagnosed by us, not by Tcl's own opaque
+    // `load` error. Only tried when no -module/-procs/env override was
+    // given - an explicit override is trusted as-is, matching this
+    // function's pre-existing "beats everything" precedence.
+    std::string exe_relative_candidate(const char *default_value)
+    {
+#if defined(__linux__)
+        const std::string default_path(default_value);
+        const size_t default_slash = default_path.find_last_of('/');
+        const std::string basename = default_slash == std::string::npos
+            ? default_path
+            : default_path.substr(default_slash + 1);
+
+        char buf[PATH_MAX];
+        const ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+        if (len <= 0)
+        {
+            std::fprintf(stderr, "le_shell: readlink(\"/proc/self/exe\") failed (errno %d) - "
+                                  "can't compute an executable-relative fallback path\n", errno);
+            return {};
+        }
+        buf[len] = '\0';
+        const std::string exe_path(buf);
+        const size_t exe_slash = exe_path.find_last_of('/');
+        const std::string exe_dir = exe_slash == std::string::npos ? "." : exe_slash == 0 ? "/"
+                                                                                            : exe_path.substr(0, exe_slash);
+        return exe_dir + "/" + basename;
+#else
+        (void)default_value;
+        return {};
+#endif
+    }
 
     // -module/-procs beat LE_TCL_MODULE/LE_TCL_PROCS_PATH beat the
     // compile-time default baked in by CMakeLists.txt's own le_shell
@@ -90,7 +139,11 @@ namespace
     // flags or env vars set works out of the box against this binary's
     // own build tree, while either override mechanism still lets a
     // packaged/relocated binary (e.g. Dockerfile.linux-release's bundle)
-    // point at a different location.
+    // point at a different location. If the compile-time default doesn't
+    // actually exist (the binary was copied/bundled elsewhere), falls
+    // back to a same-named file right next to the running executable -
+    // exactly where Dockerfile.linux-release's `bundle` stage puts
+    // le_tcl.so/le_tcl_procs.tcl alongside le_shell - before giving up.
     std::string resolve_path(const char *cli_value, const char *env_var, const char *default_value, const char *what)
     {
         if (cli_value != nullptr)
@@ -103,7 +156,22 @@ namespace
         }
         if (default_value != nullptr)
         {
-            return default_value;
+            struct stat st{};
+            if (stat(default_value, &st) == 0)
+            {
+                return default_value;
+            }
+            std::fprintf(stderr, "le_shell: default %s '%s' does not exist - trying the "
+                                  "executable-relative fallback\n", what, default_value);
+            const std::string candidate = exe_relative_candidate(default_value);
+            if (!candidate.empty() && stat(candidate.c_str(), &st) == 0)
+            {
+                return candidate;
+            }
+            if (!candidate.empty())
+            {
+                std::fprintf(stderr, "le_shell: '%s' does not exist either\n", candidate.c_str());
+            }
         }
         std::fprintf(stderr, "le_shell: no %s given - pass it as an argument or set %s\n", what, env_var);
         std::exit(2);
