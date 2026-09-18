@@ -781,7 +781,7 @@ class Klass:
             if (f.type == "str" or f.is_enum_type()) and f.create_required():
                 add(f"if (!{f.create_c_param_name()})")
                 add("{")
-                add(f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: {f.name} is required"));')
+                add(f'    spdlog::error("create_{snake}: {f.name} is required");')
                 add("    return invalid;")
                 add("}")
         add("std::lock_guard<std::mutex> lock(handle->mutex_);")
@@ -794,7 +794,7 @@ class Klass:
                 pf = parent_fields[0]
                 add(f"if (!handle->root.get_{pf._parent_klass.to_snake_case()}({pf.name}))")
                 add("{")
-                add(f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: unknown {pf.name} - no such {pf.type} exists"));')
+                add(f'    spdlog::error("create_{snake}: unknown {pf.name} - no such {pf.type} exists");')
                 add("    return invalid;")
                 add("}")
             else:
@@ -806,9 +806,9 @@ class Klass:
                 add("if (provided_parent_count != 1)")
                 add("{")
                 add(
-                    f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: exactly one of '
+                    f'    spdlog::error("create_{snake}: exactly one of '
                     f'{"/".join(p.name for p in parent_fields)} must resolve to a valid parent, got {{}}", '
-                    f'provided_parent_count));'
+                    f'provided_parent_count);'
                 )
                 add("    return invalid;")
                 add("}")
@@ -835,8 +835,8 @@ class Klass:
                 add(f"if ({condition})")
                 add("{")
                 add(
-                    f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: unknown '
-                    f'{rf.name} - no such {rf.type} exists"));'
+                    f'    spdlog::error("create_{snake}: unknown '
+                    f'{rf.name} - no such {rf.type} exists");'
                 )
                 add("    return invalid;")
                 add("}")
@@ -849,14 +849,14 @@ class Klass:
                     add(f"const std::optional<le::{f.type}> parsed_{f.name} = le::{enum_snake}_from_string({f.name});")
                     add(f"if (!parsed_{f.name})")
                     add("{")
-                    add(f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: unrecognized {f.name} \'{{}}\'", {f.name}));')
+                    add(f'    spdlog::error("create_{snake}: unrecognized {f.name} \'{{}}\'", {f.name});')
                     add("    return invalid;")
                     add("}")
                 else:
                     add(f"const std::optional<le::{f.type}> parsed_{f.name} = ({f.name} && {f.name}[0]) ? le::{enum_snake}_from_string({f.name}) : std::nullopt;")
                     add(f"if ({f.name} && {f.name}[0] && !parsed_{f.name})")
                     add("{")
-                    add(f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: unrecognized {f.name} \'{{}}\'", {f.name}));')
+                    add(f'    spdlog::error("create_{snake}: unrecognized {f.name} \'{{}}\'", {f.name});')
                     add("    return invalid;")
                     add("}")
 
@@ -865,7 +865,7 @@ class Klass:
             add("const std::optional<double> dbu_per_um = database_units_microns(handle->root);")
             add("if (!dbu_per_um)")
             add("{")
-            add(f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: no Technology has been read yet (needed for micron-to-dbu conversion)"));')
+            add(f'    spdlog::error("create_{snake}: no Technology has been read yet (needed for micron-to-dbu conversion)");')
             add("    return invalid;")
             add("}")
 
@@ -899,8 +899,8 @@ class Klass:
             add("if (!created.valid())")
             add("{")
             add(
-                f'    handle->messages.push_back(fmt::format("ERROR: create_{snake}: a sibling {self.name} with this '
-                f"{field.name} (\'{{}}\') already exists\", {field.create_c_param_name()}));"
+                f'    spdlog::error("create_{snake}: a sibling {self.name} with this '
+                f"{field.name} (\'{{}}\') already exists\", {field.create_c_param_name()});"
             )
             add("    return invalid;")
             add("}")
@@ -1389,7 +1389,7 @@ class Klass:
         add(f"const le::{self.name}Data *existing_{snake} = handle->root.get_{snake}(typed_id);")
         add(f"if (!existing_{snake})")
         add("{")
-        add(f'    handle->messages.push_back(fmt::format("ERROR: update_{snake}: unknown id"));')
+        add(f'    spdlog::error("update_{snake}: unknown id");')
         add("    return 1;")
         add("}")
         add()
@@ -1407,8 +1407,8 @@ class Klass:
             add(f"    if (!handle->root.get_{single_parent._parent_klass.to_snake_case()}({single_parent.name}))")
             add("    {")
             add(
-                f'        handle->messages.push_back(fmt::format("ERROR: update_{snake}: unknown '
-                f'{single_parent.name} - no such {single_parent.type} exists"));'
+                f'        spdlog::error("update_{snake}: unknown '
+                f'{single_parent.name} - no such {single_parent.type} exists");'
             )
             add("        return 1;")
             add("    }")
@@ -1424,8 +1424,8 @@ class Klass:
                 add(f"    if (!handle->root.get_{rf._type_klass.to_snake_case()}({rf.name}))")
                 add("    {")
                 add(
-                    f'        handle->messages.push_back(fmt::format("ERROR: update_{snake}: unknown '
-                    f'{rf.name} - no such {rf.type} exists"));'
+                    f'        spdlog::error("update_{snake}: unknown '
+                    f'{rf.name} - no such {rf.type} exists");'
                 )
                 add("        return 1;")
                 add("    }")
@@ -1442,8 +1442,8 @@ class Klass:
                 add(f"if ({f.name} && {f.name}[0] && !parsed_{f.name})")
                 add("{")
                 add(
-                    f'    handle->messages.push_back(fmt::format("ERROR: update_{snake}: unrecognized '
-                    f"{f.name} '{{}}'\", {f.name}));"
+                    f'    spdlog::error("update_{snake}: unrecognized '
+                    f"{f.name} '{{}}'\", {f.name});"
                 )
                 add("    return 1;")
                 add("}")
@@ -1453,7 +1453,7 @@ class Klass:
             add("const std::optional<double> dbu_per_um = database_units_microns(handle->root);")
             add("if (!dbu_per_um)")
             add("{")
-            add(f'    handle->messages.push_back(fmt::format("ERROR: update_{snake}: no Technology has been read yet (needed for micron-to-dbu conversion)"));')
+            add(f'    spdlog::error("update_{snake}: no Technology has been read yet (needed for micron-to-dbu conversion)");')
             add("    return 1;")
             add("}")
 
@@ -1476,15 +1476,15 @@ class Klass:
             add("if (!ok)")
             add("{")
             add(
-                f'    handle->messages.push_back(fmt::format("ERROR: update_{snake}: a sibling {self.name} '
-                f'with this {unique_fields[0].name} already exists"));'
+                f'    spdlog::error("update_{snake}: a sibling {self.name} '
+                f'with this {unique_fields[0].name} already exists");'
             )
             add("    return 1;")
             add("}")
         else:
             add("if (!ok)")
             add("{")
-            add(f'    handle->messages.push_back(fmt::format("ERROR: update_{snake}: update failed"));')
+            add(f'    spdlog::error("update_{snake}: update failed");')
             add("    return 1;")
             add("}")
 
@@ -2684,8 +2684,8 @@ class Field:
             add(f"if ({count_param} % {leaf_count} != 0)", d)
             add("{", d)
             add(
-                f'    handle->messages.push_back(fmt::format("ERROR: {cmd_name}: -{name}: each entry needs '
-                f'{leaf_count} coordinates"));',
+                f'    spdlog::error("{cmd_name}: -{name}: each entry needs '
+                f'{leaf_count} coordinates");',
                 d,
             )
             add(f"    {invalid_return}", d)
@@ -2711,15 +2711,15 @@ class Field:
             add("    {", d)
             add(f"        if (i >= {count_param})", d)
             add("        {", d)
-            add(f'            handle->messages.push_back(fmt::format("ERROR: {cmd_name}: -{name}: malformed entry"));', d)
+            add(f'            spdlog::error("{cmd_name}: -{name}: malformed entry");', d)
             add(f"            {invalid_return}", d)
             add("        }", d)
             add(f"        const int32_t {name}_point_count = static_cast<int32_t>({param}[i++]);", d)
             add(f"        if ({name}_point_count < 2 || i + {name}_point_count * 2 > {count_param})", d)
             add("        {", d)
             add(
-                f'            handle->messages.push_back(fmt::format("ERROR: {cmd_name}: -{name}: each entry '
-                f'needs at least 2 points"));',
+                f'            spdlog::error("{cmd_name}: -{name}: each entry '
+                f'needs at least 2 points");',
                 d,
             )
             add(f"            {invalid_return}", d)
@@ -2751,7 +2751,7 @@ class Field:
             add("    {", d)
             add(f"        if (i + {len(scalar_fields)} >= {count_param})", d)
             add("        {", d)
-            add(f'            handle->messages.push_back(fmt::format("ERROR: {cmd_name}: -{name}: malformed entry"));', d)
+            add(f'            spdlog::error("{cmd_name}: -{name}: malformed entry");', d)
             add(f"            {invalid_return}", d)
             add("        }", d)
             scalar_value_exprs = []
@@ -2763,8 +2763,8 @@ class Field:
             add(f"        if ({name}_point_count < 2 || i + {name}_point_count * 2 > {count_param})", d)
             add("        {", d)
             add(
-                f'            handle->messages.push_back(fmt::format("ERROR: {cmd_name}: -{name}: each entry '
-                f'needs at least 2 points"));',
+                f'            spdlog::error("{cmd_name}: -{name}: each entry '
+                f'needs at least 2 points");',
                 d,
             )
             add(f"            {invalid_return}", d)

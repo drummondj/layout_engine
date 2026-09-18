@@ -201,20 +201,16 @@ struct LeHandle
     // block before the caller read it.
     le::PropertyValue cached_property_path_value;
 
-    // Backs le_message_count/le_message_at (UPDATES.md item 3) - every
-    // error/warning/info message produced by this handle's backend
-    // operations so far (currently just le_read_lef), in order, never
-    // cleared or reordered. std::deque, deliberately not std::vector:
-    // le_message_at() hands out a `const char*` promised valid "until
-    // the handle is destroyed" (this API's usual string-ownership
-    // convention), but std::vector::push_back can reallocate on growth,
-    // move-relocating every contained std::string - for a short (SSO)
-    // string that relocates its character buffer inline, invalidating
-    // any .c_str() a caller is still holding from an earlier call.
-    // std::deque::push_back never invalidates references/pointers to
-    // existing elements (only iterators), so it's the correct container
-    // here.
-    std::deque<std::string> messages;
+    // Set by every le_X_property_path function right before it logs a
+    // parse/validation error via spdlog::error (a malformed path or an
+    // unrecognized field/hop), reset to false at the top of the next
+    // such call - an errno-style single-flag signal, not a message
+    // queue, so get_properties (le_tcl_procs.tcl) can still tell "this
+    // path was genuinely invalid" apart from "structurally valid, just
+    // resolves to nothing" (e.g. a list hop with zero elements) even
+    // though both cases return the same all-null LeProperty - see
+    // le_property_path_failed's own api.hpp comment.
+    bool last_property_path_failed = false;
 
     // === Per-handle view/interaction state (formerly `le::Scene`) ===
     //

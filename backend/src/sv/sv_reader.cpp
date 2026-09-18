@@ -9,6 +9,7 @@
 #include "slang/ast/Compilation.h"
 #include "slang/ast/Scope.h"
 #include "slang/ast/Symbol.h"
+#include "slang/ast/expressions/AssignmentExpressions.h"
 #include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/symbols/BlockSymbols.h"
@@ -27,6 +28,22 @@ namespace le
 {
     namespace
     {
+        // slang::DiagnosticEngine::reportAll's own report already
+        // formats each diagnostic on its own line ("<file>:<line>:<col>:
+        // error|warning|note: <text>", per slang's own convention) - this
+        // just picks a matching spdlog level per line rather than
+        // re-parsing/re-formatting it, mirroring LEFReader/DEFReader's
+        // own log_error/log_warning dual (spdlog + messages_) reporting.
+        void log_diagnostic_line(const std::string &line)
+        {
+            if (line.find(": error:") != std::string::npos)
+                spdlog::error("{}", line);
+            else if (line.find(": warning:") != std::string::npos)
+                spdlog::warn("{}", line);
+            else
+                spdlog::info("{}", line);
+        }
+
         DesignId get_or_create_design(Root &root, LibraryId library_id, const std::string &name)
         {
             DesignId id = root.get_design_by_name(name);
@@ -326,6 +343,39 @@ namespace le
             if (!expression)
                 return;
 
+            // An Out/InOut-direction port's own connection expression is
+            // never the bare connected signal directly -
+            // PortConnection::getExpression() (PortSymbols.cpp) always
+            // binds it through bindExplicitConnection with ASTFlags::
+            // LValue set for that direction, which wraps it in a real
+            // AssignmentExpression (external_signal = internal_port_value
+            // - see AssignmentExpression::isLValueArg()'s own doc
+            // comment: "implied by the lhs being the target of an lvalue
+            // argument or port connection"). The connected signal itself
+            // is always the left-hand side, regardless of direction -
+            // unwrap to it before classifying, the same way an In-
+            // direction port's own bare NamedValue/ElementSelect
+            // connection already is. Not an edge case: every Out/InOut
+            // connection is wrapped this way, so without this unwrap
+            // every single-bit output-only net (never otherwise
+            // referenced as an input anywhere, so no *other* connection
+            // ever creates it) would silently fall through to
+            // raw_expression below and never get a real Net at all - a
+            // real gap this reader never exercised before a real gate-
+            // level netlist's own leaf-cell instantiations (BUF_X1,
+            // DFFR_X1, ...) resolved against a real module definition
+            // (verilog_stub_writer.hpp) instead of the uninstantiated/
+            // raw-syntax fallback path, which parses connections as
+            // plain text and never hit this real-elaboration-only
+            // wrapping at all.
+            if (expression->kind == slang::ast::ExpressionKind::Assignment)
+            {
+                populate_pin_from_expression(root, parent_schematic_id, pin_data,
+                                              &expression->as<slang::ast::AssignmentExpression>().left(),
+                                              source_manager);
+                return;
+            }
+
             if (expression->kind == slang::ast::ExpressionKind::NamedValue)
             {
                 const auto &named = expression->as<slang::ast::NamedValueExpression>();
@@ -368,6 +418,15 @@ namespace le
                     bit_range_from_type(port_symbol->getType(), port_msb, port_lsb);
 
                 const slang::ast::Expression *expr = connection->getExpression();
+                // Same Out/InOut Assignment-wrapping populate_pin_from_expression's
+                // own comment explains - unwrapped here too so the
+                // whole-bus decomposition check below (which needs the
+                // real connected signal's own NamedValue/type, not the
+                // wrapper) still recognizes a wide output/inout bus
+                // connection, e.g. an SRAM macro's own wide data-out
+                // port connected to a whole bus net.
+                if (expr && expr->kind == slang::ast::ExpressionKind::Assignment)
+                    expr = &expr->as<slang::ast::AssignmentExpression>().left();
 
                 // A whole-bus connection (e.g. a module-to-module bus
                 // hookup, `.data(some_wide_wire)` with no bit-select at
@@ -650,8 +709,9 @@ namespace le
             auto tree = slang::syntax::SyntaxTree::fromFile(filename);
             if (!tree)
             {
-                messages_.push_back(
-                    fmt::format("ERROR: read_netlist: failed to open '{}': {}", filename, tree.error().second));
+                const std::string msg = fmt::format("read_netlist: failed to open '{}': {}", filename, tree.error().second);
+                spdlog::error("{}", msg);
+                messages_.push_back("ERROR: " + msg);
                 continue;
             }
             compilation.addSyntaxTree(tree.value());
@@ -742,7 +802,10 @@ namespace le
             const size_t line_end = report.find('\n', line_start);
             const std::string line = report.substr(line_start, line_end == std::string::npos ? std::string::npos : line_end - line_start);
             if (!line.empty())
+            {
+                log_diagnostic_line(line);
                 messages_.push_back(line);
+            }
             if (line_end == std::string::npos)
                 break;
             line_start = line_end + 1;
@@ -944,8 +1007,9 @@ namespace le
             auto tree = slang::syntax::SyntaxTree::fromFile(filename);
             if (!tree)
             {
-                messages_.push_back(
-                    fmt::format("ERROR: read_rtl: failed to open '{}': {}", filename, tree.error().second));
+                const std::string msg = fmt::format("read_rtl: failed to open '{}': {}", filename, tree.error().second);
+                spdlog::error("{}", msg);
+                messages_.push_back("ERROR: " + msg);
                 continue;
             }
             trees.push_back(tree.value());
@@ -1010,7 +1074,10 @@ namespace le
                 const std::string line =
                     report.substr(line_start, line_end == std::string::npos ? std::string::npos : line_end - line_start);
                 if (!line.empty())
+                {
+                    log_diagnostic_line(line);
                     messages_.push_back(line);
+                }
                 if (line_end == std::string::npos)
                     break;
                 line_start = line_end + 1;

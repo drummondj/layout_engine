@@ -85,11 +85,13 @@ LeProperty le_{{klass.to_snake_case()}}_property_path(LeHandle *handle, Le{{klas
     if (!handle || !path)
         return invalid;
     std::lock_guard<std::mutex> lock(handle->mutex_);
+    handle->last_property_path_failed = false;
 
     auto parsed = le::parse_property_path(path);
     if (!parsed)
     {
-        handle->messages.push_back(fmt::format("ERROR: {{klass.to_snake_case()}}_property_path: {}", parsed.error()));
+        spdlog::error("{{klass.to_snake_case()}}_property_path: {}", parsed.error());
+        handle->last_property_path_failed = true;
         return invalid;
     }
 
@@ -105,13 +107,15 @@ LeProperty le_{{klass.to_snake_case()}}_property_path(LeHandle *handle, Le{{klas
             handle->cached_property_path_value = std::move(*found);
             return to_c(handle->cached_property_path_value);
         }
-        handle->messages.push_back(fmt::format("ERROR: {{klass.to_snake_case()}}_property_path: unknown field '{}' on {{klass.name}}", (*parsed)[0]));
+        spdlog::error("{{klass.to_snake_case()}}_property_path: unknown field '{}' on {{klass.name}}", (*parsed)[0]);
+        handle->last_property_path_failed = true;
         return invalid;
     }
 
     if (auto error = validate_filter_path("{{klass.name}}", *parsed))
     {
-        handle->messages.push_back(fmt::format("ERROR: {{klass.to_snake_case()}}_property_path: {}", *error));
+        spdlog::error("{{klass.to_snake_case()}}_property_path: {}", *error);
+        handle->last_property_path_failed = true;
         return invalid;
     }
 

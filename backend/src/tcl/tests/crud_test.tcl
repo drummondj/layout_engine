@@ -43,7 +43,6 @@ load $module_path le_tcl
 source $procs_path
 
 check "read_lef return code" 0 [read_lef $lef_path]
-check "message_count after read_lef" 0 [message_count]
 
 set abstract_id [design_abstract_id 0]
 check_true "design_abstract_id is valid" [expr {$abstract_id != $kInvalidId}]
@@ -119,20 +118,14 @@ check "delete_terminal (current-abstract-default fixture) return code" 0 [delete
 
 # --- Terminal-name uniqueness enforcement (UPDATES.md's friendly-id item) ---
 
-set messages_before_duplicate [message_count]
 check "create_terminal with a colliding name returns an empty id" {} \
     [create_terminal -abstract $abstract_token -name IN0 -direction INPUT]
-check_true "create_terminal name collision pushed an error message" \
-    [expr {[message_count] > $messages_before_duplicate}]
 
-set messages_before_rename_collision [message_count]
 if {![catch {update_terminal $out0 -name IN0}]} {
     puts stderr "FAIL: update_terminal -name to a colliding name did not raise a Tcl error"
     exit 1
 }
 puts "ok: update_terminal -name to a colliding name fails"
-check_true "update_terminal -name collision pushed an error message" \
-    [expr {[message_count] > $messages_before_rename_collision}]
 check "update_terminal -name failure left OUT0 untouched" OUT0 [dict get [get_properties $out0] name]
 
 set props [get_properties $in0]
@@ -226,14 +219,11 @@ check "get_terminals name-expression no match" {} [get_terminals DOES_NOT_EXIST]
 
 # A bare positional name-expression is never a parse error (it's just a
 # glob pattern, matched literally if it contains no wildcard) - the
-# parse-error path only exists behind -filter now.
-set messages_before_parse_error [message_count]
+# parse-error path only exists behind -filter now. The ERROR itself is
+# now logged via spdlog::error (terminal output), not queryable from
+# Tcl - the empty-result return value is the only assertion left here.
 check "get_terminals -filter parse-error result" {} [get_terminals -filter {not a filter expression}]
-check_true "get_terminals -filter parse error was logged" [expr {[message_count] > $messages_before_parse_error}]
-
-set messages_before_bad_field [message_count]
 check "get_terminals -filter with an unknown field returns empty" {} [get_terminals -filter {.bogus_field == 1}]
-check_true "get_terminals -filter unknown-field error was logged" [expr {[message_count] > $messages_before_bad_field}]
 
 # --- TerminalPort + Shape (rect/polygon/path via the coordinate typemap) ---
 
@@ -677,17 +667,18 @@ check_true "get_terminals sees the recreated terminal" [expr {[get_terminals DEL
 # --- Error messages name the real user-facing command, not the raw le_
 # C API function (BUGS_AND_ENHANCEMENTS.md E29 - the item's own example
 # was "le_read_lef vs read_lef"). Generated create_<type> commands don't
-# raise a Tcl error on failure (they just return "" and push a message -
-# unlike write_lef/write_def/select's own hand-written catch-and-wrap),
-# so this checks message_at directly rather than catching an error. ---
+# raise a Tcl error on failure (they just return ""), and their own
+# error is logged via spdlog::error, not pushed anywhere Tcl can read it
+# back - so the "names create_design, not le_create_design" half of this
+# regression is no longer Tcl-testable; it's now a property of the
+# generated code itself (schema.py's create_api_body always formats its
+# spdlog::error() message with the Tcl-facing create_<type> snake_case
+# name, never the raw le_create_<type> C API name - see that template).
+# The functional half (an unresolvable -library still fails cleanly)
+# stays covered here. ---
 
-set messages_before [message_count]
 check "create_design with an unresolvable -library returns an empty id" {} \
     [create_design -library library:does_not_exist -name SHOULD_NOT_EXIST]
-check_true "create_design pushed a new message" [expr {[message_count] > $messages_before}]
-set last_create_design_message [message_at [expr {[message_count] - 1}]]
-check_true "create_design's own message names the real command, not le_create_design" \
-    [expr {[string first "create_design:" $last_create_design_message] >= 0 && [string first "le_create_design" $last_create_design_message] < 0}]
 
 # --- write_lef/write_def (BUGS_AND_ENHANCEMENTS.md E28) - reuses
 # scratch_abstract (still the current Abstract from the from-scratch

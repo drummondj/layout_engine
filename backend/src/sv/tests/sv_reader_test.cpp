@@ -207,6 +207,64 @@ TEST(SVReader, NetlistReadPopulatesPortsInstancesAndPins)
     EXPECT_TRUE(found_a_pin);
 }
 
+// PortConnection::getExpression() (slang's own PortSymbols.cpp) always
+// binds an Out/InOut-direction port's own connection expression through
+// bindExplicitConnection with ASTFlags::LValue set, wrapping the real
+// connected signal in an AssignmentExpression rather than handing it
+// back directly - populate_pin_from_expression must unwrap to its
+// left-hand side before classifying, or every single-bit net connected
+// *only* as an output (never read as an input anywhere else, so no
+// *other* connection ever creates a matching Net either) silently falls
+// through to raw_expression and never gets a real Net at all. Every
+// other existing fixture's own output-driven nets (e.g.
+// gate_netlist_clean.v's "mid" bus above) happen to also be read
+// elsewhere, which creates the Net via that *other* connection
+// regardless - masking this gap until a real gate-level netlist's own
+// dangling (output-only) internal signals exposed it.
+TEST(SVReader, OutputOnlyConnectionsStillResolveToRealNets)
+{
+    Root root;
+    SVReader reader;
+    ASSERT_EQ(reader.read_netlist({fixture_path("gate_netlist_output_only_net.v")}, root, "test_lib"), 0);
+
+    const DesignId top_id = root.get_design_by_name("top");
+    ASSERT_TRUE(top_id.valid());
+    const SchematicId schematic_id = root.get_design_schematic(top_id);
+    ASSERT_TRUE(schematic_id.valid());
+
+    const NetId dangling_net = root.get_net_by_name(schematic_id, "dangling");
+    ASSERT_TRUE(dangling_net.valid());
+
+    bool found_y_pin = false;
+    for (const auto instance_id : root.get_schematic_instances(schematic_id))
+    {
+        const InstanceData *inst = root.get_instance(instance_id);
+        ASSERT_NE(inst, nullptr);
+        if (!inst->reference_name.has_value() || *inst->reference_name != "BUF1")
+            continue;
+        for (const auto pin_id : root.get_instance_pins(instance_id))
+        {
+            const PinData *pin = root.get_pin(pin_id);
+            ASSERT_NE(pin, nullptr);
+            if (pin->name != "Y")
+                continue;
+            found_y_pin = true;
+            EXPECT_EQ(pin->net, dangling_net);
+            EXPECT_FALSE(pin->raw_expression.has_value());
+        }
+    }
+    EXPECT_TRUE(found_y_pin);
+
+    // A whole-bus output-only connection (e.g. an SRAM-style wide
+    // data-out port) must still decompose into one real per-bit Net,
+    // the same as the whole-bus *input* case already does.
+    for (int bit = 0; bit < 4; ++bit)
+    {
+        const std::string bit_name = "wide_dangling[" + std::to_string(bit) + "]";
+        EXPECT_TRUE(root.get_net_by_name(schematic_id, bit_name).valid()) << bit_name;
+    }
+}
+
 // Milestone 4/5: an instance referencing a module never defined in the
 // file being read (the common case for a real gate-level netlist
 // referencing standard cells) stays unresolved until

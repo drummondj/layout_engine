@@ -1,6 +1,7 @@
 #include "lef_writer.hpp"
 #include "../lefdef/lef/include/lefwWriter.hpp"
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
 #include <memory>
 #include <cstdio>
 #include <cctype>
@@ -2180,25 +2181,30 @@ namespace le
     int LEFWriter::write_lef(const std::string &path, const Root &root, const std::vector<AbstractId> &abstract_ids, LayerWriteMode mode)
     {
         messages_.clear();
+        auto log_error = [this](std::string msg)
+        {
+            spdlog::error("{}", msg);
+            messages_.push_back("ERROR: " + std::move(msg));
+        };
 
         std::unique_ptr<FILE, int (*)(FILE *)> file(fopen(path.c_str(), "w"), &fclose);
         if (!file)
         {
-            messages_.push_back(fmt::format("ERROR: Could not open {} for writing.", path));
+            log_error(fmt::format("Could not open {} for writing.", path));
             return 1;
         }
 
         int status = lefwInit(file.get());
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: lefwInit failed with status {}.", status));
+            log_error(fmt::format("lefwInit failed with status {}.", status));
             return status;
         }
 
         status = lefwVersion(5, 8);
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: lefwVersion failed with status {}.", status));
+            log_error(fmt::format("lefwVersion failed with status {}.", status));
             return status;
         }
 
@@ -2216,7 +2222,7 @@ namespace le
             status = lefwFixedMask();
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: lefwFixedMask failed with status {}.", status));
+                log_error(fmt::format("lefwFixedMask failed with status {}.", status));
                 return status;
             }
         }
@@ -2225,7 +2231,7 @@ namespace le
             status = lefwBusBitChars(technology->bus_bit_chars->c_str());
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: lefwBusBitChars failed with status {}.", status));
+                log_error(fmt::format("lefwBusBitChars failed with status {}.", status));
                 return status;
             }
         }
@@ -2234,7 +2240,7 @@ namespace le
             status = lefwDividerChar(technology->divider_char->c_str());
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: lefwDividerChar failed with status {}.", status));
+                log_error(fmt::format("lefwDividerChar failed with status {}.", status));
                 return status;
             }
         }
@@ -2243,7 +2249,7 @@ namespace le
             status = lefwUseMinSpacing("OBS", *technology->use_min_spacing_obs ? "ON" : "OFF");
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: lefwUseMinSpacing(OBS) failed with status {}.", status));
+                log_error(fmt::format("lefwUseMinSpacing(OBS) failed with status {}.", status));
                 return status;
             }
         }
@@ -2252,7 +2258,7 @@ namespace le
             status = lefwUseMinSpacing("PIN", *technology->use_min_spacing_pin ? "ON" : "OFF");
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: lefwUseMinSpacing(PIN) failed with status {}.", status));
+                log_error(fmt::format("lefwUseMinSpacing(PIN) failed with status {}.", status));
                 return status;
             }
         }
@@ -2261,7 +2267,7 @@ namespace le
             status = lefwClearanceMeasure(technology->clearance_measure->c_str());
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: lefwClearanceMeasure failed with status {}.", status));
+                log_error(fmt::format("lefwClearanceMeasure failed with status {}.", status));
                 return status;
             }
         }
@@ -2271,7 +2277,7 @@ namespace le
             status = write_units(root, technology_id);
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: Writing UNITS failed with status {}.", status));
+                log_error(fmt::format("Writing UNITS failed with status {}.", status));
                 return status;
             }
 
@@ -2280,7 +2286,7 @@ namespace le
                 status = lefwManufacturingGrid(*technology->manufacturing_grid);
                 if (status)
                 {
-                    messages_.push_back(fmt::format("ERROR: lefwManufacturingGrid failed with status {}.", status));
+                    log_error(fmt::format("lefwManufacturingGrid failed with status {}.", status));
                     return status;
                 }
             }
@@ -2292,14 +2298,14 @@ namespace le
             status = write_property_definitions(root, technology_id);
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: Writing PROPERTYDEFINITIONS failed with status {}.", status));
+                log_error(fmt::format("Writing PROPERTYDEFINITIONS failed with status {}.", status));
                 return status;
             }
 
             status = write_technology_layers(root, technology_id);
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: Writing LAYERs failed with status {}.", status));
+                log_error(fmt::format("Writing LAYERs failed with status {}.", status));
                 return status;
             }
 
@@ -2314,7 +2320,7 @@ namespace le
                                           technology->max_via_stack_top_layer ? technology->max_via_stack_top_layer->c_str() : nullptr);
                 if (status)
                 {
-                    messages_.push_back(fmt::format("ERROR: lefwMaxviastack failed with status {}.", status));
+                    log_error(fmt::format("lefwMaxviastack failed with status {}.", status));
                     return status;
                 }
             }
@@ -2331,7 +2337,7 @@ namespace le
                 status = lefwAntennaInputGateArea(*technology->antenna_input_gate_area);
                 if (status)
                 {
-                    messages_.push_back(fmt::format("ERROR: lefwAntennaInputGateArea failed with status {}.", status));
+                    log_error(fmt::format("lefwAntennaInputGateArea failed with status {}.", status));
                     return status;
                 }
             }
@@ -2340,7 +2346,7 @@ namespace le
                 status = lefwAntennaInOutDiffArea(*technology->antenna_inout_diff_area);
                 if (status)
                 {
-                    messages_.push_back(fmt::format("ERROR: lefwAntennaInOutDiffArea failed with status {}.", status));
+                    log_error(fmt::format("lefwAntennaInOutDiffArea failed with status {}.", status));
                     return status;
                 }
             }
@@ -2349,7 +2355,7 @@ namespace le
                 status = lefwAntennaOutputDiffArea(*technology->antenna_output_diff_area);
                 if (status)
                 {
-                    messages_.push_back(fmt::format("ERROR: lefwAntennaOutputDiffArea failed with status {}.", status));
+                    log_error(fmt::format("lefwAntennaOutputDiffArea failed with status {}.", status));
                     return status;
                 }
             }
@@ -2359,14 +2365,14 @@ namespace le
             status = write_vias(root, technology_id);
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: Writing VIAs failed with status {}.", status));
+                log_error(fmt::format("Writing VIAs failed with status {}.", status));
                 return status;
             }
 
             status = write_via_rules(root, technology_id);
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: Writing VIARULEs failed with status {}.", status));
+                log_error(fmt::format("Writing VIARULEs failed with status {}.", status));
                 return status;
             }
 
@@ -2375,14 +2381,14 @@ namespace le
             status = write_non_default_rules(root, technology_id);
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: Writing NONDEFAULTRULEs failed with status {}.", status));
+                log_error(fmt::format("Writing NONDEFAULTRULEs failed with status {}.", status));
                 return status;
             }
 
             status = write_sites(root, technology_id);
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: Writing SITEs failed with status {}.", status));
+                log_error(fmt::format("Writing SITEs failed with status {}.", status));
                 return status;
             }
         }
@@ -2394,7 +2400,7 @@ namespace le
                 status = write_macro(root, abstract_id, dbu_per_micron);
                 if (status)
                 {
-                    messages_.push_back(fmt::format("ERROR: Writing MACRO failed with status {}.", status));
+                    log_error(fmt::format("Writing MACRO failed with status {}.", status));
                     return status;
                 }
             }
@@ -2403,7 +2409,7 @@ namespace le
         status = lefwEnd();
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: lefwEnd failed with status {}.", status));
+            log_error(fmt::format("lefwEnd failed with status {}.", status));
             return status;
         }
 

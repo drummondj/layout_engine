@@ -30,7 +30,6 @@ load $module_path le_tcl
 source $procs_path
 
 check "read_lef return code" 0 [read_lef $lef_path]
-check "message_count" 0 [message_count]
 check "design_count" 1 [design_count]
 check "design_name 0" "TESTCELL" [design_name 0]
 

@@ -277,85 +277,23 @@ TEST_F(ApiFixture, ReadLefWithValidFileSucceedsAndPopulatesOneDesign)
     EXPECT_STREQ(name, "TESTCELL");
 }
 
-// le_message_count/le_message_at (UPDATES.md item 3) - the queue
-// le_read_lef drains LEFReader::messages() into, persisting across
-// calls on the same handle for the GUI to poll.
-TEST_F(ApiFixture, MessageCountAndMessageAtAreZeroAndNullBeforeAnyReadLefCall)
+// handle->messages / le_message_count / le_message_at (formerly
+// UPDATES.md item 3) were removed - every backend message now goes
+// straight to spdlog (le_shell's own console) instead of a queue the
+// GUI polled, since there's no longer a Flutter frontend to poll it.
+// Message *content* (ERROR/WARNING text, malformed vs. warning-only
+// fixtures) is still covered directly at the reader level - see
+// LEFReaderErrors/LEFReaderMessages in lef_reader_test.cpp - so only
+// le_read_lef's own return-code contract for these fixtures is worth
+// re-asserting here, at the API layer.
+TEST_F(ApiFixture, ReadLefWithMalformedContentReturnsNonzero)
 {
-    EXPECT_EQ(le_message_count(handle), 0);
-    EXPECT_EQ(le_message_at(handle, 0), nullptr);
+    EXPECT_NE(le_read_lef(handle, fixture_path("malformed.lef").c_str()), 0);
 }
 
-TEST_F(ApiFixture, ReadLefWithMissingFileAppendsAnErrorMessage)
+TEST_F(ApiFixture, ReadLefWithAWarningProducingFileStillSucceeds)
 {
-    ASSERT_NE(le_read_lef(handle, "/does/not/exist.lef"), 0);
-    ASSERT_GT(le_message_count(handle), 0);
-    const char *msg = le_message_at(handle, 0);
-    ASSERT_NE(msg, nullptr);
-    EXPECT_NE(std::string(msg).find("ERROR"), std::string::npos);
-}
-
-TEST_F(ApiFixture, ReadLefWithMalformedContentAppendsAnErrorMessage)
-{
-    ASSERT_NE(le_read_lef(handle, fixture_path("malformed.lef").c_str()), 0);
-    ASSERT_GT(le_message_count(handle), 0);
-    const char *msg = le_message_at(handle, 0);
-    ASSERT_NE(msg, nullptr);
-    EXPECT_NE(std::string(msg).find("ERROR"), std::string::npos);
-}
-
-TEST_F(ApiFixture, ReadLefWithAWarningProducingFileSucceedsAndAppendsAWarningMessage)
-{
-    ASSERT_EQ(le_read_lef(handle, fixture_path("warning_currentden.lef").c_str()), 0);
-    ASSERT_GT(le_message_count(handle), 0);
-
-    bool found_warning = false;
-    for (int32_t i = 0; i < le_message_count(handle); ++i)
-    {
-        const char *msg = le_message_at(handle, i);
-        ASSERT_NE(msg, nullptr);
-        if (std::string(msg).find("WARNING") != std::string::npos)
-            found_warning = true;
-    }
-    EXPECT_TRUE(found_warning);
-}
-
-TEST_F(ApiFixture, SuccessfulReadLefWithNoDiagnosticsAppendsNoMessages)
-{
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    EXPECT_EQ(le_message_count(handle), 0);
-}
-
-TEST_F(ApiFixture, MessagesAccumulateAcrossMultipleReadLefCalls)
-{
-    // warning_currentden.lef - a valid LEF that still produces a WARNING
-    // (CURRENTDEN is obsolete on any version >= 5.2) - used twice so
-    // each read independently contributes at least one message.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("warning_currentden.lef").c_str()), 0);
-    const int32_t count_after_first = le_message_count(handle);
-    ASSERT_GT(count_after_first, 0);
-    const std::string first_message = le_message_at(handle, 0);
-
-    ASSERT_EQ(le_read_lef(handle, fixture_path("warning_currentden.lef").c_str()), 0);
-    const int32_t count_after_second = le_message_count(handle);
-    EXPECT_GT(count_after_second, count_after_first);
-
-    // Earlier entries keep their original text - not overwritten by the
-    // second call.
-    ASSERT_NE(le_message_at(handle, 0), nullptr);
-    EXPECT_EQ(std::string(le_message_at(handle, 0)), first_message);
-}
-
-TEST_F(ApiFixture, MessageAtOutOfRangeOrNullHandleReturnsNull)
-{
-    ASSERT_EQ(le_read_lef(handle, fixture_path("warning_currentden.lef").c_str()), 0);
-    const int32_t count = le_message_count(handle);
-    ASSERT_GT(count, 0);
-
-    EXPECT_EQ(le_message_at(handle, count), nullptr);
-    EXPECT_EQ(le_message_at(handle, -1), nullptr);
-    EXPECT_EQ(le_message_at(nullptr, 0), nullptr);
-    EXPECT_EQ(le_message_count(nullptr), 0);
+    EXPECT_EQ(le_read_lef(handle, fixture_path("warning_currentden.lef").c_str()), 0);
 }
 
 // le_tooltip_message (UPDATES.md item 7.3).
@@ -2480,22 +2418,20 @@ TEST_F(ApiFixture, SelectAllSkipsUnselectableLayers)
     EXPECT_EQ(le_selection_count(handle), 0);
 }
 
+// The "WARNING: select_all: selection capped..." message (api.cpp) now
+// goes straight to spdlog::warn, not a queryable handle->messages queue
+// - the selection count itself is the only externally-observable proof
+// of the cap left at this layer.
 TEST_F(ApiFixture, SelectAllIsCappedAt10000AndWarns)
 {
     const std::string path = generate_concurrency_stress_lef(10050);
     ASSERT_EQ(le_read_lef(handle, path.c_str()), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
-    ASSERT_EQ(le_message_count(handle), 0);
-
     le_key_down(handle, LE_KEY_CTRL);
     le_key_down(handle, LE_KEY_SELECT_ALL);
 
     EXPECT_EQ(le_selection_count(handle), 10000);
-
-    ASSERT_GT(le_message_count(handle), 0);
-    const std::string message = le_message_at(handle, 0);
-    EXPECT_NE(message.find("capped"), std::string::npos);
 }
 
 TEST_F(ApiFixture, SelectAllWithNullHandleDoesNotCrash)
@@ -3692,10 +3628,7 @@ TEST_F(ApiFixture, SelectObjectRefWithAShapeRefSelectsEveryPieceOfIt)
 TEST_F(ApiFixture, SelectObjectRefWithAnInvalidShapeFailsWithAMessage)
 {
     const LeObjectRef bad_ref{.kind = LE_OBJECT_KIND_SHAPE, .index = UINT32_MAX, .generation = 0};
-    const int32_t messages_before = le_message_count(handle);
     EXPECT_NE(le_select_object_ref(handle, bad_ref), 0);
-    ASSERT_GT(le_message_count(handle), messages_before);
-    EXPECT_NE(std::string(le_message_at(handle, le_message_count(handle) - 1)).find("no such Shape"), std::string::npos);
 }
 
 TEST_F(ApiFixture, SelectObjectRefIsAdditiveNotReplacing)
@@ -3745,10 +3678,7 @@ TEST_F(ApiFixture, SelectObjectRefWithAnUnsupportedKindFailsWithAMessage)
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     ASSERT_NE(abstract_id.index, UINT32_MAX);
 
-    const int32_t messages_before = le_message_count(handle);
     EXPECT_NE(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_ABSTRACT, .index = abstract_id.index, .generation = abstract_id.generation}), 0);
-    ASSERT_GT(le_message_count(handle), messages_before);
-    EXPECT_NE(std::string(le_message_at(handle, le_message_count(handle) - 1)).find("unsupported object kind"), std::string::npos);
     EXPECT_EQ(le_selection_count(handle), 0);
 }
 
@@ -3995,10 +3925,8 @@ TEST_F(ApiFixture, SearchTerminalFindsMatchesByFilterExpression)
 TEST_F(ApiFixture, SearchTerminalWithBadFilterExpressionReturnsNegativeOneAndPushesAMessage)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    const int32_t before = le_message_count(handle);
 
     EXPECT_EQ(le_search_terminal(handle, "not a filter expression"), -1);
-    EXPECT_GT(le_message_count(handle), before);
 
     EXPECT_EQ(le_search_terminal(nullptr, ".name == X"), 0);
     EXPECT_EQ(le_search_terminal(handle, nullptr), 0);
@@ -5085,12 +5013,9 @@ TEST_F(ApiFixture, WriteLefWithNoAbstractOrLibraryGivenAndNoCurrentAbstractSetFa
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
     EXPECT_EQ(le_current_abstract(handle).index, UINT32_MAX); // nothing selected yet
 
-    const int32_t messages_before = le_message_count(handle);
     EXPECT_NE(le_write_lef(handle, scratch_path("le_write_lef_no_current.lef").c_str(),
                             nullptr, 0, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_NONE),
               0);
-    ASSERT_GT(le_message_count(handle), messages_before);
-    EXPECT_NE(std::string(le_message_at(handle, le_message_count(handle) - 1)).find("no current Abstract"), std::string::npos);
 }
 
 TEST_F(ApiFixture, WriteLefFallsBackToTheCurrentAbstractWhenNoneIsGiven)
@@ -5222,10 +5147,7 @@ TEST_F(ApiFixture, WriteDefWithNoLayoutGivenAndNoCurrentLayoutSetFailsWithAMessa
     ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
     EXPECT_EQ(le_current_layout(handle).index, UINT32_MAX); // nothing selected yet
 
-    const int32_t messages_before = le_message_count(handle);
     EXPECT_NE(le_write_def(handle, scratch_path("le_write_def_no_current.def").c_str(), LeLayoutId{.index = UINT32_MAX, .generation = 0}), 0);
-    ASSERT_GT(le_message_count(handle), messages_before);
-    EXPECT_NE(std::string(le_message_at(handle, le_message_count(handle) - 1)).find("no current Layout"), std::string::npos);
 }
 
 TEST_F(ApiFixture, WriteDefFallsBackToTheCurrentLayoutWhenNoneIsGiven)

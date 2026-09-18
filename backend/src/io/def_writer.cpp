@@ -1,6 +1,7 @@
 #include "def_writer.hpp"
 #include "../lefdef/def/include/defwWriter.hpp"
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
 #include <memory>
 #include <cstdio>
 
@@ -1032,24 +1033,29 @@ namespace le
     int DEFWriter::write_def(const std::string &path, const Root &root, LayoutId layout_id)
     {
         messages_.clear();
+        auto log_error = [this](std::string msg)
+        {
+            spdlog::error("{}", msg);
+            messages_.push_back("ERROR: " + std::move(msg));
+        };
 
         const LayoutData *layout = root.get_layout(layout_id);
         if (!layout)
         {
-            messages_.push_back("ERROR: Invalid LayoutId.");
+            log_error("Invalid LayoutId.");
             return 1;
         }
         const DesignData *design = root.get_design(layout->design);
         if (!design)
         {
-            messages_.push_back("ERROR: Layout's Design not found.");
+            log_error("Layout's Design not found.");
             return 1;
         }
 
         std::unique_ptr<FILE, int (*)(FILE *)> file(fopen(path.c_str(), "w"), &fclose);
         if (!file)
         {
-            messages_.push_back(fmt::format("ERROR: Could not open {} for writing.", path));
+            log_error(fmt::format("Could not open {} for writing.", path));
             return 1;
         }
 
@@ -1082,14 +1088,14 @@ namespace le
         int status = defwInitCbk(file.get());
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: defwInitCbk failed with status {}.", status));
+            log_error(fmt::format("defwInitCbk failed with status {}.", status));
             return status;
         }
 
         status = defwVersion(5, 8);
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: defwVersion failed with status {}.", status));
+            log_error(fmt::format("defwVersion failed with status {}.", status));
             return status;
         }
 
@@ -1099,21 +1105,21 @@ namespace le
         status = defwDividerChar(technology && technology->divider_char ? technology->divider_char->c_str() : "/");
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: defwDividerChar failed with status {}.", status));
+            log_error(fmt::format("defwDividerChar failed with status {}.", status));
             return status;
         }
 
         status = defwBusBitChars(technology && technology->bus_bit_chars ? technology->bus_bit_chars->c_str() : "[]");
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: defwBusBitChars failed with status {}.", status));
+            log_error(fmt::format("defwBusBitChars failed with status {}.", status));
             return status;
         }
 
         status = defwDesignName(design->name.c_str());
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: defwDesignName failed with status {}.", status));
+            log_error(fmt::format("defwDesignName failed with status {}.", status));
             return status;
         }
 
@@ -1122,7 +1128,7 @@ namespace le
             status = defwUnits(static_cast<int>(technology->database_units_microns));
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: defwUnits failed with status {}.", status));
+                log_error(fmt::format("defwUnits failed with status {}.", status));
                 return status;
             }
         }
@@ -1130,35 +1136,35 @@ namespace le
         status = write_die_area(root, layout_id);
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: Writing DIEAREA failed with status {}.", status));
+            log_error(fmt::format("Writing DIEAREA failed with status {}.", status));
             return status;
         }
 
         status = write_rows(root, layout_id);
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: Writing ROWs failed with status {}.", status));
+            log_error(fmt::format("Writing ROWs failed with status {}.", status));
             return status;
         }
 
         status = write_tracks(root, layout_id);
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: Writing TRACKS failed with status {}.", status));
+            log_error(fmt::format("Writing TRACKS failed with status {}.", status));
             return status;
         }
 
         status = write_gcell_grids(root, layout_id);
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: Writing GCELLGRID failed with status {}.", status));
+            log_error(fmt::format("Writing GCELLGRID failed with status {}.", status));
             return status;
         }
 
         status = write_vias(root, layout_id);
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: Writing VIAS failed with status {}.", status));
+            log_error(fmt::format("Writing VIAS failed with status {}.", status));
             return status;
         }
 
@@ -1167,7 +1173,7 @@ namespace le
             status = write_non_default_rules(root, technology_id);
             if (status)
             {
-                messages_.push_back(fmt::format("ERROR: Writing NONDEFAULTRULES failed with status {}.", status));
+                log_error(fmt::format("Writing NONDEFAULTRULES failed with status {}.", status));
                 return status;
             }
         }
@@ -1175,42 +1181,42 @@ namespace le
         status = write_regions(root, layout_id);
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: Writing REGIONS failed with status {}.", status));
+            log_error(fmt::format("Writing REGIONS failed with status {}.", status));
             return status;
         }
 
         status = write_placements(root, layout_id);
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: Writing COMPONENTS failed with status {}.", status));
+            log_error(fmt::format("Writing COMPONENTS failed with status {}.", status));
             return status;
         }
 
         status = write_physical_ports(root, layout_id);
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: Writing PINS failed with status {}.", status));
+            log_error(fmt::format("Writing PINS failed with status {}.", status));
             return status;
         }
 
         status = write_blockages(root, layout_id);
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: Writing BLOCKAGES failed with status {}.", status));
+            log_error(fmt::format("Writing BLOCKAGES failed with status {}.", status));
             return status;
         }
 
         status = write_routes(root, layout_id);
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: Writing NETS/SPECIALNETS failed with status {}.", status));
+            log_error(fmt::format("Writing NETS/SPECIALNETS failed with status {}.", status));
             return status;
         }
 
         status = defwEnd();
         if (status)
         {
-            messages_.push_back(fmt::format("ERROR: defwEnd failed with status {}.", status));
+            log_error(fmt::format("defwEnd failed with status {}.", status));
             return status;
         }
 

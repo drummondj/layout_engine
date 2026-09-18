@@ -12,6 +12,7 @@
 #include "hierarchical_resolver.hpp"
 
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
 
 #include <string>
 #include <unordered_set>
@@ -98,9 +99,11 @@ namespace le
                                            std::optional<bool>(true), std::nullopt, std::nullopt, std::nullopt,
                                            std::nullopt, std::nullopt);
                     ++result.placements_marked_physical_only;
-                    result.messages.push_back(fmt::format(
-                        "WARNING: link: Placement '{}' has no matching Instance in the Schematic - marked physical_only.",
-                        placement->name));
+                    const std::string msg = fmt::format(
+                        "link: Placement '{}' has no matching Instance in the Schematic - marked physical_only.",
+                        placement->name);
+                    spdlog::warn("{}", msg);
+                    result.messages.push_back("WARNING: " + msg);
                 }
             }
         }
@@ -169,8 +172,9 @@ namespace le
                 }
                 else
                 {
-                    result.messages.push_back(
-                        fmt::format("ERROR: link: Route '{}' has no matching Net in the Schematic.", route->name));
+                    const std::string msg = fmt::format("link: Route '{}' has no matching Net in the Schematic.", route->name);
+                    spdlog::error("{}", msg);
+                    result.messages.push_back("ERROR: " + msg);
                 }
             }
 
@@ -191,9 +195,11 @@ namespace le
                 }
                 else
                 {
-                    result.messages.push_back(fmt::format(
-                        "WARNING: link: PhysicalPort '{}' net '{}' has no matching Net in the Schematic.", port->name,
-                        *port->net_name));
+                    const std::string msg = fmt::format(
+                        "link: PhysicalPort '{}' net '{}' has no matching Net in the Schematic.", port->name,
+                        *port->net_name);
+                    spdlog::warn("{}", msg);
+                    result.messages.push_back("WARNING: " + msg);
                 }
             }
         }

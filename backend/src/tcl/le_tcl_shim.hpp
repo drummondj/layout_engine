@@ -115,13 +115,19 @@
 
 int read_lef(const char *path);
 int read_def(const char *path);
-// A Tcl caller reading multiple SystemVerilog/Verilog files does so via
-// repeated calls into the same session - each call's own get-or-create-
-// by-name Design/Schematic handling (SVReader) makes that work naturally,
-// so this shim only needs to marshal one path across the SWIG boundary
-// (same "no new typemap needed" shape read_lef/read_def already have).
-int read_verilog_cmd(const char *path, int is_netlist);
+// paths is a space-separated list of one or more filenames, all read
+// into the same le_read_verilog call - see this function's own .cpp
+// comment for why that matters specifically for read_netlist (letting a
+// generated Verilog stub file and a real netlist share one slang
+// elaboration - verilog_stub_writer.hpp).
+int read_verilog_cmd(const char *paths, int is_netlist);
 int link_unresolved_instances_cmd();
+
+/// @brief Tcl-facing wrapper for le_write_verilog_stubs - see that
+/// function's own api.hpp comment and verilog_stub_writer.hpp.
+/// library_token may be null/empty to mean "the sole Library read so
+/// far" (fails if that's not exactly one Library).
+int write_verilog_stubs_cmd(const char *path, const char *library_token);
 
 // Hierarchical-path variants of get_instances_cmd/get_nets_cmd/
 // get_ports_cmd (LINKING_STRATEGY_RESEARCH.md sections 3/4) -
@@ -144,8 +150,13 @@ const char *rename_instance_cmd(const char *id, const char *new_name);
 
 int design_count();
 const char *design_name(int index);
-int message_count();
-const char *message_at(int index);
+
+/// @brief Tcl-facing wrapper for le_property_path_failed - see that
+/// function's own api.hpp comment. get_properties (le_tcl_procs.tcl)
+/// checks this right after each *_property_path call to tell a genuine
+/// parse/validation error apart from a path that just resolves to
+/// nothing.
+int property_path_failed();
 
 /// @brief Positional form behind `set_viewport_size -width W -height H`
 /// (see le_tcl_procs.tcl). Demonstrates the -flag-parsing split
@@ -263,9 +274,8 @@ const char *get_selection_at_cmd(int index);
 /// `token`'s own shape:/row:/placement:/region: prefix to a LeObjectRef
 /// and calls le_select_object_ref. Returns 0 on success, 1 for a
 /// recognized-prefix-but-unresolvable/unsupported token (le_select_object_ref's
-/// own failure, with a real ERROR message in handle->messages), or 2 for
-/// an unrecognized prefix (no message pushed - this shim has no access to
-/// LeHandle's real definition to push one itself; select, le_tcl_procs.tcl,
+/// own failure, with a real ERROR message logged via spdlog::error), or 2
+/// for an unrecognized prefix (no message logged - select, le_tcl_procs.tcl,
 /// raises its own Tcl error using the token text it already has instead).
 int select_cmd(const char *token);
 

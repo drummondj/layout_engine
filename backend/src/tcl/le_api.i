@@ -77,8 +77,9 @@
 
 int read_lef(const char *path);
 int read_def(const char *path);
-int read_verilog_cmd(const char *path, int is_netlist);
+int read_verilog_cmd(const char *paths, int is_netlist);
 int link_unresolved_instances_cmd();
+int write_verilog_stubs_cmd(const char *path, const char *library_token);
 int get_instances_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);
 int get_nets_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);
 int get_ports_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);
@@ -87,8 +88,7 @@ const char *rename_net_cmd(const char *id, const char *new_name);
 const char *rename_instance_cmd(const char *id, const char *new_name);
 int design_count();
 const char *design_name(int index);
-int message_count();
-const char *message_at(int index);
+int property_path_failed();
 void set_viewport_size_cmd(int width_px, int height_px);
 int viewport_width();
 int viewport_height();

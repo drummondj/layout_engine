@@ -100,7 +100,6 @@ TEST(MutationCascade, DeleteNetFailsForUnknownId)
 {
     LeHandle handle;
     EXPECT_NE(le_delete_net_cascade(&handle, LeNetId{.index = UINT32_MAX, .generation = 0}), 0);
-    EXPECT_FALSE(handle.messages.empty());
 }
 
 TEST(MutationCascade, RenameNetPropagatesToLinkedRouteAndPhysicalPort)

@@ -197,13 +197,45 @@ extern "C"
     /// resolution, for a real gate-level netlist); zero selects the
     /// syntax-only RTL flavor (SVReader::read_rtl - tolerates invalid/
     /// unsupported content by storing it as a logic-cloud Instance, see
-    /// Instance.rtl_text). Automatically re-resolves any newly-resolvable
-    /// Instance.reference_design against Designs already in this session
-    /// (SVReader::link_unresolved_instances - also directly callable via
+    /// Instance.rtl_text). In netlist mode, automatically generates stub
+    /// Verilog module declarations (verilog_stub_writer.hpp - a port
+    /// list plus an empty body, LEF bus-bit pins combined into real
+    /// `[msb:lsb]` ports) for every Design already in this handle's Root
+    /// that has a LEF Abstract but no Schematic (any read_lef so far),
+    /// writes them to a real temporary file, and includes that file in
+    /// this same call's own elaboration - the only way slang can resolve
+    /// a gate-level instantiation of a LEF-only leaf cell/macro for real
+    /// instead of falling back to the raw-syntax/no-RTL path (they only
+    /// share one slang::ast::Compilation within one call - see
+    /// SVReader::read_netlist's own body). The temp file is removed
+    /// again once this call returns; le_write_verilog_stubs below writes
+    /// the same generated source to a caller-chosen path instead, for
+    /// inspection or a manual multi-step workflow. Automatically
+    /// re-resolves any newly-resolvable Instance.reference_design
+    /// against Designs already in this session (SVReader::
+    /// link_unresolved_instances - also directly callable via
     /// le_link_unresolved_instances for a later read, e.g. an LEF read
     /// after this one supplies a previously-missing leaf cell). Same
-    /// 0/nonzero + handle->messages convention as le_read_lef/le_read_def.
+    /// 0/nonzero return + spdlog-logged-messages convention as le_read_lef/le_read_def.
     int le_read_verilog(LeHandle *handle, const char *const *filenames, int32_t filename_count, int32_t is_netlist);
+
+    /// @brief Writes stub Verilog module declarations (a port list plus
+    /// an empty body - see verilog_stub_writer.hpp's own top-of-file
+    /// comment) to `path`, one per Design in `library_id` that has an
+    /// Abstract (a LEF-read physical view) but no Schematic - the usual
+    /// standard-cell/macro situation for a gate-level netlist read
+    /// against a LEF-only cell library. le_read_verilog(...,
+    /// is_netlist=1) above already generates and uses this same content
+    /// automatically for every read - call this directly only to inspect
+    /// the generated stub source, or to drive a manual multi-step
+    /// workflow of your own. `library_id` may be the invalid/default id
+    /// to mean "the sole Library read so far" - fails with an ERROR
+    /// message if zero or more than one Library exists and none was
+    /// given explicitly (no "current Library" concept exists the way
+    /// Abstract/Layout have - see le_write_lef/le_write_def's own
+    /// current-view fallback for the two that do). Returns 0 on success;
+    /// a nonzero code on failure, with the reason logged via spdlog.
+    int le_write_verilog_stubs(LeHandle *handle, const char *path, LeLibraryId library_id);
 
     /// @brief Re-resolves Instance.reference_design for every Instance in
     /// this handle's Root whose reference_design is currently unset,
@@ -294,8 +326,8 @@ extern "C"
     /// `library_id` may be the invalid/default id (a default-constructed
     /// LeLibraryId{}) to skip step 2 entirely. Returns 0 on success,
     /// matching le_read_lef's own convention (nonzero otherwise, including
-    /// if handle or path is null); LEFWriter's own messages are appended to
-    /// handle->messages either way, same as le_read_lef.
+    /// if handle or path is null); LEFWriter's own messages are logged via
+    /// spdlog either way, same as le_read_lef.
     int le_write_lef(LeHandle *handle, const char *path,
                       const LeAbstractId *abstract_ids, int32_t abstract_id_count,
                       LeLibraryId library_id, int32_t layer_write_mode);
@@ -305,28 +337,8 @@ extern "C"
     /// invalid/default id to mean "use le_current_layout(handle)" instead -
     /// if that's also unset, fails with an ERROR message. Returns 0 on
     /// success, matching le_read_def's own convention; DEFWriter's own
-    /// messages are appended to handle->messages either way.
+    /// messages are logged via spdlog either way.
     int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id);
-
-    /// @brief Total number of error/warning/info messages produced by
-    /// this handle's backend operations so far (currently just
-    /// le_read_lef() - file-open/parse errors, parser warnings, parser
-    /// info notes, and a success summary, each already formatted with
-    /// its own "ERROR "/"WARNING "/"INFO " prefix). Monotonically
-    /// increasing - entries are never removed, cleared, or reordered -
-    /// so a caller can poll this like le_selection_version() and only
-    /// fetch le_message_at() for indices at or past what it last saw,
-    /// rather than re-reading everything on every check. 0 if handle is
-    /// null.
-    int32_t le_message_count(LeHandle *handle);
-
-    /// @brief The message at `index` (0..le_message_count()-1). Returns
-    /// null if handle is null or index is out of range. The returned
-    /// pointer is owned by the handle - valid until the handle is
-    /// destroyed (messages are never removed/reordered, so unlike a
-    /// "last error" design this pointer is never invalidated by a later
-    /// le_read_lef() call).
-    const char *le_message_at(LeHandle *handle, int32_t index);
 
     /// @brief Number of Designs currently loaded across every LEF file
     /// read into this handle so far. 0 if handle is null.
@@ -338,6 +350,20 @@ extern "C"
     /// handle is destroyed (no Design-removal API exists yet), never
     /// owned by the caller.
     const char *le_design_name(LeHandle *handle, int32_t index);
+
+    /// @brief Whether the most recent le_X_property_path call on this
+    /// handle (any class - one shared flag, not per-class) logged a
+    /// parse/validation error via spdlog::error, as opposed to
+    /// resolving cleanly (possibly to nothing, e.g. a structurally valid
+    /// path whose last hop is an empty list - that case logs nothing and
+    /// leaves this false). Both a genuine error and a legitimate "no
+    /// data" resolution return the same all-null LeProperty, so this is
+    /// the only way a caller can still tell them apart now that
+    /// per-message detail only goes to spdlog, not a queryable queue.
+    /// Reset to false at the top of every le_X_property_path call, so
+    /// check it immediately after - not a "last error" that survives
+    /// across other calls. False (not an error) if handle is null.
+    int32_t le_property_path_failed(LeHandle *handle);
 
     /// @brief Select the Design at `index` as the one le_render_pixel_buffer()
     /// renders (its Abstract view). Returns 0 on success, nonzero if
@@ -1026,10 +1052,9 @@ extern "C"
     ///   (not just what's on screen), up to a fixed cap of 10,000
     ///   objects (pieces, not whole shapes - UPDATES.md item 21). If the
     ///   design has more selectable pieces than that, the selection
-    ///   stops at the cap and a "WARNING: Selection capped..." entry is
-    ///   appended to the le_message_count()/le_message_at() queue
-    ///   (UPDATES.md item 3) - there's no separate "was it capped"
-    ///   return value, this is the same mechanism any other
+    ///   stops at the cap and a "WARNING: Selection capped..." message
+    ///   is logged via spdlog::warn - there's no separate "was it
+    ///   capped" return value, this is the same mechanism any other
     ///   backend-originated message uses.
     /// - LE_KEY_1..LE_KEY_9 (UPDATES.md 9.4/9.7): toggles a ROUTING
     ///   layer's visibility - the 1st..9th if LE_KEY_CTRL is not
@@ -1443,7 +1468,7 @@ extern "C"
     /// returned pointer refers to storage owned by the handle - valid
     /// only until the *next* le_take_next_pending_tcl_command() call on
     /// the same handle (same "valid until the next call" convention as
-    /// le_message_at()/LeProperty's string fields) - copy it out (e.g.
+    /// LeProperty's string fields) - copy it out (e.g.
     /// into a Tcl_Eval call) before then. Thread-safe: meant to be
     /// polled from whichever thread owns evaluating these (le_shell.cpp's
     /// own console thread).
@@ -1562,7 +1587,7 @@ extern "C"
     /// fields the flat search does, so le_search_result_instance_at/etc.
     /// read the results back identically either way. Returns the result
     /// count, or -1 if `filter_expression` failed to parse/validate (an
-    /// error message is pushed to handle->messages either way).
+    /// error message is logged via spdlog::error either way).
     int32_t le_get_instances_by_path(LeHandle *handle, LeSchematicId of_schematic, const char *path,
                                       const char *filter_expression);
     int32_t le_get_nets_by_path(LeHandle *handle, LeSchematicId of_schematic, const char *path,
@@ -1602,8 +1627,8 @@ extern "C"
     /// hop, the last must be a leaf field - both checked against the
     /// same allowlist `-filter` validation uses (`validate_filter_path`
     /// in api.cpp) before resolving, so an unrecognized field/hop name
-    /// is a real error (pushed via `le_message_count`/`le_message_at`),
-    /// not silent. Returns an all-null/zero row (LeProperty::name ==
+    /// is a real error (logged via spdlog::error), not silent. Returns
+    /// an all-null/zero row (LeProperty::name ==
     /// nullptr) if handle/path is null, `path` fails to parse or
     /// validate, id doesn't name a Terminal on this handle, or the path
     /// is structurally valid but resolves to nothing for this specific
@@ -1683,9 +1708,9 @@ extern "C"
     /// ".name =~ IN*" - see backend/src/database/filter.hpp for the full
     /// grammar). Returns the number of matches (0 if handle or
     /// filter_expression is null, or if nothing matched), or -1 if
-    /// filter_expression fails to parse (see le_message_count/
-    /// le_message_at for the parse error, pushed the same way
-    /// le_read_lef's own errors are). Results are cached on the handle
+    /// filter_expression fails to parse (the parse error is logged via
+    /// spdlog::error, the same way le_read_lef's own errors are).
+    /// Results are cached on the handle
     /// until the next le_search_terminal call - read them via
     /// le_search_result_terminal_at, same "valid until the next call"
     /// convention as this API's other cached-result accessors
@@ -1721,8 +1746,8 @@ extern "C"
     /// le_search_terminal's result buffer - read results back via
     /// le_search_result_terminal_at. Returns the match count (0 if handle
     /// is null or nothing matched), or -1 if filter_expression fails to
-    /// parse or references an unknown field/hop (see le_message_count/
-    /// le_message_at for either error).
+    /// parse or references an unknown field/hop (either error is logged
+    /// via spdlog::error).
     int32_t le_get_terminals(LeHandle *handle, LeAbstractId of_abstract, const char *name_expression, const char *filter_expression);
 
     // --- TerminalPort/Obstruction filter-search (Phase 4, continued) ---

@@ -1140,15 +1140,11 @@ proc select {args} {
         error "select: expected at least one <token>, got \"$args\""
     }
     foreach token $args {
-        set messages_before [message_count]
         set status [select_cmd $token]
         if {$status == 2} {
             error "select: unrecognized token \"$token\" (expected a shape:/row:/placement:/region: token)"
         } elseif {$status != 0} {
-            if {[message_count] > $messages_before} {
-                error "select: [message_at [expr {[message_count] - 1}]]"
-            }
-            error "select: failed to select \"$token\""
+            error "select: failed to select \"$token\" - see the terminal log for the specific reason"
         }
     }
     return ""
@@ -1245,7 +1241,7 @@ proc read_lef {path} {
 }
 register_command_help read_lef \
     "read_lef <path> \[-help\] - Reads a LEF file into the shared Technology/Library" \
-    "Reads one LEF file (a tech LEF, a macro LEF, or both combined) into this session's shared Root - callable multiple times to layer a tech file and one or more macro files. Returns 0 on success; a nonzero code or a message in le_message_count/le_message_at (see get_messages) on a parse problem." \
+    "Reads one LEF file (a tech LEF, a macro LEF, or both combined) into this session's shared Root - callable multiple times to layer a tech file and one or more macro files. Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal." \
     {
         {<path> {type file required 1 description {LEF file to read}}}
     }
@@ -1259,7 +1255,7 @@ proc read_def {path} {
 }
 register_command_help read_def \
     "read_def <path> \[-help\] - Reads a DEF file into a new Layout" \
-    "Reads one DEF file into a new Layout under this session's shared Root - the DEF's own referenced layers/macros must already be present (read the tech/macro LEF(s) first via read_lef). Returns 0 on success; a nonzero code or a message in le_message_count/le_message_at (see get_messages) on a parse problem." \
+    "Reads one DEF file into a new Layout under this session's shared Root - the DEF's own referenced layers/macros must already be present (read the tech/macro LEF(s) first via read_lef). Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal." \
     {
         {<path> {type file required 1 description {DEF file to read}}}
     }
@@ -1275,7 +1271,7 @@ register_command_help read_def \
 # {flag value} pairs.
 proc read_verilog {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
-        return "read_verilog -netlist|-rtl <path> \[-help\] - Reads a SystemVerilog/Verilog file"
+        return "read_verilog -netlist|-rtl <path> \[<path> ...\] \[-help\] - Reads one or more SystemVerilog/Verilog files"
     }
     set is_netlist -1
     set positional {}
@@ -1301,18 +1297,61 @@ proc read_verilog {args} {
     if {$is_netlist < 0} {
         error "read_verilog: exactly one of -netlist or -rtl is required"
     }
-    if {[llength $positional] != 1} {
-        error "read_verilog: expected exactly one <path> argument, got \"$args\""
+    if {[llength $positional] < 1} {
+        error "read_verilog: expected at least one <path> argument, got \"$args\""
     }
-    return [read_verilog_cmd [lindex $positional 0] $is_netlist]
+    return [read_verilog_cmd [join $positional] $is_netlist]
 }
 register_command_help read_verilog \
-    "read_verilog -netlist|-rtl <path> \[-help\] - Reads a SystemVerilog/Verilog file" \
-    "Reads one file into this session's shared Root, populating Schematic/Port/Net/Instance/Pin. -netlist requires accurate parameter/generate elaboration (does not tolerate errors in structural content); -rtl tolerates invalid/unsupported content by storing it as a logic-cloud Instance (see the Instance klass's own rtl_text field). Reading multiple files calls this repeatedly - each call's own get-or-create-by-name Design/Schematic handling makes that work naturally. Automatically re-links any newly-resolvable Instance against Designs already in this session (see link). Returns 0 on success; a nonzero code or a message in le_message_count/le_message_at (see get_messages) on a parse problem." \
+    "read_verilog -netlist|-rtl <path> \[<path> ...\] \[-help\] - Reads one or more SystemVerilog/Verilog files" \
+    "Reads one or more files, all elaborated together in one slang compilation, into this session's shared Root, populating Schematic/Port/Net/Instance/Pin. -netlist requires accurate parameter/generate elaboration (does not tolerate errors in structural content, though an unresolvable module instantiation on its own doesn't fail the read) - it also automatically generates a stub Verilog module (see write_verilog_stubs) for every Design already read via read_lef that has no real Verilog of its own, and includes it in this same elaboration, so a gate-level netlist's own leaf-cell/macro instantiations (standard cells, SRAMs, ...) resolve for real with no extra step; -rtl tolerates invalid/unsupported content by storing it as a logic-cloud Instance (see the Instance klass's own rtl_text field) and never generates stubs (it doesn't elaborate at all). Reading further files later calls this again - each call's own get-or-create-by-name Design/Schematic handling makes that work naturally, though only files given to the *same* call (stubs included) share one elaboration. Automatically re-links any newly-resolvable Instance against Designs already in this session (see link). Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal." \
     {
         {-netlist {type flag required 0 description {Full-elaboration flavor for a gate-level netlist}}}
         {-rtl {type flag required 0 description {Syntax-only flavor, tolerant of invalid/unsupported content}}}
-        {<path> {type file required 1 description {SystemVerilog/Verilog file to read}}}
+        {<path> {type file... required 1 description {One or more SystemVerilog/Verilog files to read together}}}
+    }
+
+proc write_verilog_stubs {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "write_verilog_stubs \[-library <token>\] <filename> \[-help\] - Writes stub Verilog modules for a Library's LEF-only Designs"
+    }
+    array set opts {-library ""}
+    set positional {}
+    set i 0
+    set n [llength $args]
+    while {$i < $n} {
+        set arg [lindex $args $i]
+        switch -- $arg {
+            -library {
+                incr i
+                if {$i >= $n} {
+                    error "write_verilog_stubs: -library requires a value"
+                }
+                set opts(-library) [lindex $args $i]
+                incr i
+            }
+            default {
+                lappend positional $arg
+                incr i
+            }
+        }
+    }
+    if {[llength $positional] != 1} {
+        error "write_verilog_stubs: expected exactly one <filename> argument, got \"$args\""
+    }
+    set filename [lindex $positional 0]
+    if {[write_verilog_stubs_cmd $filename $opts(-library)] != 0} {
+        error "write_verilog_stubs: failed to write \"$filename\" - see the terminal log for the specific reason"
+    }
+    return ""
+}
+register_command_help write_verilog_stubs \
+    "write_verilog_stubs \[-library <token>\] <filename> \[-help\] - Writes stub Verilog modules for a Library's LEF-only Designs" \
+    "Writes one empty-bodied Verilog module declaration per Design in the given Library (or the sole Library read so far, if -library is omitted) that has an Abstract but no Schematic - i.e. every LEF-only leaf cell/macro (standard cells, SRAMs, ...) with no real Verilog/SystemVerilog ever read for it. A multi-bit LEF macro port (bracket-suffixed pins like addr_in\[0\]..addr_in\[7\]) combines into one Verilog bus port (\[7:0\] addr_in) when its bits are contiguous and share one direction, matching how a real netlist almost always connects it. read_verilog -netlist already generates and uses this same content automatically for every read (to the point that 'unknown module BUF_X1'-style errors simply don't happen) - call this directly only to inspect the generated stub source, or to drive your own manual workflow." \
+    {
+        {-library {type token required 0 description {Library to generate stubs for - defaults to the sole Library read so far}}}
+        {<filename> {type file required 1 description {Output Verilog file path}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
 proc link {} {
@@ -1413,12 +1452,8 @@ proc write_lef {args} {
     # codebase generates ever contains whitespace. -abstract (singular)
     # folds into the same "tokens" argument as a one-element list.
     set abstract_tokens [expr {$opts(-abstract) ne "" ? $opts(-abstract) : [join $opts(-abstracts)]}]
-    set messages_before [message_count]
     if {[write_lef_cmd $filename $abstract_tokens $opts(-library) $mode] != 0} {
-        if {[message_count] > $messages_before} {
-            error "write_lef: [message_at [expr {[message_count] - 1}]]"
-        }
-        error "write_lef: failed to write LEF to \"$filename\""
+        error "write_lef: failed to write LEF to \"$filename\" - see the terminal log for the specific reason"
     }
     return ""
 }
@@ -1464,12 +1499,8 @@ proc write_def {args} {
         error "write_def: expected exactly one <filename> argument, got \"$args\""
     }
     set filename [lindex $positional 0]
-    set messages_before [message_count]
     if {[write_def_cmd $filename $opts(-layout)] != 0} {
-        if {[message_count] > $messages_before} {
-            error "write_def: [message_at [expr {[message_count] - 1}]]"
-        }
-        error "write_def: failed to write DEF to \"$filename\""
+        error "write_def: failed to write DEF to \"$filename\" - see the terminal log for the specific reason"
     }
     return ""
 }
@@ -1668,11 +1699,12 @@ proc properties_for_token {token} {
 # mechanism, even for a plain single-segment name, rather than a separate
 # dict-lookup fast path, so chained and unchained lookups behave
 # identically. A path that fails to parse or references an unrecognized
-# field/hop pushes a message (see le_message_*) that this detects via a
-# message_count before/after diff and re-raises as a Tcl error, naming
-# the specific problem - a structurally valid path that simply has no
-# data for this object (e.g. a list hop with zero elements) pushes no
-# message and just resolves to "".
+# field/hop logs an ERROR via spdlog::error and resolves to "" - the same
+# "" a structurally valid path that simply has no data for this object
+# (e.g. a list hop with zero elements) resolves to. property_path_failed
+# (backed by LeHandle::last_property_path_failed, api.hpp) is what still
+# tells the two apart from Tcl, now that the message text itself only
+# goes to the terminal log, not a queryable queue.
 proc get_properties {tokens {property_names {}}} {
     set single_token [expr {[llength $tokens] == 1}]
     set token_list [expr {$single_token ? [list $tokens] : $tokens}]
@@ -1685,10 +1717,9 @@ proc get_properties {tokens {property_names {}}} {
             lassign [property_accessors_for_token $token] count_cmd name_cmd value_cmd path_cmd
             set values {}
             foreach path $property_names {
-                set messages_before [message_count]
                 set value [$path_cmd $token $path]
-                if {[message_count] > $messages_before} {
-                    error "get_properties: [message_at [expr {[message_count] - 1}]]"
+                if {[property_path_failed]} {
+                    error "get_properties: invalid property path \"$path\" for \"$token\" - see the terminal log for the specific reason"
                 }
                 lappend values $value
             }

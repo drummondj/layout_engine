@@ -10,6 +10,7 @@
 #include "../io/lef_reader.hpp"
 #include "../io/def_reader.hpp"
 #include "../sv/sv_reader.hpp"
+#include "../sv/verilog_stub_writer.hpp"
 #include "../io/lef_writer.hpp"
 #include "../io/def_writer.hpp"
 #include "../view_style/view_style.hpp"
@@ -24,12 +25,14 @@
 // directly - regenerate via the regen-tcl skill.
 #include "generated_tcl/snapshot_appliers.hpp"
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
 #include <oneapi/tbb/global_control.h>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <deque>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -39,6 +42,7 @@
 #include <variant>
 #include <unordered_set>
 #include <vector>
+#include <unistd.h>
 
 namespace
 {
@@ -414,13 +418,16 @@ namespace
         return std::nullopt;
     }
 
-    // Shared parse+validate+push-message sequence every le_get_* function
-    // below needs for its `-filter` axis - std::nullopt with `ok` left
-    // true means "no -filter given" (skip that axis entirely);
-    // std::nullopt with `ok` set false means a parse or validation error
-    // already pushed to handle->messages (caller returns -1). Caller must
-    // already hold handle->mutex_.
-    std::optional<le::FilterExpr> parse_and_validate_filter(LeHandle *handle, const char *caller, const std::string &root_class, const char *filter_expression, bool &ok)
+    // Shared parse+validate+log sequence every le_get_* function below
+    // needs for its `-filter` axis - std::nullopt with `ok` left true
+    // means "no -filter given" (skip that axis entirely); std::nullopt
+    // with `ok` set false means a parse or validation error already
+    // logged via spdlog::error (caller returns -1). `handle` is unused
+    // now (spdlog needs no LeHandle) but kept in the signature - every
+    // generated le_get_<type> call site (search_inc_j2.py) passes it
+    // positionally, and there's no reason to touch that codegen template
+    // just to drop one now-decorative parameter.
+    std::optional<le::FilterExpr> parse_and_validate_filter(LeHandle *, const char *caller, const std::string &root_class, const char *filter_expression, bool &ok)
     {
         ok = true;
         if (!filter_expression || filter_expression[0] == '\0')
@@ -429,13 +436,13 @@ namespace
         auto parsed = le::parse_filter_expression(filter_expression);
         if (!parsed)
         {
-            handle->messages.push_back(fmt::format("ERROR: {}: {}", caller, parsed.error()));
+            spdlog::error("{}: {}", caller, parsed.error());
             ok = false;
             return std::nullopt;
         }
         if (auto error = validate_filter_expr(root_class, *parsed))
         {
-            handle->messages.push_back(fmt::format("ERROR: {}: {}", caller, *error));
+            spdlog::error("{}: {}", caller, *error);
             ok = false;
             return std::nullopt;
         }
@@ -885,7 +892,7 @@ namespace
                 select_shape_pieces(shape_id, le::ViewLayerPurpose::OBSTRUCTION);
 
         if (capped)
-            handle->messages.push_back(fmt::format("WARNING: select_all: selection capped at {} pieces", kMaxSelectAllCount));
+            spdlog::warn("select_all: selection capped at {} pieces", kMaxSelectAllCount);
     }
 
     // Every ROUTING-type layer in `technology_id`'s own declaration
@@ -1219,7 +1226,7 @@ extern "C"
 
         if (!path)
         {
-            handle->messages.push_back("ERROR: read_lef: path is null");
+            spdlog::error("read_lef: path is null");
             return 1;
         }
 
@@ -1243,10 +1250,6 @@ extern "C"
         const std::filesystem::path lef_path(path);
         le::LEFReader reader;
         const int result = reader.read_lef(lef_path.string(), handle->root, lef_path.stem().string());
-        for (const auto &msg : reader.messages())
-            handle->messages.push_back(msg);
-        // if (result == 0)
-        //     handle->messages.push_back(fmt::format("INFO: Loaded {}.", path));
         if (result != 0)
             return result;
 
@@ -1300,15 +1303,13 @@ extern "C"
 
         if (!path)
         {
-            handle->messages.push_back("ERROR: read_def: path is null");
+            spdlog::error("read_def: path is null");
             return 1;
         }
 
         const std::filesystem::path def_path(path);
         le::DEFReader reader;
         const int result = reader.read_def(def_path.string(), handle->root, def_path.stem().string());
-        for (const auto &msg : reader.messages())
-            handle->messages.push_back(msg);
         if (result != 0)
             return result;
 
@@ -1336,7 +1337,7 @@ extern "C"
 
         if (!filenames || filename_count <= 0)
         {
-            handle->messages.push_back("ERROR: read_verilog: filenames is null or empty");
+            spdlog::error("read_verilog: filenames is null or empty");
             return 1;
         }
 
@@ -1345,14 +1346,100 @@ extern "C"
         for (int32_t i = 0; i < filename_count; ++i)
             filename_strings.emplace_back(filenames[i] ? filenames[i] : "");
 
+        // Netlist flavor only - the RTL flavor (read_rtl) never
+        // elaborates against a real slang::ast::Compilation at all (see
+        // SVReader's own class comment), so it has no "unknown module"
+        // failure mode a stub could address. Automatically covers every
+        // LEF-only Design (Abstract but no Schematic) already in this
+        // handle's Root, from any read_lef so far - a Design that
+        // already has a Schematic (a prior real Verilog read) is
+        // skipped by generate_verilog_stubs itself, so re-running this
+        // on a later read_verilog call never produces a duplicate
+        // module definition. See verilog_stub_writer.hpp's own
+        // top-of-file comment for why this has to be a real file
+        // appended to the same read (not a separate prior read_verilog
+        // call) - only files elaborated together share one Compilation.
+        std::string stub_path;
+        if (is_netlist)
+        {
+            std::string stub_source;
+            for (le::LibraryId library_id : handle->root.get_library_ids())
+                stub_source += le::generate_verilog_stubs(handle->root, library_id);
+
+            if (!stub_source.empty())
+            {
+                const std::filesystem::path candidate = std::filesystem::temp_directory_path() /
+                    fmt::format("le_verilog_stubs_{}_{}.v", getpid(), reinterpret_cast<uintptr_t>(handle));
+                std::ofstream stub_file(candidate);
+                if (stub_file)
+                {
+                    stub_file << stub_source;
+                    stub_file.close();
+                    stub_path = candidate.string();
+                    filename_strings.push_back(stub_path);
+                }
+                else
+                {
+                    spdlog::warn("read_verilog: could not write temporary stub file {} - LEF-only leaf cells may fail to elaborate",
+                                 candidate.string());
+                }
+            }
+        }
+
         const std::filesystem::path first_path(filename_strings.front());
         le::SVReader reader;
         const int result = is_netlist
             ? reader.read_netlist(filename_strings, handle->root, first_path.stem().string())
             : reader.read_rtl(filename_strings, handle->root, first_path.stem().string());
-        for (const auto &msg : reader.messages())
-            handle->messages.push_back(msg);
+
+        if (!stub_path.empty())
+        {
+            std::error_code ec;
+            std::filesystem::remove(stub_path, ec);
+        }
+
         return result;
+    }
+
+    int le_write_verilog_stubs(LeHandle *handle, const char *path, LeLibraryId library_id_c)
+    {
+        if (!handle)
+            return 1;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        if (!path)
+        {
+            spdlog::error("write_verilog_stubs: path is null");
+            return 1;
+        }
+
+        le::LibraryId library_id{.index = library_id_c.index, .generation = library_id_c.generation};
+        if (library_id.index == UINT32_MAX)
+        {
+            const auto library_ids = handle->root.get_library_ids();
+            if (library_ids.size() != 1)
+            {
+                spdlog::error("write_verilog_stubs: no -library given and {} Libraries exist - need exactly 1 to default to",
+                               library_ids.size());
+                return 1;
+            }
+            library_id = library_ids.front();
+        }
+        else if (!handle->root.get_library(library_id))
+        {
+            spdlog::error("write_verilog_stubs: unknown library");
+            return 1;
+        }
+
+        const std::string stub_source = le::generate_verilog_stubs(handle->root, library_id);
+        std::ofstream out(path);
+        if (!out)
+        {
+            spdlog::error("write_verilog_stubs: could not open {} for writing", path);
+            return 1;
+        }
+        out << stub_source;
+        return 0;
     }
 
     int32_t le_link_unresolved_instances(LeHandle *handle)
@@ -1370,12 +1457,10 @@ extern "C"
         // descent (see that function's own "ordering dependency" comment,
         // schematic_layout_linker.hpp). Its own counts don't change this
         // function's return value (still Instance-resolution-count only,
-        // matching sv_reader_test.cpp's own existing assertions) - only
-        // its messages are surfaced, same as every other reader's own
-        // messages() convention.
-        const le::PhysicalLinkResult physical = le::link_physical(handle->root);
-        for (const auto &msg : physical.messages)
-            handle->messages.push_back(msg);
+        // matching sv_reader_test.cpp's own existing assertions) -
+        // link_physical logs its own WARNING/ERROR messages via spdlog
+        // directly, same as LEFReader/DEFReader.
+        le::link_physical(handle->root);
 
         return static_cast<int32_t>(resolved);
     }
@@ -1404,7 +1489,7 @@ extern "C"
         const le::NetData *existing_net = handle->root.get_net(net_id);
         if (!existing_net)
         {
-            handle->messages.push_back("ERROR: delete_net: unknown id - no such Net exists");
+            spdlog::error("delete_net: unknown id - no such Net exists");
             return 1;
         }
         const le::NetData net_snapshot = *existing_net;
@@ -1534,7 +1619,7 @@ extern "C"
             return 1;
         if (!new_name || !new_name[0])
         {
-            handle->messages.push_back("ERROR: update_net: -name may not be empty");
+            spdlog::error("update_net: -name may not be empty");
             return 1;
         }
         std::lock_guard<std::mutex> lock(handle->mutex_);
@@ -1543,7 +1628,7 @@ extern "C"
         const le::NetData *existing_net = handle->root.get_net(net_id);
         if (!existing_net)
         {
-            handle->messages.push_back("ERROR: update_net: unknown id - no such Net exists");
+            spdlog::error("update_net: unknown id - no such Net exists");
             return 1;
         }
         const le::SchematicId schematic_id = existing_net->schematic;
@@ -1557,7 +1642,7 @@ extern "C"
                                      std::nullopt);
         if (!renamed)
         {
-            handle->messages.push_back("ERROR: update_net: a sibling Net with this name already exists");
+            spdlog::error("update_net: a sibling Net with this name already exists");
             handle->command_history.end(false);
             return 1;
         }
@@ -1579,9 +1664,9 @@ extern "C"
                                                 std::optional<std::string>(new_name), std::nullopt, std::nullopt,
                                                 std::nullopt, std::nullopt))
                 {
-                    handle->messages.push_back(fmt::format(
-                        "WARNING: update_net: linked Route could not be renamed to '{}' - a sibling Route with that name already exists",
-                        new_name));
+                    spdlog::warn(
+                        "update_net: linked Route could not be renamed to '{}' - a sibling Route with that name already exists",
+                        new_name);
                     continue;
                 }
                 if (txn)
@@ -1598,9 +1683,9 @@ extern "C"
                                                         std::optional<std::string>(new_name), std::nullopt, std::nullopt,
                                                         std::nullopt, std::nullopt, std::nullopt, std::nullopt))
                 {
-                    handle->messages.push_back(fmt::format(
-                        "WARNING: update_net: linked PhysicalPort could not be renamed to '{}' - a sibling PhysicalPort with that name already exists",
-                        new_name));
+                    spdlog::warn(
+                        "update_net: linked PhysicalPort could not be renamed to '{}' - a sibling PhysicalPort with that name already exists",
+                        new_name);
                     continue;
                 }
                 if (txn)
@@ -1620,7 +1705,7 @@ extern "C"
             return 1;
         if (!new_name || !new_name[0])
         {
-            handle->messages.push_back("ERROR: update_instance: -name may not be empty");
+            spdlog::error("update_instance: -name may not be empty");
             return 1;
         }
         std::lock_guard<std::mutex> lock(handle->mutex_);
@@ -1629,7 +1714,7 @@ extern "C"
         const le::InstanceData *existing = handle->root.get_instance(instance_id);
         if (!existing)
         {
-            handle->messages.push_back("ERROR: update_instance: unknown id - no such Instance exists");
+            spdlog::error("update_instance: unknown id - no such Instance exists");
             return 1;
         }
 
@@ -1642,7 +1727,7 @@ extern "C"
                                                             std::nullopt, std::nullopt, std::nullopt, std::nullopt);
         if (!renamed)
         {
-            handle->messages.push_back("ERROR: update_instance: a sibling Instance with this name already exists");
+            spdlog::error("update_instance: a sibling Instance with this name already exists");
             handle->command_history.end(false);
             return 1;
         }
@@ -1684,7 +1769,7 @@ extern "C"
 
         if (!path)
         {
-            handle->messages.push_back("ERROR: write_lef: path is null");
+            spdlog::error("write_lef: path is null");
             return 1;
         }
 
@@ -1736,17 +1821,14 @@ extern "C"
                 }
                 else
                 {
-                    handle->messages.push_back("ERROR: write_lef: no Abstract or Library given and no current Abstract set");
+                    spdlog::error("write_lef: no Abstract or Library given and no current Abstract set");
                     return 1;
                 }
             }
         }
 
         le::LEFWriter writer;
-        const int result = writer.write_lef(path, handle->root, abstract_ids, mode);
-        for (const auto &msg : writer.messages())
-            handle->messages.push_back(msg);
-        return result;
+        return writer.write_lef(path, handle->root, abstract_ids, mode);
     }
 
     int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id_c)
@@ -1757,7 +1839,7 @@ extern "C"
 
         if (!path)
         {
-            handle->messages.push_back("ERROR: write_def: path is null");
+            spdlog::error("write_def: path is null");
             return 1;
         }
 
@@ -1772,33 +1854,12 @@ extern "C"
         }
         if (layout_id.index == UINT32_MAX)
         {
-            handle->messages.push_back("ERROR: write_def: no Layout given and no current Layout set");
+            spdlog::error("write_def: no Layout given and no current Layout set");
             return 1;
         }
 
         le::DEFWriter writer;
-        const int result = writer.write_def(path, handle->root, layout_id);
-        for (const auto &msg : writer.messages())
-            handle->messages.push_back(msg);
-        return result;
-    }
-
-    int32_t le_message_count(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(handle->messages.size());
-    }
-
-    const char *le_message_at(LeHandle *handle, int32_t index)
-    {
-        if (!handle)
-            return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
-        if (index < 0 || static_cast<size_t>(index) >= handle->messages.size())
-            return nullptr;
-        return handle->messages[static_cast<size_t>(index)].c_str();
+        return writer.write_def(path, handle->root, layout_id);
     }
 
     int32_t le_design_count(LeHandle *handle)
@@ -1821,6 +1882,14 @@ extern "C"
 
         const le::DesignData *design = handle->root.get_design(design_ids[static_cast<size_t>(index)]);
         return design ? design->name.c_str() : nullptr;
+    }
+
+    int32_t le_property_path_failed(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+        return handle->last_property_path_failed ? 1 : 0;
     }
 
     int le_set_current_design_abstract(LeHandle *handle, int32_t index)
@@ -3028,7 +3097,7 @@ extern "C"
             const le::ShapeData *shape = handle->root.get_shape(shape_id);
             if (!shape)
             {
-                handle->messages.push_back("ERROR: select: no such Shape");
+                spdlog::error("select: no such Shape");
                 return 1;
             }
             for (size_t i = 0; i < shape->rects.size(); i++)
@@ -3039,7 +3108,7 @@ extern "C"
                 handle->select(shape_id, le::PieceKind::PATH, i);
             if (shape->rects.empty() && shape->polygons.empty() && shape->paths.empty())
             {
-                handle->messages.push_back("ERROR: select: Shape has no geometry to select");
+                spdlog::error("select: Shape has no geometry to select");
                 return 1;
             }
             return 0;
@@ -3049,7 +3118,7 @@ extern "C"
             const le::RowId id{.index = ref.index, .generation = ref.generation};
             if (!handle->root.get_row(id))
             {
-                handle->messages.push_back("ERROR: select: no such Row");
+                spdlog::error("select: no such Row");
                 return 1;
             }
             handle->select(id);
@@ -3060,7 +3129,7 @@ extern "C"
             const le::PlacementId id{.index = ref.index, .generation = ref.generation};
             if (!handle->root.get_placement(id))
             {
-                handle->messages.push_back("ERROR: select: no such Placement");
+                spdlog::error("select: no such Placement");
                 return 1;
             }
             handle->select(id);
@@ -3071,14 +3140,14 @@ extern "C"
             const le::RegionId id{.index = ref.index, .generation = ref.generation};
             if (!handle->root.get_region(id))
             {
-                handle->messages.push_back("ERROR: select: no such Region");
+                spdlog::error("select: no such Region");
                 return 1;
             }
             handle->select(id);
             return 0;
         }
         default:
-            handle->messages.push_back("ERROR: select: unsupported object kind (only Shape/Row/Placement/Region can be selected)");
+            spdlog::error("select: unsupported object kind (only Shape/Row/Placement/Region can be selected)");
             return 1;
         }
     }
@@ -3539,7 +3608,7 @@ extern "C"
         auto expr = le::parse_filter_expression(filter_expression);
         if (!expr)
         {
-            handle->messages.push_back(fmt::format("ERROR: le_search_terminal: {}", expr.error()));
+            spdlog::error("le_search_terminal: {}", expr.error());
             return -1;
         }
 
@@ -3558,7 +3627,7 @@ extern "C"
         auto expr = le::parse_filter_expression(filter_expression);
         if (!expr)
         {
-            handle->messages.push_back(fmt::format("ERROR: le_search_terminal_port: {}", expr.error()));
+            spdlog::error("le_search_terminal_port: {}", expr.error());
             return -1;
         }
 
@@ -3577,7 +3646,7 @@ extern "C"
         auto expr = le::parse_filter_expression(filter_expression);
         if (!expr)
         {
-            handle->messages.push_back(fmt::format("ERROR: le_search_obstruction: {}", expr.error()));
+            spdlog::error("le_search_obstruction: {}", expr.error());
             return -1;
         }
 

@@ -116,8 +116,8 @@ Le{{klass.name}}Id le_create_{{klass.to_snake_case()}}(LeHandle *handle{% if kla
 // parameter at all - reassigning one parent field alone would violate
 // the "exactly one parent set" invariant create_<type> itself enforces,
 // and there's no atomic "swap parent, clear siblings" primitive
-// designed. Returns 0 on success, nonzero (with a message pushed to
-// handle->messages) if id/the resolved parent doesn't exist, an enum
+// designed. Returns 0 on success, nonzero (with a message logged via
+// spdlog::error) if id/the resolved parent doesn't exist, an enum
 // flag is unrecognized, or Root::update_<klass>() itself failed (a
 // rename/reparent collision - see Root::update_<klass>()'s own
 // docstring in root.hpp). ---

@@ -481,9 +481,39 @@ int read_def(const char *path)
     return le_read_def(session(), path);
 }
 
-int read_verilog_cmd(const char *path, int is_netlist)
+// paths is a space-separated list of one or more filenames - same
+// plain-word-split convention write_lef_cmd's own abstract_tokens uses
+// above (no filename this project's own test fixtures/workflow uses
+// contains whitespace); read_verilog (le_tcl_procs.tcl) builds this via
+// [join $positional] on the way in. Passing every file through one
+// le_read_verilog call (rather than one call per file) matters for
+// SVReader::read_netlist specifically - see verilog_stub_writer.hpp's
+// own top-of-file comment - only files elaborated together in the same
+// call share one slang::ast::Compilation, which is what lets a
+// generated stub file (write_verilog_stubs) actually resolve a real
+// netlist's own leaf-cell instantiations.
+int read_verilog_cmd(const char *paths, int is_netlist)
 {
-    return le_read_verilog(session(), &path, 1, is_netlist);
+    std::vector<std::string> path_strings;
+    std::istringstream stream(paths ? paths : "");
+    std::string token;
+    while (stream >> token)
+        path_strings.push_back(token);
+
+    std::vector<const char *> path_ptrs;
+    path_ptrs.reserve(path_strings.size());
+    for (const std::string &s : path_strings)
+        path_ptrs.push_back(s.c_str());
+
+    return le_read_verilog(session(), path_ptrs.empty() ? nullptr : path_ptrs.data(), static_cast<int32_t>(path_ptrs.size()), is_netlist);
+}
+
+int write_verilog_stubs_cmd(const char *path, const char *library_token)
+{
+    const LeLibraryId library_id = (library_token && library_token[0])
+                                        ? resolve_library_id(library_token)
+                                        : LeLibraryId{.index = UINT32_MAX, .generation = 0};
+    return le_write_verilog_stubs(session(), path, library_id);
 }
 
 int link_unresolved_instances_cmd()
@@ -544,14 +574,9 @@ const char *design_name(int index)
     return le_design_name(session(), index);
 }
 
-int message_count()
+int property_path_failed()
 {
-    return le_message_count(session());
-}
-
-const char *message_at(int index)
-{
-    return le_message_at(session(), index);
+    return le_property_path_failed(session());
 }
 
 void set_viewport_size_cmd(int width_px, int height_px)
@@ -777,14 +802,12 @@ int select_cmd(const char *token)
     }
     else
     {
-        // Unlike le_select_object_ref's own ERROR messages below (pushed
-        // to handle->messages, api.cpp has real access to LeHandle's
-        // definition there) - this shim has no such access (LeHandle is
-        // opaque outside api.cpp), so an unrecognized prefix is surfaced
-        // by the caller instead: select (le_tcl_procs.tcl) checks this
-        // return value and raises its own clear Tcl error with the token
-        // text it already has, no message-count round trip needed for a
-        // purely shallow, prefix-level validation like this one.
+        // Unlike le_select_object_ref's own ERROR messages below (logged
+        // via spdlog::error, api.cpp has real access to spdlog there) -
+        // this shim has no compelling reason to log here too, so an
+        // unrecognized prefix is surfaced by the caller instead: select
+        // (le_tcl_procs.tcl) checks this return value and raises its own
+        // clear Tcl error with the token text it already has.
         return 2; // distinct from 1 (a real, resolved-but-invalid/unsupported ref)
     }
     return le_select_object_ref(session(), ref);
