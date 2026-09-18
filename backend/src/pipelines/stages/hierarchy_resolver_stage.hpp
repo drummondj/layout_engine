@@ -220,6 +220,123 @@ namespace le
         ViewLayerSetHandle view_layers;
     };
 
+    /// @brief pipeline_stage_benchmark cache-stat helper (tbb_core.hpp's
+    /// estimate_output_object_count/estimate_output_bytes hooks) - a
+    /// rough per-Shape memory estimate: the struct itself plus every
+    /// owned vector's own *capacity* (not size - capacity is what's
+    /// actually allocated) times its element size, recursing one level
+    /// into Polygon/Path's own point lists and Text's own label string.
+    /// Approximate (doesn't count map/vector bucket overhead, small-
+    /// string-optimization thresholds, etc.) but the right order of
+    /// magnitude - real per-Shape overhead is dominated by these vectors,
+    /// not bookkeeping.
+    inline std::size_t estimate_shape_bytes(const Shape &shape)
+    {
+        std::size_t bytes = sizeof(Shape);
+        bytes += shape.rects.capacity() * sizeof(Rect);
+        for (const Polygon &polygon : shape.polygons)
+            bytes += polygon.points.capacity() * sizeof(Point);
+        for (const Path &path : shape.paths)
+            bytes += path.polygon.points.capacity() * sizeof(Point);
+        for (const Text &text : shape.texts)
+            bytes += sizeof(Text) + text.label.capacity();
+        bytes += shape.rect_iterates.capacity() * sizeof(RectIterate);
+        bytes += shape.path_iterates.capacity() * sizeof(PathIterate);
+        bytes += shape.polygon_iterates.capacity() * sizeof(PolygonIterate);
+        bytes += shape.rect_masks.capacity() * sizeof(int);
+        bytes += shape.polygon_masks.capacity() * sizeof(int);
+        bytes += shape.path_masks.capacity() * sizeof(int);
+        return bytes;
+    }
+
+    struct HierarchyResolverOutputStats
+    {
+        std::size_t shape_count = 0;
+        std::size_t placement_count = 0;
+
+        /// @brief Bytes of the actual Shape geometry (ViewData::shapes)
+        /// reachable from this output - real, allocated memory, but only
+        /// this output's own to *count* if it's also the output that
+        /// *allocated* it. See owned_bytes()'s own comment: a stage that
+        /// merely holds a shared_ptr alias to another stage's already-
+        /// built shapes (ViewportCullStage) must not add this back into
+        /// its own reported footprint, or the same bytes get counted
+        /// twice across the two stages' reports.
+        std::size_t shape_bytes = 0;
+
+        /// @brief Bytes of every node's own placement_data vector plus
+        /// per-node map/ViewData overhead - always a fresh allocation
+        /// specific to *this* output (HierarchyResolverStage's own
+        /// unfiltered list, or ViewportCullStage's own culled subset -
+        /// never shared between the two), unlike shape_bytes above.
+        std::size_t own_overhead_bytes = 0;
+
+        /// @brief Total "objects" this output holds, per
+        /// MemoizingStage::cache_object_count()'s own ask - shapes AND
+        /// surviving placements both count. Distinguishing the two
+        /// matters for ViewportCullStage specifically: at
+        /// hierarchy_depth > 0, zooming in should shrink
+        /// `placement_count` (fewer child placements survive spatial
+        /// culling against a smaller viewport - see this stage's own
+        /// compute()) even when `shape_count` doesn't change at all (a
+        /// surviving node's own *direct* shapes are copied through
+        /// unfiltered - shape-level culling isn't this stage's job,
+        /// its own doc comment).
+        std::size_t object_count() const { return shape_count + placement_count; }
+
+        /// @brief The bytes HierarchyResolverStage's own cache is
+        /// responsible for - it's the one stage that actually allocates
+        /// the ViewLayerShapes/Shape content in the first place
+        /// (compute()'s own `std::make_shared<const ViewLayerShapes>`
+        /// calls), so shape_bytes is genuinely its own memory.
+        std::size_t owned_bytes_including_shapes() const { return shape_bytes + own_overhead_bytes; }
+
+        /// @brief The bytes ViewportCullStage's own cache is responsible
+        /// for - excludes shape_bytes entirely. Confirmed directly in
+        /// that stage's own compute(): `data.shapes = source_data.shapes;`
+        /// is a shared_ptr copy (a refcount bump) of the exact same
+        /// ViewLayerShapes HierarchyResolverStage already built, not a
+        /// duplicate - see ViewData's own doc comment for the history (an
+        /// earlier by-value design measured a real multi-second cost
+        /// copying ~1,000,000 shapes on every viewport-only call,
+        /// PIPELINE_REFACTOR_BENCHMARK_RESULTS.md). Only `placement_data`
+        /// (this stage's own freshly-built culled subset) is real,
+        /// additional memory - reporting shape_bytes here too would
+        /// double-count bytes already attributed to HierarchyResolverStage's
+        /// own cache_bytes().
+        std::size_t owned_bytes_excluding_shapes() const { return own_overhead_bytes; }
+    };
+
+    /// @brief Shared by HierarchyResolverStage and ViewportCullStage
+    /// (identical OutputData shape, tbb_core.hpp's own cache-stat hooks) -
+    /// sums real geometry across every resolved node's own `shapes` plus
+    /// every node's own `placement_data` (surviving child placements).
+    /// Always computes shape_bytes (needed either way to report
+    /// shape_count without a second pass), but which of
+    /// owned_bytes_including_shapes()/owned_bytes_excluding_shapes() a
+    /// caller should actually report as "this stage's own cache_bytes()"
+    /// depends on whether that stage allocated the shapes or merely
+    /// references them - see those two methods' own comments.
+    inline HierarchyResolverOutputStats estimate_hierarchy_resolver_output_stats(const HierarchyResolverOutput &output)
+    {
+        HierarchyResolverOutputStats stats;
+        for (const auto &[id, data] : output.view_data)
+        {
+            stats.placement_count += data.placement_data.size();
+            stats.own_overhead_bytes += sizeof(ViewData);
+            stats.own_overhead_bytes += data.placement_data.capacity() * sizeof(ViewPlacementData);
+            if (!data.shapes)
+                continue;
+            for (const auto &[view_layer_id, shapes] : *data.shapes)
+            {
+                stats.shape_count += shapes.size();
+                for (const Shape &shape : shapes)
+                    stats.shape_bytes += estimate_shape_bytes(shape);
+            }
+        }
+        return stats;
+    }
+
     /// @brief Cold-tier stage 2 (PIPELINE_REFACTOR.md): traverses
     /// Placement -> Design hierarchy from ViewRenderOptions::top_level,
     /// consuming one unit of ViewRenderOptions::hierarchy_depth per
@@ -473,6 +590,24 @@ namespace le
             return last.root_mutation_version != current.root_mutation_version ||
                    last.top_level != current.top_level ||
                    last.hierarchy_depth != current.hierarchy_depth;
+        }
+
+        // pipeline_stage_benchmark cache-stat hooks (tbb_core.hpp) - this
+        // stage is the one that actually allocates the ViewLayerShapes/
+        // Shape content in the first place (compute()'s own
+        // std::make_shared<const ViewLayerShapes> calls), so
+        // owned_bytes_including_shapes() is the right number here -
+        // see HierarchyResolverOutputStats' own comment; ViewportCullStage's
+        // own override (viewport_cull_stage.hpp) deliberately reports a
+        // different, smaller number since it only references this data.
+        std::size_t estimate_output_object_count(const HierarchyResolverOutput &output) const override
+        {
+            return estimate_hierarchy_resolver_output_stats(output).object_count();
+        }
+
+        std::size_t estimate_output_bytes(const HierarchyResolverOutput &output) const override
+        {
+            return estimate_hierarchy_resolver_output_stats(output).owned_bytes_including_shapes();
         }
 
     private:

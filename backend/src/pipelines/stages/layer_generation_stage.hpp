@@ -65,5 +65,21 @@ namespace le
         {
             return last.root_mutation_version != current.root_mutation_version;
         }
+
+        // pipeline_stage_benchmark cache-stat hooks (tbb_core.hpp) - a
+        // ViewLayerSet's own count is small (tens, not millions) and
+        // fixed-size per ViewLayerData entry, so an exact object count
+        // and an approximate (entry count x sizeof(ViewLayerData)) byte
+        // estimate are both cheap and meaningful here, unlike a stage
+        // whose OutputData holds real per-shape geometry.
+        std::size_t estimate_output_object_count(const ViewLayerSet &output) const override
+        {
+            return output.all().size();
+        }
+
+        std::size_t estimate_output_bytes(const ViewLayerSet &output) const override
+        {
+            return output.all().size() * sizeof(ViewLayerData);
+        }
     };
 }

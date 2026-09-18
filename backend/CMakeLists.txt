@@ -1171,6 +1171,24 @@ le_enable_coverage_instrumentation(generate_tiled_design)
 # HierarchyResolver::render_layout_frame) is out for the same reason
 # render_preview is, above - restore once the Warm/Hot tiers exist.
 
+# --- pipeline_stage_benchmark: dev-only per-stage benchmarking tool -
+# drives the real LeHandle/api.hpp surface (le_read_lef/le_read_def/
+# le_fit_scene/le_zoom/le_render_pixel_buffer) through a Cold Start
+# Zoom-Fit / Zoom-In / Final Zoom-Fit sequence for one (design,
+# hierarchy_depth) combination per invocation, printing one CSV row per
+# (phase, stage) using tbb_core.hpp's own per-stage wall/CPU/memory/
+# cache-size instrumentation. backend/scripts/pipeline_stage_benchmark.py
+# is the outer driver that runs this once per test case and aggregates
+# results into a combined CSV + Markdown report. Needs `api` (LeHandle),
+# unlike generate_tiled_design/spatial_index_benchmark below - the
+# render_preview/profile_tiled_render "depends on the pre-restart
+# FrameRenderPipeline... restore once Warm/Hot tiers exist" comments
+# elsewhere in this file are stale: ViewRenderPipeline is exactly that
+# rebuilt Warm/Hot tier now. Not run by ctest or the coverage target.
+add_executable(pipeline_stage_benchmark src/pipelines/benchmarks/pipeline_stage_benchmark.cpp)
+target_link_libraries(pipeline_stage_benchmark PRIVATE api pipelines database geometry view_style io)
+le_enable_coverage_instrumentation(pipeline_stage_benchmark)
+
 # --- spatial_index_benchmark: dev-only benchmark (BUGS_AND_ENHANCEMENTS.md
 # E31 zoom/pan-tick follow-up) - quantifies a Boost.Geometry Index rtree's
 # query cost against HierarchyResolver::discover_layout_children's own

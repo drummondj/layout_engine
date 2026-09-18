@@ -220,6 +220,19 @@ namespace le
             return last.ruler_version != current.ruler_version;
         }
 
+        // pipeline_stage_benchmark cache-stat hooks (tbb_core.hpp) -
+        // RasterizedFrame's own pixel_data is a plain vector<uint8_t>, so
+        // its byte count is exact, not an estimate.
+        std::size_t estimate_output_object_count(const RasterizedFrame &output) const override
+        {
+            return output.empty ? 0 : 1;
+        }
+
+        std::size_t estimate_output_bytes(const RasterizedFrame &output) const override
+        {
+            return output.pixel_data.size();
+        }
+
     private:
         /// @brief Draws the select/zoom rubber-band drag-rectangle ghost
         /// overlay (ViewRenderOptions::drag_rect_dbu/drag_is_zoom's own

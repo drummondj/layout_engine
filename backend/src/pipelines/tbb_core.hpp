@@ -1,7 +1,10 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <ctime>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -14,6 +17,56 @@
 
 namespace le
 {
+    /// @brief This process's own current VmRSS/VmSwap, in KB, read fresh
+    /// from /proc/self/status - Linux-only (backend/CLAUDE.md's own
+    /// "Target: Linux servers" scope), same technique
+    /// aes_scaling_fixture.hpp's own peak_rss_mb() uses via getrusage,
+    /// but instantaneous-current rather than peak-so-far, and also
+    /// reporting swap - MemoizingStage::execute() (below) uses this to
+    /// bracket each real compute() call for the pipeline_stage_benchmark
+    /// tool (src/pipelines/benchmarks/), so a per-stage memory
+    /// delta/swap-use reading is possible without a heavier per-
+    /// allocation profiler. Returns {0, 0} if the file can't be read
+    /// (e.g. non-Linux) - callers treat that the same as "no swap, no
+    /// RSS change", not an error.
+    struct ProcMemSample
+    {
+        long rss_kb = 0;
+        long swap_kb = 0;
+    };
+
+    inline ProcMemSample read_proc_mem_sample()
+    {
+        ProcMemSample sample;
+        if (FILE *f = std::fopen("/proc/self/status", "r"))
+        {
+            char line[256];
+            while (std::fgets(line, sizeof(line), f))
+            {
+                if (std::sscanf(line, "VmRSS: %ld kB", &sample.rss_kb) == 1)
+                    continue;
+                std::sscanf(line, "VmSwap: %ld kB", &sample.swap_kb);
+            }
+            std::fclose(f);
+        }
+        return sample;
+    }
+
+    /// @brief This calling thread's own CPU time so far, in nanoseconds
+    /// (CLOCK_THREAD_CPUTIME_ID) - meaningful as a per-compute() bracket
+    /// only because every MemoizingStage node in this pipeline runs
+    /// single-threaded compute() bodies (confirmed directly -
+    /// HierarchyResolverStage's own compute() is a plain BFS loop, no
+    /// nested parallel_for/graph calls) - a stage that ever became
+    /// internally parallel would need this measured differently (e.g.
+    /// summing per-task thread times), not a drop-in fix.
+    inline std::int64_t thread_cpu_time_ns()
+    {
+        timespec ts{};
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+        return static_cast<std::int64_t>(ts.tv_sec) * 1'000'000'000LL + ts.tv_nsec;
+    }
+
     /// @brief Uniform message passed between pipeline stages.
     /// @tparam T Payload type.
     /// @tparam PipelineOptions Pipeline-wide options type threaded alongside the payload.
@@ -121,7 +174,77 @@ namespace le
             return last_data_version_ != data_version || options_did_change(last_options_, options);
         }
 
+        // --- pipeline_stage_benchmark instrumentation (per-stage wall/
+        // CPU time, memory, cache size) - all populated only on a real
+        // compute() call (see execute()'s own comment for why a cache
+        // hit deliberately skips the sampling work); stay at whatever
+        // the previous real compute() left them on a cache hit, so a
+        // caller distinguishes "fresh this call" from "stale, carried
+        // over" via last_call_recomputed() rather than these silently
+        // reading as zero. ---
+
+        /// @brief Whether the most recent execute() call actually ran
+        /// compute() (true) or was a cache hit (false) - set on every
+        /// call, unlike the stats below.
+        bool last_call_recomputed() const { return last_call_recomputed_; }
+
+        /// @brief Wall-clock duration of the most recent real compute()
+        /// call, in nanoseconds. 0 if compute() has never run.
+        std::int64_t last_compute_wall_ns() const { return last_compute_wall_ns_; }
+
+        /// @brief This stage's own thread's CPU time consumed by the
+        /// most recent real compute() call, in nanoseconds - see
+        /// thread_cpu_time_ns()'s own doc comment for the single-
+        /// threaded-compute() assumption this relies on. 0 if compute()
+        /// has never run.
+        std::int64_t last_compute_cpu_ns() const { return last_compute_cpu_ns_; }
+
+        /// @brief Process VmRSS (KB) immediately before/after the most
+        /// recent real compute() call - a delta, not an attribution
+        /// (other threads/allocations could interleave), but meaningful
+        /// for the substantial per-compute allocations this pipeline's
+        /// own Cold/Warm stages make. 0/0 if compute() has never run.
+        long last_compute_rss_before_kb() const { return last_rss_before_kb_; }
+        long last_compute_rss_after_kb() const { return last_rss_after_kb_; }
+
+        /// @brief Process VmSwap (KB) immediately before/after the most
+        /// recent real compute() call - nonzero here means this process
+        /// is (at least partly) swapped out, the "if swap was used"
+        /// signal pipeline_stage_benchmark reports per stage.
+        long last_compute_swap_before_kb() const { return last_swap_before_kb_; }
+        long last_compute_swap_after_kb() const { return last_swap_after_kb_; }
+
+        /// @brief How many objects (typically Shapes) this stage's own
+        /// currently-cached OutputData holds, per estimate_output_object_count()
+        /// below - 0 if this stage doesn't override that hook (nothing
+        /// meaningful to count) or nothing has been computed yet.
+        std::size_t cache_object_count() const
+        {
+            return last_result_ ? estimate_output_object_count(*last_result_) : 0;
+        }
+
+        /// @brief Approximate memory (bytes) held by this stage's own
+        /// currently-cached OutputData, per estimate_output_bytes()
+        /// below - defaults to sizeof(OutputData) (a fixed-size struct's
+        /// own true size, but a serious undercount for one holding
+        /// vectors/maps of real content) when a subclass doesn't
+        /// override it; 0 if nothing has been computed yet.
+        std::size_t cache_bytes() const { return last_result_ ? estimate_output_bytes(*last_result_) : 0; }
+
     protected:
+        /// @brief How many objects (typically Shapes) `output` holds -
+        /// override in a subclass whose OutputData has a meaningful
+        /// count to report (see e.g. HierarchyResolverStage); default 0
+        /// ("not applicable" - the ask's own "if applicable" case).
+        virtual std::size_t estimate_output_object_count(const OutputData &output) const { return 0; }
+
+        /// @brief Approximate memory (bytes) `output` occupies - override
+        /// in a subclass that can do better than the default
+        /// sizeof(OutputData) (which is exact only for a fixed-size
+        /// struct with no owned heap content of its own).
+        virtual std::size_t estimate_output_bytes(const OutputData &output) const { return sizeof(OutputData); }
+
+
         /// @brief Computes this stage's output. Called only when recomputation is needed.
         /// @param data Input payload.
         /// @param options Current pipeline options.
@@ -152,9 +275,29 @@ namespace le
             bool should_recompute =
                 last_data_version_ != in.data_version || options_did_change(last_options_, in.options);
 
+            last_call_recomputed_ = should_recompute;
             if (should_recompute)
             {
+                // Sampling (clock_gettime x2, /proc/self/status read x2)
+                // only happens on a real recompute - the hot cache-hit
+                // path (the common case in real interactive use) pays
+                // none of this, matching would_recompute()'s own "avoid
+                // overhead on the hot path" philosophy above.
+                const ProcMemSample mem_before = read_proc_mem_sample();
+                const std::int64_t cpu_before = thread_cpu_time_ns();
+                const auto wall_before = std::chrono::steady_clock::now();
+
                 last_result_ = std::make_shared<const OutputData>(compute(in.data, in.options));
+
+                last_compute_wall_ns_ = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                             std::chrono::steady_clock::now() - wall_before)
+                                             .count();
+                last_compute_cpu_ns_ = thread_cpu_time_ns() - cpu_before;
+                const ProcMemSample mem_after = read_proc_mem_sample();
+                last_rss_before_kb_ = mem_before.rss_kb;
+                last_rss_after_kb_ = mem_after.rss_kb;
+                last_swap_before_kb_ = mem_before.swap_kb;
+                last_swap_after_kb_ = mem_after.swap_kb;
                 ++version_;
             }
             else
@@ -175,6 +318,16 @@ namespace le
         OutputHandle last_result_;
         std::uint64_t version_{0};
         std::string label_;
+
+        // pipeline_stage_benchmark instrumentation - see the public
+        // accessors above for what each of these means.
+        bool last_call_recomputed_{false};
+        std::int64_t last_compute_wall_ns_{0};
+        std::int64_t last_compute_cpu_ns_{0};
+        long last_rss_before_kb_{0};
+        long last_rss_after_kb_{0};
+        long last_swap_before_kb_{0};
+        long last_swap_after_kb_{0};
     };
 
     /// @brief Generic parallel many-in/one-out fan-in accumulator for a flow graph.

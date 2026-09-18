@@ -163,6 +163,17 @@ namespace le
             return WarmOutput{.frame = compose_result_.data};
         }
 
+        // --- pipeline_stage_benchmark accessors (src/pipelines/benchmarks/) -
+        // read-only access to each stage's own instrumentation
+        // (tbb_core.hpp's last_call_recomputed()/last_compute_wall_ns()/
+        // cache_object_count()/etc.) after a run() call, without exposing
+        // any way to mutate a stage directly. ---
+        const LayerGenerationStage &layer_generation_stage() const { return layer_generation_; }
+        const HierarchyResolverStage &hierarchy_resolver_stage() const { return hierarchy_resolver_; }
+        const ViewportCullStage &viewport_cull_stage() const { return viewport_cull_; }
+        const RasterizeBlend2DStage &rasterize_stage() const { return rasterize_; }
+        const ComposeStage &compose_stage() const { return compose_; }
+
     private:
         oneapi::tbb::flow::graph graph_;
         LayerGenerationStage layer_generation_;

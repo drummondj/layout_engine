@@ -209,6 +209,28 @@ namespace le
                    last.scale != current.scale;
         }
 
+        // pipeline_stage_benchmark cache-stat hooks (tbb_core.hpp) - same
+        // OutputData shape as HierarchyResolverStage, so the same shared
+        // helper applies (hierarchy_resolver_stage.hpp), but bytes must
+        // use owned_bytes_excluding_shapes(), not owned_bytes_including_shapes():
+        // this stage's own `shapes`/`shapes_index` fields are shared_ptr
+        // copies of HierarchyResolverStage's own already-built data
+        // (compute()'s own `data.shapes = source_data.shapes;`), not a
+        // duplicate - reporting the shared shape bytes here too would
+        // double-count them on top of HierarchyResolverStage's own
+        // cache_bytes(). object_count() is unaffected - shape_count is
+        // still meaningful as "how many geometries this cache reaches",
+        // independent of who owns the memory.
+        std::size_t estimate_output_object_count(const HierarchyResolverOutput &output) const override
+        {
+            return estimate_hierarchy_resolver_output_stats(output).object_count();
+        }
+
+        std::size_t estimate_output_bytes(const HierarchyResolverOutput &output) const override
+        {
+            return estimate_hierarchy_resolver_output_stats(output).owned_bytes_excluding_shapes();
+        }
+
     private:
         // Rect (a node's own local placement bbox) paired with its own
         // index into that node's placement_data vector - the rtree's own

@@ -1045,6 +1045,24 @@ namespace le
             return false;
         }
 
+        // pipeline_stage_benchmark cache-stat hooks (tbb_core.hpp) - one
+        // rasterized BLImage per surviving node; bytes assume PRGB32 (4
+        // bytes/pixel, this stage's own actual output format) since
+        // BLImage exposes no direct byte-size accessor, only
+        // width()/height() - an approximation, noted as such.
+        std::size_t estimate_output_object_count(const RasterizeOutput &output) const override
+        {
+            return output.images.size();
+        }
+
+        std::size_t estimate_output_bytes(const RasterizeOutput &output) const override
+        {
+            std::size_t bytes = 0;
+            for (const auto &[id, image] : output.images)
+                bytes += static_cast<std::size_t>(image.image.width()) * static_cast<std::size_t>(image.image.height()) * 4;
+            return bytes;
+        }
+
     private:
         struct NodePathOutlineCache
         {
