@@ -7,6 +7,7 @@
 #include "../../view_style/view_style.hpp"
 #include "../draw_helpers.hpp"
 #include "../pipeline_options.hpp"
+#include "../render_shape.hpp"
 #include "../tbb_core.hpp"
 #include "../via_shapes.hpp"
 
@@ -121,7 +122,7 @@ namespace le
     /// bump regardless of payload size" fix MemoizingStage's own
     /// OutputHandle already applies one level up, applied here one level
     /// down (hence a shared_ptr-wrapped handle, not the map itself).
-    using ViewLayerShapes = std::unordered_map<ViewLayerId, std::vector<Shape>>;
+    using ViewLayerShapes = std::unordered_map<ViewLayerId, std::vector<RenderShape>>;
     using ViewShapesHandle = std::shared_ptr<const ViewLayerShapes>;
 
     /// @brief Per-ViewLayer spatial index over `ViewLayerShapes`' own
@@ -222,17 +223,18 @@ namespace le
 
     /// @brief pipeline_stage_benchmark cache-stat helper (tbb_core.hpp's
     /// estimate_output_object_count/estimate_output_bytes hooks) - a
-    /// rough per-Shape memory estimate: the struct itself plus every
+    /// rough per-RenderShape memory estimate: the struct itself plus every
     /// owned vector's own *capacity* (not size - capacity is what's
     /// actually allocated) times its element size, recursing one level
     /// into Polygon/Path's own point lists and Text's own label string.
     /// Approximate (doesn't count map/vector bucket overhead, small-
     /// string-optimization thresholds, etc.) but the right order of
-    /// magnitude - real per-Shape overhead is dominated by these vectors,
-    /// not bookkeeping.
-    inline std::size_t estimate_shape_bytes(const Shape &shape)
+    /// magnitude - real per-shape overhead is dominated by these vectors,
+    /// not bookkeeping (RenderShape's own sizeof is just 4 empty-vector
+    /// headers - see that struct's own doc comment, render_shape.hpp).
+    inline std::size_t estimate_shape_bytes(const RenderShape &shape)
     {
-        std::size_t bytes = sizeof(Shape);
+        std::size_t bytes = sizeof(RenderShape);
         bytes += shape.rects.capacity() * sizeof(Rect);
         for (const Polygon &polygon : shape.polygons)
             bytes += polygon.points.capacity() * sizeof(Point);
@@ -240,12 +242,6 @@ namespace le
             bytes += path.polygon.points.capacity() * sizeof(Point);
         for (const Text &text : shape.texts)
             bytes += sizeof(Text) + text.label.capacity();
-        bytes += shape.rect_iterates.capacity() * sizeof(RectIterate);
-        bytes += shape.path_iterates.capacity() * sizeof(PathIterate);
-        bytes += shape.polygon_iterates.capacity() * sizeof(PolygonIterate);
-        bytes += shape.rect_masks.capacity() * sizeof(int);
-        bytes += shape.polygon_masks.capacity() * sizeof(int);
-        bytes += shape.path_masks.capacity() * sizeof(int);
         return bytes;
     }
 
@@ -330,7 +326,7 @@ namespace le
             for (const auto &[view_layer_id, shapes] : *data.shapes)
             {
                 stats.shape_count += shapes.size();
-                for (const Shape &shape : shapes)
+                for (const RenderShape &shape : shapes)
                     stats.shape_bytes += estimate_shape_bytes(shape);
             }
         }
@@ -470,7 +466,7 @@ namespace le
                     // rect are now the exact same value, computed once,
                     // not twice) - a real, measured redundancy this
                     // consolidation removes, not just a tidiness pass.
-                    Shape placement_boundary_shape;
+                    RenderShape placement_boundary_shape;
                     placement_boundary_shape.rects.reserve(placements.size());
 
                     // A Placement's own name label is its own Shape, on
@@ -484,7 +480,7 @@ namespace le
                     // for RasterizeBlend2DStage's own width-fit
                     // truncation) - see draw_view_shapes_blend2d's own
                     // comment.
-                    Shape placement_name_shape;
+                    RenderShape placement_name_shape;
                     placement_name_shape.rects.reserve(placements.size());
                     placement_name_shape.texts.reserve(placements.size());
 
@@ -624,7 +620,8 @@ namespace le
         // Shapes) - skipped here, exactly equivalent to today's
         // unindexed draw_view_shapes, which already draws nothing for
         // such a shape either way (its per-geometry-kind loops simply
-        // don't execute).
+        // don't execute). Geometry::bbox is a template (geometry.hpp) so
+        // this resolves against RenderShape without any change here.
         static ViewShapesIndexHandle build_shape_index(const ViewLayerShapes &shapes_by_layer)
         {
             ViewLayerShapeIndex index_by_layer;
@@ -748,7 +745,7 @@ namespace le
                 // to call resolve_view_layer a second time.
                 struct LabelAccumulator
                 {
-                    Shape combined;
+                    RenderShape combined;
                     ViewLayerId view_layer;
                     std::size_t first_shape_index = 0;
                 };
@@ -763,7 +760,7 @@ namespace le
                             continue;
                         Shape shape = expand_iterates(*raw_shape);
                         const ViewLayerId view_layer = resolve_view_layer(view_layers, shape, ViewLayerPurpose::TERMINAL);
-                        std::vector<Shape> &layer_shapes = shapes_by_layer[view_layer];
+                        std::vector<RenderShape> &layer_shapes = shapes_by_layer[view_layer];
 
                         auto [it, inserted] = by_layer.try_emplace(shape.layer);
                         if (inserted)
@@ -771,13 +768,18 @@ namespace le
                             it->second.view_layer = view_layer;
                             it->second.first_shape_index = layer_shapes.size();
                         }
-                        Shape &combined = it->second.combined;
+                        RenderShape &combined = it->second.combined;
                         combined.rects.insert(combined.rects.end(), shape.rects.begin(), shape.rects.end());
                         combined.polygons.insert(combined.polygons.end(), shape.polygons.begin(), shape.polygons.end());
                         combined.paths.insert(combined.paths.end(), shape.paths.begin(), shape.paths.end());
 
+                        // append_via_shapes reads shape.vias/.via_iterates -
+                        // must run on the full Shape, before the shrink to
+                        // RenderShape below (see render_shape.hpp's own
+                        // to_render_shape comment on why the conversion has
+                        // to be the last step).
                         append_via_shapes(root, shape, ViewLayerPurpose::TERMINAL, view_layers, LayoutId{}, shapes_by_layer);
-                        layer_shapes.push_back(std::move(shape));
+                        layer_shapes.push_back(to_render_shape(std::move(shape)));
                     }
                 }
 
@@ -808,12 +810,12 @@ namespace le
                     Shape shape = expand_iterates(*raw_shape);
                     const ViewLayerId view_layer = resolve_view_layer(view_layers, shape, ViewLayerPurpose::OBSTRUCTION);
                     append_via_shapes(root, shape, ViewLayerPurpose::OBSTRUCTION, view_layers, LayoutId{}, shapes_by_layer);
-                    shapes_by_layer[view_layer].push_back(std::move(shape));
+                    shapes_by_layer[view_layer].push_back(to_render_shape(std::move(shape)));
                 }
             }
 
             if (const Shape *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id)))
-                shapes_by_layer[view_layers.boundary_view_layer()].push_back(*boundary_shape);
+                shapes_by_layer[view_layers.boundary_view_layer()].push_back(to_render_shape(*boundary_shape));
 
             return shapes_by_layer;
         }
@@ -844,7 +846,7 @@ namespace le
             if (rows.empty())
                 return;
 
-            Shape shape;
+            RenderShape shape;
             shape.rects.reserve(rows.size());
             for (RowId row_id : rows)
                 if (const std::optional<Rect> bbox = row_footprint_bbox(root, row_id))
@@ -868,7 +870,7 @@ namespace le
                 if (!track || track->count <= 0)
                     continue;
 
-                Shape lines;
+                RenderShape lines;
                 lines.paths.reserve(static_cast<std::size_t>(track->count)); // exact - every iteration below pushes exactly one
                 for (int i = 0; i < track->count; i++)
                 {
@@ -893,8 +895,13 @@ namespace le
                                                          (!track->is_x && layer->direction == RoutingDirection::H));
                     const ViewLayerPurpose purpose = is_preferred ? ViewLayerPurpose::TRACK_PREFERRED : ViewLayerPurpose::TRACK_NON_PREFERRED;
 
-                    Shape shape = lines;
-                    shape.layer = layer_id;
+                    // Per-layer copy of the shared line geometry - .layer
+                    // is deliberately not set here (RenderShape has no such
+                    // field): the push below keys directly into
+                    // shapes_by_layer by `layer_id`/`purpose`, so a
+                    // per-shape layer field would never be read again
+                    // anyway (see render_shape.hpp's own doc comment).
+                    RenderShape shape = lines;
                     shapes_by_layer[view_layers.find(layer_id, purpose)].push_back(std::move(shape));
                 }
             }
@@ -907,7 +914,7 @@ namespace le
                 return;
 
             const ViewLayerId gcellgrid_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::GCELLGRID);
-            Shape lines;
+            RenderShape lines;
             for (GCellGridId grid_id : root.get_layout_gcell_grids(layout_id))
             {
                 const GCellGridData *grid = root.get_g_cell_grid(grid_id);
@@ -935,7 +942,7 @@ namespace le
                 const RegionData *region = root.get_region(region_id);
                 if (!region || region->rects.empty())
                     continue;
-                Shape shape;
+                RenderShape shape;
                 shape.rects = region->rects;
                 shapes_by_layer[region_view_layer].push_back(std::move(shape));
             }
@@ -959,11 +966,11 @@ namespace le
                 if (!shape)
                     return;
                 append_via_shapes(root, *shape, fallback_purpose, view_layers, layout_id, shapes_by_layer);
-                shapes_by_layer[resolve_view_layer(view_layers, *shape, fallback_purpose)].push_back(*shape);
+                shapes_by_layer[resolve_view_layer(view_layers, *shape, fallback_purpose)].push_back(to_render_shape(*shape));
             };
 
             if (const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id)))
-                shapes_by_layer[view_layers.boundary_view_layer()].push_back(*diearea);
+                shapes_by_layer[view_layers.boundary_view_layer()].push_back(to_render_shape(*diearea));
 
             for (BlockageId blockage_id : root.get_layout_blockages(layout_id))
                 for (ShapeId shape_id : root.get_blockage_shapes(blockage_id))

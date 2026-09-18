@@ -82,7 +82,18 @@ namespace le
             return r;
         }
 
-        static void accumulate_bbox(std::optional<Rect> &out, const Shape &shape)
+        // Templated on the shape-like type (duck-typed on .rects/.polygons/
+        // .paths, mirroring draw_helpers.hpp's own stroke_piece_outline
+        // convention) rather than hardcoded to Shape, so it - and every
+        // public bbox()/get_label_location()/local_width_at() overload
+        // built on it below - also accepts pipelines/render_shape.hpp's
+        // own leaner RenderShape without a second, duplicated
+        // implementation. Adding this dependency-free (no #include of
+        // render_shape.hpp - geometry has no dependency on pipelines, and
+        // this keeps it that way) is exactly why it's a template rather
+        // than an overload named at RenderShape directly.
+        template <typename ShapeLike>
+        static void accumulate_bbox(std::optional<Rect> &out, const ShapeLike &shape)
         {
             for (const auto &r : shape.rects)
                 expand_bbox(out, r);
@@ -220,14 +231,16 @@ namespace le
         }
 
     public:
-        static std::optional<Rect> bbox(const Shape &shape)
+        template <typename ShapeLike>
+        static std::optional<Rect> bbox(const ShapeLike &shape)
         {
             std::optional<Rect> out;
             accumulate_bbox(out, shape);
             return out;
         }
 
-        static std::optional<Rect> bbox(const std::vector<Shape> &shapes)
+        template <typename ShapeLike>
+        static std::optional<Rect> bbox(const std::vector<ShapeLike> &shapes)
         {
             std::optional<Rect> out;
 
@@ -665,7 +678,8 @@ namespace le
         /// algorithm this replaces, the result can only land outside
         /// `shape`'s own geometry when `shape` is empty - every
         /// candidate rect's center is trivially inside that rect.
-        static Point get_label_location(const Shape &shape)
+        template <typename ShapeLike>
+        static Point get_label_location(const ShapeLike &shape)
         {
             std::optional<Rect> best;
             int64_t best_area = -1;
@@ -740,7 +754,8 @@ namespace le
         /// meaningful per-piece answer, not the whole shape's bbox (which
         /// could span disjoint pieces and grossly overstate their actual
         /// width). Returns 0.0 for a shape with no geometry at all.
-        static double local_width_at(const Shape &shape, const Point &point)
+        template <typename ShapeLike>
+        static double local_width_at(const ShapeLike &shape, const Point &point)
         {
             for (const auto &rect : shape.rects)
             {

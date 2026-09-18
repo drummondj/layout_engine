@@ -175,7 +175,7 @@ TEST_F(HierarchyResolverStageFixture, PlacementDataBboxMatchesPlacementBoundaryS
     const auto boundary_group_it = top_data.shapes->find(placement_boundary_layer);
     ASSERT_NE(boundary_group_it, top_data.shapes->end());
     ASSERT_EQ(boundary_group_it->second.size(), 1u);
-    const Shape &top_boundary_shape = boundary_group_it->second[0];
+    const RenderShape &top_boundary_shape = boundary_group_it->second[0];
     ASSERT_EQ(top_boundary_shape.rects.size(), 1u);
     EXPECT_EQ(top_boundary_shape.rects[0].ll.x, bbox.ll.x);
     EXPECT_EQ(top_boundary_shape.rects[0].ll.y, bbox.ll.y);
@@ -258,7 +258,7 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
     const auto top_boundary_it = top_data.shapes->find(placement_boundary_layer);
     ASSERT_NE(top_boundary_it, top_data.shapes->end());
     ASSERT_EQ(top_boundary_it->second.size(), 1u);
-    const Shape &top_boundary_shape = top_boundary_it->second[0];
+    const RenderShape &top_boundary_shape = top_boundary_it->second[0];
     ASSERT_EQ(top_boundary_shape.rects.size(), 1u);
     EXPECT_GT(top_boundary_shape.rects[0].ur.x, top_boundary_shape.rects[0].ll.x);
     EXPECT_GT(top_boundary_shape.rects[0].ur.y, top_boundary_shape.rects[0].ll.y);
@@ -267,7 +267,7 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
     const auto top_name_it = top_data.shapes->find(placement_name_layer);
     ASSERT_NE(top_name_it, top_data.shapes->end());
     ASSERT_EQ(top_name_it->second.size(), 1u);
-    const Shape &top_name_shape = top_name_it->second[0];
+    const RenderShape &top_name_shape = top_name_it->second[0];
     ASSERT_EQ(top_name_shape.texts.size(), 1u);
     EXPECT_EQ(top_name_shape.texts[0].label, "block0");
 
@@ -277,7 +277,7 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
     const auto block_name_it = block_data.shapes->find(placement_name_layer);
     ASSERT_NE(block_name_it, block_data.shapes->end());
     ASSERT_EQ(block_name_it->second.size(), 1u);
-    const Shape &block_name_shape = block_name_it->second[0];
+    const RenderShape &block_name_shape = block_name_it->second[0];
     ASSERT_EQ(block_name_shape.rects.size(), 2u);
     ASSERT_EQ(block_name_shape.texts.size(), 2u);
 

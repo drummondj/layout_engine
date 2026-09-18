@@ -2,6 +2,7 @@
 #include "../database/database.hpp"
 #include "../geometry/geometry.hpp"
 #include "../view_style/view_style.hpp"
+#include "render_shape.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -25,7 +26,7 @@ namespace le
     /// current width) and its documented approximations/gaps (PATTERN
     /// bitmaps ignored, one scalar width fit symmetrically to both axes
     /// for tier 3). The only real change from the old version: pushes a
-    /// plain `Shape` straight into the caller's own ViewLayerShapes map
+    /// plain `RenderShape` straight into the caller's own ViewLayerShapes map
     /// (`shapes_by_layer[view_layer].push_back(...)`) instead of building
     /// a `RenderedShape` with its own SelectionRef/path_outlines - the new
     /// pipeline's collect_* functions already dropped that type (see
@@ -41,12 +42,17 @@ namespace le
     /// Technology's own LEF VIA (Via) either way; pass LayoutId{} from the
     /// Abstract path (no Layout context there).
     ///
-    /// Takes the raw `std::unordered_map<ViewLayerId, std::vector<Shape>>`
+    /// Takes the raw `std::unordered_map<ViewLayerId, std::vector<RenderShape>>`
     /// rather than hierarchy_resolver_stage.hpp's own ViewLayerShapes
     /// alias for that exact type, to avoid this header depending on that
     /// one (which itself needs to call into this one) - a plain type
     /// alias costs nothing to bypass, unlike a real circular #include.
-    inline void append_via_shapes(const Root &root, const Shape &shape, ViewLayerPurpose purpose, const ViewLayerSet &view_layers, LayoutId layout_id, std::unordered_map<ViewLayerId, std::vector<Shape>> &shapes_by_layer)
+    /// `shape` (the referencing Shape - a full database Shape, not yet
+    /// shrunk to RenderShape) is still read in full here (its own
+    /// .vias/.via_iterates); every *synthesized* via/enclosure shape this
+    /// function itself produces, though, only ever needs RenderShape's 4
+    /// fields - see render_shape.hpp's own doc comment.
+    inline void append_via_shapes(const Root &root, const Shape &shape, ViewLayerPurpose purpose, const ViewLayerSet &view_layers, LayoutId layout_id, std::unordered_map<ViewLayerId, std::vector<RenderShape>> &shapes_by_layer)
     {
         if (shape.vias.empty() && shape.via_iterates.empty())
             return;
@@ -123,8 +129,7 @@ namespace le
             const double start_x = -total_w / 2.0 + origin_x;
             const double start_y = -total_h / 2.0 + origin_y;
 
-            Shape cut_shape;
-            cut_shape.layer = cut_layer_id;
+            RenderShape cut_shape;
             cut_shape.rects.reserve(static_cast<size_t>(rows) * static_cast<size_t>(cols));
             for (int row = 0; row < rows; row++)
             {
@@ -158,8 +163,7 @@ namespace le
                         .x = static_cast<int64_t>(std::llround(start_x + total_w + static_cast<double>(enclosure->x) + offset_x)),
                         .y = static_cast<int64_t>(std::llround(start_y + total_h + static_cast<double>(enclosure->y) + offset_y))},
                 };
-                Shape metal_shape;
-                metal_shape.layer = layer_id;
+                RenderShape metal_shape;
                 metal_shape.rects.push_back(Geometry::transform_bbox(transform, enclosure_rect));
                 shapes_by_layer[view_layers.find(layer_id, purpose)].push_back(std::move(metal_shape));
             };
@@ -301,9 +305,7 @@ namespace le
                 if (!layer_id.valid())
                     continue;
 
-                Shape resolved;
-                resolved.layer = layer_id;
-
+                RenderShape resolved;
                 resolved.rects.reserve(via_layer->rects.size());
                 for (const Rect &rect : via_layer->rects)
                     resolved.rects.push_back(Geometry::transform_bbox(transform, rect));

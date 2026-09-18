@@ -8,6 +8,7 @@
 #include "../draw_helpers.hpp"
 #include "../pipeline_options.hpp"
 #include "../rasterize_output.hpp"
+#include "../render_shape.hpp"
 #include "../tbb_core.hpp"
 #include "hierarchy_resolver_stage.hpp"
 
@@ -714,7 +715,7 @@ namespace le
                 ctx.set_stroke_style(fill_color);
             }
 
-            auto draw_one_shape = [&](const Shape &shape)
+            auto draw_one_shape = [&](const RenderShape &shape)
             {
                 // Tracks whether ANY of this shape's own rects/polygons/paths
                 // actually survived their own sub-pixel cull below - if none
@@ -898,7 +899,7 @@ namespace le
                 }
             };
 
-            const std::vector<Shape> &shapes = group_it->second;
+            const std::vector<RenderShape> &shapes = group_it->second;
             const auto layer_index_it = shapes_index ? shapes_index->find(view_layer_id) : ViewLayerShapeIndex::const_iterator{};
             if (shapes_index && layer_index_it != shapes_index->end())
             {
@@ -909,7 +910,7 @@ namespace le
             }
             else
             {
-                for (const Shape &shape : shapes)
+                for (const RenderShape &shape : shapes)
                     draw_one_shape(shape);
             }
         }
