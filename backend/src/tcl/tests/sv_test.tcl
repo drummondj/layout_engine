@@ -51,8 +51,10 @@ current_schematic $schematic_token
 # hand-written AND2 instances (see gate_netlist_clean.v).
 check "instance count" 4 [llength [get_instances -of $schematic_token]]
 
-# clk, in, out.
-check "port count" 3 [llength [get_ports -of $schematic_token]]
+# clk (scalar) + in[1:0]/out[1:0] (2-bit buses, WIDTH defaults to 2) - a
+# multi-bit port has no Port object of its own, replaced by one Port per
+# bit (see schema.py's own PortBus comment): clk, in[0], in[1], out[0], out[1].
+check "port count" 5 [llength [get_ports -of $schematic_token]]
 
 # Every instance has exactly two pins (INV: A/Y, AND2: A/B/Y - wait, AND2
 # has 3; INV has 2 - so pin counts differ per instance. Just confirm the
@@ -68,5 +70,20 @@ foreach instance_token [get_instances -of $schematic_token] {
     incr total_pins $pin_count
 }
 puts "ok: total pins across all instances = $total_pins"
+
+# Hierarchical path syntax (LINKING_STRATEGY_RESEARCH.md sections 3/4) -
+# real multi-level nesting/escaping/"**"-fan-out coverage lives in the
+# C++ HierarchicalResolver test suite; this just confirms the TCL wiring
+# itself (get_instances/get_nets routing through the new
+# get_<type>s_by_path_cmd, and SWIG actually exposing it) works end to
+# end, not just at the C++ layer.
+check "bare ** recursive descent (no nesting here, so same as flat count)" 4 \
+    [llength [get_instances -of $schematic_token **]]
+check "u_and0 exact bare-name match (still the old flat path, no '/')" {instance:u_and0} \
+    [get_instances -of $schematic_token u_and0]
+check "u_and0/nonexistent - a leaf instance has no nested Schematic, resolves to nothing" {} \
+    [get_instances -of $schematic_token u_and0/nonexistent]
+check "** combined with -filter still narrows the result" {instance:u_and0} \
+    [get_instances -of $schematic_token ** -filter {.name == u_and0}]
 
 puts "ok: SystemVerilog TCL wiring round trip"

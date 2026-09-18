@@ -122,6 +122,26 @@ int read_def(const char *path);
 // (same "no new typemap needed" shape read_lef/read_def already have).
 int read_verilog_cmd(const char *path, int is_netlist);
 int link_unresolved_instances_cmd();
+
+// Hierarchical-path variants of get_instances_cmd/get_nets_cmd/
+// get_ports_cmd (LINKING_STRATEGY_RESEARCH.md sections 3/4) -
+// get_instances/get_nets/get_ports (le_tcl_procs.tcl) call one of these
+// instead of the plain flat *_cmd whenever a name-expr argument contains
+// "/". Reuses the existing get_instances_at/get_nets_at/get_ports_at
+// result accessors unchanged - both paths populate the same handle-side
+// search-results field.
+int get_instances_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);
+int get_nets_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);
+int get_ports_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);
+
+// Phase 5 mutation side-effects (LINKING_STRATEGY_RESEARCH.md section 5) -
+// see these functions' own definitions (le_tcl_shim.cpp) and
+// le_api.hpp's le_delete_net_cascade/le_rename_net_propagate/
+// le_rename_instance_propagate for what each does.
+int delete_net_cascade_cmd(const char *id);
+const char *rename_net_cmd(const char *id, const char *new_name);
+const char *rename_instance_cmd(const char *id, const char *new_name);
+
 int design_count();
 const char *design_name(int index);
 int message_count();

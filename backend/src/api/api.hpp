@@ -213,6 +213,50 @@ extern "C"
     /// Returns the number of Instances newly resolved.
     int32_t le_link_unresolved_instances(LeHandle *handle);
 
+    /// @brief Deletes a Net and clears every dangling reference to it
+    /// left behind (LINKING_STRATEGY_RESEARCH.md section 5a): deletes
+    /// every linked Route in the Net's own sibling Layout (an orphaned
+    /// Route has no meaning without its Net), clears (does not delete)
+    /// every linked PhysicalPort's own `.net` in that same Layout, and
+    /// clears every Pin.net/Port.net in the Net's own Schematic that
+    /// pointed at it - all batched into one undo/redo transaction
+    /// (matches move_click_unlocked's own pattern). Superset of the
+    /// generated delete_net (which only deletes the Net itself and
+    /// leaves every dangling reference above pointing at a stale id) -
+    /// this is what the TCL `delete_net` command routes to (see
+    /// le_tcl_procs.tcl). 0 on success, 1 (with a message pushed) if
+    /// `id` doesn't resolve to a live Net.
+    int le_delete_net_cascade(LeHandle *handle, LeNetId id);
+
+    /// @brief Renames a Net and propagates the rename to its own linked
+    /// Route/PhysicalPort, if any (LINKING_STRATEGY_RESEARCH.md section
+    /// 5b) - a simple 1:1 follow-on rename, since a Net has no
+    /// descendants of its own. Batched into one undo/redo transaction.
+    /// Superset of the generated update_net (which only renames the Net
+    /// itself); this is what the TCL `update_net` command routes to when
+    /// its own `-name` flag is present (see le_tcl_procs.tcl). 0 on
+    /// success, 1 (with a message pushed) on failure (unknown id, empty
+    /// new_name, or a sibling Net/Route/PhysicalPort name collision).
+    int le_rename_net_propagate(LeHandle *handle, LeNetId id, const char *new_name);
+
+    /// @brief Renames an Instance and propagates the rename to every
+    /// Placement/Route/PhysicalPort whose own DEF-style hierarchical
+    /// name embeds its path segment - both the Instance's own linked
+    /// Placement and every descendant Instance/Net's own linked
+    /// Placement/Route/PhysicalPort (LINKING_STRATEGY_RESEARCH.md
+    /// section 5c) - using real id-based graph traversal (never string-
+    /// prefix matching, which has a real sibling-name-collision bug -
+    /// see that section). Batched into one undo/redo transaction.
+    /// Superset of the generated update_instance (which only renames the
+    /// Instance itself); this is what the TCL `update_instance` command
+    /// routes to when its own `-name` flag is present (see
+    /// le_tcl_procs.tcl). 0 on success, 1 (with a message pushed) on
+    /// failure (unknown id, empty new_name, or a sibling Instance name
+    /// collision). See rename_propagation.hpp's own "known limitation"
+    /// comment for the one case (the renamed Instance has no linked
+    /// Placement yet) where descendant propagation is silently skipped.
+    int le_rename_instance_propagate(LeHandle *handle, LeInstanceId id, const char *new_name);
+
     /// @brief What Technology layer content le_write_lef() also includes
     /// alongside (or instead of) the written Abstract's own MACRO -
     /// crosses the FFI boundary as a plain int32_t like every other small
@@ -1487,17 +1531,44 @@ extern "C"
     LeLayoutViaId le_layout_via_by_name(LeHandle *handle, const char *name);
     const char *le_layout_via_name(LeHandle *handle, LeLayoutViaId id);
 
-    /// @brief Port/Net/Instance friendly-id lookup pair - same shape and
-    /// reasoning as le_row_by_name/le_row_name above (Port.name/Net.name/
-    /// Instance.name are each unique_per_parent, scoped to their own
-    /// Schematic, not global), but scoped to `handle->current_schematic_id`
-    /// (the Schematic-view analog of `handle->current_layout_id`) instead.
+    /// @brief Port/Net/Instance/PortBus/NetBus friendly-id lookup pair -
+    /// same shape and reasoning as le_row_by_name/le_row_name above
+    /// (Port.name/Net.name/Instance.name/PortBus.name/NetBus.name are
+    /// each unique_per_parent, scoped to their own Schematic, not
+    /// global), but scoped to `handle->current_schematic_id` (the
+    /// Schematic-view analog of `handle->current_layout_id`) instead.
     LePortId le_port_by_name(LeHandle *handle, const char *name);
     const char *le_port_name(LeHandle *handle, LePortId id);
     LeNetId le_net_by_name(LeHandle *handle, const char *name);
     const char *le_net_name(LeHandle *handle, LeNetId id);
     LeInstanceId le_instance_by_name(LeHandle *handle, const char *name);
     const char *le_instance_name(LeHandle *handle, LeInstanceId id);
+    LePortBusId le_port_bus_by_name(LeHandle *handle, const char *name);
+    const char *le_port_bus_name(LeHandle *handle, LePortBusId id);
+    LeNetBusId le_net_bus_by_name(LeHandle *handle, const char *name);
+    const char *le_net_bus_name(LeHandle *handle, LeNetBusId id);
+
+    /// @brief Hierarchical-path variants of le_get_instances/le_get_nets/
+    /// le_get_ports (LINKING_STRATEGY_RESEARCH.md sections 3/4) - `path`
+    /// is a "/"-delimited path down the Instance hierarchy (each segment
+    /// may be a plain literal, a single-level glob, or "**" recursive
+    /// descent - see hierarchical_resolver.hpp), anchored at `of_schematic`
+    /// (or `handle->current_schematic_id` when `of_schematic` doesn't
+    /// resolve, same convention as the plain le_get_<type> functions).
+    /// `filter_expression` applies on top of the resolved results via the
+    /// same generic evaluator the flat search already uses - a path and a
+    /// `-filter` aren't mutually exclusive. Populates the same
+    /// instance_search_results/net_search_results/port_search_results
+    /// fields the flat search does, so le_search_result_instance_at/etc.
+    /// read the results back identically either way. Returns the result
+    /// count, or -1 if `filter_expression` failed to parse/validate (an
+    /// error message is pushed to handle->messages either way).
+    int32_t le_get_instances_by_path(LeHandle *handle, LeSchematicId of_schematic, const char *path,
+                                      const char *filter_expression);
+    int32_t le_get_nets_by_path(LeHandle *handle, LeSchematicId of_schematic, const char *path,
+                                 const char *filter_expression);
+    int32_t le_get_ports_by_path(LeHandle *handle, LeSchematicId of_schematic, const char *path,
+                                  const char *filter_expression);
 
     /// @brief Number of property rows for the Terminal at `id` - same
     /// name/value table shape (LeProperty) le_object_property_count/_at

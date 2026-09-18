@@ -43,6 +43,15 @@ namespace le
             return id;
         }
 
+        // Plain (non-bus) get-or-create by name - the form every scalar
+        // Net/Port and every Pin connection reference uses. A per-bit
+        // Net/Port of a multi-bit bus (see get_or_create_bus_bit_net/port
+        // below) is *also* found via this exact lookup when a Pin
+        // connection reaches its bracketed name ("address[7]") before the
+        // owning port's own bus-splitting pass does - matching by name
+        // is enough to converge on the same object either way, since a
+        // Pin connection alone (unlike populate_ports below) never has a
+        // NetBus/PortBus id in hand to backfill.
         NetId get_or_create_net(Root &root, SchematicId schematic_id, const std::string &name)
         {
             NetId id = root.get_net_by_name(schematic_id, name);
@@ -52,17 +61,64 @@ namespace le
         }
 
         PortId get_or_create_port(Root &root, SchematicId schematic_id, const std::string &name,
-                                   SignalDirection direction, std::optional<int> msb, std::optional<int> lsb,
-                                   NetId net_id = NetId{})
+                                   SignalDirection direction, NetId net_id = NetId{})
         {
             PortId id = root.get_port_by_name(schematic_id, name);
             if (!id.valid())
-                id = root.create_port(PortData{.schematic = schematic_id,
-                                               .name = name,
-                                               .direction = direction,
-                                               .msb = msb,
-                                               .lsb = lsb,
-                                               .net = net_id});
+                id = root.create_port(
+                    PortData{.schematic = schematic_id, .name = name, .direction = direction, .net = net_id});
+            return id;
+        }
+
+        NetBusId get_or_create_net_bus(Root &root, SchematicId schematic_id, const std::string &name, int msb,
+                                        int lsb)
+        {
+            NetBusId id = root.get_net_bus_by_name(schematic_id, name);
+            if (!id.valid())
+                id = root.create_net_bus(NetBusData{.schematic = schematic_id, .name = name, .msb = msb, .lsb = lsb});
+            return id;
+        }
+
+        PortBusId get_or_create_port_bus(Root &root, SchematicId schematic_id, const std::string &name, int msb,
+                                          int lsb)
+        {
+            PortBusId id = root.get_port_bus_by_name(schematic_id, name);
+            if (!id.valid())
+                id = root.create_port_bus(
+                    PortBusData{.schematic = schematic_id, .name = name, .msb = msb, .lsb = lsb});
+            return id;
+        }
+
+        // One bit of a multi-bit bus - named with the DEF-style bracketed
+        // form directly ("address[7]"), so DEF hierarchical name matching
+        // (LINKING_STRATEGY_RESEARCH.md) needs zero bit-select-aware logic
+        // anywhere: it just resolves a Net/Net's own plain name like any
+        // other. Reuses get_or_create_net/port's own plain by-name lookup
+        // (a Pin connection to this same bit may have already created it
+        // without knowing about the bus at all) and backfills .bus/
+        // .bit_index if not already set, rather than assuming this call
+        // is always the first to touch it.
+        NetId get_or_create_bus_bit_net(Root &root, SchematicId schematic_id, const std::string &bus_name, int bit,
+                                         NetBusId bus_id)
+        {
+            const std::string name = fmt::format("{}[{}]", bus_name, bit);
+            const NetId id = get_or_create_net(root, schematic_id, name);
+            const NetData *data = root.get_net(id);
+            if (data && !data->bus.valid())
+                root.update_net(id, schematic_id, std::optional<NetBusId>(bus_id), std::nullopt,
+                                std::optional<int>(bit));
+            return id;
+        }
+
+        PortId get_or_create_bus_bit_port(Root &root, SchematicId schematic_id, const std::string &bus_name, int bit,
+                                           PortBusId bus_id, SignalDirection direction, NetId net_id)
+        {
+            const std::string name = fmt::format("{}[{}]", bus_name, bit);
+            const PortId id = get_or_create_port(root, schematic_id, name, direction, net_id);
+            const PortData *data = root.get_port(id);
+            if (data && !data->bus.valid())
+                root.update_port(id, schematic_id, std::optional<PortBusId>(bus_id), std::nullopt, std::nullopt,
+                                 std::nullopt, std::optional<int>(bit));
             return id;
         }
 
@@ -186,20 +242,83 @@ namespace le
                 bit_range_from_type(port.getType(), msb, lsb);
 
                 const std::string name(port.name);
-                // Verilog gives every port an implicit net of the same name -
-                // created first so the Port record below can reference it
-                // directly (Port.net, not the other way around - Net has no
-                // back-reference to any Pin/Port, matching Pin.net's own
-                // shape uniformly for every connection endpoint).
-                const NetId net_id = get_or_create_net(root, schematic_id, name);
-                get_or_create_port(
-                    root, schematic_id, name, SVReader::signal_direction_from_parser(port.direction), msb, lsb, net_id);
+                const SignalDirection direction = SVReader::signal_direction_from_parser(port.direction);
+
+                if (msb.has_value() && lsb.has_value())
+                {
+                    // A multi-bit port has no Port/Net object of its own -
+                    // it's fully replaced by one Port+Net per bit, named
+                    // with the DEF-style bracketed form ("address[7]") so
+                    // DEF hierarchical name matching needs zero bit-
+                    // select-aware logic (see schema.py's own PortBus/
+                    // NetBus comment). NetBus is created first, same
+                    // "reference created before the thing that points at
+                    // it" convention the single-Net-per-port case below
+                    // already used.
+                    const NetBusId net_bus_id = get_or_create_net_bus(root, schematic_id, name, *msb, *lsb);
+                    const PortBusId port_bus_id = get_or_create_port_bus(root, schematic_id, name, *msb, *lsb);
+                    const int lo = std::min(*msb, *lsb);
+                    const int hi = std::max(*msb, *lsb);
+                    for (int bit = lo; bit <= hi; ++bit)
+                    {
+                        const NetId net_id = get_or_create_bus_bit_net(root, schematic_id, name, bit, net_bus_id);
+                        get_or_create_bus_bit_port(root, schematic_id, name, bit, port_bus_id, direction, net_id);
+                    }
+                }
+                else
+                {
+                    // Scalar (1-bit) port - unchanged from before bus
+                    // splitting existed. Verilog gives every port an
+                    // implicit net of the same name - created first so the
+                    // Port record below can reference it directly
+                    // (Port.net, not the other way around - Net has no
+                    // back-reference to any Pin/Port, matching Pin.net's
+                    // own shape uniformly for every connection endpoint).
+                    const NetId net_id = get_or_create_net(root, schematic_id, name);
+                    get_or_create_port(root, schematic_id, name, direction, net_id);
+                }
             }
         }
 
-        // Extracts a Pin's net/net_bit_index/raw_expression from one
-        // connection's expression - see sv_reader.hpp's own read_netlist
-        // comment for the exact classification rules.
+        // Recursively unwraps a chain of ElementSelect expressions down to
+        // a base NamedValue, returning the bracketed net name (e.g.
+        // "block_reg[0][31]" for a real gate-level netlist's own
+        // unpacked-array-element-then-bit-select reference, confirmed
+        // against real synthesized DEF/Verilog data - not hypothetical; a
+        // plain single-index bit-select like "in[0]" is just the one-
+        // level case of the same recursion). Returns nullopt if the chain
+        // doesn't bottom out in a plain NamedValue with every selector a
+        // compile-time constant, mirroring classify_simple_connection_text's
+        // own fallback discipline for the syntax-text equivalent of this.
+        std::optional<std::string> bracketed_name_from_nested_element_select(const slang::ast::Expression &expression)
+        {
+            if (expression.kind == slang::ast::ExpressionKind::NamedValue)
+                return std::string(expression.as<slang::ast::NamedValueExpression>().symbol.name);
+
+            if (expression.kind == slang::ast::ExpressionKind::ElementSelect)
+            {
+                const auto &select = expression.as<slang::ast::ElementSelectExpression>();
+                const auto base = bracketed_name_from_nested_element_select(select.value());
+                if (!base)
+                    return std::nullopt;
+                const auto *constant = select.selector().getConstant();
+                if (!constant)
+                    return std::nullopt;
+                const auto index = constant->integer().as<int32_t>();
+                if (!index)
+                    return std::nullopt;
+                return fmt::format("{}[{}]", *base, *index);
+            }
+
+            return std::nullopt;
+        }
+
+        // Extracts a Pin's net/raw_expression from one connection's
+        // expression, for a connection already known to be single-bit
+        // (see sv_reader.hpp's own read_netlist comment for the exact
+        // classification rules) - populate_pins below is responsible for
+        // recognizing and decomposing a *whole-bus* connection before
+        // ever reaching here, since that produces multiple Pins, not one.
         void populate_pin_from_expression(Root &root, SchematicId parent_schematic_id, PinData &pin_data,
                                            const slang::ast::Expression *expression,
                                            const slang::SourceManager &source_manager)
@@ -216,19 +335,13 @@ namespace le
 
             if (expression->kind == slang::ast::ExpressionKind::ElementSelect)
             {
-                const auto &select = expression->as<slang::ast::ElementSelectExpression>();
-                if (select.value().kind == slang::ast::ExpressionKind::NamedValue)
+                // Resolves directly to that bit's own per-bit Net (e.g.
+                // "address[3]") - the specific bit is encoded in which Net
+                // this points at, not a separate bit-index field on Pin.
+                if (const auto name = bracketed_name_from_nested_element_select(*expression))
                 {
-                    const auto &named = select.value().as<slang::ast::NamedValueExpression>();
-                    if (const auto *constant = select.selector().getConstant())
-                    {
-                        if (const auto index = constant->integer().as<int32_t>())
-                        {
-                            pin_data.net = get_or_create_net(root, parent_schematic_id, std::string(named.symbol.name));
-                            pin_data.net_bit_index = *index;
-                            return;
-                        }
-                    }
+                    pin_data.net = get_or_create_net(root, parent_schematic_id, *name);
+                    return;
                 }
             }
 
@@ -245,11 +358,277 @@ namespace le
         {
             for (const auto *connection : instance.getPortConnections())
             {
-                PinData pin_data{.instance = instance_id, .name = std::string(connection->port.name)};
-                if (const auto *port = connection->port.as_if<slang::ast::PortSymbol>())
-                    pin_data.direction = SVReader::signal_direction_from_parser(port->direction);
-                populate_pin_from_expression(root, parent_schematic_id, pin_data, connection->getExpression(),
-                                             source_manager);
+                const std::string port_name(connection->port.name);
+                const auto *port_symbol = connection->port.as_if<slang::ast::PortSymbol>();
+                const std::optional<SignalDirection> direction =
+                    port_symbol ? std::optional<SignalDirection>(SVReader::signal_direction_from_parser(port_symbol->direction))
+                                : std::nullopt;
+                std::optional<int> port_msb, port_lsb;
+                if (port_symbol)
+                    bit_range_from_type(port_symbol->getType(), port_msb, port_lsb);
+
+                const slang::ast::Expression *expr = connection->getExpression();
+
+                // A whole-bus connection (e.g. a module-to-module bus
+                // hookup, `.data(some_wide_wire)` with no bit-select at
+                // all) - both the port and the connected signal are real
+                // multi-bit vectors of matching width. Neither side has a
+                // single Net/Port object anymore (see populate_ports'
+                // own comment), so this decomposes into one Pin per bit,
+                // mapped positionally MSB-to-MSB (Verilog allows the two
+                // sides to use different bit-numbering conventions, e.g.
+                // [7:0] connected to [15:8], as long as widths match).
+                if (expr && port_msb && port_lsb && expr->kind == slang::ast::ExpressionKind::NamedValue)
+                {
+                    std::optional<int> sig_msb, sig_lsb;
+                    bit_range_from_type(*expr->type, sig_msb, sig_lsb);
+                    const int port_width = std::abs(*port_msb - *port_lsb) + 1;
+                    if (sig_msb && sig_lsb && std::abs(*sig_msb - *sig_lsb) + 1 == port_width && port_width > 1)
+                    {
+                        const auto &named = expr->as<slang::ast::NamedValueExpression>();
+                        const bool port_desc = *port_msb >= *port_lsb;
+                        const bool sig_desc = *sig_msb >= *sig_lsb;
+                        for (int i = 0; i < port_width; ++i)
+                        {
+                            const int port_bit = port_desc ? (*port_msb - i) : (*port_msb + i);
+                            const int sig_bit = sig_desc ? (*sig_msb - i) : (*sig_msb + i);
+                            PinData pin_data{.instance = instance_id,
+                                             .name = fmt::format("{}[{}]", port_name, port_bit),
+                                             .direction = direction};
+                            pin_data.net = get_or_create_net(root, parent_schematic_id,
+                                                             fmt::format("{}[{}]", named.symbol.name, sig_bit));
+                            root.create_pin(pin_data);
+                        }
+                        continue;
+                    }
+                }
+
+                PinData pin_data{.instance = instance_id, .name = port_name, .direction = direction};
+                populate_pin_from_expression(root, parent_schematic_id, pin_data, expr, source_manager);
+                root.create_pin(pin_data);
+            }
+        }
+
+        bool is_identifier_char(char c, bool first)
+        {
+            return std::isalpha(static_cast<unsigned char>(c)) || c == '_' || c == '$' ||
+                   (!first && std::isdigit(static_cast<unsigned char>(c)));
+        }
+
+        bool is_identifier(const std::string &text)
+        {
+            if (text.empty() || !is_identifier_char(text[0], true))
+                return false;
+            for (size_t i = 1; i < text.size(); ++i)
+                if (!is_identifier_char(text[i], false))
+                    return false;
+            return true;
+        }
+
+        // Classifies a connection's value from its own verbatim source
+        // text rather than an elaborated Expression: a bare identifier,
+        // or identifier[digits] (a literal bit-select - a parameter-
+        // driven index is deliberately not evaluated, see read_rtl's own
+        // comment). Anything else - concatenation, constant ties, a
+        // non-literal index - falls back to raw_expression. Shared by
+        // read_rtl (which never has an elaborated Expression to classify
+        // at all - syntax-only tree, no semantic analysis) and
+        // read_netlist's own populate_pins_for_uninstantiated below
+        // (which technically has an elaborated Expression for an
+        // undefined-module connection, but it's unconditionally a `bad()`
+        // placeholder with an empty source range - slang can't type-check
+        // a connection to an unknown module's port at all, so the real
+        // text is only recoverable from raw syntax, the same situation
+        // read_rtl is already in for a structurally different reason).
+        // Peels trailing "[digits]" groups one at a time off `text` (e.g.
+        // "block_reg[0][31]" peels to base "block_reg" plus indices
+        // ["0","31"], in original left-to-right order - a single-index
+        // bus bit-select like "address[3]" is just the one-group case of
+        // the same loop). Stops as soon as a trailing group isn't purely
+        // numeric, writing whatever's left (possibly all of `text`, if no
+        // group peeled at all) into `remainder`.
+        std::vector<std::string> peel_trailing_bracket_indices(std::string_view text, std::string &remainder)
+        {
+            std::vector<std::string> indices;
+            remainder = std::string(text);
+            while (!remainder.empty() && remainder.back() == ']')
+            {
+                const size_t bracket = remainder.rfind('[');
+                if (bracket == std::string::npos)
+                    break;
+                const std::string index_part = remainder.substr(bracket + 1, remainder.size() - bracket - 2);
+                const bool index_is_numeric =
+                    !index_part.empty() &&
+                    std::all_of(index_part.begin(), index_part.end(),
+                                [](char c) { return std::isdigit(static_cast<unsigned char>(c)); });
+                if (!index_is_numeric)
+                    break;
+                indices.push_back(index_part);
+                remainder = remainder.substr(0, bracket);
+            }
+            std::reverse(indices.begin(), indices.end());
+            return indices;
+        }
+
+        void classify_simple_connection_text(Root &root, SchematicId schematic_id, PinData &pin_data,
+                                              const std::string &text)
+        {
+            if (is_identifier(text))
+            {
+                pin_data.net = get_or_create_net(root, schematic_id, text);
+                return;
+            }
+
+            // A Verilog escaped identifier (`\name `, terminated by
+            // whitespace per IEEE 1800 - needed since a plain identifier
+            // can't contain '['/']' at all, the common case for a
+            // synthesizer-flattened unpacked-array-element name),
+            // optionally followed by a real bit-select on that (now
+            // vector-typed) escaped name - e.g. `\block_reg[0] [31]`,
+            // confirmed verbatim against real synthesized Verilog output,
+            // not hypothetical. The escaped name's own brackets are kept
+            // literally (dropping only the leading backslash and
+            // terminating whitespace), then any further bracket groups in
+            // the trailer are peeled the same way as the plain-identifier
+            // case below, reusing peel_trailing_bracket_indices.
+            if (text.size() > 1 && text.front() == '\\')
+            {
+                const size_t ws = text.find_first_of(" \t\r\n", 1);
+                if (ws == std::string::npos)
+                {
+                    // No embedded whitespace at all - the whole text
+                    // (after the leading backslash) is the escaped name
+                    // itself, with no further bit-select trailer. This is
+                    // actually the common case: the identifier's own
+                    // terminating whitespace is lexical trivia, excluded
+                    // from a single token's own source range - it only
+                    // shows up (handled below) when a genuine second
+                    // token, like a following real bit-select, shares the
+                    // wider connection expression's own source range.
+                    pin_data.net = get_or_create_net(root, schematic_id, text.substr(1));
+                    return;
+                }
+                else
+                {
+                    const std::string escaped_name = text.substr(1, ws - 1);
+                    const size_t trailer_start = text.find_first_not_of(" \t\r\n", ws);
+                    const std::string trailer =
+                        trailer_start == std::string::npos ? std::string() : text.substr(trailer_start);
+
+                    if (trailer.empty())
+                    {
+                        pin_data.net = get_or_create_net(root, schematic_id, escaped_name);
+                        return;
+                    }
+                    std::string remainder;
+                    const auto indices = peel_trailing_bracket_indices(trailer, remainder);
+                    if (!indices.empty() && remainder.empty())
+                    {
+                        std::string name = escaped_name;
+                        for (const auto &index : indices)
+                            name += "[" + index + "]";
+                        pin_data.net = get_or_create_net(root, schematic_id, name);
+                        return;
+                    }
+                }
+            }
+            else
+            {
+                std::string remainder;
+                const auto indices = peel_trailing_bracket_indices(text, remainder);
+                if (!indices.empty() && is_identifier(remainder))
+                {
+                    // Resolves directly to that bit's own per-bit Net (e.g.
+                    // "address[3]") - same convention as every other bit-
+                    // select classification site (see
+                    // populate_pin_from_expression's own comment).
+                    std::string name = remainder;
+                    for (const auto &index : indices)
+                        name += "[" + index + "]";
+                    pin_data.net = get_or_create_net(root, schematic_id, name);
+                    return;
+                }
+            }
+
+            // Anything else (concatenation, a non-constant bit-select
+            // index, an escaped identifier with no terminating whitespace
+            // found, etc.) - a deliberate v1 scope limit, not a bug:
+            // raw_expression is always captured regardless, so no
+            // connectivity information is lost, just left unstructured.
+            pin_data.raw_expression = text;
+        }
+
+        // Pin population for an undefined leaf cell (a standard cell like
+        // BUF_X1, never defined in the files given to read_netlist - only
+        // LEF defines it physically). Was a deliberate, documented v1 gap
+        // until real usage showed it's needed: without this, a real
+        // synthesized gate-level netlist - composed almost entirely of
+        // undefined standard-cell instances, the common case this
+        // function's own caller already documents - produces zero
+        // internal Net objects at all (every Net today is discovered via
+        // Pin population), so Schematic<->Layout Route/Net linking
+        // (LINKING_STRATEGY_RESEARCH.md) had nothing to resolve against on
+        // any real design.
+        //
+        // UninstantiatedDefSymbol::getPortConnections() - the obvious
+        // first thing to reach for - is a dead end, confirmed empirically
+        // rather than assumed: every connection's own elaborated
+        // Expression comes back `bad()` with a zero-length source range
+        // (slang can't type-check a connection to an unknown module's
+        // port at all, so it doesn't bother retaining a usable
+        // expression), and AssertionExpr::syntax (the per-connection
+        // syntax annotation) is null too - there is no usable per-
+        // connection info anywhere on that path. Symbol::getSyntax()
+        // (inherited, not AssertionExpr's own unrelated `syntax` member)
+        // is the real way in: it returns this instance's own
+        // HierarchicalInstanceSyntax verbatim, letting this reuse
+        // classify_simple_connection_text - the exact same raw-syntax
+        // classification read_rtl's own process_instantiation already
+        // uses for a structurally different reason (it has no elaborated
+        // Expression at all, syntax-only tree).
+        void populate_pins_for_uninstantiated(Root &root, InstanceId instance_id, SchematicId parent_schematic_id,
+                                               const slang::ast::UninstantiatedDefSymbol &instance,
+                                               const slang::SourceManager &source_manager)
+        {
+            const auto *syn = instance.getSyntax();
+            if (!syn || syn->kind != slang::syntax::SyntaxKind::HierarchicalInstance)
+                return; // no usable syntax to recover connections from - leave this instance pinless rather than guess
+
+            const auto &hierarchical_instance = syn->as<slang::syntax::HierarchicalInstanceSyntax>();
+            size_t positional_index = 0;
+            for (const auto *connection : hierarchical_instance.connections)
+            {
+                PinData pin_data{.instance = instance_id};
+                const slang::syntax::PropertyExprSyntax *value_node = nullptr;
+
+                if (connection->kind == slang::syntax::SyntaxKind::NamedPortConnection)
+                {
+                    const auto &named = connection->as<slang::syntax::NamedPortConnectionSyntax>();
+                    pin_data.name = std::string(named.name.valueText());
+                    value_node = named.expr;
+                }
+                else if (connection->kind == slang::syntax::SyntaxKind::OrderedPortConnection)
+                {
+                    const auto &ordered = connection->as<slang::syntax::OrderedPortConnectionSyntax>();
+                    // No real port list exists for an undefined module to
+                    // resolve a position against (unlike read_rtl's own
+                    // ports_by_module, built from real ANSI port headers) -
+                    // always the "$pos<N>" fallback here. In practice a
+                    // real synthesized netlist always uses named
+                    // connections for standard cells, so this branch is
+                    // rarely hit.
+                    pin_data.name = fmt::format("$pos{}", positional_index);
+                    value_node = ordered.expr;
+                    ++positional_index;
+                }
+                else
+                {
+                    continue; // Wildcard (.*) connection - out of scope for v1, same as read_rtl's own.
+                }
+
+                if (value_node)
+                    classify_simple_connection_text(root, parent_schematic_id, pin_data,
+                                                    source_text(source_manager, value_node->sourceRange()));
                 root.create_pin(pin_data);
             }
         }
@@ -332,21 +711,23 @@ namespace le
                 // reference_name set, reference_design left unresolved -
                 // link_unresolved_instances() is solely responsible for
                 // resolving it later (e.g. once the corresponding LEF is
-                // read). Pin population for this case is a deliberate,
-                // documented v1 gap: UninstantiatedDefSymbol's own port
-                // connections are AssertionExprs, not plain Expressions
-                // (it can't fully type-check without a real definition),
-                // and unwrapping them isn't worth the complexity before
-                // real usage shows it's needed.
+                // read). Pins ARE populated here (see
+                // populate_pins_for_uninstantiated's own comment for why
+                // this used to be a deliberately deferred v1 gap) - this
+                // is the only place any Net gets created for a real
+                // synthesized netlist's internal wires, since a leaf
+                // standard cell instance is the norm, not the exception,
+                // in one.
                 std::vector<const slang::ast::UninstantiatedDefSymbol *> undefined_children;
                 collect_uninstantiated_children(instance.body, undefined_children);
                 for (const auto *child : undefined_children)
                 {
-                    root.create_instance(InstanceData{
+                    const InstanceId instance_id = root.create_instance(InstanceData{
                         .schematic = own_schematic_id,
                         .name = std::string(child->name),
                         .reference_name = std::string(child->definitionName),
                     });
+                    populate_pins_for_uninstantiated(root, instance_id, own_schematic_id, *child, source_manager);
                 }
             }
         };
@@ -444,66 +825,6 @@ namespace le
                     RtlPortInfo{std::string(implicit_port.declarator->name.valueText()), last_direction});
             }
             return true;
-        }
-
-        bool is_identifier_char(char c, bool first)
-        {
-            return std::isalpha(static_cast<unsigned char>(c)) || c == '_' || c == '$' ||
-                   (!first && std::isdigit(static_cast<unsigned char>(c)));
-        }
-
-        bool is_identifier(const std::string &text)
-        {
-            if (text.empty() || !is_identifier_char(text[0], true))
-                return false;
-            for (size_t i = 1; i < text.size(); ++i)
-                if (!is_identifier_char(text[i], false))
-                    return false;
-            return true;
-        }
-
-        // RTL flavor has no elaborated Expression to classify a
-        // connection's value the way read_netlist's own
-        // populate_pin_from_expression does - only raw syntax. Rather
-        // than hand-unwrap slang's PropertyExpr/SequenceExpr assertion-
-        // context wrapper chain down to a plain expression syntax node
-        // purely to recognize two simple shapes, this classifies the
-        // connection's own verbatim source text directly: a bare
-        // identifier, or identifier[digits] (a literal bit-select - a
-        // parameter-driven index is deliberately not evaluated, see this
-        // file's own read_rtl comment). Anything else - concatenation,
-        // constant ties, a non-literal index - falls back to
-        // raw_expression, same as read_netlist's own fallback.
-        void classify_simple_connection_text(Root &root, SchematicId schematic_id, PinData &pin_data,
-                                              const std::string &text)
-        {
-            if (is_identifier(text))
-            {
-                pin_data.net = get_or_create_net(root, schematic_id, text);
-                return;
-            }
-
-            if (!text.empty() && text.back() == ']')
-            {
-                const size_t bracket = text.find('[');
-                if (bracket != std::string::npos)
-                {
-                    const std::string name_part = text.substr(0, bracket);
-                    const std::string index_part = text.substr(bracket + 1, text.size() - bracket - 2);
-                    const bool index_is_numeric =
-                        !index_part.empty() &&
-                        std::all_of(index_part.begin(), index_part.end(),
-                                    [](char c) { return std::isdigit(static_cast<unsigned char>(c)); });
-                    if (is_identifier(name_part) && index_is_numeric)
-                    {
-                        pin_data.net = get_or_create_net(root, schematic_id, name_part);
-                        pin_data.net_bit_index = std::stoi(index_part);
-                        return;
-                    }
-                }
-            }
-
-            pin_data.raw_expression = text;
         }
 
         void process_instantiation(Root &root, SchematicId schematic_id,
@@ -672,8 +993,7 @@ namespace le
                     // see populate_ports' own comment (read_netlist's half
                     // of this reader) for why the reference lives on Port.
                     const NetId net_id = get_or_create_net(root, schematic_id, port_info.name);
-                    get_or_create_port(root, schematic_id, port_info.name, port_info.direction, std::nullopt,
-                                       std::nullopt, net_id);
+                    get_or_create_port(root, schematic_id, port_info.name, port_info.direction, net_id);
                 }
             }
 

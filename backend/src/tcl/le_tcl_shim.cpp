@@ -338,6 +338,52 @@ namespace
         return le_instance_by_name(session(), std::string(sv.substr(kInstancePrefix.size())).c_str());
     }
 
+    constexpr std::string_view kPortBusPrefix = "port_bus:";
+
+    std::string format_port_bus_id(const char *name)
+    {
+        return std::string(kPortBusPrefix) + (name ? name : "");
+    }
+
+    std::string format_port_bus_id(LePortBusId id)
+    {
+        return format_port_bus_id(le_port_bus_name(session(), id));
+    }
+
+    LePortBusId resolve_port_bus_id(const char *s)
+    {
+        const LePortBusId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!s)
+            return invalid;
+        std::string_view sv(s);
+        if (sv.substr(0, kPortBusPrefix.size()) != kPortBusPrefix)
+            return invalid;
+        return le_port_bus_by_name(session(), std::string(sv.substr(kPortBusPrefix.size())).c_str());
+    }
+
+    constexpr std::string_view kNetBusPrefix = "net_bus:";
+
+    std::string format_net_bus_id(const char *name)
+    {
+        return std::string(kNetBusPrefix) + (name ? name : "");
+    }
+
+    std::string format_net_bus_id(LeNetBusId id)
+    {
+        return format_net_bus_id(le_net_bus_name(session(), id));
+    }
+
+    LeNetBusId resolve_net_bus_id(const char *s)
+    {
+        const LeNetBusId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!s)
+            return invalid;
+        std::string_view sv(s);
+        if (sv.substr(0, kNetBusPrefix.size()) != kNetBusPrefix)
+            return invalid;
+        return le_net_bus_by_name(session(), std::string(sv.substr(kNetBusPrefix.size())).c_str());
+    }
+
     // Obstruction/TerminalPort/Shape have no name field - their friendly
     // id is just their existing packed integer, type-prefixed for
     // self-description. A malformed string or wrong-type prefix (e.g. a
@@ -443,6 +489,49 @@ int read_verilog_cmd(const char *path, int is_netlist)
 int link_unresolved_instances_cmd()
 {
     return le_link_unresolved_instances(session());
+}
+
+int get_instances_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression)
+{
+    return le_get_instances_by_path(session(), resolve_schematic_id(of_schematic), path, filter_expression);
+}
+
+int get_nets_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression)
+{
+    return le_get_nets_by_path(session(), resolve_schematic_id(of_schematic), path, filter_expression);
+}
+
+int get_ports_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression)
+{
+    return le_get_ports_by_path(session(), resolve_schematic_id(of_schematic), path, filter_expression);
+}
+
+// --- Phase 5 mutation side-effects (LINKING_STRATEGY_RESEARCH.md
+// section 5) - le_tcl_procs.tcl's own delete_net/update_net/
+// update_instance overrides route to these instead of the generated
+// delete_net_cmd/update_net_cmd/update_instance_cmd (still used as the
+// fallback for an update_net/update_instance call that doesn't touch
+// -name at all, since only a rename has anything to propagate).
+
+int delete_net_cascade_cmd(const char *id)
+{
+    return le_delete_net_cascade(session(), resolve_net_id(id));
+}
+
+const char *rename_net_cmd(const char *id, const char *new_name)
+{
+    const LeNetId typed_id = resolve_net_id(id);
+    if (le_rename_net_propagate(session(), typed_id, new_name) != 0)
+        return return_string("");
+    return return_string(format_net_id(typed_id));
+}
+
+const char *rename_instance_cmd(const char *id, const char *new_name)
+{
+    const LeInstanceId typed_id = resolve_instance_id(id);
+    if (le_rename_instance_propagate(session(), typed_id, new_name) != 0)
+        return return_string("");
+    return return_string(format_instance_id(typed_id));
 }
 
 int design_count()

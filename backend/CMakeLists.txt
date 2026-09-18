@@ -927,6 +927,19 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures/gate_netlist_clean.v
     )
 
+    # Phase 5 mutation side-effect regression check
+    # (LINKING_STRATEGY_RESEARCH.md section 5, src/tcl/tests/
+    # mutation_cascade_test.tcl) - delete_net cascade and update_net/
+    # update_instance rename propagation, through the real TCL layer.
+    add_test(
+        NAME le_tcl_mutation_cascade
+        COMMAND ${TCL_TCLSH}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/mutation_cascade_test.tcl
+            $<TARGET_FILE:le_tcl>
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/testcell.lef
+    )
+
     # le_shell (src/tcl/le_shell.cpp) - the interactive/batch Tcl console,
     # not linked against le_tcl itself (it dynamically `load`s the built
     # shared module at startup, same as tclsh would) - only needs Tcl
@@ -1065,6 +1078,8 @@ endif()
 add_executable(backend_tests
     src/database/tests/database_test.cpp
     src/database/tests/filter_test.cpp
+    src/database/tests/hierarchical_resolver_test.cpp
+    src/database/tests/schematic_layout_linker_test.cpp
     src/geometry/tests/geometry_test.cpp
     src/view_style/tests/view_style_test.cpp
     src/editing/tests/editing_test.cpp
@@ -1075,6 +1090,7 @@ add_executable(backend_tests
     src/io/tests/def_writer_test.cpp
     src/api/tests/api_test.cpp
     src/api/tests/le_handle_test.cpp
+    src/api/tests/mutation_cascade_test.cpp
     src/sv/tests/sv_reader_test.cpp
 )
 target_link_libraries(backend_tests PRIVATE database geometry view_style editing pipelines io api sv fmt::fmt GTest::gtest_main)

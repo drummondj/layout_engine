@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.44.0",
+    version="0.46.0",
     classes=[
         Klass(
             name="Technology",
@@ -2224,6 +2224,20 @@ schema = Schema(
                     is_list=True,
                     is_child=True,
                 ),
+                Field(
+                    name="net_buses",
+                    description="Multi-bit bus groupings of this Schematic's own per-bit Nets (see NetBus)",
+                    type="NetBus",
+                    is_list=True,
+                    is_child=True,
+                ),
+                Field(
+                    name="port_buses",
+                    description="Multi-bit bus groupings of this Schematic's own per-bit Ports (see PortBus)",
+                    type="PortBus",
+                    is_list=True,
+                    is_child=True,
+                ),
             ],
         ),
         # An Instance may also stand in for source code that could not be
@@ -2310,9 +2324,52 @@ schema = Schema(
                 ),
             ],
         ),
+        # A multi-bit Verilog port ([msb:lsb]) has no Port object of its
+        # own - it's fully replaced by one Port per bit (see Port.bus/
+        # .bit_index below), each named with the DEF-style bracketed form
+        # ("address[7]") so DEF PhysicalPort/Route hierarchical name
+        # matching (LINKING_STRATEGY_RESEARCH.md) finds it directly, with
+        # zero bit-select-aware logic anywhere in that matching code.
+        # PortBus is purely the grouping/introspection record (msb/lsb,
+        # and the bus's own bit-Ports found by querying Port.bus == this
+        # id - Klass field lists can't hold a plain reference list, see
+        # this schema's own is_plain_reference_field precedent elsewhere,
+        # so the reference runs Port -> PortBus, not the other way).
+        Klass(
+            name="PortBus",
+            description="A multi-bit bus grouping of a Schematic's own per-bit Ports (Verilog module port [msb:lsb])",
+            fields=[
+                Field(
+                    name="schematic",
+                    description="Parent schematic",
+                    type="Schematic",
+                    parent="port_buses",
+                ),
+                Field(
+                    name="name",
+                    description="The bus's own base name (without a bit index) - unique within its parent Schematic (see unique_per_parent)",
+                    type="str",
+                    example="address",
+                    index=True,
+                    unique_per_parent=True,
+                ),
+                Field(
+                    name="msb",
+                    description="Most-significant bit index (Verilog [msb:lsb])",
+                    type="int",
+                    example=7,
+                ),
+                Field(
+                    name="lsb",
+                    description="Least-significant bit index",
+                    type="int",
+                    example=0,
+                ),
+            ],
+        ),
         Klass(
             name="Port",
-            description="Logical top-level port of a Schematic (Verilog module input/output/inout)",
+            description="Logical top-level port of a Schematic (Verilog module input/output/inout) - one Port per bit for a multi-bit port, see .bus",
             fields=[
                 Field(
                     name="schematic",
@@ -2322,7 +2379,7 @@ schema = Schema(
                 ),
                 Field(
                     name="name",
-                    description="The name of the port - unique within its parent Schematic (see unique_per_parent)",
+                    description="The name of the port - the DEF-style bracketed form (\"address[7]\") for one bit of a multi-bit port, plain for a scalar port - unique within its parent Schematic (see unique_per_parent)",
                     type="str",
                     example="clk",
                     index=True,
@@ -2334,30 +2391,64 @@ schema = Schema(
                     type="SignalDirection",
                 ),
                 Field(
-                    name="msb",
-                    description="Most-significant bit index of a bus port (Verilog [msb:lsb]) - unset for a scalar (1-bit) port",
+                    name="bus",
+                    description="The PortBus this Port is one bit of, if any - unset for a scalar (1-bit) port",
+                    type="PortBus",
+                    is_optional=True,
+                ),
+                Field(
+                    name="bit_index",
+                    description="Which bit of .bus this Port represents - unset for a scalar port",
                     type="int",
                     example=7,
                     is_optional=True,
                 ),
                 Field(
-                    name="lsb",
-                    description="Least-significant bit index of a bus port - unset for a scalar port (mirrors msb)",
-                    type="int",
-                    example=0,
-                    is_optional=True,
-                ),
-                Field(
                     name="net",
-                    description="The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name)",
+                    description="The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name) - the matching per-bit Net for a multi-bit port",
                     type="Net",
                     is_optional=True,
                 ),
             ],
         ),
+        # Mirrors PortBus above, for Net - see PortBus's own comment for
+        # the full rationale (DEF-matchable bracketed names, reference
+        # direction, why there's no stored bit-list on NetBus itself).
+        Klass(
+            name="NetBus",
+            description="A multi-bit bus grouping of a Schematic's own per-bit Nets (Verilog wire/reg/logic [msb:lsb])",
+            fields=[
+                Field(
+                    name="schematic",
+                    description="Parent schematic",
+                    type="Schematic",
+                    parent="net_buses",
+                ),
+                Field(
+                    name="name",
+                    description="The bus's own base name (without a bit index) - unique within its parent Schematic (see unique_per_parent)",
+                    type="str",
+                    example="address",
+                    index=True,
+                    unique_per_parent=True,
+                ),
+                Field(
+                    name="msb",
+                    description="Most-significant bit index (Verilog [msb:lsb])",
+                    type="int",
+                    example=3,
+                ),
+                Field(
+                    name="lsb",
+                    description="Least-significant bit index",
+                    type="int",
+                    example=0,
+                ),
+            ],
+        ),
         Klass(
             name="Net",
-            description="Logical connectivity net within a Schematic (Verilog wire/reg/logic)",
+            description="Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus",
             fields=[
                 Field(
                     name="schematic",
@@ -2367,24 +2458,23 @@ schema = Schema(
                 ),
                 Field(
                     name="name",
-                    description="The name of the net - unique within its parent Schematic (see unique_per_parent)",
+                    description="The name of the net - the DEF-style bracketed form (\"address[7]\") for one bit of a multi-bit net, plain for a scalar net - unique within its parent Schematic (see unique_per_parent)",
                     type="str",
                     example="n42",
                     index=True,
                     unique_per_parent=True,
                 ),
                 Field(
-                    name="msb",
-                    description="Most-significant bit index of a bus net - unset for a scalar (1-bit) net",
-                    type="int",
-                    example=3,
+                    name="bus",
+                    description="The NetBus this Net is one bit of, if any - unset for a scalar (1-bit) net",
+                    type="NetBus",
                     is_optional=True,
                 ),
                 Field(
-                    name="lsb",
-                    description="Least-significant bit index of a bus net - unset for a scalar net",
+                    name="bit_index",
+                    description="Which bit of .bus this Net represents - unset for a scalar net",
                     type="int",
-                    example=0,
+                    example=3,
                     is_optional=True,
                 ),
             ],
@@ -2413,15 +2503,8 @@ schema = Schema(
                 ),
                 Field(
                     name="net",
-                    description="The net this pin connects to, if any",
+                    description="The net this pin connects to, if any - a connection to one bit of a multi-bit net (e.g. .A(bus[2])) resolves directly to that bit's own per-bit Net (see Net.bus/.bit_index), not a separate bit-index field here",
                     type="Net",
-                    is_optional=True,
-                ),
-                Field(
-                    name="net_bit_index",
-                    description="Selects one bit of a multi-bit net when this pin itself connects to a single bit, e.g. .A(bus[2]) - unset when connecting to a whole net",
-                    type="int",
-                    example=2,
                     is_optional=True,
                 ),
                 Field(
@@ -2577,11 +2660,17 @@ schema = Schema(
                 Field(name="step", description="Spacing between grid lines, in database units (DEF GCELLGRID STEP)", type="dbu"),
             ],
         ),
-        # Kept as a separate klass from Instance to keep physical
-        # placement apart from logical connectivity (Instance/Schematic,
-        # not yet populated - no SystemVerilog reader exists). Named
-        # Placement (not Component, DEF's own section name) to mirror
-        # Net/Route's own logical-vs-physical naming split - see SCHEMA.md.
+        # Named Placement (not Component, DEF's own section name) to
+        # mirror Net/Route's own logical-vs-physical naming split - see
+        # SCHEMA.md. `instance`/`physical_only` are the Schematic-linking
+        # fields LINKING_STRATEGY_RESEARCH.md's own section 1 designs -
+        # populated by `link` (SVReader::link_unresolved_instances'
+        # own sibling pass, not this reader): a Placement whose DEF name
+        # doesn't resolve to any Instance in the sibling Schematic is
+        # still created as today, just with `instance` left unset and
+        # `physical_only=True` (a real physical-only cell, e.g. a filler/
+        # decap with no logical counterpart) rather than treated as an
+        # error.
         Klass(
             name="Placement",
             description="A placed physical instance (DEF COMPONENTS).",
@@ -2589,6 +2678,8 @@ schema = Schema(
                 Field(name="layout", description="Parent layout", type="Layout", parent="placements"),
                 Field(name="name", description="The name of the instance - unique within its parent Layout (see unique_per_parent)", type="str", example="U1", index=True, unique_per_parent=True),
                 Field(name="reference_design", description="The reference Design, resolved from the referenced macro/design name at creation time - readers error rather than create a Placement with an unresolved reference", type="Design"),
+                Field(name="instance", description="The logical Instance this placement corresponds to, resolved by `link` against the sibling Schematic - unset until linked, and stays unset for a physical_only Placement", type="Instance", is_optional=True),
+                Field(name="physical_only", description="Set by `link` when no Instance in the sibling Schematic matches this Placement's name (e.g. a filler/decap cell with no logical counterpart) - not a DEF-native concept, always False until `link` runs", type="bool", example=False),
                 Field(name="placement_status", description="Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED)", type="PlacementStatus"),
                 Field(name="location", description="The location of the lower-left corner of this instance, in database units - unset if UNPLACED", type="Point", is_optional=True),
                 Field(name="orientation", description="Placement orientation - unset if UNPLACED", type="Orientation", is_optional=True),
@@ -2620,16 +2711,24 @@ schema = Schema(
         ),
         # Named PhysicalPort (not Pin, DEF's own section name) since
         # SCHEMA.md reserves Pin for a different concept (a logical pin on
-        # a Schematic Instance, i.e. a Verilog instance pin). Net
-        # connectivity is deferred to when SystemVerilog/Schematic linking
-        # lands - net_name is stored as read, not resolved to a (future) Net.
+        # a Schematic Instance, i.e. a Verilog instance pin). `net_name`
+        # stays the raw string as read (DEF PINS NET); `net` is the
+        # resolved link `link` populates against it, same
+        # resolved-alongside-the-raw-string convention Instance's own
+        # reference_name/reference_design pair already uses. Unlike
+        # Route.net (an ERROR when unresolved), an unresolved
+        # PhysicalPort.net only logs a WARNING - see
+        # LINKING_STRATEGY_RESEARCH.md section 2 for why (boundary
+        # power/ground pins legitimately lack a netlist-level Net far
+        # more often than a real signal Route does).
         Klass(
             name="PhysicalPort",
             description="A chip-boundary I/O pin (DEF PINS).",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="physical_ports"),
                 Field(name="name", description="The name of the pin - unique within its parent Layout (see unique_per_parent)", type="str", example="clk", index=True, unique_per_parent=True),
-                Field(name="net_name", description="The name of the net this pin connects to, as read - not resolved to a (future) Net (DEF PINS NET)", type="str", example="clk", is_optional=True),
+                Field(name="net_name", description="The name of the net this pin connects to, as read (DEF PINS NET) - see `net` for the resolved link", type="str", example="clk", is_optional=True),
+                Field(name="net", description="The logical Net this pin connects to, resolved by `link` against `net_name` - unset until linked, or if net_name was never set", type="Net", is_optional=True),
                 Field(name="direction", description="The direction of the pin - unset if omitted", type="SignalDirection", is_optional=True),
                 Field(name="use", description="SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF PINS USE)", type="str", example="SIGNAL", is_optional=True),
                 Field(name="placement_status", description="Placement status - unset if never placed", type="PlacementStatus", is_optional=True),
@@ -2668,12 +2767,18 @@ schema = Schema(
             # Named Route rather than Net to reserve the Net name for the
             # future Schematic/SystemVerilog netlist connectivity klass -
             # this klass only holds physical routed geometry, not
-            # connectivity.
+            # connectivity. `name` stays the raw string as read; `net` is
+            # the resolved link `link` populates against it (see
+            # LINKING_STRATEGY_RESEARCH.md section 2) - unlike
+            # PhysicalPort.net, an unresolved Route.net is always an
+            # ERROR, since a Route with no logical Net is orphaned
+            # physical routing geometry with no meaning.
             name="Route",
             description="The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="routes"),
-                Field(name="name", description="The name of the net this routes, as read - unique within its parent Layout (see unique_per_parent); not resolved to a (future) Net, same deferred-connectivity convention as Pin.net_name", type="str", example="clk", index=True, unique_per_parent=True),
+                Field(name="name", description="The name of the net this routes, as read - unique within its parent Layout (see unique_per_parent). See `net` for the resolved link", type="str", example="clk", index=True, unique_per_parent=True),
+                Field(name="net", description="The logical Net this routes, resolved by `link` against `name` - unset until linked", type="Net", is_optional=True),
                 Field(name="is_special", description="Whether this came from SPECIALNETS rather than NETS", type="bool", example=False),
                 Field(name="width", description="Routing width override, in database units (DEF SPECIALNETS WIDTH) - SPECIALNETS only, unset if omitted", type="dbu", is_optional=True),
                 Field(name="voltage", description="Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only, unset if omitted", type="double", is_optional=True),

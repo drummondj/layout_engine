@@ -1,6 +1,8 @@
 #include "api.hpp"
 #include "../database/database.hpp"
 #include "../database/filter.hpp"
+#include "../database/schematic_layout_linker.hpp"
+#include "../database/rename_propagation.hpp"
 #include "../editing/editing.hpp"
 #include "../geometry/geometry.hpp"
 #include "../core/placement_geometry.hpp"
@@ -1358,7 +1360,318 @@ extern "C"
         if (!handle)
             return 0;
         std::lock_guard<std::mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(le::SVReader::link_unresolved_instances(handle->root));
+        const size_t resolved = le::SVReader::link_unresolved_instances(handle->root);
+
+        // Physical-side linking (Placement/Route/PhysicalPort <-> sibling
+        // Schematic, LINKING_STRATEGY_RESEARCH.md sections 1/2) runs
+        // *after* the instance-resolution call above reaches its own
+        // fixed point - an Instance whose own reference_design is still
+        // unresolved can't be reached by link_physical's own hierarchical
+        // descent (see that function's own "ordering dependency" comment,
+        // schematic_layout_linker.hpp). Its own counts don't change this
+        // function's return value (still Instance-resolution-count only,
+        // matching sv_reader_test.cpp's own existing assertions) - only
+        // its messages are surfaced, same as every other reader's own
+        // messages() convention.
+        const le::PhysicalLinkResult physical = le::link_physical(handle->root);
+        for (const auto &msg : physical.messages)
+            handle->messages.push_back(msg);
+
+        return static_cast<int32_t>(resolved);
+    }
+
+    // --- Phase 5 mutation side-effects (LINKING_STRATEGY_RESEARCH.md
+    // section 5) - unlike link_physical/link_unresolved_instances above
+    // (bulk, re-derivable, deliberately not undoable), these are direct
+    // user edits, so each is batched into one undo/redo transaction the
+    // same way move_click_unlocked is: raw Root:: calls (not the
+    // generated public le_update_x/le_delete_x - those can't express
+    // "clear this reference field back to unset", which the Net-delete
+    // cascade specifically needs) under one held lock, with every step
+    // manually recorded via Transaction::record_update/record_delete.
+    // handle->command_history.begin/end is called unconditionally in
+    // each - a no-op if a caller (le_repl_eval) already has one open,
+    // and otherwise starts/ends one itself (le_shell's own console isn't
+    // wired through le_repl_eval - see le_tcl_procs.tcl's own comment).
+
+    int le_delete_net_cascade(LeHandle *handle, LeNetId id)
+    {
+        if (!handle)
+            return 1;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        const le::NetId net_id = from_c(id);
+        const le::NetData *existing_net = handle->root.get_net(net_id);
+        if (!existing_net)
+        {
+            handle->messages.push_back("ERROR: delete_net: unknown id - no such Net exists");
+            return 1;
+        }
+        const le::NetData net_snapshot = *existing_net;
+        const le::SchematicId schematic_id = net_snapshot.schematic;
+
+        handle->command_history.begin("delete_net");
+        le::editing::Transaction *txn = handle->command_history.current();
+        // Captured before the Net itself is deleted below, so a Route's
+        // own record_delete create_fn can repoint its `.net` at whatever
+        // id the Net ends up with on undo (recreated with a *new* id,
+        // per Pool::create()'s own "never reuses an id" rule - see
+        // IdCell's own comment) rather than the stale one snapshotted in
+        // route_snapshot.net.
+        le::editing::IdCellPtr<le::NetId> net_cell = txn ? txn->id_cell_for(net_id) : nullptr;
+
+        const le::SchematicData *schematic = handle->root.get_schematic(schematic_id);
+        if (schematic)
+        {
+            for (const le::InstanceId instance_id : handle->root.get_schematic_instances(schematic_id))
+            {
+                for (const le::PinId pin_id : handle->root.get_instance_pins(instance_id))
+                {
+                    const le::PinData *pin = handle->root.get_pin(pin_id);
+                    if (!pin || pin->net != net_id)
+                        continue;
+                    const le::PinData before = *pin;
+                    handle->root.update_pin(pin_id, le::InstanceId{}, std::optional<le::NetId>(le::NetId{}),
+                                             std::nullopt, std::nullopt, std::nullopt);
+                    if (txn)
+                        txn->record_update<le::PinId, le::PinData>(pin_id, before, *handle->root.get_pin(pin_id),
+                                                                    &le::apply_pin_snapshot);
+                }
+            }
+
+            for (const le::PortId port_id : handle->root.get_schematic_ports(schematic_id))
+            {
+                const le::PortData *port = handle->root.get_port(port_id);
+                if (!port || port->net != net_id)
+                    continue;
+                const le::PortData before = *port;
+                handle->root.update_port(port_id, le::SchematicId{}, std::nullopt, std::optional<le::NetId>(le::NetId{}),
+                                          std::nullopt, std::nullopt, std::nullopt);
+                if (txn)
+                    txn->record_update<le::PortId, le::PortData>(port_id, before, *handle->root.get_port(port_id),
+                                                                  &le::apply_port_snapshot);
+            }
+        }
+
+        const le::LayoutId layout_id = schematic ? handle->root.get_design_layout(schematic->design) : le::LayoutId{};
+        if (layout_id.valid())
+        {
+            std::vector<le::RouteId> routes_to_delete;
+            for (const le::RouteId route_id : handle->root.get_layout_routes(layout_id))
+            {
+                const le::RouteData *route = handle->root.get_route(route_id);
+                if (route && route->net == net_id)
+                    routes_to_delete.push_back(route_id);
+            }
+            for (const le::RouteId route_id : routes_to_delete)
+            {
+                const le::RouteData route_snapshot = *handle->root.get_route(route_id);
+                le::editing::IdCellPtr<le::RouteId> route_cell = txn ? txn->id_cell_for(route_id) : nullptr;
+
+                for (const le::ShapeId shape_id : handle->root.get_route_shapes(route_id))
+                {
+                    const le::ShapeData shape_snapshot = *handle->root.get_shape(shape_id);
+                    handle->root.delete_shape(shape_id);
+                    if (txn)
+                    {
+                        txn->record_delete<le::ShapeId, le::ShapeData>(
+                            shape_id, shape_snapshot,
+                            [route_cell](le::Root &r, const le::ShapeData &d)
+                            {
+                                le::ShapeData fixed = d;
+                                fixed.route = route_cell->id;
+                                return r.create_shape(fixed);
+                            },
+                            [](le::Root &r, le::ShapeId i) { return r.delete_shape(i); });
+                    }
+                }
+
+                handle->root.delete_route(route_id);
+                if (txn)
+                {
+                    txn->record_delete<le::RouteId, le::RouteData>(
+                        route_id, route_snapshot,
+                        [net_cell](le::Root &r, const le::RouteData &d)
+                        {
+                            le::RouteData fixed = d;
+                            fixed.net = net_cell->id;
+                            return r.create_route(fixed);
+                        },
+                        [](le::Root &r, le::RouteId i) { return r.delete_route(i); });
+                }
+            }
+
+            for (const le::PhysicalPortId port_id : handle->root.get_layout_physical_ports(layout_id))
+            {
+                const le::PhysicalPortData *port = handle->root.get_physical_port(port_id);
+                if (!port || port->net != net_id)
+                    continue;
+                const le::PhysicalPortData before = *port;
+                handle->root.update_physical_port(port_id, le::LayoutId{}, std::optional<le::NetId>(le::NetId{}),
+                                                   std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                                                   std::nullopt, std::nullopt);
+                if (txn)
+                    txn->record_update<le::PhysicalPortId, le::PhysicalPortData>(
+                        port_id, before, *handle->root.get_physical_port(port_id), &le::apply_physical_port_snapshot);
+            }
+        }
+
+        handle->root.delete_net(net_id);
+        handle->root.bump_mutation_version();
+        if (txn)
+        {
+            txn->record_delete<le::NetId, le::NetData>(
+                net_id, net_snapshot, [](le::Root &r, const le::NetData &d) { return r.create_net(d); },
+                [](le::Root &r, le::NetId i) { return r.delete_net(i); });
+        }
+        handle->command_history.end(/*succeeded=*/true);
+        return 0;
+    }
+
+    int le_rename_net_propagate(LeHandle *handle, LeNetId id, const char *new_name)
+    {
+        if (!handle)
+            return 1;
+        if (!new_name || !new_name[0])
+        {
+            handle->messages.push_back("ERROR: update_net: -name may not be empty");
+            return 1;
+        }
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        const le::NetId net_id = from_c(id);
+        const le::NetData *existing_net = handle->root.get_net(net_id);
+        if (!existing_net)
+        {
+            handle->messages.push_back("ERROR: update_net: unknown id - no such Net exists");
+            return 1;
+        }
+        const le::SchematicId schematic_id = existing_net->schematic;
+
+        handle->command_history.begin("update_net");
+        le::editing::Transaction *txn = handle->command_history.current();
+
+        const le::NetData before_net = *existing_net;
+        const bool renamed =
+            handle->root.update_net(net_id, le::SchematicId{}, std::nullopt, std::optional<std::string>(new_name),
+                                     std::nullopt);
+        if (!renamed)
+        {
+            handle->messages.push_back("ERROR: update_net: a sibling Net with this name already exists");
+            handle->command_history.end(false);
+            return 1;
+        }
+        if (txn)
+            txn->record_update<le::NetId, le::NetData>(net_id, before_net, *handle->root.get_net(net_id),
+                                                        &le::apply_net_snapshot);
+
+        const le::SchematicData *schematic = handle->root.get_schematic(schematic_id);
+        const le::LayoutId layout_id = schematic ? handle->root.get_design_layout(schematic->design) : le::LayoutId{};
+        if (layout_id.valid())
+        {
+            for (const le::RouteId route_id : handle->root.get_layout_routes(layout_id))
+            {
+                const le::RouteData *route = handle->root.get_route(route_id);
+                if (!route || route->net != net_id)
+                    continue;
+                const le::RouteData before = *route;
+                if (!handle->root.update_route(route_id, le::LayoutId{}, std::nullopt,
+                                                std::optional<std::string>(new_name), std::nullopt, std::nullopt,
+                                                std::nullopt, std::nullopt))
+                {
+                    handle->messages.push_back(fmt::format(
+                        "WARNING: update_net: linked Route could not be renamed to '{}' - a sibling Route with that name already exists",
+                        new_name));
+                    continue;
+                }
+                if (txn)
+                    txn->record_update<le::RouteId, le::RouteData>(route_id, before, *handle->root.get_route(route_id),
+                                                                    &le::apply_route_snapshot);
+            }
+            for (const le::PhysicalPortId port_id : handle->root.get_layout_physical_ports(layout_id))
+            {
+                const le::PhysicalPortData *port = handle->root.get_physical_port(port_id);
+                if (!port || port->net != net_id)
+                    continue;
+                const le::PhysicalPortData before = *port;
+                if (!handle->root.update_physical_port(port_id, le::LayoutId{}, std::nullopt,
+                                                        std::optional<std::string>(new_name), std::nullopt, std::nullopt,
+                                                        std::nullopt, std::nullopt, std::nullopt, std::nullopt))
+                {
+                    handle->messages.push_back(fmt::format(
+                        "WARNING: update_net: linked PhysicalPort could not be renamed to '{}' - a sibling PhysicalPort with that name already exists",
+                        new_name));
+                    continue;
+                }
+                if (txn)
+                    txn->record_update<le::PhysicalPortId, le::PhysicalPortData>(
+                        port_id, before, *handle->root.get_physical_port(port_id), &le::apply_physical_port_snapshot);
+            }
+        }
+
+        handle->root.bump_mutation_version();
+        handle->command_history.end(/*succeeded=*/true);
+        return 0;
+    }
+
+    int le_rename_instance_propagate(LeHandle *handle, LeInstanceId id, const char *new_name)
+    {
+        if (!handle)
+            return 1;
+        if (!new_name || !new_name[0])
+        {
+            handle->messages.push_back("ERROR: update_instance: -name may not be empty");
+            return 1;
+        }
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        const le::InstanceId instance_id = from_c(id);
+        const le::InstanceData *existing = handle->root.get_instance(instance_id);
+        if (!existing)
+        {
+            handle->messages.push_back("ERROR: update_instance: unknown id - no such Instance exists");
+            return 1;
+        }
+
+        handle->command_history.begin("update_instance");
+        le::editing::Transaction *txn = handle->command_history.current();
+
+        const le::InstanceData before = *existing;
+        const bool renamed = handle->root.update_instance(instance_id, le::SchematicId{}, std::nullopt,
+                                                            std::optional<std::string>(new_name), std::nullopt,
+                                                            std::nullopt, std::nullopt, std::nullopt, std::nullopt);
+        if (!renamed)
+        {
+            handle->messages.push_back("ERROR: update_instance: a sibling Instance with this name already exists");
+            handle->command_history.end(false);
+            return 1;
+        }
+        if (txn)
+            txn->record_update<le::InstanceId, le::InstanceData>(
+                instance_id, before, *handle->root.get_instance(instance_id), &le::apply_instance_snapshot);
+
+        const auto record_placement = [&](le::PlacementId placement_id, const le::PlacementData &b, const le::PlacementData &a)
+        {
+            if (txn)
+                txn->record_update<le::PlacementId, le::PlacementData>(placement_id, b, a, &le::apply_placement_snapshot);
+        };
+        const auto record_route = [&](le::RouteId route_id, const le::RouteData &b, const le::RouteData &a)
+        {
+            if (txn)
+                txn->record_update<le::RouteId, le::RouteData>(route_id, b, a, &le::apply_route_snapshot);
+        };
+        const auto record_physical_port =
+            [&](le::PhysicalPortId port_id, const le::PhysicalPortData &b, const le::PhysicalPortData &a)
+        {
+            if (txn)
+                txn->record_update<le::PhysicalPortId, le::PhysicalPortData>(port_id, b, a,
+                                                                              &le::apply_physical_port_snapshot);
+        };
+        le::propagate_instance_rename(handle->root, instance_id, record_placement, record_route, record_physical_port);
+
+        handle->root.bump_mutation_version();
+        handle->command_history.end(/*succeeded=*/true);
+        return 0;
     }
 
     int le_write_lef(LeHandle *handle, const char *path,
@@ -3049,6 +3362,172 @@ extern "C"
 
         const le::InstanceData *instance = handle->root.get_instance(from_c(id));
         return instance ? instance->name.c_str() : nullptr;
+    }
+
+    LePortBusId le_port_bus_by_name(LeHandle *handle, const char *name)
+    {
+        const LePortBusId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!handle || !name)
+            return invalid;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        for (const le::PortBusId id : handle->root.get_schematic_port_buses(handle->current_schematic_id))
+        {
+            const le::PortBusData *bus = handle->root.get_port_bus(id);
+            if (bus && bus->name == name)
+                return to_c(id);
+        }
+        return invalid;
+    }
+
+    const char *le_port_bus_name(LeHandle *handle, LePortBusId id)
+    {
+        if (!handle)
+            return nullptr;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        const le::PortBusData *bus = handle->root.get_port_bus(from_c(id));
+        return bus ? bus->name.c_str() : nullptr;
+    }
+
+    LeNetBusId le_net_bus_by_name(LeHandle *handle, const char *name)
+    {
+        const LeNetBusId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!handle || !name)
+            return invalid;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        for (const le::NetBusId id : handle->root.get_schematic_net_buses(handle->current_schematic_id))
+        {
+            const le::NetBusData *bus = handle->root.get_net_bus(id);
+            if (bus && bus->name == name)
+                return to_c(id);
+        }
+        return invalid;
+    }
+
+    const char *le_net_bus_name(LeHandle *handle, LeNetBusId id)
+    {
+        if (!handle)
+            return nullptr;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        const le::NetBusData *bus = handle->root.get_net_bus(from_c(id));
+        return bus ? bus->name.c_str() : nullptr;
+    }
+
+    // le_get_instances/nets/ports_by_path: the TCL-facing hierarchical
+    // path syntax (LINKING_STRATEGY_RESEARCH.md sections 3/4) -
+    // get_instances/get_nets/get_ports' own thin wrapper (le_tcl_procs.tcl)
+    // calls one of these instead of the plain flat le_get_<type> whenever
+    // a name-expr argument contains "/", reusing the exact same shared
+    // resolver `link` itself uses internally (hierarchical_resolver.hpp),
+    // now including `**` recursive descent (a genuine differentiator most
+    // EDA tool TCL interfaces don't offer - see that section's own note).
+    // `-filter` still applies on top, via the same generic evaluator/
+    // allowlist-validation helper the generated flat search already uses
+    // (parse_and_validate_filter) - a path and a filter aren't mutually
+    // exclusive.
+    int32_t le_get_instances_by_path(LeHandle *handle, LeSchematicId of_schematic, const char *path,
+                                      const char *filter_expression)
+    {
+        if (!handle || !path)
+            return 0;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        bool ok = true;
+        auto expr = parse_and_validate_filter(handle, "le_get_instances_by_path", "Instance", filter_expression, ok);
+        if (!ok)
+            return -1;
+
+        const le::SchematicId requested = from_c(of_schematic);
+        const le::SchematicId root_schematic =
+            handle->root.get_schematic(requested) ? requested : handle->current_schematic_id;
+
+        std::vector<le::InstanceId> results =
+            le::hierarchy::resolve_instances(handle->root, root_schematic, le::hierarchy::split_path(path));
+        if (expr)
+        {
+            std::vector<le::InstanceId> filtered;
+            for (const le::InstanceId id : results)
+            {
+                const le::InstanceData *data = handle->root.get_instance(id);
+                if (data && le::evaluate_filter(*expr, handle->root, id, *data))
+                    filtered.push_back(id);
+            }
+            results = std::move(filtered);
+        }
+
+        handle->instance_search_results = std::move(results);
+        return static_cast<int32_t>(handle->instance_search_results.size());
+    }
+
+    int32_t le_get_nets_by_path(LeHandle *handle, LeSchematicId of_schematic, const char *path,
+                                 const char *filter_expression)
+    {
+        if (!handle || !path)
+            return 0;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        bool ok = true;
+        auto expr = parse_and_validate_filter(handle, "le_get_nets_by_path", "Net", filter_expression, ok);
+        if (!ok)
+            return -1;
+
+        const le::SchematicId requested = from_c(of_schematic);
+        const le::SchematicId root_schematic =
+            handle->root.get_schematic(requested) ? requested : handle->current_schematic_id;
+
+        std::vector<le::NetId> results =
+            le::hierarchy::resolve_nets(handle->root, root_schematic, le::hierarchy::split_path(path));
+        if (expr)
+        {
+            std::vector<le::NetId> filtered;
+            for (const le::NetId id : results)
+            {
+                const le::NetData *data = handle->root.get_net(id);
+                if (data && le::evaluate_filter(*expr, handle->root, id, *data))
+                    filtered.push_back(id);
+            }
+            results = std::move(filtered);
+        }
+
+        handle->net_search_results = std::move(results);
+        return static_cast<int32_t>(handle->net_search_results.size());
+    }
+
+    int32_t le_get_ports_by_path(LeHandle *handle, LeSchematicId of_schematic, const char *path,
+                                  const char *filter_expression)
+    {
+        if (!handle || !path)
+            return 0;
+        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        bool ok = true;
+        auto expr = parse_and_validate_filter(handle, "le_get_ports_by_path", "Port", filter_expression, ok);
+        if (!ok)
+            return -1;
+
+        const le::SchematicId requested = from_c(of_schematic);
+        const le::SchematicId root_schematic =
+            handle->root.get_schematic(requested) ? requested : handle->current_schematic_id;
+
+        std::vector<le::PortId> results =
+            le::hierarchy::resolve_ports(handle->root, root_schematic, le::hierarchy::split_path(path));
+        if (expr)
+        {
+            std::vector<le::PortId> filtered;
+            for (const le::PortId id : results)
+            {
+                const le::PortData *data = handle->root.get_port(id);
+                if (data && le::evaluate_filter(*expr, handle->root, id, *data))
+                    filtered.push_back(id);
+            }
+            results = std::move(filtered);
+        }
+
+        handle->port_search_results = std::move(results);
+        return static_cast<int32_t>(handle->port_search_results.size());
     }
 
     int32_t le_search_terminal(LeHandle *handle, const char *filter_expression)

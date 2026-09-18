@@ -133,15 +133,24 @@ TEST(SVReader, NetlistReadPopulatesPortsInstancesAndPins)
     ASSERT_TRUE(schematic_id.valid());
 
     ASSERT_TRUE(root.get_port_by_name(schematic_id, "clk").valid());
-    ASSERT_TRUE(root.get_port_by_name(schematic_id, "in").valid());
-    const PortId out_port = root.get_port_by_name(schematic_id, "out");
-    ASSERT_TRUE(out_port.valid());
-    const PortData *out_data = root.get_port(out_port);
-    ASSERT_NE(out_data, nullptr);
-    ASSERT_TRUE(out_data->msb.has_value());
-    EXPECT_EQ(*out_data->msb, 1);
-    ASSERT_TRUE(out_data->lsb.has_value());
-    EXPECT_EQ(*out_data->lsb, 0);
+    // "in"/"out" are both [WIDTH-1:0] = [1:0] buses (WIDTH defaults to 2) -
+    // no scalar "in"/"out" Port exists anymore, replaced by one Port per
+    // bit plus a PortBus grouping (see schema.py's own PortBus comment).
+    const PortBusId out_bus = root.get_port_bus_by_name(schematic_id, "out");
+    ASSERT_TRUE(out_bus.valid());
+    const PortBusData *out_bus_data = root.get_port_bus(out_bus);
+    ASSERT_NE(out_bus_data, nullptr);
+    EXPECT_EQ(out_bus_data->msb, 1);
+    EXPECT_EQ(out_bus_data->lsb, 0);
+
+    const PortId out0_port = root.get_port_by_name(schematic_id, "out[0]");
+    ASSERT_TRUE(out0_port.valid());
+    const PortData *out0_data = root.get_port(out0_port);
+    ASSERT_NE(out0_data, nullptr);
+    EXPECT_EQ(out0_data->bus, out_bus);
+    ASSERT_TRUE(out0_data->bit_index.has_value());
+    EXPECT_EQ(*out0_data->bit_index, 0);
+    ASSERT_TRUE(root.get_port_by_name(schematic_id, "out[1]").valid());
 
     // WIDTH defaults to 2 - the generate-for loop must have elaborated
     // both INV instances, plus the two hand-written AND2 instances.
@@ -178,7 +187,9 @@ TEST(SVReader, NetlistReadPopulatesPortsInstancesAndPins)
     EXPECT_EQ(root.get_instance(first_inv_id)->name, "gen_inv[0].u_inv");
 
     // The first INV's own "A" pin connects to in[0] - a bus bit-select,
-    // so it must resolve to the "in" net with net_bit_index 0.
+    // so it must resolve directly to the per-bit Net "in[0]" (see
+    // schema.py's own Net.bus/.bit_index comment - the specific bit is
+    // encoded in which Net this points at, not a separate field on Pin).
     const auto pin_ids = root.get_instance_pins(first_inv_id);
     ASSERT_EQ(pin_ids.size(), 2u);
     bool found_a_pin = false;
@@ -190,9 +201,7 @@ TEST(SVReader, NetlistReadPopulatesPortsInstancesAndPins)
         {
             found_a_pin = true;
             ASSERT_TRUE(pin->net.valid());
-            EXPECT_EQ(root.get_net(pin->net)->name, "in");
-            ASSERT_TRUE(pin->net_bit_index.has_value());
-            EXPECT_EQ(*pin->net_bit_index, 0);
+            EXPECT_EQ(root.get_net(pin->net)->name, "in[0]");
         }
     }
     EXPECT_TRUE(found_a_pin);
@@ -232,6 +241,58 @@ TEST(SVReader, UndefinedLeafCellStaysUnresolvedUntilLinked)
 
     EXPECT_EQ(SVReader::link_unresolved_instances(root), 1u);
     EXPECT_EQ(root.get_instance(instance_id)->reference_design, bufx1_id);
+}
+
+// A synthesizer-flattened unpacked-array element's connection uses a
+// Verilog escaped identifier (`\name`, terminated by whitespace) - found
+// while diagnosing why real synthesized-netlist DEF Route/Net linking
+// (LINKING_STRATEGY_RESEARCH.md) still failed on ~2300 routes even after
+// per-bit bus Nets existed: classify_simple_connection_text (used for
+// undefined leaf cells like BUFX1 here, same as real standard cells)
+// must recognize the escaped form and produce the same bracketed Net
+// name a plain bus bit-select would (see that function's own comment for
+// why slang's own source-range trivia rules mean a *plain* escaped
+// identifier's connection text carries no embedded whitespace at all,
+// while one immediately followed by a real bit-select does).
+TEST(SVReader, EscapedIdentifierConnectionsResolveToTheSameBracketedNetNameAsAPlainBitSelect)
+{
+    Root root;
+    SVReader reader;
+    ASSERT_EQ(reader.read_netlist({fixture_path("gate_netlist_escaped_identifiers.v")}, root, "test_lib"), 0);
+
+    const DesignId top_id = root.get_design_by_name("top");
+    ASSERT_TRUE(top_id.valid());
+    const SchematicId schematic_id = root.get_design_schematic(top_id);
+
+    // A plain escaped identifier with no further bit-select - the whole
+    // net name is exactly the escaped text, brackets included literally.
+    const NetId rkey_net = root.get_net_by_name(schematic_id, "rkey[1]");
+    ASSERT_TRUE(rkey_net.valid());
+
+    // An escaped identifier (itself a real 32-bit vector) plus a real
+    // bit-select on top - resolves to the fully bracketed per-bit name,
+    // not left as raw_expression.
+    const NetId block_reg_bit_net = root.get_net_by_name(schematic_id, "block_reg[0][31]");
+    ASSERT_TRUE(block_reg_bit_net.valid());
+
+    bool found_scalar_pin = false;
+    bool found_vector_bit_pin = false;
+    for (const auto instance_id : root.get_schematic_instances(schematic_id))
+    {
+        for (const auto pin_id : root.get_instance_pins(instance_id))
+        {
+            const PinData *pin = root.get_pin(pin_id);
+            ASSERT_NE(pin, nullptr);
+            if (pin->name != "Z")
+                continue;
+            if (pin->net == rkey_net)
+                found_scalar_pin = true;
+            else if (pin->net == block_reg_bit_net)
+                found_vector_bit_pin = true;
+        }
+    }
+    EXPECT_TRUE(found_scalar_pin);
+    EXPECT_TRUE(found_vector_bit_pin);
 }
 
 // Milestone 6 (RTL flavor): gate_netlist_clean.v's two AND2 instances sit
@@ -282,10 +343,11 @@ TEST(SVReader, RtlReadExtractsTopLevelInstantiationsAndFallsBackForGenerateRegio
     {
         const PinData *pin = root.get_pin(pin_id);
         ASSERT_NE(pin, nullptr);
-        if (pin->name == "A" && pin->net.valid() && pin->net_bit_index.has_value())
+        if (pin->name == "A" && pin->net.valid())
         {
-            found_bit_select_pin = true;
-            EXPECT_EQ(root.get_net(pin->net)->name, "mid");
+            const std::string &net_name = root.get_net(pin->net)->name;
+            if (net_name == "mid[0]" || net_name == "mid[1]")
+                found_bit_select_pin = true;
         }
     }
     EXPECT_TRUE(found_bit_select_pin);
@@ -297,7 +359,7 @@ TEST(SVReader, RtlReadExtractsTopLevelInstantiationsAndFallsBackForGenerateRegio
 // verbatim source text and a diagnostic summary, without disturbing
 // BUFX1's own separate Design. RTL flavor doesn't evaluate bit widths
 // (unlike read_netlist) - spike_mixed's own "out" port must come back
-// scalar (msb/lsb unset) despite being declared [WIDTH-1:0] in source.
+// scalar (no PortBus) despite being declared [WIDTH-1:0] in source.
 TEST(SVReader, RtlReadCreatesLogicCloudForBrokenAlwaysBlockWithoutDisturbingOtherModules)
 {
     Root root;
@@ -316,7 +378,7 @@ TEST(SVReader, RtlReadCreatesLogicCloudForBrokenAlwaysBlockWithoutDisturbingOthe
     const SchematicId spike_schematic = root.get_design_schematic(spike_id);
     const PortId out_port = root.get_port_by_name(spike_schematic, "out");
     ASSERT_TRUE(out_port.valid());
-    EXPECT_FALSE(root.get_port(out_port)->msb.has_value());
+    EXPECT_FALSE(root.get_port(out_port)->bus.valid());
 
     bool found_always_ff_logic_cloud = false;
     for (const auto id : root.get_schematic_instances(spike_schematic))

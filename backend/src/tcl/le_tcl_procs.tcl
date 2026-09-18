@@ -1962,3 +1962,230 @@ register_command_help get_max_concurrency \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
+
+# --- get_instances/get_nets/get_ports: hierarchical path override
+# (LINKING_STRATEGY_RESEARCH.md sections 3/4) ---
+#
+# Overrides the three generated flat-search procs of the same name
+# (sourced above from generated/le_tcl_procs_generated.tcl) - Tcl's own
+# "last proc definition wins" semantics make this a real replacement, not
+# a conflict. Each name-expr is checked independently: one containing "/"
+# routes through the shared hierarchical resolver - the exact same one
+# `link` itself uses internally (backend/src/database/
+# hierarchical_resolver.hpp) - via the new get_<type>s_by_path_cmd; a
+# bare name-expr with no "/" is the plain, fully-backward-compatible flat
+# glob-match case, routed through the original get_<type>s_cmd exactly as
+# before (a real "/"-free single-level glob is still expressed as one
+# such bare name-expr, unchanged). "**" (recursive descent - e.g.
+# "get_instances top/a/b/**" lists every instance nested anywhere under
+# "b", at any depth) works the same way as a mid-path or leaf glob
+# segment, since it's the same shared resolver either way - a genuine
+# differentiator most EDA tool TCL interfaces don't offer. A *bare* "**"
+# with no "/" at all (recursive descent from the current/`-of` scope
+# itself, e.g. plain "get_instances **") is routed to the path resolver
+# too via an explicit `eq "**"` check alongside the "/" check below - it
+# has no slash to trigger the plain heuristic, but still means "resolve
+# via the hierarchical path resolver," not "a literal two-character glob
+# pattern" (which would harmlessly, but wrongly, collapse to a same-level-
+# only "*"). `-filter` still applies on top of a path result exactly as
+# it does for a flat one.
+
+proc get_instances {args} {
+    set parsed [parse_get_args get_instances $args 1]
+    if {[dict get $parsed help]} {
+        return "get_instances \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\] - An instance of another design, or a placeholder for source code that could not be fully read. A name-expr containing \"/\" is a hierarchical path down the Instance tree (each segment may be a plain literal, a glob, or \"**\" for recursive descent) - e.g. \"top/a/b/**\" lists every instance nested anywhere under \"b\"."
+    }
+    check_of_prefixes get_instances [dict get $parsed of_tokens] {schematic}
+    set filter [dict get $parsed filter]
+
+    set result {}
+    foreach of_token [default_to_unset [dict get $parsed of_tokens]] {
+        set of_schematic {}
+        if {[string match "schematic:*" $of_token]} {
+            set of_schematic $of_token
+        }
+        foreach name_expr [default_to_unset [dict get $parsed name_exprs]] {
+            if {[string first "/" $name_expr] >= 0 || $name_expr eq "**"} {
+                set count [get_instances_by_path_cmd $of_schematic $name_expr $filter]
+            } else {
+                set count [get_instances_cmd $of_schematic $name_expr $filter]
+            }
+            for {set i 0} {$i < $count} {incr i} {
+                lappend result [get_instances_at $i]
+            }
+        }
+    }
+    return [lsort -unique $result]
+}
+register_command_help get_instances \
+    "get_instances \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\]" \
+    "An instance of another design, or a placeholder for source code that could not be fully read. A name-expr containing \"/\" is a hierarchical path down the Instance tree - each segment may be a plain literal, a single-level glob, or \"**\" for recursive descent at any depth (e.g. \"top/a/b/**\" lists every instance nested anywhere under \"b\"). A bare name-expr with no \"/\" behaves exactly as before." \
+    $get_instances_options
+
+proc get_nets {args} {
+    set parsed [parse_get_args get_nets $args 1]
+    if {[dict get $parsed help]} {
+        return "get_nets \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\] - Logical connectivity net within a Schematic. A name-expr containing \"/\" is a hierarchical path (each segment may be a plain literal, a glob, or \"**\" for recursive descent) - e.g. \"top/a/b/**\" lists every net nested anywhere under \"b\"."
+    }
+    check_of_prefixes get_nets [dict get $parsed of_tokens] {schematic}
+    set filter [dict get $parsed filter]
+
+    set result {}
+    foreach of_token [default_to_unset [dict get $parsed of_tokens]] {
+        set of_schematic {}
+        if {[string match "schematic:*" $of_token]} {
+            set of_schematic $of_token
+        }
+        foreach name_expr [default_to_unset [dict get $parsed name_exprs]] {
+            if {[string first "/" $name_expr] >= 0 || $name_expr eq "**"} {
+                set count [get_nets_by_path_cmd $of_schematic $name_expr $filter]
+            } else {
+                set count [get_nets_cmd $of_schematic $name_expr $filter]
+            }
+            for {set i 0} {$i < $count} {incr i} {
+                lappend result [get_nets_at $i]
+            }
+        }
+    }
+    return [lsort -unique $result]
+}
+register_command_help get_nets \
+    "get_nets \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\]" \
+    "Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus. A name-expr containing \"/\" is a hierarchical path down the Instance tree ending at a Net - each segment may be a plain literal, a single-level glob, or \"**\" for recursive descent at any depth (e.g. \"u_block/u_aes/address\[7\]\", or \"top/a/b/**\" for every net nested anywhere under \"b\"). A bare name-expr with no \"/\" behaves exactly as before." \
+    $get_nets_options
+
+proc get_ports {args} {
+    set parsed [parse_get_args get_ports $args 1]
+    if {[dict get $parsed help]} {
+        return "get_ports \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\] - Logical top-level port of a Schematic. A name-expr containing \"/\" is a hierarchical path (each segment may be a plain literal, a glob, or \"**\" for recursive descent) - e.g. \"top/a/b/**\" lists every port nested anywhere under \"b\"."
+    }
+    check_of_prefixes get_ports [dict get $parsed of_tokens] {schematic}
+    set filter [dict get $parsed filter]
+
+    set result {}
+    foreach of_token [default_to_unset [dict get $parsed of_tokens]] {
+        set of_schematic {}
+        if {[string match "schematic:*" $of_token]} {
+            set of_schematic $of_token
+        }
+        foreach name_expr [default_to_unset [dict get $parsed name_exprs]] {
+            if {[string first "/" $name_expr] >= 0 || $name_expr eq "**"} {
+                set count [get_ports_by_path_cmd $of_schematic $name_expr $filter]
+            } else {
+                set count [get_ports_cmd $of_schematic $name_expr $filter]
+            }
+            for {set i 0} {$i < $count} {incr i} {
+                lappend result [get_ports_at $i]
+            }
+        }
+    }
+    return [lsort -unique $result]
+}
+register_command_help get_ports \
+    "get_ports \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\]" \
+    "Logical top-level port of a Schematic (Verilog module input/output/inout) - one Port per bit for a multi-bit port, see .bus. A name-expr containing \"/\" is a hierarchical path down the Instance tree ending at a Port - each segment may be a plain literal, a single-level glob, or \"**\" for recursive descent at any depth (e.g. \"top/a/b/**\" for every port nested anywhere under \"b\"). A bare name-expr with no \"/\" behaves exactly as before." \
+    $get_ports_options
+
+# --- delete_net/update_net/update_instance: mutation side-effect
+# overrides (LINKING_STRATEGY_RESEARCH.md section 5) ---
+#
+# Overrides the three generated procs of the same name (sourced above
+# from generated/le_tcl_procs_generated.tcl) - same "last proc definition
+# wins" mechanism the get_instances/get_nets/get_ports overrides above
+# use. delete_net always routes through delete_net_cascade_cmd - a Net
+# delete needs the same Route-delete/PhysicalPort.net-clearing/Pin.net-
+# clearing/Port.net-clearing side effects every time (section 5a).
+# update_net/update_instance only need the rename-propagation path
+# (rename_net_cmd/rename_instance_cmd) when their own -name flag is the
+# *only* flag present - any other shape (a plain non-rename update, or a
+# rename combined with some other field change in the same call) falls
+# through to the original generated update_net_cmd/update_instance_cmd
+# unchanged, since propagation only has meaning for a pure rename and
+# there's no reason this override can't stay narrow. Help text/options
+# tables below are copied verbatim from the generated procs (still the
+# accurate flag-level documentation - only the dispatch body changes).
+
+proc delete_net {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "delete_net <id> \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus."
+    }
+    if {[llength $args] != 1} {
+        error "delete_net: exactly one argument (a Net id) is required"
+    }
+    if {[delete_net_cascade_cmd [lindex $args 0]] != 0} {
+        error "delete_net: failed to delete \"[lindex $args 0]\""
+    }
+    return 0
+}
+register_command_help delete_net "delete_net <id> \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus." "Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus" {{<id> {type token required 1 description {Friendly id of the Net to delete}}} {-help {type flag required 0 description {Show this usage message and return immediately}}}}
+
+proc update_net {id args} {
+    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "update_net <id> \[-schematic <token>\] \[-bus <token>\] \[-name <str>\] \[-bit_index <int>\] \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus"
+    }
+    if {[llength $args] == 0} {
+        error "update_net: at least one -flag is required"
+    }
+    array set opts {-schematic {} -bus {} -name {} -bit_index {}}
+    foreach {flag value} $args {
+        if {![info exists opts($flag)]} {
+            error "update_net: unknown flag $flag"
+        }
+        set opts($flag) $value
+    }
+
+    if {$opts(-name) ne {} && $opts(-schematic) eq {} && $opts(-bus) eq {} && $opts(-bit_index) eq {}} {
+        set new_id [rename_net_cmd $id $opts(-name)]
+        if {$new_id eq {}} {
+            error "update_net: failed to update \"$id\""
+        }
+        return $new_id
+    }
+
+    set new_id [update_net_cmd $id [expr {$opts(-schematic) ne {} ? 1 : 0}] $opts(-schematic) [expr {$opts(-bus) ne {} ? 1 : 0}] $opts(-bus) $opts(-name) [expr {$opts(-bit_index) ne {} ? 1 : 0}] [expr {$opts(-bit_index) ne {} ? $opts(-bit_index) : 0}]]
+    if {$new_id eq {}} {
+        error "update_net: failed to update \"$id\""
+    }
+    return $new_id
+}
+register_command_help update_net "update_net <id> \[-schematic <token>\] \[-bus <token>\] \[-name <str>\] \[-bit_index <int>\] \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus" "Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus" {{-schematic {type token required 0 description {Reassign this object's parent Schematic (token)}}} {-bus {type token required 0 description {The NetBus this Net is one bit of, if any - unset for a scalar (1-bit) net}}} {-name {type str required 0 description {The name of the net - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit net, plain for a scalar net - unique within its parent Schematic (see unique_per_parent)}}} {-bit_index {type int required 0 description {Which bit of .bus this Net represents - unset for a scalar net}}} {-help {type flag required 0 description {Show this usage message and return immediately}}}}
+
+proc update_instance {id args} {
+    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "update_instance <id> \[-schematic <token>\] \[-reference_design <token>\] \[-name <str>\] \[-reference_name <str>\] \[-location <Point>\] \[-rtl_text <str>\] \[-source_file <str>\] \[-diagnostic_summary <str>\] \[-help\] - An instance of another design, or a placeholder for source code that could not be fully read"
+    }
+    if {[llength $args] == 0} {
+        error "update_instance: at least one -flag is required"
+    }
+    array set opts {-schematic {} -reference_design {} -name {} -reference_name {} -location {} -rtl_text {} -source_file {} -diagnostic_summary {}}
+    foreach {flag value} $args {
+        if {![info exists opts($flag)]} {
+            error "update_instance: unknown flag $flag"
+        }
+        set opts($flag) $value
+    }
+
+    if {$opts(-name) ne {} && $opts(-schematic) eq {} && $opts(-reference_design) eq {} \
+            && $opts(-reference_name) eq {} && [llength $opts(-location)] == 0 \
+            && $opts(-rtl_text) eq {} && $opts(-source_file) eq {} && $opts(-diagnostic_summary) eq {}} {
+        set new_id [rename_instance_cmd $id $opts(-name)]
+        if {$new_id eq {}} {
+            error "update_instance: failed to update \"$id\""
+        }
+        return $new_id
+    }
+
+    set location_vals $opts(-location)
+    set has_location [expr {[llength $location_vals] > 0 ? 1 : 0}]
+    if {$has_location && [llength $location_vals] != 2} {
+        error "update_instance: -location expects 2 values {x y}, got [llength $location_vals]"
+    }
+    if {!$has_location} { set location_vals {0 0} }
+    lassign $location_vals location_x_um location_y_um
+    set new_id [update_instance_cmd $id [expr {$opts(-schematic) ne {} ? 1 : 0}] $opts(-schematic) [expr {$opts(-reference_design) ne {} ? 1 : 0}] $opts(-reference_design) $opts(-name) $opts(-reference_name) $has_location $location_x_um $location_y_um $opts(-rtl_text) $opts(-source_file) $opts(-diagnostic_summary)]
+    if {$new_id eq {}} {
+        error "update_instance: failed to update \"$id\""
+    }
+    return $new_id
+}
+register_command_help update_instance "update_instance <id> \[-schematic <token>\] \[-reference_design <token>\] \[-name <str>\] \[-reference_name <str>\] \[-location <Point>\] \[-rtl_text <str>\] \[-source_file <str>\] \[-diagnostic_summary <str>\] \[-help\] - An instance of another design, or a placeholder for source code that could not be fully read" "An instance of another design, or a placeholder for source code that could not be fully read" {{-schematic {type token required 0 description {Reassign this object's parent Schematic (token)}}} {-reference_design {type token required 0 description {The referenced design, once resolved - unset until then, and never set for a placeholder instance (see rtl_text)}}} {-name {type str required 0 description {The name of the instance - unique within its parent Schematic (see unique_per_parent)}}} {-reference_name {type str required 0 description {The name of the referenced design, if known}}} {-location {type Point required 0 description {The location of the lower-left corner of this instance}}} {-rtl_text {type str required 0 description {The original source text, if this instance is a placeholder for source code that could not be fully read - unset for a normal instance}}} {-source_file {type str required 0 description {The file rtl_text came from, if known}}} {-diagnostic_summary {type str required 0 description {A short explanation of why this instance's source could not be fully read, if available}}} {-help {type flag required 0 description {Show this usage message and return immediately}}}}

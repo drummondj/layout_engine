@@ -1,3 +1,5 @@
+This is a deep research task. I require mutliple solutions with pros and cons for each.
+
 The next step is to link Schematic and Layout data. A typical file reading flow is:
 
 1. read_lef for technology and leaf-cell Abstract views
@@ -11,6 +13,7 @@ In an ideal world, all data in the DEF should match the Verilog, but obviously t
 2. Route in DEF missing Net in Schematic - this is always an error. Sometimes DEF contains power/ground nets that may not be present in the Schematic, but for now we can treat this as an error.
 3. Instance in Schematic missing Placement in Layout - this is fine, sometimes DEF files don't have any Placement data, and may just contain Nets. A placement at 0,0 orientation R0 should be created for the Instance.
 4. Net in Schematic missing in Route Layout - this is fine, sometimes DEF files don't have any routing information, just Placement data.
+5. Something I haven't thought about!
 
 SIDE NOTE: Black-box support - sometimes EDA tools support black-boxes for missing data, but we will *NOT* support this for now. Maybe consider this for a future enhancement.
 
@@ -18,6 +21,9 @@ Mapping DEF to Verilog
 ----------------------
 
 How DEF names map to Verilog is not straight forward. DEF contains COMPONENTS and NETS with hierarchical names, including the hierarchy delimiter "/". Verilog has resursive modules and instances. We need to resursively search the Schematic hierachy based on the DEF names, so this should be as fast as possible.
+
+It should also be possible for the user to search for hierarchical nets and instances in the Schematic view. For example: get_nets a/b/c/n1 - where a/b/c and instance names an n1 is the net name.
+
 
 What happens during mutations?
 ------------------------------

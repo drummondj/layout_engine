@@ -701,7 +701,7 @@ TEST_F(ApiFixture, FitSceneInLayoutViewFramesTheDiereaNotTheOrigin)
     // TESTCELL placed at (1010,1010)um - well inside the diearea above -
     // so its own PIN A rect ((2,2)-(8,8)um local) lands at world
     // (1012,1012)-(1018,1018)um, still far from the origin.
-    ASSERT_NE(le_create_placement(handle, top_layout, testcell_design.id, "U1", "PLACED", /*has_location=*/1, /*location_x_um=*/1010.0, /*location_y_um=*/1010.0, "N", /*has_weight=*/0, 0.0, nullptr).index, UINT32_MAX);
+    ASSERT_NE(le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", /*has_location=*/1, /*location_x_um=*/1010.0, /*location_y_um=*/1010.0, "N", /*has_weight=*/0, 0.0, nullptr).index, UINT32_MAX);
 
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
     le_set_hierarchy_depth(handle, 1); // remaining_depth 0 - the placement falls back straight to TESTCELL's own Abstract
@@ -925,7 +925,7 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutRendersThePlacedInstancesOwnContent)
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
-    ASSERT_NE(le_create_placement(handle, top_layout, testcell_design.id, "U1", "PLACED", /*has_location=*/1, /*location_x_um=*/0.0, /*location_y_um=*/0.0, "N", /*has_weight=*/0, 0.0, nullptr).index, UINT32_MAX);
+    ASSERT_NE(le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", /*has_location=*/1, /*location_x_um=*/0.0, /*location_y_um=*/0.0, "N", /*has_weight=*/0, 0.0, nullptr).index, UINT32_MAX);
 
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
     le_set_hierarchy_depth(handle, 1); // remaining_depth 0 - the placement falls back straight to TESTCELL's own Abstract
@@ -948,7 +948,7 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutClearsTheAbstractViewAndViceVersa)
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
-    le_create_placement(handle, top_layout, testcell_design.id, "U1", "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+    le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
 
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
@@ -996,7 +996,7 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutWithZeroHierarchyDepthStillRendersOwnPl
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
-    le_create_placement(handle, top_layout, testcell_design.id, "U1", "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+    le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
 
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
     ASSERT_EQ(le_hierarchy_depth(handle), 0); // default, never set
@@ -1057,7 +1057,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersAnOwnShapeOverAPlacementsBoundin
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
 
-    const LePlacementId placement_id = le_create_placement(handle, top_layout, testcell_design.id, "U1", "PLACED", /*has_location=*/1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+    const LePlacementId placement_id = le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", /*has_location=*/1, 0.0, 0.0, "N", 0, 0.0, nullptr);
     ASSERT_NE(placement_id.index, UINT32_MAX);
 
     // le_create_blockage's own generated validation currently requires
@@ -1194,7 +1194,7 @@ TEST_F(ApiFixture, UnsetOptionalEnumFieldDisplaysAsEmptyStringNotItsZeroValuedMe
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
 
-    const LeRouteId route_id = le_create_route(handle, top_layout, "NET1", /*is_special=*/0, /*has_width=*/0, 0.0, /*has_voltage=*/0, 0.0, nullptr);
+    const LeRouteId route_id = le_create_route(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", /*is_special=*/0, /*has_width=*/0, 0.0, /*has_voltage=*/0, 0.0, nullptr);
     ASSERT_NE(route_id.index, UINT32_MAX);
     const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
     ASSERT_NE(m1_layer.index, UINT32_MAX);
@@ -3730,7 +3730,7 @@ TEST_F(ApiFixture, SelectObjectRefWithAPlacementSelectsIt)
     const LeAbstractId testcell_abstract = testcell_abstract_id(handle);
     ASSERT_NE(testcell_abstract.index, UINT32_MAX);
     const LeDesignId testcell_design = le_library_design_at(handle, 0, 0).id;
-    const LePlacementId placement_id = le_create_placement(handle, layout_id, testcell_design, "U1", "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+    const LePlacementId placement_id = le_create_placement(handle, layout_id, testcell_design, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
     ASSERT_NE(placement_id.index, UINT32_MAX);
 
     EXPECT_EQ(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_PLACEMENT, .index = placement_id.index, .generation = placement_id.generation}), 0);
@@ -4132,7 +4132,7 @@ TEST_F(ApiFixture, DeleteInstanceCascadesToItsPins)
     const LeDesignId design_id = le_create_design(handle, library_id, "TOP");
     const LeSchematicId schematic_id = le_create_schematic(handle, design_id);
     const LeInstanceId instance_id = le_create_instance(handle, schematic_id, LeDesignId{.index = UINT32_MAX, .generation = 0}, "U1", "BUFX1", 0, 0.0, 0.0, nullptr, nullptr, nullptr);
-    const LePinId pin_id = le_create_pin(handle, instance_id, LeNetId{.index = UINT32_MAX, .generation = 0}, "A", nullptr, 0, 0, nullptr);
+    const LePinId pin_id = le_create_pin(handle, instance_id, LeNetId{.index = UINT32_MAX, .generation = 0}, "A", nullptr, nullptr);
     ASSERT_NE(pin_id.index, UINT32_MAX);
 
     EXPECT_EQ(le_delete_instance(handle, instance_id), 0);
@@ -4150,10 +4150,10 @@ TEST_F(ApiFixture, DeleteSchematicCascadesThroughPortsNetsInstancesAndTheirPins)
     const LeLibraryId library_id = le_create_library(handle, "LIB");
     const LeDesignId design_id = le_create_design(handle, library_id, "TOP");
     const LeSchematicId schematic_id = le_create_schematic(handle, design_id);
-    const LeNetId net_id = le_create_net(handle, schematic_id, "clk", 0, 0, 0, 0);
-    const LePortId port_id = le_create_port(handle, schematic_id, net_id, "clk", "INPUT", 0, 0, 0, 0);
+    const LeNetId net_id = le_create_net(handle, schematic_id, LeNetBusId{.index = UINT32_MAX, .generation = 0}, "clk", 0, 0);
+    const LePortId port_id = le_create_port(handle, schematic_id, LePortBusId{.index = UINT32_MAX, .generation = 0}, net_id, "clk", "INPUT", 0, 0);
     const LeInstanceId instance_id = le_create_instance(handle, schematic_id, LeDesignId{.index = UINT32_MAX, .generation = 0}, "U1", "BUFX1", 0, 0.0, 0.0, nullptr, nullptr, nullptr);
-    const LePinId pin_id = le_create_pin(handle, instance_id, net_id, "A", nullptr, 0, 0, nullptr);
+    const LePinId pin_id = le_create_pin(handle, instance_id, net_id, "A", nullptr, nullptr);
     ASSERT_NE(port_id.index, UINT32_MAX);
     ASSERT_NE(net_id.index, UINT32_MAX);
     ASSERT_NE(pin_id.index, UINT32_MAX);
