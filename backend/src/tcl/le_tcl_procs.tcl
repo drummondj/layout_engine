@@ -928,10 +928,11 @@ register_command_help get_layer_selectable \
 # row. Takes a friendly keyword, not le_purpose_at's own raw ordinal
 # directly - ::purpose_names below mirrors le_purpose_at's own api.hpp
 # comment (the ordinal list, not its per-Technology *index*) and must be
-# kept in sync with it and with flutter_plugin/lib/layout_engine_plugin.dart's
-# own LeLayerPurpose enum (whose lowerCamelCase .name the GUI side sends
-# verbatim as this same keyword - see LeProvider's own purpose command
-# helpers).
+# kept in sync with it and with le_gui's own layer_manager.cpp
+# (kPurposeNames) - a purpose appended to ViewLayerPurpose (view_style.hpp)
+# must be added to both, or a caller passing its new keyword here gets
+# "unknown purpose" while the GUI side shows "?" for it (PLACEMENT_BOUNDARY
+# was missing from both until this was noticed).
 array set ::purpose_names {
     terminal 0
     obstruction 1
@@ -945,6 +946,7 @@ array set ::purpose_names {
     route 9
     region 10
     placementName 11
+    placementBoundary 12
 }
 
 proc _resolve_purpose_name {command purpose} {

@@ -470,7 +470,7 @@ extern "C"
     /// 1 = OBSTRUCTION, 2 = BOUNDARY, 3 = TRACK_PREFERRED,
     /// 4 = TRACK_NON_PREFERRED, 5 = ROUTING_BLOCKAGE, 6 = ROW,
     /// 7 = GCELLGRID, 8 = PLACEMENT_BLOCKAGE, 9 = ROUTE, 10 = REGION,
-    /// 11 = PLACEMENT_NAME.
+    /// 11 = PLACEMENT_NAME, 12 = PLACEMENT_BOUNDARY.
     /// `index` itself walks ViewLayerSet::purposes()'s own
     /// first-encountered order instead (ROW, then BOUNDARY, then
     /// PLACEMENT_NAME, then TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
@@ -481,11 +481,14 @@ extern "C"
     /// `le_is_purpose_visible`/`le_set_purpose_visible`, never assume
     /// index equals ordinal.
     ///
-    /// NOTE: this ordinal list crosses into flutter_plugin/lib/
-    /// layout_engine_plugin.dart's own hand-synced `LeLayerPurpose` enum/
-    /// `fromValue` switch (no C-side named enum exists for it) - update
-    /// both together if le::ViewLayerPurpose's declaration order ever
-    /// changes again.
+    /// NOTE: this ordinal list crosses into two other hand-synced copies -
+    /// le_gui's own layer_manager.cpp (kPurposeNames) and le_tcl_procs.tcl's
+    /// own ::purpose_names dict - update both together if
+    /// le::ViewLayerPurpose's declaration order (or member count) ever
+    /// changes again; PLACEMENT_BOUNDARY was appended to the enum without
+    /// either being updated, so it displayed as "?" in the Layer Manager
+    /// and had no working Tcl keyword until this comment (and both
+    /// mirrors) were fixed.
     ///
     /// Returns -1 if handle is null or index is out of range, rather than
     /// crashing.

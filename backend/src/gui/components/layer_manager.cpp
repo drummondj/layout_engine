@@ -28,17 +28,21 @@ namespace le::gui
 
         // le::ViewLayerPurpose's own declaration order (api.hpp's own
         // le_purpose_at doc comment has the authoritative list) - purely
-        // a display label here, unlike layout_engine_plugin.dart's own
-        // hand-synced LeLayerPurpose enum, which also has to carry this
-        // spelling through to a Tcl set_purpose_visible/_selectable
-        // command string; le_set_purpose_visible/_selectable below take
-        // the raw ordinal directly; there's no name-string round trip to
-        // keep in sync with le_tcl_procs.tcl's own ::purpose_names dict
-        // here at all.
+        // a display label here; le_set_purpose_visible/_selectable below
+        // take the raw ordinal directly, there's no name-string round
+        // trip. Still a separate hand-synced copy from le_tcl_procs.tcl's
+        // own ::purpose_names dict, though - a purpose appended to
+        // ViewLayerPurpose (view_style.hpp) must be added to both, or it
+        // silently falls off the end of this array and displays as "?"
+        // (purpose_name's own out-of-range fallback below) - confirmed
+        // the hard way: PLACEMENT_BOUNDARY was appended after this array
+        // was last updated, and neither this file nor le_tcl_procs.tcl's
+        // own dict ever picked it up until now.
         constexpr const char *kPurposeNames[] = {
             "terminal", "obstruction", "boundary", "trackPreferred",
             "trackNonPreferred", "routingBlockage", "row", "gcellgrid",
             "placementBlockage", "route", "region", "placementName",
+            "placementBoundary",
         };
         constexpr int32_t kPurposeNameCount = static_cast<int32_t>(sizeof(kPurposeNames) / sizeof(kPurposeNames[0]));
 
