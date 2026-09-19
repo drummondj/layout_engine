@@ -141,7 +141,7 @@ namespace le::gui
         const int32_t library_count = le_library_count(handle);
         if (library_count == 0)
         {
-            ImGui::TextDisabled("Nothing loaded yet - read_lef from the console.");
+            ImGui::TextDisabled("Nothing loaded yet");
             return;
         }
 
