@@ -629,7 +629,20 @@ namespace le::gui
             ImGui::CreateContext();
             set_dark_pastel_imgui_style();
             ImGuiIO &io = ImGui::GetIO();
-            io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+            // Deliberately NOT ImGuiConfigFlags_NavEnableKeyboard - this
+            // app has its own complete keyboard-shortcut system
+            // (forward_keyboard_input/kKeyMappings below, arrow keys
+            // included - LE_KEY_PAN_LEFT/_RIGHT/_UP/_DOWN), and nothing
+            // here is built to be Tab/arrow-navigated as ImGui widgets.
+            // With that flag on, Dear ImGui's own keyboard nav consumes
+            // the same arrow keys to move focus between windows/child
+            // panels instead (drawing its own blue nav-highlight border
+            // around whichever one it just focused) - a real reported
+            // bug (arrow-key panning in the Layout view kept stealing
+            // focus to the mode_toolbar_row child), not a hypothetical
+            // conflict. Text fields (InputInt, etc.) still get normal
+            // arrow-key cursor movement regardless of this flag - that's
+            // ImGui's ordinary text-editing behavior, unrelated to Nav.
             io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
             // Nothing worth persisting yet - every open_and_run_window()
             // call rebuilds the same default left/center/right split from
