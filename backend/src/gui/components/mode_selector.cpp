@@ -2,6 +2,7 @@
 
 #include "IconsLucide.h"
 #include "api.hpp"
+#include "compact_button.hpp"
 #include "imgui.h"
 #include "tcl_command_queue.hpp"
 
@@ -79,6 +80,11 @@ namespace le::gui
             }
         }
 
+        // Icon-only now (label moved to a hover tooltip) - fits within
+        // le_gui.cpp's own 64px-wide mode_selector_column child (48 +
+        // its 8px WindowPadding on each side).
+        constexpr float kIconButtonSize = 48.0f;
+
         // Same "optimistic until confirmed" reasoning as
         // layer_manager.cpp's own draw_optimistic_checkbox/hierarchy
         // depth field - set_mode is enqueued (evaluated on le_shell's
@@ -88,26 +94,40 @@ namespace le::gui
         void draw_mode_button(LeHandle *handle, int32_t mode, int32_t display_mode, bool &has_pending, int32_t &pending)
         {
             const bool selected = display_mode == mode;
-            if (selected)
-            {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            }
-            // Disabled while already selected, matching ModeButton's own
-            // `onPressed: selected ? null : onPressed` in mode_selector.dart -
-            // clicking the already-active mode is a no-op there too.
-            ImGui::BeginDisabled(selected);
-            const std::string face = std::string(mode_icon(mode)) + " " + mode_label(mode);
-            if (ImGui::Button(face.c_str(), ImVec2(64.0f, 40.0f)))
+            // Selected keeps a permanent highlighted background (a
+            // neutral dark gray - compact_button.hpp's own
+            // kSelectedIconButtonColor, not the theme's own blue
+            // ButtonActive); unselected now draws no resting background
+            // at all - only the icon glyph - so ButtonHovered/ButtonActive
+            // stay themed for hover/press feedback but the idle state is
+            // fully transparent.
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                   selected ? kSelectedIconButtonColor
+                                            : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+            // icon_button (compact_button.hpp) - not a plain
+            // ImGui::Button(icon, ImVec2(size,size)) - see its own doc
+            // comment for why: this button's small, explicit fixed size
+            // would otherwise trip a real ImGui centering bug and render
+            // the icon visibly right-of-center.
+            const bool clicked = icon_button(mode_icon(mode), std::string("mode_") + mode_keyword(mode), kIconButtonSize);
+            // Clicking the already-active mode is a no-op, matching
+            // ModeButton's own `onPressed: selected ? null : onPressed`
+            // in mode_selector.dart - guarded here with a plain `!selected`
+            // check rather than wrapping the button in BeginDisabled(selected)
+            // (the more obvious-looking way to express "already active,
+            // ignore clicks"), because BeginDisabled also multiplies
+            // everything drawn inside it by style.Alpha * DisabledAlpha
+            // (60% by default) - it faded the icon glyph itself along
+            // with disabling the click, a real reported bug (measured:
+            // (156,160,163) selected vs (230,237,242) unselected, not
+            // just a duller background).
+            if (clicked && !selected)
             {
                 enqueue_tcl_command(handle, std::string("set_mode ") + mode_keyword(mode));
                 has_pending = true;
                 pending = mode;
             }
-            ImGui::EndDisabled();
-            if (selected)
-            {
-                ImGui::PopStyleColor();
-            }
+            ImGui::PopStyleColor();
             if (ImGui::IsItemHovered())
             {
                 ImGui::SetTooltip("%s (%s)", mode_label(mode), mode_shortcut(mode));

@@ -1,6 +1,7 @@
 #include "layer_manager.hpp"
 
 #include "api.hpp"
+#include "compact_button.hpp"
 #include "imgui.h"
 #include "tcl_command_queue.hpp"
 
@@ -39,9 +40,18 @@ namespace le::gui
         // was last updated, and neither this file nor le_tcl_procs.tcl's
         // own dict ever picked it up until now.
         constexpr const char *kPurposeNames[] = {
-            "terminal", "obstruction", "boundary", "trackPreferred",
-            "trackNonPreferred", "routingBlockage", "row", "gcellgrid",
-            "placementBlockage", "route", "region", "placementName",
+            "terminal",
+            "obstruction",
+            "boundary",
+            "trackPreferred",
+            "trackNonPreferred",
+            "routingBlockage",
+            "row",
+            "gcellgrid",
+            "placementBlockage",
+            "route",
+            "region",
+            "placementName",
             "placementBoundary",
         };
         constexpr int32_t kPurposeNameCount = static_cast<int32_t>(sizeof(kPurposeNames) / sizeof(kPurposeNames[0]));
@@ -177,14 +187,35 @@ namespace le::gui
         {
             depth_buf = backend_depth;
         }
-        ImGui::SetNextItemWidth(100.0f);
-        if (ImGui::InputInt("Hierarchy Depth", &depth_buf, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue))
+        // Submits `new_value` the same way pressing Enter in the field
+        // itself does (below) - shared by the "-"/"+" buttons so they
+        // stay in lockstep with the field's own optimistic-update/
+        // negative-value handling instead of duplicating it. Clamped to
+        // 0 rather than left as a no-op for a button click specifically
+        // (unlike a typed negative value, which resets to whatever the
+        // backend still reports - see the field's own submit branch
+        // below) - a "-" press at 0 should visibly settle at 0, not
+        // silently do nothing.
+        auto submit_depth = [&](int new_value)
+        {
+            if (new_value < 0)
+                new_value = 0;
+            depth_buf = new_value;
+            enqueue_tcl_command(handle, "set_hierarchy_depth " + std::to_string(new_value));
+            has_pending_depth = true;
+            pending_depth_value = new_value;
+        };
+
+        // 3 characters wide (this field only ever holds a small
+        // hierarchy-depth integer, never worth 100px) - the label moved
+        // out to its own TextUnformatted below so the "-"/"+" buttons
+        // can sit between the field and it.
+        ImGui::SetNextItemWidth(ImGui::CalcTextSize("000").x + ImGui::GetStyle().FramePadding.x * 2.0f);
+        if (ImGui::InputInt("##hierarchy_depth", &depth_buf, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue))
         {
             if (depth_buf >= 0)
             {
-                enqueue_tcl_command(handle, "set_hierarchy_depth " + std::to_string(depth_buf));
-                has_pending_depth = true;
-                pending_depth_value = depth_buf;
+                submit_depth(depth_buf);
             }
             else
             {
@@ -198,6 +229,19 @@ namespace le::gui
             }
         }
         depth_field_was_active = ImGui::IsItemActive();
+
+        constexpr float kStepButtonWidth = 24.0f;
+        // compact_button (compact_button.hpp), not a plain ImGui::Button -
+        // see its own doc comment for the centering bug a button this
+        // narrow would otherwise hit.
+        ImGui::SameLine();
+        if (compact_button("-", kStepButtonWidth))
+            submit_depth(depth_buf - 1);
+        ImGui::SameLine();
+        if (compact_button("+", kStepButtonWidth))
+            submit_depth(depth_buf + 1);
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Hierarchy Depth");
 
         ImGui::Separator();
 
@@ -258,7 +302,8 @@ namespace le::gui
         // command-history entry per user action, not one per row/dozens
         // for a big design's own "All" click - see their own comment).
         draw_toggle_row(
-            "all", [] { ImGui::TextUnformatted("All"); }, all_layers_visible && all_purposes_visible,
+            "all", []
+            { ImGui::TextUnformatted("All"); }, all_layers_visible && all_purposes_visible,
             all_layers_selectable && all_purposes_selectable,
             [&](bool value)
             {
@@ -300,7 +345,8 @@ namespace le::gui
         draw_spacer_row();
 
         draw_toggle_row(
-            "all_purposes", [] { ImGui::TextUnformatted("Purposes"); }, all_purposes_visible, all_purposes_selectable,
+            "all_purposes", []
+            { ImGui::TextUnformatted("Purposes"); }, all_purposes_visible, all_purposes_selectable,
             [&](bool value)
             {
                 std::string script;
@@ -328,7 +374,8 @@ namespace le::gui
         for (const PurposeEntry &purpose : purposes)
         {
             draw_toggle_row(
-                purpose_name(purpose.ordinal), [&] { ImGui::TextUnformatted(purpose_name(purpose.ordinal)); },
+                purpose_name(purpose.ordinal), [&]
+                { ImGui::TextUnformatted(purpose_name(purpose.ordinal)); },
                 purpose.visible, purpose.selectable,
                 [&](bool value)
                 {
@@ -344,7 +391,8 @@ namespace le::gui
         draw_spacer_row();
 
         draw_toggle_row(
-            "all_layers", [] { ImGui::TextUnformatted("Layers"); }, all_layers_visible, all_layers_selectable,
+            "all_layers", []
+            { ImGui::TextUnformatted("Layers"); }, all_layers_visible, all_layers_selectable,
             [&](bool value)
             {
                 std::string script;

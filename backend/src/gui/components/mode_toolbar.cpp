@@ -2,6 +2,7 @@
 
 #include "IconsLucide.h"
 #include "api.hpp"
+#include "compact_button.hpp"
 #include "imgui.h"
 #include "tcl_command_queue.hpp"
 
@@ -12,14 +13,26 @@ namespace le::gui
 {
     namespace
     {
+        // Icon-only now (label moved to a hover tooltip) - fits within
+        // le_gui.cpp's own 64px-tall mode_toolbar_row child (48 + its
+        // 8px WindowPadding on each side).
+        constexpr float kIconButtonSize = 48.0f;
+
         // `icon` is one of the ICON_LC_* constants (IconsLucide.h) -
         // see mode_selector.cpp's own comment on why Lucide, and that
         // there's no exact 1:1 match for every one of mode_toolbar.dart's
-        // own HugeIcons.
+        // own HugeIcons. No resting background (matching mode_selector.cpp's
+        // own unselected-button treatment) - every button here is a
+        // momentary action, never a "currently selected" one, so
+        // ButtonHovered/ButtonActive alone (still themed) give it a
+        // press/hover cue.
         bool draw_button(const char *icon, const char *label, const char *shortcut)
         {
-            const std::string face = std::string(icon) + " " + label;
-            const bool clicked = ImGui::Button(face.c_str(), ImVec2(0.0f, 32.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+            // icon_button (compact_button.hpp), not a plain ImGui::Button -
+            // see its own doc comment for the centering bug this avoids.
+            const bool clicked = icon_button(icon, label, kIconButtonSize);
+            ImGui::PopStyleColor();
             if (ImGui::IsItemHovered())
             {
                 if (shortcut != nullptr && shortcut[0] != '\0')
@@ -59,18 +72,28 @@ namespace le::gui
                 has_pending_move = false;
             const bool armed = has_pending_move ? pending_move_value : backend_armed;
 
-            if (armed)
-                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            // Disabled while already armed, matching ToolbarButton's own
-            // `onPressed: selected ? null : onPressed` in mode_toolbar.dart.
-            ImGui::BeginDisabled(armed);
-            const bool move_clicked = ImGui::Button(ICON_LC_MOVE " Move", ImVec2(0.0f, 32.0f));
-            ImGui::EndDisabled();
-            if (armed)
-                ImGui::PopStyleColor();
+            // Armed keeps a permanent highlighted background (a neutral
+            // dark gray - compact_button.hpp's own kSelectedIconButtonColor,
+            // matching mode_selector.cpp's own selected-mode treatment,
+            // not the theme's own blue ButtonActive); unarmed now draws
+            // no resting background at all - only the icon glyph -
+            // matching draw_button's own treatment above.
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                   armed ? kSelectedIconButtonColor
+                                         : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+            // See draw_button's own comment above.
+            const bool move_clicked = icon_button(ICON_LC_MOVE, "move", kIconButtonSize);
+            ImGui::PopStyleColor();
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Move (ctrl-m)");
-            if (move_clicked)
+            // Clicking while already armed is a no-op, matching
+            // ToolbarButton's own `onPressed: selected ? null : onPressed`
+            // in mode_toolbar.dart - see mode_selector.cpp's own
+            // draw_mode_button for why this is a plain `!armed` guard
+            // rather than BeginDisabled(armed) (the latter also fades
+            // the icon glyph itself via DisabledAlpha, a real reported
+            // bug, not just a duller background).
+            if (move_clicked && !armed)
             {
                 enqueue_tcl_command(handle, "arm_move");
                 has_pending_move = true;

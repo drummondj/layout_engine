@@ -7,6 +7,7 @@
 #include "components/layer_manager.hpp"
 #include "components/mode_selector.hpp"
 #include "components/mode_toolbar.hpp"
+#include "components/icon_font.hpp"
 
 // Apple deprecated the whole OpenGL framework in favor of Metal (10.14+)
 // but still fully implements it - every desktop-GL ImGui backend still
@@ -677,6 +678,34 @@ namespace le::gui
                 spdlog::error("resolve_lucide_font_path(): FAILED - no usable icon font found, every toolbar icon will render blank. "
                                "See the warn() line(s) immediately above for which candidate paths failed and why.");
 
+            // A second, standalone (not MergeMode) copy of the same
+            // Lucide font at 32px - components/icon_font.hpp's own
+            // large_icon_font(), used by mode_selector.cpp/
+            // mode_toolbar.cpp's icon-only buttons (labels removed,
+            // tooltip-only now). Deliberately not merged into the base
+            // 13px text font the way the 16px copy above is - these
+            // buttons render an icon glyph alone, with no label text on
+            // the same line that would need to share its font run.
+            if (!lucide_font_path.empty())
+            {
+                // Plain default ImFontConfig (nullptr) - no
+                // GlyphMinAdvanceX, unlike the merged 16px copy above
+                // (that pads a narrow glyph's own advance box out to a
+                // uniform minimum width, useful when text follows the
+                // icon on the same line, but otherwise just adds blank
+                // space onto the glyph's own natural bounds that
+                // Button/RenderTextClipped then centers along with the
+                // ink, visibly shifting it off-center - reported), and
+                // no PixelSnapH either (quantizes each glyph's own
+                // AdvanceX to a whole pixel at bake time - useful for
+                // keeping a run of *several* characters aligned to a
+                // pixel grid, but for a single icon-only glyph with
+                // nothing else on the same line, it only ever throws
+                // away sub-pixel centering accuracy and is a likely
+                // source of the reported ~1px residual right-bias).
+                large_icon_font() = io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 32.0f, nullptr, icon_ranges);
+            }
+
             ImGui_ImplGlfw_InitForOpenGL(window, true);
             ImGui_ImplOpenGL3_Init("#version 150");
 
@@ -814,6 +843,23 @@ namespace le::gui
                 // is active *at the moment it's called*, not
                 // retroactively - safe to toggle around each one).
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+                // The Layout/Abstract design view always renders on pure
+                // black, regardless of the current ImGui theme (unlike
+                // every other dock panel, which follows
+                // set_dark_pastel_imgui_style()'s own WindowBg/ChildBg) -
+                // an explicit user request, not derived from the
+                // rendered design content itself (which already draws
+                // its own background via the pipelines module,
+                // independent of this). Pushed once here, popped once
+                // after this panel's own End() below - both
+                // ModeSelector's/ModeToolbar's BeginChild calls and the
+                // "no design loaded yet" fallback area all read the same
+                // pushed color, since ImGui resolves style colors
+                // dynamically against whatever's on top of this stack at
+                // the moment each is drawn, not a value captured once at
+                // push time.
+                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
                 ImGui::Begin(kLayoutWindowTitle, nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
                 const ImVec2 full_panel_avail = ImGui::GetContentRegionAvail();
@@ -827,9 +873,21 @@ namespace le::gui
                 // so it moves/resizes with the design view rather than
                 // being independently dockable like Browser/Properties/
                 // Layers.
-                constexpr float kModeSelectorWidth = 72.0f;
+                // 64 = mode_selector.cpp's own 48px icon-only button plus
+                // this child's 8px WindowPadding on each side.
+                constexpr float kModeSelectorWidth = 64.0f;
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
-                ImGui::BeginChild("mode_selector_column", ImVec2(kModeSelectorWidth, full_panel_height));
+                // ImGuiChildFlags_AlwaysUseWindowPadding - a borderless
+                // BeginChild ignores the pushed WindowPadding entirely by
+                // default (Dear ImGui's own documented behavior: "no
+                // padding by default for non-bordered child windows"),
+                // so without this flag the pushed (8,8) above was a
+                // no-op - content region was the full 64px column width,
+                // and the 48px button (flush against the child's own
+                // top-left origin) left all 16px of slack on the right
+                // instead of split 8/8 either side. A real reported bug
+                // (asymmetric padding), not cosmetic preference.
+                ImGui::BeginChild("mode_selector_column", ImVec2(kModeSelectorWidth, full_panel_height), ImGuiChildFlags_AlwaysUseWindowPadding);
                 draw_mode_selector(handle);
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
@@ -847,9 +905,17 @@ namespace le::gui
                 // ModeToolbar (mode_toolbar.hpp) - a fixed-height row
                 // above the design view, same "plain child, not its own
                 // dock panel" reasoning as ModeSelector above.
-                constexpr float kModeToolbarHeight = 44.0f;
+                // 64 = mode_toolbar.cpp's own 48px icon-only buttons plus
+                // this child's 8px WindowPadding on each side.
+                constexpr float kModeToolbarHeight = 64.0f;
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
-                ImGui::BeginChild("mode_toolbar_row", ImVec2(0.0f, kModeToolbarHeight));
+                // See mode_selector_column's own comment above -
+                // ImGuiChildFlags_AlwaysUseWindowPadding is needed here
+                // for the same reason (the pushed (8,8) is otherwise a
+                // no-op for this borderless child too, leaving its
+                // buttons flush against the top edge instead of centered
+                // top/bottom).
+                ImGui::BeginChild("mode_toolbar_row", ImVec2(0.0f, kModeToolbarHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
                 draw_mode_toolbar(handle);
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
@@ -1002,6 +1068,7 @@ namespace le::gui
                 ImGui::EndChild(); // layout_content_column
 
                 ImGui::End();
+                ImGui::PopStyleColor(2); // ChildBg, WindowBg
                 ImGui::PopStyleVar();
 
                 ImGui::Render();
