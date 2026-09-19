@@ -2540,8 +2540,17 @@ extern "C"
 
         const le::AbstractId abstract_id = handle->current_abstract();
         const le::Point dbu_point = handle->pixel_to_dbu(x, y);
+        // Both axes, not selectability alone - select_all_unlocked's own
+        // three-condition check (above) already establishes this as the
+        // real convention: a hidden ViewLayer (visibility off) must not
+        // be click/drag/hover-selectable even when it's still marked
+        // selectable=true (the default for most purposes) - selectable
+        // means "eligible to be selected when visible", not "selectable
+        // regardless of visibility". is_view_layer_visible already ANDs
+        // its own two axes (layer-name/purpose) the same way
+        // is_view_layer_selectable does.
         const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
-        { return handle->is_view_layer_selectable(layer_name, purpose); };
+        { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
 
         const auto hit = le::hit_test_abstract_point(handle->root, handle->view_layers, abstract_id, dbu_point, handle->scale(), is_selectable);
         if (!hit)
@@ -2808,8 +2817,10 @@ extern "C"
     void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
     {
         const le::AbstractId abstract_id = handle->current_abstract();
+        // Both visible AND selectable - see le_set_mouse_position's own
+        // comment on this same predicate shape.
         const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
-        { return handle->is_view_layer_selectable(layer_name, purpose); };
+        { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
 
         if (is_click)
         {
@@ -2863,24 +2874,44 @@ extern "C"
     // hit_test_rect's own results independently rather than picking one
     // topmost target, so the same set of ids ends up selected regardless
     // of which is checked first.
-    // own_shape (Row/Region/Blockage/Route/PhysicalPort) hit-testing
-    // below is deferred pending the new pipelines module's own Hot tier
-    // (PIPELINE_REFACTOR.md) - it used layout_shape_pipeline.run() +
-    // le::hit_test_point/hit_test_rect, both from the deleted pre-restart
-    // pipelines module (see le_render_pixel_buffer's own comment for
-    // what *is* wired up so far). Placement selection below is
-    // unaffected - hit_test_placements_point/_rect
-    // (core/placement_geometry.hpp) query Root directly and never
-    // depended on either.
+    // own_shape hit-testing below currently covers Route/PhysicalPort
+    // only (hit_test_layout_point/_rect, core/placement_geometry.hpp) -
+    // Blockage/Row/Region remain a separate, still-deferred gap (Row/
+    // Region in particular have no backing Shape at all, so they need
+    // their own bare-id hit-test, not an extension of this one). A click
+    // checks own_shapes *before* Placement (BUGS_AND_ENHANCEMENTS.md B2:
+    // hit_test_placements_point is a pure bounding-box test, not real
+    // per-pixel/geometry hit-testing, so a click that lands within a
+    // placement's own bbox but over a point where its own painted
+    // content is actually transparent there - leaving a Route/
+    // PhysicalPort visible underneath - must still prefer the visible
+    // own_shape, not the placement bbox merely covering that point).
+    // Falling through to the Placement bbox test only when own_shapes
+    // has no hit at all keeps every other case unchanged (a click
+    // genuinely inside a placement's own content, away from any
+    // own_shape, still finds nothing via hit_test_layout_point and falls
+    // through to it exactly as before). Route/PhysicalPort have real
+    // backing Shapes, so they ride the exact same ShapeId+piece
+    // re-resolution the Abstract branch above already uses. A drag (the
+    // `else` branch below) has no such ordering concern - it unions both
+    // hit_test_placements_rect and hit_test_layout_rect's own results
+    // independently rather than picking one topmost target, so the same
+    // set of ids ends up selected regardless of which is checked first.
     void select_in_layout_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
     {
         const le::LayoutId layout_id = handle->current_layout();
         const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
+        // Both visible AND selectable - see le_set_mouse_position's own
+        // comment on this same predicate shape.
+        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
+        { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
 
         if (is_click)
         {
             const le::Point dbu_point = handle->pixel_to_dbu(x, y);
-            if (const auto placement_id = le::hit_test_placements_point(handle->root, layout_id, remaining_depth, dbu_point))
+            if (const auto hit = le::hit_test_layout_point(handle->root, handle->view_layers, layout_id, dbu_point, handle->scale(), is_selectable))
+                handle->select(hit->shape_id, hit->piece_kind, hit->piece_index);
+            else if (const auto placement_id = le::hit_test_placements_point(handle->root, layout_id, remaining_depth, dbu_point))
                 handle->select(*placement_id);
         }
         else
@@ -2894,6 +2925,9 @@ extern "C"
 
             for (le::PlacementId placement_id : le::hit_test_placements_rect(handle->root, layout_id, remaining_depth, drag_rect))
                 handle->select(placement_id);
+
+            for (const le::AbstractHitPiece &hit : le::hit_test_layout_rect(handle->root, handle->view_layers, layout_id, drag_rect, handle->scale(), is_selectable))
+                handle->select(hit.shape_id, hit.piece_kind, hit.piece_index);
         }
     }
 
@@ -3085,30 +3119,81 @@ extern "C"
             return 1;
         std::lock_guard<std::mutex> lock(handle->mutex_);
 
-        switch (ref.kind)
+        // Shared by SHAPE/ROUTE/PHYSICAL_PORT below - selects every rect/
+        // polygon/path entry of one Shape, since a bare ShapeId can't
+        // express "just this one piece" (see this function's own
+        // api.hpp doc comment). Returns whether it actually selected
+        // anything, so a caller resolving several child Shapes (Route/
+        // PhysicalPort) can tell "no geometry anywhere" apart from
+        // "some/all of them had real geometry" with one shared check.
+        const auto select_all_pieces_of = [&](le::ShapeId shape_id) -> bool
         {
-        case LE_OBJECT_KIND_SHAPE:
-        {
-            // Same per-piece loop select_all_unlocked uses - selects
-            // every rect/polygon/path entry of the Shape, since a bare
-            // ShapeId can't express "just this one piece" (see this
-            // function's own api.hpp doc comment).
-            const le::ShapeId shape_id{.index = ref.index, .generation = ref.generation};
             const le::ShapeData *shape = handle->root.get_shape(shape_id);
             if (!shape)
-            {
-                spdlog::error("select: no such Shape");
-                return 1;
-            }
+                return false;
             for (size_t i = 0; i < shape->rects.size(); i++)
                 handle->select(shape_id, le::PieceKind::RECT, i);
             for (size_t i = 0; i < shape->polygons.size(); i++)
                 handle->select(shape_id, le::PieceKind::POLYGON, i);
             for (size_t i = 0; i < shape->paths.size(); i++)
                 handle->select(shape_id, le::PieceKind::PATH, i);
-            if (shape->rects.empty() && shape->polygons.empty() && shape->paths.empty())
+            return !shape->rects.empty() || !shape->polygons.empty() || !shape->paths.empty();
+        };
+
+        switch (ref.kind)
+        {
+        case LE_OBJECT_KIND_SHAPE:
+        {
+            const le::ShapeId shape_id{.index = ref.index, .generation = ref.generation};
+            if (!handle->root.get_shape(shape_id))
+            {
+                spdlog::error("select: no such Shape");
+                return 1;
+            }
+            if (!select_all_pieces_of(shape_id))
             {
                 spdlog::error("select: Shape has no geometry to select");
+                return 1;
+            }
+            return 0;
+        }
+        case LE_OBJECT_KIND_ROUTE:
+        {
+            // A Route's own shapes ride the exact same ShapeId+piece
+            // selection Terminal/Obstruction/Shape already use above -
+            // Route (like Blockage/PhysicalPort) has a real backing
+            // Shape per piece of routed geometry, unlike Row/Region.
+            const le::RouteId id{.index = ref.index, .generation = ref.generation};
+            if (!handle->root.get_route(id))
+            {
+                spdlog::error("select: no such Route");
+                return 1;
+            }
+            bool any_selected = false;
+            for (le::ShapeId shape_id : handle->root.get_route_shapes(id))
+                any_selected |= select_all_pieces_of(shape_id);
+            if (!any_selected)
+            {
+                spdlog::error("select: Route has no geometry to select");
+                return 1;
+            }
+            return 0;
+        }
+        case LE_OBJECT_KIND_PHYSICAL_PORT:
+        {
+            const le::PhysicalPortId id{.index = ref.index, .generation = ref.generation};
+            if (!handle->root.get_physical_port(id))
+            {
+                spdlog::error("select: no such PhysicalPort");
+                return 1;
+            }
+            bool any_selected = false;
+            for (le::PhysicalPortSegmentId segment_id : handle->root.get_physical_port_segments(id))
+                for (le::ShapeId shape_id : handle->root.get_physical_port_segment_shapes(segment_id))
+                    any_selected |= select_all_pieces_of(shape_id);
+            if (!any_selected)
+            {
+                spdlog::error("select: PhysicalPort has no geometry to select");
                 return 1;
             }
             return 0;
@@ -3147,7 +3232,7 @@ extern "C"
             return 0;
         }
         default:
-            spdlog::error("select: unsupported object kind (only Shape/Row/Placement/Region can be selected)");
+            spdlog::error("select: unsupported object kind (only Shape/Route/PhysicalPort/Row/Placement/Region can be selected)");
             return 1;
         }
     }

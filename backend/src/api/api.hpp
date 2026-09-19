@@ -1375,17 +1375,23 @@ extern "C"
 
     /// @brief Adds the object `ref` refers to to the current selection
     /// (BUGS_AND_ENHANCEMENTS.md E30) - the script-driven counterpart to
-    /// le_mouse_up's own hit-test-driven selection. Only
-    /// LE_OBJECT_KIND_SHAPE/_ROW/_PLACEMENT/_REGION are supported (the
-    /// same four kinds LeHandle::SelectedObject's own variant covers) - any
-    /// other kind, or a ref that doesn't resolve, is a no-op that appends
-    /// an ERROR message rather than crashing or silently doing nothing.
-    /// For LE_OBJECT_KIND_SHAPE specifically, this selects every piece of
-    /// the Shape (every rect/polygon/path entry - the same per-shape loop
-    /// le_select_all() already uses internally), not just one - piece-
-    /// level granularity is reachable only via a real mouse hit-test
-    /// (le_mouse_up), there's no "just this one piece" concept a bare
-    /// ShapeId can express on its own. Does not clear the existing
+    /// le_mouse_up's own hit-test-driven selection.
+    /// LE_OBJECT_KIND_SHAPE/_ROUTE/_PHYSICAL_PORT/_ROW/_PLACEMENT/_REGION
+    /// are supported - any other kind, or a ref that doesn't resolve, is
+    /// a no-op logged via spdlog::error rather than crashing or silently
+    /// doing nothing. For LE_OBJECT_KIND_SHAPE/_ROUTE/_PHYSICAL_PORT,
+    /// this selects every piece of every underlying Shape (every rect/
+    /// polygon/path entry - the same per-shape loop le_select_all()
+    /// already uses internally, walking Route's own get_route_shapes or
+    /// PhysicalPort's own get_physical_port_segments ->
+    /// get_physical_port_segment_shapes for the latter two), not just
+    /// one - piece-level granularity is reachable only via a real mouse
+    /// hit-test (le_mouse_up), there's no "just this one piece" concept
+    /// a bare id can express on its own. LeHandle::SelectedObject's own
+    /// variant needs no case for ROUTE/PHYSICAL_PORT specifically - a
+    /// Route/PhysicalPort piece rides the same ShapePiece alternative
+    /// Terminal/Obstruction/Shape already use (see that variant's own
+    /// doc comment, le_handle.hpp). Does not clear the existing
     /// selection first (mirrors LeHandle::select()'s own additive behavior,
     /// same as ctrl/shift-clicking) - call le_deselect_all() first for a
     /// script that wants to replace the selection outright. Returns 0 if

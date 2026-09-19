@@ -1154,6 +1154,198 @@ TEST_F(ApiFixture, UnsetOptionalEnumFieldDisplaysAsEmptyStringNotItsZeroValuedMe
     EXPECT_TRUE(found_purpose);
 }
 
+// Route/PhysicalPort own-shape selection (this codebase's own follow-up
+// to the Blockage case MouseClickInLayoutViewPrefersAnOwnShapeOver...
+// above documents but leaves skipped) - same click-before-placement-bbox
+// precedence, same ShapeId+piece re-resolution, using
+// hit_test_layout_point/_rect (core/placement_geometry.hpp) directly
+// instead of the still-deferred Blockage/Row/Region path.
+TEST_F(ApiFixture, MouseClickInLayoutViewPrefersARouteOwnShapeOverAPlacementsBoundingBoxAtTheSamePoint)
+{
+    // Same TESTCELL/6x6-shape/(3,3)-vs-(8,8) setup as the Blockage
+    // version of this test above, just with a Route's own Shape instead
+    // of a Blockage's.
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+
+    const LePlacementId placement_id = le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", /*has_location=*/1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+    ASSERT_NE(placement_id.index, UINT32_MAX);
+
+    const LeRouteId route_id = le_create_route(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", /*is_special=*/0, /*has_width=*/0, 0.0, /*has_voltage=*/0, 0.0, nullptr);
+    ASSERT_NE(route_id.index, UINT32_MAX);
+    const double route_rect_um[4] = {0.0, 0.0, 6.0, 6.0};
+    const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
+    ASSERT_NE(m1_layer.index, UINT32_MAX);
+    const LeShapeId route_shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, route_id, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(route_shape_id.index, UINT32_MAX);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_hierarchy_depth(handle, 1);
+
+    le_set_viewport_size(handle, 100, 100);
+    le_zoom(handle, 0.005 - 1.0, 0, 100); // see the Blockage version of this test for the scale/pan derivation
+
+    le_mouse_down(handle, 15, 85); // dbu (3000,3000) = (3,3) um - inside both the route shape and the placement's own bbox
+    le_mouse_up(handle, 15, 85);
+    ASSERT_EQ(le_selection_count(handle), 1);
+
+    const LeObjectRef shape_ref = le_selected_object_ref(handle, 0);
+    EXPECT_EQ(shape_ref.kind, LE_OBJECT_KIND_SHAPE);
+    EXPECT_EQ(shape_ref.index, route_shape_id.index);
+
+    const LeObjectRef parent_ref = le_object_parent(handle, shape_ref);
+    EXPECT_EQ(parent_ref.kind, LE_OBJECT_KIND_ROUTE);
+    EXPECT_EQ(parent_ref.index, route_id.index);
+
+    le_mouse_down(handle, 40, 60); // dbu (8000,8000) = (8,8) um - inside the placement's own bbox only
+    le_mouse_up(handle, 40, 60);
+    ASSERT_EQ(le_selection_count(handle), 1); // no shift held - replaces the previous selection
+    EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_PLACEMENT);
+}
+
+TEST_F(ApiFixture, MouseClickInLayoutViewSelectsAPhysicalPortOwnShape)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0); // establishes the Technology
+
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+
+    const LePhysicalPortId port_id = le_create_physical_port(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "PIN1", nullptr, nullptr, nullptr, nullptr, /*has_location=*/0, 0.0, 0.0, nullptr);
+    ASSERT_NE(port_id.index, UINT32_MAX);
+    const LePhysicalPortSegmentId segment_id = le_create_physical_port_segment(handle, port_id, nullptr, /*has_location=*/0, 0.0, 0.0, nullptr);
+    ASSERT_NE(segment_id.index, UINT32_MAX);
+
+    const double port_rect_um[4] = {2.0, 2.0, 4.0, 4.0};
+    const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
+    ASSERT_NE(m1_layer.index, UINT32_MAX);
+    const LeShapeId port_shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, segment_id, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, port_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(port_shape_id.index, UINT32_MAX);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+
+    le_set_viewport_size(handle, 100, 100);
+    le_zoom(handle, 0.005 - 1.0, 0, 100);
+
+    le_mouse_down(handle, 15, 85); // dbu (3000,3000) = (3,3) um - inside the port's own 2,2-4,4 shape
+    le_mouse_up(handle, 15, 85);
+    ASSERT_EQ(le_selection_count(handle), 1);
+
+    const LeObjectRef shape_ref = le_selected_object_ref(handle, 0);
+    EXPECT_EQ(shape_ref.kind, LE_OBJECT_KIND_SHAPE);
+    EXPECT_EQ(shape_ref.index, port_shape_id.index);
+
+    // Shape.physical_port_segment -> PhysicalPortSegment.physical_port -
+    // two hops, same as Terminal-port's own Shape->TerminalPort->Terminal
+    // chain (object_ref_parent, api.cpp).
+    const LeObjectRef segment_ref = le_object_parent(handle, shape_ref);
+    EXPECT_EQ(segment_ref.kind, LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT);
+    EXPECT_EQ(segment_ref.index, segment_id.index);
+
+    const LeObjectRef port_ref = le_object_parent(handle, segment_ref);
+    EXPECT_EQ(port_ref.kind, LE_OBJECT_KIND_PHYSICAL_PORT);
+    EXPECT_EQ(port_ref.index, port_id.index);
+}
+
+TEST_F(ApiFixture, SelectObjectRefWithRouteKindSelectsEveryPieceOfEveryChildShape)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+
+    const LeRouteId route_id = le_create_route(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", 0, 0, 0.0, 0, 0.0, nullptr);
+    ASSERT_NE(route_id.index, UINT32_MAX);
+    const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
+    const double rect_a_um[4] = {0.0, 0.0, 1.0, 1.0};
+    const LeShapeId shape_a = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, route_id, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_a_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(shape_a.index, UINT32_MAX);
+    const double rect_b_um[4] = {2.0, 2.0, 3.0, 3.0};
+    const LeShapeId shape_b = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, route_id, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_b_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(shape_b.index, UINT32_MAX);
+
+    const LeObjectRef route_ref = LeObjectRef{.kind = LE_OBJECT_KIND_ROUTE, .index = route_id.index, .generation = route_id.generation};
+    EXPECT_EQ(le_select_object_ref(handle, route_ref), 0);
+    ASSERT_EQ(le_selection_count(handle), 2); // one rect piece from each of shape_a/shape_b
+
+    bool found_a = false, found_b = false;
+    for (int32_t i = 0; i < le_selection_count(handle); ++i)
+    {
+        const LeObjectRef ref = le_selected_object_ref(handle, i);
+        EXPECT_EQ(ref.kind, LE_OBJECT_KIND_SHAPE);
+        found_a |= ref.index == shape_a.index;
+        found_b |= ref.index == shape_b.index;
+    }
+    EXPECT_TRUE(found_a);
+    EXPECT_TRUE(found_b);
+}
+
+TEST_F(ApiFixture, SelectObjectRefWithRouteKindFailsForAnUnknownId)
+{
+    const LeObjectRef bad_ref{.kind = LE_OBJECT_KIND_ROUTE, .index = UINT32_MAX, .generation = 0};
+    EXPECT_NE(le_select_object_ref(handle, bad_ref), 0);
+    EXPECT_EQ(le_selection_count(handle), 0);
+}
+
+// Reported bug: a Route on a hidden ViewLayer (visibility off) was still
+// click-selectable, since hit_test_layout_point's own is_selectable
+// predicate (select_in_layout_view_unlocked, api.cpp) used to check only
+// is_view_layer_selectable, never is_view_layer_visible - the same gap
+// fixed for the Abstract view above
+// (MouseClickDoesNotSelectATerminalOnAHiddenLayer).
+TEST_F(ApiFixture, MouseClickInLayoutViewDoesNotSelectARouteOnAHiddenLayer)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+
+    const LeRouteId route_id = le_create_route(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", 0, 0, 0.0, 0, 0.0, nullptr);
+    ASSERT_NE(route_id.index, UINT32_MAX);
+    const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
+    ASSERT_NE(m1_layer.index, UINT32_MAX);
+    const double route_rect_um[4] = {0.0, 0.0, 6.0, 6.0};
+    const LeShapeId route_shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, route_id, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(route_shape_id.index, UINT32_MAX);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_viewport_size(handle, 100, 100);
+    le_zoom(handle, 0.005 - 1.0, 0, 100); // see MouseClickInLayoutViewPrefersARouteOwnShape...'s own scale/pan derivation
+    le_set_layer_name_visible(handle, "M1", false);
+
+    le_mouse_down(handle, 15, 85); // dbu (3000,3000) = (3,3) um - inside the route shape, but M1 is hidden
+    le_mouse_up(handle, 15, 85);
+
+    EXPECT_EQ(le_selection_count(handle), 0);
+}
+
+TEST_F(ApiFixture, SelectObjectRefWithPhysicalPortKindSelectsEveryPieceOfEverySegmentShape)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+
+    const LePhysicalPortId port_id = le_create_physical_port(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "PIN1", nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0.0, nullptr);
+    ASSERT_NE(port_id.index, UINT32_MAX);
+    const LePhysicalPortSegmentId segment_id = le_create_physical_port_segment(handle, port_id, nullptr, 0, 0.0, 0.0, nullptr);
+    ASSERT_NE(segment_id.index, UINT32_MAX);
+    const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
+    const double rect_um[4] = {2.0, 2.0, 4.0, 4.0};
+    const LeShapeId shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, segment_id, LeBlockageId{.index = UINT32_MAX, .generation = 0}, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(shape_id.index, UINT32_MAX);
+
+    const LeObjectRef port_ref = LeObjectRef{.kind = LE_OBJECT_KIND_PHYSICAL_PORT, .index = port_id.index, .generation = port_id.generation};
+    EXPECT_EQ(le_select_object_ref(handle, port_ref), 0);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_SHAPE);
+    EXPECT_EQ(le_selected_object_ref(handle, 0).index, shape_id.index);
+}
+
 TEST_F(ApiFixture, MouseClickInLayoutViewSelectsARowWithNoBackingShape)
 {
     // Same Layout-view own-shape hit-testing gap as
@@ -2317,6 +2509,26 @@ TEST_F(ApiFixture, MouseMoveOverAnUnselectableLayerNeverShowsAHoverOutline)
     EXPECT_FALSE(region_has_yellow_hover_pixel(buffer, 18, 48, 22, 52));
 }
 
+// A hidden ViewLayer (visibility off) must not be hover-highlightable
+// either, even though it's still marked selectable=true (the default) -
+// same gap as the click-select fix above, sharing the exact same
+// is_selectable predicate (le_set_mouse_position, api.cpp).
+TEST_F(ApiFixture, MouseMoveOverAHiddenLayerNeverShowsAHoverOutline)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+
+    le_set_viewport_size(handle, 100, 100);
+    le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
+    le_set_layer_name_visible(handle, "M1", false);
+
+    le_set_mouse_position(handle, 50, 50); // over the pin, but M1 is hidden
+
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_FALSE(region_has_yellow_hover_pixel(buffer, 18, 48, 22, 52));
+}
+
 TEST_F(ApiFixture, KeyDownThenIsKeyHeldReturnsTrue)
 {
     EXPECT_EQ(le_is_key_held(handle, LE_KEY_SHIFT), 0);
@@ -2575,6 +2787,27 @@ TEST_F(ApiFixture, MouseDownThenUpAsAClickSelectsTheHitShape)
 
     EXPECT_EQ(le_selection_count(handle), 1);
 }
+
+// A hidden ViewLayer (visibility off) must not be click-selectable even
+// though it's still marked selectable=true (the default) - "selectable"
+// means "eligible to be selected when visible", not "selectable
+// regardless of visibility". hit_test_abstract_point's own
+// is_selectable predicate (select_in_abstract_view_unlocked, api.cpp)
+// used to check only is_view_layer_selectable, never
+// is_view_layer_visible - the same gap select_all_unlocked's own
+// three-condition check never had, and hover (le_set_mouse_position)
+// shared it too (see that test below).
+TEST_F(ApiFixture, MouseClickDoesNotSelectATerminalOnAHiddenLayer)
+{
+    load_two_shapes_at_known_scale(handle);
+    le_set_layer_name_visible(handle, "M1", false);
+
+    le_mouse_down(handle, 25, 175); // PIN A's own device-space center
+    le_mouse_up(handle, 25, 175);
+
+    EXPECT_EQ(le_selection_count(handle), 0);
+}
+
 
 TEST_F(ApiFixture, SelectionVersionBumpsOnlyOnAnActualSelectionChange)
 {

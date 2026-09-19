@@ -344,4 +344,124 @@ namespace le
 
         return result;
     }
+
+    /// @brief Layout-view analog of hit_test_abstract_point above - same
+    /// re-hit-test-against-raw-ShapeData design (a Route/PhysicalPort
+    /// piece a caller selects/moves must be addressable in `Root` by
+    /// `(shape_id, piece_kind, piece_index)`, not through the pipeline's
+    /// own cached RenderShape output, which deliberately drops shape_id -
+    /// see render_shape.hpp's own doc comment), reusing the same
+    /// AbstractHitPiece return type (its fields were never Abstract-
+    /// specific - shape_id/piece_kind/piece_index/outline apply equally
+    /// to a Route's or PhysicalPort's own Shape).
+    ///
+    /// Scope: only Route and PhysicalPort own-shapes, matching Terminal/
+    /// Obstruction's own two-owner-kind scope in the Abstract view above.
+    /// Blockage/Row/Region own-shape hit-testing remains a separate,
+    /// still-deferred gap (see select_in_layout_view_unlocked's own
+    /// comment, api.cpp) - Row/Region in particular have no backing
+    /// Shape at all (synthesized geometry only), so they'd need their
+    /// own bare-id hit-test, not an extension of this function.
+    ///
+    /// A PhysicalPortSegment's own Shape always carries a real Shape.layer
+    /// (DEF PIN geometry), so ViewLayerPurpose::TERMINAL here is always
+    /// used as the real per-Layer row's own fallback purpose, exactly
+    /// matching how HierarchyResolverStage::collect_layout_content
+    /// resolves the same shapes for rendering (resolve_view_layer,
+    /// hierarchy_resolver_stage.hpp) - a PhysicalPort's own selectability
+    /// therefore already rides the same TERMINAL-purpose gating a
+    /// Terminal has, not a separate PHYSICAL_PORT purpose (there isn't
+    /// one - view_style.hpp's own ViewLayerPurpose enum).
+    inline std::optional<AbstractHitPiece> hit_test_layout_point(
+        const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, Point dbu_point,
+        double scale, const ViewLayerSelectablePredicate &is_selectable)
+    {
+        std::unordered_map<ViewLayerId, std::vector<ShapeId>> by_layer;
+
+        for (RouteId route_id : root.get_layout_routes(layout_id))
+            for (ShapeId shape_id : root.get_route_shapes(route_id))
+            {
+                const Shape *shape = root.get_shape(shape_id);
+                if (!shape || !shape->layer.valid())
+                    continue;
+                by_layer[view_layers.find(shape->layer, ViewLayerPurpose::ROUTE)].push_back(shape_id);
+            }
+
+        for (PhysicalPortId port_id : root.get_layout_physical_ports(layout_id))
+            for (PhysicalPortSegmentId segment_id : root.get_physical_port_segments(port_id))
+                for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
+                {
+                    const Shape *shape = root.get_shape(shape_id);
+                    if (!shape || !shape->layer.valid())
+                        continue;
+                    by_layer[view_layers.find(shape->layer, ViewLayerPurpose::TERMINAL)].push_back(shape_id);
+                }
+
+        const std::vector<ViewLayerId> order = view_layers.all();
+        for (auto layer_it = order.rbegin(); layer_it != order.rend(); ++layer_it)
+        {
+            const auto group_it = by_layer.find(*layer_it);
+            if (group_it == by_layer.end())
+                continue;
+
+            const ViewLayerData *data = view_layers.get(*layer_it);
+            if (data && !is_selectable(data->layer_name, data->purpose))
+                continue;
+
+            for (ShapeId shape_id : group_it->second)
+            {
+                const Shape *shape = root.get_shape(shape_id);
+                if (!shape)
+                    continue;
+                if (auto piece = Geometry::find_hit_piece(*shape, dbu_point))
+                {
+                    if (abstract_piece_is_sub_pixel(piece->outline, scale))
+                        continue; // invisible at this scale - not rendered, so not selectable either
+                    return AbstractHitPiece{.shape_id = shape_id, .piece_kind = piece->kind, .piece_index = piece->index, .outline = piece->outline};
+                }
+            }
+        }
+        return std::nullopt;
+    }
+
+    /// @brief Rubber-band counterpart to hit_test_layout_point above -
+    /// every Route/PhysicalPort piece fully enclosed by `dbu_rect`,
+    /// scanning every selectable ViewLayer, in no particular order - see
+    /// hit_test_abstract_rect's own comment for the shared semantics.
+    inline std::vector<AbstractHitPiece> hit_test_layout_rect(
+        const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, Rect dbu_rect,
+        double scale, const ViewLayerSelectablePredicate &is_selectable)
+    {
+        std::vector<AbstractHitPiece> result;
+
+        auto collect = [&](ShapeId shape_id, ViewLayerPurpose purpose)
+        {
+            const Shape *shape = root.get_shape(shape_id);
+            if (!shape || !shape->layer.valid())
+                return;
+
+            const ViewLayerId view_layer = view_layers.find(shape->layer, purpose);
+            const ViewLayerData *data = view_layers.get(view_layer);
+            if (data && !is_selectable(data->layer_name, data->purpose))
+                return;
+
+            for (const HitPiece &piece : Geometry::fully_enclosed_pieces(dbu_rect, *shape))
+            {
+                if (abstract_piece_is_sub_pixel(piece.outline, scale))
+                    continue; // invisible at this scale - not rendered, so not selectable either
+                result.push_back(AbstractHitPiece{.shape_id = shape_id, .piece_kind = piece.kind, .piece_index = piece.index, .outline = piece.outline});
+            }
+        };
+
+        for (RouteId route_id : root.get_layout_routes(layout_id))
+            for (ShapeId shape_id : root.get_route_shapes(route_id))
+                collect(shape_id, ViewLayerPurpose::ROUTE);
+
+        for (PhysicalPortId port_id : root.get_layout_physical_ports(layout_id))
+            for (PhysicalPortSegmentId segment_id : root.get_physical_port_segments(port_id))
+                for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
+                    collect(shape_id, ViewLayerPurpose::TERMINAL);
+
+        return result;
+    }
 }
