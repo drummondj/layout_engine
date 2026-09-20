@@ -1354,6 +1354,23 @@ extern "C"
     /// handle is null, ref doesn't resolve, or index is out of range.
     LeProperty le_object_property_at(LeHandle *handle, LeObjectRef ref, int32_t index);
 
+    /// @brief Whether le_object_property_count/_at would hit their own
+    /// fast, shared-lock-only path for `ref` right now (le_handle.hpp's
+    /// own cached_object_property_ref already matches it), rather than
+    /// needing to escalate to a write lock to rebuild - always
+    /// shared_lock-only itself, so safe to call unconditionally even
+    /// while a render is in progress (never blocks behind one - same
+    /// reasoning as le_render_pixel_buffer itself, le_handle.hpp's own
+    /// mutex_ doc comment). Meant for a caller (property_viewer.cpp) that
+    /// wants to know, before actually calling le_object_property_count/_at,
+    /// whether doing so right now risks blocking behind an in-progress
+    /// render - so it only needs to degrade (skip for a frame) in the one
+    /// case that actually needs it (the cache genuinely going stale, e.g.
+    /// a fresh selection), not every frame a render merely happens to be
+    /// in flight regardless of whether `ref` is already cached. Returns 0
+    /// if handle is null.
+    int32_t le_object_property_cache_current(LeHandle *handle, LeObjectRef ref);
+
     /// @brief `ref`'s immediate parent in the database hierarchy (Shape's
     /// own terminal_port/obstruction field, TerminalPort's terminal,
     /// Terminal/Obstruction's abstract, Abstract's design, Design's
@@ -1423,16 +1440,49 @@ extern "C"
     /// handle right now, on whatever thread called it (BUGS_AND_ENHANCEMENTS.md
     /// E17 - a status-bar spinner also driven by interactive zoom/pan, not
     /// just a running Tcl command like the existing one). Meant to be
-    /// polled (e.g. every ~50ms) from a different thread than the one
-    /// calling le_render_pixel_buffer() itself - deliberately does NOT
-    /// take the same lock le_render_pixel_buffer() holds for its own
-    /// entire duration, so this never blocks behind the very render it's
-    /// reporting on. Most renders are well under a millisecond (see
-    /// le_render_pixel_buffer's own comment) and will never be observed
-    /// as "rendering" by a poll at that interval - this only matters for
-    /// the rare case a real, dense design takes long enough to notice.
-    /// Returns 0 (not rendering) if handle is null.
+    /// polled from a different thread than the one calling
+    /// le_render_pixel_buffer() itself - deliberately does NOT take the
+    /// same lock le_render_pixel_buffer() holds for its own entire
+    /// duration, so this never blocks behind the very render it's
+    /// reporting on. Set true only around the pipeline's own actual
+    /// recompute (ViewRenderPipeline::would_recompute() returning true),
+    /// not for the whole le_render_pixel_buffer() call - a call that
+    /// finds nothing changed (the common case) never sets this at all,
+    /// so a poller sees an accurate, precisely-timed signal rather than
+    /// one that fires for cheap no-op calls too. Returns 0 (not
+    /// rendering) if handle is null.
     int32_t le_is_rendering(LeHandle *handle);
+
+    /// @brief Blocks the calling thread until a mutation has been made to
+    /// this handle (any call that takes HandleWriteLock, le_handle.hpp -
+    /// every le_create_X/le_update_X/le_delete_X/le_set_*/le_mouse_*/
+    /// le_key_*/le_read_*/... call) since the last time this returned, or
+    /// until le_cancel_render_wait() is called - whichever comes first.
+    /// The intended caller is a single dedicated render thread
+    /// (le_gui.cpp's render_thread_loop): call this, then call
+    /// le_render_pixel_buffer() once and publish whatever it returns,
+    /// then call this again - an event-driven replacement for a
+    /// fixed-interval sleep/poll loop, so the thread costs nothing while
+    /// idle and never depends on tuning a sleep interval to some
+    /// machine's own load. Several mutations that land while this thread
+    /// is still busy on a previous render coalesce into exactly one more
+    /// wait/render cycle afterward - see LeHandle::render_needed_'s own
+    /// doc comment for why nothing is lost or duplicated. A no-op that
+    /// returns immediately if handle is null.
+    void le_wait_for_render_needed(LeHandle *handle);
+
+    /// @brief Wakes any thread currently blocked in
+    /// le_wait_for_render_needed() on this handle, with no real mutation
+    /// having happened - purely so that thread can re-check its own
+    /// "should I stop" condition and exit cleanly (le_gui.cpp's own
+    /// window-teardown path: set its stop flag, then call this, then
+    /// join the thread) rather than staying blocked forever waiting for
+    /// a mutation that may never come. Safe to call even if no thread is
+    /// currently waiting (the next le_wait_for_render_needed() call would
+    /// simply return immediately instead of blocking - LeHandle::
+    /// render_needed_ is a level, not a one-shot edge). A no-op if handle
+    /// is null.
+    void le_cancel_render_wait(LeHandle *handle);
 
     /// @brief Signals that a window showing this handle's own rendered
     /// content should be opened - the backing for the Tcl `show_gui`

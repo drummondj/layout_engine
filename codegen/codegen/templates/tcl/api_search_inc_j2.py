@@ -18,7 +18,12 @@ int32_t le_get_{{klass.tcl_plural_snake_case()}}(LeHandle *handle{% for op in sc
 {
     if (!handle)
         return 0;
-    std::lock_guard<std::mutex> lock(handle->mutex_);
+    // Unique (writer), not shared - this unconditionally rewrites the
+    // shared handle->{{klass.to_snake_case()}}_search_results cache below on every call (a
+    // fresh query, by design - unlike a lazily-rebuilt-only-when-stale
+    // cache, there's no "already current" fast path to check under a
+    // shared_lock first). See le_handle.hpp's own mutex_ doc comment.
+    HandleWriteLock lock(handle);
 
     bool ok = true;
     auto expr = parse_and_validate_filter(handle, "le_get_{{klass.tcl_plural_snake_case()}}", "{{klass.name}}", filter_expression, ok);
@@ -49,7 +54,10 @@ Le{{klass.name}}Id le_search_result_{{klass.to_snake_case()}}_at(LeHandle *handl
     const Le{{klass.name}}Id invalid{.index = UINT32_MAX, .generation = 0};
     if (!handle || index < 0)
         return invalid;
-    std::lock_guard<std::mutex> lock(handle->mutex_);
+    // Shared (reader) - a pure read of the cache le_get_{{klass.tcl_plural_snake_case()}} (above) just
+    // populated; le_get_{{klass.tcl_plural_snake_case()}}'s own unique_lock already excludes any
+    // concurrent writer here. See le_handle.hpp's own mutex_ doc comment.
+    std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
     if (static_cast<size_t>(index) >= handle->{{klass.to_snake_case()}}_search_results.size())
         return invalid;

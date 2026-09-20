@@ -96,6 +96,26 @@ namespace
         rebuild_view_layers(handle, handle->current_technology_id);
     }
 
+    // The read-only half of ensure_view_layers_current's own staleness
+    // check, split out so le_layer_count/_at/le_purpose_count/_at (below)
+    // can use a double-checked locking pattern: check this under a
+    // shared_lock first (the common case - view_layers only ever goes
+    // stale right after a real edit, not during a steady render), and
+    // only escalate to a unique_lock (needed for the rebuild itself,
+    // which mutates handle->view_layers/view_layers_built_at_version) if
+    // it's actually stale. Without this split, those four accessors would
+    // need a unique_lock unconditionally - safe, but exactly the kind of
+    // "looks read-only, secretly writes" hazard that would otherwise
+    // force them to block behind an in-progress render for its entire
+    // duration (le_handle.hpp's own mutex_ doc comment) the same way
+    // every other read already would without this file's own shared_lock
+    // work.
+    bool view_layers_already_current(const LeHandle *handle)
+    {
+        return !handle->current_technology_id.valid() ||
+               handle->view_layers_built_at_version == handle->root.mutation_version();
+    }
+
     // Builds a ViewRenderOptions snapshot of `handle`'s own current
     // root/view state, for le_render_pixel_buffer's own
     // view_render_pipeline.run() call. LeHandle's own pan/scale/viewport-size convention
@@ -1222,7 +1242,7 @@ extern "C"
     {
         if (!handle)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         if (!path)
         {
@@ -1299,7 +1319,7 @@ extern "C"
     {
         if (!handle)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         if (!path)
         {
@@ -1333,7 +1353,7 @@ extern "C"
     {
         if (!handle)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         if (!filenames || filename_count <= 0)
         {
@@ -1405,7 +1425,7 @@ extern "C"
     {
         if (!handle)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         if (!path)
         {
@@ -1446,7 +1466,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         const size_t resolved = le::SVReader::link_unresolved_instances(handle->root);
 
         // Physical-side linking (Placement/Route/PhysicalPort <-> sibling
@@ -1483,7 +1503,7 @@ extern "C"
     {
         if (!handle)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::NetId net_id = from_c(id);
         const le::NetData *existing_net = handle->root.get_net(net_id);
@@ -1622,7 +1642,7 @@ extern "C"
             spdlog::error("update_net: -name may not be empty");
             return 1;
         }
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::NetId net_id = from_c(id);
         const le::NetData *existing_net = handle->root.get_net(net_id);
@@ -1708,7 +1728,7 @@ extern "C"
             spdlog::error("update_instance: -name may not be empty");
             return 1;
         }
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::InstanceId instance_id = from_c(id);
         const le::InstanceData *existing = handle->root.get_instance(instance_id);
@@ -1765,7 +1785,7 @@ extern "C"
     {
         if (!handle)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         if (!path)
         {
@@ -1835,7 +1855,7 @@ extern "C"
     {
         if (!handle)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         if (!path)
         {
@@ -1866,7 +1886,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         return static_cast<int32_t>(handle->root.get_design_size());
     }
 
@@ -1874,7 +1894,7 @@ extern "C"
     {
         if (!handle || index < 0)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const auto design_ids = handle->root.get_design_ids();
         if (static_cast<size_t>(index) >= design_ids.size())
@@ -1888,7 +1908,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         return handle->last_property_path_failed ? 1 : 0;
     }
 
@@ -1896,7 +1916,7 @@ extern "C"
     {
         if (!handle || index < 0)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const auto design_ids = handle->root.get_design_ids();
         if (static_cast<size_t>(index) >= design_ids.size())
@@ -1931,7 +1951,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return static_cast<int32_t>(handle->root.get_library_size());
     }
 
@@ -1940,7 +1960,7 @@ extern "C"
         const LeLibraryInfo invalid{.id = {UINT32_MAX, 0}, .name = nullptr};
         if (!handle || index < 0)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const auto library_ids = handle->root.get_library_ids();
         if (static_cast<size_t>(index) >= library_ids.size())
@@ -1955,7 +1975,7 @@ extern "C"
     {
         if (!handle || library_index < 0)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const auto library_ids = handle->root.get_library_ids();
         if (static_cast<size_t>(library_index) >= library_ids.size())
@@ -1969,7 +1989,7 @@ extern "C"
         const LeDesignInfo invalid{.library_id = {UINT32_MAX, 0}, .id = {UINT32_MAX, 0}, .abstract_id = {UINT32_MAX, 0}, .layout_id = {UINT32_MAX, 0}, .name = nullptr};
         if (!handle || library_index < 0 || design_index < 0)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const auto library_ids = handle->root.get_library_ids();
         if (static_cast<size_t>(library_index) >= library_ids.size())
@@ -2000,7 +2020,7 @@ extern "C"
         const LeTechnologyId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const auto technology_ids = handle->root.get_technology_ids();
         if (technology_ids.empty())
@@ -2012,7 +2032,7 @@ extern "C"
     {
         if (!handle)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::DesignId id = from_c(design_id);
         if (!handle->root.get_design(id))
@@ -2032,7 +2052,7 @@ extern "C"
     {
         if (!handle || index < 0)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const auto design_ids = handle->root.get_design_ids();
         if (static_cast<size_t>(index) >= design_ids.size())
@@ -2059,7 +2079,7 @@ extern "C"
     {
         if (!handle)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::DesignId id = from_c(design_id);
         if (!handle->root.get_design(id))
@@ -2078,7 +2098,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return static_cast<int32_t>(handle->hierarchy_depth());
     }
 
@@ -2086,7 +2106,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->set_hierarchy_depth(depth);
     }
 
@@ -2094,7 +2114,13 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        // Double-checked - see view_layers_already_current's own comment.
+        {
+            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
+            if (view_layers_already_current(handle))
+                return static_cast<int32_t>(handle->view_layers.rows().size());
+        }
+        HandleWriteLock write_lock(handle);
         ensure_view_layers_current(handle);
         return static_cast<int32_t>(handle->view_layers.rows().size());
     }
@@ -2104,30 +2130,50 @@ extern "C"
         const LeLayerRow invalid{.name = nullptr, .color_r = 0, .color_g = 0, .color_b = 0, .has_physical_layer = 0};
         if (!handle || row_index < 0)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
-        ensure_view_layers_current(handle);
 
-        const auto &rows = handle->view_layers.rows();
-        if (static_cast<size_t>(row_index) >= rows.size())
-            return invalid;
-
-        const le::ViewLayerRow &row = rows[static_cast<size_t>(row_index)];
-        const le::ViewLayerData *first_column = row.columns.empty() ? nullptr : handle->view_layers.get(row.columns.front().id);
-
-        return LeLayerRow{
-            .name = row.name.c_str(),
-            .color_r = first_column ? first_column->style.outline_color.r : uint8_t{0},
-            .color_g = first_column ? first_column->style.outline_color.g : uint8_t{0},
-            .color_b = first_column ? first_column->style.outline_color.b : uint8_t{0},
-            .has_physical_layer = (first_column && first_column->layer.valid()) ? 1 : 0,
+        // Shared by both the shared_lock fast path and the unique_lock
+        // slow path below (view_layers_already_current's own comment) -
+        // avoids the awkwardness of unlocking a shared_lock and
+        // re-locking it after a rebuild just to reuse this same
+        // read-only logic; each path just calls this under whichever
+        // lock it's already holding.
+        auto row_at = [&](const le::ViewLayerSet &view_layers) -> LeLayerRow
+        {
+            const auto &rows = view_layers.rows();
+            if (static_cast<size_t>(row_index) >= rows.size())
+                return invalid;
+            const le::ViewLayerRow &row = rows[static_cast<size_t>(row_index)];
+            const le::ViewLayerData *first_column = row.columns.empty() ? nullptr : view_layers.get(row.columns.front().id);
+            return LeLayerRow{
+                .name = row.name.c_str(),
+                .color_r = first_column ? first_column->style.outline_color.r : uint8_t{0},
+                .color_g = first_column ? first_column->style.outline_color.g : uint8_t{0},
+                .color_b = first_column ? first_column->style.outline_color.b : uint8_t{0},
+                .has_physical_layer = (first_column && first_column->layer.valid()) ? 1 : 0,
+            };
         };
+
+        {
+            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
+            if (view_layers_already_current(handle))
+                return row_at(handle->view_layers);
+        }
+        HandleWriteLock write_lock(handle);
+        ensure_view_layers_current(handle);
+        return row_at(handle->view_layers);
     }
 
     int32_t le_purpose_count(LeHandle *handle)
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        // Double-checked - see view_layers_already_current's own comment.
+        {
+            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
+            if (view_layers_already_current(handle))
+                return static_cast<int32_t>(handle->view_layers.purposes().size());
+        }
+        HandleWriteLock write_lock(handle);
         ensure_view_layers_current(handle);
         return static_cast<int32_t>(handle->view_layers.purposes().size());
     }
@@ -2136,21 +2182,31 @@ extern "C"
     {
         if (!handle || index < 0)
             return -1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+
+        // Shared by both lock paths - le_layer_at's own comment above.
+        auto purpose_at = [&](const le::ViewLayerSet &view_layers) -> int32_t
+        {
+            const auto purposes = view_layers.purposes();
+            if (static_cast<size_t>(index) >= purposes.size())
+                return -1;
+            return static_cast<int32_t>(purposes[static_cast<size_t>(index)]);
+        };
+
+        {
+            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
+            if (view_layers_already_current(handle))
+                return purpose_at(handle->view_layers);
+        }
+        HandleWriteLock write_lock(handle);
         ensure_view_layers_current(handle);
-
-        const auto purposes = handle->view_layers.purposes();
-        if (static_cast<size_t>(index) >= purposes.size())
-            return -1;
-
-        return static_cast<int32_t>(purposes[static_cast<size_t>(index)]);
+        return purpose_at(handle->view_layers);
     }
 
     bool le_is_layer_name_visible(LeHandle *handle, const char *layer_name)
     {
         if (!handle || !layer_name)
             return true;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return handle->is_layer_name_visible(layer_name);
     }
 
@@ -2158,7 +2214,7 @@ extern "C"
     {
         if (!handle || !layer_name)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->set_layer_name_visible(layer_name, visible);
     }
 
@@ -2166,7 +2222,7 @@ extern "C"
     {
         if (!handle)
             return false;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         return handle->antialiasing_enabled();
     }
 
@@ -2174,7 +2230,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->set_antialiasing_enabled(enabled);
     }
 
@@ -2182,7 +2238,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         return handle->max_concurrency_;
     }
 
@@ -2190,7 +2246,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         const int32_t clamped = std::max(2, max_concurrency);
         if (clamped == handle->max_concurrency_)
             return;
@@ -2208,7 +2264,7 @@ extern "C"
     {
         if (!handle)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return handle->is_purpose_visible(static_cast<le::ViewLayerPurpose>(purpose)) ? 1 : 0;
     }
 
@@ -2216,7 +2272,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->set_purpose_visible(static_cast<le::ViewLayerPurpose>(purpose), visible != 0);
     }
 
@@ -2224,7 +2280,7 @@ extern "C"
     {
         if (!handle)
             return LE_MODE_SELECT;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return static_cast<int32_t>(handle->mode());
     }
 
@@ -2232,7 +2288,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         if (mode == LE_MODE_RULER)
             handle->reset_ruler_mode();
         else
@@ -2243,7 +2299,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         return static_cast<int32_t>(handle->rulers().size());
     }
 
@@ -2251,7 +2307,7 @@ extern "C"
     {
         if (!handle || ruler_index < 0)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         const auto &rulers = handle->rulers();
         if (static_cast<size_t>(ruler_index) >= rulers.size())
             return 0;
@@ -2263,7 +2319,7 @@ extern "C"
         constexpr LeRulerPoint kInvalid{.x_um = 0.0, .y_um = 0.0};
         if (!handle || ruler_index < 0 || point_index < 0)
             return kInvalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         const auto &rulers = handle->rulers();
         if (static_cast<size_t>(ruler_index) >= rulers.size())
             return kInvalid;
@@ -2281,7 +2337,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->finish_active_ruler();
     }
 
@@ -2289,7 +2345,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->clear_rulers();
     }
 
@@ -2299,7 +2355,7 @@ extern "C"
     {
         if (!handle || !label)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->command_history.begin(label);
     }
 
@@ -2307,7 +2363,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->command_history.end(succeeded != 0);
     }
 
@@ -2315,7 +2371,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         const bool undone = handle->command_history.undo(handle->root);
         if (undone)
             refresh_armed_move_geometry_unlocked(handle);
@@ -2326,7 +2382,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         const bool redone = handle->command_history.redo(handle->root);
         if (redone)
             refresh_armed_move_geometry_unlocked(handle);
@@ -2359,7 +2415,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         select_all_unlocked(handle);
     }
 
@@ -2367,7 +2423,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->clear_selection();
     }
 
@@ -2375,7 +2431,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         arm_move_unlocked(handle);
     }
 
@@ -2383,20 +2439,26 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->end_move();
     }
 
     int32_t le_is_move_armed(LeHandle *handle)
     {
-        return handle && handle->move().armed ? 1 : 0;
+        // Pre-existing gap, fixed here rather than left as-is - see
+        // le_tooltip_message's own comment just above for why (same
+        // "read one field with no lock at all" shape).
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->move().armed ? 1 : 0;
     }
 
     int32_t le_is_layer_name_selectable(LeHandle *handle, const char *layer_name)
     {
         if (!handle || !layer_name)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return handle->is_layer_name_selectable(layer_name) ? 1 : 0;
     }
 
@@ -2404,7 +2466,7 @@ extern "C"
     {
         if (!handle || !layer_name)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->set_layer_name_selectable(layer_name, selectable != 0);
     }
 
@@ -2412,7 +2474,7 @@ extern "C"
     {
         if (!handle)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return handle->is_purpose_selectable(static_cast<le::ViewLayerPurpose>(purpose)) ? 1 : 0;
     }
 
@@ -2420,7 +2482,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->set_purpose_selectable(static_cast<le::ViewLayerPurpose>(purpose), selectable != 0);
     }
 
@@ -2428,7 +2490,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         zoom_unlocked(handle, factor, x, y);
     }
 
@@ -2436,7 +2498,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         pan_unlocked(handle, x_factor, y_factor);
     }
 
@@ -2444,7 +2506,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->set_viewport_size(width_px, height_px);
     }
 
@@ -2452,7 +2514,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         fit_scene_unlocked(handle, padding_px);
     }
 
@@ -2460,7 +2522,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         const double dbu_per_um = display_dbu_per_um(handle->root);
         handle->fit_to_content(le::Rect{.ll = {.x = to_dbu(ll_x_um, dbu_per_um), .y = to_dbu(ll_y_um, dbu_per_um)}, .ur = {.x = to_dbu(ur_x_um, dbu_per_um), .y = to_dbu(ur_y_um, dbu_per_um)}}, padding_px);
     }
@@ -2469,7 +2531,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         return handle->minor_grid_spacing();
     }
 
@@ -2477,7 +2539,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->set_minor_grid_spacing(dbu);
     }
 
@@ -2485,7 +2547,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         return handle->major_grid_spacing();
     }
 
@@ -2493,7 +2555,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->set_major_grid_spacing(dbu);
     }
 
@@ -2501,7 +2563,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         return handle->ruler_label_size_px();
     }
 
@@ -2509,7 +2571,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->set_ruler_label_size_px(px);
     }
 
@@ -2517,7 +2579,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         handle->set_mouse_position(x, y);
 
@@ -2569,7 +2631,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->clear_mouse_position();
         handle->clear_hover();
     }
@@ -2578,7 +2640,7 @@ extern "C"
     {
         if (!handle)
             return LeSnappedMousePosition{.x_um = 0.0, .y_um = 0.0, .has_position = 0};
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const std::optional<le::Point> snapped = handle->snapped_mouse_position();
         if (!snapped)
@@ -2606,7 +2668,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->press_key(key_code);
         const bool ctrl = handle->is_key_held(LE_KEY_CTRL);
         const bool shift = handle->is_key_held(LE_KEY_SHIFT);
@@ -2759,7 +2821,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->release_key(key_code);
         handle->set_ruler_free_form(handle->is_key_held(LE_KEY_SHIFT));
         handle->set_move_free_form(handle->is_key_held(LE_KEY_SHIFT));
@@ -2774,7 +2836,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->clear_all_keys();
     }
 
@@ -2782,7 +2844,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->begin_drag(x, y);
     }
 
@@ -2790,7 +2852,7 @@ extern "C"
     {
         if (!handle)
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         handle->begin_drag(x, y, LeHandle::DragKind::ZOOM);
     }
 
@@ -2935,7 +2997,7 @@ extern "C"
     {
         if (!handle || !handle->is_dragging())
             return;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const int32_t dx = x - handle->drag_start_x_px();
         const int32_t dy = y - handle->drag_start_y_px();
@@ -3009,6 +3071,13 @@ extern "C"
     {
         if (!handle)
             return nullptr;
+        // Pre-existing gap, fixed here rather than left as-is now that
+        // handle->mutex_ actually matters for cross-thread correctness
+        // (le_handle.hpp's own mutex_ doc comment) - this read handle->mode()
+        // with no lock at all before; a shared_lock costs nothing
+        // (mode() is a single enum read) and closes a real, if narrow,
+        // data race against a concurrent le_set_mode.
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         switch (handle->mode())
         {
         case LeHandle::Mode::EDIT:
@@ -3025,7 +3094,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         return static_cast<int32_t>(handle->selection().size());
     }
@@ -3034,7 +3103,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         return static_cast<int64_t>(handle->selection_version());
     }
@@ -3048,8 +3117,30 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
 
+        // Double-checked, same shape as view_layers_already_current's
+        // own callers - "already cached for this exact ref" under a
+        // shared_lock first (the common case, since every real caller
+        // calls le_object_property_count(ref) once and then loops
+        // le_object_property_at(ref, i) immediately after for the same
+        // ref - api_test.cpp/property_viewer.cpp confirmed, no caller
+        // anywhere calls _count twice in a row for the same ref
+        // expecting a forced re-read), only escalating to a unique_lock
+        // to actually rebuild when ref is genuinely different from
+        // what's cached. Previously rebuilt unconditionally on every
+        // call regardless of ref, unlike le_object_property_at's own
+        // same_object_ref check just below - aligned with that existing
+        // behavior here (a strictly narrower cache-hit condition than
+        // "always rebuild", so this can only return calls that were
+        // already stale-free) rather than left needing an unconditional
+        // unique_lock the same "looks read-only, secretly always
+        // writes" way it did before.
+        {
+            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
+            if (same_object_ref(handle->cached_object_property_ref, ref))
+                return static_cast<int32_t>(handle->cached_object_properties.size());
+        }
+        HandleWriteLock write_lock(handle);
         handle->cached_object_properties = build_object_properties(handle->root, ref);
         handle->cached_object_property_ref = ref;
         return static_cast<int32_t>(handle->cached_object_properties.size());
@@ -3060,8 +3151,18 @@ extern "C"
         const LeProperty invalid{.name = nullptr, .type = LE_PROPERTY_TYPE_STRING, .string_value = nullptr, .int_value = 0, .double_value = 0.0};
         if (!handle || index < 0)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
 
+        // Double-checked - le_object_property_count's own comment above.
+        {
+            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
+            if (same_object_ref(handle->cached_object_property_ref, ref))
+            {
+                if (static_cast<size_t>(index) >= handle->cached_object_properties.size())
+                    return invalid;
+                return to_c(handle->cached_object_properties[static_cast<size_t>(index)]);
+            }
+        }
+        HandleWriteLock write_lock(handle);
         if (!same_object_ref(handle->cached_object_property_ref, ref))
         {
             handle->cached_object_properties = build_object_properties(handle->root, ref);
@@ -3074,11 +3175,22 @@ extern "C"
         return to_c(handle->cached_object_properties[static_cast<size_t>(index)]);
     }
 
+    int32_t le_object_property_cache_current(LeHandle *handle, LeObjectRef ref)
+    {
+        if (!handle)
+            return 0;
+        // Always shared_lock, never escalates - le_object_property_count's
+        // own doc comment (api.hpp) explains why this is safe to call
+        // unconditionally, including while a render is in progress.
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return same_object_ref(handle->cached_object_property_ref, ref) ? 1 : 0;
+    }
+
     LeObjectRef le_object_parent(LeHandle *handle, LeObjectRef ref)
     {
         if (!handle)
             return invalid_object_ref();
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         return object_ref_parent(handle->root, ref);
     }
@@ -3087,7 +3199,7 @@ extern "C"
     {
         if (!handle || selection_index < 0)
             return invalid_object_ref();
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const std::vector<LeHandle::SelectedObject> &selection = handle->selection();
         if (static_cast<size_t>(selection_index) >= selection.size())
@@ -3117,7 +3229,7 @@ extern "C"
     {
         if (!handle)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         // Shared by SHAPE/ROUTE/PHYSICAL_PORT below - selects every rect/
         // polygon/path entry of one Shape, since a bare ShapeId can't
@@ -3242,7 +3354,7 @@ extern "C"
         const LeTerminalId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         // handle->current_abstract_id (le_set_current_abstract/
         // le_current_abstract's own generated field), not
@@ -3278,7 +3390,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::TerminalData *terminal = handle->root.get_terminal(from_c(id));
         return terminal ? terminal->name.c_str() : nullptr;
@@ -3289,7 +3401,7 @@ extern "C"
         const LeRowId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         for (const le::RowId id : handle->root.get_layout_rows(handle->current_layout_id))
         {
@@ -3304,7 +3416,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::RowData *row = handle->root.get_row(from_c(id));
         return row ? row->name.c_str() : nullptr;
@@ -3315,7 +3427,7 @@ extern "C"
         const LePlacementId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         for (const le::PlacementId id : handle->root.get_layout_placements(handle->current_layout_id))
         {
@@ -3330,7 +3442,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::PlacementData *placement = handle->root.get_placement(from_c(id));
         return placement ? placement->name.c_str() : nullptr;
@@ -3341,7 +3453,7 @@ extern "C"
         const LePhysicalPortId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         for (const le::PhysicalPortId id : handle->root.get_layout_physical_ports(handle->current_layout_id))
         {
@@ -3356,7 +3468,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::PhysicalPortData *physical_port = handle->root.get_physical_port(from_c(id));
         return physical_port ? physical_port->name.c_str() : nullptr;
@@ -3367,7 +3479,7 @@ extern "C"
         const LeRouteId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         for (const le::RouteId id : handle->root.get_layout_routes(handle->current_layout_id))
         {
@@ -3382,7 +3494,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::RouteData *route = handle->root.get_route(from_c(id));
         return route ? route->name.c_str() : nullptr;
@@ -3393,7 +3505,7 @@ extern "C"
         const LeRegionId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         for (const le::RegionId id : handle->root.get_layout_regions(handle->current_layout_id))
         {
@@ -3408,7 +3520,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::RegionData *region = handle->root.get_region(from_c(id));
         return region ? region->name.c_str() : nullptr;
@@ -3419,7 +3531,7 @@ extern "C"
         const LeLayoutViaId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         for (const le::LayoutViaId id : handle->root.get_layout_vias(handle->current_layout_id))
         {
@@ -3434,7 +3546,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::LayoutViaData *layout_via = handle->root.get_layout_via(from_c(id));
         return layout_via ? layout_via->name.c_str() : nullptr;
@@ -3445,7 +3557,7 @@ extern "C"
         const LePortId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         for (const le::PortId id : handle->root.get_schematic_ports(handle->current_schematic_id))
         {
@@ -3460,7 +3572,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::PortData *port = handle->root.get_port(from_c(id));
         return port ? port->name.c_str() : nullptr;
@@ -3471,7 +3583,7 @@ extern "C"
         const LeNetId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         for (const le::NetId id : handle->root.get_schematic_nets(handle->current_schematic_id))
         {
@@ -3486,7 +3598,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::NetData *net = handle->root.get_net(from_c(id));
         return net ? net->name.c_str() : nullptr;
@@ -3497,7 +3609,7 @@ extern "C"
         const LeInstanceId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         for (const le::InstanceId id : handle->root.get_schematic_instances(handle->current_schematic_id))
         {
@@ -3512,7 +3624,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::InstanceData *instance = handle->root.get_instance(from_c(id));
         return instance ? instance->name.c_str() : nullptr;
@@ -3523,7 +3635,7 @@ extern "C"
         const LePortBusId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         for (const le::PortBusId id : handle->root.get_schematic_port_buses(handle->current_schematic_id))
         {
@@ -3538,7 +3650,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::PortBusData *bus = handle->root.get_port_bus(from_c(id));
         return bus ? bus->name.c_str() : nullptr;
@@ -3549,7 +3661,7 @@ extern "C"
         const LeNetBusId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         for (const le::NetBusId id : handle->root.get_schematic_net_buses(handle->current_schematic_id))
         {
@@ -3564,7 +3676,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::NetBusData *bus = handle->root.get_net_bus(from_c(id));
         return bus ? bus->name.c_str() : nullptr;
@@ -3587,7 +3699,7 @@ extern "C"
     {
         if (!handle || !path)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         bool ok = true;
         auto expr = parse_and_validate_filter(handle, "le_get_instances_by_path", "Instance", filter_expression, ok);
@@ -3621,7 +3733,7 @@ extern "C"
     {
         if (!handle || !path)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         bool ok = true;
         auto expr = parse_and_validate_filter(handle, "le_get_nets_by_path", "Net", filter_expression, ok);
@@ -3655,7 +3767,7 @@ extern "C"
     {
         if (!handle || !path)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         bool ok = true;
         auto expr = parse_and_validate_filter(handle, "le_get_ports_by_path", "Port", filter_expression, ok);
@@ -3688,7 +3800,7 @@ extern "C"
     {
         if (!handle || !filter_expression)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         auto expr = le::parse_filter_expression(filter_expression);
         if (!expr)
@@ -3707,7 +3819,7 @@ extern "C"
     {
         if (!handle || !filter_expression)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         auto expr = le::parse_filter_expression(filter_expression);
         if (!expr)
@@ -3726,7 +3838,7 @@ extern "C"
     {
         if (!handle || !filter_expression)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         auto expr = le::parse_filter_expression(filter_expression);
         if (!expr)
@@ -3745,7 +3857,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         return static_cast<int32_t>(handle->root.get_terminal_port_shapes(from_c(id)).size());
     }
 
@@ -3754,7 +3866,7 @@ extern "C"
         const LeShapeId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || index < 0)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const std::vector<le::ShapeId> &shapes = handle->root.get_terminal_port_shapes(from_c(id));
         if (static_cast<size_t>(index) >= shapes.size())
@@ -3766,7 +3878,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
         return static_cast<int32_t>(handle->root.get_obstruction_shapes(from_c(id)).size());
     }
 
@@ -3775,7 +3887,7 @@ extern "C"
         const LeShapeId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || index < 0)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const std::vector<le::ShapeId> &shapes = handle->root.get_obstruction_shapes(from_c(id));
         if (static_cast<size_t>(index) >= shapes.size())
@@ -3787,7 +3899,7 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape)
@@ -3800,7 +3912,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         return shape ? static_cast<int32_t>(shape->rects.size()) : 0;
@@ -3811,7 +3923,7 @@ extern "C"
         const LeRectUm invalid{.ll_x_um = 0, .ll_y_um = 0, .ur_x_um = 0, .ur_y_um = 0};
         if (!handle || index < 0)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(index) >= shape->rects.size())
@@ -3834,7 +3946,7 @@ extern "C"
     {
         if (!handle || index < 0)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(index) >= shape->rects.size())
@@ -3848,7 +3960,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         return shape ? static_cast<int32_t>(shape->polygons.size()) : 0;
@@ -3858,7 +3970,7 @@ extern "C"
     {
         if (!handle || polygon_index < 0)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(polygon_index) >= shape->polygons.size())
@@ -3871,7 +3983,7 @@ extern "C"
         const LePointUm invalid{.x_um = 0, .y_um = 0};
         if (!handle || polygon_index < 0 || point_index < 0)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(polygon_index) >= shape->polygons.size())
@@ -3892,7 +4004,7 @@ extern "C"
     {
         if (!handle || polygon_index < 0)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(polygon_index) >= shape->polygons.size())
@@ -3906,7 +4018,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         return shape ? static_cast<int32_t>(shape->paths.size()) : 0;
@@ -3916,7 +4028,7 @@ extern "C"
     {
         if (!handle || path_index < 0)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(path_index) >= shape->paths.size())
@@ -3932,7 +4044,7 @@ extern "C"
     {
         if (!handle || path_index < 0)
             return 0;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(path_index) >= shape->paths.size())
@@ -3945,7 +4057,7 @@ extern "C"
         const LePointUm invalid{.x_um = 0, .y_um = 0};
         if (!handle || path_index < 0 || point_index < 0)
             return invalid;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(path_index) >= shape->paths.size())
@@ -3966,7 +4078,7 @@ extern "C"
     {
         if (!handle || path_index < 0)
             return 1;
-        std::lock_guard<std::mutex> lock(handle->mutex_);
+        HandleWriteLock lock(handle);
 
         le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(path_index) >= shape->paths.size())
@@ -3982,20 +4094,16 @@ extern "C"
     {
         if (!handle)
             return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
-        std::lock_guard<std::mutex> lock(handle->mutex_);
-
-        // BUGS_AND_ENHANCEMENTS.md E17 - is_rendering_'s own doc comment
-        // (LeHandle) explains why this is a plain atomic, not mutex_-
-        // guarded. RAII, not a manual reset-before-every-return, so a
-        // future early return (or a real exception, however unlikely
-        // given this codebase's own "no exceptions for expected-missing-
-        // data paths" convention) can't leave this stuck true.
-        handle->is_rendering_.store(true, std::memory_order_relaxed);
-        struct RenderingGuard
-        {
-            LeHandle *handle;
-            ~RenderingGuard() { handle->is_rendering_.store(false, std::memory_order_relaxed); }
-        } rendering_guard{handle};
+        // Shared (reader), not exclusive - confirmed by direct audit:
+        // view_render_options_for takes a `const LeHandle*` (compiler-
+        // enforced no mutation), and view_render_pipeline.run() takes a
+        // `const Root*` and only ever touches handle->view_render_pipeline
+        // itself, which no other exported function references - so a
+        // concurrent reader elsewhere on the handle can't race anything
+        // this call touches. This is exactly what le_gui.cpp's own
+        // per-frame panel reads need to stay live and unblocked while a
+        // render is in flight (le_handle.hpp's own mutex_ doc comment).
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         // A viewport that hasn't been sized yet (le_set_viewport_size
         // never called - LeHandle's own viewport_width_px_/
@@ -4034,6 +4142,35 @@ extern "C"
         // next call" contract (api.hpp) already promises - no separate
         // LeHandle-owned storage needed here.
         const le::ViewRenderOptions options = view_render_options_for(handle);
+
+        // BUGS_AND_ENHANCEMENTS.md E17 - is_rendering_'s own doc comment
+        // (LeHandle) explains why this is a plain atomic, not mutex_-
+        // guarded. Bracketed around only the real recompute (would_recompute()
+        // true), not this whole function - a call that finds nothing
+        // changed (the common case, and now the *only* case whenever
+        // this is called with nothing to do, since le_gui.cpp's render
+        // thread no longer calls this speculatively on a timer - see
+        // le_wait_for_render_needed's own doc comment, api.hpp) never
+        // sets this at all, so a poller sees an accurate, precisely-timed
+        // signal instead of one smeared across cheap no-op calls too.
+        // RAII, not a manual reset-before-every-return, so a future early
+        // return (or a real exception, however unlikely given this
+        // codebase's own "no exceptions for expected-missing-data paths"
+        // convention) can't leave this stuck true.
+        const bool will_recompute = handle->view_render_pipeline.would_recompute(options);
+        if (will_recompute)
+            handle->is_rendering_.store(true, std::memory_order_relaxed);
+        struct RenderingGuard
+        {
+            LeHandle *handle;
+            bool active;
+            ~RenderingGuard()
+            {
+                if (active)
+                    handle->is_rendering_.store(false, std::memory_order_relaxed);
+            }
+        } rendering_guard{handle, will_recompute};
+
         const le::ViewRenderPipeline::WarmOutput output = handle->view_render_pipeline.run(&handle->root, options);
 
         FrameMarkEnd(kRenderFrameName);
@@ -4056,6 +4193,20 @@ extern "C"
         if (!handle)
             return 0;
         return handle->is_rendering_.load(std::memory_order_relaxed) ? 1 : 0;
+    }
+
+    void le_wait_for_render_needed(LeHandle *handle)
+    {
+        if (!handle)
+            return;
+        handle->wait_for_render_needed();
+    }
+
+    void le_cancel_render_wait(LeHandle *handle)
+    {
+        if (!handle)
+            return;
+        handle->notify_render_needed();
     }
 
     void le_request_show_gui(LeHandle *handle)

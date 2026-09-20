@@ -43,6 +43,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -220,6 +221,65 @@ namespace le::gui
             style.ItemSpacing = ImVec2(10, 10);
             style.ItemInnerSpacing = ImVec2(6, 4);
             style.IndentSpacing = 20.0f;
+        }
+
+        // The loading spinner - a horizontal row of 12 rectangle segments
+        // (a segmented loading bar / equalizer look), used while a render
+        // is in flight (open_and_run_window's own main loop, below).
+        // Replaces an earlier design (draw_rotated_glyph, since removed -
+        // see git history) that continuously rotated a single icon-font
+        // glyph via a rotated textured quad: that approach visibly
+        // shimmered/wobbled along the glyph's own thin ring stroke no
+        // matter how it was supersampled, a standard raster-rotation
+        // aliasing artifact. A second design (also since removed - a
+        // circular ring of 12 bars at fixed angles) avoided the rotation
+        // aliasing but looked low-quality at this size (thin radiating
+        // segments read poorly at a small on-screen footprint).
+        //
+        // This design keeps the same "nothing ever rotates, only opacity
+        // cycles" principle (a plain alpha lerp can't alias) but as a
+        // plain horizontal row of axis-aligned rectangles - each simpler
+        // to draw (AddRectFilled, no per-segment trigonometry needed for
+        // its own position/orientation the way the ring's radiating bars
+        // needed) and, at a glance, a more familiar "loading bar" shape.
+        // The "loading" look comes from a highlight that sweeps left to
+        // right across the 12 segments and wraps back to the start.
+        void draw_loading_spinner(ImDrawList *draw_list, ImVec2 center, float time_seconds)
+        {
+            constexpr int kSegmentCount = 12;
+            constexpr float kSegmentWidth = 6.0f;
+            constexpr float kSegmentHeight = 16.0f;
+            constexpr float kSegmentSpacing = 3.0f;
+            constexpr float kCyclesPerSecond = 1.2f;
+            // Never fully transparent even at the tail, so all 12
+            // segments stay individually visible, matching a standard
+            // loading-bar look rather than fading to nothing.
+            constexpr float kMinAlpha = 0.15f;
+
+            const float total_width = kSegmentCount * kSegmentWidth + (kSegmentCount - 1) * kSegmentSpacing;
+            const float start_x = center.x - total_width * 0.5f;
+            const float y0 = center.y - kSegmentHeight * 0.5f;
+            const float y1 = center.y + kSegmentHeight * 0.5f;
+
+            const float lead = std::fmod(time_seconds * kCyclesPerSecond, 1.0f);
+            for (int i = 0; i < kSegmentCount; ++i)
+            {
+                const float segment_fraction = static_cast<float>(i) / static_cast<float>(kSegmentCount);
+
+                // How far *behind* the lead position this segment is,
+                // wrapped into [0, 1) - 0 right at the lead, approaching 1
+                // all the way back around to it (left edge wraps to the
+                // right edge, a continuous sweep rather than a bounce).
+                float behind = segment_fraction - lead;
+                behind -= std::floor(behind);
+                const float brightness = 1.0f - behind;
+                const float alpha = kMinAlpha + (1.0f - kMinAlpha) * brightness * brightness;
+
+                const float x0 = start_x + static_cast<float>(i) * (kSegmentWidth + kSegmentSpacing);
+                const float x1 = x0 + kSegmentWidth;
+                const ImU32 color = IM_COL32(255, 255, 255, static_cast<int>(alpha * 255.0f));
+                draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), color);
+            }
         }
 
         // Every physical key this prototype forwards to the backend,
@@ -415,14 +475,6 @@ namespace le::gui
             return hovered;
         }
 
-        // How often the background render thread re-checks the handle
-        // once it has nothing new to do - le_render_pixel_buffer() is
-        // itself "close to free" when nothing changed (its own doc
-        // comment), so this thread could legally spin with no sleep at
-        // all and still be cheap, but a short sleep avoids needlessly
-        // pinning a whole CPU core at 100% while idle for no benefit.
-        constexpr auto kRenderThreadIdleInterval = std::chrono::milliseconds(33);
-
         // Upper bound (seconds) on how long the main loop's own
         // glfwWaitEventsTimeout() below blocks before redrawing anyway -
         // a real, reported bug: the main loop used to call the
@@ -495,10 +547,26 @@ namespace le::gui
             uint64_t generation = 0;
         };
 
+        // Event-driven, not a fixed-interval poll: le_wait_for_render_needed
+        // (api.hpp) blocks with zero CPU cost until a real mutation has
+        // been made to `handle` since the last time it returned, or until
+        // le_cancel_render_wait wakes it for shutdown (open_and_run_window's
+        // own teardown, below) - replacing a former "call
+        // le_render_pixel_buffer back-to-back forever, sleeping a fixed
+        // interval between calls" loop that burned continuous CPU even at
+        // total idle and depended on tuning that sleep interval to some
+        // machine's own load (a real, reported problem - direct
+        // instrumentation once measured over 6500 calls in 244 seconds at
+        // total idle, almost all of them no-ops). Cause and effect instead
+        // of polling: nothing runs here until something actually changed.
         void render_thread_loop(LeHandle *handle, RenderMailbox &mailbox, std::atomic<bool> &stop)
         {
             while (!stop.load(std::memory_order_relaxed))
             {
+                le_wait_for_render_needed(handle);
+                if (stop.load(std::memory_order_relaxed))
+                    break;
+
                 const LePixelBuffer buffer = le_render_pixel_buffer(handle);
                 if (buffer.data != nullptr && buffer.width > 0 && buffer.height > 0)
                 {
@@ -511,7 +579,6 @@ namespace le::gui
                     mailbox.row_bytes = buffer.row_bytes;
                     ++mailbox.generation;
                 }
-                std::this_thread::sleep_for(kRenderThreadIdleInterval);
             }
         }
 
@@ -812,6 +879,68 @@ namespace le::gui
                 ImGui_ImplGlfw_NewFrame();
                 ImGui::NewFrame();
 
+                // le_is_rendering() is the one handle call safe to make
+                // unconditionally every frame - lock-free/atomic
+                // (le_handle.hpp's own is_rendering_ doc comment).
+                // Checked FIRST, before anything else below touches the
+                // handle this frame, and used *raw* - deliberately not
+                // debounced/delayed in any way - for every gating
+                // decision below: every other le_* function takes
+                // handle->mutex_, the very same mutex a slow render
+                // holds for its own *entire* duration (that same doc
+                // comment), so calling any of them while this reads
+                // true blocks this whole thread until the render
+                // finishes. Every panel below (draw_library_browser/
+                // _property_viewer/_layer_manager/_mode_selector/
+                // _mode_toolbar, forward_mouse_input,
+                // forward_keyboard_input, draw_status_bar,
+                // le_set_viewport_size) makes at least one such call
+                // every frame - a real reported bug, not hypothetical:
+                // without gating every one of them on is_rendering, the
+                // *whole* window froze solid (not just the design view)
+                // for however long a slow render took, including window
+                // drag/resize.
+                //
+                // A *debounced* version of this flag (only trust it
+                // after reading true continuously for some threshold,
+                // to smooth over brief steady-state cache-recheck
+                // blips - CLAUDE.md's own HierarchyResolver bullet:
+                // run_pending()'s own wait_for_all() runs
+                // unconditionally on *every* top-level call, so even a
+                // full cache hit isn't free at scale) was tried and
+                // reverted - a real, confirmed-by-instrumentation bug,
+                // not just a theoretical concern: on the very first
+                // frame after a real slow render starts, the debounced
+                // value is *still* false (the threshold hasn't elapsed
+                // yet), so gating on it let that same frame go ahead
+                // and make a locked call anyway - which then blocked
+                // for the render's entire remaining duration, since the
+                // lock was already held. The loop never got to run
+                // again long enough for the debounce to ever resolve,
+                // so the "busy" UI (and the spinner) never appeared at
+                // all for a genuinely long render - worse than the
+                // flicker it was meant to fix. Whether a call is safe
+                // to make can only ever be judged from the *current*
+                // instant, never a delayed/smoothed view of it -
+                // there's no gap in which it's fine to guess.
+                const bool is_rendering = le_is_rendering(handle) != 0;
+
+                // show_loading_overlay - whether to draw the spinner/
+                // "Loading design..." text. Previously a debounced,
+                // hysteresis-smoothed view of is_rendering, needed back
+                // when render_thread_loop called le_render_pixel_buffer
+                // back-to-back forever on a fixed poll interval - is_rendering
+                // could flip true/false many times a second even at
+                // idle, so showing it raw would have flickered
+                // constantly. Now that render_thread_loop only calls
+                // le_render_pixel_buffer once per real
+                // le_wait_for_render_needed() wake, and is_rendering_ is
+                // itself bracketed precisely around the pipeline's own
+                // real recompute (api.cpp's own le_render_pixel_buffer
+                // comment), a render is already a clean, one-shot
+                // true/false pulse - nothing left to smooth.
+                const bool show_loading_overlay = is_rendering;
+
                 // BUGS_AND_ENHANCEMENTS.md B7 - set once the layout
                 // view's own hover state is known (forward_mouse_input,
                 // below, only runs once the image is actually drawn);
@@ -823,6 +952,20 @@ namespace le::gui
 
                 // Left sidebar - components/library_browser.hpp, the
                 // ImGui port of frontend/lib/components/library_browser.dart.
+                // Called unconditionally, even while is_rendering - every
+                // le_* function it calls (le_library_count/_at/
+                // _design_count/_at) takes only a std::shared_lock now
+                // (le_handle.hpp's own mutex_ doc comment), so it runs
+                // concurrently with an in-progress render instead of
+                // blocking behind it. This panel (like Properties/Layers/
+                // the mode selector+toolbar/status bar below) used to be
+                // skipped outright while rendering, a real, reported
+                // regression in its own right - the user wanted these
+                // panels to never change at all during a render, not show
+                // a placeholder or go blank, which a client-side skip
+                // could never actually deliver alongside "and never
+                // block either" at the same time. Fixed at the actual
+                // source of the conflict instead: handle->mutex_ itself.
                 ImGui::Begin(kBrowserWindowTitle);
                 draw_library_browser(handle);
                 ImGui::End();
@@ -835,6 +978,13 @@ namespace le::gui
                 // properties]) grouping: property_viewer.hpp
                 // (frontend/lib/components/property_viewer.dart) and
                 // layer_manager.hpp (frontend/lib/components/layer_manager.dart).
+                // Called unconditionally - kBrowserWindowTitle's own
+                // comment above. draw_property_viewer's own
+                // object_children helper (property_viewer.cpp) has one
+                // narrow, documented exception (a Design's own children
+                // specifically) still gated on is_rendering internally,
+                // for the one case with no shared-lock-safe accessor to
+                // switch to - see its own comment.
                 ImGui::Begin(kPropertiesWindowTitle);
                 draw_property_viewer(handle);
                 ImGui::End();
@@ -901,6 +1051,9 @@ namespace le::gui
                 // instead of split 8/8 either side. A real reported bug
                 // (asymmetric padding), not cosmetic preference.
                 ImGui::BeginChild("mode_selector_column", ImVec2(kModeSelectorWidth, full_panel_height), ImGuiChildFlags_AlwaysUseWindowPadding);
+                // Called unconditionally - draw_mode_selector's own
+                // le_get_mode call is std::shared_lock now (kBrowserWindowTitle's
+                // own comment further up).
                 draw_mode_selector(handle);
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
@@ -929,6 +1082,9 @@ namespace le::gui
                 // buttons flush against the top edge instead of centered
                 // top/bottom).
                 ImGui::BeginChild("mode_toolbar_row", ImVec2(0.0f, kModeToolbarHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
+                // Called unconditionally - draw_mode_toolbar's own
+                // le_get_mode/le_is_move_armed calls are std::shared_lock
+                // now (kBrowserWindowTitle's own comment further up).
                 draw_mode_toolbar(handle);
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
@@ -985,7 +1141,20 @@ namespace le::gui
                         pending_viewport_change_time = glfwGetTime();
                     }
                     constexpr double kResizeDebounceSeconds = 0.15;
-                    if (is_first_ever_apply || (glfwGetTime() - pending_viewport_change_time) >= kResizeDebounceSeconds)
+                    // !is_rendering - le_set_viewport_size is
+                    // handle->mutex_-locked (see this frame's own
+                    // is_rendering doc comment further up); guaranteed
+                    // false here on the very first-ever apply (the
+                    // render thread hasn't started yet, and nothing
+                    // else on this handle calls le_render_pixel_buffer),
+                    // so this only ever actually defers a *later*
+                    // resize that happens to land while an existing
+                    // render is still in flight - viewport_width/height
+                    // stay != last_viewport_width/height, so this whole
+                    // block is simply retried next frame until the
+                    // render finishes.
+                    if (!is_rendering &&
+                        (is_first_ever_apply || (glfwGetTime() - pending_viewport_change_time) >= kResizeDebounceSeconds))
                     {
                         le_set_viewport_size(handle, viewport_width, viewport_height);
                         last_viewport_width = viewport_width;
@@ -1030,27 +1199,69 @@ namespace le::gui
                     }
                 }
 
+                // is_rendering (E17's own spinner signal, le_is_rendering)
+                // covers the very first, potentially multi-second cold
+                // render just as much as any later one - computed once,
+                // up at the top of this frame (this function's own
+                // is_rendering doc comment there), so both branches
+                // below (and the cursor override further down) agree on
+                // it instead of only the have_content branch ever
+                // noticing it, which was the original reported bug: a
+                // large DEF's own first render gave zero feedback (no
+                // "rendering..." text - that only ever fired once
+                // have_content was already true, which is exactly what
+                // the first cold render hasn't finished yet) and the
+                // static "No design loaded yet" text stayed up the
+                // whole time, actively suggesting nothing was happening.
+                bool over_layout_content = false;
+                // Captured before drawing the Image/Dummy below, not a
+                // fixed (8,8) window-relative offset - this panel can
+                // now sit anywhere within the GLFW window (docking, not
+                // always the top-left corner). Used both for the corner
+                // "rendering..." text (image_screen_pos-relative) and,
+                // further down, to compute the spinner's own fixed
+                // center position - see that block's own comment for why
+                // it no longer follows the mouse.
+                const ImVec2 content_screen_pos = ImGui::GetCursorScreenPos();
+
                 if (have_content)
                 {
-                    // Captured before drawing the Image, not a fixed
-                    // (8,8) window-relative offset - this panel can now
-                    // sit anywhere within the GLFW window (docking, not
-                    // always the top-left corner), and AddText below
-                    // draws in absolute screen coordinates.
-                    const ImVec2 image_screen_pos = ImGui::GetCursorScreenPos();
+                    const ImVec2 &image_screen_pos = content_screen_pos;
                     ImGui::Image(
                         static_cast<ImTextureID>(static_cast<intptr_t>(texture_id)),
                         ImVec2(panel_width, image_win_height));
-                    layout_view_hovered = forward_mouse_input(handle, gesture, scale_x, scale_y);
+                    // forward_mouse_input is handle->mutex_-locked
+                    // (le_set_mouse_position/le_mouse_down/up/...) - see
+                    // this frame's own is_rendering doc comment further
+                    // up. IsItemHovered() alone needs no handle call, so
+                    // hover (and therefore the spinner/hidden-cursor
+                    // block further down) still works correctly while a
+                    // render is in flight, just without forwarding to
+                    // the backend that frame.
+                    if (is_rendering)
+                    {
+                        over_layout_content = ImGui::IsItemHovered();
+                    }
+                    else
+                    {
+                        layout_view_hovered = forward_mouse_input(handle, gesture, scale_x, scale_y);
+                        over_layout_content = layout_view_hovered;
+                    }
 
-                    // A render actually in progress (le_is_rendering, E17's
-                    // own spinner signal) means whatever's currently
-                    // displayed may already be stale and a fresher frame
-                    // is on its way - a lightweight corner overlay rather
-                    // than blocking anything, since the image above is
-                    // already the latest *completed* frame and stays
-                    // interactive/pannable while a new one renders.
-                    if (le_is_rendering(handle))
+                    // A render actually in progress means whatever's
+                    // currently displayed may already be stale and a
+                    // fresher frame is on its way - a lightweight corner
+                    // overlay rather than blocking anything, since the
+                    // image above is already the latest *completed*
+                    // frame and stays interactive/pannable while a new
+                    // one renders. show_loading_overlay (debounced), not
+                    // raw is_rendering - purely cosmetic (AddText, no
+                    // handle call), so it's safe to smooth over brief
+                    // is_rendering blips here even though the same
+                    // smoothing is unsafe for the mouse-forwarding
+                    // choice just above (see show_loading_overlay's own
+                    // declaration comment).
+                    if (show_loading_overlay)
                     {
                         ImGui::GetWindowDrawList()->AddText(
                             ImVec2(image_screen_pos.x + 8, image_screen_pos.y + 8),
@@ -1068,14 +1279,58 @@ namespace le::gui
                         ? image_win_height - ImGui::GetTextLineHeight()
                         : 0.0f;
                     ImGui::Dummy(ImVec2(panel_width, dummy_height));
-                    ImGui::TextUnformatted("No design loaded yet - read_lef/open_design from the console.");
+                    over_layout_content = ImGui::IsItemHovered();
+                    if (show_loading_overlay)
+                        ImGui::TextUnformatted("Loading design - this can take a while for a large one...");
+                    else
+                        ImGui::TextUnformatted("No design loaded yet - read_lef/open_design from the console.");
                 }
 
-                // BUGS_AND_ENHANCEMENTS.md B7 - see forward_keyboard_input's
-                // own doc comment for why io.WantTextInput, not
-                // io.WantCaptureKeyboard, is the right flag here.
-                forward_keyboard_input(handle, layout_view_hovered && !ImGui::GetIO().WantTextInput);
+                // Drawn at a fixed position - the design view's own
+                // center - not at the mouse cursor the way this used to
+                // work (ImGui::GetMousePos(), gated on over_layout_content/
+                // hover). A real reported bug, not a style choice: the
+                // whole point of this spinner is to be the *one* reliable
+                // signal a render is in progress (Browser/Properties/
+                // Layers/status bar deliberately show nothing themselves
+                // now - see kBrowserWindowTitle's own comment further
+                // up), but tying it to mouse hover meant it silently
+                // never appeared whenever the mouse wasn't already over
+                // the design view - e.g. selecting an object then
+                // pressing a keyboard shortcut like fit while the mouse
+                // is still sitting over the Properties panel reading
+                // that object's properties. No mouse-cursor hiding
+                // either, for the same reason - there's no longer a
+                // single "the cursor's position" this icon is replacing.
+                if (show_loading_overlay)
+                {
+                    const ImVec2 center(content_screen_pos.x + panel_width * 0.5f, content_screen_pos.y + image_win_height * 0.5f);
+                    draw_loading_spinner(ImGui::GetForegroundDrawList(), center, static_cast<float>(glfwGetTime()));
+                }
 
+                // !is_rendering - forward_keyboard_input calls
+                // le_key_down/_up/le_clear_all_keys, all
+                // handle->mutex_-locked (see this frame's own
+                // is_rendering doc comment further up); layout_view_hovered
+                // already stays false while is_rendering (the
+                // have_content block above only sets it in the
+                // !is_rendering branch), so skipping the call outright
+                // here (rather than just passing `active=false` through)
+                // avoids it still calling le_clear_all_keys, which is
+                // itself just as locked. Whatever was held down when
+                // rendering started stays "held" from the backend's own
+                // point of view until this resumes running once the
+                // render finishes - BUGS_AND_ENHANCEMENTS.md B7 - see
+                // forward_keyboard_input's own doc comment for why
+                // io.WantTextInput, not io.WantCaptureKeyboard, is the
+                // right flag here.
+                if (!is_rendering)
+                    forward_keyboard_input(handle, layout_view_hovered && !ImGui::GetIO().WantTextInput);
+
+                // Called unconditionally - draw_status_bar's own
+                // le_get_mode/le_tooltip_message/le_snapped_mouse_position/
+                // le_selection_count calls are all std::shared_lock now
+                // (kBrowserWindowTitle's own comment further up).
                 draw_status_bar(handle, panel_width);
 
                 ImGui::EndChild(); // layout_content_column
@@ -1093,6 +1348,16 @@ namespace le::gui
             }
 
             stop_render_thread.store(true, std::memory_order_relaxed);
+            // Wakes the render thread out of its own le_wait_for_render_needed()
+            // block (render_thread_loop's own doc comment) so it notices
+            // stop_render_thread above and exits - without this it would
+            // simply stay parked there forever if no further mutation ever
+            // arrives, since a plain store to a std::atomic<bool> it isn't
+            // waiting on can't itself wake it. A safe no-op if the render
+            // thread was never even started (a window closed within its
+            // very first couple of frames - render_thread's own declaration
+            // comment) or happens to already be awake doing a render.
+            le_cancel_render_wait(handle);
 
             // Tear the window/GL/ImGui resources down *before* waiting
             // for the render thread to actually exit, not after - it

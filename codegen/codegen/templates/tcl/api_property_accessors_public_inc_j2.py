@@ -29,7 +29,9 @@ Le{{klass.name}}Id le_{{klass.to_snake_case()}}_by_{{id_field.name}}(LeHandle *h
     const Le{{klass.name}}Id invalid{.index = UINT32_MAX, .generation = 0};
     if (!handle || !{{id_field.name}})
         return invalid;
-    std::lock_guard<std::mutex> lock(handle->mutex_);
+    // Shared (reader) - a pure Root lookup, mutates nothing. See
+    // le_handle.hpp's own mutex_ doc comment.
+    std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
     return to_c(handle->root.get_{{klass.to_snake_case()}}_by_{{id_field.name}}({{id_field.name}}));
 }
@@ -38,7 +40,8 @@ const char *le_{{klass.to_snake_case()}}_{{id_field.name}}_by_id(LeHandle *handl
 {
     if (!handle)
         return nullptr;
-    std::lock_guard<std::mutex> lock(handle->mutex_);
+    // Shared (reader) - le_{{klass.to_snake_case()}}_by_{{id_field.name}}'s own comment above.
+    std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
     const le::{{klass.name}}Data *data = handle->root.get_{{klass.to_snake_case()}}(from_c(id));
     return data ? data->{{id_field.name}}.c_str() : nullptr;
@@ -52,7 +55,14 @@ int32_t le_{{klass.to_snake_case()}}_property_count(LeHandle *handle, Le{{klass.
 {
     if (!handle)
         return 0;
-    std::lock_guard<std::mutex> lock(handle->mutex_);
+    // Unique (writer) - unconditionally rewrites the cache below on
+    // every call, not just when `id` changes (unlike le_{{klass.to_snake_case()}}_property_at's
+    // own staleness check just below) - not on any per-frame GUI path
+    // today (le_object_property_count/_at, the handle-generic siblings
+    // of these two, are what the GUI actually calls - api.cpp), so left
+    // as a plain unique_lock rather than given the same double-checked
+    // treatment those two got. See le_handle.hpp's own mutex_ doc comment.
+    HandleWriteLock lock(handle);
 
     const le::{{klass.name}}Id typed_id = from_c(id);
     handle->cached_{{klass.to_snake_case()}}_properties = build_{{klass.to_snake_case()}}_properties(handle->root, typed_id);
@@ -65,7 +75,9 @@ LeProperty le_{{klass.to_snake_case()}}_property_at(LeHandle *handle, Le{{klass.
     const LeProperty invalid{.name = nullptr, .type = LE_PROPERTY_TYPE_STRING, .string_value = nullptr, .int_value = 0, .double_value = 0.0};
     if (!handle || index < 0)
         return invalid;
-    std::lock_guard<std::mutex> lock(handle->mutex_);
+    // Unique (writer) - le_{{klass.to_snake_case()}}_property_count's own comment above (this one
+    // only sometimes writes, but not on any per-frame GUI path either).
+    HandleWriteLock lock(handle);
 
     const le::{{klass.name}}Id typed_id = from_c(id);
     if (handle->cached_{{klass.to_snake_case()}}_property_id != typed_id)
@@ -84,7 +96,10 @@ LeProperty le_{{klass.to_snake_case()}}_property_path(LeHandle *handle, Le{{klas
     const LeProperty invalid{.name = nullptr, .type = LE_PROPERTY_TYPE_STRING, .string_value = nullptr, .int_value = 0, .double_value = 0.0};
     if (!handle || !path)
         return invalid;
-    std::lock_guard<std::mutex> lock(handle->mutex_);
+    // Unique (writer) - always writes handle->last_property_path_failed/
+    // cached_property_path_value. See le_handle.hpp's own mutex_ doc
+    // comment.
+    HandleWriteLock lock(handle);
     handle->last_property_path_failed = false;
 
     auto parsed = le::parse_property_path(path);
@@ -134,7 +149,9 @@ int32_t le_{{klass.to_snake_case()}}_{{child_field.name}}_count(LeHandle *handle
 {
     if (!handle)
         return 0;
-    std::lock_guard<std::mutex> lock(handle->mutex_);
+    // Shared (reader) - a pure Root lookup, mutates nothing. See
+    // le_handle.hpp's own mutex_ doc comment.
+    std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
     return static_cast<int32_t>(handle->root.get_{{klass.to_snake_case()}}_{{child_field.name}}(from_c(id)).size());
 }
@@ -144,7 +161,8 @@ Le{{child_field.type}}Id le_{{klass.to_snake_case()}}_{{child_field.name}}_at(Le
     const Le{{child_field.type}}Id invalid{.index = UINT32_MAX, .generation = 0};
     if (!handle || index < 0)
         return invalid;
-    std::lock_guard<std::mutex> lock(handle->mutex_);
+    // Shared (reader) - le_{{klass.to_snake_case()}}_{{child_field.name}}_count's own comment above.
+    std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
     const auto &children = handle->root.get_{{klass.to_snake_case()}}_{{child_field.name}}(from_c(id));
     if (static_cast<size_t>(index) >= children.size())
@@ -161,7 +179,9 @@ Le{{klass.name}}Id le_current_{{klass.to_snake_case()}}(LeHandle *handle)
     const Le{{klass.name}}Id invalid{.index = UINT32_MAX, .generation = 0};
     if (!handle)
         return invalid;
-    std::lock_guard<std::mutex> lock(handle->mutex_);
+    // Shared (reader) - a single id field read, mutates nothing. See
+    // le_handle.hpp's own mutex_ doc comment.
+    std::shared_lock<std::shared_mutex> lock(handle->mutex_);
     return to_c(handle->current_{{klass.to_snake_case()}}_id);
 }
 
@@ -169,7 +189,9 @@ int le_set_current_{{klass.to_snake_case()}}(LeHandle *handle, Le{{klass.name}}I
 {
     if (!handle)
         return 1;
-    std::lock_guard<std::mutex> lock(handle->mutex_);
+    // Unique (writer) - mutates handle->current_{{klass.to_snake_case()}}_id. See
+    // le_handle.hpp's own mutex_ doc comment.
+    HandleWriteLock lock(handle);
     const le::{{klass.name}}Id typed_id = from_c(id);
     if (!handle->root.get_{{klass.to_snake_case()}}(typed_id))
         return 1;

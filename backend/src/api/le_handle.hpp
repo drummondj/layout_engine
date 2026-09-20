@@ -12,12 +12,14 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <limits>
 #include <mutex>
 #include <optional>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -49,15 +51,54 @@
 // api.hpp's plain-C surface.
 //
 // `mutex_` exists because this handle genuinely is called from more than
-// one thread today, not as defensive-but-unnecessary caution: Flutter's
-// external-texture API invokes le_render_pixel_buffer (via
-// LeTexture.copyPixelBuffer()) from its own dedicated raster thread once
-// per frame, while ordinary pointer/FFI calls (le_set_mouse_position,
-// le_mouse_down/up, le_zoom, ...) run on the platform thread - both
-// threads reach the same pipelines/Root/view state. See every exported
-// function's own std::lock_guard for the actual enforcement; see
-// le_destroy's doc comment in api.hpp for the one function that can't be
-// covered by the handle's own mutex.
+// one thread today, not as defensive-but-unnecessary caution: le_gui.cpp's
+// own background render thread invokes le_render_pixel_buffer in a tight
+// loop (a single call can run for seconds to over a minute on a large
+// design - BENCHMARKS.md), while the GUI's own main thread and the Tcl
+// console thread both reach the same pipelines/Root/view state via
+// ordinary pointer/FFI calls (le_set_mouse_position, le_mouse_down/up,
+// le_get_mode, ...) - the same three-thread shape a Flutter frontend's own
+// raster/platform-thread split predates.
+//
+// A std::shared_mutex, not a plain std::mutex - le_render_pixel_buffer
+// itself and every genuinely read-only le_* function (confirmed by
+// direct audit: reads handle->root/view_layers/etc. and mutates nothing
+// reachable by another caller - le_render_pixel_buffer specifically only
+// touches its own private view_render_pipeline, which no other exported
+// function ever references) take a shared (reader) lock via
+// std::shared_lock, so plain UI queries (current mode, hierarchy depth,
+// library/design listing, selection count, mouse position, tooltip) can
+// run concurrently with an in-progress render instead of blocking behind
+// it for however long it takes - this is what le_gui.cpp's own per-frame
+// panel reads rely on to stay live and unblocked during a slow render,
+// replacing an earlier, real bug where every one of those reads had to be
+// skipped outright while rendering (see le_gui.cpp's own git history).
+// Every function that actually *mutates* handle/Root state - every
+// generated le_create_X/le_update_X/le_delete_X, le_set_*, le_mouse_*,
+// le_key_*, le_read_lef/_def/_verilog, le_link_unresolved_instances, ... -
+// still takes a std::unique_lock (exclusive), so a real edit still
+// correctly waits for an in-progress render to finish rather than racing
+// it, exactly as a plain mutex already ensured.
+//
+// A handful of functions look read-only but secretly rebuild a lazily-
+// cached value on the handle (ensure_view_layers_current()'s own
+// view_layers rebuild, used by le_layer_count/_at/le_purpose_count/_at;
+// the single-slot cached_object_properties used by
+// le_object_property_count/_at) - these use a double-checked pattern
+// (check under a shared lock first, only escalate to a brief unique_lock
+// to actually rebuild when the cache is genuinely stale, which only
+// happens right after a real edit, not during a steady render) rather
+// than a blanket unique_lock, so they stay on the fast, concurrent-safe
+// path in the common case - see each one's own comment in api.cpp.
+// generated_tcl/search.inc's own get_<type>/search_result_<type>_at pair
+// is a *third*, different shape of hazard - it unconditionally rewrites a
+// shared per-class search-result cache on every call, by design (a fresh
+// query, not a staleness check), so it can't be made shared-lock-safe the
+// same way; those functions still take a unique_lock deliberately.
+//
+// See every exported function's own std::shared_lock/std::unique_lock for
+// the actual enforcement; see le_destroy's doc comment in api.hpp for the
+// one function that can't be covered by the handle's own mutex.
 struct LeHandle
 {
     le::Root root;
@@ -90,7 +131,7 @@ struct LeHandle
     // wrapper every typed console command goes through) are the two
     // callers that bracket one with begin()/end().
     le::editing::CommandHistory command_history;
-    std::mutex mutex_;
+    std::shared_mutex mutex_;
 
     // BUGS_AND_ENHANCEMENTS.md E17 - whether le_render_pixel_buffer is
     // currently doing real work on this handle, for a caller (a Dart-side
@@ -107,6 +148,79 @@ struct LeHandle
     // exactly the right tool for "one writer under a different lock,
     // arbitrary lock-free readers".
     std::atomic<bool> is_rendering_{false};
+
+    // Replaces le_gui.cpp's own former render_thread_loop, which used to
+    // call le_render_pixel_buffer back-to-back forever on a fixed sleep
+    // interval, re-checking whether anything had actually changed on
+    // every single iteration (confirmed by direct instrumentation to run
+    // thousands of times a minute even at total idle, almost all of them
+    // a no-op - see le_gui.cpp's own git history for the measurement).
+    // That shape had two real problems: it burned a CPU core's worth of
+    // continuous wake-ups for no benefit while idle, and its own fixed
+    // sleep interval was exactly the kind of machine/load-specific tuning
+    // knob this project's own owner has explicitly said not to rely on
+    // (le_gui.cpp's own show_loading_overlay history). This is the
+    // event-driven replacement: a render thread calls
+    // le_wait_for_render_needed(handle) (api.hpp) instead of sleeping,
+    // which blocks with zero CPU cost until render_needed_ is true, then
+    // clears it and returns - "cause and effect" instead of polling.
+    // render_needed_ is a level, not an edge - notify_render_needed() only
+    // ever sets it (never toggles/clears it itself), and a waiter only
+    // ever clears it right before acting on it, under the same
+    // render_needed_mutex_ - so a notify that arrives before anyone is
+    // waiting yet (e.g. the very first le_set_viewport_size call, before
+    // le_gui.cpp has even spawned the render thread) is never lost, and
+    // several notifies arriving while the render thread is still busy on
+    // a previous render coalesce into exactly one more render afterward
+    // (view_render_options_for reads live handle state at call time, not
+    // a queued snapshot, so that one extra render already reflects every
+    // intervening change - nothing further to replay). A plain
+    // std::mutex/std::condition_variable pair, not lock-free like
+    // is_rendering_/gui_show_requested_ above - a real block/wake (not
+    // just a flag a poller happens to notice) needs a condvar to wait on,
+    // not another atomic.
+    std::mutex render_needed_mutex_;
+    std::condition_variable render_needed_cv_;
+    bool render_needed_ = false;
+
+    // Called by HandleWriteLock's destructor (below) - every
+    // std::unique_lock<std::shared_mutex> acquisition on mutex_ is, by
+    // that mutex's own doc comment above, always a real mutation, so
+    // notifying unconditionally on release, from one single mechanical
+    // wrapper type, is what guarantees no future mutating call site can
+    // forget to trigger a re-render the way a hand-picked list of
+    // version-counter bump sites could (root_mutation_version_,
+    // viewport_version_, selection_version_, mouse_version_,
+    // ruler_version_, visibility_version_ are bumped from well over a
+    // dozen separate call sites across this file alone). Over-notifying
+    // for a unique_lock that didn't actually change anything rendering
+    // cares about is harmless - le_wait_for_render_needed's own caller
+    // (render_thread_loop, le_gui.cpp) just calls le_render_pixel_buffer
+    // once, which cheaply no-ops via ViewRenderPipeline::would_recompute()
+    // when nothing relevant changed (view_render_pipeline.hpp's own
+    // run() doc comment). Also called directly by le_cancel_render_wait
+    // (api.cpp) to wake a render thread blocked here with nothing to do,
+    // purely so it can re-check its own stop flag and exit cleanly.
+    void notify_render_needed()
+    {
+        {
+            std::lock_guard<std::mutex> lock(render_needed_mutex_);
+            render_needed_ = true;
+        }
+        render_needed_cv_.notify_one();
+    }
+
+    // Blocks the calling thread (le_gui.cpp's own render thread) until
+    // notify_render_needed() has been called at least once since the
+    // last time this returned. No timeout, no polling - see
+    // render_needed_'s own doc comment above for why a lost-wakeup can't
+    // happen here.
+    void wait_for_render_needed()
+    {
+        std::unique_lock<std::mutex> lock(render_needed_mutex_);
+        render_needed_cv_.wait(lock, [this] { return render_needed_; });
+        render_needed_ = false;
+    }
 
     // BUGS_AND_ENHANCEMENTS.md E10 - process-wide cap on how many threads
     // oneTBB's default arena may use for this handle's pipeline flow
@@ -513,8 +627,25 @@ struct LeHandle
         // invalidate Renderer's (expensive, design-sized) rasterized
         // picture cache; see Renderer::compose_with_overlays for how the
         // mouse overlay stays cheap to redraw independently of it.
+        // Dedups (only bumps mouse_version_ on an actual change) the same
+        // way set_ruler_free_form's own comment describes - le_gui.cpp's
+        // own forward_mouse_input calls this unconditionally every single
+        // GUI frame the mouse merely sits over the layout view, not only
+        // on an actual move (ImGui reports the same MousePos every frame
+        // between real OS pointer events). Without this dedup, a
+        // perfectly still mouse produced a genuine, real mutation every
+        // frame forever - confirmed by direct instrumentation, not
+        // theoretical: on the event-driven render thread (render_thread_loop,
+        // le_gui.cpp) this alone kept it waking and recomputing roughly
+        // every 35-40ms indefinitely, each such recompute only a couple of
+        // milliseconds - far too short for the GUI thread's own polling of
+        // is_rendering() to ever reliably catch, which is exactly what made
+        // a genuinely fast *real* render (e.g. a warm-cache fit) indistinguishable
+        // from this constant background noise and just as invisible.
         void set_mouse_position(int32_t x_px, int32_t y_px)
         {
+            if (has_mouse_position_ && mouse_x_px_ == x_px && mouse_y_px_ == y_px)
+                return;
             mouse_x_px_ = x_px;
             mouse_y_px_ = y_px;
             has_mouse_position_ = true;
@@ -1367,4 +1498,28 @@ struct LeHandle
         // by hand-written code above. Never edit generated_tcl/
         // handle_fields.inc directly - regenerate via the regen-tcl skill.
 #include "generated_tcl/handle_fields.inc"
+};
+
+// Every genuine mutation of a LeHandle goes through exactly this pattern
+// (mutex_'s own doc comment above: a std::unique_lock<std::shared_mutex>
+// is *only* ever taken by a real write) - wrapping that acquisition in
+// this one RAII type, in place of a bare std::unique_lock, is what makes
+// notify_render_needed() (LeHandle's own doc comment above) fire on
+// every mutating call site mechanically, without maintaining a hand-
+// picked list of them. Construct as `HandleWriteLock lock(handle);` -
+// same call-site shape as the std::unique_lock it replaces, so the bulk
+// conversion across api.cpp (and the codegen fork's own generated
+// create/update/delete bodies, schema.py) is a pure find-and-replace.
+class HandleWriteLock
+{
+public:
+    explicit HandleWriteLock(LeHandle *handle) : handle_(handle), lock_(handle->mutex_) {}
+    ~HandleWriteLock() { handle_->notify_render_needed(); }
+
+    HandleWriteLock(const HandleWriteLock &) = delete;
+    HandleWriteLock &operator=(const HandleWriteLock &) = delete;
+
+private:
+    LeHandle *handle_;
+    std::unique_lock<std::shared_mutex> lock_;
 };

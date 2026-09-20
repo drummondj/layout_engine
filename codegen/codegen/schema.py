@@ -784,7 +784,7 @@ class Klass:
                 add(f'    spdlog::error("create_{snake}: {f.name} is required");')
                 add("    return invalid;")
                 add("}")
-        add("std::lock_guard<std::mutex> lock(handle->mutex_);")
+        add("HandleWriteLock lock(handle);  // writer - mutates Root")
 
         if parent_fields:
             add()
@@ -1383,7 +1383,7 @@ class Klass:
 
         add("if (!handle)")
         add("    return 1;")
-        add("std::lock_guard<std::mutex> lock(handle->mutex_);")
+        add("HandleWriteLock lock(handle);  // writer - mutates Root")
         add()
         add(f"const le::{self.name}Id typed_id = from_c(id);")
         add(f"const le::{self.name}Data *existing_{snake} = handle->root.get_{snake}(typed_id);")
@@ -1772,7 +1772,7 @@ class Klass:
 
         add("if (!handle)")
         add("    return 1;")
-        add("std::lock_guard<std::mutex> lock(handle->mutex_);")
+        add("HandleWriteLock lock(handle);  // writer - mutates Root")
         add()
         add(f"const le::{self.name}Id {snake}_id = from_c(id);")
         add(f"const le::{self.name}Data *existing_{snake} = handle->root.get_{snake}({snake}_id);")

@@ -144,6 +144,33 @@ namespace le
         {
             options.root = root;
 
+            if (would_recompute(options))
+            {
+                layer_generation_.try_put({.data = root, .data_version = 0, .options = options});
+                graph_.wait_for_all();
+            }
+
+            return WarmOutput{.frame = compose_result_.data};
+        }
+
+        /// @brief The same cascade run() itself uses to decide whether to
+        /// submit the graph at all, exposed separately so a caller (
+        /// api.cpp's own le_render_pixel_buffer) can know *before* calling
+        /// run() whether it's about to do real work - used to bracket
+        /// LeHandle::is_rendering_ around only the actual recompute,
+        /// rather than the whole call (le_is_rendering's own doc comment,
+        /// api.hpp). `options.root` does not need to be pre-set by the
+        /// caller here the way run() requires of its own `root` parameter
+        /// - every options_did_change() this cascades through compares
+        /// fields other than `root` itself (root_mutation_version stands
+        /// in for it). Pure/const - every would_recompute() call along
+        /// the way only compares against each stage's own last_options_,
+        /// it doesn't mutate anything, so calling this and then run()
+        /// right after (which recomputes the identical cascade internally)
+        /// is safe, just a small amount of cheap, duplicated comparison
+        /// work - never a second real recompute.
+        bool would_recompute(const ViewRenderOptions &options) const
+        {
             const bool layer_generation_would_recompute = layer_generation_.would_recompute(0, options);
             const bool hierarchy_resolver_would_recompute =
                 layer_generation_would_recompute || hierarchy_resolver_.would_recompute(layer_generation_.version(), options);
@@ -151,16 +178,7 @@ namespace le
                 hierarchy_resolver_would_recompute || viewport_cull_.would_recompute(hierarchy_resolver_.version(), options);
             const bool rasterize_would_recompute =
                 viewport_cull_would_recompute || rasterize_.would_recompute(viewport_cull_.version(), options);
-            const bool compose_would_recompute =
-                rasterize_would_recompute || compose_.would_recompute(rasterize_.version(), options);
-
-            if (compose_would_recompute)
-            {
-                layer_generation_.try_put({.data = root, .data_version = 0, .options = options});
-                graph_.wait_for_all();
-            }
-
-            return WarmOutput{.frame = compose_result_.data};
+            return rasterize_would_recompute || compose_.would_recompute(rasterize_.version(), options);
         }
 
         // --- pipeline_stage_benchmark accessors (src/pipelines/benchmarks/) -
