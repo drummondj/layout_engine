@@ -2180,6 +2180,11 @@ namespace le
 
     int LEFWriter::write_lef(const std::string &path, const Root &root, const std::vector<AbstractId> &abstract_ids, LayerWriteMode mode)
     {
+        const char *mode_name = mode == LayerWriteMode::None            ? "macros only"
+                                 : mode == LayerWriteMode::TechnologyOnly ? "technology layers only"
+                                                                          : "technology layers + macros";
+        spdlog::info("write_lef: writing '{}' ({} macro(s), {})...", path, abstract_ids.size(), mode_name);
+
         messages_.clear();
         auto log_error = [this](std::string msg)
         {
@@ -2412,6 +2417,14 @@ namespace le
             log_error(fmt::format("lefwEnd failed with status {}.", status));
             return status;
         }
+
+        const size_t layer_count = technology_id.valid() ? root.get_technology_layers(technology_id).size() : 0;
+        if (mode == LayerWriteMode::TechnologyOnly)
+            spdlog::info("write_lef: completed '{}' - {} layer(s)", path, layer_count);
+        else if (mode == LayerWriteMode::None)
+            spdlog::info("write_lef: completed '{}' - {} macro(s)", path, abstract_ids.size());
+        else
+            spdlog::info("write_lef: completed '{}' - {} layer(s), {} macro(s)", path, layer_count, abstract_ids.size());
 
         return 0;
     }

@@ -1032,6 +1032,11 @@ namespace le
 
     int DEFWriter::write_def(const std::string &path, const Root &root, LayoutId layout_id)
     {
+        spdlog::info(
+            "write_def: writing '{}' - {} component(s), {} pin(s), {} route(s)...", path,
+            root.get_layout_placements(layout_id).size(), root.get_layout_physical_ports(layout_id).size(),
+            root.get_layout_routes(layout_id).size());
+
         messages_.clear();
         auto log_error = [this](std::string msg)
         {
@@ -1219,6 +1224,14 @@ namespace le
             log_error(fmt::format("defwEnd failed with status {}.", status));
             return status;
         }
+
+        spdlog::info(
+            "write_def: completed '{}' - {} row(s), {} track(s), {} gcell grid(s), {} component(s), {} pin(s), {} blockage(s), {} route(s), {} region(s), {} via(s)",
+            path, root.get_layout_rows(layout_id).size(), root.get_layout_tracks(layout_id).size(),
+            root.get_layout_gcell_grids(layout_id).size(), root.get_layout_placements(layout_id).size(),
+            root.get_layout_physical_ports(layout_id).size(), root.get_layout_blockages(layout_id).size(),
+            root.get_layout_routes(layout_id).size(), root.get_layout_regions(layout_id).size(),
+            root.get_layout_vias(layout_id).size());
 
         return 0;
     }

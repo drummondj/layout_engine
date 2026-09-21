@@ -90,6 +90,20 @@ namespace le
 
     int LEFReader::read_lef(std::string filename, Root &root, std::string library_name)
     {
+        spdlog::info("read_lef: reading '{}'...", filename);
+
+        // Snapshot every pool this read can add to, so the "completed"
+        // summary below can report only what *this* call actually added -
+        // read_lef is routinely called several times against the same
+        // Root (a tech LEF then one or more macro LEFs), and get_x_size()
+        // alone would otherwise report the ever-growing cumulative total.
+        const uint64_t layer_before = root.get_layer_size();
+        const uint64_t via_before = root.get_via_size();
+        const uint64_t via_rule_before = root.get_via_rule_size();
+        const uint64_t site_before = root.get_site_size();
+        const uint64_t non_default_rule_before = root.get_non_default_rule_size();
+        const uint64_t abstract_before = root.get_abstract_size();
+
         lefrInit();
         messages_.clear();
         g_pending_lef_messages.clear();
@@ -198,6 +212,12 @@ namespace le
             messages_.push_back(msg);
             return 3;
         }
+
+        spdlog::info(
+            "read_lef: completed '{}' - {} layer(s), {} via(s), {} via rule(s), {} site(s), {} non-default rule(s), {} macro(s)",
+            filename, root.get_layer_size() - layer_before, root.get_via_size() - via_before,
+            root.get_via_rule_size() - via_rule_before, root.get_site_size() - site_before,
+            root.get_non_default_rule_size() - non_default_rule_before, root.get_abstract_size() - abstract_before);
 
         return 0;
     }

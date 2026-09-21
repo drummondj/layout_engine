@@ -695,6 +695,22 @@ namespace le
 
     int SVReader::read_netlist(std::vector<std::string> filenames, Root &root, std::string library_name)
     {
+        {
+            std::string joined_filenames;
+            for (const auto &filename : filenames)
+            {
+                if (!joined_filenames.empty())
+                    joined_filenames += ", ";
+                joined_filenames += filename;
+            }
+            spdlog::info("read_netlist: reading '{}'...", joined_filenames);
+        }
+        const uint64_t design_before = root.get_design_size();
+        const uint64_t schematic_before = root.get_schematic_size();
+        const uint64_t instance_before = root.get_instance_size();
+        const uint64_t net_before = root.get_net_size();
+        const uint64_t port_before = root.get_port_size();
+
         messages_.clear();
         root_ = &root;
 
@@ -812,6 +828,12 @@ namespace le
         }
 
         link_unresolved_instances(root);
+
+        spdlog::info(
+            "read_netlist: completed - {} module(s), {} schematic(s), {} instance(s), {} net(s), {} port(s)",
+            root.get_design_size() - design_before, root.get_schematic_size() - schematic_before,
+            root.get_instance_size() - instance_before, root.get_net_size() - net_before, root.get_port_size() - port_before);
+
         return 0;
     }
 
@@ -994,6 +1016,22 @@ namespace le
 
     int SVReader::read_rtl(std::vector<std::string> filenames, Root &root, std::string library_name)
     {
+        {
+            std::string joined_filenames;
+            for (const auto &filename : filenames)
+            {
+                if (!joined_filenames.empty())
+                    joined_filenames += ", ";
+                joined_filenames += filename;
+            }
+            spdlog::info("read_rtl: reading '{}'...", joined_filenames);
+        }
+        const uint64_t design_before = root.get_design_size();
+        const uint64_t schematic_before = root.get_schematic_size();
+        const uint64_t instance_before = root.get_instance_size();
+        const uint64_t net_before = root.get_net_size();
+        const uint64_t port_before = root.get_port_size();
+
         messages_.clear();
         root_ = &root;
 
@@ -1085,6 +1123,12 @@ namespace le
         }
 
         link_unresolved_instances(root);
+
+        spdlog::info(
+            "read_rtl: completed - {} module(s), {} schematic(s), {} instance(s), {} net(s), {} port(s)",
+            root.get_design_size() - design_before, root.get_schematic_size() - schematic_before,
+            root.get_instance_size() - instance_before, root.get_net_size() - net_before, root.get_port_size() - port_before);
+
         return 0;
     }
 

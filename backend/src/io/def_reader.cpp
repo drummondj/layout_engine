@@ -1059,6 +1059,8 @@ namespace le
 
     int DEFReader::read_def(std::string filename, Root &root, std::string library_name)
     {
+        spdlog::info("read_def: reading '{}'...", filename);
+
         defrInit();
         messages_.clear();
         g_pending_def_messages.clear();
@@ -1113,6 +1115,14 @@ namespace le
             spdlog::error("Could not parse DEF file {}.", filename);
             return 2;
         }
+
+        spdlog::info(
+            "read_def: completed '{}' - {} row(s), {} track(s), {} gcell grid(s), {} component(s), {} pin(s), {} blockage(s), {} route(s), {} region(s), {} via(s)",
+            filename, root.get_layout_rows(layout_id_).size(), root.get_layout_tracks(layout_id_).size(),
+            root.get_layout_gcell_grids(layout_id_).size(), root.get_layout_placements(layout_id_).size(),
+            root.get_layout_physical_ports(layout_id_).size(), root.get_layout_blockages(layout_id_).size(),
+            root.get_layout_routes(layout_id_).size(), root.get_layout_regions(layout_id_).size(),
+            root.get_layout_vias(layout_id_).size());
 
         return 0;
     }
