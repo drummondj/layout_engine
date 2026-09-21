@@ -1,9 +1,9 @@
 #pragma once
 
-struct LeHandle;
-
 namespace le::gui
 {
+    class GuiProvider;
+
     // ImGui port of frontend/lib/components/toolbars/mode_toolbar.dart -
     // a horizontal row of buttons whose contents depend on the current
     // mode (Select: Select All/Deselect All; Edit: Move/Undo/Redo;
@@ -18,5 +18,5 @@ namespace le::gui
     // LayoutEngine/StatusBar, not a panel of its own. Draws directly
     // into whatever ImGui window is currently active - call once per
     // frame from within that window.
-    void draw_mode_toolbar(LeHandle *handle);
+    void draw_mode_toolbar(GuiProvider &provider);
 }

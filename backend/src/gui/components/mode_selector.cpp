@@ -1,10 +1,9 @@
 #include "mode_selector.hpp"
 
 #include "IconsLucide.h"
-#include "api.hpp"
 #include "compact_button.hpp"
+#include "gui_provider.hpp"
 #include "imgui.h"
-#include "tcl_command_queue.hpp"
 
 #include <cstdint>
 #include <string>
@@ -91,7 +90,7 @@ namespace le::gui
         // own console thread up to ~100ms later), so re-reading
         // le_get_mode() on the very next frame would otherwise flicker
         // the highlighted button back to the old mode until that lands.
-        void draw_mode_button(LeHandle *handle, int32_t mode, int32_t display_mode, bool &has_pending, int32_t &pending)
+        void draw_mode_button(GuiProvider &provider, int32_t mode, int32_t display_mode, bool &has_pending, int32_t &pending)
         {
             const bool selected = display_mode == mode;
             // Selected keeps a permanent highlighted background (a
@@ -123,7 +122,7 @@ namespace le::gui
             // just a duller background).
             if (clicked && !selected)
             {
-                enqueue_tcl_command(handle, std::string("set_mode ") + mode_keyword(mode));
+                provider.set_mode(mode);
                 has_pending = true;
                 pending = mode;
             }
@@ -135,22 +134,22 @@ namespace le::gui
         }
     }
 
-    void draw_mode_selector(LeHandle *handle)
+    void draw_mode_selector(GuiProvider &provider)
     {
         static bool has_pending_mode = false;
         static int32_t pending_mode = LE_MODE_SELECT;
 
-        const int32_t backend_mode = le_get_mode(handle);
+        const int32_t backend_mode = provider.state().mode;
         if (has_pending_mode && backend_mode == pending_mode)
         {
             has_pending_mode = false;
         }
         const int32_t display_mode = has_pending_mode ? pending_mode : backend_mode;
 
-        draw_mode_button(handle, LE_MODE_SELECT, display_mode, has_pending_mode, pending_mode);
+        draw_mode_button(provider, LE_MODE_SELECT, display_mode, has_pending_mode, pending_mode);
         ImGui::Spacing();
-        draw_mode_button(handle, LE_MODE_EDIT, display_mode, has_pending_mode, pending_mode);
+        draw_mode_button(provider, LE_MODE_EDIT, display_mode, has_pending_mode, pending_mode);
         ImGui::Spacing();
-        draw_mode_button(handle, LE_MODE_RULER, display_mode, has_pending_mode, pending_mode);
+        draw_mode_button(provider, LE_MODE_RULER, display_mode, has_pending_mode, pending_mode);
     }
 }

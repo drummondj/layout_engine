@@ -1,6 +1,7 @@
 #include "le_gui.hpp"
 
 #include "api.hpp"
+#include "gui_provider.hpp"
 #include "components/status_bar.hpp"
 #include "components/library_browser.hpp"
 #include "components/property_viewer.hpp"
@@ -354,7 +355,7 @@ namespace le::gui
         // still reach this function once forwarding stops, so without
         // this a modifier could stay "held" from the backend's own point
         // of view indefinitely (le_clear_all_keys's own doc comment).
-        void forward_keyboard_input(LeHandle *handle, bool active)
+        void forward_keyboard_input(GuiProvider &provider, bool active)
         {
             static bool was_active = false;
             static bool ctrl_was_held = false;
@@ -364,7 +365,7 @@ namespace le::gui
             {
                 if (was_active)
                 {
-                    le_clear_all_keys(handle);
+                    provider.clear_all_keys();
                     ctrl_was_held = false;
                     shift_was_held = false;
                 }
@@ -376,21 +377,27 @@ namespace le::gui
             ImGuiIO &io = ImGui::GetIO();
             if (io.KeyCtrl != ctrl_was_held)
             {
-                (io.KeyCtrl ? le_key_down : le_key_up)(handle, LE_KEY_CTRL);
+                if (io.KeyCtrl)
+                    provider.key_down(LE_KEY_CTRL);
+                else
+                    provider.key_up(LE_KEY_CTRL);
                 ctrl_was_held = io.KeyCtrl;
             }
             if (io.KeyShift != shift_was_held)
             {
-                (io.KeyShift ? le_key_down : le_key_up)(handle, LE_KEY_SHIFT);
+                if (io.KeyShift)
+                    provider.key_down(LE_KEY_SHIFT);
+                else
+                    provider.key_up(LE_KEY_SHIFT);
                 shift_was_held = io.KeyShift;
             }
 
             for (const KeyMapping &mapping : kKeyMappings)
             {
                 if (ImGui::IsKeyPressed(mapping.imgui_key))
-                    le_key_down(handle, mapping.le_key_code);
+                    provider.key_down(mapping.le_key_code);
                 if (ImGui::IsKeyReleased(mapping.imgui_key))
-                    le_key_up(handle, mapping.le_key_code);
+                    provider.key_up(mapping.le_key_code);
             }
         }
 
@@ -417,7 +424,7 @@ namespace le::gui
         // display, where the framebuffer has more real pixels than
         // logical points. Returns `hovered` - the caller also gates
         // forward_keyboard_input on it (BUGS_AND_ENHANCEMENTS.md B7).
-        bool forward_mouse_input(LeHandle *handle, ActiveGesture &gesture, float scale_x, float scale_y)
+        bool forward_mouse_input(GuiProvider &provider, ActiveGesture &gesture, float scale_x, float scale_y)
         {
             const bool hovered = ImGui::IsItemHovered();
             const ImVec2 origin = ImGui::GetItemRectMin();
@@ -428,11 +435,11 @@ namespace le::gui
             static bool was_hovered = false;
             if (hovered)
             {
-                le_set_mouse_position(handle, px, py);
+                provider.set_mouse_position(px, py);
             }
             else if (was_hovered)
             {
-                le_clear_mouse_position(handle);
+                provider.clear_mouse_position();
             }
             was_hovered = hovered;
 
@@ -440,23 +447,23 @@ namespace le::gui
             {
                 if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 {
-                    le_mouse_down(handle, px, py);
+                    provider.mouse_down(px, py);
                     gesture = ActiveGesture::kSelect;
                 }
                 else if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
                 {
-                    le_zoom_drag_down(handle, px, py);
+                    provider.zoom_drag_down(px, py);
                     gesture = ActiveGesture::kZoomDrag;
                 }
             }
             else if (gesture == ActiveGesture::kSelect && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
             {
-                le_mouse_up(handle, px, py);
+                provider.mouse_up(px, py);
                 gesture = ActiveGesture::kNone;
             }
             else if (gesture == ActiveGesture::kZoomDrag && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
             {
-                le_mouse_up(handle, px, py);
+                provider.mouse_up(px, py);
                 gesture = ActiveGesture::kNone;
             }
 
@@ -469,7 +476,7 @@ namespace le::gui
             const float wheel = ImGui::GetIO().MouseWheel;
             if (hovered && wheel != 0.0f)
             {
-                le_zoom(handle, wheel * kZoomStepPerWheelTick, px, py);
+                provider.zoom(wheel * kZoomStepPerWheelTick, px, py);
             }
 
             return hovered;
@@ -679,6 +686,14 @@ namespace le::gui
         // GLFWwindow/GL context/ImGui context/texture are per-cycle.
         void open_and_run_window(LeHandle *handle)
         {
+            // The single point of contact between this whole module and
+            // the API/LeHandle for the rest of this window's own session -
+            // see gui_provider.hpp's own doc comment. Constructed once
+            // here, refreshed once per frame in the main loop below
+            // (right where is_rendering is read), passed to every
+            // component as GuiProvider& instead of the raw handle.
+            GuiProvider provider(handle);
+
             glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
             glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
             glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -923,7 +938,17 @@ namespace le::gui
                 // to make can only ever be judged from the *current*
                 // instant, never a delayed/smoothed view of it -
                 // there's no gap in which it's fine to guess.
-                const bool is_rendering = le_is_rendering(handle) != 0;
+                //
+                // provider.refresh() populates GuiProvider::State fresh
+                // for this frame - called here, first thing, so
+                // is_rendering below (and every other state() field every
+                // component reads this frame) gets exactly the "current
+                // instant" freshness guarantee this whole comment block
+                // already established: it's a lock-free/atomic read
+                // (le_is_rendering) forwarded straight through, not
+                // debounced or delayed by refresh() in any way.
+                provider.refresh();
+                const bool is_rendering = provider.state().is_rendering;
 
                 // show_loading_overlay - whether to draw the spinner/
                 // "Loading design..." text. Previously a debounced,
@@ -967,7 +992,7 @@ namespace le::gui
                 // block either" at the same time. Fixed at the actual
                 // source of the conflict instead: handle->mutex_ itself.
                 ImGui::Begin(kBrowserWindowTitle);
-                draw_library_browser(handle);
+                draw_library_browser(provider);
                 ImGui::End();
 
                 // Right sidebar - two separate dockable panels docked
@@ -979,18 +1004,18 @@ namespace le::gui
                 // (frontend/lib/components/property_viewer.dart) and
                 // layer_manager.hpp (frontend/lib/components/layer_manager.dart).
                 // Called unconditionally - kBrowserWindowTitle's own
-                // comment above. draw_property_viewer's own
-                // object_children helper (property_viewer.cpp) has one
-                // narrow, documented exception (a Design's own children
-                // specifically) still gated on is_rendering internally,
-                // for the one case with no shared-lock-safe accessor to
+                // comment above. GuiProvider::object_children
+                // (gui_provider.cpp) has one narrow, documented
+                // exception (a Design's own children specifically)
+                // still gated on state().is_rendering internally, for
+                // the one case with no shared-lock-safe accessor to
                 // switch to - see its own comment.
                 ImGui::Begin(kPropertiesWindowTitle);
-                draw_property_viewer(handle);
+                draw_property_viewer(provider);
                 ImGui::End();
 
                 ImGui::Begin(kLayersWindowTitle);
-                draw_layer_manager(handle);
+                draw_layer_manager(provider);
                 ImGui::End();
 
                 // Zero window padding - the design view/status bar sizing
@@ -1054,7 +1079,7 @@ namespace le::gui
                 // Called unconditionally - draw_mode_selector's own
                 // le_get_mode call is std::shared_lock now (kBrowserWindowTitle's
                 // own comment further up).
-                draw_mode_selector(handle);
+                draw_mode_selector(provider);
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
 
@@ -1085,7 +1110,7 @@ namespace le::gui
                 // Called unconditionally - draw_mode_toolbar's own
                 // le_get_mode/le_is_move_armed calls are std::shared_lock
                 // now (kBrowserWindowTitle's own comment further up).
-                draw_mode_toolbar(handle);
+                draw_mode_toolbar(provider);
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
 
@@ -1156,7 +1181,7 @@ namespace le::gui
                     if (!is_rendering &&
                         (is_first_ever_apply || (glfwGetTime() - pending_viewport_change_time) >= kResizeDebounceSeconds))
                     {
-                        le_set_viewport_size(handle, viewport_width, viewport_height);
+                        provider.set_viewport_size(viewport_width, viewport_height);
                         last_viewport_width = viewport_width;
                         last_viewport_height = viewport_height;
                         if (is_first_ever_apply)
@@ -1244,7 +1269,7 @@ namespace le::gui
                     }
                     else
                     {
-                        layout_view_hovered = forward_mouse_input(handle, gesture, scale_x, scale_y);
+                        layout_view_hovered = forward_mouse_input(provider, gesture, scale_x, scale_y);
                         over_layout_content = layout_view_hovered;
                     }
 
@@ -1325,13 +1350,13 @@ namespace le::gui
                 // io.WantTextInput, not io.WantCaptureKeyboard, is the
                 // right flag here.
                 if (!is_rendering)
-                    forward_keyboard_input(handle, layout_view_hovered && !ImGui::GetIO().WantTextInput);
+                    forward_keyboard_input(provider, layout_view_hovered && !ImGui::GetIO().WantTextInput);
 
                 // Called unconditionally - draw_status_bar's own
                 // le_get_mode/le_tooltip_message/le_snapped_mouse_position/
                 // le_selection_count calls are all std::shared_lock now
                 // (kBrowserWindowTitle's own comment further up).
-                draw_status_bar(handle, panel_width);
+                draw_status_bar(provider, panel_width);
 
                 ImGui::EndChild(); // layout_content_column
 

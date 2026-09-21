@@ -1,9 +1,8 @@
 #include "layer_manager.hpp"
 
-#include "api.hpp"
 #include "compact_button.hpp"
+#include "gui_provider.hpp"
 #include "imgui.h"
-#include "tcl_command_queue.hpp"
 
 #include <cstdint>
 #include <string>
@@ -13,20 +12,6 @@ namespace le::gui
 {
     namespace
     {
-        struct LayerEntry
-        {
-            LeLayerRow row;
-            bool visible;
-            bool selectable;
-        };
-
-        struct PurposeEntry
-        {
-            int32_t ordinal;
-            bool visible;
-            bool selectable;
-        };
-
         // le::ViewLayerPurpose's own declaration order (api.hpp's own
         // le_purpose_at doc comment has the authoritative list) - purely
         // a display label here; le_set_purpose_visible/_selectable below
@@ -72,15 +57,16 @@ namespace le::gui
 
         // Layer/purpose visibility+selectability and hierarchy depth are
         // exactly the actions the Flutter frontend's own LeProvider
-        // routes through a Tcl command instead of a direct FFI call - see
-        // enqueue_tcl_command's own doc comment (tcl_command_queue.hpp).
+        // routes through a Tcl command instead of a direct FFI call -
+        // see GuiProvider::run_tcl_command's own doc comment
+        // (gui_provider.hpp).
 
         // A checkbox bound to a value this GUI doesn't own the truth
         // for - `backend_value` is only current as of the *last* frame's
-        // own le_is_layer_name_visible()/etc. read, and a click here
-        // enqueues a Tcl command (see enqueue_tcl_command, tcl_command_queue.hpp) that won't
-        // actually land on the backend for up to ~100ms (le_shell.cpp's
-        // own readline event-hook poll interval) rather than applying
+        // own provider.refresh(), and a click here enqueues a Tcl
+        // command (see GuiProvider::run_tcl_command) that won't actually
+        // land on the backend for up to ~100ms (le_shell.cpp's own
+        // readline event-hook poll interval) rather than applying
         // immediately. Without this, the checkbox would visibly toggle
         // on click, then snap back to the old value for the next few
         // frames once this function re-reads `backend_value` and finds
@@ -156,17 +142,19 @@ namespace le::gui
         }
     }
 
-    void draw_layer_manager(LeHandle *handle)
+    void draw_layer_manager(GuiProvider &provider)
     {
+        const GuiProvider::State &state = provider.state();
+
         // Hierarchy depth - a plain "commit on Enter" field
         // (ImGuiInputTextFlags_EnterReturnsTrue), matching
         // HierarchyRow's own TextField(onSubmitted:) in layer_manager.dart
         // rather than live-updating per keystroke. Submitting a valid
         // (non-negative) value shows *only* that value - ignoring
-        // le_hierarchy_depth()'s own still-stale read - until the
-        // backend actually catches up to it (same "optimistic until
-        // confirmed" reasoning as draw_optimistic_checkbox above, and
-        // the same flicker it avoids: pressing Enter defocuses the
+        // state().layer_manager.hierarchy_depth's own still-stale value -
+        // until the backend actually catches up to it (same "optimistic
+        // until confirmed" reasoning as draw_optimistic_checkbox above,
+        // and the same flicker it avoids: pressing Enter defocuses the
         // field immediately, so without this, the very next frame's own
         // re-sync would snap the field back to the old value for the
         // ~100ms the queued command takes to land, then snap forward
@@ -178,7 +166,7 @@ namespace le::gui
         static bool depth_field_was_active = false;
         static bool has_pending_depth = false;
         static int pending_depth_value = 0;
-        const int32_t backend_depth = le_hierarchy_depth(handle);
+        const int32_t backend_depth = state.layer_manager.hierarchy_depth;
         if (has_pending_depth && backend_depth == pending_depth_value)
         {
             has_pending_depth = false;
@@ -201,7 +189,7 @@ namespace le::gui
             if (new_value < 0)
                 new_value = 0;
             depth_buf = new_value;
-            enqueue_tcl_command(handle, "set_hierarchy_depth " + std::to_string(new_value));
+            provider.set_hierarchy_depth(new_value);
             has_pending_depth = true;
             pending_depth_value = new_value;
         };
@@ -219,7 +207,7 @@ namespace le::gui
             }
             else
             {
-                // le_set_hierarchy_depth itself rejects a negative value
+                // set_hierarchy_depth itself rejects a negative value
                 // (left unchanged) - reset the field back to the real
                 // current value immediately, matching HierarchyRow's own
                 // _submit() in layer_manager.dart, rather than showing a
@@ -246,45 +234,28 @@ namespace le::gui
         ImGui::Separator();
 
         // Pseudo-rows with no physical Technology Layer of their own
-        // (ROW/BOUNDARY/GCELLGRID/PLACEMENT_BLOCKAGE/REGION) are skipped
-        // here - each already has its own single-purpose entry below,
-        // showing it again as if it were a whole extra layer would be a
-        // redundant, confusing duplicate (BUGS_AND_ENHANCEMENTS.md E12) -
-        // matching refreshLayers' own has_physical_layer filter.
-        std::vector<LayerEntry> layers;
+        // (ROW/BOUNDARY/GCELLGRID/PLACEMENT_BLOCKAGE/REGION) are already
+        // filtered out of state().layer_manager.layers by
+        // GuiProvider::refresh() (has_physical_layer) - each already has
+        // its own single-purpose entry below, showing it again as if it
+        // were a whole extra layer would be a redundant, confusing
+        // duplicate (BUGS_AND_ENHANCEMENTS.md E12).
+        const std::vector<GuiProvider::LayerRow> &layers = state.layer_manager.layers;
         bool all_layers_visible = true;
         bool all_layers_selectable = true;
-        const int32_t layer_count = le_layer_count(handle);
-        for (int32_t i = 0; i < layer_count; ++i)
+        for (const GuiProvider::LayerRow &layer : layers)
         {
-            const LeLayerRow row = le_layer_at(handle, i);
-            if (row.name == nullptr || !row.has_physical_layer)
-            {
-                continue;
-            }
-            const bool visible = le_is_layer_name_visible(handle, row.name);
-            const bool selectable = le_is_layer_name_selectable(handle, row.name) != 0;
-            layers.push_back(LayerEntry{row, visible, selectable});
-            all_layers_visible = all_layers_visible && visible;
-            all_layers_selectable = all_layers_selectable && selectable;
+            all_layers_visible = all_layers_visible && layer.visible;
+            all_layers_selectable = all_layers_selectable && layer.selectable;
         }
 
-        std::vector<PurposeEntry> purposes;
+        const std::vector<GuiProvider::PurposeRow> &purposes = state.layer_manager.purposes;
         bool all_purposes_visible = true;
         bool all_purposes_selectable = true;
-        const int32_t purpose_count = le_purpose_count(handle);
-        for (int32_t i = 0; i < purpose_count; ++i)
+        for (const GuiProvider::PurposeRow &purpose : purposes)
         {
-            const int32_t ordinal = le_purpose_at(handle, i);
-            if (ordinal < 0)
-            {
-                continue;
-            }
-            const bool visible = le_is_purpose_visible(handle, ordinal) != 0;
-            const bool selectable = le_is_purpose_selectable(handle, ordinal) != 0;
-            purposes.push_back(PurposeEntry{ordinal, visible, selectable});
-            all_purposes_visible = all_purposes_visible && visible;
-            all_purposes_selectable = all_purposes_selectable && selectable;
+            all_purposes_visible = all_purposes_visible && purpose.visible;
+            all_purposes_selectable = all_purposes_selectable && purpose.selectable;
         }
 
         if (!ImGui::BeginTable("layer_manager_table", 3, ImGuiTableFlags_SizingFixedFit))
@@ -297,8 +268,9 @@ namespace le::gui
         ImGui::TableHeadersRow();
 
         // Every row/aggregate below is queued as *one* semicolon-joined
-        // Tcl command when it covers more than one row - le_provider.dart's
-        // own setAllLayersVisible/etc. batch the exact same way (one
+        // Tcl command when it covers more than one row (via
+        // provider.run_tcl_command) - le_provider.dart's own
+        // setAllLayersVisible/etc. batch the exact same way (one
         // command-history entry per user action, not one per row/dozens
         // for a big design's own "All" click - see their own comment).
         draw_toggle_row(
@@ -308,38 +280,38 @@ namespace le::gui
             [&](bool value)
             {
                 std::string script;
-                for (const LayerEntry &layer : layers)
+                for (const GuiProvider::LayerRow &layer : layers)
                 {
                     if (!script.empty())
                         script += "; ";
                     script += std::string("set_layer_visible {") + layer.row.name + "} " + tcl_bool(value);
                 }
-                for (const PurposeEntry &purpose : purposes)
+                for (const GuiProvider::PurposeRow &purpose : purposes)
                 {
                     if (!script.empty())
                         script += "; ";
                     script += std::string("set_purpose_visible ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
-                    enqueue_tcl_command(handle, script);
+                    provider.run_tcl_command(script);
             },
             [&](bool value)
             {
                 std::string script;
-                for (const LayerEntry &layer : layers)
+                for (const GuiProvider::LayerRow &layer : layers)
                 {
                     if (!script.empty())
                         script += "; ";
                     script += std::string("set_layer_selectable {") + layer.row.name + "} " + tcl_bool(value);
                 }
-                for (const PurposeEntry &purpose : purposes)
+                for (const GuiProvider::PurposeRow &purpose : purposes)
                 {
                     if (!script.empty())
                         script += "; ";
                     script += std::string("set_purpose_selectable ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
-                    enqueue_tcl_command(handle, script);
+                    provider.run_tcl_command(script);
             });
 
         draw_spacer_row();
@@ -350,42 +322,37 @@ namespace le::gui
             [&](bool value)
             {
                 std::string script;
-                for (const PurposeEntry &purpose : purposes)
+                for (const GuiProvider::PurposeRow &purpose : purposes)
                 {
                     if (!script.empty())
                         script += "; ";
                     script += std::string("set_purpose_visible ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
-                    enqueue_tcl_command(handle, script);
+                    provider.run_tcl_command(script);
             },
             [&](bool value)
             {
                 std::string script;
-                for (const PurposeEntry &purpose : purposes)
+                for (const GuiProvider::PurposeRow &purpose : purposes)
                 {
                     if (!script.empty())
                         script += "; ";
                     script += std::string("set_purpose_selectable ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
-                    enqueue_tcl_command(handle, script);
+                    provider.run_tcl_command(script);
             });
-        for (const PurposeEntry &purpose : purposes)
+        for (const GuiProvider::PurposeRow &purpose : purposes)
         {
             draw_toggle_row(
                 purpose_name(purpose.ordinal), [&]
                 { ImGui::TextUnformatted(purpose_name(purpose.ordinal)); },
                 purpose.visible, purpose.selectable,
                 [&](bool value)
-                {
-                    enqueue_tcl_command(handle, std::string("set_purpose_visible ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value));
-                },
+                { provider.set_purpose_visible(purpose_name(purpose.ordinal), value); },
                 [&](bool value)
-                {
-                    enqueue_tcl_command(
-                        handle, std::string("set_purpose_selectable ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value));
-                });
+                { provider.set_purpose_selectable(purpose_name(purpose.ordinal), value); });
         }
 
         draw_spacer_row();
@@ -396,28 +363,28 @@ namespace le::gui
             [&](bool value)
             {
                 std::string script;
-                for (const LayerEntry &layer : layers)
+                for (const GuiProvider::LayerRow &layer : layers)
                 {
                     if (!script.empty())
                         script += "; ";
                     script += std::string("set_layer_visible {") + layer.row.name + "} " + tcl_bool(value);
                 }
                 if (!script.empty())
-                    enqueue_tcl_command(handle, script);
+                    provider.run_tcl_command(script);
             },
             [&](bool value)
             {
                 std::string script;
-                for (const LayerEntry &layer : layers)
+                for (const GuiProvider::LayerRow &layer : layers)
                 {
                     if (!script.empty())
                         script += "; ";
                     script += std::string("set_layer_selectable {") + layer.row.name + "} " + tcl_bool(value);
                 }
                 if (!script.empty())
-                    enqueue_tcl_command(handle, script);
+                    provider.run_tcl_command(script);
             });
-        for (const LayerEntry &layer : layers)
+        for (const GuiProvider::LayerRow &layer : layers)
         {
             draw_toggle_row(
                 layer.row.name,
@@ -435,9 +402,9 @@ namespace le::gui
                 },
                 layer.visible, layer.selectable,
                 [&](bool value)
-                { enqueue_tcl_command(handle, std::string("set_layer_visible {") + layer.row.name + "} " + tcl_bool(value)); },
+                { provider.set_layer_visible(layer.row.name, value); },
                 [&](bool value)
-                { enqueue_tcl_command(handle, std::string("set_layer_selectable {") + layer.row.name + "} " + tcl_bool(value)); });
+                { provider.set_layer_selectable(layer.row.name, value); });
         }
 
         ImGui::EndTable();

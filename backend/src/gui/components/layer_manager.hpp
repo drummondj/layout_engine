@@ -1,9 +1,9 @@
 #pragma once
 
-struct LeHandle;
-
 namespace le::gui
 {
+    class GuiProvider;
+
     // ImGui port of frontend/lib/components/layer_manager.dart - the
     // hierarchy-depth field plus the layer/purpose visibility+
     // selectability grid (row-per-layer, row-per-purpose, each with its
@@ -12,5 +12,5 @@ namespace le::gui
     // separate tab, for this pass). Draws directly into whatever ImGui
     // window is currently active - call once per frame from within that
     // window.
-    void draw_layer_manager(LeHandle *handle);
+    void draw_layer_manager(GuiProvider &provider);
 }

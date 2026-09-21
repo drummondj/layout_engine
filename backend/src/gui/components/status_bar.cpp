@@ -1,6 +1,6 @@
 #include "status_bar.hpp"
 
-#include "api.hpp"
+#include "gui_provider.hpp"
 #include "imgui.h"
 
 #include <cstdio>
@@ -33,8 +33,9 @@ namespace le::gui
     // the last one flush against the table's own right edge (`width`,
     // matching the outer table size passed below) the same way
     // status_bar.dart's own trailing Row items sit at its right edge.
-    void draw_status_bar(LeHandle *handle, float width)
+    void draw_status_bar(GuiProvider &provider, float width)
     {
+        const GuiProvider::State &state = provider.state();
         ImGui::Separator();
 
         // A small left/right inset - the caller's own window has zero
@@ -58,7 +59,7 @@ namespace le::gui
         ImGui::TableNextRow();
 
         ImGui::TableSetColumnIndex(0);
-        ImGui::Text("Mode: %s", mode_label(le_get_mode(handle)));
+        ImGui::Text("Mode: %s", mode_label(state.mode));
         // status_bar.dart's own isRunning||isRendering spinner has no
         // ImGui equivalent here - a text marker toggling in and out
         // every render (rather than a real animated spinner) read as
@@ -68,14 +69,13 @@ namespace le::gui
         // covers the same signal.
 
         ImGui::TableSetColumnIndex(1);
-        const char *tooltip = le_tooltip_message(handle);
-        if (tooltip != nullptr && tooltip[0] != '\0')
+        if (!state.status_bar.tooltip_message.empty())
         {
-            ImGui::TextUnformatted(tooltip);
+            ImGui::TextUnformatted(state.status_bar.tooltip_message.c_str());
         }
 
         ImGui::TableSetColumnIndex(2);
-        const LeSnappedMousePosition pos = le_snapped_mouse_position(handle);
+        const LeSnappedMousePosition &pos = state.status_bar.snapped_mouse_position;
         char coords_text[64];
         if (pos.has_position)
         {
@@ -85,7 +85,7 @@ namespace le::gui
         {
             std::snprintf(coords_text, sizeof(coords_text), "X: - Y: -");
         }
-        ImGui::Text("%s   Selected: %d", coords_text, le_selection_count(handle));
+        ImGui::Text("%s   Selected: %d", coords_text, state.status_bar.selection_count);
 
         ImGui::EndTable();
     }

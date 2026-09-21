@@ -1,9 +1,9 @@
 #pragma once
 
-struct LeHandle;
-
 namespace le::gui
 {
+    class GuiProvider;
+
     // ImGui port of frontend/lib/components/property_viewer.dart - shows
     // every property of whichever database object is currently selected
     // on the canvas, with a pager for a multi-object selection, an
@@ -14,5 +14,5 @@ namespace le::gui
     // Backs the "Properties" dock panel (le_gui.cpp). Draws directly
     // into whatever ImGui window is currently active - call once per
     // frame from within the "Properties" window.
-    void draw_property_viewer(LeHandle *handle);
+    void draw_property_viewer(GuiProvider &provider);
 }

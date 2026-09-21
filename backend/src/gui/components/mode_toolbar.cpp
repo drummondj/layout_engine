@@ -1,10 +1,9 @@
 #include "mode_toolbar.hpp"
 
 #include "IconsLucide.h"
-#include "api.hpp"
 #include "compact_button.hpp"
+#include "gui_provider.hpp"
 #include "imgui.h"
-#include "tcl_command_queue.hpp"
 
 #include <cstdint>
 #include <string>
@@ -44,17 +43,17 @@ namespace le::gui
         }
     }
 
-    void draw_mode_toolbar(LeHandle *handle)
+    void draw_mode_toolbar(GuiProvider &provider)
     {
-        const int32_t mode = le_get_mode(handle);
+        const int32_t mode = provider.state().mode;
         switch (mode)
         {
         case LE_MODE_SELECT:
             if (draw_button(ICON_LC_BOX_SELECT, "Select All", "ctrl-a"))
-                enqueue_tcl_command(handle, "select_all");
+                provider.select_all();
             ImGui::SameLine();
             if (draw_button(ICON_LC_CIRCLE_X, "Deselect All", "ctrl-d"))
-                enqueue_tcl_command(handle, "deselect_all");
+                provider.deselect_all();
             break;
 
         case LE_MODE_EDIT:
@@ -62,12 +61,12 @@ namespace le::gui
             // Same "optimistic until confirmed" reasoning as
             // mode_selector.cpp's own draw_mode_button - arm_move is
             // enqueued, not applied synchronously, so re-reading
-            // le_is_move_armed() on the very next frame would otherwise
+            // is_move_armed on the very next frame would otherwise
             // flicker the button back to unarmed until the queued
             // command lands.
             static bool has_pending_move = false;
             static bool pending_move_value = false;
-            const bool backend_armed = le_is_move_armed(handle) != 0;
+            const bool backend_armed = provider.state().is_move_armed;
             if (has_pending_move && backend_armed == pending_move_value)
                 has_pending_move = false;
             const bool armed = has_pending_move ? pending_move_value : backend_armed;
@@ -95,7 +94,7 @@ namespace le::gui
             // bug, not just a duller background).
             if (move_clicked && !armed)
             {
-                enqueue_tcl_command(handle, "arm_move");
+                provider.arm_move();
                 has_pending_move = true;
                 pending_move_value = true;
             }
@@ -106,16 +105,16 @@ namespace le::gui
             // buttons; add them once the underlying feature exists.
             ImGui::SameLine();
             if (draw_button(ICON_LC_UNDO_2, "Undo", "ctrl-z"))
-                enqueue_tcl_command(handle, "undo");
+                provider.undo();
             ImGui::SameLine();
             if (draw_button(ICON_LC_REDO_2, "Redo", "shift-ctrl-z"))
-                enqueue_tcl_command(handle, "redo");
+                provider.redo();
             break;
         }
 
         case LE_MODE_RULER:
             if (draw_button(ICON_LC_CIRCLE_X, "Clear Rulers", nullptr))
-                enqueue_tcl_command(handle, "clear_rulers");
+                provider.clear_rulers();
             break;
 
         default:

@@ -1,6 +1,6 @@
 #include "library_browser.hpp"
 
-#include "api.hpp"
+#include "gui_provider.hpp"
 #include "imgui.h"
 
 #include <cctype>
@@ -47,25 +47,6 @@ namespace le::gui
             return false;
         }
 
-        // Padding to fit_to_content's own margin, matching
-        // le_provider.dart's own openDesign/openDesignLayout - both call
-        // fitScene(10) right after switching, so a freshly opened design
-        // is immediately framed instead of showing whatever pan/scale
-        // the previously viewed one happened to leave behind.
-        constexpr int32_t kFitScenePaddingPx = 10;
-
-        void open_abstract(LeHandle *handle, LeDesignId design_id)
-        {
-            le_set_current_design_abstract_by_id(handle, design_id);
-            le_fit_scene(handle, kFitScenePaddingPx);
-        }
-
-        void open_layout(LeHandle *handle, LeDesignId design_id)
-        {
-            le_set_current_design_layout_by_id(handle, design_id);
-            le_fit_scene(handle, kFitScenePaddingPx);
-        }
-
         // Whether `design` should show under the current filter - its
         // own name, or (so a search like "layout" surfaces every design
         // that has one) one of its real leaf labels. Empty filter always
@@ -100,7 +81,7 @@ namespace le::gui
         // row itself only expands/collapses its own view list - opening
         // a view is unambiguous only for its "Abstract"/"Layout" leaves
         // below, each its own click target.
-        void draw_design_node(LeHandle *handle, const LeDesignInfo &design, bool has_abstract, bool has_layout)
+        void draw_design_node(GuiProvider &provider, const LeDesignInfo &design, bool has_abstract, bool has_layout)
         {
             if (!has_abstract && !has_layout)
             {
@@ -117,7 +98,7 @@ namespace le::gui
                 ImGui::TreeNodeEx("Abstract", ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen);
                 if (ImGui::IsItemClicked())
                 {
-                    open_abstract(handle, design.id);
+                    provider.open_design_abstract(design.id);
                 }
             }
             if (has_layout)
@@ -125,20 +106,20 @@ namespace le::gui
                 ImGui::TreeNodeEx("Layout", ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen);
                 if (ImGui::IsItemClicked())
                 {
-                    open_layout(handle, design.id);
+                    provider.open_design_layout(design.id);
                 }
             }
             ImGui::TreePop();
         }
     }
 
-    void draw_library_browser(LeHandle *handle)
+    void draw_library_browser(GuiProvider &provider)
     {
         static char filter_buf[256] = "";
         ImGui::SetNextItemWidth(-1.0f);
         ImGui::InputTextWithHint("##library_browser_filter", "filter", filter_buf, sizeof(filter_buf));
 
-        const int32_t library_count = le_library_count(handle);
+        const int32_t library_count = provider.library_count();
         if (library_count == 0)
         {
             ImGui::TextDisabled("Nothing loaded yet");
@@ -147,12 +128,12 @@ namespace le::gui
 
         for (int32_t library_index = 0; library_index < library_count; ++library_index)
         {
-            const LeLibraryInfo library = le_library_at(handle, library_index);
+            const LeLibraryInfo library = provider.library_at(library_index);
             if (library.name == nullptr)
             {
                 continue;
             }
-            const int32_t design_count = le_library_design_count(handle, library_index);
+            const int32_t design_count = provider.library_design_count(library_index);
             const bool library_name_matches = contains_ignore_case(library.name, filter_buf);
 
             // A library is shown if its own name matches, or at least
@@ -165,7 +146,7 @@ namespace le::gui
             {
                 for (int32_t design_index = 0; design_index < design_count; ++design_index)
                 {
-                    const LeDesignInfo design = le_library_design_at(handle, library_index, design_index);
+                    const LeDesignInfo design = provider.library_design_at(library_index, design_index);
                     if (design.name == nullptr)
                     {
                         continue;
@@ -190,7 +171,7 @@ namespace le::gui
             }
             for (int32_t design_index = 0; design_index < design_count; ++design_index)
             {
-                const LeDesignInfo design = le_library_design_at(handle, library_index, design_index);
+                const LeDesignInfo design = provider.library_design_at(library_index, design_index);
                 if (design.name == nullptr)
                 {
                     continue;
@@ -206,7 +187,7 @@ namespace le::gui
                 {
                     continue;
                 }
-                draw_design_node(handle, design, has_abstract, has_layout);
+                draw_design_node(provider, design, has_abstract, has_layout);
             }
             ImGui::TreePop();
         }
