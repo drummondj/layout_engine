@@ -204,3 +204,39 @@ mid-drag, snapped commit, stays armed, undo, Escape) and
 `ShapeSnapModesArePerKindAndOnlyAcceptModesTheKindOffers`; TCL smoke
 checks. Full ctest 839/839.
 
+## Closing summary
+
+**Done (all committed and pushed, one commit each):**
+- Item 4, custom library naming — `d138e4b`
+- Item 5, flightlines — `28a04bd`
+- Item 3, shape resizing — `e57a99b`
+
+Nothing was left uncommitted for sign-off: none of the three touches a file
+writer or other hard-to-undo data path (item 4 changes the readers' error
+behaviour, all of it covered by tests, and every edit in item 3 is undoable).
+All three are marked DONE in NEW_FEATURES_SEPT_2026.md. Full ctest ended at
+839/839; `build` and `build_release` are both current.
+
+**Worth a look in the morning:**
+- **Item 4's design identity** — designs stay matched by global name, not
+  per library (see that section's first judgment call). A same-named design
+  in two libraries still collides in `Design.name`'s flat index, as before.
+- **Item 5's flightline scope** — lines go from the selected placements to
+  *everything* they connect to, not only between selected placements.
+- **Item 3 in the real GUI** — the toolbar and drag feel haven't been seen;
+  the API-level tests drive the same calls the GUI makes.
+- **Breaking change:** `read_lef`/`read_def`/`read_verilog` now require
+  `-library <name>`; personal scripts outside `backend/tcl/` need updating.
+
+**Possible follow-ups for BUGS_AND_ENHANCEMENTS.md:**
+- Library-scoped design names: a unique-per-library `Design.name` index and
+  library-qualified reference resolution (DEF COMPONENTS, Verilog instances,
+  `design:NAME` tokens), if the same cell name in two libraries should be
+  two designs.
+- LEF/DEF reads aren't transactional: a read that fails part-way (e.g. on a
+  duplicate Abstract) keeps whatever it read before the error.
+- Flightlines: optionally skip high-fanout nets (clock/reset) above a
+  threshold, and use a placement's Layout pins when drawn at hierarchy
+  depth > 0.
+- Resize: a keyboard shortcut; resizing several selected pieces' shared
+  edge at once; free-form vertex dragging for polygons.
