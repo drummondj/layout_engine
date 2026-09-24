@@ -1595,3 +1595,25 @@ cell, so 100 free shapes drawn in 18,307 placements cost the same as none).
 Both benchmarks carry untimed proof counters so a flat result can't be
 vacuous: `custom_shapes_collected` equals the free-shape count exactly, and
 every non-zero run's `frame_checksum` differs from the zero-shape frame's.
+
+## 2026-09-25 — flightlines: net endpoint index vs. per-selection lines
+
+`src/pipelines/benchmarks/flightline_benchmark.cpp` - synthetic linked
+netlist, one 4-pin cell placed P times, every pin on a net of 2-10 pins
+(shuffled across the design). Release build, WSL2 Linux, GCC.
+
+| Benchmark | Time |
+|---|---|
+| `BM_Flightline_BuildIndex/10000` | 3.8 ms |
+| `BM_Flightline_BuildIndex/100000` | 116 ms |
+| `BM_Flightline_Lines/100000/1` (1 selected, 19 lines) | 0.002 ms |
+| `BM_Flightline_Lines/100000/100` (2.4k lines) | 0.54 ms |
+| `BM_Flightline_Lines/100000/10000` (233k lines) | 107 ms |
+
+Why api.cpp's flightline cache has two levels: the whole-Layout
+`NetEndpointIndex` (Pin.net/PhysicalPort.net have no reverse index in
+Root) costs ~1.2 us per placement, so it's rebuilt only on a Root mutation;
+a selection change reuses it and pays only for the selected placements'
+own lines - 2 us for a typical single-cell click on a 100k design, instead
+of 116 ms if the index were rebuilt per click. Nothing is computed at all
+while the FLIGHTLINE purpose is hidden (its default).

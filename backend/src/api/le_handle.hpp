@@ -2,6 +2,7 @@
 
 #include "api.hpp"
 
+#include "../core/flightlines.hpp"
 #include "../core/placement_move.hpp"
 #include "../database/database.hpp"
 #include "../editing/editing.hpp"
@@ -104,6 +105,28 @@ struct LeHandle
 {
     le::Root root;
     le::ViewLayerSet view_layers;
+
+    // Flightlines (NEW_FEATURES_SEPT_2026.md item 5) - api.cpp's
+    // flightlines_for fills this from le_render_pixel_buffer's
+    // shared-lock read path, hence `mutable` plus its own mutex. Two
+    // levels: the whole-Layout net endpoint index is rebuilt only when
+    // Root mutates (or the Layout changes); the lines themselves also on
+    // a selection change. `version` is ViewRenderOptions::flightline_version.
+    struct FlightlineCache
+    {
+        std::mutex mutex;
+        bool index_valid = false;
+        uint64_t index_mutation_version = 0;
+        le::LayoutId index_layout;
+        le::NetEndpointIndex index;
+        bool lines_valid = false;
+        uint64_t lines_mutation_version = 0;
+        uint64_t lines_selection_version = 0;
+        le::LayoutId lines_layout;
+        std::vector<le::Flightline> lines;
+        uint64_t version = 0;
+    };
+    mutable FlightlineCache flightline_cache;
     // root.mutation_version() as of the most recent view_layers rebuild -
     // see api.cpp's own ensure_view_layers_current() for why this exists
     // (view_layers used to only ever get rebuilt inside le_read_lef,
@@ -1518,13 +1541,15 @@ struct LeHandle
         std::unordered_map<std::string, bool> layer_name_visible_;
         // Pre-seeded false for TRACK_PREFERRED/TRACK_NON_PREFERRED/ROW/
         // GCELLGRID (BUGS_AND_ENHANCEMENTS.md E2 - "invisible by
-        // default") - every other purpose still falls back to
-        // is_purpose_visible()'s own "unknown key -> visible" default.
+        // default") and FLIGHTLINE (NEW_FEATURES_SEPT_2026.md item 5) -
+        // every other purpose still falls back to is_purpose_visible()'s
+        // own "unknown key -> visible" default.
         std::unordered_map<le::ViewLayerPurpose, bool> purpose_visible_{
             {le::ViewLayerPurpose::TRACK_PREFERRED, false},
             {le::ViewLayerPurpose::TRACK_NON_PREFERRED, false},
             {le::ViewLayerPurpose::ROW, false},
             {le::ViewLayerPurpose::GCELLGRID, false},
+            {le::ViewLayerPurpose::FLIGHTLINE, false},
         };
         uint64_t visibility_version_ = 0;
         bool antialiasing_enabled_ = false;
@@ -1542,6 +1567,7 @@ struct LeHandle
             {le::ViewLayerPurpose::TRACK_PREFERRED, false},
             {le::ViewLayerPurpose::TRACK_NON_PREFERRED, false},
             {le::ViewLayerPurpose::GCELLGRID, false},
+            {le::ViewLayerPurpose::FLIGHTLINE, false}, // an overlay, never hit-tested
         };
         std::vector<SelectedObject> selection_;
         // signature (piece_signature) -> index into selection_ - see

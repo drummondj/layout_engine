@@ -40,6 +40,7 @@ namespace le::gui
             "placementBoundary",
             "customShape",
             "debug",
+            "flightline",
         };
         constexpr int32_t kPurposeNameCount = static_cast<int32_t>(sizeof(kPurposeNames) / sizeof(kPurposeNames[0]));
 

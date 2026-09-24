@@ -72,3 +72,59 @@ before), `AbstractLayoutAndSchematicViewsCombineOnOneDesign`,
 `NewDesignsGoIntoTheNamedLibrary`. TCL help/session tests updated for the
 new signatures. Full ctest 822/822.
 
+## Item 5 — Flightline display
+
+**What was needed:** light blue lines for the selected placements' net
+connections, on their own layer purpose, hidden by default.
+
+**Fix:**
+- New `ViewLayerPurpose::FLIGHTLINE` (ordinal 15) with its own `FLIGHTLINE`
+  pseudo-row (`view_style.hpp`, `flightline_style()` = (135,206,250)),
+  pre-seeded invisible and non-selectable in `LeHandle`
+  (`purpose_visible_`/`purpose_selectable_`), and added to the hand-synced
+  name lists (`layer_manager.cpp`'s `kPurposeNames`, TCL `::purpose_names`
+  -> `set_purpose_visible flightline 1`, `api.hpp`'s ordinal docs).
+- `src/core/flightlines.hpp`: `NetEndpointIndex` (net -> every placed pin
+  and top-level `PhysicalPort` in the Layout — Root has no reverse index for
+  `Pin.net`/`PhysicalPort.net`) and `placement_flightlines` (from each
+  selected placement's connected pins to every other endpoint on the net).
+  Pin locations are the center of the Terminal's port geometry in the
+  placed Abstract, through the placement transform (bbox center if the pin
+  has no geometry).
+- `ComposeStage::draw_flightline_overlay` draws them (1px, under the
+  selection outline); `ViewRenderOptions::flightline_version` makes it
+  redraw on a visibility toggle or `link`, which change nothing rasterized.
+- api.cpp's `flightlines_for` + `LeHandle::flightline_cache`: two-level
+  cache (index per Root mutation, lines per selection change), computed
+  only while FLIGHTLINE is visible.
+
+**Judgment calls:**
+- **"Between selected placement pins" = from the selected placements' pins
+  to everything they connect to** (other placements, selected or not, and
+  top-level pins), drawn as a star from each selected pin — the usual EDA
+  flightline behavior, and useful for placing a cell near its neighbours.
+  A connection between two selected pins is drawn once. If you meant only
+  lines *between selected placements*, it's a one-line filter in
+  `placement_flightlines`.
+- **Connectivity comes from `link`** (Placement.instance/Pin.net): a
+  placement with no linked Instance draws nothing. No automatic `link` is
+  triggered.
+- **No cap on large nets.** A selected clock-buffer's fanout draws in full;
+  worth revisiting if high-fanout nets turn out to be noise.
+- **Pins use the Abstract's geometry even at hierarchy depth > 0**, where a
+  placement may be drawn as its Layout.
+
+**Benchmark** (`flightline_benchmark.cpp`, BENCHMARKS.md 2026-09-25, Release):
+index build 3.8 ms / 116 ms at 10k / 100k placements; lines for 1 / 100 /
+10k selected placements (of 100k) 2 us / 0.54 ms / 107 ms. Justifies the
+two-level cache: rebuilding the index per click would add 116 ms to every
+selection change on a 100k design.
+
+**Tests:** `core/tests/flightlines_test.cpp` (star fan-out through an FN
+placement's mirrored pin, dedupe of a selected-to-selected connection,
+top-level pin endpoints, unlinked placements draw nothing);
+`api_test.cpp` `SelectedPlacementDrawsFlightlinesOnlyWhenTheFlightlinePurposeIsVisible`
+(real netlist read + `link`, render-and-sample: none by default, light blue
+once visible, gone after deselect); purpose/row count tests updated.
+Full ctest 826/826.
+

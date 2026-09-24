@@ -44,7 +44,7 @@ If a view already exists for the design being read in, then an error should occu
 
 If the library name doesn't already exist, then a new library should be created.
 
-5. Flightline display
+5. Flightline display - DONE
 
 Net connections should be drawn between selected placement pins using a light blue line. A separate layer purpose should be used for this, which is invisible by default.
 

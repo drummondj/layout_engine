@@ -2558,7 +2558,7 @@ Sets whether one purpose column is selectable, across every real Layer - see set
 
 `set_purpose_visible <purpose> <visible> [-help]`
 
-Sets whether one purpose column (e.g. every Layer's own obstruction shapes) is visible, across every real Layer - the other axis from set_layer_visible's own whole-row toggle. <purpose> is one of: boundary customShape debug gcellgrid obstruction placementBlockage placementBoundary placementName region route routingBlockage row terminal trackNonPreferred trackPreferred. Visible by default until toggled.
+Sets whether one purpose column (e.g. every Layer's own obstruction shapes) is visible, across every real Layer - the other axis from set_layer_visible's own whole-row toggle. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placementBlockage placementBoundary placementName region route routingBlockage row terminal trackNonPreferred trackPreferred. Visible by default until toggled.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |

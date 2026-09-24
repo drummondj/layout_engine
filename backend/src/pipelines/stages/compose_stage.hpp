@@ -132,6 +132,7 @@ namespace le
             // here, rather than one function's worth of inline drawing
             // logic per layer.
             draw_drag_rect_overlay(ctx, options, height);
+            draw_flightline_overlay(ctx, options, height);
             draw_selection_overlay(ctx, options, height);
             draw_hover_overlay(ctx, options, height);
             draw_move_ghost_overlay(ctx, options, height);
@@ -212,6 +213,9 @@ namespace le
                 return true;
 
             if (last.selection_version != current.selection_version)
+                return true;
+
+            if (last.flightline_version != current.flightline_version)
                 return true;
 
             if (last.mouse_version != current.mouse_version)
@@ -307,6 +311,33 @@ namespace le
             ctx.set_stroke_width(kSelectionOutlineStrokeWidth);
             for (const Shape &piece : options.selected_piece_outlines)
                 stroke_piece_outline(ctx, piece, to_pixel);
+        }
+
+        /// @brief Draws the selected placements' flightlines
+        /// (`ViewRenderOptions::flightlines_dbu`, NEW_FEATURES_SEPT_2026.md
+        /// item 5) as thin straight lines in `flightline_color` - under the
+        /// selection outline, so a selected cell's own outline stays on top.
+        static void draw_flightline_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
+        {
+            if (options.flightlines_dbu.empty())
+                return;
+
+            const auto to_pixel = [&](Point p)
+            {
+                return BLPoint(
+                    static_cast<double>(p.x - options.viewport.ll.x) * options.scale,
+                    static_cast<double>(pixel_height) - static_cast<double>(p.y - options.viewport.ll.y) * options.scale);
+            };
+
+            BLPath path;
+            for (const Flightline &line : options.flightlines_dbu)
+            {
+                path.move_to(to_pixel(line.from));
+                path.line_to(to_pixel(line.to));
+            }
+            ctx.set_stroke_style(to_bl_color(options.flightline_color));
+            ctx.set_stroke_width(kFlightlineStrokeWidth);
+            ctx.stroke_path(path);
         }
 
         /// @brief Draws a yellow outline (UPDATES.md 7.1) around the

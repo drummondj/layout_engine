@@ -11,6 +11,7 @@ int main(int argc, char **argv)
     le::benchmarks::register_compose_benchmarks();
     le::benchmarks::register_warm_tier_benchmarks();
     le::benchmarks::register_shape_ops_benchmarks();
+    le::benchmarks::register_flightline_benchmarks();
 
     benchmark::Initialize(&argc, argv);
     if (benchmark::ReportUnrecognizedArguments(argc, argv))

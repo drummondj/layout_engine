@@ -103,6 +103,13 @@ none of these are duplicated here.
   PROPERTYDEFINITIONS default string, overridden by
   `Technology.fin_pitch`/`fin_offset`/`fin_direction` (`update_technology`).
   Covered by `core/tests/placement_move_test.cpp`.
+  `flightlines.hpp` (NEW_FEATURES_SEPT_2026.md item 5): the selected
+  placements' net connections — `NetEndpointIndex` (net -> placed pins and
+  top-level PhysicalPorts, built from `link`'s Placement.instance/Pin.net)
+  plus `placement_flightlines` (a star from each selected pin). Drawn by
+  `ComposeStage` as an overlay on the `FLIGHTLINE` purpose (hidden by
+  default); api.cpp caches the index per Root mutation and the lines per
+  selection (`LeHandle::flightline_cache`, see BENCHMARKS.md 2026-09-25).
   `RenderedShape`/
   `TinyShapeDot`/`VersionedStage`/`ShapeGenerationStage` (the pre-restart
   `pipeline` module's own shape-generation output/render-input types and

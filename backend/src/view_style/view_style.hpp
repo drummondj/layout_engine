@@ -74,6 +74,10 @@ namespace le
                              // custom geometry can be hidden independently of real pins/routes.
         DEBUG,              // Shape.purpose == DEBUG (`-layer debug`) - own pseudo-row, no Layer,
                              // drawn on top of everything in a high-contrast color.
+        FLIGHTLINE,         // Net connections between the selected placements' pins
+                             // (NEW_FEATURES_SEPT_2026.md item 5, core/flightlines.hpp) - own
+                             // pseudo-row, no Layer, hidden by default (LeHandle pre-seeds it
+                             // invisible); drawn by ComposeStage as an overlay, not rasterized.
     };
 
     struct Color
@@ -340,6 +344,14 @@ namespace le
             set.rows_.push_back(ViewLayerRow{
                 .name = "DEBUG",
                 .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::DEBUG, .id = debug_id}},
+            });
+
+            // After DEBUG only to keep purposes() index == ordinal - it's an
+            // overlay (ComposeStage), so row order doesn't affect its drawing.
+            const ViewLayerId flightline_id = set.add("FLIGHTLINE", "FLIGHTLINE", ViewLayerPurpose::FLIGHTLINE, LayerId{}, flightline_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "FLIGHTLINE",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::FLIGHTLINE, .id = flightline_id}},
             });
 
             return set;
@@ -643,6 +655,16 @@ namespace le
         {
             return ViewLayerStyle{.outline_color = {120, 220, 255, 255}, .fill_color = {120, 220, 255, 100}};
         }
+
+    public:
+        /// @brief Flightlines' light blue (NEW_FEATURES_SEPT_2026.md item 5) -
+        /// public so ComposeStage's overlay and the Layers panel swatch share it.
+        static ViewLayerStyle flightline_style()
+        {
+            return ViewLayerStyle{.outline_color = {135, 206, 250, 255}, .fill_color = {135, 206, 250, 0}};
+        }
+
+    private:
 
         Pool<ViewLayerData, ViewLayerId> pool_;
         std::vector<LookupEntry> lookup_;

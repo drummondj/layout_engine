@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../core/flightlines.hpp"
 #include "../database/database.hpp"
 #include "../view_style/view_style.hpp"
 
@@ -143,6 +144,18 @@ namespace le
         /// each one, not know which selection-variant alternative
         /// produced it. Empty when nothing is selected.
         std::vector<Shape> selected_piece_outlines;
+
+        /// @brief The selected placements' flightlines (NEW_FEATURES_SEPT_2026.md
+        /// item 5, core/flightlines.hpp) - empty unless the FLIGHTLINE
+        /// purpose is visible. Drawn in `flightline_color`.
+        std::vector<Flightline> flightlines_dbu;
+        Color flightline_color;
+
+        /// @brief Bumped whenever `flightlines_dbu` changes (api.cpp's own
+        /// flightline cache) - `ComposeStage::options_did_change` compares
+        /// this, since toggling FLIGHTLINE visibility, or `link` changing
+        /// connectivity, changes nothing any upstream stage rasterizes.
+        std::uint64_t flightline_version = 0;
 
         /// @brief `LeHandle::selection_version()` at the time this
         /// snapshot was taken - `ComposeStage::options_did_change` compares

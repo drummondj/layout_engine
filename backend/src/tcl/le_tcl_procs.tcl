@@ -954,6 +954,7 @@ array set ::purpose_names {
     placementBoundary 12
     customShape 13
     debug 14
+    flightline 15
 }
 
 proc _resolve_purpose_name {command purpose} {

@@ -16,4 +16,5 @@ namespace le::benchmarks
     void register_compose_benchmarks();
     void register_warm_tier_benchmarks();
     void register_shape_ops_benchmarks();
+    void register_flightline_benchmarks();
 }

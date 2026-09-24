@@ -1120,6 +1120,7 @@ add_executable(backend_tests
     src/api/tests/le_handle_test.cpp
     src/api/tests/mutation_cascade_test.cpp
     src/core/tests/placement_move_test.cpp
+    src/core/tests/flightlines_test.cpp
     src/sv/tests/sv_reader_test.cpp
     src/sv/tests/verilog_stub_writer_test.cpp
 )
@@ -1170,6 +1171,7 @@ add_executable(pipeline_benchmarks
     src/pipelines/benchmarks/compose_benchmark.cpp
     src/pipelines/benchmarks/warm_tier_benchmark.cpp
     src/pipelines/benchmarks/shape_ops_benchmark.cpp
+    src/pipelines/benchmarks/flightline_benchmark.cpp
 )
 target_link_libraries(pipeline_benchmarks PRIVATE database geometry view_style pipelines io benchmark::benchmark)
 target_compile_definitions(pipeline_benchmarks PRIVATE

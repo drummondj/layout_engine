@@ -1403,7 +1403,7 @@ TEST_F(ApiFixture, LayerAtOutOfRangeReturnsInvalidRow)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
-    const LeLayerRow row = le_layer_at(handle, 9);
+    const LeLayerRow row = le_layer_at(handle, 10);
     EXPECT_EQ(row.name, nullptr);
 }
 
@@ -1414,7 +1414,7 @@ TEST_F(ApiFixture, LayerAtListsRowThenBoundaryThenEveryPhysicalLayer)
     // testcell.lef declares one physical Layer (M1) - the API doesn't
     // special-case BOUNDARY, it's just another row, so the count is
     // M1 + ROW + GCELLGRID + PLACEMENT_BLOCKAGE + REGION + BOUNDARY +
-    // PLACEMENT_NAME + PLACEMENT_BOUNDARY + DEBUG = 9 (Migration Step 2/3 plus
+    // PLACEMENT_NAME + PLACEMENT_BOUNDARY + DEBUG + FLIGHTLINE = 10 (Migration Step 2/3 plus
     // BUGS_AND_ENHANCEMENTS.md E13 and view_style.hpp's own
     // PLACEMENT_BOUNDARY purpose - see ViewLayerSet::build_for_technology).
     // ROW then BOUNDARY then PLACEMENT_NAME then PLACEMENT_BOUNDARY come
@@ -1422,7 +1422,7 @@ TEST_F(ApiFixture, LayerAtListsRowThenBoundaryThenEveryPhysicalLayer)
     // "own row right after PLACEMENT_NAME" placement - this declaration
     // order is also the real draw z-order, see ViewLayerSet::rows()'s own
     // doc comment).
-    ASSERT_EQ(le_layer_count(handle), 9);
+    ASSERT_EQ(le_layer_count(handle), 10);
 
     const LeLayerRow boundary_row = le_layer_at(handle, 1);
     ASSERT_NE(boundary_row.name, nullptr);
@@ -1460,7 +1460,7 @@ TEST_F(ApiFixture, PurposeAtOutOfRangeReturnsInvalid)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
-    EXPECT_EQ(le_purpose_at(handle, 15), -1);
+    EXPECT_EQ(le_purpose_at(handle, 16), -1);
     EXPECT_EQ(le_purpose_at(handle, -1), -1);
 }
 
@@ -1487,7 +1487,7 @@ TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
     // ordinal below shifted. The raw ordinal values below (le::ViewLayerPurpose's
     // own declaration order, unrelated to and unchanged by this traversal
     // order) are otherwise unaffected.
-    ASSERT_EQ(le_purpose_count(handle), 15);
+    ASSERT_EQ(le_purpose_count(handle), 16);
     EXPECT_EQ(le_purpose_at(handle, 0), 6);   // ROW
     EXPECT_EQ(le_purpose_at(handle, 1), 2);   // BOUNDARY
     EXPECT_EQ(le_purpose_at(handle, 2), 11);  // PLACEMENT_NAME
@@ -1503,6 +1503,7 @@ TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
     EXPECT_EQ(le_purpose_at(handle, 12), 8);  // PLACEMENT_BLOCKAGE
     EXPECT_EQ(le_purpose_at(handle, 13), 10); // REGION
     EXPECT_EQ(le_purpose_at(handle, 14), 14); // DEBUG
+    EXPECT_EQ(le_purpose_at(handle, 15), 15); // FLIGHTLINE (NEW_FEATURES_SEPT_2026.md item 5)
 }
 
 TEST_F(ApiFixture, LayerNameVisibilityDefaultsTrueAndRoundTrips)
@@ -5656,4 +5657,84 @@ TEST_F(ApiFixture, NewDesignsGoIntoTheNamedLibrary)
     ASSERT_EQ(le_library_count(handle), 2);
     for (int32_t i = 0; i < 2; ++i)
         EXPECT_EQ(le_library_design_count(handle, i), 1);
+}
+
+// --- NEW_FEATURES_SEPT_2026.md item 5: flightlines ---
+
+namespace
+{
+    // A light-blue-ish pixel (FLIGHTLINE's own (135,206,250) - blue
+    // clearly above red, whatever the premultiplication/coverage).
+    bool region_has_flightline_pixel(const LePixelBuffer &buffer, int x0, int y0, int x1, int y1)
+    {
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+            {
+                const uint8_t *p = buffer.data + static_cast<size_t>(y) * static_cast<size_t>(buffer.row_bytes) + static_cast<size_t>(x) * 4;
+                if (p[3] > 50 && p[2] > 90 && p[2] > p[0] + 30)
+                    return true;
+            }
+        return false;
+    }
+}
+
+// TOP instantiates TESTCELL twice, U1.A and U2.A both on n1; placed 30um
+// apart and linked, selecting U1 draws a light blue line between the two
+// pin centers - but only once the (hidden-by-default) FLIGHTLINE purpose
+// is made visible.
+TEST_F(ApiFixture, SelectedPlacementDrawsFlightlinesOnlyWhenTheFlightlinePurposeIsVisible)
+{
+    const std::filesystem::path verilog_path = std::filesystem::temp_directory_path() / "le_flightline_top.v";
+    {
+        std::ofstream out(verilog_path);
+        out << "module TOP();\n  wire n1;\n  TESTCELL U1(.A(n1));\n  TESTCELL U2(.A(n1));\nendmodule\n";
+    }
+    const std::string verilog = verilog_path.string();
+    const char *paths[] = {verilog.c_str()};
+
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "cells"), 0);
+    ASSERT_EQ(le_read_verilog(handle, paths, 1, /*is_netlist=*/1, "top"), 0);
+    std::filesystem::remove(verilog_path);
+
+    LeDesignId top_design{.index = UINT32_MAX, .generation = 0};
+    LeDesignId testcell_design{.index = UINT32_MAX, .generation = 0};
+    for (int32_t l = 0; l < le_library_count(handle); ++l)
+        for (int32_t d = 0; d < le_library_design_count(handle, l); ++d)
+        {
+            const LeDesignInfo info = le_library_design_at(handle, l, d);
+            if (std::string(info.name) == "TOP")
+                top_design = info.id;
+            else if (std::string(info.name) == "TESTCELL")
+                testcell_design = info.id;
+        }
+    ASSERT_NE(top_design.index, UINT32_MAX);
+    ASSERT_NE(testcell_design.index, UINT32_MAX);
+
+    const LeLayoutId layout = le_create_layout(handle, top_design);
+    const LeInstanceId no_instance{.index = UINT32_MAX, .generation = 0};
+    ASSERT_NE(le_create_placement(handle, layout, testcell_design, no_instance, "U1", 0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr).index, UINT32_MAX);
+    ASSERT_NE(le_create_placement(handle, layout, testcell_design, no_instance, "U2", 0, "PLACED", 1, 30.0, 0.0, "N", 0, 0.0, nullptr).index, UINT32_MAX);
+    le_link_unresolved_instances(handle); // resolves Placement.instance by name
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_viewport_size(handle, 100, 100);
+    le_zoom(handle, 0.002 - 1.0, 0, 100); // 500 dbu/px, pan (0,0): pixel (x,y) = dbu (500x, 500(100-y))
+    le_mouse_down(handle, 10, 95);        // dbu (5000,2500) - inside U1
+    le_mouse_up(handle, 10, 95);
+    ASSERT_EQ(le_selection_count(handle), 1);
+
+    // Pin A's center is (5,5)um in each: the line runs y=90px from x=10 to
+    // x=70 - sample its middle, clear of both cells' own geometry.
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_FALSE(region_has_flightline_pixel(buffer, 30, 87, 50, 93)); // hidden by default
+
+    le_set_purpose_visible(handle, /*FLIGHTLINE=*/15, 1);
+    buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_flightline_pixel(buffer, 30, 87, 50, 93));
+
+    le_deselect_all(handle);
+    buffer = le_render_pixel_buffer(handle);
+    EXPECT_FALSE(region_has_flightline_pixel(buffer, 30, 87, 50, 93));
 }

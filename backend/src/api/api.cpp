@@ -264,6 +264,41 @@ namespace
         return mask;
     }
 
+    // The selected placements' flightlines (NEW_FEATURES_SEPT_2026.md item
+    // 5) for view_render_options_for, from LeHandle::flightline_cache -
+    // nothing (and version 0) unless the FLIGHTLINE row and purpose are
+    // both visible in a Layout view, so the hidden-by-default feature
+    // costs nothing. Returns {lines, version}.
+    std::pair<std::vector<le::Flightline>, uint64_t> flightlines_for(const LeHandle *handle)
+    {
+        const le::LayoutId layout_id = handle->current_layout();
+        if (!layout_id.valid() || !handle->is_view_layer_visible("FLIGHTLINE", le::ViewLayerPurpose::FLIGHTLINE))
+            return {{}, 0};
+
+        LeHandle::FlightlineCache &cache = handle->flightline_cache;
+        std::lock_guard<std::mutex> lock(cache.mutex);
+        const uint64_t mutation_version = handle->root.mutation_version();
+        if (!cache.index_valid || cache.index_mutation_version != mutation_version || cache.index_layout != layout_id)
+        {
+            cache.index = le::NetEndpointIndex(handle->root, layout_id);
+            cache.index_valid = true;
+            cache.index_mutation_version = mutation_version;
+            cache.index_layout = layout_id;
+            cache.lines_valid = false;
+        }
+        if (!cache.lines_valid || cache.lines_selection_version != handle->selection_version() ||
+            cache.lines_mutation_version != mutation_version || cache.lines_layout != layout_id)
+        {
+            cache.lines = le::placement_flightlines(handle->root, cache.index, selected_placements_unlocked(handle));
+            cache.lines_valid = true;
+            cache.lines_selection_version = handle->selection_version();
+            cache.lines_mutation_version = mutation_version;
+            cache.lines_layout = layout_id;
+            ++cache.version;
+        }
+        return {cache.lines, cache.version};
+    }
+
     le::ViewRenderOptions view_render_options_for(const LeHandle *handle)
     {
         le::ViewRenderOptions options;
@@ -276,6 +311,8 @@ namespace
         options.purpose_visible = handle->purpose_visibility();
 
         options.selection_version = handle->selection_version();
+        std::tie(options.flightlines_dbu, options.flightline_version) = flightlines_for(handle);
+        options.flightline_color = le::ViewLayerSet::flightline_style().outline_color;
         options.selected_piece_outlines.reserve(handle->selection().size());
         const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
         for (const LeHandle::SelectedObject &selected : handle->selection())

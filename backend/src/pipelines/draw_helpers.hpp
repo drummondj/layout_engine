@@ -54,6 +54,10 @@ namespace le
     // instead of shrinking to unreadable specks.
     inline constexpr double kMinLabelPixelSize = 12.0;
 
+    // Flightlines (NEW_FEATURES_SEPT_2026.md item 5) - thin, so a dense
+    // net's star of lines stays readable.
+    inline constexpr double kFlightlineStrokeWidth = 1.0;
+
     // Maximum on-screen text size in pixels, regardless of how large the
     // labeled geometry's own on-screen footprint grows (e.g. zoomed in
     // close on a single cell) - a label only needs to stay legible, not
