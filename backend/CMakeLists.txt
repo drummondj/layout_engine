@@ -367,6 +367,16 @@ FetchContent_Declare(
     URL https://github.com/wolfpld/tracy/archive/refs/tags/v0.13.1.zip
 )
 FetchContent_MakeAvailable(tracy)
+# Compile Tracy's own client without its internal asserts. Its network-
+# discovery broadcast (every 3s) asserts `activeTime >= 0`, computed from
+# the wall clock - which steps backwards under WSL when it resyncs with
+# the host, aborting whichever process has been running over 3s (seen as
+# random "Subprocess aborted" ctest failures after a test had already
+# passed). A negative active time is harmless to the viewer; the abort
+# isn't. PRIVATE, so only TracyClient's own TU is affected.
+if(TARGET TracyClient)
+    target_compile_definitions(TracyClient PRIVATE NDEBUG)
+endif()
 
 # --- GLFW + Dear ImGui (Dear ImGui prototype) - a native window showing
 # le_shell's own rendered pixel buffer, replacing Flutter for the
@@ -637,6 +647,7 @@ add_library(gui STATIC
     src/gui/components/layer_manager.cpp
     src/gui/components/mode_selector.cpp
     src/gui/components/mode_toolbar.cpp
+    src/gui/components/secondary_toolbar.cpp
 )
 target_include_directories(gui PUBLIC src/gui)
 target_include_directories(gui PRIVATE ${icon_font_header_SOURCE_DIR})
@@ -1108,6 +1119,7 @@ add_executable(backend_tests
     src/api/tests/api_test.cpp
     src/api/tests/le_handle_test.cpp
     src/api/tests/mutation_cascade_test.cpp
+    src/core/tests/placement_move_test.cpp
     src/sv/tests/sv_reader_test.cpp
     src/sv/tests/verilog_stub_writer_test.cpp
 )

@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.48.0",
+    version="0.49.0",
     classes=[
         Klass(
             name="Technology",
@@ -150,6 +150,26 @@ schema = Schema(
                     description="LEF MANUFACTURINGGRID, in microns (declared in the file's own units, like database_units_microns - not itself a dbu value) - unset if never read",
                     type="double",
                     example=3.5,
+                    is_optional=True,
+                ),
+                Field(
+                    name="fin_pitch",
+                    description="FinFET grid pitch, in database units - overrides the PITCH of a LIBRARY LEF58_FINFET property definition (\"FINFET PITCH p OFFSET o HORIZONTAL|VERTICAL ;\"), unset means use that property's (see core/fin_grid.hpp)",
+                    type="dbu",
+                    example=48,
+                    is_optional=True,
+                ),
+                Field(
+                    name="fin_offset",
+                    description="FinFET grid offset, in database units - overrides LEF58_FINFET's OFFSET, unset means use that property's (0 if it has none)",
+                    type="dbu",
+                    example=0,
+                    is_optional=True,
+                ),
+                Field(
+                    name="fin_direction",
+                    description="FinFET direction (H: horizontal fins, the grid snaps Y; V: vertical fins, snaps X) - overrides LEF58_FINFET's HORIZONTAL/VERTICAL, unset means use that property's (HORIZONTAL if it has none)",
+                    type="RoutingDirection",
                     is_optional=True,
                 ),
                 Field(

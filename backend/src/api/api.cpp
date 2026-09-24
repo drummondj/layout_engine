@@ -214,6 +214,56 @@ namespace
         return std::nullopt;
     }
 
+    // Where each of `placements` (LeHandle::moving_placements()) would land
+    // for a Placement Move by `raw_delta` right now - the handle's own
+    // snap mode applied (le::plan_placement_move).
+    // Shared by the ghost preview and the commit so both always agree.
+    // Empty outside a Layout view.
+    std::vector<le::PlacementMoveTarget> plan_moving_placements_unlocked(const LeHandle *handle, const std::vector<le::PlacementId> &placements, le::Point raw_delta)
+    {
+        if (!handle->current_layout().valid())
+            return {};
+        const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
+        return le::plan_placement_move(handle->root, handle->current_layout(), placements, le::Orientation::N,
+                                       raw_delta, handle->placement_snap_mode(), remaining_depth);
+    }
+
+    // Every PlacementId in the current selection, in selection order.
+    std::vector<le::PlacementId> selected_placements_unlocked(const LeHandle *handle)
+    {
+        std::vector<le::PlacementId> ids;
+        for (const LeHandle::SelectedObject &selected : handle->selection())
+            if (const le::PlacementId *id = std::get_if<le::PlacementId>(&selected))
+                ids.push_back(*id);
+        return ids;
+    }
+
+    // le_placement_orientation_ops_enabled's own body - a bit (1 << op)
+    // per LeOrientationOp that every selected placement allows right now:
+    // none while a Move is under way - anchored by its first click, ghost
+    // showing (merely arming Move doesn't count) - or outside a Layout view; otherwise each op the
+    // PlacementSnapper permits for every one of them (only ever restricted
+    // under SITE snapping, by the row's Site symmetry).
+    int32_t orientation_ops_enabled_unlocked(const LeHandle *handle, const std::vector<le::PlacementId> &placements)
+    {
+        if (placements.empty() || handle->move().anchor || !handle->current_layout().valid())
+            return 0;
+
+        const le::PlacementSnapper snapper(handle->root, handle->current_layout(), handle->placement_snap_mode());
+        int32_t mask = (1 << LE_ORIENTATION_OP_ROTATE_CCW) | (1 << LE_ORIENTATION_OP_FLIP_HORIZONTAL) | (1 << LE_ORIENTATION_OP_FLIP_VERTICAL);
+        for (const le::PlacementId id : placements)
+        {
+            const le::PlacementData *placement = handle->root.get_placement(id);
+            if (!placement || !placement->location)
+                continue;
+            const le::AbstractData *abstract = handle->root.get_abstract(handle->root.get_design_abstract(placement->reference_design));
+            for (int32_t op = LE_ORIENTATION_OP_ROTATE_CCW; op <= LE_ORIENTATION_OP_FLIP_VERTICAL; ++op)
+                if (!snapper.permits(static_cast<le::OrientationOp>(op), *placement->location, abstract))
+                    mask &= ~(1 << op);
+        }
+        return mask;
+    }
+
     le::ViewRenderOptions view_render_options_for(const LeHandle *handle)
     {
         le::ViewRenderOptions options;
@@ -256,7 +306,24 @@ namespace
         if (handle->hover().has_value())
             options.hover_outline_dbu = handle->hover()->outline;
 
-        if (const std::optional<le::Point> delta = handle->move_delta(handle->move_free_form()))
+        if (const std::vector<le::PlacementId> placements = handle->moving_placements(); !placements.empty())
+        {
+            // Placement Move (NEW_FEATURES_SEPT_2026.md item 2) - each
+            // placement snaps independently, so the ghost is pre-placed
+            // geometry (offset 0) rather than one shared translation; any
+            // shape pieces moving alongside are pre-translated by their own
+            // (user-grid) delta to match.
+            if (const std::optional<le::Point> raw_delta = handle->move_raw_delta(handle->move_free_form()))
+            {
+                const std::optional<le::Point> shape_delta = handle->move_delta(handle->move_free_form());
+                for (const le::Shape &piece : handle->move().moving_geometry)
+                    if (!piece.rects.empty() || !piece.polygons.empty() || !piece.paths.empty())
+                        options.move_ghost_pieces_dbu.push_back(le::Geometry::transform(piece, shape_delta.value_or(le::Point{})));
+                for (const le::PlacementMoveTarget &target : plan_moving_placements_unlocked(handle, placements, *raw_delta))
+                    options.move_ghost_pieces_dbu.push_back(le::placement_move_ghost(target));
+            }
+        }
+        else if (const std::optional<le::Point> delta = handle->move_delta(handle->move_free_form()))
         {
             options.move_ghost_pieces_dbu = handle->move().moving_geometry;
             options.move_ghost_offset_dbu = *delta;
@@ -711,11 +778,11 @@ namespace
     // refresh_armed_move_geometry_unlocked. An empty one-piece Shape
     // (drawing nothing) if the shape itself or the piece index has gone
     // stale since it was selected, rather than crashing or substituting
-    // the wrong piece. Also empty (a documented no-op, not a gap) for
-    // E1's Row/Placement/Region alternatives - Move only ever operates on
-    // ShapePiece selections; moving a Row/Placement/Region is explicitly
-    // out of scope for E1 (BUGS_AND_ENHANCEMENTS.md - "selectable", not
-    // "movable").
+    // the wrong piece. Also empty for E1's Row/Placement/Region
+    // alternatives: Rows/Regions aren't movable, and a Placement's ghost
+    // is planned per frame instead (plan_moving_placements_unlocked -
+    // its snapped position depends on the live mouse, not one shared
+    // offset).
     le::Shape move_ghost_piece_unlocked(LeHandle *handle, const LeHandle::SelectedObject &selected)
     {
         const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
@@ -811,21 +878,24 @@ namespace
         }
 
         const std::optional<le::Point> delta = handle->move_delta(handle->move_free_form());
-        if (!delta)
+        const std::vector<le::PlacementId> placements = handle->moving_placements();
+        const std::optional<le::Point> raw_delta = handle->move_raw_delta(handle->move_free_form());
+        if (!delta || (!placements.empty() && !raw_delta))
         {
             handle->end_move();
             return;
         }
+        // Planned before any Shape below changes Root - the ghost was
+        // planned against the same pre-move state.
+        const std::vector<le::PlacementMoveTarget> placement_targets =
+            placements.empty() ? std::vector<le::PlacementMoveTarget>{} : plan_moving_placements_unlocked(handle, placements, *raw_delta);
 
         handle->command_history.begin("move");
         const std::vector<LeHandle::SelectedObject> moving_pieces = handle->move().moving_pieces;
         for (const LeHandle::SelectedObject &selected : moving_pieces)
         {
-            // Move only ever commits a ShapePiece - E1's Row/Placement/
-            // Region alternatives never reach moving_pieces with real
-            // geometry to move (move_ghost_piece_unlocked's own no-op
-            // above already keeps them out of ghost rendering); this
-            // guard is the matching no-op on the commit side.
+            // Only ShapePieces here - Placements commit from
+            // placement_targets below, Rows/Regions aren't movable.
             const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
             if (!piece)
                 continue;
@@ -843,6 +913,21 @@ namespace
 
             if (le::editing::Transaction *txn = handle->command_history.current())
                 txn->record_update<le::ShapeId, le::ShapeData>(piece->shape_id, before, after, &le::apply_shape_snapshot);
+        }
+        // Placement Move (NEW_FEATURES_SEPT_2026.md item 2) - location
+        // and orientation (the toolbar's pending rotate/flip, possibly
+        // forced by site snapping) land together, in the same transaction.
+        for (const le::PlacementMoveTarget &target : placement_targets)
+        {
+            const le::PlacementData *existing = handle->root.get_placement(target.id);
+            if (!existing)
+                continue;
+            const le::PlacementData before = *existing;
+            handle->root.update_placement(target.id, before.layout, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                                          target.location, target.orientation, std::nullopt, std::nullopt);
+            handle->root.bump_mutation_version();
+            if (le::editing::Transaction *txn = handle->command_history.current())
+                txn->record_update<le::PlacementId, le::PlacementData>(target.id, before, *handle->root.get_placement(target.id), &le::apply_placement_snapshot);
         }
         handle->command_history.end(/*succeeded=*/true);
 
@@ -2586,6 +2671,88 @@ extern "C"
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return handle->move().armed ? 1 : 0;
+    }
+
+    int32_t le_is_move_anchored(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->move().anchor ? 1 : 0;
+    }
+
+    void le_set_placement_snap_mode(LeHandle *handle, int32_t mode)
+    {
+        if (!handle || mode < LE_PLACEMENT_SNAP_NONE || mode > LE_PLACEMENT_SNAP_MANUFACTURING_GRID)
+            return;
+        HandleWriteLock lock(handle);
+        handle->set_placement_snap_mode(static_cast<le::PlacementSnapMode>(mode));
+    }
+
+    int32_t le_get_placement_snap_mode(LeHandle *handle)
+    {
+        if (!handle)
+            return LE_PLACEMENT_SNAP_SITE;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return static_cast<int32_t>(handle->placement_snap_mode());
+    }
+
+    int32_t le_is_placement_snap_mode_available(LeHandle *handle, int32_t mode)
+    {
+        if (!handle || mode < LE_PLACEMENT_SNAP_NONE || mode > LE_PLACEMENT_SNAP_MANUFACTURING_GRID)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return le::PlacementSnapper::available(handle->root, handle->current_layout(), static_cast<le::PlacementSnapMode>(mode)) ? 1 : 0;
+    }
+
+    int32_t le_selected_placement_count(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return static_cast<int32_t>(selected_placements_unlocked(handle).size());
+    }
+
+    int32_t le_placement_orientation_ops_enabled(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return orientation_ops_enabled_unlocked(handle, selected_placements_unlocked(handle));
+    }
+
+    int32_t le_apply_placement_orientation_op(LeHandle *handle, int32_t op)
+    {
+        if (!handle || op < LE_ORIENTATION_OP_ROTATE_CCW || op > LE_ORIENTATION_OP_FLIP_VERTICAL)
+            return -1;
+        HandleWriteLock lock(handle);
+
+        const std::vector<le::PlacementId> placements = selected_placements_unlocked(handle);
+        if (placements.empty())
+            return 1;
+        if (!(orientation_ops_enabled_unlocked(handle, placements) & (1 << op)))
+            return 2;
+
+        // Rotate/flip in place, about each placement's own bbox center, no
+        // snapping - plan_placement_move with a zero delta and SNAP_NONE is
+        // exactly that. One transaction for the whole selection.
+        const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
+        const le::OrientationOp orientation_op = static_cast<le::OrientationOp>(op);
+        const std::vector<le::PlacementMoveTarget> targets = le::plan_placement_move(
+            handle->root, handle->current_layout(), placements, le::orientation_for_op(orientation_op), le::Point{}, le::PlacementSnapMode::NONE, remaining_depth);
+
+        handle->command_history.begin(orientation_op == le::OrientationOp::ROTATE_CCW ? "rotate" : "flip");
+        for (const le::PlacementMoveTarget &target : targets)
+        {
+            const le::PlacementData before = *handle->root.get_placement(target.id);
+            handle->root.update_placement(target.id, before.layout, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                                          target.location, target.orientation, std::nullopt, std::nullopt);
+            handle->root.bump_mutation_version();
+            if (le::editing::Transaction *txn = handle->command_history.current())
+                txn->record_update<le::PlacementId, le::PlacementData>(target.id, before, *handle->root.get_placement(target.id), &le::apply_placement_snapshot);
+        }
+        handle->command_history.end(/*succeeded=*/true);
+        return 0;
     }
 
     int32_t le_is_layer_name_selectable(LeHandle *handle, const char *layer_name)

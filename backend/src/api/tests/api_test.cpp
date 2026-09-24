@@ -4290,7 +4290,7 @@ TEST_F(ApiFixture, DeleteInstanceCascadesToItsPins)
     // micron-to-dbu conversion of its own optional location field, even
     // though this test leaves location unset - same requirement every
     // other create_<type> with a dbu-typed compound field has.
-    le_create_technology(handle, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
+    le_create_technology(handle, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
     const LeLibraryId library_id = le_create_library(handle, "LIB");
     const LeDesignId design_id = le_create_design(handle, library_id, "TOP");
     const LeSchematicId schematic_id = le_create_schematic(handle, design_id);
@@ -4309,7 +4309,7 @@ TEST_F(ApiFixture, DeleteSchematicCascadesThroughPortsNetsInstancesAndTheirPins)
 {
     // See DeleteInstanceCascadesToItsPins's own comment - create_instance
     // needs a Technology present regardless of whether location is used.
-    le_create_technology(handle, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
+    le_create_technology(handle, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
     const LeLibraryId library_id = le_create_library(handle, "LIB");
     const LeDesignId design_id = le_create_design(handle, library_id, "TOP");
     const LeSchematicId schematic_id = le_create_schematic(handle, design_id);
@@ -4880,6 +4880,150 @@ TEST_F(ApiFixture, MoveTranslatesSelectedShapeGeometryAndIsUndoable)
     rect = le_shape_rect_at(handle, shape_id, 0);
     EXPECT_DOUBLE_EQ(rect.ll_x_um, 0.15); // both moves re-applied
     EXPECT_DOUBLE_EQ(rect.ll_y_um, 0.15);
+}
+
+namespace
+{
+    // NEW_FEATURES_SEPT_2026.md item 2 fixture: TESTCELL (CLASS CORE,
+    // 10x10um) placed N as U1 at (2,0) in ROW0 (N, y=0), with ROW1 (FS) at
+    // y=10, both built from a 1x10um CORE site of the given SYMMETRY. U1 is
+    // selected and the handle is in Edit mode, Move not armed, at 200
+    // dbu/px with pan (0,0): pixel (x,y) = dbu (200x, 200(100-y)).
+    LePlacementId select_placement_between_two_rows(LeHandle *handle, const std::string &lef_path, int32_t sym_r90, int32_t sym_x, int32_t sym_y)
+    {
+        le_read_lef(handle, lef_path.c_str());
+        const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+        le_create_site(handle, le_technology_id(handle), "CORE", nullptr, 1, 1.0, 10.0, 1, sym_r90, sym_x, sym_y);
+        const LeDesignId top_design = le_create_design(handle, le_create_library(handle, "TOPLIB"), "TOP");
+        const LeLayoutId top_layout = le_create_layout(handle, top_design);
+        le_create_row(handle, top_layout, "ROW0", "CORE", 1, 0.0, 0.0, "N", 1, 100, 0, 0, 0, 0.0, 0, 0.0);
+        le_create_row(handle, top_layout, "ROW1", "CORE", 1, 0.0, 10.0, "FS", 1, 100, 0, 0, 0, 0.0, 0, 0.0);
+        const LePlacementId placement_id = le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", 0, "PLACED", 1, 2.0, 0.0, "N", 0, 0.0, nullptr);
+
+        le_set_current_design_layout_by_id(handle, top_design);
+        le_set_hierarchy_depth(handle, 1);
+        le_set_viewport_size(handle, 100, 100);
+        le_zoom(handle, 0.005 - 1.0, 0, 100);
+        le_mouse_down(handle, 15, 85); // dbu (3000,3000) - inside U1
+        le_mouse_up(handle, 15, 85);
+        le_set_mode(handle, LE_MODE_EDIT);
+        return placement_id;
+    }
+
+    std::string placement_property(LeHandle *handle, LePlacementId id, const char *path)
+    {
+        const LeProperty p = le_placement_property_path(handle, id, path);
+        return p.string_value ? std::string(p.string_value) : std::string("<null>");
+    }
+
+    void click_at(LeHandle *handle, int32_t x, int32_t y)
+    {
+        le_set_mouse_position(handle, x, y);
+        le_mouse_down(handle, x, y);
+        le_mouse_up(handle, x, y);
+    }
+
+    constexpr int32_t kRotateBit = 1 << LE_ORIENTATION_OP_ROTATE_CCW;
+    constexpr int32_t kFlipHBit = 1 << LE_ORIENTATION_OP_FLIP_HORIZONTAL;
+    constexpr int32_t kFlipVBit = 1 << LE_ORIENTATION_OP_FLIP_VERTICAL;
+}
+
+// A permitted flip commits straight away - no Move involved - in place,
+// as one undoable edit.
+TEST_F(ApiFixture, PlacementFlipCommitsImmediatelyAndIsUndoable)
+{
+    const LePlacementId placement_id = select_placement_between_two_rows(handle, fixture_path("testcell.lef"), 0, 0, /*sym_y=*/1);
+    ASSERT_EQ(le_selected_placement_count(handle), 1);
+    EXPECT_EQ(le_is_move_armed(handle), 0);
+
+    ASSERT_EQ(le_apply_placement_orientation_op(handle, LE_ORIENTATION_OP_FLIP_HORIZONTAL), 0);
+    EXPECT_EQ(placement_property(handle, placement_id, ".orientation"), "FN");
+    EXPECT_EQ(placement_property(handle, placement_id, ".location"), "{2 0}"); // a flip keeps the bbox
+
+    ASSERT_NE(le_undo(handle), 0);
+    EXPECT_EQ(placement_property(handle, placement_id, ".orientation"), "N");
+}
+
+// Under site snapping, only the ops the row's site SYMMETRY permits are
+// enabled (Y only here: horizontal flip); any other snap mode enables all
+// three. A disabled op is refused and changes nothing.
+TEST_F(ApiFixture, PlacementRotateAndFlipAreGatedBySiteSymmetryOnlyUnderSiteSnapping)
+{
+    const LePlacementId placement_id = select_placement_between_two_rows(handle, fixture_path("testcell.lef"), 0, 0, /*sym_y=*/1);
+    ASSERT_EQ(le_get_placement_snap_mode(handle), LE_PLACEMENT_SNAP_SITE);
+    EXPECT_EQ(le_placement_orientation_ops_enabled(handle), kFlipHBit);
+
+    EXPECT_EQ(le_apply_placement_orientation_op(handle, LE_ORIENTATION_OP_ROTATE_CCW), 2);
+    EXPECT_EQ(le_apply_placement_orientation_op(handle, LE_ORIENTATION_OP_FLIP_VERTICAL), 2);
+    EXPECT_EQ(placement_property(handle, placement_id, ".orientation"), "N");
+    EXPECT_EQ(le_can_undo(handle), 0);
+
+    le_set_placement_snap_mode(handle, LE_PLACEMENT_SNAP_NONE);
+    EXPECT_EQ(le_placement_orientation_ops_enabled(handle), kRotateBit | kFlipHBit | kFlipVBit);
+    ASSERT_EQ(le_apply_placement_orientation_op(handle, LE_ORIENTATION_OP_ROTATE_CCW), 0);
+    EXPECT_EQ(placement_property(handle, placement_id, ".orientation"), "W");
+    EXPECT_EQ(placement_property(handle, placement_id, ".location"), "{2 0}"); // square cell - rotating about its center keeps the bbox
+}
+
+TEST_F(ApiFixture, PlacementSiteSymmetryXYR90EnablesEveryOpUnderSiteSnapping)
+{
+    select_placement_between_two_rows(handle, fixture_path("testcell.lef"), 1, 1, 1);
+    EXPECT_EQ(le_placement_orientation_ops_enabled(handle), kRotateBit | kFlipHBit | kFlipVBit);
+}
+
+// Arming Move alone leaves rotate/flip enabled (and committing
+// immediately); only once the move's first click has anchored it - the
+// ghost showing - are they disabled, until that move completes or is
+// cancelled.
+TEST_F(ApiFixture, PlacementRotateAndFlipAreDisabledOnlyWhileAMoveIsUnderWay)
+{
+    const LePlacementId placement_id = select_placement_between_two_rows(handle, fixture_path("testcell.lef"), 1, 1, 1);
+    le_set_placement_snap_mode(handle, LE_PLACEMENT_SNAP_NONE);
+    le_arm_move(handle);
+    ASSERT_NE(le_is_move_armed(handle), 0);
+    EXPECT_EQ(le_is_move_anchored(handle), 0);
+
+    EXPECT_EQ(le_placement_orientation_ops_enabled(handle), kRotateBit | kFlipHBit | kFlipVBit);
+    ASSERT_EQ(le_apply_placement_orientation_op(handle, LE_ORIENTATION_OP_FLIP_HORIZONTAL), 0);
+    EXPECT_EQ(placement_property(handle, placement_id, ".orientation"), "FN");
+
+    click_at(handle, 15, 85); // first click - anchors the move
+    ASSERT_NE(le_is_move_anchored(handle), 0);
+    EXPECT_EQ(le_placement_orientation_ops_enabled(handle), 0);
+    EXPECT_EQ(le_apply_placement_orientation_op(handle, LE_ORIENTATION_OP_FLIP_HORIZONTAL), 2);
+    EXPECT_EQ(placement_property(handle, placement_id, ".orientation"), "FN");
+
+    click_at(handle, 20, 85); // second click - commits dbu (+1000, 0), keeping the flip
+    EXPECT_EQ(placement_property(handle, placement_id, ".location"), "{3 0}");
+    EXPECT_EQ(placement_property(handle, placement_id, ".orientation"), "FN");
+    EXPECT_NE(le_is_move_armed(handle), 0); // still armed for a follow-up move...
+    EXPECT_EQ(le_placement_orientation_ops_enabled(handle), kRotateBit | kFlipHBit | kFlipVBit); // ...but no longer under way
+
+    click_at(handle, 20, 85); // anchor a second move, then cancel it
+    EXPECT_EQ(le_placement_orientation_ops_enabled(handle), 0);
+    le_cancel_move(handle);
+    EXPECT_EQ(le_placement_orientation_ops_enabled(handle), kRotateBit | kFlipHBit | kFlipVBit);
+}
+
+// A site-snapped Move into the FS row takes that row's orientation (N is
+// outside the FS row's family - the site is only SYMMETRY Y), as one undo
+// step with the location.
+TEST_F(ApiFixture, PlacementMoveSnapsToTheRowSiteGridAndOrientationAndIsUndoable)
+{
+    const LePlacementId placement_id = select_placement_between_two_rows(handle, fixture_path("testcell.lef"), 0, 0, /*sym_y=*/1);
+    EXPECT_NE(le_is_placement_snap_mode_available(handle, LE_PLACEMENT_SNAP_SITE), 0);
+    EXPECT_EQ(le_is_placement_snap_mode_available(handle, LE_PLACEMENT_SNAP_FIN_GRID), 0);
+
+    le_arm_move(handle);
+    click_at(handle, 15, 85); // anchor at dbu (3000,3000)
+    click_at(handle, 15, 36); // dbu (3000,12800) - delta (0,9800), snapped onto ROW1's y=10000
+
+    EXPECT_EQ(placement_property(handle, placement_id, ".location"), "{2 10}");
+    EXPECT_EQ(placement_property(handle, placement_id, ".orientation"), "FS");
+
+    ASSERT_NE(le_undo(handle), 0);
+    EXPECT_EQ(placement_property(handle, placement_id, ".location"), "{2 0}");
+    EXPECT_EQ(placement_property(handle, placement_id, ".orientation"), "N");
 }
 
 TEST_F(ApiFixture, ArmedMoveRendersADashedTranslucentGhostAtTheOffsetPositionBeforeCommitting)

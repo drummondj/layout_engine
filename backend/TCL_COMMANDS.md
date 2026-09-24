@@ -734,7 +734,7 @@ One LEF SPACING statement for a layer - ROUTING and CUT layers use disjoint sets
 
 ## create_technology
 
-`create_technology -database_units_microns <double> [-capacitance_units_pf <double>] [-resistance_units_ohms <double>] [-power_units_mw <double>] [-current_units_ma <double>] [-voltage_units_v <double>] [-frequency_units_mhz <double>] [-bus_bit_chars <str>] [-divider_char <str>] [-fixed_mask <bool>] [-use_min_spacing_obs <bool>] [-use_min_spacing_pin <bool>] [-clearance_measure <str>] [-manufacturing_grid <double>] [-max_via_stack <int>] [-max_via_stack_bottom_layer <str>] [-max_via_stack_top_layer <str>] [-antenna_input_gate_area <double>] [-antenna_inout_diff_area <double>] [-antenna_output_diff_area <double>] [-help]`
+`create_technology -database_units_microns <double> [-capacitance_units_pf <double>] [-resistance_units_ohms <double>] [-power_units_mw <double>] [-current_units_ma <double>] [-voltage_units_v <double>] [-frequency_units_mhz <double>] [-bus_bit_chars <str>] [-divider_char <str>] [-fixed_mask <bool>] [-use_min_spacing_obs <bool>] [-use_min_spacing_pin <bool>] [-clearance_measure <str>] [-manufacturing_grid <double>] [-fin_pitch <dbu>] [-fin_offset <dbu>] [-fin_direction <RoutingDirection>] [-max_via_stack <int>] [-max_via_stack_bottom_layer <str>] [-max_via_stack_top_layer <str>] [-antenna_input_gate_area <double>] [-antenna_inout_diff_area <double>] [-antenna_output_diff_area <double>] [-help]`
 
 Technology information such as layers and site definitions
 
@@ -754,6 +754,9 @@ Technology information such as layers and site definitions
 | `-use_min_spacing_pin` | `bool` | no | LEF USEMINSPACING PIN ON|OFF - unset if the LEF file never declared it |
 | `-clearance_measure` | `str` | no | LEF CLEARANCEMEASURE (EUCLIDEAN or MAXXY) - unset if never read |
 | `-manufacturing_grid` | `double` | no | LEF MANUFACTURINGGRID, in microns (declared in the file's own units, like database_units_microns - not itself a dbu value) - unset if never read |
+| `-fin_pitch` | `dbu` | no | FinFET grid pitch, in database units - overrides the PITCH of a LIBRARY LEF58_FINFET property definition ("FINFET PITCH p OFFSET o HORIZONTAL|VERTICAL ;"), unset means use that property's (see core/fin_grid.hpp) |
+| `-fin_offset` | `dbu` | no | FinFET grid offset, in database units - overrides LEF58_FINFET's OFFSET, unset means use that property's (0 if it has none) |
+| `-fin_direction` | `RoutingDirection` | no | FinFET direction (H: horizontal fins, the grid snaps Y; V: vertical fins, snaps X) - overrides LEF58_FINFET's HORIZONTAL/VERTICAL, unset means use that property's (HORIZONTAL if it has none) |
 | `-max_via_stack` | `int` | no | LEF MAXVIASTACK value - unset if never read |
 | `-max_via_stack_bottom_layer` | `str` | no | LEF MAXVIASTACK ... RANGE bottomLayer - unset if the RANGE clause was omitted |
 | `-max_via_stack_top_layer` | `str` | no | LEF MAXVIASTACK ... RANGE topLayer - unset if the RANGE clause was omitted |
@@ -1544,6 +1547,17 @@ Renders the current view (the same le_render_pixel_buffer output the app's own T
 | --- | --- | --- | --- |
 | `<path>` | `file` | yes | Output PNG file path |
 
+## flip_placement
+
+`flip_placement <direction> [-help]`
+
+Flips every selected placement about its own center, as one undoable edit - horizontal mirrors in X (N -> FN, needs SYMMETRY Y under site snapping), vertical mirrors in Y (N -> FS, needs SYMMETRY X). An error if no placement is selected, a move is under way (after its first click), or site snapping is on and the row's site symmetry doesn't permit it.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<direction>` | `str` | yes | horizontal or vertical |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_abstracts
 
 `get_abstracts [-of <token>...] [-filter <expr>] [-help]`
@@ -1962,6 +1976,16 @@ Logical connection point on an Instance (Verilog instance port connection)
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_placement_snap_mode
+
+`get_placement_snap_mode [-help]`
+
+Returns the placement snap mode - site, fin, manufacturing, or none.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_placements
 
 `get_placements [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
@@ -2306,6 +2330,17 @@ Selects a Design by name as this session's current view - every subsequent get_<
 | `-view` | `str` | no | "abstract" (default) or "layout" - mutually exclusive, selecting one deactivates the other |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## placement_snap_mode_available
+
+`placement_snap_mode_available <mode> [-help]`
+
+Returns 1 if <mode> has anything to snap to in the current view - rows in the current layout (site), a FinFET grid (fin), a MANUFACTURINGGRID (manufacturing); none always returns 1.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<mode>` | `str` | yes | One of site, fin, manufacturing, none |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## read_def
 
 `read_def <path> [-help]`
@@ -2394,6 +2429,16 @@ Pretty-prints every property of every given friendly-id token to stdout, one ali
 | --- | --- | --- | --- |
 | `<tokens>` | `token...` | yes | One friendly-id token, or a list of them |
 
+## rotate_placement
+
+`rotate_placement [-help]`
+
+Rotates every selected placement 90 degrees counterclockwise about its own center (N -> W -> S -> E), as one undoable edit. An error if no placement is selected, a move is under way (after its first click), or site snapping is on and the row's site isn't SYMMETRY R90.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## select
 
 `select <tokens> [-help]`
@@ -2481,6 +2526,17 @@ Switches the current interaction mode - select (default), edit, or ruler. Also r
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<mode>` | `str` | yes | One of select, edit, ruler |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## set_placement_snap_mode
+
+`set_placement_snap_mode <mode> [-help]`
+
+Sets what a moving placement's location snaps to - site (default: a CORE-class cell snaps to the nearest row's site grid, using rows of its own SITE, and takes an orientation the row allows; any other placement falls back to the manufacturing grid), fin (the FinFET grid across the fins - a LIBRARY LEF58_FINFET property, or update_technology -fin_pitch/-fin_offset/-fin_direction - and the manufacturing grid along them), manufacturing (the MANUFACTURINGGRID) or none. Persists across moves.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<mode>` | `str` | yes | One of site, fin, manufacturing, none |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## set_purpose_selectable
@@ -3404,7 +3460,7 @@ One LEF SPACING statement for a layer - ROUTING and CUT layers use disjoint sets
 
 ## update_technology
 
-`update_technology <id> [-database_units_microns <double>] [-capacitance_units_pf <double>] [-resistance_units_ohms <double>] [-power_units_mw <double>] [-current_units_ma <double>] [-voltage_units_v <double>] [-frequency_units_mhz <double>] [-bus_bit_chars <str>] [-divider_char <str>] [-fixed_mask <bool>] [-use_min_spacing_obs <bool>] [-use_min_spacing_pin <bool>] [-clearance_measure <str>] [-manufacturing_grid <double>] [-max_via_stack <int>] [-max_via_stack_bottom_layer <str>] [-max_via_stack_top_layer <str>] [-antenna_input_gate_area <double>] [-antenna_inout_diff_area <double>] [-antenna_output_diff_area <double>] [-help]`
+`update_technology <id> [-database_units_microns <double>] [-capacitance_units_pf <double>] [-resistance_units_ohms <double>] [-power_units_mw <double>] [-current_units_ma <double>] [-voltage_units_v <double>] [-frequency_units_mhz <double>] [-bus_bit_chars <str>] [-divider_char <str>] [-fixed_mask <bool>] [-use_min_spacing_obs <bool>] [-use_min_spacing_pin <bool>] [-clearance_measure <str>] [-manufacturing_grid <double>] [-fin_pitch <dbu>] [-fin_offset <dbu>] [-fin_direction <RoutingDirection>] [-max_via_stack <int>] [-max_via_stack_bottom_layer <str>] [-max_via_stack_top_layer <str>] [-antenna_input_gate_area <double>] [-antenna_inout_diff_area <double>] [-antenna_output_diff_area <double>] [-help]`
 
 Technology information such as layers and site definitions
 
@@ -3424,6 +3480,9 @@ Technology information such as layers and site definitions
 | `-use_min_spacing_pin` | `bool` | no | LEF USEMINSPACING PIN ON|OFF - unset if the LEF file never declared it |
 | `-clearance_measure` | `str` | no | LEF CLEARANCEMEASURE (EUCLIDEAN or MAXXY) - unset if never read |
 | `-manufacturing_grid` | `double` | no | LEF MANUFACTURINGGRID, in microns (declared in the file's own units, like database_units_microns - not itself a dbu value) - unset if never read |
+| `-fin_pitch` | `dbu` | no | FinFET grid pitch, in database units - overrides the PITCH of a LIBRARY LEF58_FINFET property definition ("FINFET PITCH p OFFSET o HORIZONTAL|VERTICAL ;"), unset means use that property's (see core/fin_grid.hpp) |
+| `-fin_offset` | `dbu` | no | FinFET grid offset, in database units - overrides LEF58_FINFET's OFFSET, unset means use that property's (0 if it has none) |
+| `-fin_direction` | `RoutingDirection` | no | FinFET direction (H: horizontal fins, the grid snaps Y; V: vertical fins, snaps X) - overrides LEF58_FINFET's HORIZONTAL/VERTICAL, unset means use that property's (HORIZONTAL if it has none) |
 | `-max_via_stack` | `int` | no | LEF MAXVIASTACK value - unset if never read |
 | `-max_via_stack_bottom_layer` | `str` | no | LEF MAXVIASTACK ... RANGE bottomLayer - unset if the RANGE clause was omitted |
 | `-max_via_stack_top_layer` | `str` | no | LEF MAXVIASTACK ... RANGE topLayer - unset if the RANGE clause was omitted |

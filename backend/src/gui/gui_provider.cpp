@@ -40,6 +40,16 @@ namespace le::gui
 
         state_.layer_manager.hierarchy_depth = le_hierarchy_depth(handle_);
 
+        state_.placement_move.selected_count = state_.mode == LE_MODE_EDIT ? le_selected_placement_count(handle_) : 0;
+        if (state_.placement_move.selected_count > 0)
+        {
+            state_.placement_move.snap_mode = le_get_placement_snap_mode(handle_);
+            for (int32_t mode = LE_PLACEMENT_SNAP_NONE; mode <= LE_PLACEMENT_SNAP_MANUFACTURING_GRID; ++mode)
+                state_.placement_move.snap_available[mode] = le_is_placement_snap_mode_available(handle_, mode) != 0;
+            state_.placement_move.orientation_ops_enabled = le_placement_orientation_ops_enabled(handle_);
+            state_.placement_move.is_move_anchored = le_is_move_anchored(handle_) != 0;
+        }
+
         // Same build-every-frame shape layer_manager.cpp's own local
         // layers/purposes vectors used before this moved here - see
         // State's own doc comment (gui_provider.hpp) for why this is safe
@@ -311,6 +321,30 @@ namespace le::gui
     void GuiProvider::select_all() { run_tcl_command("select_all"); }
     void GuiProvider::deselect_all() { run_tcl_command("deselect_all"); }
     void GuiProvider::arm_move() { run_tcl_command("arm_move"); }
+
+    void GuiProvider::set_placement_snap_mode(int32_t mode)
+    {
+        switch (mode)
+        {
+        case LE_PLACEMENT_SNAP_NONE:
+            run_tcl_command("set_placement_snap_mode none");
+            break;
+        case LE_PLACEMENT_SNAP_FIN_GRID:
+            run_tcl_command("set_placement_snap_mode fin");
+            break;
+        case LE_PLACEMENT_SNAP_MANUFACTURING_GRID:
+            run_tcl_command("set_placement_snap_mode manufacturing");
+            break;
+        case LE_PLACEMENT_SNAP_SITE:
+        default:
+            run_tcl_command("set_placement_snap_mode site");
+            break;
+        }
+    }
+
+    void GuiProvider::rotate_placement() { run_tcl_command("rotate_placement"); }
+    void GuiProvider::flip_placement_horizontal() { run_tcl_command("flip_placement horizontal"); }
+    void GuiProvider::flip_placement_vertical() { run_tcl_command("flip_placement vertical"); }
     void GuiProvider::undo() { run_tcl_command("undo"); }
     void GuiProvider::redo() { run_tcl_command("redo"); }
     void GuiProvider::clear_rulers() { run_tcl_command("clear_rulers"); }

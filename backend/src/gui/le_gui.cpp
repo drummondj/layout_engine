@@ -8,6 +8,7 @@
 #include "components/layer_manager.hpp"
 #include "components/mode_selector.hpp"
 #include "components/mode_toolbar.hpp"
+#include "components/secondary_toolbar.hpp"
 #include "components/icon_font.hpp"
 
 // Apple deprecated the whole OpenGL framework in favor of Metal (10.14+)
@@ -1309,6 +1310,33 @@ namespace le::gui
                         ImGui::TextUnformatted("Loading design - this can take a while for a large one...");
                     else
                         ImGui::TextUnformatted("No design loaded yet - read_lef/open_design from the console.");
+                }
+
+                // Secondary toolbar (secondary_toolbar.hpp) - overlaid on
+                // the design view's own top edge, directly under
+                // ModeToolbar, rather than a row of its own: see
+                // has_secondary_toolbar's own comment for why (showing it
+                // must never resize the viewport). Drawn after the Image
+                // above, so it's hit-tested on top of it - forward_mouse_input's
+                // own IsItemHovered() is false while the mouse is over
+                // this child window. The cursor is restored afterwards so
+                // draw_status_bar below lands where it always does.
+                if (have_content && has_secondary_toolbar(provider))
+                {
+                    constexpr float kSecondaryToolbarHeight = 48.0f; // secondary_toolbar.cpp's 36px buttons + 6px padding each side
+                    const ImVec2 resume_pos = ImGui::GetCursorScreenPos();
+                    ImGui::SetCursorScreenPos(content_screen_pos);
+                    // Opaque black, square corners - matches mode_toolbar_row.
+                    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
+                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
+                    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0.0f);
+                    ImGui::BeginChild("secondary_toolbar_row", ImVec2(panel_width, kSecondaryToolbarHeight), ImGuiChildFlags_AlwaysUseWindowPadding,
+                                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+                    draw_secondary_toolbar(provider);
+                    ImGui::EndChild();
+                    ImGui::PopStyleVar(2);
+                    ImGui::PopStyleColor();
+                    ImGui::SetCursorScreenPos(resume_pos);
                 }
 
                 // Drawn at a fixed position - the design view's own

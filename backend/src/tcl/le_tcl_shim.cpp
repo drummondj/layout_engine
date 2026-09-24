@@ -875,6 +875,26 @@ void arm_move_cmd()
     le_arm_move(session());
 }
 
+void set_placement_snap_mode_cmd(int mode)
+{
+    le_set_placement_snap_mode(session(), mode);
+}
+
+int get_placement_snap_mode_cmd()
+{
+    return le_get_placement_snap_mode(session());
+}
+
+bool is_placement_snap_mode_available_cmd(int mode)
+{
+    return le_is_placement_snap_mode_available(session(), mode) != 0;
+}
+
+int apply_placement_orientation_op_cmd(int op)
+{
+    return le_apply_placement_orientation_op(session(), op);
+}
+
 void request_show_gui_cmd()
 {
     le_request_show_gui(session());

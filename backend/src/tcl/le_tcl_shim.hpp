@@ -347,6 +347,19 @@ void deselect_all_cmd();
 /// directly.
 void arm_move_cmd();
 
+/// @brief Backing for `set_placement_snap_mode`/`get_placement_snap_mode`/
+/// the snap-availability check - mirror le_set_placement_snap_mode/
+/// le_get_placement_snap_mode/le_is_placement_snap_mode_available
+/// (LePlacementSnapMode values; le_tcl_procs.tcl maps the keywords).
+void set_placement_snap_mode_cmd(int mode);
+int get_placement_snap_mode_cmd();
+bool is_placement_snap_mode_available_cmd(int mode);
+
+/// @brief Backing for `rotate_placement`/`flip_placement` - mirrors
+/// le_apply_placement_orientation_op (LeOrientationOp values; returns
+/// its status code).
+int apply_placement_orientation_op_cmd(int op);
+
 /// @brief Backing for the `show_gui` Tcl command - mirrors
 /// le_request_show_gui directly. Fire-and-forget: the actual window is
 /// opened by a separate, dedicated GUI thread (src/gui/le_gui.hpp) that

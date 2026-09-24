@@ -89,7 +89,21 @@ none of these are duplicated here.
   (a Placement's own world-space bbox plus the E1 top-level Placement
   hit-test built on it, used by `api.cpp`'s Layout-view selection and by
   the pipelines module) and `row_geometry.hpp` (a Row's own synthesized
-  footprint bbox, Row having no stored `Shape` of its own). `RenderedShape`/
+  footprint bbox, Row having no stored `Shape` of its own).
+  `placement_move.hpp`/`fin_grid.hpp` (NEW_FEATURES_SEPT_2026.md item 2):
+  `plan_placement_move` applies an orientation change (keeping the bbox
+  center fixed), the delta, and per-placement snapping
+  (`PlacementSnapMode`: SITE only for a CORE-class Abstract, onto rows of
+  its own SITE, forcing an orientation in `row_allowed_orientations` —
+  the row's own closed under the ops the row Site's SYMMETRY permits —
+  else the manufacturing grid; FIN_GRID; MANUFACTURING_GRID; NONE).
+  `PlacementSnapper::permits` gates the immediate rotate/flip
+  (`le_apply_placement_orientation_op`) on that same Site symmetry, under
+  SITE snapping only. The FinFET grid is a LIBRARY `LEF58_FINFET`
+  PROPERTYDEFINITIONS default string, overridden by
+  `Technology.fin_pitch`/`fin_offset`/`fin_direction` (`update_technology`).
+  Covered by `core/tests/placement_move_test.cpp`.
+  `RenderedShape`/
   `TinyShapeDot`/`VersionedStage`/`ShapeGenerationStage` (the pre-restart
   `pipeline` module's own shape-generation output/render-input types and
   memoization primitive) were removed with the rest of `pipelines.old` -
@@ -467,7 +481,11 @@ none of these are duplicated here.
   into before falling back to a placed instance's own Abstract — see
   `src/pipelines/`'s own `HierarchyResolver` bullet), pan/scale/viewport-
   size transform, per-`ViewLayer` visibility, selection, hover, rulers,
-  Move-drag state, and interaction mode. Layer visibility is keyed by
+  Move-drag state, and interaction mode. A Move with Placements selected
+  (`moving_placements()`) is planned per frame against Root by api.cpp's
+  `plan_moving_placements_unlocked` — shared by the ghost and the commit —
+  from the raw (not user-grid-snapped) mouse delta and
+  `placement_snap_mode()`. Layer visibility is keyed by
   `ViewLayerId`, not `LayerId` — a physical layer has independently
   toggleable `TERMINAL`/`OBSTRUCTION` visibility. Selection
   (`LeHandle::SelectedObject`) is `std::variant<ShapePiece, RowId,
@@ -567,7 +585,11 @@ none of these are duplicated here.
   a machine missing either fails configure with a clear CMake error
   rather than silently degrading (e.g. the Rocky Linux 8 bootstrap
   effort, see Open gaps below, needs to provision both, not route around
-  them). No automated test coverage of the render/input loop itself
+  them). `components/secondary_toolbar.cpp` is the tool-options row
+  under ModeToolbar (currently only the placement toolbar: Move snap mode
+  plus immediately-committed rotate/flip, disabled once a Move's first click has anchored it); le_gui.cpp overlays it on the design view's top edge rather
+  than inserting a row, so showing it never resizes the viewport. No
+  automated test coverage of the render/input loop itself
   (inherently interactive/visual) — verified manually only, on macOS, as
   of this writing; Linux packaging is done for the two Docker paths
   (`Dockerfile.linux-ci`/`Dockerfile.linux-release` both provision GLFW's
@@ -707,7 +729,9 @@ Dart-driven GUI or a TCL script's `open_design`; a script that builds an
 state, never `LeHandle::current_abstract()`.
 
 `create_<type>` covers one flag per scalar field (`str`/`int`/`double`/
-`dbu`/`bool`/enum), one flag per *flattenable* embedded-struct field
+`dbu`/`bool`/enum — a `dbu` field on `Technology` itself converts through
+that Technology's own `database_units_microns`, `Klass._owns_dbu_scale()`),
+one flag per *flattenable* embedded-struct field
 (`Point`/`Rect`/`Symmetry`/`DensityCheckWindow`/... — see
 `Klass.embedded_scalar_leaves()`; the one embedded struct that isn't
 flattenable, `ParallelRunLengthSpacingTable`, a genuine variable-size

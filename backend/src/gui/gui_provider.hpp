@@ -87,6 +87,20 @@ namespace le::gui
                 std::vector<LayerRow> layers;
                 std::vector<PurposeRow> purposes;
             } layer_manager;
+
+            // secondary_toolbar.cpp's placement toolbar
+            // (NEW_FEATURES_SEPT_2026.md item 2) - shown in Edit mode
+            // while selected_count > 0; the rest is only refreshed then.
+            // snap_available is LePlacementSnapMode-indexed,
+            // orientation_ops_enabled a (1 << LeOrientationOp) bitmask.
+            struct PlacementMove
+            {
+                int32_t selected_count = 0;
+                int32_t snap_mode = LE_PLACEMENT_SNAP_SITE;
+                bool snap_available[4] = {true, false, false, false};
+                int32_t orientation_ops_enabled = 0;
+                bool is_move_anchored = false;
+            } placement_move;
         };
 
         // Re-populates state() from the live API - call exactly once per
@@ -149,6 +163,10 @@ namespace le::gui
         void select_all();
         void deselect_all();
         void arm_move();
+        void set_placement_snap_mode(int32_t mode);
+        void rotate_placement();
+        void flip_placement_horizontal();
+        void flip_placement_vertical();
         void undo();
         void redo();
         void clear_rulers();

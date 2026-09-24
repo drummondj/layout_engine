@@ -112,6 +112,32 @@ if {[catch {set_mode not_a_real_mode} err]} {
     exit 1
 }
 
+check "placement snap mode defaults to site" "site" [get_placement_snap_mode]
+foreach snap_mode {fin manufacturing none site} {
+    set_placement_snap_mode $snap_mode
+    check "set_placement_snap_mode $snap_mode round-trips" $snap_mode [get_placement_snap_mode]
+}
+check "no snap is always available" 1 [placement_snap_mode_available none]
+check "no fin grid without a technology" 0 [placement_snap_mode_available fin]
+if {[catch {set_placement_snap_mode not_a_real_mode} err]} {
+    puts "ok: set_placement_snap_mode rejects an unknown mode keyword ($err)"
+} else {
+    puts stderr "FAIL: set_placement_snap_mode accepted an unknown mode keyword"
+    exit 1
+}
+if {[catch {rotate_placement} err]} {
+    puts "ok: rotate_placement errors with no placement selected ($err)"
+} else {
+    puts stderr "FAIL: rotate_placement succeeded with no placement selected"
+    exit 1
+}
+if {[catch {flip_placement diagonal} err]} {
+    puts "ok: flip_placement rejects an unknown direction ($err)"
+} else {
+    puts stderr "FAIL: flip_placement accepted an unknown direction"
+    exit 1
+}
+
 clear_rulers
 puts "ok: clear_rulers"
 select_all

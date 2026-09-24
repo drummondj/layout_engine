@@ -2,6 +2,7 @@
 
 #include "api.hpp"
 
+#include "../core/placement_move.hpp"
 #include "../database/database.hpp"
 #include "../editing/editing.hpp"
 #include "../pipelines/view_render_pipeline.hpp"
@@ -872,10 +873,17 @@ struct LeHandle
         // offset) - this keeps the render-side ghost overlay
         // (BuildOverlayPictureStage) Root-agnostic, the same reason it
         // doesn't take a Root reference anywhere else.
+        //
+        // Placement moves (NEW_FEATURES_SEPT_2026.md item 2) ride the same
+        // state: `anchor_raw` is the anchor's own unsnapped dbu position
+        // (a Placement's delta comes from the raw mouse - its own
+        // snapping, placement_snap_mode(), replaces the user-grid snap).
+        // Reset on every arm/re-arm.
         struct MoveState
         {
             bool armed = false;
             std::optional<le::Point> anchor;
+            std::optional<le::Point> anchor_raw;
             std::vector<SelectedObject> moving_pieces;
             std::vector<le::Shape> moving_geometry;
             bool free_form = false;
@@ -897,6 +905,7 @@ struct LeHandle
 
             move_.armed = true;
             move_.anchor.reset();
+            move_.anchor_raw.reset();
             move_.moving_pieces = selection_;
             move_.moving_geometry = std::move(geometry);
             ++mouse_version_;
@@ -935,9 +944,56 @@ struct LeHandle
                 return false;
 
             move_.anchor = snapped_mouse_position();
+            move_.anchor_raw = mouse_dbu_position();
             ++mouse_version_;
             return true;
         }
+
+        // Placement counterpart of move_delta: the *unsnapped* mouse
+        // offset from anchor_raw, axis-constrained the same way unless
+        // `free_form`. nullopt until anchored (the ghost, like a shape
+        // move's, only shows from the first click), or with no mouse
+        // position.
+        std::optional<le::Point> move_raw_delta(bool free_form) const
+        {
+            if (!move_.armed || !move_.anchor_raw)
+                return std::nullopt;
+
+            const std::optional<le::Point> raw = mouse_dbu_position();
+            if (!raw)
+                return std::nullopt;
+
+            const int64_t dx = raw->x - move_.anchor_raw->x;
+            const int64_t dy = raw->y - move_.anchor_raw->y;
+            if (free_form)
+                return le::Point{dx, dy};
+            return std::llabs(dx) >= std::llabs(dy) ? le::Point{dx, 0} : le::Point{0, dy};
+        }
+
+        // The PlacementIds among moving_pieces, in selection order - empty
+        // unless Move is armed with at least one Placement selected (the
+        // secondary toolbar's own visibility condition).
+        std::vector<le::PlacementId> moving_placements() const
+        {
+            std::vector<le::PlacementId> ids;
+            for (const SelectedObject &selected : move_.moving_pieces)
+                if (const le::PlacementId *id = std::get_if<le::PlacementId>(&selected))
+                    ids.push_back(*id);
+            return ids;
+        }
+
+        // What a moving Placement's location snaps to (the secondary
+        // toolbar's snap buttons) - persists across moves, SITE by
+        // default. Bumps mouse_version_ on a real change so the ghost
+        // re-snaps immediately.
+        void set_placement_snap_mode(le::PlacementSnapMode mode)
+        {
+            if (mode == placement_snap_mode_)
+                return;
+            placement_snap_mode_ = mode;
+            ++mouse_version_;
+        }
+        le::PlacementSnapMode placement_snap_mode() const { return placement_snap_mode_; }
 
         // The offset the moving shapes would be translated by right now
         // (or the ghost preview should show) - snapped_mouse_position()
@@ -1446,6 +1502,7 @@ struct LeHandle
         uint64_t ruler_version_ = 0;
         bool ruler_free_form_ = false;
         MoveState move_;
+        le::PlacementSnapMode placement_snap_mode_ = le::PlacementSnapMode::SITE;
         double ruler_label_size_px_ = 11.0;
         // Minimum on-screen distance (px, converted via the current
         // scale) a new ruler's first point must be from the most

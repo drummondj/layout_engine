@@ -1177,6 +1177,102 @@ register_command_help arm_move \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+# --- placement snapping and rotate/flip (NEW_FEATURES_SEPT_2026.md
+# item 2 - backed by set_placement_snap_mode_cmd/get_placement_snap_mode_cmd/
+# is_placement_snap_mode_available_cmd/apply_placement_orientation_op_cmd) ---
+array set ::placement_snap_names {none 0 site 1 fin 2 manufacturing 3}
+array set ::placement_snap_names_reverse {0 none 1 site 2 fin 3 manufacturing}
+
+proc set_placement_snap_mode { mode } {
+    if {$mode eq "-help"} {
+        return "set_placement_snap_mode <mode> \[-help\] - Sets what a moving placement snaps to"
+    }
+    if {![info exists ::placement_snap_names($mode)]} {
+        error "set_placement_snap_mode: unknown mode \"$mode\" - expected one of [lsort [array names ::placement_snap_names]]"
+    }
+    set_placement_snap_mode_cmd $::placement_snap_names($mode)
+    return ""
+}
+register_command_help set_placement_snap_mode \
+    "set_placement_snap_mode <mode> \[-help\]" \
+    "Sets what a moving placement's location snaps to - site (default: a CORE-class cell snaps to the nearest row's site grid, using rows of its own SITE, and takes an orientation the row allows; any other placement falls back to the manufacturing grid), fin (the FinFET grid across the fins - a LIBRARY LEF58_FINFET property, or update_technology -fin_pitch/-fin_offset/-fin_direction - and the manufacturing grid along them), manufacturing (the MANUFACTURINGGRID) or none. Persists across moves." \
+    {
+        {<mode> {type str required 1 description {One of site, fin, manufacturing, none}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_placement_snap_mode {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_placement_snap_mode \[-help\] - Returns what a moving placement snaps to"
+    }
+    return $::placement_snap_names_reverse([get_placement_snap_mode_cmd])
+}
+register_command_help get_placement_snap_mode \
+    "get_placement_snap_mode \[-help\]" \
+    "Returns the placement snap mode - site, fin, manufacturing, or none." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc placement_snap_mode_available { mode } {
+    if {$mode eq "-help"} {
+        return "placement_snap_mode_available <mode> \[-help\] - Returns whether a placement snap mode has anything to snap to"
+    }
+    if {![info exists ::placement_snap_names($mode)]} {
+        error "placement_snap_mode_available: unknown mode \"$mode\" - expected one of [lsort [array names ::placement_snap_names]]"
+    }
+    return [expr {[is_placement_snap_mode_available_cmd $::placement_snap_names($mode)] ? 1 : 0}]
+}
+register_command_help placement_snap_mode_available \
+    "placement_snap_mode_available <mode> \[-help\]" \
+    "Returns 1 if <mode> has anything to snap to in the current view - rows in the current layout (site), a FinFET grid (fin), a MANUFACTURINGGRID (manufacturing); none always returns 1." \
+    {
+        {<mode> {type str required 1 description {One of site, fin, manufacturing, none}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# Shared by rotate_placement/flip_placement - raises a Tcl error naming
+# why le_apply_placement_orientation_op refused.
+proc apply_placement_orientation_op_checked {command op} {
+    switch -- [apply_placement_orientation_op_cmd $op] {
+        0 { return "" }
+        1 { error "$command: no placement is selected" }
+        2 { error "$command: not allowed right now - a move is under way, or site snapping is on and the row's site SYMMETRY doesn't permit it" }
+        default { error "$command: failed" }
+    }
+}
+
+proc rotate_placement {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "rotate_placement \[-help\] - Rotates the selected placements 90 degrees counterclockwise"
+    }
+    return [apply_placement_orientation_op_checked rotate_placement 0]
+}
+register_command_help rotate_placement \
+    "rotate_placement \[-help\]" \
+    "Rotates every selected placement 90 degrees counterclockwise about its own center (N -> W -> S -> E), as one undoable edit. An error if no placement is selected, a move is under way (after its first click), or site snapping is on and the row's site isn't SYMMETRY R90." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc flip_placement { direction } {
+    if {$direction eq "-help"} {
+        return "flip_placement <direction> \[-help\] - Flips the selected placements horizontally or vertically"
+    }
+    switch -- $direction {
+        horizontal { return [apply_placement_orientation_op_checked flip_placement 1] }
+        vertical { return [apply_placement_orientation_op_checked flip_placement 2] }
+        default { error "flip_placement: unknown direction \"$direction\" - expected horizontal or vertical" }
+    }
+}
+register_command_help flip_placement \
+    "flip_placement <direction> \[-help\]" \
+    "Flips every selected placement about its own center, as one undoable edit - horizontal mirrors in X (N -> FN, needs SYMMETRY Y under site snapping), vertical mirrors in Y (N -> FS, needs SYMMETRY X). An error if no placement is selected, a move is under way (after its first click), or site snapping is on and the row's site symmetry doesn't permit it." \
+    {
+        {<direction> {type str required 1 description {horizontal or vertical}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 # --- antialiasing (backed by set_antialiasing_enabled_cmd/
 # get_antialiasing_enabled_cmd -> le_set_antialiasing_enabled/
 # le_is_antialiasing_enabled) ---

@@ -745,6 +745,12 @@ class Klass:
                 )
         return "\n".join(lines)
 
+    def _owns_dbu_scale(self) -> bool:
+        """True for the class that itself holds the micron-to-dbu scale
+        (Technology.database_units_microns) - its own dbu fields convert
+        through that field, not through `::database_units_microns(root)`."""
+        return any(f.name == "database_units_microns" and not f.is_list for f in self.fields)
+
     def create_api_body(self) -> str:
         """
         The full statement-list body of le_create_<type>(LeHandle *handle,
@@ -862,10 +868,19 @@ class Klass:
 
         if dbu_fields:
             add()
-            add("const std::optional<double> dbu_per_um = database_units_microns(handle->root);")
-            add("if (!dbu_per_um)")
-            add("{")
-            add(f'    spdlog::error("create_{snake}: no Technology has been read yet (needed for micron-to-dbu conversion)");')
+            if self._owns_dbu_scale():
+                # Technology's own dbu fields convert through the scale
+                # being created alongside them, not an existing one - and
+                # the parameter of that name would shadow the helper.
+                add("const std::optional<double> dbu_per_um = database_units_microns > 0.0 ? std::optional<double>{database_units_microns} : std::nullopt;")
+                add("if (!dbu_per_um)")
+                add("{")
+                add(f'    spdlog::error("create_{snake}: database_units_microns must be positive (needed for micron-to-dbu conversion)");')
+            else:
+                add("const std::optional<double> dbu_per_um = ::database_units_microns(handle->root);")
+                add("if (!dbu_per_um)")
+                add("{")
+                add(f'    spdlog::error("create_{snake}: no Technology has been read yet (needed for micron-to-dbu conversion)");')
             add("    return invalid;")
             add("}")
 
@@ -1495,10 +1510,19 @@ class Klass:
 
         if dbu_fields:
             add()
-            add("const std::optional<double> dbu_per_um = database_units_microns(handle->root);")
-            add("if (!dbu_per_um)")
-            add("{")
-            add(f'    spdlog::error("update_{snake}: no Technology has been read yet (needed for micron-to-dbu conversion)");')
+            if self._owns_dbu_scale():
+                # Same reasoning as create_api_body's own branch - the
+                # scale is this object's own (possibly being updated too).
+                add(f"const double own_dbu_per_um = has_database_units_microns ? database_units_microns : existing_{snake}->database_units_microns;")
+                add("const std::optional<double> dbu_per_um = own_dbu_per_um > 0.0 ? std::optional<double>{own_dbu_per_um} : std::nullopt;")
+                add("if (!dbu_per_um)")
+                add("{")
+                add(f'    spdlog::error("update_{snake}: database_units_microns must be positive (needed for micron-to-dbu conversion)");')
+            else:
+                add("const std::optional<double> dbu_per_um = ::database_units_microns(handle->root);")
+                add("if (!dbu_per_um)")
+                add("{")
+                add(f'    spdlog::error("update_{snake}: no Technology has been read yet (needed for micron-to-dbu conversion)");')
             add("    return 1;")
             add("}")
 

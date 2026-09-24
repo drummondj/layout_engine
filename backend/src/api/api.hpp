@@ -730,6 +730,74 @@ extern "C"
     /// pressed/armed visual state. Returns 0 if handle is null.
     int32_t le_is_move_armed(LeHandle *handle);
 
+    /// @brief True (nonzero) once an armed Move's first click has set its
+    /// anchor - the move is under way and its ghost showing. Returns 0 if
+    /// handle is null.
+    int32_t le_is_move_anchored(LeHandle *handle);
+
+    /// @brief What a moving Placement's location snaps to
+    /// (NEW_FEATURES_SEPT_2026.md item 2 - le::PlacementSnapMode). SITE
+    /// snaps a CORE-class Abstract's placement to the nearest row's site
+    /// grid (rows of its own SITE, if it declares one) and forces an
+    /// orientation that row allows; any other placement falls back to
+    /// the manufacturing grid. FIN_GRID snaps to the FinFET grid (a
+    /// LIBRARY LEF58_FINFET property, overridable via update_technology
+    /// -fin_pitch/-fin_offset/-fin_direction) across the fins and to the
+    /// manufacturing grid along them.
+    typedef enum LePlacementSnapMode
+    {
+        LE_PLACEMENT_SNAP_NONE = 0,
+        LE_PLACEMENT_SNAP_SITE = 1,
+        LE_PLACEMENT_SNAP_FIN_GRID = 2,
+        LE_PLACEMENT_SNAP_MANUFACTURING_GRID = 3,
+    } LePlacementSnapMode;
+
+    /// @brief Sets the placement snap mode (LePlacementSnapMode) - persists
+    /// across moves, SITE by default. Ignores an out-of-range value. A
+    /// no-op if handle is null.
+    void le_set_placement_snap_mode(LeHandle *handle, int32_t mode);
+
+    /// @brief The current placement snap mode. LE_PLACEMENT_SNAP_SITE if
+    /// handle is null.
+    int32_t le_get_placement_snap_mode(LeHandle *handle);
+
+    /// @brief Nonzero if `mode` has anything to snap to in the current
+    /// view: rows in the current Layout (SITE), a FinFET grid
+    /// (FIN_GRID), a MANUFACTURINGGRID (MANUFACTURING_GRID); NONE always.
+    /// 0 if handle is null.
+    int32_t le_is_placement_snap_mode_available(LeHandle *handle, int32_t mode);
+
+    /// @brief A rotate/flip of the selected placements (le::OrientationOp) -
+    /// see le_apply_placement_orientation_op.
+    typedef enum LeOrientationOp
+    {
+        LE_ORIENTATION_OP_ROTATE_CCW = 0,
+        LE_ORIENTATION_OP_FLIP_HORIZONTAL = 1,
+        LE_ORIENTATION_OP_FLIP_VERTICAL = 2,
+    } LeOrientationOp;
+
+    /// @brief How many Placements are currently selected - nonzero (in Edit
+    /// mode) is the GUI's cue to show the placement secondary toolbar. 0
+    /// if handle is null.
+    int32_t le_selected_placement_count(LeHandle *handle);
+
+    /// @brief Which LeOrientationOps le_apply_placement_orientation_op
+    /// would accept right now, as a bitmask (1 << op). 0 with no placement
+    /// selected, while a Move is under way (anchored by its first click, the
+    /// ghost showing - arming alone doesn't count), or outside a Layout view. Under
+    /// SITE snapping, a CORE cell's op also needs its row's Site SYMMETRY
+    /// to permit it (R90: rotate, Y: horizontal flip, X: vertical flip);
+    /// every other snap mode leaves all three enabled. 0 if handle is null.
+    int32_t le_placement_orientation_ops_enabled(LeHandle *handle);
+
+    /// @brief Rotates (90 degrees counterclockwise, N -> W) or flips
+    /// (horizontal: N -> FN, vertical: N -> FS) every selected placement
+    /// about its own bbox center, committed immediately as one undoable
+    /// edit. Returns 0 on success, 1 if no placement is selected, 2 if the
+    /// op isn't enabled (le_placement_orientation_ops_enabled), -1 if
+    /// handle is null or `op` is out of range.
+    int32_t le_apply_placement_orientation_op(LeHandle *handle, int32_t op);
+
     /// @brief Current selectability of every ViewLayer whose LeLayerRow::name
     /// is `layer_name` - see le_is_layer_name_visible()'s comment for the
     /// general row/column model this mirrors. Selectable by default until
