@@ -4,8 +4,10 @@
 
 #include <blend2d/blend2d.h>
 
+#include <cctype>
 #include <charconv>
 #include <cstdint>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -978,6 +980,201 @@ const char *shape_path_point_at(const char *id, int path_index, int point_index)
 int remove_shape_path(const char *id, int path_index)
 {
     return le_remove_shape_path(session(), resolve_shape_id(id), path_index);
+}
+
+// --- shape_* operations (NEW_FEATURES_SEPT_2026.md item 1) ---
+//
+// Shape token lists cross as one space-separated string (le_tcl_procs.tcl
+// builds it with [join ...]) - the same plain word split write_lef_cmd's
+// own abstract_tokens uses. An unknown shape token resolves to the invalid
+// id, which le_shape_* then reports as an unknown shape; an unknown
+// -layer/-parent token can't be told apart from an omitted one that way,
+// so it's caught here instead and returned as its own status
+// (kShapeOpBadLayer/kShapeOpBadParent) for the Tcl proc to report.
+
+namespace
+{
+    constexpr int kShapeOpBadLayer = -2;
+    constexpr int kShapeOpBadParent = -3;
+
+    std::vector<LeShapeId> resolve_shape_tokens(const char *tokens)
+    {
+        std::vector<LeShapeId> ids;
+        std::istringstream stream(tokens ? tokens : "");
+        std::string token;
+        while (stream >> token)
+            ids.push_back(resolve_shape_id(token.c_str()));
+        return ids;
+    }
+
+    bool token_given(const char *token)
+    {
+        return token && token[0];
+    }
+
+    // A -layer value: a real layer token, or `debug` (any case) for the
+    // layer-less DEBUG purpose.
+    struct LayerTarget
+    {
+        LeLayerId layer{.index = UINT32_MAX, .generation = 0};
+        const char *purpose = nullptr;
+    };
+
+    bool is_debug_layer(const char *token)
+    {
+        std::string lower(token);
+        for (char &c : lower)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return lower == "debug";
+    }
+
+    // nullopt = a layer token was given but doesn't resolve.
+    std::optional<LayerTarget> resolve_optional_layer(const char *token)
+    {
+        if (!token_given(token))
+            return LayerTarget{};
+        if (is_debug_layer(token))
+            return LayerTarget{.purpose = "DEBUG"};
+        const LeLayerId id = resolve_layer_id(token);
+        if (id.index == UINT32_MAX)
+            return std::nullopt;
+        return LayerTarget{.layer = id};
+    }
+
+    template <typename IdT>
+    LeObjectRef object_ref(int32_t kind, IdT id)
+    {
+        return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation};
+    }
+
+    // nullopt = a parent token was given but isn't a supported, existing kind.
+    std::optional<LeObjectRef> resolve_optional_parent(const char *token)
+    {
+        if (!token_given(token))
+            return le_object_invalid_ref();
+        const std::string_view sv(token);
+        LeObjectRef ref = le_object_invalid_ref();
+        if (sv.starts_with("abstract:"))
+            ref = object_ref(LE_OBJECT_KIND_ABSTRACT, resolve_abstract_id(token));
+        else if (sv.starts_with("layout:"))
+            ref = object_ref(LE_OBJECT_KIND_LAYOUT, resolve_layout_id(token));
+        else if (sv.starts_with("obstruction:"))
+            ref = object_ref(LE_OBJECT_KIND_OBSTRUCTION, resolve_obstruction_id(token));
+        else if (sv.starts_with("terminal_port:"))
+            ref = object_ref(LE_OBJECT_KIND_TERMINAL_PORT, resolve_terminal_port_id(token));
+        else if (sv.starts_with("route:"))
+            ref = object_ref(LE_OBJECT_KIND_ROUTE, resolve_route_id(token));
+        else if (sv.starts_with("blockage:"))
+            ref = object_ref(LE_OBJECT_KIND_BLOCKAGE, resolve_blockage_id(token));
+        else if (sv.starts_with("physical_port_segment:"))
+            ref = object_ref(LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT, resolve_physical_port_segment_id(token));
+        if (ref.index == UINT32_MAX)
+            return std::nullopt;
+        return ref;
+    }
+
+    // Shared by every creating shape_*_cmd: resolves -layer/-parent, then
+    // hands the resolved shape ids to `call` (the matching le_shape_*).
+    template <typename Call>
+    int run_shape_op_cmd(const char *layer_token, const char *parent_token, Call &&call)
+    {
+        const std::optional<LayerTarget> target = resolve_optional_layer(layer_token);
+        if (!target)
+            return kShapeOpBadLayer;
+        const std::optional<LeObjectRef> parent = resolve_optional_parent(parent_token);
+        if (!parent)
+            return kShapeOpBadParent;
+        return call(target->layer, target->purpose, *parent);
+    }
+
+    const LeShapeId *data_or_null(const std::vector<LeShapeId> &ids)
+    {
+        return ids.empty() ? nullptr : ids.data();
+    }
+}
+
+int shape_copy_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token)
+{
+    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
+                            { return le_shape_copy(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), layer, purpose, parent); });
+}
+
+int shape_boolean_cmd(const char *shape_tokens_a, const char *shape_tokens_b, int op, const char *layer_token, const char *parent_token)
+{
+    const std::vector<LeShapeId> a = resolve_shape_tokens(shape_tokens_a);
+    const std::vector<LeShapeId> b = resolve_shape_tokens(shape_tokens_b);
+    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
+                            { return le_shape_boolean(session(), data_or_null(a), static_cast<int32_t>(a.size()), data_or_null(b),
+                                                      static_cast<int32_t>(b.size()), op, layer, purpose, parent); });
+}
+
+int shape_to_polygon_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token)
+{
+    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
+                            { return le_shape_to_polygon(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), layer, purpose, parent); });
+}
+
+int shape_to_rects_cmd(const char *shape_tokens, int vertical, const char *layer_token, const char *parent_token)
+{
+    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
+                            { return le_shape_to_rects(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), vertical, layer, purpose, parent); });
+}
+
+int shape_size_cmd(const char *shape_tokens, double dx_um, double dy_um, const char *layer_token, const char *parent_token)
+{
+    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
+                            { return le_shape_size(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), dx_um, dy_um, layer, purpose, parent); });
+}
+
+int shape_path_cmd(const char *shape_tokens, double width_um, const char *layer_token, const char *parent_token)
+{
+    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
+                            { return le_shape_path(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), width_um, layer, purpose, parent); });
+}
+
+int shape_change_layer_cmd(const char *shape_tokens, const char *layer_token)
+{
+    const std::optional<LayerTarget> target = resolve_optional_layer(layer_token);
+    if (!target || (target->layer.index == UINT32_MAX && !target->purpose))
+        return kShapeOpBadLayer;
+    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    return le_shape_change_layer(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), target->layer, target->purpose);
+}
+
+const char *shape_op_results_cmd(int count)
+{
+    std::ostringstream out;
+    for (int i = 0; i < count; ++i)
+    {
+        if (i > 0)
+            out << ' ';
+        out << format_shape_id(le_shape_op_result_at(session(), i));
+    }
+    return return_string(out.str());
+}
+
+const char *shape_bbox_cmd(const char *shape_tokens)
+{
+    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    const LeShapeBbox box = le_shape_bbox(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()));
+    if (!box.valid)
+        return return_string("");
+    // The {{llx lly} {urx ury}} Rect form every -bbox/-rects flag and
+    // zoom_area take. std::to_chars gives the shortest exact round-trip
+    // form (ostream's default 6 significant digits would truncate a large
+    // micron coordinate).
+    auto number = [](double value)
+    {
+        char buf[32];
+        const auto [end, ec] = std::to_chars(buf, buf + sizeof(buf), value);
+        return std::string(buf, end);
+    };
+    return return_string("{" + number(box.ll_x_um) + " " + number(box.ll_y_um) + "} {" + number(box.ur_x_um) + " " + number(box.ur_y_um) + "}");
 }
 
 // --- Editing / undo-redo (UPDATES.md item 21) ---

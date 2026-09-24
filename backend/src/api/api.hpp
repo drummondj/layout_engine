@@ -470,7 +470,8 @@ extern "C"
     /// 1 = OBSTRUCTION, 2 = BOUNDARY, 3 = TRACK_PREFERRED,
     /// 4 = TRACK_NON_PREFERRED, 5 = ROUTING_BLOCKAGE, 6 = ROW,
     /// 7 = GCELLGRID, 8 = PLACEMENT_BLOCKAGE, 9 = ROUTE, 10 = REGION,
-    /// 11 = PLACEMENT_NAME, 12 = PLACEMENT_BOUNDARY.
+    /// 11 = PLACEMENT_NAME, 12 = PLACEMENT_BOUNDARY, 13 = CUSTOM_SHAPE,
+    /// 14 = DEBUG.
     /// `index` itself walks ViewLayerSet::purposes()'s own
     /// first-encountered order instead (ROW, then BOUNDARY, then
     /// PLACEMENT_NAME, then TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
@@ -2103,6 +2104,89 @@ extern "C"
     /// on success, nonzero if handle is null, id doesn't name a Shape on
     /// this handle, or path_index is out of range.
     int le_remove_shape_path(LeHandle *handle, LeShapeId id, int32_t path_index);
+
+    // --- shape_* operations (NEW_FEATURES_SEPT_2026.md item 1) ---
+    //
+    // Each creates new Shapes from existing ones (src/geometry/
+    // shape_ops.hpp) and returns how many it created (>= 0, possibly 0 for
+    // e.g. an empty AND), or -1 on failure with the reason logged via
+    // spdlog. The new ids are then readable via le_shape_op_result_at
+    // until the next shape_* call. Every op works on each input Shape's
+    // own merged area (rects + polygons + stroked paths).
+    //
+    // `layer` may be the invalid id (index == UINT32_MAX) and `purpose`
+    // null/empty to keep each result on its input's own layer
+    // (le_shape_copy/le_shape_change_layer require one or the other); `purpose` is
+    // a ShapePurpose spelling such as "DEBUG" (`-layer debug`), for a
+    // layer-less result drawn on the DEBUG pseudo-row, and is only used
+    // when `layer` is invalid.
+    // `parent` may be the invalid ref (le_object_invalid_ref) to put the
+    // results in the current Abstract/Layout's free-standing shapes
+    // (Abstract/Layout.free_shapes - never written by write_lef/
+    // write_def); else it names an abstract/layout (same, but that one),
+    // or an obstruction/terminal_port/route/blockage/physical_port_segment
+    // whose own shapes list the results join. Each created Shape is
+    // recorded into the currently-recording transaction, if any, so undo
+    // removes it.
+
+    typedef enum LeShapeBooleanOp
+    {
+        LE_SHAPE_BOOLEAN_OR = 0,
+        LE_SHAPE_BOOLEAN_AND = 1,
+        LE_SHAPE_BOOLEAN_NOT = 2, // a minus b
+    } LeShapeBooleanOp;
+
+    /// @brief One new Shape per input, same geometry, on `layer` (required).
+    int32_t le_shape_copy(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent);
+
+    /// @brief One new Shape holding `op` (LeShapeBooleanOp) of every shape
+    /// in `shapes_a` against every shape in `shapes_b` (both non-empty);
+    /// on shapes_a[0]'s own layer unless `layer` is given. A region with
+    /// holes comes back as exact rects (a Polygon can't hold a hole).
+    int32_t le_shape_boolean(LeHandle *handle, const LeShapeId *shapes_a, int32_t shape_a_count, const LeShapeId *shapes_b,
+                             int32_t shape_b_count, int32_t op, LeLayerId layer, const char *purpose, LeObjectRef parent);
+
+    /// @brief One new polygon-only Shape per input.
+    int32_t le_shape_to_polygon(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent);
+
+    /// @brief One new rect-only Shape per input, non-overlapping - `vertical`
+    /// nonzero cuts with vertical lines (vertical strips), else horizontal.
+    int32_t le_shape_to_rects(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, int32_t vertical, LeLayerId layer, const char *purpose,
+                              LeObjectRef parent);
+
+    /// @brief One new Shape per input, grown (positive) or shrunk
+    /// (negative) by dx_um/dy_um. Different X/Y amounts need rectilinear
+    /// input. A shape shrunk away entirely creates nothing.
+    int32_t le_shape_size(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, double dx_um, double dy_um, LeLayerId layer,
+                          const char *purpose, LeObjectRef parent);
+
+    /// @brief One new path-only Shape per input: a closed path of width_um
+    /// along its outline (and any holes), plus its own input paths
+    /// re-stroked at width_um.
+    int32_t le_shape_path(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, double width_um, LeLayerId layer, const char *purpose,
+                          LeObjectRef parent);
+
+    /// @brief Puts each shape in place onto `layer` (or the layer-less
+    /// `purpose`), clearing whichever of the two it doesn't set; geometry,
+    /// position and owner are unchanged. Returns how many changed, or -1
+    /// (nothing changed) on failure. Records an exact undo per shape.
+    int32_t le_shape_change_layer(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose);
+
+    /// @brief The `index`th Shape created by the most recent le_shape_* call
+    /// (invalid id if out of range).
+    LeShapeId le_shape_op_result_at(LeHandle *handle, int32_t index);
+
+    typedef struct LeShapeBbox
+    {
+        int32_t valid; // 0 if any id was unknown, none were given, or they have no geometry
+        double ll_x_um;
+        double ll_y_um;
+        double ur_x_um;
+        double ur_y_um;
+    } LeShapeBbox;
+
+    /// @brief The bbox of every given shape together, in microns. Creates nothing.
+    LeShapeBbox le_shape_bbox(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count);
 
     // --- Generated TCL property-reading, create_<type>, update_<type>,
     // and delete_<type> surface (see backend/CLAUDE.md's TCL section) -

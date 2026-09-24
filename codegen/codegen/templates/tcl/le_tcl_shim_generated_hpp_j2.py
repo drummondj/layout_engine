@@ -8,6 +8,7 @@ TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl s
 // comment) for every TCL-readable class.
 
 {% for klass in classes %}
+int {{klass.to_snake_case()}}_token_resolves(const char *id);
 int {{klass.to_snake_case()}}_property_count(const char *id);
 const char *{{klass.to_snake_case()}}_property_name(const char *id, int index);
 const char *{{klass.to_snake_case()}}_property_value(const char *id, int index);

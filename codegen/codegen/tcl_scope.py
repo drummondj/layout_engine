@@ -136,20 +136,17 @@ def _find_up_chain(from_klass: Klass, target_name: str) -> Optional[List[Field]]
     return chain
 
 
-def _sibling_field_for(parent_klass: Klass, target_name: str) -> Optional[Field]:
-    """The is_child field (list or scalar - e.g. Design.abstract is a
-    single field, since a Design has at most one Abstract) on
-    parent_klass enumerating/holding target_name instances."""
-    matches = [f for f in parent_klass.tcl_child_fields() if f.type == target_name]
-    return matches[0] if len(matches) == 1 else None
-
-
 def _of_params(klass: Klass) -> List[OfParam]:
     params = []
     for pf in klass.get_parent_fields():
-        sibling = _sibling_field_for(pf._type_klass, klass.name)
-        if sibling is not None:
-            params.append(OfParam(parent_field=pf, sibling_field=sibling))
+        # pf._parent_field is the is_child sibling field Klass.link()
+        # already resolved precisely (matched by pf's own name against
+        # the sibling's `parent=` string, not merely by type - see
+        # Klass.link()'s own comment on why type alone isn't enough once
+        # a class pair has more than one relationship between them, e.g.
+        # Shape's own `abstract`/`in_abstract` both pointing at Abstract).
+        if pf._parent_field is not None:
+            params.append(OfParam(parent_field=pf, sibling_field=pf._parent_field))
     return params
 
 
@@ -171,7 +168,7 @@ def compute_default_case(klass: Klass, current_access_classes: List[Klass]) -> S
         klass_parent_fields = klass.get_parent_fields()
         if len(klass_parent_fields) != 1:
             continue
-        sibling = _sibling_field_for(klass_parent_fields[0]._type_klass, klass.name)
+        sibling = klass_parent_fields[0]._parent_field
         if sibling is None:
             continue
         return AncestorScope(

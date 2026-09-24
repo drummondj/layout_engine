@@ -1524,3 +1524,74 @@ back via a plain `RasterizePictureStage` exactly once per frame with no
 clip narrower than the whole viewport, so there's no repeated-clipped-
 query pattern for a BBH to accelerate. Full 666-test suite passes; both
 `build`/`build_release` rebuilt clean.
+
+## 2026-09-24 — shape_* operations: partitioned merge + sweep fracture; free-shape rendering cost
+
+First benchmarks for the `shape_*` TCL commands (NEW_FEATURES_SEPT_2026.md
+item 1) and for rendering the free-standing shapes they create
+(`src/pipelines/benchmarks/shape_ops_benchmark.cpp`, in `pipeline_benchmarks`).
+Machine: AMD Ryzen 9 7950X, WSL2 Linux, GCC, `build_release`
+(`-DENABLE_COVERAGE=OFF`). Single runs (`--benchmark_min_time=0.1s`) for the
+geometry table; render table is the mean of 3 repetitions (stddev ≤ 5 ms).
+
+**Geometry fixture:** a synthetic "clustered" layer - N rects as N/4 disjoint
+clusters of 4 overlapping rects, so a merge leaves N/4 separate polygons (a
+real layer's usual shape: many disjoint pieces - a single merged polygon is
+cheap to fold into however it's done). Boolean ops use two such layers, the
+second shifted by (6,6); the `_Holes` case is one plate with N/4 holes.
+
+The first run exposed two superlinear hot spots: 10x more rects cost ~70x
+more time, and 100k didn't finish inside 15 minutes.
+
+1. **Merging**: Boost's overlay is superlinear in how many polygons each
+   operand holds (a single union of two 2,500-polygon sets alone took
+   ~1.45 s). Fix: `bbox_components` (bulk-loaded R-tree + union-find)
+   groups parts whose bboxes overlap or touch; the balanced union runs only
+   within each component and the results are concatenated. Boolean ops do
+   the same across both groups' polygons, skipping the overlay entirely for
+   a component that holds only one side.
+2. **Fracturing a holed region** (TO RECTS, a boolean result with holes, and
+   SHRINK via its complement) intersected every strip with the whole polygon
+   - (strips x vertices). Fix: an exact sweep over the vertical edges
+   (active set in x order, even-odd pairing, two-pointer strip merge) for
+   rectilinear geometry; the old per-strip intersection stays as the
+   fallback for non-rectilinear input. SHRINK also now erodes each merged
+   polygon against its own small complement instead of one plate with a
+   hole per polygon.
+
+| Benchmark | N | Before | After |
+| --- | --- | --- | --- |
+| `BM_ShapeBoolean/Or` | 1k / 10k / 100k | 27.1 / 1,949 ms / >15 min | 9.4 / 102 / 1,003 ms |
+| `BM_ShapeBoolean/And` | 1k / 10k / 100k | 25.8 / 1,938 ms / — | 9.4 / 95 / 971 ms |
+| `BM_ShapeBoolean/Not` | 1k / 10k / 100k | 31.9 / 4,113 ms / — | 9.6 / 98 / 1,005 ms |
+| `BM_Merge_LeftFold` (`Geometry::union_shapes`) | 1k / 10k | 383 / 44,064 ms | (unchanged, not used by shape_*) |
+| `BM_Merge_Balanced` | 1k / 10k / 100k | 7.5 / 242 ms / — | 3.9 / 38 / 393 ms |
+| `BM_ShapeToRects` | 1k / 10k / 100k | 17.8 / 344 ms / — | 3.9 / 39 / 399 ms |
+| `BM_ShapeToRects_Holes` | 250 / 2,500 holes | 155 / 5,360 ms | 21 / 291 ms |
+| `BM_ShapeSize/Grow` | 1k / 10k / 100k | 33.8 / 719 ms / — | 7.2 / 70 / 726 ms |
+| `BM_ShapeSize/Shrink` | 1k / 10k / 100k | 164 / 5,828 ms / — | 22 / 219 / 2,202 ms |
+| `BM_ShapeOutlinePaths` | 1k / 10k / 100k | 7.4 / 245 ms / — | 3.8 / 38 / 391 ms |
+
+**Every operation now scales linearly from 1k to 100k**, 10-42x faster at 10k.
+The balanced merge (chosen earlier without a benchmark) is confirmed: the
+left fold is 51x slower at 1k and 182x at 10k (quadratic - 44 s for 10k
+rects). `Geometry::union_shapes` still uses the left fold; nothing on a hot
+path calls it with more than a handful of parts today, so it's left alone.
+
+**Rendering free shapes** (AES 1x1, depth 1; free rects spread over the
+design on the first 4 routing layers - `Layout` = the top Layout's own free
+shapes, `Cell` = the most-placed cell's Abstract, 18,307 placements):
+
+| Benchmark | Free shapes (drawn instances) | Mean |
+| --- | --- | --- |
+| `BM_HierarchyResolver_FreeShapes/Layout` (cold collect) | 0 / 10k / 100k | 218 / 222 / 244 ms |
+| `BM_HierarchyResolver_FreeShapes/Cell` | 0 / 10 (183k) / 100 (1.83M) | 215 / 219 / 216 ms |
+| `BM_WarmTier_FreeShapes/Layout` (pan frame) | 0 / 10k / 100k | 80.1 / 80.1 / 81.2 ms |
+| `BM_WarmTier_FreeShapes/Cell` | 0 / 10 / 100 | 81.0 / 74.9 / 80.9 ms |
+
+**Free shapes cost ~0.26 us each to collect and nothing measurable per warm
+frame** (viewport culling; a cell's content is rasterized once per distinct
+cell, so 100 free shapes drawn in 18,307 placements cost the same as none).
+Both benchmarks carry untimed proof counters so a flat result can't be
+vacuous: `custom_shapes_collected` equals the free-shape count exactly, and
+every non-zero run's `frame_checksum` differs from the zero-shape frame's.

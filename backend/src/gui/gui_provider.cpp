@@ -137,6 +137,23 @@ namespace le::gui
                 const LeObstructionId id = le_abstract_obstructions_at(handle_, abstract_id, i);
                 children.push_back(make_ref(LE_OBJECT_KIND_OBSTRUCTION, id.index, id.generation));
             }
+            const int32_t free_shape_count = le_abstract_free_shapes_count(handle_, abstract_id);
+            for (int32_t i = 0; i < free_shape_count; ++i)
+            {
+                const LeShapeId id = le_abstract_free_shapes_at(handle_, abstract_id, i);
+                children.push_back(make_ref(LE_OBJECT_KIND_SHAPE, id.index, id.generation));
+            }
+            break;
+        }
+        case LE_OBJECT_KIND_LAYOUT:
+        {
+            const LeLayoutId layout_id = ref_to_id<LeLayoutId>(ref);
+            const int32_t free_shape_count = le_layout_free_shapes_count(handle_, layout_id);
+            for (int32_t i = 0; i < free_shape_count; ++i)
+            {
+                const LeShapeId id = le_layout_free_shapes_at(handle_, layout_id, i);
+                children.push_back(make_ref(LE_OBJECT_KIND_SHAPE, id.index, id.generation));
+            }
             break;
         }
         case LE_OBJECT_KIND_TERMINAL:

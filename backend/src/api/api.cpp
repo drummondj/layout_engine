@@ -5,6 +5,7 @@
 #include "../database/rename_propagation.hpp"
 #include "../editing/editing.hpp"
 #include "../geometry/geometry.hpp"
+#include "../geometry/shape_ops.hpp"
 #include "../core/placement_geometry.hpp"
 #include "../core/row_geometry.hpp"
 #include "../io/lef_reader.hpp"
@@ -1157,6 +1158,17 @@ namespace
                 return ref_from_id(LE_OBJECT_KIND_ROUTE, shape->route);
             if (shape->physical_port_segment.valid())
                 return ref_from_id(LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT, shape->physical_port_segment);
+            // Free-standing shapes (Abstract/Layout.free_shapes) and the
+            // one boundary/diearea Shape - all owned directly by the
+            // Abstract/Layout itself.
+            if (shape->in_abstract.valid())
+                return ref_from_id(LE_OBJECT_KIND_ABSTRACT, shape->in_abstract);
+            if (shape->in_layout.valid())
+                return ref_from_id(LE_OBJECT_KIND_LAYOUT, shape->in_layout);
+            if (shape->abstract.valid())
+                return ref_from_id(LE_OBJECT_KIND_ABSTRACT, shape->abstract);
+            if (shape->layout.valid())
+                return ref_from_id(LE_OBJECT_KIND_LAYOUT, shape->layout);
             return invalid_object_ref(); // shouldn't happen - mutually exclusive per schema.py - degrade gracefully anyway
         }
         case LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT:
@@ -1206,6 +1218,128 @@ namespace
         }
         return invalid_object_ref();
     }
+
+    // --- shape_* operations (NEW_FEATURES_SEPT_2026.md item 1) ---
+
+        std::vector<le::ShapeId> shape_ids_from_c(const LeShapeId *ids, int32_t count)
+        {
+            std::vector<le::ShapeId> out;
+            if (!ids || count <= 0)
+                return out;
+            out.reserve(static_cast<size_t>(count));
+            for (int32_t i = 0; i < count; ++i)
+                out.push_back(from_c(ids[i]));
+            return out;
+        }
+
+        // A shape_* command's target: a real layer, else a layer-less purpose
+        // (e.g. "DEBUG"), else nullopt to keep each input's own; an unknown
+        // purpose string is an error.
+        std::expected<std::optional<le::shape_ops::LayerOrPurpose>, std::string> target_from_c(LeLayerId layer, const char *purpose)
+        {
+            if (layer.index != UINT32_MAX)
+                return le::shape_ops::LayerOrPurpose{.layer = from_c(layer)};
+            if (purpose && purpose[0])
+            {
+                const std::optional<le::ShapePurpose> parsed = le::shape_purpose_from_string(purpose);
+                if (!parsed)
+                    return std::unexpected(fmt::format("unknown purpose \"{}\"", purpose));
+                return le::shape_ops::LayerOrPurpose{.purpose = *parsed};
+            }
+            return std::optional<le::shape_ops::LayerOrPurpose>{};
+        }
+
+        // An explicit parent (any kind shape_ops::ShapeParent supports),
+        // else the current view's own Abstract/Layout free-shapes list -
+        // the GUI's "current view" (LeHandle::current_abstract()/
+        // current_layout()) first, then the TCL-level current_abstract/
+        // current_layout (has_current_access) for a script that never
+        // opened a view.
+        std::optional<le::shape_ops::ShapeParent> resolve_shape_parent(LeHandle *handle, LeObjectRef parent, std::string &error)
+        {
+            if (parent.index != UINT32_MAX)
+            {
+                switch (parent.kind)
+                {
+                case LE_OBJECT_KIND_ABSTRACT:
+                    return id_from_ref<le::AbstractId>(parent);
+                case LE_OBJECT_KIND_LAYOUT:
+                    return id_from_ref<le::LayoutId>(parent);
+                case LE_OBJECT_KIND_OBSTRUCTION:
+                    return id_from_ref<le::ObstructionId>(parent);
+                case LE_OBJECT_KIND_TERMINAL_PORT:
+                    return id_from_ref<le::TerminalPortId>(parent);
+                case LE_OBJECT_KIND_ROUTE:
+                    return id_from_ref<le::RouteId>(parent);
+                case LE_OBJECT_KIND_BLOCKAGE:
+                    return id_from_ref<le::BlockageId>(parent);
+                case LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT:
+                    return id_from_ref<le::PhysicalPortSegmentId>(parent);
+                default:
+                    error = "-parent must be an abstract, layout, obstruction, terminal_port, route, blockage or physical_port_segment";
+                    return std::nullopt;
+                }
+            }
+            if (handle->root.get_abstract(handle->current_abstract()))
+                return handle->current_abstract();
+            if (handle->root.get_layout(handle->current_layout()))
+                return handle->current_layout();
+            if (handle->root.get_abstract(handle->current_abstract_id))
+                return handle->current_abstract_id;
+            if (handle->root.get_layout(handle->current_layout_id))
+                return handle->current_layout_id;
+            error = "no -parent given and no current Abstract or Layout is open";
+            return std::nullopt;
+        }
+
+        // Stores `result`'s ids for le_shape_op_result_at, bumps the
+        // mutation version and records each create for undo - the same
+        // steps the generated le_create_shape takes - or logs its error.
+        int32_t finish_shape_op(LeHandle *handle, const char *command, const le::shape_ops::Result &result)
+        {
+            handle->shape_op_results.clear();
+            if (!result)
+            {
+                spdlog::error("{}: {}", command, result.error());
+                return -1;
+            }
+            handle->shape_op_results = *result;
+            if (result->empty())
+                return 0;
+            handle->root.bump_mutation_version();
+            if (handle->command_history.is_recording())
+            {
+                for (le::ShapeId id : *result)
+                    handle->command_history.current()->record_create<le::ShapeId, le::ShapeData>(
+                        id, *handle->root.get_shape(id),
+                        [](le::Root &r, const le::ShapeData &d) { return r.create_shape(d); },
+                        [](le::Root &r, le::ShapeId i) { return r.delete_shape(i); });
+            }
+            return static_cast<int32_t>(result->size());
+        }
+
+        // Every per-input shape_* operation's own common prologue.
+        template <typename Op>
+        int32_t run_shape_op(LeHandle *handle, const char *command, LeLayerId layer, const char *purpose, LeObjectRef parent, Op &&op)
+        {
+            if (!handle)
+                return -1;
+            HandleWriteLock lock(handle);
+            auto fail = [&](const std::string &error)
+            {
+                handle->shape_op_results.clear();
+                spdlog::error("{}: {}", command, error);
+                return -1;
+            };
+            const auto target = target_from_c(layer, purpose);
+            if (!target)
+                return fail(target.error());
+            std::string error;
+            const std::optional<le::shape_ops::ShapeParent> resolved = resolve_shape_parent(handle, parent, error);
+            if (!resolved)
+                return fail(error);
+            return finish_shape_op(handle, command, op(*target, *resolved));
+        }
 }
 
 extern "C"
@@ -4086,6 +4220,136 @@ extern "C"
         shape->paths.erase(shape->paths.begin() + path_index);
         handle->root.bump_mutation_version();
         return 0;
+    }
+
+    int32_t le_shape_copy(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent)
+    {
+        return run_shape_op(handle, "shape_copy", layer, purpose, parent, [&](const auto &target, const le::shape_ops::ShapeParent &owner)
+                            {
+            if (!target)
+                return le::shape_ops::Result(std::unexpected("-layer is required"));
+            return le::shape_ops::copy(handle->root, shape_ids_from_c(shapes, shape_count), *target, owner); });
+    }
+
+    int32_t le_shape_boolean(LeHandle *handle, const LeShapeId *shapes_a, int32_t shape_a_count, const LeShapeId *shapes_b,
+                             int32_t shape_b_count, int32_t op, LeLayerId layer, const char *purpose, LeObjectRef parent)
+    {
+        const char *command = op == LE_SHAPE_BOOLEAN_AND ? "shape_and" : op == LE_SHAPE_BOOLEAN_NOT ? "shape_not" : "shape_or";
+        return run_shape_op(handle, command, layer, purpose, parent, [&](const auto &target, const le::shape_ops::ShapeParent &owner)
+                            {
+            const le::BooleanOp boolean_op = op == LE_SHAPE_BOOLEAN_AND ? le::BooleanOp::And
+                                           : op == LE_SHAPE_BOOLEAN_NOT ? le::BooleanOp::Not
+                                                                        : le::BooleanOp::Or;
+            return le::shape_ops::boolean(handle->root, shape_ids_from_c(shapes_a, shape_a_count), shape_ids_from_c(shapes_b, shape_b_count),
+                                          boolean_op, target, owner); });
+    }
+
+    int32_t le_shape_to_polygon(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent)
+    {
+        return run_shape_op(handle, "shape_to_polygon", layer, purpose, parent, [&](const auto &target, const le::shape_ops::ShapeParent &owner)
+                            { return le::shape_ops::to_polygons(handle->root, shape_ids_from_c(shapes, shape_count), target, owner); });
+    }
+
+    int32_t le_shape_to_rects(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, int32_t vertical, LeLayerId layer, const char *purpose,
+                              LeObjectRef parent)
+    {
+        return run_shape_op(handle, "shape_to_rects", layer, purpose, parent, [&](const auto &target, const le::shape_ops::ShapeParent &owner)
+                            {
+            const le::FractureDirection direction = vertical ? le::FractureDirection::Vertical : le::FractureDirection::Horizontal;
+            return le::shape_ops::to_rects(handle->root, shape_ids_from_c(shapes, shape_count), direction, target, owner); });
+    }
+
+    int32_t le_shape_size(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, double dx_um, double dy_um, LeLayerId layer,
+                          const char *purpose, LeObjectRef parent)
+    {
+        return run_shape_op(handle, "shape_size", layer, purpose, parent, [&](const auto &target, const le::shape_ops::ShapeParent &owner)
+                            {
+            const std::optional<double> dbu_per_um = database_units_microns(handle->root);
+            if (!dbu_per_um)
+                return le::shape_ops::Result(std::unexpected("no Technology with a DATABASE MICRONS scale has been read yet"));
+            return le::shape_ops::size(handle->root, shape_ids_from_c(shapes, shape_count), to_dbu(dx_um, *dbu_per_um), to_dbu(dy_um, *dbu_per_um),
+                                       target, owner); });
+    }
+
+    int32_t le_shape_path(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, double width_um, LeLayerId layer, const char *purpose,
+                          LeObjectRef parent)
+    {
+        return run_shape_op(handle, "shape_path", layer, purpose, parent, [&](const auto &target, const le::shape_ops::ShapeParent &owner)
+                            {
+            const std::optional<double> dbu_per_um = database_units_microns(handle->root);
+            if (!dbu_per_um)
+                return le::shape_ops::Result(std::unexpected("no Technology with a DATABASE MICRONS scale has been read yet"));
+            return le::shape_ops::outline_paths(handle->root, shape_ids_from_c(shapes, shape_count), to_dbu(width_um, *dbu_per_um), target, owner); });
+    }
+
+    int32_t le_shape_change_layer(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose)
+    {
+        if (!handle)
+            return -1;
+        HandleWriteLock lock(handle);
+        const auto target = target_from_c(layer, purpose);
+        if (!target || !*target)
+        {
+            spdlog::error("shape_change_layer: {}", target ? std::string("-layer is required") : target.error());
+            return -1;
+        }
+        const auto changed = le::shape_ops::change_layer(handle->root, shape_ids_from_c(shapes, shape_count), **target);
+        if (!changed)
+        {
+            spdlog::error("shape_change_layer: {}", changed.error());
+            return -1;
+        }
+        handle->root.bump_mutation_version();
+        if (handle->command_history.is_recording())
+        {
+            // Undo/redo restores layer and purpose exactly, both ways - the
+            // generated apply_shape_snapshot can't clear an unset optional
+            // purpose (see shape_ops::set_layer_or_purpose's own comment).
+            using Snapshot = le::shape_ops::LayerOrPurpose;
+            for (const le::shape_ops::LayerChange &entry : *changed)
+                handle->command_history.current()->record_update<le::ShapeId, Snapshot>(
+                    entry.id, entry.before, entry.after,
+                    [](le::Root &r, le::ShapeId id, const Snapshot &snapshot)
+                    {
+                        le::ShapeData *shape = r.get_shape(id);
+                        if (!shape)
+                            return false;
+                        le::shape_ops::set_layer_or_purpose(*shape, snapshot);
+                        return true;
+                    });
+        }
+        return static_cast<int32_t>(changed->size());
+    }
+
+    LeShapeId le_shape_op_result_at(LeHandle *handle, int32_t index)
+    {
+        if (!handle || index < 0)
+            return LeShapeId{.index = UINT32_MAX, .generation = 0};
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        if (static_cast<size_t>(index) >= handle->shape_op_results.size())
+            return LeShapeId{.index = UINT32_MAX, .generation = 0};
+        return to_c(handle->shape_op_results[static_cast<size_t>(index)]);
+    }
+
+    LeShapeBbox le_shape_bbox(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count)
+    {
+        LeShapeBbox out{};
+        if (!handle)
+            return out;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        const std::expected<le::Rect, std::string> box = le::shape_ops::bbox(handle->root, shape_ids_from_c(shapes, shape_count));
+        if (!box)
+        {
+            spdlog::error("shape_bbox: {}", box.error());
+            return out;
+        }
+        const double dbu_per_um = display_dbu_per_um(handle->root);
+        out.valid = 1;
+        out.ll_x_um = static_cast<double>(box->ll.x) / dbu_per_um;
+        out.ll_y_um = static_cast<double>(box->ll.y) / dbu_per_um;
+        out.ur_x_um = static_cast<double>(box->ur.x) / dbu_per_um;
+        out.ur_y_um = static_cast<double>(box->ur.y) / dbu_per_um;
+        return out;
     }
 
     int frame_mark_count = 0;

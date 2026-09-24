@@ -187,17 +187,20 @@ One row of a LEF SPACINGTABLE INFLUENCE table (ROUTING layers)
 
 ## create_instance
 
-`create_instance -schematic <token> -reference_design <token> -name <str> -reference_name <str> [-location <Point>] [-help]`
+`create_instance -schematic <token> [-reference_design <token>] -name <str> [-reference_name <str>] [-location <Point>] [-rtl_text <str>] [-source_file <str>] [-diagnostic_summary <str>] [-help]`
 
-An instance of another design
+An instance of another design, or a placeholder for source code that could not be fully read
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-schematic` | `token` | yes | Parent Schematic token |
-| `-reference_design` | `token` | yes | The ID of the reference design after linking |
-| `-name` | `str` | yes | The name of the instance |
-| `-reference_name` | `str` | yes | The name of the reference design |
+| `-reference_design` | `token` | no | The referenced design, once resolved - unset until then, and never set for a placeholder instance (see rtl_text) |
+| `-name` | `str` | yes | The name of the instance - unique within its parent Schematic (see unique_per_parent) |
+| `-reference_name` | `str` | no | The name of the referenced design, if known |
 | `-location` | `Point` | no | The location of the lower-left corner of this instance |
+| `-rtl_text` | `str` | no | The original source text, if this instance is a placeholder for source code that could not be fully read - unset for a normal instance |
+| `-source_file` | `str` | no | The file rtl_text came from, if known |
+| `-diagnostic_summary` | `str` | no | A short explanation of why this instance's source could not be fully read, if available |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## create_layer
@@ -356,6 +359,34 @@ One LEF MINIMUMCUT rule (CUT layers)
 | `-distance` | `dbu` | no | MINIMUMCUT ... LENGTH ... WITHIN distance, in database units |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## create_net
+
+`create_net -schematic <token> [-bus <token>] -name <str> [-bit_index <int>] [-help]`
+
+Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | yes | Parent Schematic token |
+| `-bus` | `token` | no | The NetBus this Net is one bit of, if any - unset for a scalar (1-bit) net |
+| `-name` | `str` | yes | The name of the net - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit net, plain for a scalar net - unique within its parent Schematic (see unique_per_parent) |
+| `-bit_index` | `int` | no | Which bit of .bus this Net represents - unset for a scalar net |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## create_net_bus
+
+`create_net_bus -schematic <token> -name <str> -msb <int> -lsb <int> [-help]`
+
+A multi-bit bus grouping of a Schematic's own per-bit Nets (Verilog wire/reg/logic [msb:lsb])
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | yes | Parent Schematic token |
+| `-name` | `str` | yes | The bus's own base name (without a bit index) - unique within its parent Schematic (see unique_per_parent) |
+| `-msb` | `int` | yes | Most-significant bit index (Verilog [msb:lsb]) |
+| `-lsb` | `int` | yes | Least-significant bit index |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## create_non_default_rule
 
 `create_non_default_rule -technology <token> -name <str> [-hard_spacing <bool>] [-help]`
@@ -415,15 +446,16 @@ An abstract routing blockage
 
 ## create_physical_port
 
-`create_physical_port -layout <token> -name <str> [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
+`create_physical_port -layout <token> [-net <token>] -name <str> [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
 
 A chip-boundary I/O pin (DEF PINS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layout` | `token` | yes | Parent Layout token |
+| `-net` | `token` | no | The logical Net this pin connects to, resolved by `link` against `net_name` - unset until linked, or if net_name was never set |
 | `-name` | `str` | yes | The name of the pin - unique within its parent Layout (see unique_per_parent) |
-| `-net_name` | `str` | no | The name of the net this pin connects to, as read - not resolved to a (future) Net (DEF PINS NET) |
+| `-net_name` | `str` | no | The name of the net this pin connects to, as read (DEF PINS NET) - see `net` for the resolved link |
 | `-direction` | `SignalDirection` | no | The direction of the pin - unset if omitted |
 | `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF PINS USE) |
 | `-placement_status` | `PlacementStatus` | no | Placement status - unset if never placed |
@@ -445,6 +477,21 @@ One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port p
 | `-orientation` | `Orientation` | no | This segment's own orientation - unset if unplaced |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## create_pin
+
+`create_pin -instance <token> [-net <token>] -name <str> [-direction <SignalDirection>] [-raw_expression <str>] [-help]`
+
+Logical connection point on an Instance (Verilog instance port connection)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-instance` | `token` | yes | Parent Instance token |
+| `-net` | `token` | no | The net this pin connects to, if any - a connection to one bit of a multi-bit net (e.g. .A(bus[2])) resolves directly to that bit's own per-bit Net (see Net.bus/.bit_index), not a separate bit-index field here |
+| `-name` | `str` | yes | The pin name as connected in source, e.g. the A in .A(net23) |
+| `-direction` | `SignalDirection` | no | The pin's direction, if known |
+| `-raw_expression` | `str` | no | The connection expression exactly as written in the source |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## create_pin_antenna_model
 
 `create_pin_antenna_model -terminal <token> -oxide <str> [-help]`
@@ -459,7 +506,7 @@ One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer'
 
 ## create_placement
 
-`create_placement -layout <token> -reference_design <token> -name <str> -placement_status <PlacementStatus> [-location <Point>] [-orientation <Orientation>] [-weight <double>] [-source <str>] [-help]`
+`create_placement -layout <token> -reference_design <token> [-instance <token>] -name <str> [-physical_only <bool>] -placement_status <PlacementStatus> [-location <Point>] [-orientation <Orientation>] [-weight <double>] [-source <str>] [-help]`
 
 A placed physical instance (DEF COMPONENTS).
 
@@ -467,12 +514,44 @@ A placed physical instance (DEF COMPONENTS).
 | --- | --- | --- | --- |
 | `-layout` | `token` | yes | Parent Layout token |
 | `-reference_design` | `token` | yes | The reference Design, resolved from the referenced macro/design name at creation time - readers error rather than create a Placement with an unresolved reference |
+| `-instance` | `token` | no | The logical Instance this placement corresponds to, resolved by `link` against the sibling Schematic - unset until linked, and stays unset for a physical_only Placement |
 | `-name` | `str` | yes | The name of the instance - unique within its parent Layout (see unique_per_parent) |
+| `-physical_only` | `bool` | no | Set by `link` when no Instance in the sibling Schematic matches this Placement's name (e.g. a filler/decap cell with no logical counterpart) - not a DEF-native concept, always False until `link` runs |
 | `-placement_status` | `PlacementStatus` | yes | Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED) |
 | `-location` | `Point` | no | The location of the lower-left corner of this instance, in database units - unset if UNPLACED |
 | `-orientation` | `Orientation` | no | Placement orientation - unset if UNPLACED |
 | `-weight` | `double` | no | DEF COMPONENTS WEIGHT - unset if omitted |
 | `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) - unset if omitted |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## create_port
+
+`create_port -schematic <token> [-bus <token>] [-net <token>] -name <str> -direction <SignalDirection> [-bit_index <int>] [-help]`
+
+Logical top-level port of a Schematic (Verilog module input/output/inout) - one Port per bit for a multi-bit port, see .bus
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | yes | Parent Schematic token |
+| `-bus` | `token` | no | The PortBus this Port is one bit of, if any - unset for a scalar (1-bit) port |
+| `-net` | `token` | no | The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name) - the matching per-bit Net for a multi-bit port |
+| `-name` | `str` | yes | The name of the port - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit port, plain for a scalar port - unique within its parent Schematic (see unique_per_parent) |
+| `-direction` | `SignalDirection` | yes | The direction of the port |
+| `-bit_index` | `int` | no | Which bit of .bus this Port represents - unset for a scalar port |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## create_port_bus
+
+`create_port_bus -schematic <token> -name <str> -msb <int> -lsb <int> [-help]`
+
+A multi-bit bus grouping of a Schematic's own per-bit Ports (Verilog module port [msb:lsb])
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | yes | Parent Schematic token |
+| `-name` | `str` | yes | The bus's own base name (without a bit index) - unique within its parent Schematic (see unique_per_parent) |
+| `-msb` | `int` | yes | Most-significant bit index (Verilog [msb:lsb]) |
+| `-lsb` | `int` | yes | Least-significant bit index |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## create_prefer_enclosure_entry
@@ -524,14 +603,15 @@ A placement region (DEF REGIONS)
 
 ## create_route
 
-`create_route -layout <token> -name <str> [-is_special <bool>] [-width <dbu>] [-voltage <double>] [-use <str>] [-help]`
+`create_route -layout <token> [-net <token>] -name <str> [-is_special <bool>] [-width <dbu>] [-voltage <double>] [-use <str>] [-help]`
 
 The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layout` | `token` | yes | Parent Layout token |
-| `-name` | `str` | yes | The name of the net this routes, as read - unique within its parent Layout (see unique_per_parent); not resolved to a (future) Net, same deferred-connectivity convention as Pin.net_name |
+| `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` - unset until linked |
+| `-name` | `str` | yes | The name of the net this routes, as read - unique within its parent Layout (see unique_per_parent). See `net` for the resolved link |
 | `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
 | `-width` | `dbu` | no | Routing width override, in database units (DEF SPECIALNETS WIDTH) - SPECIALNETS only, unset if omitted |
 | `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only, unset if omitted |
@@ -570,7 +650,7 @@ A logical connectivity view (netlist)
 
 ## create_shape
 
-`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <dbu>] [-design_rule_width <dbu>] [-except_pg_net <bool>] [-help]`
+`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-in_abstract <token>] [-in_layout <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <dbu>] [-design_rule_width <dbu>] [-except_pg_net <bool>] [-help]`
 
 A shape on a layer.
 
@@ -583,7 +663,9 @@ A shape on a layer.
 | `-route` | `token` | no | Parent Route token - exactly one of this class's parent flags is required |
 | `-layout` | `token` | no | Parent Layout token - exactly one of this class's parent flags is required |
 | `-abstract` | `token` | no | Parent Abstract token - exactly one of this class's parent flags is required |
-| `-layer` | `token` | no | The layer this shape is on, if it's real LEF/DEF routing/terminal/obstruction geometry - resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). Exactly one of layer/purpose is ever set (documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent) - a Shape with no real physical layer (Layout.diearea, Abstract.boundary, a DEF PLACEMENT blockage's own region) uses purpose instead, unset here. |
+| `-in_abstract` | `token` | no | Parent Abstract token - exactly one of this class's parent flags is required |
+| `-in_layout` | `token` | no | Parent Layout token - exactly one of this class's parent flags is required |
+| `-layer` | `token` | no | The layer this shape is on, if it's real LEF/DEF routing/terminal/obstruction geometry - resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). Exactly one of layer/purpose is ever set (documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent) - a Shape with no real physical layer (Layout.diearea, Abstract.boundary, a DEF PLACEMENT blockage's own region) uses purpose instead, unset here. From TCL, a layer:<name> token; create_shape -layer debug means -purpose DEBUG (the debug layer - no physical layer). |
 | `-purpose` | `ShapePurpose` | no | This shape's synthetic, non-physical-layer purpose, if it isn't real routing/terminal/obstruction/routing-blockage geometry - exactly one of layer/purpose is ever set (see layer's own comment). A ROUTING blockage's own Shape still uses layer like any other real geometry (it really is scoped to a physical routing layer) - only a PLACEMENT blockage (no LAYER clause in DEF at all) uses purpose. |
 | `-paths` | `Path...` | no | A list of paths |
 | `-polygons` | `Polygon...` | no | A list of polygons |
@@ -984,7 +1066,7 @@ One row of a LEF SPACINGTABLE INFLUENCE table (ROUTING layers)
 
 `delete_instance <id> [-help]`
 
-An instance of another design
+An instance of another design, or a placeholder for source code that could not be fully read
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1090,6 +1172,28 @@ One LEF MINIMUMCUT rule (CUT layers)
 | `<id>` | `token` | yes | Friendly id of the MinimumCut to delete |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## delete_net
+
+`delete_net <id> [-help]`
+
+Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the Net to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## delete_net_bus
+
+`delete_net_bus <id> [-help]`
+
+A multi-bit bus grouping of a Schematic's own per-bit Nets (Verilog wire/reg/logic [msb:lsb])
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the NetBus to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## delete_non_default_rule
 
 `delete_non_default_rule <id> [-help]`
@@ -1156,6 +1260,17 @@ One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port p
 | `<id>` | `token` | yes | Friendly id of the PhysicalPortSegment to delete |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## delete_pin
+
+`delete_pin <id> [-help]`
+
+Logical connection point on an Instance (Verilog instance port connection)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the Pin to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## delete_pin_antenna_model
 
 `delete_pin_antenna_model <id> [-help]`
@@ -1176,6 +1291,28 @@ A placed physical instance (DEF COMPONENTS).
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Friendly id of the Placement to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## delete_port
+
+`delete_port <id> [-help]`
+
+Logical top-level port of a Schematic (Verilog module input/output/inout) - one Port per bit for a multi-bit port, see .bus
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the Port to delete |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## delete_port_bus
+
+`delete_port_bus <id> [-help]`
+
+A multi-bit bus grouping of a Schematic's own per-bit Ports (Verilog module port [msb:lsb])
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Friendly id of the PortBus to delete |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## delete_prefer_enclosure_entry
@@ -1538,24 +1675,26 @@ One row of a LEF SPACINGTABLE INFLUENCE table (ROUTING layers)
 
 ## get_instances
 
-`get_instances [-of <token>...] [-filter <expr>] [-help]`
+`get_instances [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
-An instance of another design
+An instance of another design, or a placeholder for source code that could not be fully read. A name-expr containing "/" is a hierarchical path down the Instance tree - each segment may be a plain literal, a single-level glob, or "**" for recursive descent at any depth (e.g. "top/a/b/**" lists every instance nested anywhere under "b"). A bare name-expr with no "/" behaves exactly as before.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
 | `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## get_layer_density_entries
 
-`get_layer_density_entries [-filter <expr>] [-help]`
+`get_layer_density_entries [-of <token>...] [-filter <expr>] [-help]`
 
 One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS) - either a plain scalar or a table, never both.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
@@ -1699,6 +1838,32 @@ Returns the current interaction mode - select, edit, or ruler.
 | --- | --- | --- | --- |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_net_buss
+
+`get_net_buss [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+A multi-bit bus grouping of a Schematic's own per-bit Nets (Verilog wire/reg/logic [msb:lsb])
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_nets
+
+`get_nets [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus. A name-expr containing "/" is a hierarchical path down the Instance tree ending at a Net - each segment may be a plain literal, a single-level glob, or "**" for recursive descent at any depth (e.g. "u_block/u_aes/address[7]", or "top/a/b/**" for every net nested anywhere under "b"). A bare name-expr with no "/" behaves exactly as before.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_non_default_rule_layers
 
 `get_non_default_rule_layers [-of <token>...] [-filter <expr>] [-help]`
@@ -1785,11 +1950,49 @@ One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer'
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_pins
+
+`get_pins [-of <token>...] [-filter <expr>] [-help]`
+
+Logical connection point on an Instance (Verilog instance port connection)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_placements
 
 `get_placements [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
 A placed physical instance (DEF COMPONENTS).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_port_buss
+
+`get_port_buss [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+A multi-bit bus grouping of a Schematic's own per-bit Ports (Verilog module port [msb:lsb])
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
+| `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
+| `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_ports
+
+`get_ports [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Logical top-level port of a Schematic (Verilog module input/output/inout) - one Port per bit for a multi-bit port, see .bus. A name-expr containing "/" is a hierarchical path down the Instance tree ending at a Port - each segment may be a plain literal, a single-level glob, or "**" for recursive descent at any depth (e.g. "top/a/b/**" for every port nested anywhere under "b"). A bare name-expr with no "/" behaves exactly as before.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2085,6 +2288,12 @@ Alias for command_history: Tcl's own built-in history command is never populated
 | --- | --- | --- | --- |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## link
+
+`link`
+
+Re-resolves Instance.reference_design for every Instance in this session with an unresolved reference, matching its reference_name against Design.name - e.g. after a later read_lef supplies a leaf cell a prior read_verilog call left unresolved. Called automatically at the end of every read_verilog too. Returns the number of Instances newly resolved.
+
 ## open_design
 
 `open_design <name> [-view abstract|layout] [-help]`
@@ -2101,7 +2310,7 @@ Selects a Design by name as this session's current view - every subsequent get_<
 
 `read_def <path> [-help]`
 
-Reads one DEF file into a new Layout under this session's shared Root - the DEF's own referenced layers/macros must already be present (read the tech/macro LEF(s) first via read_lef). Returns 0 on success; a nonzero code or a message in le_message_count/le_message_at (see get_messages) on a parse problem.
+Reads one DEF file into a new Layout under this session's shared Root - the DEF's own referenced layers/macros must already be present (read the tech/macro LEF(s) first via read_lef). Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2111,11 +2320,23 @@ Reads one DEF file into a new Layout under this session's shared Root - the DEF'
 
 `read_lef <path> [-help]`
 
-Reads one LEF file (a tech LEF, a macro LEF, or both combined) into this session's shared Root - callable multiple times to layer a tech file and one or more macro files. Returns 0 on success; a nonzero code or a message in le_message_count/le_message_at (see get_messages) on a parse problem.
+Reads one LEF file (a tech LEF, a macro LEF, or both combined) into this session's shared Root - callable multiple times to layer a tech file and one or more macro files. Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<path>` | `file` | yes | LEF file to read |
+
+## read_verilog
+
+`read_verilog -netlist|-rtl <path> [<path> ...] [-help]`
+
+Reads one or more files, all elaborated together in one slang compilation, into this session's shared Root, populating Schematic/Port/Net/Instance/Pin. -netlist requires accurate parameter/generate elaboration (does not tolerate errors in structural content, though an unresolvable module instantiation on its own doesn't fail the read) - it also automatically generates a stub Verilog module (see write_verilog_stubs) for every Design already read via read_lef that has no real Verilog of its own, and includes it in this same elaboration, so a gate-level netlist's own leaf-cell/macro instantiations (standard cells, SRAMs, ...) resolve for real with no extra step; -rtl tolerates invalid/unsupported content by storing it as a logic-cloud Instance (see the Instance klass's own rtl_text field) and never generates stubs (it doesn't elaborate at all). Reading further files later calls this again - each call's own get-or-create-by-name Design/Schematic handling makes that work naturally, though only files given to the *same* call (stubs included) share one elaboration. Automatically re-links any newly-resolvable Instance against Designs already in this session (see link). Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-netlist` | `flag` | no | Full-elaboration flavor for a gate-level netlist |
+| `-rtl` | `flag` | no | Syntax-only flavor, tolerant of invalid/unsupported content |
+| `<path>` | `file...` | yes | One or more SystemVerilog/Verilog files to read together |
 
 ## redo
 
@@ -2278,7 +2499,7 @@ Sets whether one purpose column is selectable, across every real Layer - see set
 
 `set_purpose_visible <purpose> <visible> [-help]`
 
-Sets whether one purpose column (e.g. every Layer's own obstruction shapes) is visible, across every real Layer - the other axis from set_layer_visible's own whole-row toggle. <purpose> is one of: boundary gcellgrid obstruction placementBlockage placementName region route routingBlockage row terminal trackNonPreferred trackPreferred. Visible by default until toggled.
+Sets whether one purpose column (e.g. every Layer's own obstruction shapes) is visible, across every real Layer - the other axis from set_layer_visible's own whole-row toggle. <purpose> is one of: boundary customShape debug gcellgrid obstruction placementBlockage placementBoundary placementName region route routingBlockage row terminal trackNonPreferred trackPreferred. Visible by default until toggled.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2296,6 +2517,98 @@ Sets the render viewport's pixel size (used by le_render_pixel_buffer).
 | --- | --- | --- | --- |
 | `-width` | `int` | yes | Viewport width, in pixels |
 | `-height` | `int` | yes | Viewport height, in pixels |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## shape_and
+
+`shape_and <shapes> -with <shapes> [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new Shape holding the overlap of the two groups, merging every shape within each group first. It goes on the first input shape's own layer unless -layer is given. A region with holes comes back as exact rects (a polygon can't hold a hole). An empty result creates nothing and returns an empty list. New Shapes go to the current Abstract/Layout's free-standing shapes unless -parent says otherwise (see shape_copy). Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | The first group - shape tokens, or lists of them |
+| `-with` | `token...` | yes | The second group - a list of shape tokens |
+| `-layer` | `token` | no | Layer for the result (or debug for the debug layer) - defaults to the first input shape's own |
+| `-parent` | `token` | no | Where the new Shape goes - defaults to the current Abstract/Layout's free-standing shapes |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## shape_bbox
+
+`shape_bbox <shapes> [-help]`
+
+Returns the bounding box of every given shape together as a Rect, {{llx lly} {urx ury}} in microns - the same form -bbox/-rects flags and zoom_area take (zoom_area [shape_bbox ...]). Creates nothing.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape tokens, or lists of them |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## shape_change_layer
+
+`shape_change_layer <shapes> -layer <token> [-help]`
+
+Puts each shape onto -layer in place (its geometry, position and owner are unchanged); -layer debug puts it on the debug layer (drawn on top of everything in light blue). All-or-nothing: an unknown shape changes nothing. Undoable. Returns the same shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape tokens, or lists of them (e.g. [get_selection]) |
+| `-layer` | `token` | yes | The layer to move onto, or debug for the debug layer |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## shape_copy
+
+`shape_copy <shapes> -layer <token> [-parent <token>] [-help]`
+
+Creates one new Shape per input shape, with the same geometry, on -layer. The originals are untouched. New Shapes go to the current Abstract/Layout's free-standing shapes (not written by write_lef/write_def) unless -parent names an abstract, layout, obstruction, terminal_port, route, blockage or physical_port_segment to add them to. Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape tokens, or lists of them (e.g. [get_selection]) |
+| `-layer` | `token` | yes | The layer to copy onto, or debug for the debug layer |
+| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## shape_not
+
+`shape_not <shapes> -with <shapes> [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new Shape holding the first group minus the -with group, merging every shape within each group first. It goes on the first input shape's own layer unless -layer is given. A region with holes comes back as exact rects (a polygon can't hold a hole). An empty result creates nothing and returns an empty list. New Shapes go to the current Abstract/Layout's free-standing shapes unless -parent says otherwise (see shape_copy). Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | The first group - shape tokens, or lists of them |
+| `-with` | `token...` | yes | The second group - a list of shape tokens |
+| `-layer` | `token` | no | Layer for the result (or debug for the debug layer) - defaults to the first input shape's own |
+| `-parent` | `token` | no | Where the new Shape goes - defaults to the current Abstract/Layout's free-standing shapes |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## shape_or
+
+`shape_or <shapes> -with <shapes> [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new Shape holding the union of both groups, merging every shape within each group first. It goes on the first input shape's own layer unless -layer is given. A region with holes comes back as exact rects (a polygon can't hold a hole). An empty result creates nothing and returns an empty list. New Shapes go to the current Abstract/Layout's free-standing shapes unless -parent says otherwise (see shape_copy). Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | The first group - shape tokens, or lists of them |
+| `-with` | `token...` | yes | The second group - a list of shape tokens |
+| `-layer` | `token` | no | Layer for the result (or debug for the debug layer) - defaults to the first input shape's own |
+| `-parent` | `token` | no | Where the new Shape goes - defaults to the current Abstract/Layout's free-standing shapes |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## shape_path
+
+`shape_path <shapes> -width <um> [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new path-only Shape per input shape: a closed path of -width microns along the outline of its merged rects/polygons (and around any holes), plus each of its own paths' centerlines re-stroked at -width. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape tokens, or lists of them |
+| `-width` | `dbu` | yes | Path width, in microns |
+| `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
+| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## shape_paths
@@ -2329,6 +2642,49 @@ Every rect on the given Shape, as a list of {{ll_x ll_y} {ur_x ur_y}} coordinate
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | A shape: friendly-id token |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## shape_size
+
+`shape_size <shapes> [-by <um>] [-x <um>] [-y <um>] [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new Shape per input shape: its merged area grown (positive) or shrunk (negative) by -x microns in X and -y in Y (-by sets both; an explicit -x/-y overrides it). Exact for axis-aligned geometry with any X/Y amounts; other geometry only supports equal X and Y. A shape shrunk away entirely creates nothing. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape tokens, or lists of them |
+| `-by` | `dbu` | no | Grow (positive) or shrink (negative) by this in both X and Y, in microns |
+| `-x` | `dbu` | no | Grow/shrink in X, in microns - overrides -by |
+| `-y` | `dbu` | no | Grow/shrink in Y, in microns - overrides -by |
+| `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
+| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## shape_to_polygon
+
+`shape_to_polygon <shapes> [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new polygon-only Shape per input shape, covering its merged area. A region with holes is split into exact rectangular polygons (a polygon can't hold a hole). Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape tokens, or lists of them |
+| `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
+| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## shape_to_rects
+
+`shape_to_rects <shapes> [-direction horizontal|vertical] [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new rect-only Shape per input shape, fracturing its merged area into non-overlapping rects: -direction horizontal (the default) cuts with horizontal lines, giving horizontal strips; vertical gives vertical strips. Exact for axis-aligned geometry; a diagonal edge is over-covered by its strip's bounding box. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape tokens, or lists of them |
+| `-direction` | `str` | no | horizontal (default) or vertical fracturing |
+| `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
+| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## show_gui
@@ -2512,17 +2868,20 @@ One row of a LEF SPACINGTABLE INFLUENCE table (ROUTING layers)
 
 ## update_instance
 
-`update_instance <id> [-schematic <token>] [-reference_design <token>] [-name <str>] [-reference_name <str>] [-location <Point>] [-help]`
+`update_instance <id> [-schematic <token>] [-reference_design <token>] [-name <str>] [-reference_name <str>] [-location <Point>] [-rtl_text <str>] [-source_file <str>] [-diagnostic_summary <str>] [-help]`
 
-An instance of another design
+An instance of another design, or a placeholder for source code that could not be fully read
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-schematic` | `token` | no | Reassign this object's parent Schematic (token) |
-| `-reference_design` | `token` | no | The ID of the reference design after linking |
-| `-name` | `str` | no | The name of the instance |
-| `-reference_name` | `str` | no | The name of the reference design |
+| `-reference_design` | `token` | no | The referenced design, once resolved - unset until then, and never set for a placeholder instance (see rtl_text) |
+| `-name` | `str` | no | The name of the instance - unique within its parent Schematic (see unique_per_parent) |
+| `-reference_name` | `str` | no | The name of the referenced design, if known |
 | `-location` | `Point` | no | The location of the lower-left corner of this instance |
+| `-rtl_text` | `str` | no | The original source text, if this instance is a placeholder for source code that could not be fully read - unset for a normal instance |
+| `-source_file` | `str` | no | The file rtl_text came from, if known |
+| `-diagnostic_summary` | `str` | no | A short explanation of why this instance's source could not be fully read, if available |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## update_layer
@@ -2679,6 +3038,34 @@ One LEF MINIMUMCUT rule (CUT layers)
 | `-distance` | `dbu` | no | MINIMUMCUT ... LENGTH ... WITHIN distance, in database units |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## update_net
+
+`update_net <id> [-schematic <token>] [-bus <token>] [-name <str>] [-bit_index <int>] [-help]`
+
+Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | no | Reassign this object's parent Schematic (token) |
+| `-bus` | `token` | no | The NetBus this Net is one bit of, if any - unset for a scalar (1-bit) net |
+| `-name` | `str` | no | The name of the net - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit net, plain for a scalar net - unique within its parent Schematic (see unique_per_parent) |
+| `-bit_index` | `int` | no | Which bit of .bus this Net represents - unset for a scalar net |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## update_net_bus
+
+`update_net_bus <id> [-schematic <token>] [-name <str>] [-msb <int>] [-lsb <int>] [-help]`
+
+A multi-bit bus grouping of a Schematic's own per-bit Nets (Verilog wire/reg/logic [msb:lsb])
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | no | Reassign this object's parent Schematic (token) |
+| `-name` | `str` | no | The bus's own base name (without a bit index) - unique within its parent Schematic (see unique_per_parent) |
+| `-msb` | `int` | no | Most-significant bit index (Verilog [msb:lsb]) |
+| `-lsb` | `int` | no | Least-significant bit index |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## update_non_default_rule
 
 `update_non_default_rule <id> [-technology <token>] [-name <str>] [-hard_spacing <bool>] [-help]`
@@ -2738,15 +3125,16 @@ An abstract routing blockage
 
 ## update_physical_port
 
-`update_physical_port <id> [-layout <token>] [-name <str>] [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
+`update_physical_port <id> [-layout <token>] [-net <token>] [-name <str>] [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
 
 A chip-boundary I/O pin (DEF PINS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layout` | `token` | no | Reassign this object's parent Layout (token) |
+| `-net` | `token` | no | The logical Net this pin connects to, resolved by `link` against `net_name` - unset until linked, or if net_name was never set |
 | `-name` | `str` | no | The name of the pin - unique within its parent Layout (see unique_per_parent) |
-| `-net_name` | `str` | no | The name of the net this pin connects to, as read - not resolved to a (future) Net (DEF PINS NET) |
+| `-net_name` | `str` | no | The name of the net this pin connects to, as read (DEF PINS NET) - see `net` for the resolved link |
 | `-direction` | `SignalDirection` | no | The direction of the pin - unset if omitted |
 | `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF PINS USE) |
 | `-placement_status` | `PlacementStatus` | no | Placement status - unset if never placed |
@@ -2768,6 +3156,21 @@ One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port p
 | `-orientation` | `Orientation` | no | This segment's own orientation - unset if unplaced |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## update_pin
+
+`update_pin <id> [-instance <token>] [-net <token>] [-name <str>] [-direction <SignalDirection>] [-raw_expression <str>] [-help]`
+
+Logical connection point on an Instance (Verilog instance port connection)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-instance` | `token` | no | Reassign this object's parent Instance (token) |
+| `-net` | `token` | no | The net this pin connects to, if any - a connection to one bit of a multi-bit net (e.g. .A(bus[2])) resolves directly to that bit's own per-bit Net (see Net.bus/.bit_index), not a separate bit-index field here |
+| `-name` | `str` | no | The pin name as connected in source, e.g. the A in .A(net23) |
+| `-direction` | `SignalDirection` | no | The pin's direction, if known |
+| `-raw_expression` | `str` | no | The connection expression exactly as written in the source |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## update_pin_antenna_model
 
 `update_pin_antenna_model <id> [-terminal <token>] [-oxide <str>] [-help]`
@@ -2782,7 +3185,7 @@ One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer'
 
 ## update_placement
 
-`update_placement <id> [-layout <token>] [-reference_design <token>] [-name <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-weight <double>] [-source <str>] [-help]`
+`update_placement <id> [-layout <token>] [-reference_design <token>] [-instance <token>] [-name <str>] [-physical_only <bool>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-weight <double>] [-source <str>] [-help]`
 
 A placed physical instance (DEF COMPONENTS).
 
@@ -2790,12 +3193,44 @@ A placed physical instance (DEF COMPONENTS).
 | --- | --- | --- | --- |
 | `-layout` | `token` | no | Reassign this object's parent Layout (token) |
 | `-reference_design` | `token` | no | The reference Design, resolved from the referenced macro/design name at creation time - readers error rather than create a Placement with an unresolved reference |
+| `-instance` | `token` | no | The logical Instance this placement corresponds to, resolved by `link` against the sibling Schematic - unset until linked, and stays unset for a physical_only Placement |
 | `-name` | `str` | no | The name of the instance - unique within its parent Layout (see unique_per_parent) |
+| `-physical_only` | `bool` | no | Set by `link` when no Instance in the sibling Schematic matches this Placement's name (e.g. a filler/decap cell with no logical counterpart) - not a DEF-native concept, always False until `link` runs |
 | `-placement_status` | `PlacementStatus` | no | Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED) |
 | `-location` | `Point` | no | The location of the lower-left corner of this instance, in database units - unset if UNPLACED |
 | `-orientation` | `Orientation` | no | Placement orientation - unset if UNPLACED |
 | `-weight` | `double` | no | DEF COMPONENTS WEIGHT - unset if omitted |
 | `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) - unset if omitted |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## update_port
+
+`update_port <id> [-schematic <token>] [-bus <token>] [-net <token>] [-name <str>] [-direction <SignalDirection>] [-bit_index <int>] [-help]`
+
+Logical top-level port of a Schematic (Verilog module input/output/inout) - one Port per bit for a multi-bit port, see .bus
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | no | Reassign this object's parent Schematic (token) |
+| `-bus` | `token` | no | The PortBus this Port is one bit of, if any - unset for a scalar (1-bit) port |
+| `-net` | `token` | no | The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name) - the matching per-bit Net for a multi-bit port |
+| `-name` | `str` | no | The name of the port - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit port, plain for a scalar port - unique within its parent Schematic (see unique_per_parent) |
+| `-direction` | `SignalDirection` | no | The direction of the port |
+| `-bit_index` | `int` | no | Which bit of .bus this Port represents - unset for a scalar port |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## update_port_bus
+
+`update_port_bus <id> [-schematic <token>] [-name <str>] [-msb <int>] [-lsb <int>] [-help]`
+
+A multi-bit bus grouping of a Schematic's own per-bit Ports (Verilog module port [msb:lsb])
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | no | Reassign this object's parent Schematic (token) |
+| `-name` | `str` | no | The bus's own base name (without a bit index) - unique within its parent Schematic (see unique_per_parent) |
+| `-msb` | `int` | no | Most-significant bit index (Verilog [msb:lsb]) |
+| `-lsb` | `int` | no | Least-significant bit index |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## update_prefer_enclosure_entry
@@ -2847,14 +3282,15 @@ A placement region (DEF REGIONS)
 
 ## update_route
 
-`update_route <id> [-layout <token>] [-name <str>] [-is_special <bool>] [-width <dbu>] [-voltage <double>] [-use <str>] [-help]`
+`update_route <id> [-layout <token>] [-net <token>] [-name <str>] [-is_special <bool>] [-width <dbu>] [-voltage <double>] [-use <str>] [-help]`
 
 The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layout` | `token` | no | Reassign this object's parent Layout (token) |
-| `-name` | `str` | no | The name of the net this routes, as read - unique within its parent Layout (see unique_per_parent); not resolved to a (future) Net, same deferred-connectivity convention as Pin.net_name |
+| `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` - unset until linked |
+| `-name` | `str` | no | The name of the net this routes, as read - unique within its parent Layout (see unique_per_parent). See `net` for the resolved link |
 | `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
 | `-width` | `dbu` | no | Routing width override, in database units (DEF SPECIALNETS WIDTH) - SPECIALNETS only, unset if omitted |
 | `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only, unset if omitted |
@@ -2899,7 +3335,7 @@ A shape on a layer.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `-layer` | `token` | no | The layer this shape is on, if it's real LEF/DEF routing/terminal/obstruction geometry - resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). Exactly one of layer/purpose is ever set (documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent) - a Shape with no real physical layer (Layout.diearea, Abstract.boundary, a DEF PLACEMENT blockage's own region) uses purpose instead, unset here. |
+| `-layer` | `token` | no | The layer this shape is on, if it's real LEF/DEF routing/terminal/obstruction geometry - resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). Exactly one of layer/purpose is ever set (documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent) - a Shape with no real physical layer (Layout.diearea, Abstract.boundary, a DEF PLACEMENT blockage's own region) uses purpose instead, unset here. From TCL, a layer:<name> token; create_shape -layer debug means -purpose DEBUG (the debug layer - no physical layer). |
 | `-purpose` | `ShapePurpose` | no | This shape's synthetic, non-physical-layer purpose, if it isn't real routing/terminal/obstruction/routing-blockage geometry - exactly one of layer/purpose is ever set (see layer's own comment). A ROUTING blockage's own Shape still uses layer like any other real geometry (it really is scoped to a physical routing layer) - only a PLACEMENT blockage (no LAYER clause in DEF at all) uses purpose. |
 | `-paths` | `Path...` | no | A list of paths |
 | `-polygons` | `Polygon...` | no | A list of polygons |
@@ -3176,6 +3612,18 @@ Writes a LEF file. -abstract writes just that one Abstract's own MACRO (or the c
 | `<filename>` | `file` | yes | Output LEF file path |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## write_verilog_stubs
+
+`write_verilog_stubs [-library <token>] <filename> [-help]`
+
+Writes one empty-bodied Verilog module declaration per Design in the given Library (or the sole Library read so far, if -library is omitted) that has an Abstract but no Schematic - i.e. every LEF-only leaf cell/macro (standard cells, SRAMs, ...) with no real Verilog/SystemVerilog ever read for it. A multi-bit LEF macro port (bracket-suffixed pins like addr_in[0]..addr_in[7]) combines into one Verilog bus port ([7:0] addr_in) when its bits are contiguous and share one direction, matching how a real netlist almost always connects it. read_verilog -netlist already generates and uses this same content automatically for every read (to the point that 'unknown module BUF_X1'-style errors simply don't happen) - call this directly only to inspect the generated stub source, or to drive your own manual workflow.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-library` | `token` | no | Library to generate stubs for - defaults to the sole Library read so far |
+| `<filename>` | `file` | yes | Output Verilog file path |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## zoom
 
 `zoom -factor <double> [-help]`
@@ -3189,13 +3637,13 @@ Zooms the current view by a signed fractional step (new_scale = scale * (1 + fac
 
 ## zoom_area
 
-`zoom_area {llx lly urx ury} [-padding <int>] [-help]`
+`zoom_area {{llx lly} {urx ury}} [-padding <int>] [-help]`
 
-Fits the viewport's pan/scale to the given rectangle {llx lly urx ury}, in microns: uniform scale (no stretch) so it fills the current viewport (see set_viewport_size) with -padding pixels of margin on every side, pan centering it. Unlike zoom (a relative step from the current view), this jumps directly to an exact area - useful for reproducibly zooming to a specific location in a script.
+Fits the viewport's pan/scale to the given rectangle {{llx lly} {urx ury}}, in microns (the same Rect form -bbox/-rects flags and shape_bbox use, so zoom_area [shape_bbox ...] works): uniform scale (no stretch) so it fills the current viewport (see set_viewport_size) with -padding pixels of margin on every side, pan centering it. Unlike zoom (a relative step from the current view), this jumps directly to an exact area - useful for reproducibly zooming to a specific location in a script.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<rect>` | `Rect` | yes | {llx lly urx ury}, in microns |
+| `<rect>` | `Rect` | yes | {{llx lly} {urx ury}}, in microns |
 | `-padding` | `int` | no | Margin in pixels on every side of the fitted rect - defaults to 0 |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 

@@ -23,13 +23,14 @@ namespace
     };
 }
 
-TEST_F(ViewStyleFixture, CreatesSixPurposesPerLayerPlusSevenPseudoLayers)
+TEST_F(ViewStyleFixture, CreatesSevenPurposesPerLayerPlusEightPseudoLayers)
 {
-    // 2 layers x 6 purposes (TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
-    // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE) + 7 pseudo-ViewLayers
-    // with no physical Layer (BOUNDARY/ROW/PLACEMENT_NAME/
-    // PLACEMENT_BOUNDARY/GCELLGRID/PLACEMENT_BLOCKAGE/REGION) = 19.
-    EXPECT_EQ(view_layers.all().size(), 19u);
+    // 2 layers x 7 purposes (TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
+    // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/CUSTOM_SHAPE) + 8
+    // pseudo-ViewLayers with no physical Layer (BOUNDARY/ROW/
+    // PLACEMENT_NAME/PLACEMENT_BOUNDARY/GCELLGRID/PLACEMENT_BLOCKAGE/
+    // REGION/DEBUG) = 22.
+    EXPECT_EQ(view_layers.all().size(), 22u);
 }
 
 TEST_F(ViewStyleFixture, FindResolvesDistinctViewLayersPerLayerAndPurpose)
@@ -126,13 +127,13 @@ TEST_F(ViewStyleFixture, BoundaryColorIsUnaffectedByThePerLayerPaletteAndLighter
 TEST_F(ViewStyleFixture, RowsHasRowThenBoundaryThenPlacementNameThenPlacementBoundaryThenOneRowPerPhysicalLayerThenThreePseudoRows)
 {
     // ROW + BOUNDARY + PLACEMENT_NAME + PLACEMENT_BOUNDARY + 2 physical
-    // Layers (M1, M2) + GCELLGRID + PLACEMENT_BLOCKAGE + REGION = 9 rows -
+    // Layers (M1, M2) + GCELLGRID + PLACEMENT_BLOCKAGE + REGION + DEBUG = 10 rows -
     // ROW then BOUNDARY then PLACEMENT_NAME then PLACEMENT_BOUNDARY first
     // (BUGS_AND_ENHANCEMENTS.md E8/E13 - this declaration order is also
     // the real draw z-order, see rows()'s own doc comment), everything
     // else unchanged.
     const auto &rows = view_layers.rows();
-    ASSERT_EQ(rows.size(), 9u);
+    ASSERT_EQ(rows.size(), 10u);
     EXPECT_EQ(rows[0].name, "ROW");
     EXPECT_EQ(rows[1].name, "BOUNDARY");
     EXPECT_EQ(rows[2].name, "PLACEMENT_NAME");
@@ -142,12 +143,13 @@ TEST_F(ViewStyleFixture, RowsHasRowThenBoundaryThenPlacementNameThenPlacementBou
     EXPECT_EQ(rows[6].name, "GCELLGRID");
     EXPECT_EQ(rows[7].name, "PLACEMENT_BLOCKAGE");
     EXPECT_EQ(rows[8].name, "REGION");
+    EXPECT_EQ(rows[9].name, "DEBUG"); // last, so debug output draws on top of everything
 }
 
 TEST_F(ViewStyleFixture, PhysicalLayerRowHasTerminalObstructionTrackRoutingBlockageAndRouteColumns)
 {
     const auto &row = view_layers.rows().at(4);
-    ASSERT_EQ(row.columns.size(), 6u);
+    ASSERT_EQ(row.columns.size(), 7u);
     EXPECT_EQ(row.columns[0].purpose, ViewLayerPurpose::TERMINAL);
     EXPECT_EQ(row.columns[0].id, view_layers.find(m1, ViewLayerPurpose::TERMINAL));
     EXPECT_EQ(row.columns[1].purpose, ViewLayerPurpose::OBSTRUCTION);
@@ -160,6 +162,37 @@ TEST_F(ViewStyleFixture, PhysicalLayerRowHasTerminalObstructionTrackRoutingBlock
     EXPECT_EQ(row.columns[4].id, view_layers.find(m1, ViewLayerPurpose::ROUTING_BLOCKAGE));
     EXPECT_EQ(row.columns[5].purpose, ViewLayerPurpose::ROUTE);
     EXPECT_EQ(row.columns[5].id, view_layers.find(m1, ViewLayerPurpose::ROUTE));
+    EXPECT_EQ(row.columns[6].purpose, ViewLayerPurpose::CUSTOM_SHAPE);
+    EXPECT_EQ(row.columns[6].id, view_layers.find(m1, ViewLayerPurpose::CUSTOM_SHAPE));
+}
+
+TEST_F(ViewStyleFixture, CustomShapeUsesItsLayersOwnColorAndFillLikeTerminal)
+{
+    const ViewLayerData *terminal = view_layers.get(view_layers.find(m1, ViewLayerPurpose::TERMINAL));
+    const ViewLayerData *custom = view_layers.get(view_layers.find(m1, ViewLayerPurpose::CUSTOM_SHAPE));
+    ASSERT_NE(terminal, nullptr);
+    ASSERT_NE(custom, nullptr);
+    EXPECT_EQ(custom->style.outline_color.r, terminal->style.outline_color.r);
+    EXPECT_EQ(custom->style.outline_color.g, terminal->style.outline_color.g);
+    EXPECT_EQ(custom->style.outline_color.b, terminal->style.outline_color.b);
+    EXPECT_EQ(custom->style.fill_pattern, terminal->style.fill_pattern);
+    EXPECT_NE(view_layers.find(m1, ViewLayerPurpose::CUSTOM_SHAPE), view_layers.find(m2, ViewLayerPurpose::CUSTOM_SHAPE));
+}
+
+TEST_F(ViewStyleFixture, DebugIsALayerlessPseudoRowInAColorNoLayerUses)
+{
+    const ViewLayerId debug_id = view_layers.find(LayerId{}, ViewLayerPurpose::DEBUG);
+    ASSERT_TRUE(debug_id.valid());
+    const ViewLayerData *debug = view_layers.get(debug_id);
+    ASSERT_NE(debug, nullptr);
+    for (LayerId layer : {m1, m2})
+    {
+        const ViewLayerData *terminal = view_layers.get(view_layers.find(layer, ViewLayerPurpose::TERMINAL));
+        const bool same = terminal->style.outline_color.r == debug->style.outline_color.r &&
+                          terminal->style.outline_color.g == debug->style.outline_color.g &&
+                          terminal->style.outline_color.b == debug->style.outline_color.b;
+        EXPECT_FALSE(same);
+    }
 }
 
 TEST_F(ViewStyleFixture, TrackAndRoutingBlockageOfSameLayerShareItsColorButNotObstructionsPattern)
@@ -339,12 +372,12 @@ TEST_F(ViewStyleFixture, PurposesListsEachDistinctPurposeOnceInFirstEncounteredO
     // ROW then BOUNDARY then PLACEMENT_NAME then PLACEMENT_BOUNDARY each
     // contribute their own purpose first (BUGS_AND_ENHANCEMENTS.md
     // E8/E13); M1's row then contributes TERMINAL/OBSTRUCTION/
-    // TRACK_PREFERRED/TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE; M2's row
-    // repeats all six (deduplicated, not appended again); GCELLGRID/
-    // PLACEMENT_BLOCKAGE/REGION each contribute their own single new
-    // purpose last.
+    // TRACK_PREFERRED/TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/
+    // CUSTOM_SHAPE; M2's row repeats all seven (deduplicated, not appended
+    // again); GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG each contribute
+    // their own single new purpose last.
     const auto purposes = view_layers.purposes();
-    ASSERT_EQ(purposes.size(), 13u);
+    ASSERT_EQ(purposes.size(), 15u);
     EXPECT_EQ(purposes[0], ViewLayerPurpose::ROW);
     EXPECT_EQ(purposes[1], ViewLayerPurpose::BOUNDARY);
     EXPECT_EQ(purposes[2], ViewLayerPurpose::PLACEMENT_NAME);
@@ -355,9 +388,11 @@ TEST_F(ViewStyleFixture, PurposesListsEachDistinctPurposeOnceInFirstEncounteredO
     EXPECT_EQ(purposes[7], ViewLayerPurpose::TRACK_NON_PREFERRED);
     EXPECT_EQ(purposes[8], ViewLayerPurpose::ROUTING_BLOCKAGE);
     EXPECT_EQ(purposes[9], ViewLayerPurpose::ROUTE);
-    EXPECT_EQ(purposes[10], ViewLayerPurpose::GCELLGRID);
-    EXPECT_EQ(purposes[11], ViewLayerPurpose::PLACEMENT_BLOCKAGE);
-    EXPECT_EQ(purposes[12], ViewLayerPurpose::REGION);
+    EXPECT_EQ(purposes[10], ViewLayerPurpose::CUSTOM_SHAPE);
+    EXPECT_EQ(purposes[11], ViewLayerPurpose::GCELLGRID);
+    EXPECT_EQ(purposes[12], ViewLayerPurpose::PLACEMENT_BLOCKAGE);
+    EXPECT_EQ(purposes[13], ViewLayerPurpose::REGION);
+    EXPECT_EQ(purposes[14], ViewLayerPurpose::DEBUG);
 }
 
 TEST(ViewStylePalette, CutLayerAboveARoutingLayerSharesItsColor)

@@ -68,6 +68,12 @@ namespace le
                              // last, not inserted alongside PLACEMENT_NAME above - this enum's raw
                              // ordinal crosses the C API (le_purpose_at, see this enum's own top
                              // comment), so an existing member's ordinal must never shift.
+        CUSTOM_SHAPE,       // A free-standing Shape (Abstract/Layout.free_shapes - e.g. a shape_*
+                             // TCL command's result) on a real Layer - contributes into that
+                             // Layer's own row with its own color and fill, as its own column so
+                             // custom geometry can be hidden independently of real pins/routes.
+        DEBUG,              // Shape.purpose == DEBUG (`-layer debug`) - own pseudo-row, no Layer,
+                             // drawn on top of everything in a high-contrast color.
     };
 
     struct Color
@@ -277,6 +283,10 @@ namespace le
                 const ViewLayerId track_non_preferred_id = set.add(layer->name, layer->name + "/TRACK_NON_PREFERRED", ViewLayerPurpose::TRACK_NON_PREFERRED, layer_id, track_style);
                 const ViewLayerId routing_blockage_id = set.add(layer->name, layer->name + "/ROUTING_BLOCKAGE", ViewLayerPurpose::ROUTING_BLOCKAGE, layer_id, layer_style(color, FillPattern::DOTS));
                 const ViewLayerId route_id = set.add(layer->name, layer->name + "/ROUTE", ViewLayerPurpose::ROUTE, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
+                // Free-standing custom geometry reads as this layer's own
+                // conductor shapes (same color and fill as TERMINAL/ROUTE),
+                // added last so it draws just above this layer's routes.
+                const ViewLayerId custom_shape_id = set.add(layer->name, layer->name + "/CUSTOM_SHAPE", ViewLayerPurpose::CUSTOM_SHAPE, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
 
                 set.rows_.push_back(ViewLayerRow{
                     .name = layer->name,
@@ -287,6 +297,7 @@ namespace le
                         ViewLayerColumn{.purpose = ViewLayerPurpose::TRACK_NON_PREFERRED, .id = track_non_preferred_id},
                         ViewLayerColumn{.purpose = ViewLayerPurpose::ROUTING_BLOCKAGE, .id = routing_blockage_id},
                         ViewLayerColumn{.purpose = ViewLayerPurpose::ROUTE, .id = route_id},
+                        ViewLayerColumn{.purpose = ViewLayerPurpose::CUSTOM_SHAPE, .id = custom_shape_id},
                     },
                 });
             }
@@ -322,6 +333,13 @@ namespace le
             set.rows_.push_back(ViewLayerRow{
                 .name = "REGION",
                 .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::REGION, .id = region_id}},
+            });
+
+            // Added last, so debug output draws on top of everything.
+            const ViewLayerId debug_id = set.add("DEBUG", "DEBUG", ViewLayerPurpose::DEBUG, LayerId{}, debug_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "DEBUG",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::DEBUG, .id = debug_id}},
             });
 
             return set;
@@ -612,6 +630,18 @@ namespace le
         static ViewLayerStyle region_style()
         {
             return ViewLayerStyle{.outline_color = {120, 200, 120, 255}, .fill_color = {0, 0, 0, 0}};
+        }
+
+        // Bright light blue: clear of every palette entry (nearest are cyan
+        // {0,255,255}, medium turquoise {72,209,204} and light blue
+        // {100,100,255}) and brighter than placement_boundary_style()'s
+        // muted {80,180,220}, which is also dashed and unfilled. Readable
+        // on both the GUI's black canvas and dump_png's light one, which
+        // pure white wasn't. Solid outline plus a reduced-alpha fill, so
+        // overlapping debug shapes and the geometry under them stay visible.
+        static ViewLayerStyle debug_style()
+        {
+            return ViewLayerStyle{.outline_color = {120, 220, 255, 255}, .fill_color = {120, 220, 255, 100}};
         }
 
         Pool<ViewLayerData, ViewLayerId> pool_;

@@ -27,7 +27,35 @@ none of these are duplicated here.
 - `src/geometry/` — `Geometry`, a Boost.Geometry-backed wrapper (bbox, overlap,
   transform, polygon union/buffer, label placement, overlap-merging) over the
   database's `Point`/`Rect`/`Polygon`/`Path`/`Shape` types. Fully covered by
-  `geometry_test.cpp`.
+  `geometry_test.cpp`. Also the shape boolean/conversion operations behind
+  the `shape_*` TCL commands (NEW_FEATURES_SEPT_2026.md item 1 —
+  `boolean_shapes`/`shape_to_rects`/`shape_to_polygons`/`size_shape`/
+  `shape_outline_paths`), each working on a Shape's merged area with holes
+  preserved: `Polygon` can't hold a hole, so a holed result is emitted as
+  exact rects. `shape_ops.hpp` (header-only, `Root&`, no locking — same
+  split as `verilog_stub_writer.hpp`) persists their results as new Shapes;
+  `api.cpp`'s `le_shape_*` add locking, `bump_mutation_version` and undo
+  recording. Results default to the current Abstract/Layout's
+  `free_shapes` (`Shape.in_abstract`/`in_layout`) — never written by
+  `write_lef`/`write_def`, which only walk named relationships.
+  `HierarchyResolverStage`'s `append_free_shapes` draws one on a real
+  Layer on that Layer's own `CUSTOM_SHAPE` column (its color and fill,
+  own Layers-panel toggle), a `ShapePurpose::DEBUG` one (`-layer debug`)
+  on the light-blue, always-on-top `DEBUG` pseudo-row, and skips any other
+  layer-less one; an Abstract's free shapes show in every placement of
+  it. Not yet hoverable/selectable (the hit-tests only walk terminals/
+  obstructions/routes/etc.). `shape_change_layer` sets `layer`/`purpose` directly
+  (`shape_ops::set_layer_or_purpose`) with its own exact undo: the
+  generated `update_shape`/`apply_shape_snapshot` can set an optional
+  field but never clear one. `create_shape` with no parent flag also
+  makes a free shape: the generator never defaults a parent flag whose
+  owner holds a single child (`Layout.diearea`, `Abstract.boundary`)
+  when a list-owning one (`free_shapes`) exists — that default used to
+  silently replace the die area. `create_shape -layer debug` is a
+  schema alias (`Field.tcl_create_aliases`) for `-purpose DEBUG`, and
+  every generated `create_`/`update_<type>` rejects a reference token
+  that doesn't resolve (`<type>_token_resolves`) instead of leaving it
+  unset; a failed `create_<type>` raises a Tcl error.
 - `src/view_style/` — `ViewLayerSet`/`ViewLayer`: the rendering-purpose layer
   concept distinct from the LEF/DEF-mirroring `database`. `ViewLayerPurpose`
   (a closed, application-owned enum, not a LEF/DEF vocabulary term) has 8
@@ -619,6 +647,16 @@ which alone handles reparenting *and* a `unique_per_parent` rename
 correctly together in one call); it stays generated, untouched, purely as
 a documented characteristic of this codegen fork, not a mutation path
 this project's own code still uses.
+
+A class pair may have more than one parent/`is_child` relationship
+(`Shape.abstract`↔`Abstract.boundary` and `Shape.in_abstract`↔
+`Abstract.free_shapes`; `LayerDensityEntry`'s `ac_layer`/`dc_layer`):
+`Klass.link()` pairs each `is_child` field with the parent field whose
+`parent=` names it, not merely the first one of the right type, and
+`tcl_scope.py` uses that pairing (`Field._parent_field`) directly.
+Matching by type alone used to silently mis-pair `Layer.dc_current_density`
+with `ac_layer` (wrong delete-undo restore) and drop
+`get_layer_density_entries`'s `-of` flags.
 
 To change the schema: edit `src/database/schema.py`, bump `Schema.version`
 (only needed for a real field/class shape change, not a pure codegen-side

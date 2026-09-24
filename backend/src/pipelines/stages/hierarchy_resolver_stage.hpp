@@ -645,51 +645,7 @@ namespace le
         // matches the pre-restart stage split exactly.
         static Shape expand_iterates(Shape shape)
         {
-            constexpr int kMaxReasonableCount = 1'000'000;
-
-            for (const RectIterate &it : shape.rect_iterates)
-            {
-                if (it.num_x <= 0 || it.num_y <= 0 || it.num_x > kMaxReasonableCount || it.num_y > kMaxReasonableCount)
-                    continue;
-                shape.rects.reserve(shape.rects.size() + static_cast<std::size_t>(it.num_x) * static_cast<std::size_t>(it.num_y));
-                for (int ix = 0; ix < it.num_x; ix++)
-                    for (int iy = 0; iy < it.num_y; iy++)
-                        shape.rects.push_back(Rect{
-                            .ll = Point{.x = it.rect.ll.x + ix * it.space_x, .y = it.rect.ll.y + iy * it.space_y},
-                            .ur = Point{.x = it.rect.ur.x + ix * it.space_x, .y = it.rect.ur.y + iy * it.space_y},
-                        });
-            }
-            shape.rect_iterates.clear();
-
-            for (const PathIterate &it : shape.path_iterates)
-            {
-                if (it.num_x <= 0 || it.num_y <= 0 || it.num_x > kMaxReasonableCount || it.num_y > kMaxReasonableCount)
-                    continue;
-                shape.paths.reserve(shape.paths.size() + static_cast<std::size_t>(it.num_x) * static_cast<std::size_t>(it.num_y));
-                for (int ix = 0; ix < it.num_x; ix++)
-                    for (int iy = 0; iy < it.num_y; iy++)
-                    {
-                        const Point offset{.x = ix * it.space_x, .y = iy * it.space_y};
-                        shape.paths.push_back(Path{.width = it.path.width, .polygon = Geometry::transform(it.path.polygon, offset)});
-                    }
-            }
-            shape.path_iterates.clear();
-
-            for (const PolygonIterate &it : shape.polygon_iterates)
-            {
-                if (it.num_x <= 0 || it.num_y <= 0 || it.num_x > kMaxReasonableCount || it.num_y > kMaxReasonableCount)
-                    continue;
-                shape.polygons.reserve(shape.polygons.size() + static_cast<std::size_t>(it.num_x) * static_cast<std::size_t>(it.num_y));
-                for (int ix = 0; ix < it.num_x; ix++)
-                    for (int iy = 0; iy < it.num_y; iy++)
-                    {
-                        const Point offset{.x = ix * it.space_x, .y = iy * it.space_y};
-                        shape.polygons.push_back(Geometry::transform(it.polygon, offset));
-                    }
-            }
-            shape.polygon_iterates.clear();
-
-            return shape;
+            return Geometry::expand_iterates(std::move(shape));
         }
 
         static ViewLayerPurpose to_view_layer_purpose(ShapePurpose purpose)
@@ -698,9 +654,39 @@ namespace le
             {
             case ShapePurpose::PLACEMENT_BLOCKAGE:
                 return ViewLayerPurpose::PLACEMENT_BLOCKAGE;
+            case ShapePurpose::DEBUG:
+                return ViewLayerPurpose::DEBUG;
             case ShapePurpose::BOUNDARY:
             default:
                 return ViewLayerPurpose::BOUNDARY;
+            }
+        }
+
+        // Free-standing shapes (Abstract/Layout.free_shapes): one on a real
+        // Layer draws on that Layer's own CUSTOM_SHAPE column, a DEBUG one
+        // on the DEBUG pseudo-row, and any other layer-less one isn't drawn
+        // at all - resolve_view_layer alone would put a BOUNDARY/
+        // PLACEMENT_BLOCKAGE-purpose free shape on those pseudo-rows.
+        static void append_free_shapes(const Root &root, const ViewLayerSet &view_layers, const std::vector<ShapeId> &shape_ids,
+                                       LayoutId layout_id, ViewLayerShapes &shapes_by_layer)
+        {
+            for (ShapeId shape_id : shape_ids)
+            {
+                const Shape *raw_shape = root.get_shape(shape_id);
+                if (!raw_shape)
+                    continue;
+                ViewLayerId view_layer;
+                if (raw_shape->layer.valid())
+                    view_layer = view_layers.find(raw_shape->layer, ViewLayerPurpose::CUSTOM_SHAPE);
+                else if (raw_shape->purpose == ShapePurpose::DEBUG)
+                    view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::DEBUG);
+                else
+                    continue;
+                if (!view_layer.valid())
+                    continue;
+                Shape shape = expand_iterates(*raw_shape);
+                append_via_shapes(root, shape, ViewLayerPurpose::CUSTOM_SHAPE, view_layers, layout_id, shapes_by_layer);
+                shapes_by_layer[view_layer].push_back(to_render_shape(std::move(shape)));
             }
         }
 
@@ -813,6 +799,8 @@ namespace le
                     shapes_by_layer[view_layer].push_back(to_render_shape(std::move(shape)));
                 }
             }
+
+            append_free_shapes(root, view_layers, root.get_abstract_free_shapes(abstract_id), LayoutId{}, shapes_by_layer);
 
             if (const Shape *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id)))
                 shapes_by_layer[view_layers.boundary_view_layer()].push_back(to_render_shape(*boundary_shape));
@@ -984,6 +972,8 @@ namespace le
                 for (PhysicalPortSegmentId segment_id : root.get_physical_port_segments(port_id))
                     for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
                         push_shape_id(shape_id, ViewLayerPurpose::TERMINAL);
+
+            append_free_shapes(root, view_layers, root.get_layout_free_shapes(layout_id), layout_id, shapes_by_layer);
 
             append_row_shapes(root, layout_id, view_layers, shapes_by_layer);
             append_track_shapes(root, layout_id, view_layers, shapes_by_layer);

@@ -1493,6 +1493,11 @@ struct LeHandle
         uint64_t selection_version_ = 0;
 
     public:
+        // The Shapes the most recent le_shape_* call created, read back via
+        // le_shape_op_result_at - same "count now, _at later" shape as the
+        // generated search-result caches below.
+        std::vector<le::ShapeId> shape_op_results;
+
         // Generated TCL property-reading cache - one cached_X_property_id/
         // cached_X_properties pair per TCL-readable class not already covered
         // by hand-written code above. Never edit generated_tcl/

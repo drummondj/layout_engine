@@ -186,6 +186,9 @@ proc create_{{snake}} {args} {
         }
         set opts($flag) $value
     }
+{%- if klass.create_tcl_aliases() %}
+{{klass.create_tcl_aliases()}}
+{%- endif %}
 {{klass.create_tcl_current_defaults()}}
     {%- if parent_fields|length > 1 %}
     set provided_parents 0
@@ -201,8 +204,15 @@ proc create_{{snake}} {args} {
             error "create_{{snake}}: $required is required"
         }
     }
+{%- if klass.tcl_reference_token_checks('create_' ~ snake) %}
+{{klass.tcl_reference_token_checks('create_' ~ snake)}}
+{%- endif %}
 {{klass.cmd_tcl_preamble('create')}}
-    return [create_{{snake}}_cmd {{klass.create_tcl_call_args()}}]
+    set new_id [create_{{snake}}_cmd {{klass.create_tcl_call_args()}}]
+    if {$new_id eq {}} {
+        error "create_{{snake}}: failed - see the error above"
+    }
+    return $new_id
 }
 register_command_help create_{{snake}} "{{klass.create_tcl_usage()}}" "{{klass.tcl_description_escaped()}}" {{'{'}}{{klass.create_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}
 {% endfor %}
@@ -246,6 +256,9 @@ proc update_{{snake}} {id args} {
         }
         set opts($flag) $value
     }
+{%- if klass.tcl_reference_token_checks('update_' ~ snake) %}
+{{klass.tcl_reference_token_checks('update_' ~ snake)}}
+{%- endif %}
 {{klass.cmd_tcl_preamble('update')}}
     set new_id [update_{{snake}}_cmd $id {{klass.update_tcl_call_args()}}]
     if {$new_id eq {}} {

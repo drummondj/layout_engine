@@ -914,6 +914,21 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/othercell.lef
     )
 
+    # shape_* boolean/conversion commands (NEW_FEATURES_SEPT_2026.md item
+    # 1, src/tcl/tests/shape_ops_test.tcl) - token-list parsing, -layer/
+    # -parent resolution, and free-standing shapes staying out of
+    # write_def's output.
+    add_test(
+        NAME le_tcl_shape_ops
+        COMMAND ${TCL_TCLSH}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/shape_ops_test.tcl
+            $<TARGET_FILE:le_tcl>
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/many_routing_layers.lef
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/testcell.lef
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/testcell.def
+    )
+
     # Regression check for the SystemVerilog/Verilog TCL wiring
     # (SYSTEMVERILOG.md, src/tcl/tests/sv_test.tcl) - read_verilog plus
     # the generated get_designs/get_schematics/get_instances/get_ports/
@@ -1082,6 +1097,7 @@ add_executable(backend_tests
     src/database/tests/hierarchical_resolver_test.cpp
     src/database/tests/schematic_layout_linker_test.cpp
     src/geometry/tests/geometry_test.cpp
+    src/geometry/tests/shape_ops_test.cpp
     src/view_style/tests/view_style_test.cpp
     src/editing/tests/editing_test.cpp
     src/io/tests/lef_reader_test.cpp
@@ -1141,6 +1157,7 @@ add_executable(pipeline_benchmarks
     src/pipelines/benchmarks/rasterize_blend2d_benchmark.cpp
     src/pipelines/benchmarks/compose_benchmark.cpp
     src/pipelines/benchmarks/warm_tier_benchmark.cpp
+    src/pipelines/benchmarks/shape_ops_benchmark.cpp
 )
 target_link_libraries(pipeline_benchmarks PRIVATE database geometry view_style pipelines io benchmark::benchmark)
 target_compile_definitions(pipeline_benchmarks PRIVATE

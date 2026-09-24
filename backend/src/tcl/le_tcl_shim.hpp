@@ -426,6 +426,21 @@ int shape_path_point_count(const char *id, int path_index);
 const char *shape_path_point_at(const char *id, int path_index, int point_index);
 int remove_shape_path(const char *id, int path_index);
 
+// --- shape_* operations (NEW_FEATURES_SEPT_2026.md item 1) - each takes a
+// space-separated shape token list; an empty -layer/-parent token means
+// "omitted". Creating ones return how many Shapes they made (read back via
+// shape_op_results_cmd), -1 on failure (reason logged), -2 for an unknown
+// -layer token, -3 for an unknown/unsupported -parent token.
+int shape_copy_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token);
+int shape_boolean_cmd(const char *shape_tokens_a, const char *shape_tokens_b, int op, const char *layer_token, const char *parent_token);
+int shape_to_polygon_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token);
+int shape_to_rects_cmd(const char *shape_tokens, int vertical, const char *layer_token, const char *parent_token);
+int shape_size_cmd(const char *shape_tokens, double dx_um, double dy_um, const char *layer_token, const char *parent_token);
+int shape_path_cmd(const char *shape_tokens, double width_um, const char *layer_token, const char *parent_token);
+int shape_change_layer_cmd(const char *shape_tokens, const char *layer_token);
+const char *shape_op_results_cmd(int count);
+const char *shape_bbox_cmd(const char *shape_tokens);
+
 // --- Editing / undo-redo (UPDATES.md item 21) - begin_command/end_command
 // bracket one recording transaction; le_repl_eval (le_tcl_procs.tcl) is
 // the only caller, wrapping every top-level typed console command with

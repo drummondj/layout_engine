@@ -7,6 +7,7 @@ TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl s
 // parsing happens here, that's le_tcl_procs.tcl's job).
 
 {% for klass in classes %}
+int {{klass.to_snake_case()}}_token_resolves(const char *id);
 int {{klass.to_snake_case()}}_property_count(const char *id);
 const char *{{klass.to_snake_case()}}_property_name(const char *id, int index);
 const char *{{klass.to_snake_case()}}_property_value(const char *id, int index);

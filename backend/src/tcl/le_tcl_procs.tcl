@@ -826,10 +826,12 @@ register_command_help zoom \
 # --- zoom_area (backed by zoom_area_cmd -> le_fit_rect) ---
 proc zoom_area {rect args} {
     if {$rect eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "zoom_area {llx lly urx ury} \[-padding <int>\] \[-help\] - Fits the viewport's pan/scale to a micron-space rectangle"
+        return "zoom_area {{llx lly} {urx ury}} \[-padding <int>\] \[-help\] - Fits the viewport's pan/scale to a micron-space rectangle"
     }
-    if {[llength $rect] != 4} {
-        error "zoom_area: rect must be a 4-element {llx lly urx ury} list, got \"$rect\""
+    # Same {{llx lly} {urx ury}} Rect form every generated -bbox/-rects
+    # flag and shape_bbox's own result use.
+    if {[llength $rect] != 2 || [llength [lindex $rect 0]] != 2 || [llength [lindex $rect 1]] != 2} {
+        error "zoom_area: rect must be {{llx lly} {urx ury}}, got \"$rect\""
     }
     array set opts {-padding 0}
     foreach {flag value} $args {
@@ -838,15 +840,15 @@ proc zoom_area {rect args} {
         }
         set opts($flag) $value
     }
-    lassign $rect llx lly urx ury
+    lassign [concat {*}$rect] llx lly urx ury
     zoom_area_cmd $llx $lly $urx $ury $opts(-padding)
     return ""
 }
 register_command_help zoom_area \
-    "zoom_area {llx lly urx ury} \[-padding <int>\] \[-help\] - Fits the viewport's pan/scale to a micron-space rectangle" \
-    "Fits the viewport's pan/scale to the given rectangle {llx lly urx ury}, in microns: uniform scale (no stretch) so it fills the current viewport (see set_viewport_size) with -padding pixels of margin on every side, pan centering it. Unlike zoom (a relative step from the current view), this jumps directly to an exact area - useful for reproducibly zooming to a specific location in a script." \
+    "zoom_area {{llx lly} {urx ury}} \[-padding <int>\] \[-help\] - Fits the viewport's pan/scale to a micron-space rectangle" \
+    "Fits the viewport's pan/scale to the given rectangle {{llx lly} {urx ury}}, in microns (the same Rect form -bbox/-rects flags and shape_bbox use, so zoom_area \[shape_bbox ...\] works): uniform scale (no stretch) so it fills the current viewport (see set_viewport_size) with -padding pixels of margin on every side, pan centering it. Unlike zoom (a relative step from the current view), this jumps directly to an exact area - useful for reproducibly zooming to a specific location in a script." \
     {
-        {<rect> {type Rect required 1 description {{llx lly urx ury}, in microns}}}
+        {<rect> {type Rect required 1 description {{{llx lly} {urx ury}}, in microns}}}
         {-padding {type int required 0 description {Margin in pixels on every side of the fitted rect - defaults to 0}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
@@ -947,6 +949,8 @@ array set ::purpose_names {
     region 10
     placementName 11
     placementBoundary 12
+    customShape 13
+    debug 14
 }
 
 proc _resolve_purpose_name {command purpose} {
@@ -1892,6 +1896,277 @@ register_command_help remove_shape_path \
     {
         {<id> {type token required 1 description {A shape: friendly-id token}}}
         {<path_index> {type int required 1 description {Path index, 0..[shape_path_count <id>]-1}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- shape_* operations (NEW_FEATURES_SEPT_2026.md item 1) ---
+#
+# Every operation works on each input Shape's own merged area (its rects,
+# polygons and stroked paths together). New Shapes go to the current
+# Abstract/Layout's free-standing shapes (Abstract/Layout.free_shapes -
+# never written by write_lef/write_def) unless -parent names somewhere
+# else; see le_shape_*'s own api.hpp comment.
+
+# Parses a shape_* command's arguments: every non-flag argument is a shape
+# token or a *list* of them - so [get_selection]/[get_shapes ...] can be
+# passed straight in - flattened in order into the returned dict's `shapes`.
+# `flags` maps each allowed -flag to its default value.
+proc _parse_shape_op_args {name arglist flags} {
+    set opts $flags
+    set shapes {}
+    set i 0
+    set n [llength $arglist]
+    while {$i < $n} {
+        set arg [lindex $arglist $i]
+        if {[dict exists $flags $arg]} {
+            incr i
+            if {$i >= $n} {
+                error "$name: $arg requires a value"
+            }
+            dict set opts $arg [lindex $arglist $i]
+        } elseif {[string index $arg 0] eq "-"} {
+            error "$name: unknown option \"$arg\""
+        } else {
+            set shapes [concat $shapes $arg]
+        }
+        incr i
+    }
+    dict set opts shapes $shapes
+    return $opts
+}
+
+proc _require_shapes {name opts} {
+    if {[llength [dict get $opts shapes]] == 0} {
+        error "$name: expected at least one shape token"
+    }
+}
+
+proc _require_number {name flag value} {
+    if {![string is double -strict $value]} {
+        error "$name: $flag expects a number, got \"$value\""
+    }
+}
+
+# Maps a creating shape_*_cmd's own status to the new shape tokens, or to
+# a specific error - see le_tcl_shim.hpp's own shape_* comment.
+proc _finish_shape_op {name count} {
+    switch -- $count {
+        -2 {
+            error "$name: unknown -layer token"
+        }
+        -3 {
+            error "$name: -parent must name an existing abstract, layout, obstruction, terminal_port, route, blockage or physical_port_segment"
+        }
+    }
+    if {$count < 0} {
+        error "$name: failed - see the terminal log for the specific reason"
+    }
+    return [shape_op_results_cmd $count]
+}
+
+proc shape_copy {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_copy <shapes> -layer <token> \[-parent <token>\] \[-help\] - Copies shapes onto another layer"
+    }
+    set opts [_parse_shape_op_args shape_copy $args {-layer "" -parent ""}]
+    _require_shapes shape_copy $opts
+    if {[dict get $opts -layer] eq ""} {
+        error "shape_copy: -layer is required"
+    }
+    return [_finish_shape_op shape_copy [shape_copy_cmd [join [dict get $opts shapes]] [dict get $opts -layer] [dict get $opts -parent]]]
+}
+register_command_help shape_copy \
+    "shape_copy <shapes> -layer <token> \[-parent <token>\] \[-help\] - Copies shapes onto another layer" \
+    "Creates one new Shape per input shape, with the same geometry, on -layer. The originals are untouched. New Shapes go to the current Abstract/Layout's free-standing shapes (not written by write_lef/write_def) unless -parent names an abstract, layout, obstruction, terminal_port, route, blockage or physical_port_segment to add them to. Returns the new shape tokens." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them (e.g. [get_selection])}}}
+        {-layer {type token required 1 description {The layer to copy onto, or debug for the debug layer}}}
+        {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc shape_change_layer {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_change_layer <shapes> -layer <token> \[-help\] - Changes the layer of shapes"
+    }
+    set opts [_parse_shape_op_args shape_change_layer $args {-layer ""}]
+    _require_shapes shape_change_layer $opts
+    set layer [dict get $opts -layer]
+    if {$layer eq ""} {
+        error "shape_change_layer: -layer is required"
+    }
+    set count [shape_change_layer_cmd [join [dict get $opts shapes]] $layer]
+    if {$count == -2} {
+        error "shape_change_layer: unknown -layer token"
+    }
+    if {$count < 0} {
+        error "shape_change_layer: failed - see the terminal log for the specific reason"
+    }
+    return [dict get $opts shapes]
+}
+register_command_help shape_change_layer \
+    "shape_change_layer <shapes> -layer <token> \[-help\] - Changes the layer of shapes" \
+    "Puts each shape onto -layer in place (its geometry, position and owner are unchanged); -layer debug puts it on the debug layer (drawn on top of everything in light blue). All-or-nothing: an unknown shape changes nothing. Undoable. Returns the same shape tokens." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them (e.g. [get_selection])}}}
+        {-layer {type token required 1 description {The layer to move onto, or debug for the debug layer}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# Matches LeShapeBooleanOp (api.hpp): 0=OR, 1=AND, 2=NOT.
+proc _shape_boolean {name op arglist} {
+    if {[lsearch -exact $arglist "-help"] >= 0} {
+        return "$name <shapes> -with <shapes> \[-layer <token>\] \[-parent <token>\] \[-help\]"
+    }
+    set opts [_parse_shape_op_args $name $arglist {-with "" -layer "" -parent ""}]
+    _require_shapes $name $opts
+    if {[llength [dict get $opts -with]] == 0} {
+        error "$name: -with requires at least one shape token"
+    }
+    return [_finish_shape_op $name [shape_boolean_cmd [join [dict get $opts shapes]] [join [dict get $opts -with]] $op \
+        [dict get $opts -layer] [dict get $opts -parent]]]
+}
+
+proc shape_or {args} {
+    return [_shape_boolean shape_or 0 $args]
+}
+proc shape_and {args} {
+    return [_shape_boolean shape_and 1 $args]
+}
+proc shape_not {args} {
+    return [_shape_boolean shape_not 2 $args]
+}
+foreach {name what} {
+    shape_or {the union of both groups}
+    shape_and {the overlap of the two groups}
+    shape_not {the first group minus the -with group}
+} {
+    register_command_help $name \
+        "$name <shapes> -with <shapes> \[-layer <token>\] \[-parent <token>\] \[-help\] - Boolean [string toupper [string range $name 6 end]] of two shape groups" \
+        "Creates one new Shape holding $what, merging every shape within each group first. It goes on the first input shape's own layer unless -layer is given. A region with holes comes back as exact rects (a polygon can't hold a hole). An empty result creates nothing and returns an empty list. New Shapes go to the current Abstract/Layout's free-standing shapes unless -parent says otherwise (see shape_copy). Returns the new shape tokens." \
+        {
+            {<shapes> {type token... required 1 description {The first group - shape tokens, or lists of them}}}
+            {-with {type token... required 1 description {The second group - a list of shape tokens}}}
+            {-layer {type token required 0 description {Layer for the result (or debug for the debug layer) - defaults to the first input shape's own}}}
+            {-parent {type token required 0 description {Where the new Shape goes - defaults to the current Abstract/Layout's free-standing shapes}}}
+            {-help {type flag required 0 description {Show this usage message and return immediately}}}
+        }
+}
+
+proc shape_to_polygon {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_to_polygon <shapes> \[-layer <token>\] \[-parent <token>\] \[-help\] - Converts shapes to polygons"
+    }
+    set opts [_parse_shape_op_args shape_to_polygon $args {-layer "" -parent ""}]
+    _require_shapes shape_to_polygon $opts
+    return [_finish_shape_op shape_to_polygon [shape_to_polygon_cmd [join [dict get $opts shapes]] [dict get $opts -layer] [dict get $opts -parent]]]
+}
+register_command_help shape_to_polygon \
+    "shape_to_polygon <shapes> \[-layer <token>\] \[-parent <token>\] \[-help\] - Converts shapes to polygons" \
+    "Creates one new polygon-only Shape per input shape, covering its merged area. A region with holes is split into exact rectangular polygons (a polygon can't hold a hole). Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
+        {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc shape_to_rects {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_to_rects <shapes> \[-direction horizontal|vertical\] \[-layer <token>\] \[-parent <token>\] \[-help\] - Converts shapes to rects"
+    }
+    set opts [_parse_shape_op_args shape_to_rects $args {-direction horizontal -layer "" -parent ""}]
+    _require_shapes shape_to_rects $opts
+    switch -- [dict get $opts -direction] {
+        horizontal { set vertical 0 }
+        vertical { set vertical 1 }
+        default { error "shape_to_rects: -direction must be horizontal or vertical" }
+    }
+    return [_finish_shape_op shape_to_rects [shape_to_rects_cmd [join [dict get $opts shapes]] $vertical [dict get $opts -layer] [dict get $opts -parent]]]
+}
+register_command_help shape_to_rects \
+    "shape_to_rects <shapes> \[-direction horizontal|vertical\] \[-layer <token>\] \[-parent <token>\] \[-help\] - Converts shapes to rects" \
+    "Creates one new rect-only Shape per input shape, fracturing its merged area into non-overlapping rects: -direction horizontal (the default) cuts with horizontal lines, giving horizontal strips; vertical gives vertical strips. Exact for axis-aligned geometry; a diagonal edge is over-covered by its strip's bounding box. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {-direction {type str required 0 description {horizontal (default) or vertical fracturing}}}
+        {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
+        {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc shape_bbox {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_bbox <shapes> \[-help\] - Returns the bounding box of shapes"
+    }
+    set opts [_parse_shape_op_args shape_bbox $args {}]
+    _require_shapes shape_bbox $opts
+    set box [shape_bbox_cmd [join [dict get $opts shapes]]]
+    if {$box eq ""} {
+        error "shape_bbox: failed - see the terminal log for the specific reason"
+    }
+    return $box
+}
+register_command_help shape_bbox \
+    "shape_bbox <shapes> \[-help\] - Returns the bounding box of shapes" \
+    "Returns the bounding box of every given shape together as a Rect, {{llx lly} {urx ury}} in microns - the same form -bbox/-rects flags and zoom_area take (zoom_area \[shape_bbox ...\]). Creates nothing." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc shape_size {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_size <shapes> \[-by <um>\] \[-x <um>\] \[-y <um>\] \[-layer <token>\] \[-parent <token>\] \[-help\] - Grows or shrinks shapes"
+    }
+    set opts [_parse_shape_op_args shape_size $args {-by "" -x "" -y "" -layer "" -parent ""}]
+    _require_shapes shape_size $opts
+    set by [dict get $opts -by]
+    if {$by ne ""} {
+        _require_number shape_size -by $by
+    } else {
+        set by 0
+    }
+    set dx [expr {[dict get $opts -x] ne "" ? [dict get $opts -x] : $by}]
+    set dy [expr {[dict get $opts -y] ne "" ? [dict get $opts -y] : $by}]
+    _require_number shape_size -x $dx
+    _require_number shape_size -y $dy
+    return [_finish_shape_op shape_size [shape_size_cmd [join [dict get $opts shapes]] $dx $dy [dict get $opts -layer] [dict get $opts -parent]]]
+}
+register_command_help shape_size \
+    "shape_size <shapes> \[-by <um>\] \[-x <um>\] \[-y <um>\] \[-layer <token>\] \[-parent <token>\] \[-help\] - Grows or shrinks shapes" \
+    "Creates one new Shape per input shape: its merged area grown (positive) or shrunk (negative) by -x microns in X and -y in Y (-by sets both; an explicit -x/-y overrides it). Exact for axis-aligned geometry with any X/Y amounts; other geometry only supports equal X and Y. A shape shrunk away entirely creates nothing. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {-by {type dbu required 0 description {Grow (positive) or shrink (negative) by this in both X and Y, in microns}}}
+        {-x {type dbu required 0 description {Grow/shrink in X, in microns - overrides -by}}}
+        {-y {type dbu required 0 description {Grow/shrink in Y, in microns - overrides -by}}}
+        {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
+        {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc shape_path {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_path <shapes> -width <um> \[-layer <token>\] \[-parent <token>\] \[-help\] - Creates paths along shape outlines"
+    }
+    set opts [_parse_shape_op_args shape_path $args {-width "" -layer "" -parent ""}]
+    _require_shapes shape_path $opts
+    set width [dict get $opts -width]
+    if {$width eq ""} {
+        error "shape_path: -width is required"
+    }
+    _require_number shape_path -width $width
+    return [_finish_shape_op shape_path [shape_path_cmd [join [dict get $opts shapes]] $width [dict get $opts -layer] [dict get $opts -parent]]]
+}
+register_command_help shape_path \
+    "shape_path <shapes> -width <um> \[-layer <token>\] \[-parent <token>\] \[-help\] - Creates paths along shape outlines" \
+    "Creates one new path-only Shape per input shape: a closed path of -width microns along the outline of its merged rects/polygons (and around any holes), plus each of its own paths' centerlines re-stroked at -width. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {-width {type dbu required 1 description {Path width, in microns}}}
+        {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
+        {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 

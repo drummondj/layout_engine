@@ -360,3 +360,60 @@ TEST_F(HierarchyResolverStageFixture, ShapesIndexQueryFindsOnlyOverlappingShapes
     EXPECT_EQ(obstruction_hits.front().first.ur.x, obstruction_bbox->ur.x);
     EXPECT_EQ(obstruction_hits.front().first.ur.y, obstruction_bbox->ur.y);
 }
+
+// --- Free-standing shapes (Abstract/Layout.free_shapes) ---
+
+namespace
+{
+    size_t shapes_on(const ViewData &data, ViewLayerId view_layer)
+    {
+        const auto it = data.shapes->find(view_layer);
+        return it == data.shapes->end() ? 0 : it->second.size();
+    }
+}
+
+TEST_F(HierarchyResolverStageFixture, FreeShapesDrawOnTheirLayersCustomShapeColumnOrTheDebugRow)
+{
+    root.create_shape(ShapeData{.in_abstract = leaf_abstract, .layer = m1, .rects = {Rect{.ll = Point{5, 5}, .ur = Point{6, 6}}}});
+    root.create_shape(ShapeData{.in_abstract = leaf_abstract, .purpose = ShapePurpose::DEBUG, .rects = {Rect{.ll = Point{7, 7}, .ur = Point{8, 8}}}});
+    // Layer-less and not DEBUG: not drawn at all - in particular not on the
+    // BOUNDARY row its own purpose would otherwise resolve to.
+    root.create_shape(ShapeData{.in_abstract = leaf_abstract, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{9, 9}}}});
+
+    const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{leaf_abstract}, 0));
+    const ViewData &leaf = output.view_data.at(HierarchyId{leaf_abstract});
+
+    const ViewLayerId custom = view_layers.find(m1, ViewLayerPurpose::CUSTOM_SHAPE);
+    ASSERT_EQ(shapes_on(leaf, custom), 1u);
+    EXPECT_EQ(leaf.shapes->at(custom)[0].rects[0].ll.x, 5);
+    EXPECT_EQ(shapes_on(leaf, view_layers.find(LayerId{}, ViewLayerPurpose::DEBUG)), 1u);
+    EXPECT_EQ(shapes_on(leaf, view_layers.boundary_view_layer()), 1u); // only LEAF's real boundary
+    // The terminal/obstruction shapes on M1 stay on their own columns.
+    EXPECT_EQ(shapes_on(leaf, view_layers.find(m1, ViewLayerPurpose::TERMINAL)), 1u);
+    EXPECT_EQ(shapes_on(leaf, view_layers.find(m1, ViewLayerPurpose::OBSTRUCTION)), 1u);
+}
+
+TEST_F(HierarchyResolverStageFixture, ALayoutsFreeShapesAreDrawn)
+{
+    root.create_shape(ShapeData{.in_layout = top_layout, .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 50}}}});
+
+    const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 0));
+
+    EXPECT_EQ(shapes_on(output.view_data.at(HierarchyId{top_layout}), view_layers.find(m1, ViewLayerPurpose::CUSTOM_SHAPE)), 1u);
+}
+
+TEST_F(HierarchyResolverStageFixture, AnAbstractsFreeShapesAppearInEveryPlacementOfIt)
+{
+    root.create_shape(ShapeData{.in_abstract = leaf_abstract, .layer = m1, .rects = {Rect{.ll = Point{5, 5}, .ur = Point{6, 6}}}});
+
+    // Depth 2 resolves TOP -> BLOCK's Layout -> both LEAF placements, each
+    // reusing LEAF's one collected content.
+    const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
+
+    ASSERT_TRUE(output.view_data.contains(HierarchyId{leaf_abstract}));
+    EXPECT_EQ(shapes_on(output.view_data.at(HierarchyId{leaf_abstract}), view_layers.find(m1, ViewLayerPurpose::CUSTOM_SHAPE)), 1u);
+    const ViewData &block = output.view_data.at(HierarchyId{block_layout});
+    EXPECT_EQ(std::count_if(block.placement_data.begin(), block.placement_data.end(), [&](const auto &placement)
+                            { return placement.id == HierarchyId{leaf_abstract}; }),
+              2);
+}

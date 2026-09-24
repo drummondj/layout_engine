@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 import os
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 """
 Define the type map for C++ types: https://en.cppreference.com/w/cpp/language/types
@@ -975,16 +975,61 @@ class Klass:
         on Foreign), which would otherwise turn a call that only ever
         meant to provide one parent into a spurious "exactly one parent
         must resolve, got 2" failure.
+
+        When several parent fields point at the same parent Klass, a
+        field whose sibling is a scalar child (e.g. Shape.layout ->
+        Layout.diearea) never gets the default if one whose sibling is a
+        list does (Shape.in_layout -> Layout.free_shapes): defaulting to
+        the scalar would silently replace the existing child (the die
+        area) instead of adding a new one.
         """
         parent_fields = self.get_parent_fields()
+        list_owner_klasses = {pf._parent_klass.name for pf in parent_fields if pf._parent_field is not None and pf._parent_field.is_list}
         lines = []
         for pf in parent_fields:
             if not pf._parent_klass.has_current_access:
+                continue
+            if pf._parent_klass.name in list_owner_klasses and not (pf._parent_field is not None and pf._parent_field.is_list):
                 continue
             others = [p for p in parent_fields if p is not pf]
             condition = " && ".join([f"$opts(-{pf.name}) eq {{}}"] + [f"$opts(-{o.name}) eq {{}}" for o in others])
             lines.append(f"    if {{{condition}}} {{")
             lines.append(f"        set opts(-{pf.name}) [current_{pf._parent_klass.to_snake_case()}]")
+            lines.append("    }")
+        return "\n".join(lines)
+
+    def create_tcl_aliases(self) -> str:
+        """
+        Generated Tcl statements for the create_<type> {args} proc,
+        emitted right after flag parsing - rewrite each create field's own
+        Field.tcl_create_aliases value (case-insensitive) into the flags
+        it stands for, clearing the aliased flag itself.
+        """
+        lines = []
+        for f in self.fields:
+            for alias, replacement in (f.tcl_create_aliases or {}).items():
+                lines.append(f"    if {{[string tolower $opts(-{f.name})] eq \"{alias.lower()}\"}} {{")
+                lines.append(f"        set opts(-{f.name}) {{}}")
+                for other, value in replacement.items():
+                    lines.append(f"        set opts(-{other}) {value}")
+                lines.append("    }")
+        return "\n".join(lines)
+
+    def tcl_reference_token_checks(self, command: str) -> str:
+        """
+        Generated Tcl statements for create_<type>/update_<type>: a
+        reference flag (get_reference_create_fields(), e.g. Shape.layer)
+        given a token that doesn't resolve is an error - le_create_<type>
+        only ever sees the resolved id, so without this an unresolved
+        token (e.g. a bare `Metal1` instead of `layer:Metal1`) silently
+        created the object with the reference unset.
+        """
+        lines = []
+        for rf in self.get_reference_create_fields():
+            snake = rf._type_klass.to_snake_case()
+            example = "<name>" if rf._type_klass.tcl_indexed_id_field() else "<N>"
+            lines.append(f"    if {{$opts(-{rf.name}) ne {{}} && ![{snake}_token_resolves $opts(-{rf.name})]}} {{")
+            lines.append(f"        error \"{command}: unknown {snake} \\\"$opts(-{rf.name})\\\" - expected a {snake}:{example} token\"")
             lines.append("    }")
         return "\n".join(lines)
 
@@ -2140,10 +2185,21 @@ class Klass:
                 field._parent_klass = self._schema.get_klass(field.type)
                 field._parent_field = self._schema.get_field(field.type, field.parent)  # type: ignore
             elif field.is_child:
-                # Look for opposite field in child klass that has a matching parent
+                # Look for the opposite field in the child klass whose own
+                # `parent=` names *this* field specifically - matching by
+                # type alone breaks once a class pair has more than one
+                # relationship between them (e.g. Abstract.boundary and
+                # Abstract.free_shapes are both Shape-typed is_child
+                # fields) - it would nondeterministically pick whichever
+                # same-typed parent field it finds first. `parent=` already
+                # names the intended sibling field's own name explicitly
+                # (see ChildFieldHasMatchingParentRule, validation.py,
+                # which already requires this exact pairing), so this is
+                # tightening this cross-reference to match what validation
+                # already enforces, not a new requirement.
                 child_klass = self._schema.get_klass(field.type)
                 for child_field in child_klass.fields:
-                    if child_field.has_parent() and child_field.type == self.name:
+                    if child_field.has_parent() and child_field.type == self.name and child_field.parent == field.name:
                         field._child_klass = child_klass
                         field._child_field = child_field
                         break
@@ -2267,6 +2323,12 @@ class Field:
             this flag exists for).
 
         value (int): Optional enum value.
+
+        tcl_create_aliases (dict): Case-insensitive values of this flag
+            that create_<type> rewrites into other flags before calling
+            down - {"debug": {"purpose": "DEBUG"}} on Shape.layer makes
+            `create_shape -layer debug` mean `-purpose DEBUG` with no
+            layer, matching the shape_* commands' own `-layer debug`.
     """
 
     name: str
@@ -2282,6 +2344,7 @@ class Field:
     unique_per_parent: bool = False
     create_excluded: bool = False
     value: Optional[int] = None
+    tcl_create_aliases: Optional[Dict[str, Dict[str, str]]] = None
     _parent_klass: Optional[Klass] = field(default=None, repr=False, init=False)
     _parent_field: Optional["Field"] = field(default=None, repr=False, init=False)
     _child_klass: Optional[Klass] = field(default=None, repr=False, init=False)

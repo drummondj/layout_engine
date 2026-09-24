@@ -118,8 +118,11 @@ check "delete_terminal (current-abstract-default fixture) return code" 0 [delete
 
 # --- Terminal-name uniqueness enforcement (UPDATES.md's friendly-id item) ---
 
-check "create_terminal with a colliding name returns an empty id" {} \
-    [create_terminal -abstract $abstract_token -name IN0 -direction INPUT]
+if {![catch {create_terminal -abstract $abstract_token -name IN0 -direction INPUT}]} {
+    puts stderr "FAIL: create_terminal with a colliding name did not raise a Tcl error"
+    exit 1
+}
+puts "ok: create_terminal with a colliding name fails"
 
 if {![catch {update_terminal $out0 -name IN0}]} {
     puts stderr "FAIL: update_terminal -name to a colliding name did not raise a Tcl error"
@@ -666,19 +669,22 @@ check_true "get_terminals sees the recreated terminal" [expr {[get_terminals DEL
 
 # --- Error messages name the real user-facing command, not the raw le_
 # C API function (BUGS_AND_ENHANCEMENTS.md E29 - the item's own example
-# was "le_read_lef vs read_lef"). Generated create_<type> commands don't
-# raise a Tcl error on failure (they just return ""), and their own
-# error is logged via spdlog::error, not pushed anywhere Tcl can read it
-# back - so the "names create_design, not le_create_design" half of this
-# regression is no longer Tcl-testable; it's now a property of the
-# generated code itself (schema.py's create_api_body always formats its
-# spdlog::error() message with the Tcl-facing create_<type> snake_case
-# name, never the raw le_create_<type> C API name - see that template).
-# The functional half (an unresolvable -library still fails cleanly)
-# stays covered here. ---
+# was "le_read_lef vs read_lef"). A generated create_<type> raises a
+# Tcl error on failure, but the specific reason is logged via
+# spdlog::error, not pushed anywhere Tcl can read it back - so the "names
+# create_design, not le_create_design" half of this regression is a
+# property of the generated code itself (schema.py's create_api_body
+# always formats its spdlog::error() message with the Tcl-facing
+# create_<type> snake_case name, never the raw le_create_<type> C API
+# name - see that template). The functional half (an unresolvable
+# -library still fails cleanly) stays covered here. ---
 
-check "create_design with an unresolvable -library returns an empty id" {} \
-    [create_design -library library:does_not_exist -name SHOULD_NOT_EXIST]
+if {[catch {create_design -library library:does_not_exist -name SHOULD_NOT_EXIST} err]} {
+    check "create_design with an unresolvable -library fails" "create_design: failed - see the error above" $err
+} else {
+    puts stderr "FAIL: create_design with an unresolvable -library did not raise a Tcl error"
+    exit 1
+}
 
 # --- write_lef/write_def (BUGS_AND_ENHANCEMENTS.md E28) - reuses
 # scratch_abstract (still the current Abstract from the from-scratch

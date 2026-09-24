@@ -56,6 +56,16 @@ std::string format_{{klass.to_snake_case()}}_id(Le{{klass.name}}Id id) { return 
 
 // --- Property tables ---
 {% for klass in classes %}
+// 1 if `id` is a well-formed friendly-id token naming an object that
+// resolves (a name-indexed class looks the name up; a numeric one only
+// checks the token's form - le_create_/le_update_<type> still reject a
+// stale id). Lets a create_/update_<type> proc reject a reference flag
+// that doesn't resolve instead of silently leaving the reference unset.
+int {{klass.to_snake_case()}}_token_resolves(const char *id)
+{
+    return resolve_{{klass.to_snake_case()}}_id(id).index != UINT32_MAX ? 1 : 0;
+}
+
 int {{klass.to_snake_case()}}_property_count(const char *id)
 {
     return le_{{klass.to_snake_case()}}_property_count(session(), resolve_{{klass.to_snake_case()}}_id(id));

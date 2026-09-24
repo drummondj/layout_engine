@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.46.0",
+    version="0.48.0",
     classes=[
         Klass(
             name="Technology",
@@ -1470,11 +1470,15 @@ schema = Schema(
         ),
         Klass(
             # Owned by exactly one of TerminalPort/Obstruction/
-            # PhysicalPortSegment/Blockage/Route/Layout/Abstract (mutually
-            # exclusive - at most one of these parent fields is ever set
-            # on a given Shape). The last two are singular, non-list
-            # owners (Layout.diearea, Abstract.boundary) rather than a
-            # list of several Shapes.
+            # PhysicalPortSegment/Blockage/Route/Layout/Abstract/
+            # in_abstract/in_layout (mutually exclusive - exactly one of
+            # these parent fields is ever set on a given Shape). layout/
+            # abstract are singular, non-list owners (Layout.diearea,
+            # Abstract.boundary); in_abstract/in_layout are the list-typed
+            # free-standing-shape owners (Abstract.free_shapes,
+            # Layout.free_shapes) - two relationships between the same
+            # class pair, which codegen's Klass.link() tells apart by each
+            # field's own `parent=` name, not by type alone.
             name="Shape",
             description="A shape on a layer.",
             has_pool=True,
@@ -1522,10 +1526,23 @@ schema = Schema(
                     parent="boundary",
                 ),
                 Field(
+                    name="in_abstract",
+                    description="Owning Abstract, if this is a free-standing Shape held directly by that Abstract (Abstract.free_shapes) rather than by one of its Terminals/Obstructions - e.g. the output of a shape_or/shape_copy/... TCL command. Distinct from abstract above (that Abstract's one boundary Shape). Never written by write_lef, which only walks an Abstract's Terminals/Obstructions.",
+                    type="Abstract",
+                    parent="free_shapes",
+                ),
+                Field(
+                    name="in_layout",
+                    description="Owning Layout, if this is a free-standing Shape held directly by that Layout (Layout.free_shapes) rather than by one of its Routes/Blockages/PhysicalPortSegments - e.g. the output of a shape_or/shape_copy/... TCL command. Distinct from layout above (that Layout's one diearea Shape). Never written by write_def, which only walks a Layout's own named DEF sections.",
+                    type="Layout",
+                    parent="free_shapes",
+                ),
+                Field(
                     name="layer",
-                    description="The layer this shape is on, if it's real LEF/DEF routing/terminal/obstruction geometry - resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). Exactly one of layer/purpose is ever set (documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent) - a Shape with no real physical layer (Layout.diearea, Abstract.boundary, a DEF PLACEMENT blockage's own region) uses purpose instead, unset here.",
+                    description="The layer this shape is on, if it's real LEF/DEF routing/terminal/obstruction geometry - resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). Exactly one of layer/purpose is ever set (documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent) - a Shape with no real physical layer (Layout.diearea, Abstract.boundary, a DEF PLACEMENT blockage's own region) uses purpose instead, unset here. From TCL, a layer:<name> token; create_shape -layer debug means -purpose DEBUG (the debug layer - no physical layer).",
                     type="Layer",
                     is_optional=True,
+                    tcl_create_aliases={"debug": {"purpose": "DEBUG"}},
                 ),
                 Field(
                     name="purpose",
@@ -1837,6 +1854,13 @@ schema = Schema(
                     type="Shape",
                     is_child=True,
                     is_optional=True,
+                ),
+                Field(
+                    name="free_shapes",
+                    description="Free-standing Shapes held directly by this Abstract (Shape.in_abstract), not owned by any Terminal/Obstruction - e.g. results of the shape_* TCL commands (shape_or, shape_copy, ...). Not written by write_lef.",
+                    type="Shape",
+                    is_list=True,
+                    is_child=True,
                 ),
                 Field(
                     name="symmetry",
@@ -2597,6 +2621,7 @@ schema = Schema(
             fields=[
                 Field(name="BOUNDARY", description="Abstract.boundary / Layout.diearea - the design/macro's own outline", type="int", value=0),
                 Field(name="PLACEMENT_BLOCKAGE", description="A DEF PLACEMENT blockage's own region - unlike a ROUTING blockage (which sits on a real routing Layer via Shape.layer, same as any other real geometry), DEF's own PLACEMENT blockage syntax has no LAYER clause at all", type="int", value=1),
+                Field(name="DEBUG", description="User debug output (e.g. shape_or ... -layer debug) - drawn on its own always-on-top DEBUG pseudo-row, never written by write_lef/write_def", type="int", value=2),
             ],
         ),
         Klass(
@@ -2609,6 +2634,7 @@ schema = Schema(
             fields=[
                 Field(name="design", description="Parent design", type="Design", parent="layout"),
                 Field(name="diearea", description="The chip/block boundary (DEF DIEAREA), as a Shape with purpose=BOUNDARY (not necessarily a plain 2-point rectangle - DEF 5.6+ allows more) - reuses Shape's own already-proven rects/polygons create/update machinery rather than a bespoke single-Polygon field (which has no precedent elsewhere in this schema and no working create/update path)", type="Shape", is_child=True, is_optional=True),
+                Field(name="free_shapes", description="Free-standing Shapes held directly by this Layout (Shape.in_layout), not owned by any Route/Blockage/PhysicalPortSegment - e.g. results of the shape_* TCL commands (shape_or, shape_copy, ...). Not written by write_def.", type="Shape", is_list=True, is_child=True),
                 Field(name="rows", description="Placement rows (DEF ROW)", type="Row", is_list=True, is_child=True),
                 Field(name="tracks", description="Routing track patterns (DEF TRACKS)", type="Track", is_list=True, is_child=True),
                 Field(name="gcell_grids", description="Global-routing gcell grid lines (DEF GCELLGRID)", type="GCellGrid", is_list=True, is_child=True),
