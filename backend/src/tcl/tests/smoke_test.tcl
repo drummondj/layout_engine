@@ -138,6 +138,27 @@ if {[catch {flip_placement diagonal} err]} {
     exit 1
 }
 
+check "rect resize snap defaults to user" "user" [get_shape_snap_mode rect]
+set_shape_snap_mode path tracks
+check "set_shape_snap_mode path tracks round-trips" "tracks" [get_shape_snap_mode path]
+set_shape_snap_mode polygon none
+check "set_shape_snap_mode polygon none round-trips" "none" [get_shape_snap_mode polygon]
+if {[catch {set_shape_snap_mode rect tracks} err]} {
+    puts "ok: set_shape_snap_mode rejects a mode the kind doesn't offer ($err)"
+} else {
+    puts stderr "FAIL: set_shape_snap_mode accepted tracks for a rect"
+    exit 1
+}
+if {[catch {set_shape_snap_mode circle user} err]} {
+    puts "ok: set_shape_snap_mode rejects an unknown kind ($err)"
+} else {
+    puts stderr "FAIL: set_shape_snap_mode accepted an unknown kind"
+    exit 1
+}
+check "user-grid snapping is always available" 1 [shape_snap_mode_available rect user]
+arm_resize
+puts "ok: arm_resize is a harmless no-op outside Edit mode"
+
 clear_rulers
 puts "ok: clear_rulers"
 select_all

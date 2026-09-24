@@ -24,7 +24,7 @@ Please add the ability to move a placement. In move mode, when a placement is se
 
 Site snapping will snap the ghost view to the row's site grid and make sure the orientation matches the rows symmetry.
 
-3. Shape resizing
+3. Shape resizing - DONE
 
 Shapes can be resized using a resize tool. A snapping options secondary toolbar will appear with options to:
 

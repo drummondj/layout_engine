@@ -805,6 +805,65 @@ extern "C"
     /// handle is null or `op` is out of range.
     int32_t le_apply_placement_orientation_op(LeHandle *handle, int32_t op);
 
+    /// @brief Which of a Shape's geometry lists a selected piece belongs
+    /// to - le::PieceKind's own ordinal.
+    typedef enum LePieceKind
+    {
+        LE_PIECE_KIND_RECT = 0,
+        LE_PIECE_KIND_POLYGON = 1,
+        LE_PIECE_KIND_PATH = 2,
+    } LePieceKind;
+
+    /// @brief What a resized edge/segment snaps to (NEW_FEATURES_SEPT_2026.md
+    /// item 3, le::ShapeSnapMode), chosen per LePieceKind. Rects and
+    /// polygons take NONE/USER_GRID/MANUFACTURING_GRID/FIN_GRID; paths take
+    /// NONE/USER_GRID/MANUFACTURING_GRID (the path's edges land on it)/
+    /// TRACKS (its centerline lands on a routing track of its layer - the
+    /// Layout's TRACKS, else the layer's own LEF PITCH/OFFSET grid).
+    typedef enum LeShapeSnapMode
+    {
+        LE_SHAPE_SNAP_NONE = 0,
+        LE_SHAPE_SNAP_USER_GRID = 1,
+        LE_SHAPE_SNAP_MANUFACTURING_GRID = 2,
+        LE_SHAPE_SNAP_FIN_GRID = 3,
+        LE_SHAPE_SNAP_TRACKS = 4,
+    } LeShapeSnapMode;
+
+    /// @brief Arms the Resize tool (NEW_FEATURES_SEPT_2026.md item 3) - Edit
+    /// mode with at least one selected rect/polygon/path piece, a no-op
+    /// otherwise. Disarms Move (and arming Move disarms Resize). Then a
+    /// press on a selected piece's edge (rect, polygon) or anywhere on a
+    /// path segment grabs it, dragging shows the result, and the release
+    /// commits it as one undoable edit: a rect edge moves across its own
+    /// axis; a polygon edge or path segment moves as a whole, stretching
+    /// its neighbours (an axis-aligned one only across its own axis).
+    /// Stays armed until Escape or leaving Edit mode. A no-op if handle is
+    /// null.
+    void le_arm_resize(LeHandle *handle);
+
+    /// @brief Nonzero while Resize is armed. 0 if handle is null.
+    int32_t le_is_resize_armed(LeHandle *handle);
+
+    /// @brief Sets `kind`'s (LePieceKind) resize snap mode (LeShapeSnapMode)
+    /// - persists, USER_GRID by default. Ignores a mode `kind` doesn't
+    /// offer, an out-of-range value, or a null handle.
+    void le_set_shape_snap_mode(LeHandle *handle, int32_t kind, int32_t mode);
+
+    /// @brief `kind`'s resize snap mode. LE_SHAPE_SNAP_USER_GRID if handle
+    /// is null or `kind` out of range.
+    int32_t le_get_shape_snap_mode(LeHandle *handle, int32_t kind);
+
+    /// @brief Nonzero if `kind` offers `mode` and it has something to snap
+    /// to: always for NONE/USER_GRID; a MANUFACTURINGGRID; a FinFET grid;
+    /// for TRACKS, tracks (or a LEF PITCH) for the layer of some selected
+    /// path. 0 if handle is null.
+    int32_t le_is_shape_snap_mode_available(LeHandle *handle, int32_t kind, int32_t mode);
+
+    /// @brief Which LePieceKinds the current selection holds, as a bitmask
+    /// (1 << kind) - the resize toolbar shows one snap group per kind
+    /// present. 0 if handle is null.
+    int32_t le_selected_piece_kinds(LeHandle *handle);
+
     /// @brief Current selectability of every ViewLayer whose LeLayerRow::name
     /// is `layer_name` - see le_is_layer_name_visible()'s comment for the
     /// general row/column model this mirrors. Selectable by default until

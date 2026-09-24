@@ -5738,3 +5738,80 @@ TEST_F(ApiFixture, SelectedPlacementDrawsFlightlinesOnlyWhenTheFlightlinePurpose
     buffer = le_render_pixel_buffer(handle);
     EXPECT_FALSE(region_has_flightline_pixel(buffer, 30, 87, 50, 93));
 }
+
+// --- NEW_FEATURES_SEPT_2026.md item 3: shape resizing ---
+
+// TESTCELL's pin A rect (2,2)-(8,8)um, selected, Resize armed: pressing
+// on its right edge and releasing further right moves just that edge,
+// snapped to the (200-dbu) user grid, as one undoable edit. A press away
+// from every edge grabs nothing, and Resize stays armed after a commit.
+TEST_F(ApiFixture, ResizeDragsARectEdgeSnapsItAndIsUndoable)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+    const LeAbstractId abstract_id = testcell_abstract_id(handle);
+    const LeTerminalId terminal = le_abstract_terminals_at(handle, abstract_id, 0);
+    const LeTerminalPortId port = le_terminal_ports_at(handle, terminal, 0);
+    const LeShapeId shape_id = le_terminal_port_shapes_at(handle, port, 0);
+    ASSERT_NE(shape_id.index, UINT32_MAX);
+    ASSERT_EQ(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = shape_id.index, .generation = shape_id.generation}), 0);
+
+    le_set_viewport_size(handle, 200, 200);
+    le_zoom(handle, 0.02 - 1.0, 0, 200); // 50 dbu/px, pan (0,0): pixel (x,y) = dbu (50x, 50(200-y))
+    le_set_minor_grid_spacing(handle, 200);
+
+    le_set_mode(handle, LE_MODE_EDIT);
+    le_arm_resize(handle);
+    ASSERT_NE(le_is_resize_armed(handle), 0);
+    EXPECT_EQ(le_is_move_armed(handle), 0);
+    EXPECT_EQ(le_selected_piece_kinds(handle), 1 << LE_PIECE_KIND_RECT);
+
+    // A press in the rect's interior, away from every edge, grabs nothing.
+    le_set_mouse_position(handle, 100, 100);
+    le_mouse_down(handle, 100, 100);
+    le_set_mouse_position(handle, 120, 100);
+    le_mouse_up(handle, 120, 100);
+    LeRectUm rect = le_shape_rect_at(handle, shape_id, 0);
+    EXPECT_DOUBLE_EQ(rect.ur_x_um, 8.0);
+
+    // Right edge x=8000 dbu is pixel 160; release at pixel 187 = 9350 dbu -> 9400 on the 200-dbu grid.
+    le_set_mouse_position(handle, 160, 100);
+    le_mouse_down(handle, 160, 100);
+    le_set_mouse_position(handle, 187, 100);
+    // Mid-drag: the ghost's moved edge (9400 dbu = pixel 188) is drawn,
+    // the real geometry not yet changed.
+    const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_move_ghost_pixel(buffer, 186, 60, 190, 140));
+    EXPECT_DOUBLE_EQ(le_shape_rect_at(handle, shape_id, 0).ur_x_um, 8.0);
+    le_mouse_up(handle, 187, 100);
+    rect = le_shape_rect_at(handle, shape_id, 0);
+    EXPECT_DOUBLE_EQ(rect.ll_x_um, 2.0);
+    EXPECT_DOUBLE_EQ(rect.ll_y_um, 2.0);
+    EXPECT_DOUBLE_EQ(rect.ur_x_um, 9.4);
+    EXPECT_DOUBLE_EQ(rect.ur_y_um, 8.0);
+    EXPECT_NE(le_is_resize_armed(handle), 0);
+
+    ASSERT_NE(le_undo(handle), 0);
+    rect = le_shape_rect_at(handle, shape_id, 0);
+    EXPECT_DOUBLE_EQ(rect.ur_x_um, 8.0);
+
+    // Escape disarms; arming Move instead would too.
+    le_key_down(handle, LE_KEY_FINISH_RULER);
+    EXPECT_EQ(le_is_resize_armed(handle), 0);
+}
+
+TEST_F(ApiFixture, ShapeSnapModesArePerKindAndOnlyAcceptModesTheKindOffers)
+{
+    EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_PATH), LE_SHAPE_SNAP_USER_GRID);
+    le_set_shape_snap_mode(handle, LE_PIECE_KIND_PATH, LE_SHAPE_SNAP_TRACKS);
+    le_set_shape_snap_mode(handle, LE_PIECE_KIND_RECT, LE_SHAPE_SNAP_TRACKS); // rects don't snap to tracks - ignored
+    le_set_shape_snap_mode(handle, LE_PIECE_KIND_POLYGON, LE_SHAPE_SNAP_NONE);
+    EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_PATH), LE_SHAPE_SNAP_TRACKS);
+    EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_RECT), LE_SHAPE_SNAP_USER_GRID);
+    EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_POLYGON), LE_SHAPE_SNAP_NONE);
+
+    EXPECT_NE(le_is_shape_snap_mode_available(handle, LE_PIECE_KIND_RECT, LE_SHAPE_SNAP_USER_GRID), 0);
+    EXPECT_EQ(le_is_shape_snap_mode_available(handle, LE_PIECE_KIND_RECT, LE_SHAPE_SNAP_MANUFACTURING_GRID), 0); // no technology yet
+    EXPECT_EQ(le_is_shape_snap_mode_available(handle, LE_PIECE_KIND_PATH, LE_SHAPE_SNAP_FIN_GRID), 0);      // not offered for paths
+}

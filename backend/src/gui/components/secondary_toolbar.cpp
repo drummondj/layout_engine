@@ -6,7 +6,8 @@
 #include "imgui.h"
 
 #include <cstdint>
-#include <iterator>
+#include <functional>
+#include <span>
 
 namespace le::gui
 {
@@ -23,12 +24,106 @@ namespace le::gui
             const char *tooltip;
         };
 
-        constexpr SnapChoice kSnapChoices[] = {
+        constexpr SnapChoice kPlacementSnapChoices[] = {
             {LE_PLACEMENT_SNAP_SITE, "Site", "Snap core cells to the nearest row's site grid, in an orientation the row allows"},
             {LE_PLACEMENT_SNAP_FIN_GRID, "FinFET", "Snap to the FinFET grid (LEF58_FINFET, or update_technology -fin_pitch)"},
             {LE_PLACEMENT_SNAP_MANUFACTURING_GRID, "Mfg grid", "Snap to the manufacturing grid"},
             {LE_PLACEMENT_SNAP_NONE, "None", "No snapping"},
         };
+
+        // NEW_FEATURES_SEPT_2026.md item 3's own per-kind option lists.
+        constexpr SnapChoice kRectPolygonSnapChoices[] = {
+            {LE_SHAPE_SNAP_USER_GRID, "User grid", "Snap the dragged edge to the user grid"},
+            {LE_SHAPE_SNAP_MANUFACTURING_GRID, "Mfg grid", "Snap the dragged edge to the manufacturing grid"},
+            {LE_SHAPE_SNAP_FIN_GRID, "FinFET", "Snap to the FinFET grid across the fins, the manufacturing grid along them"},
+            {LE_SHAPE_SNAP_NONE, "None", "No snapping"},
+        };
+        constexpr SnapChoice kPathSnapChoices[] = {
+            {LE_SHAPE_SNAP_TRACKS, "Tracks", "Snap the segment's centerline to a routing track of its layer"},
+            {LE_SHAPE_SNAP_MANUFACTURING_GRID, "Mfg edges", "Snap the path's edges to the manufacturing grid"},
+            {LE_SHAPE_SNAP_USER_GRID, "User grid", "Snap the segment's centerline to the user grid"},
+            {LE_SHAPE_SNAP_NONE, "None", "No snapping"},
+        };
+
+        // Every item in the row is pinned to the row's own top y
+        // explicitly - after SameLine(), ImGui's own text-baseline
+        // bookkeeping for a vertically-centered label otherwise pushes
+        // each following item down (a real reported misalignment).
+        class Row
+        {
+        public:
+            Row() : y_(ImGui::GetCursorPosY()) {}
+
+            void same_line(float spacing = -1.0f)
+            {
+                if (first_)
+                {
+                    first_ = false;
+                    return;
+                }
+                ImGui::SameLine(0.0f, spacing);
+                ImGui::SetCursorPosY(y_);
+            }
+
+            void label(const char *text, float spacing = -1.0f)
+            {
+                same_line(spacing);
+                ImGui::SetCursorPosY(y_ + (kButtonSize - ImGui::GetTextLineHeight()) * 0.5f);
+                ImGui::TextUnformatted(text);
+            }
+
+        private:
+            float y_;
+            bool first_ = true;
+        };
+
+        // Same "optimistic until confirmed" reasoning as
+        // mode_selector.cpp's own draw_mode_selector - a snap-mode change is
+        // enqueued as a Tcl command, so the backend value lags a frame or
+        // more behind a click. One per snap group.
+        struct PendingChoice
+        {
+            bool has_pending = false;
+            int32_t pending = 0;
+
+            int32_t display(int32_t backend)
+            {
+                if (has_pending && backend == pending)
+                    has_pending = false;
+                return has_pending ? pending : backend;
+            }
+        };
+
+        // One labeled group of mutually exclusive snap buttons - a mode
+        // with nothing to snap to is disabled (BeginDisabled's fade is the
+        // right cue here, unlike mode_selector.cpp's "already selected").
+        void draw_snap_group(Row &row, const char *label, float label_spacing, std::span<const SnapChoice> choices, PendingChoice &pending,
+                             int32_t backend_mode, const std::function<bool(int32_t)> &available, const std::function<void(int32_t)> &choose)
+        {
+            const int32_t display_mode = pending.display(backend_mode);
+            row.label(label, label_spacing);
+            for (const SnapChoice &choice : choices)
+            {
+                row.same_line();
+                const bool selected = display_mode == choice.mode;
+                const bool is_available = available(choice.mode);
+                ImGui::PushID(label);
+                ImGui::PushStyleColor(ImGuiCol_Button, selected ? kSelectedIconButtonColor : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+                ImGui::BeginDisabled(!is_available);
+                const bool clicked = ImGui::Button(choice.label, ImVec2(0.0f, kButtonSize));
+                ImGui::EndDisabled();
+                ImGui::PopStyleColor();
+                ImGui::PopID();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("%s%s", choice.tooltip, is_available ? "" : " - not available for this design");
+                if (clicked && !selected)
+                {
+                    choose(choice.mode);
+                    pending.has_pending = true;
+                    pending.pending = choice.mode;
+                }
+            }
+        }
 
         // `disabled_reason` is shown in the tooltip (and the button
         // disabled) when non-null.
@@ -52,62 +147,20 @@ namespace le::gui
         void draw_placement_toolbar(GuiProvider &provider)
         {
             const GuiProvider::State::PlacementMove &state = provider.state().placement_move;
+            Row row;
 
-            // Same "optimistic until confirmed" reasoning as
-            // mode_selector.cpp's own draw_mode_selector -
-            // set_placement_snap_mode is enqueued, so the backend value
-            // lags a frame or more behind a click.
-            static bool has_pending = false;
-            static int32_t pending = LE_PLACEMENT_SNAP_SITE;
-            if (has_pending && state.snap_mode == pending)
-                has_pending = false;
-            const int32_t display_mode = has_pending ? pending : state.snap_mode;
-
-            // Every item is pinned to the row's own top y explicitly -
-            // after SameLine(), ImGui's own text-baseline bookkeeping for
-            // the vertically-centered "Snap:" label otherwise pushes each
-            // following item down (a real reported misalignment: only the
-            // first button after the label sat at the right height).
-            const float row_y = ImGui::GetCursorPosY();
-            const auto same_line = [row_y](float spacing = -1.0f)
-            {
-                ImGui::SameLine(0.0f, spacing);
-                ImGui::SetCursorPosY(row_y);
-            };
-
-            ImGui::SetCursorPosY(row_y + (kButtonSize - ImGui::GetTextLineHeight()) * 0.5f);
-            ImGui::TextUnformatted("Snap:");
-            same_line();
-
-            for (const SnapChoice &choice : kSnapChoices)
-            {
-                const bool selected = display_mode == choice.mode;
-                const bool available = state.snap_available[choice.mode];
-                ImGui::PushStyleColor(ImGuiCol_Button, selected ? kSelectedIconButtonColor : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-                // A mode with nothing to snap to (no rows, no fin grid,
-                // no MANUFACTURINGGRID) is disabled - BeginDisabled's own
-                // fade is exactly the right cue here, unlike the
-                // "already selected" case mode_selector.cpp avoids it for.
-                ImGui::BeginDisabled(!available);
-                const bool clicked = ImGui::Button(choice.label, ImVec2(0.0f, kButtonSize));
-                ImGui::EndDisabled();
-                ImGui::PopStyleColor();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                    ImGui::SetTooltip("%s%s", choice.tooltip, available ? "" : " - not available for this design");
-                if (clicked && !selected)
-                {
-                    provider.set_placement_snap_mode(choice.mode);
-                    has_pending = true;
-                    pending = choice.mode;
-                }
-                if (&choice != &kSnapChoices[std::size(kSnapChoices) - 1])
-                    same_line();
-            }
+            static PendingChoice pending{.pending = LE_PLACEMENT_SNAP_SITE};
+            draw_snap_group(
+                row, "Snap:", -1.0f, kPlacementSnapChoices, pending, state.snap_mode,
+                [&](int32_t mode)
+                { return state.snap_available[mode]; },
+                [&](int32_t mode)
+                { provider.set_placement_snap_mode(mode); });
 
             // Rotate/flip commit immediately (le_apply_placement_orientation_op)
             // - disabled while a Move is under way (after its first click),
-            // or when site snapping is on
-            // and the row's Site symmetry doesn't permit the op.
+            // or when site snapping is on and the row's Site symmetry
+            // doesn't permit the op.
             const auto disabled_reason = [&](int32_t op) -> const char *
             {
                 if (state.orientation_ops_enabled & (1 << op))
@@ -116,27 +169,68 @@ namespace le::gui
                     return "not available while moving (Esc to cancel the move)";
                 return "not permitted by the row's site symmetry while snapping to sites";
             };
-            same_line(16.0f);
+            row.same_line(16.0f);
             if (draw_icon_action(ICON_LC_ROTATE_CCW, "placement_rotate", "Rotate 90 degrees counterclockwise", disabled_reason(LE_ORIENTATION_OP_ROTATE_CCW)))
                 provider.rotate_placement();
-            same_line();
+            row.same_line();
             if (draw_icon_action(ICON_LC_FLIP_HORIZONTAL_2, "placement_flip_h", "Flip horizontally", disabled_reason(LE_ORIENTATION_OP_FLIP_HORIZONTAL)))
                 provider.flip_placement_horizontal();
-            same_line();
+            row.same_line();
             if (draw_icon_action(ICON_LC_FLIP_VERTICAL_2, "placement_flip_v", "Flip vertically", disabled_reason(LE_ORIENTATION_OP_FLIP_VERTICAL)))
                 provider.flip_placement_vertical();
+        }
+
+        // NEW_FEATURES_SEPT_2026.md item 3 - one snap group per kind of
+        // shape piece in the selection (rects, polygons, paths).
+        void draw_resize_toolbar(GuiProvider &provider)
+        {
+            const GuiProvider::State::Resize &state = provider.state().resize;
+            Row row;
+
+            struct Group
+            {
+                int32_t kind;
+                const char *label;
+                std::span<const SnapChoice> choices;
+            };
+            static const Group groups[] = {
+                {LE_PIECE_KIND_RECT, "Rects:", kRectPolygonSnapChoices},
+                {LE_PIECE_KIND_POLYGON, "Polygons:", kRectPolygonSnapChoices},
+                {LE_PIECE_KIND_PATH, "Paths:", kPathSnapChoices},
+            };
+            static PendingChoice pending[3] = {{.pending = LE_SHAPE_SNAP_USER_GRID}, {.pending = LE_SHAPE_SNAP_USER_GRID}, {.pending = LE_SHAPE_SNAP_USER_GRID}};
+
+            bool first_group = true;
+            for (const Group &group : groups)
+            {
+                if (!(state.selected_piece_kinds & (1 << group.kind)))
+                    continue;
+                draw_snap_group(
+                    row, group.label, first_group ? -1.0f : 16.0f, group.choices, pending[group.kind], state.snap_modes[group.kind],
+                    [&](int32_t mode)
+                    { return state.snap_available[group.kind][mode]; },
+                    [&](int32_t mode)
+                    { provider.set_shape_snap_mode(group.kind, mode); });
+                first_group = false;
+            }
         }
     }
 
     bool has_secondary_toolbar(const GuiProvider &provider)
     {
         const GuiProvider::State &state = provider.state();
-        return state.mode == LE_MODE_EDIT && state.placement_move.selected_count > 0;
+        if (state.mode != LE_MODE_EDIT)
+            return false;
+        return (state.is_resize_armed && state.resize.selected_piece_kinds != 0) || state.placement_move.selected_count > 0;
     }
 
     void draw_secondary_toolbar(GuiProvider &provider)
     {
-        if (provider.state().placement_move.selected_count > 0)
+        // Resize, while armed, owns the row; otherwise placements' options.
+        const GuiProvider::State &state = provider.state();
+        if (state.is_resize_armed && state.resize.selected_piece_kinds != 0)
+            draw_resize_toolbar(provider);
+        else if (state.placement_move.selected_count > 0)
             draw_placement_toolbar(provider);
     }
 }

@@ -1235,6 +1235,96 @@ register_command_help placement_snap_mode_available \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+# --- shape resizing (NEW_FEATURES_SEPT_2026.md item 3 - backed by
+# arm_resize_cmd/set_shape_snap_mode_cmd/get_shape_snap_mode_cmd/
+# is_shape_snap_mode_available_cmd) ---
+array set ::shape_kind_names {rect 0 polygon 1 path 2}
+array set ::shape_snap_names {none 0 user 1 manufacturing 2 fin 3 tracks 4}
+array set ::shape_snap_names_reverse {0 none 1 user 2 manufacturing 3 fin 4 tracks}
+
+proc _shape_kind_code {command kind} {
+    if {![info exists ::shape_kind_names($kind)]} {
+        error "$command: unknown shape kind \"$kind\" - expected one of [lsort [array names ::shape_kind_names]]"
+    }
+    return $::shape_kind_names($kind)
+}
+
+proc _shape_snap_code {command mode} {
+    if {![info exists ::shape_snap_names($mode)]} {
+        error "$command: unknown snap mode \"$mode\" - expected one of [lsort [array names ::shape_snap_names]]"
+    }
+    return $::shape_snap_names($mode)
+}
+
+proc arm_resize {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "arm_resize \[-help\] - Arms the Resize tool for the selected shapes"
+    }
+    arm_resize_cmd
+    return ""
+}
+register_command_help arm_resize \
+    "arm_resize \[-help\]" \
+    "Arms the Resize tool - only meaningful in Edit mode with selected shape pieces, a no-op otherwise. Then drag a selected rectangle's edge, a polygon's edge, or anywhere on a path segment; releasing commits it as one undoable edit. Stays armed until Escape or leaving Edit mode. Snapping is set per shape kind with set_shape_snap_mode." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_shape_snap_mode {kind args} {
+    if {$kind eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_shape_snap_mode <kind> <mode> \[-help\] - Sets what a resized shape of one kind snaps to"
+    }
+    if {[llength $args] != 1} {
+        error "set_shape_snap_mode: expected exactly 2 arguments (kind, mode), got [expr {1 + [llength $args]}]"
+    }
+    set mode [lindex $args 0]
+    set kind_code [_shape_kind_code set_shape_snap_mode $kind]
+    set mode_code [_shape_snap_code set_shape_snap_mode $mode]
+    if {($kind eq "path" && $mode eq "fin") || ($kind ne "path" && $mode eq "tracks")} {
+        error "set_shape_snap_mode: $kind shapes can't snap to $mode"
+    }
+    set_shape_snap_mode_cmd $kind_code $mode_code
+    return ""
+}
+register_command_help set_shape_snap_mode \
+    "set_shape_snap_mode <kind> <mode> \[-help\] - Sets what a resized shape of one kind snaps to" \
+    "Sets what Resize snaps a <kind> (rect, polygon or path) to. Rects and polygons: user (the user grid - the default), manufacturing (MANUFACTURINGGRID), fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths: user, manufacturing (the path's edges land on the grid), tracks (its centerline lands on a routing track of its layer - the Layout's TRACKS, else the layer's LEF PITCH/OFFSET) or none. Persists." \
+    {
+        {<kind> {type str required 1 description {rect, polygon or path}}}
+        {<mode> {type str required 1 description {none, user, manufacturing, fin (rect/polygon) or tracks (path)}}}
+    }
+
+proc get_shape_snap_mode {kind} {
+    if {$kind eq "-help"} {
+        return "get_shape_snap_mode <kind> \[-help\] - Returns what a resized shape of one kind snaps to"
+    }
+    return $::shape_snap_names_reverse([get_shape_snap_mode_cmd [_shape_kind_code get_shape_snap_mode $kind]])
+}
+register_command_help get_shape_snap_mode \
+    "get_shape_snap_mode <kind> \[-help\] - Returns what a resized shape of one kind snaps to" \
+    "Returns Resize's snap mode for <kind> (rect, polygon or path) - none, user, manufacturing, fin or tracks." \
+    {
+        {<kind> {type str required 1 description {rect, polygon or path}}}
+    }
+
+proc shape_snap_mode_available {kind args} {
+    if {$kind eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "shape_snap_mode_available <kind> <mode> \[-help\] - Returns whether a resize snap mode has anything to snap to"
+    }
+    if {[llength $args] != 1} {
+        error "shape_snap_mode_available: expected exactly 2 arguments (kind, mode), got [expr {1 + [llength $args]}]"
+    }
+    set mode [lindex $args 0]
+    return [expr {[is_shape_snap_mode_available_cmd [_shape_kind_code shape_snap_mode_available $kind] [_shape_snap_code shape_snap_mode_available $mode]] ? 1 : 0}]
+}
+register_command_help shape_snap_mode_available \
+    "shape_snap_mode_available <kind> <mode> \[-help\] - Returns whether a resize snap mode has anything to snap to" \
+    "Returns 1 if <kind> offers <mode> and it has something to snap to: always for none/user; a MANUFACTURINGGRID for manufacturing; a FinFET grid for fin; tracks or a LEF PITCH for some selected path's layer for tracks." \
+    {
+        {<kind> {type str required 1 description {rect, polygon or path}}}
+        {<mode> {type str required 1 description {none, user, manufacturing, fin or tracks}}}
+    }
+
 # Shared by rotate_placement/flip_placement - raises a Tcl error naming
 # why le_apply_placement_orientation_op refused.
 proc apply_placement_orientation_op_checked {command op} {

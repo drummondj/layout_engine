@@ -73,6 +73,7 @@ namespace le::gui
             int32_t mode = LE_MODE_SELECT;
             bool is_rendering = false;
             bool is_move_armed = false;
+            bool is_resize_armed = false;
 
             struct StatusBar
             {
@@ -101,6 +102,16 @@ namespace le::gui
                 int32_t orientation_ops_enabled = 0;
                 bool is_move_anchored = false;
             } placement_move;
+
+            // secondary_toolbar.cpp's resize toolbar (NEW_FEATURES_SEPT_2026.md
+            // item 3) - shown while Resize is armed; only refreshed then.
+            // Arrays are LePieceKind-indexed (then LeShapeSnapMode-indexed).
+            struct Resize
+            {
+                int32_t selected_piece_kinds = 0;
+                int32_t snap_modes[3] = {LE_SHAPE_SNAP_USER_GRID, LE_SHAPE_SNAP_USER_GRID, LE_SHAPE_SNAP_USER_GRID};
+                bool snap_available[3][5] = {};
+            } resize;
         };
 
         // Re-populates state() from the live API - call exactly once per
@@ -163,6 +174,8 @@ namespace le::gui
         void select_all();
         void deselect_all();
         void arm_move();
+        void arm_resize();
+        void set_shape_snap_mode(int32_t kind, int32_t mode);
         void set_placement_snap_mode(int32_t mode);
         void rotate_placement();
         void flip_placement_horizontal();

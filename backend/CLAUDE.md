@@ -110,6 +110,15 @@ none of these are duplicated here.
   `ComposeStage` as an overlay on the `FLIGHTLINE` purpose (hidden by
   default); api.cpp caches the index per Root mutation and the lines per
   selection (`LeHandle::flightline_cache`, see BENCHMARKS.md 2026-09-25).
+  `shape_resize.hpp` (NEW_FEATURES_SEPT_2026.md item 3): the Resize tool's
+  geometry — `find_resize_handle` (a rect edge, polygon edge or path
+  segment near a point) and `resize_piece` (drag it by a delta, snapped
+  per `ShapeSnapContext`: user/manufacturing/FinFET grid, path edges on
+  the manufacturing grid, path centerline on `layer_track_grids`).
+  `LeHandle::ResizeState` is the armed tool plus the current grab;
+  api.cpp's `le_mouse_down` grabs (`DragKind::RESIZE`, no rubber band),
+  the ghost reuses the Move ghost overlay, `le_mouse_up` commits one
+  undoable "resize".
   `RenderedShape`/
   `TinyShapeDot`/`VersionedStage`/`ShapeGenerationStage` (the pre-restart
   `pipeline` module's own shape-generation output/render-input types and

@@ -41,6 +41,49 @@ namespace le::gui
             }
             return clicked;
         }
+
+        // An Edit-mode tool button (Move, Resize) - highlighted while its
+        // tool is armed. Same "optimistic until confirmed" reasoning as
+        // mode_selector.cpp's own draw_mode_button: arming is enqueued, not
+        // applied synchronously, so re-reading the armed state on the very
+        // next frame would otherwise flicker the button back to unarmed
+        // until the queued command lands. Armed keeps a permanent
+        // highlighted background (compact_button.hpp's own
+        // kSelectedIconButtonColor); unarmed draws only the icon glyph.
+        // Clicking while armed is a no-op - a plain `!armed` guard rather
+        // than BeginDisabled(armed), which would also fade the glyph (a
+        // real reported bug).
+        // A pending arm the backend refuses (nothing suitable selected)
+        // never shows up as armed - it expires after this many frames
+        // rather than leaving the button highlighted forever.
+        constexpr int kPendingArmFrames = 30;
+
+        struct ToolButtonState
+        {
+            bool has_pending = false;
+            int pending_since_frame = 0;
+        };
+
+        template <typename OnArm>
+        void draw_tool_button(const char *icon, const char *id, const char *tooltip, bool backend_armed, ToolButtonState &state, OnArm on_arm)
+        {
+            if (state.has_pending && (backend_armed || ImGui::GetFrameCount() - state.pending_since_frame > kPendingArmFrames))
+                state.has_pending = false;
+            const bool armed = state.has_pending || backend_armed;
+
+            ImGui::PushStyleColor(ImGuiCol_Button, armed ? kSelectedIconButtonColor : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+            // icon_button - see draw_button's own comment above.
+            const bool clicked = icon_button(icon, id, kIconButtonSize);
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", tooltip);
+            if (clicked && !armed)
+            {
+                on_arm();
+                state.has_pending = true;
+                state.pending_since_frame = ImGui::GetFrameCount();
+            }
+        }
     }
 
     void draw_mode_toolbar(GuiProvider &provider)
@@ -58,51 +101,23 @@ namespace le::gui
 
         case LE_MODE_EDIT:
         {
-            // Same "optimistic until confirmed" reasoning as
-            // mode_selector.cpp's own draw_mode_button - arm_move is
-            // enqueued, not applied synchronously, so re-reading
-            // is_move_armed on the very next frame would otherwise
-            // flicker the button back to unarmed until the queued
-            // command lands.
-            static bool has_pending_move = false;
-            static bool pending_move_value = false;
-            const bool backend_armed = provider.state().is_move_armed;
-            if (has_pending_move && backend_armed == pending_move_value)
-                has_pending_move = false;
-            const bool armed = has_pending_move ? pending_move_value : backend_armed;
+            static ToolButtonState move_state;
+            draw_tool_button(ICON_LC_MOVE, "move", "Move (ctrl-m)", provider.state().is_move_armed, move_state,
+                             [&]
+                             { provider.arm_move(); });
+            ImGui::SameLine();
+            // NEW_FEATURES_SEPT_2026.md item 3 - drag a selected shape's
+            // edges/segments; its snap options appear in the secondary
+            // toolbar while armed.
+            static ToolButtonState resize_state;
+            draw_tool_button(ICON_LC_SCALING, "resize", "Resize - drag an edge of a selected shape", provider.state().is_resize_armed, resize_state,
+                             [&]
+                             { provider.arm_resize(); });
 
-            // Armed keeps a permanent highlighted background (a neutral
-            // dark gray - compact_button.hpp's own kSelectedIconButtonColor,
-            // matching mode_selector.cpp's own selected-mode treatment,
-            // not the theme's own blue ButtonActive); unarmed now draws
-            // no resting background at all - only the icon glyph -
-            // matching draw_button's own treatment above.
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                   armed ? kSelectedIconButtonColor
-                                         : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-            // See draw_button's own comment above.
-            const bool move_clicked = icon_button(ICON_LC_MOVE, "move", kIconButtonSize);
-            ImGui::PopStyleColor();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Move (ctrl-m)");
-            // Clicking while already armed is a no-op, matching
-            // ToolbarButton's own `onPressed: selected ? null : onPressed`
-            // in mode_toolbar.dart - see mode_selector.cpp's own
-            // draw_mode_button for why this is a plain `!armed` guard
-            // rather than BeginDisabled(armed) (the latter also fades
-            // the icon glyph itself via DisabledAlpha, a real reported
-            // bug, not just a duller background).
-            if (move_clicked && !armed)
-            {
-                provider.arm_move();
-                has_pending_move = true;
-                pending_move_value = true;
-            }
-
-            // mode_toolbar.dart's own Resize/Rotate/Align */Delete
-            // buttons are all still no-ops there too (`onPressed: () =>
-            // {}`) - left unported here rather than wiring up dead
-            // buttons; add them once the underlying feature exists.
+            // mode_toolbar.dart's own Rotate/Align */Delete buttons are
+            // all still no-ops there too (`onPressed: () => {}`) - left
+            // unported here rather than wiring up dead buttons; add them
+            // once the underlying feature exists.
             ImGui::SameLine();
             if (draw_button(ICON_LC_UNDO_2, "Undo", "ctrl-z"))
                 provider.undo();

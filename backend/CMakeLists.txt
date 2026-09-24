@@ -1121,6 +1121,7 @@ add_executable(backend_tests
     src/api/tests/mutation_cascade_test.cpp
     src/core/tests/placement_move_test.cpp
     src/core/tests/flightlines_test.cpp
+    src/core/tests/shape_resize_test.cpp
     src/sv/tests/sv_reader_test.cpp
     src/sv/tests/verilog_stub_writer_test.cpp
 )

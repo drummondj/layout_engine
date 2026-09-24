@@ -12,6 +12,16 @@ Arms Move (UPDATES.md item 21) - only meaningful in Edit mode with a non-empty s
 | --- | --- | --- | --- |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## arm_resize
+
+`arm_resize [-help]`
+
+Arms the Resize tool - only meaningful in Edit mode with selected shape pieces, a no-op otherwise. Then drag a selected rectangle's edge, a polygon's edge, or anywhere on a path segment; releasing commits it as one undoable edit. Stays armed until Escape or leaving Edit mode. Snapping is set per shape kind with set_shape_snap_mode.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## clear_rulers
 
 `clear_rulers [-help]`
@@ -2143,6 +2153,16 @@ Returns the current selection as a list of tokens (shape:/row:/placement:/region
 | --- | --- | --- | --- |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_shape_snap_mode
+
+`get_shape_snap_mode <kind> [-help]`
+
+Returns Resize's snap mode for <kind> (rect, polygon or path) - none, user, manufacturing, fin or tracks.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<kind>` | `str` | yes | rect, polygon or path |
+
 ## get_shapes
 
 `get_shapes [-of <token>...] [-filter <expr>] [-help]`
@@ -2566,6 +2586,17 @@ Sets whether one purpose column (e.g. every Layer's own obstruction shapes) is v
 | `<visible>` | `bool` | yes | 0/1 or true/false - hide/show |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## set_shape_snap_mode
+
+`set_shape_snap_mode <kind> <mode> [-help]`
+
+Sets what Resize snaps a <kind> (rect, polygon or path) to. Rects and polygons: user (the user grid - the default), manufacturing (MANUFACTURINGGRID), fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths: user, manufacturing (the path's edges land on the grid), tracks (its centerline lands on a routing track of its layer - the Layout's TRACKS, else the layer's LEF PITCH/OFFSET) or none. Persists.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<kind>` | `str` | yes | rect, polygon or path |
+| `<mode>` | `str` | yes | none, user, manufacturing, fin (rect/polygon) or tracks (path) |
+
 ## set_viewport_size
 
 `set_viewport_size -width <int> -height <int> [-help]`
@@ -2718,6 +2749,17 @@ Creates one new Shape per input shape: its merged area grown (positive) or shrun
 | `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
 | `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
 | `-help` | `flag` | no | Show this usage message and return immediately |
+
+## shape_snap_mode_available
+
+`shape_snap_mode_available <kind> <mode> [-help]`
+
+Returns 1 if <kind> offers <mode> and it has something to snap to: always for none/user; a MANUFACTURINGGRID for manufacturing; a FinFET grid for fin; tracks or a LEF PITCH for some selected path's layer for tracks.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<kind>` | `str` | yes | rect, polygon or path |
+| `<mode>` | `str` | yes | none, user, manufacturing, fin or tracks |
 
 ## shape_to_polygon
 

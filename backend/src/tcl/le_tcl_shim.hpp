@@ -360,6 +360,16 @@ bool is_placement_snap_mode_available_cmd(int mode);
 /// its status code).
 int apply_placement_orientation_op_cmd(int op);
 
+/// @brief Backing for `arm_resize`/`set_shape_snap_mode`/
+/// `get_shape_snap_mode`/`shape_snap_mode_available` - mirror
+/// le_arm_resize/le_set_shape_snap_mode/le_get_shape_snap_mode/
+/// le_is_shape_snap_mode_available (LePieceKind/LeShapeSnapMode values;
+/// le_tcl_procs.tcl maps the keywords).
+void arm_resize_cmd();
+void set_shape_snap_mode_cmd(int kind, int mode);
+int get_shape_snap_mode_cmd(int kind);
+bool is_shape_snap_mode_available_cmd(int kind, int mode);
+
 /// @brief Backing for the `show_gui` Tcl command - mirrors
 /// le_request_show_gui directly. Fire-and-forget: the actual window is
 /// opened by a separate, dedicated GUI thread (src/gui/le_gui.hpp) that

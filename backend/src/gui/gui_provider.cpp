@@ -33,6 +33,17 @@ namespace le::gui
         state_.mode = le_get_mode(handle_);
         state_.is_rendering = le_is_rendering(handle_) != 0;
         state_.is_move_armed = le_is_move_armed(handle_) != 0;
+        state_.is_resize_armed = le_is_resize_armed(handle_) != 0;
+        if (state_.is_resize_armed)
+        {
+            state_.resize.selected_piece_kinds = le_selected_piece_kinds(handle_);
+            for (int32_t kind = LE_PIECE_KIND_RECT; kind <= LE_PIECE_KIND_PATH; ++kind)
+            {
+                state_.resize.snap_modes[kind] = le_get_shape_snap_mode(handle_, kind);
+                for (int32_t mode = LE_SHAPE_SNAP_NONE; mode <= LE_SHAPE_SNAP_TRACKS; ++mode)
+                    state_.resize.snap_available[kind][mode] = le_is_shape_snap_mode_available(handle_, kind, mode) != 0;
+            }
+        }
 
         state_.status_bar.tooltip_message = le_tooltip_message(handle_);
         state_.status_bar.snapped_mouse_position = le_snapped_mouse_position(handle_);
@@ -321,6 +332,16 @@ namespace le::gui
     void GuiProvider::select_all() { run_tcl_command("select_all"); }
     void GuiProvider::deselect_all() { run_tcl_command("deselect_all"); }
     void GuiProvider::arm_move() { run_tcl_command("arm_move"); }
+    void GuiProvider::arm_resize() { run_tcl_command("arm_resize"); }
+
+    void GuiProvider::set_shape_snap_mode(int32_t kind, int32_t mode)
+    {
+        static const char *const kKinds[] = {"rect", "polygon", "path"};
+        static const char *const kModes[] = {"none", "user", "manufacturing", "fin", "tracks"};
+        if (kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_PATH || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
+            return;
+        run_tcl_command(std::string("set_shape_snap_mode ") + kKinds[kind] + " " + kModes[mode]);
+    }
 
     void GuiProvider::set_placement_snap_mode(int32_t mode)
     {

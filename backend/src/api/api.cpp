@@ -228,6 +228,99 @@ namespace
                                        raw_delta, handle->placement_snap_mode(), remaining_depth);
     }
 
+    // --- Resize (NEW_FEATURES_SEPT_2026.md item 3) ---
+
+    // How close (screen pixels) a press must land to a selected piece's
+    // edge/segment to grab it.
+    constexpr double kResizeGrabTolerancePx = 6.0;
+
+    // What a resize of a `kind` piece on `layer` snaps against right now -
+    // the handle's per-kind snap mode plus the grids it may need; tracks
+    // only for a path in TRACKS mode (its own layer's).
+    le::ShapeSnapContext shape_snap_context_unlocked(const LeHandle *handle, le::PieceKind kind, le::LayerId layer)
+    {
+        le::ShapeSnapContext context;
+        context.mode = handle->shape_snap_mode(kind);
+        context.user_grid = handle->minor_grid_spacing();
+        context.manufacturing_grid = le::technology_manufacturing_grid(handle->root);
+        context.fin_grid = le::technology_fin_grid(handle->root);
+        if (kind == le::PieceKind::PATH && context.mode == le::ShapeSnapMode::TRACKS)
+            context.tracks = le::layer_track_grids(handle->root, handle->current_layout(), layer);
+        return context;
+    }
+
+    // The grabbed piece resized to the mouse at dbu `current` - the ghost
+    // while dragging, the committed geometry on release.
+    le::Shape resized_piece_unlocked(const LeHandle *handle, le::Point current)
+    {
+        const LeHandle::ResizeGrab &grab = *handle->resize().grab;
+        const le::Point delta{.x = current.x - grab.start.x, .y = current.y - grab.start.y};
+        return le::resize_piece(grab.original, grab.handle, delta,
+                                shape_snap_context_unlocked(handle, grab.piece.piece_kind, grab.original.layer));
+    }
+
+    // arm_resize/le_arm_resize's body - Edit mode, with at least one
+    // selected piece (Row/Placement/Region selections have no edges to
+    // drag).
+    void arm_resize_unlocked(LeHandle *handle)
+    {
+        if (handle->mode() != LeHandle::Mode::EDIT)
+            return;
+        const auto &selection = handle->selection();
+        if (std::ranges::none_of(selection, [](const LeHandle::SelectedObject &s)
+                                 { return std::holds_alternative<LeHandle::ShapePiece>(s); }))
+            return;
+        handle->arm_resize();
+    }
+
+    // le_mouse_down with Resize armed: grabs the edge/segment of a selected
+    // piece nearest the press (within kResizeGrabTolerancePx), if any.
+    bool try_begin_resize_grab_unlocked(LeHandle *handle, int32_t x, int32_t y)
+    {
+        const le::Point p = handle->pixel_to_dbu(x, y);
+        const int64_t tolerance = static_cast<int64_t>(std::ceil(kResizeGrabTolerancePx / handle->scale()));
+        std::optional<LeHandle::ResizeGrab> best;
+        for (const LeHandle::SelectedObject &selected : handle->selection())
+        {
+            const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
+            if (!piece)
+                continue;
+            const le::ShapeData *data = handle->root.get_shape(piece->shape_id);
+            if (!data || !le::Geometry::piece_in_range(*data, piece->piece_kind, piece->piece_index))
+                continue;
+            le::Shape original = le::Geometry::extract_piece(*data, piece->piece_kind, piece->piece_index);
+            const std::optional<le::ResizeHandle> hit = le::find_resize_handle(original, p, tolerance);
+            if (hit && (!best || hit->distance < best->handle.distance))
+                best = LeHandle::ResizeGrab{.piece = *piece, .handle = *hit, .original = std::move(original), .start = p};
+        }
+        if (!best)
+            return false;
+        handle->begin_resize_grab(std::move(*best));
+        return true;
+    }
+
+    // le_mouse_up after a real drag of a grab: writes the resized piece
+    // back into its Shape, as one undoable "resize". Resize stays armed.
+    void commit_resize_unlocked(LeHandle *handle, int32_t x, int32_t y)
+    {
+        const LeHandle::ResizeGrab &grab = *handle->resize().grab;
+        const le::ShapeData *existing = handle->root.get_shape(grab.piece.shape_id);
+        if (!existing || !le::Geometry::piece_in_range(*existing, grab.piece.piece_kind, grab.piece.piece_index))
+            return;
+
+        const le::ShapeData before = *existing;
+        le::ShapeData after = before;
+        le::replace_piece(after, grab.piece.piece_kind, grab.piece.piece_index, resized_piece_unlocked(handle, handle->pixel_to_dbu(x, y)));
+
+        handle->command_history.begin("resize");
+        handle->root.update_shape(grab.piece.shape_id, after.layer, after.purpose, after.paths, after.polygons, after.rects,
+                                  after.spacing, after.design_rule_width, after.except_pg_net);
+        handle->root.bump_mutation_version();
+        if (le::editing::Transaction *txn = handle->command_history.current())
+            txn->record_update<le::ShapeId, le::ShapeData>(grab.piece.shape_id, before, after, &le::apply_shape_snapshot);
+        handle->command_history.end(/*succeeded=*/true);
+    }
+
     // Every PlacementId in the current selection, in selection order.
     std::vector<le::PlacementId> selected_placements_unlocked(const LeHandle *handle)
     {
@@ -332,7 +425,7 @@ namespace
             .ur = le::Point{.x = pan.x + static_cast<int64_t>(width_dbu), .y = pan.y + static_cast<int64_t>(height_dbu)},
         };
 
-        if (handle->is_dragging())
+        if (handle->is_dragging() && handle->drag_kind() != LeHandle::DragKind::RESIZE)
         {
             options.drag_rect_dbu = handle->drag_rect_dbu();
             options.drag_is_zoom = handle->drag_kind() == LeHandle::DragKind::ZOOM;
@@ -343,7 +436,14 @@ namespace
         if (handle->hover().has_value())
             options.hover_outline_dbu = handle->hover()->outline;
 
-        if (const std::vector<le::PlacementId> placements = handle->moving_placements(); !placements.empty())
+        if (handle->resize().grab)
+        {
+            // Resize (NEW_FEATURES_SEPT_2026.md item 3) - the grabbed
+            // piece as it would be committed right now, pre-placed.
+            if (const std::optional<le::Point> mouse = handle->mouse_dbu_position())
+                options.move_ghost_pieces_dbu.push_back(resized_piece_unlocked(handle, *mouse));
+        }
+        else if (const std::vector<le::PlacementId> placements = handle->moving_placements(); !placements.empty())
         {
             // Placement Move (NEW_FEATURES_SEPT_2026.md item 2) - each
             // placement snaps independently, so the ghost is pre-placed
@@ -2806,6 +2906,84 @@ extern "C"
         return 0;
     }
 
+    void le_arm_resize(LeHandle *handle)
+    {
+        if (!handle)
+            return;
+        HandleWriteLock lock(handle);
+        arm_resize_unlocked(handle);
+    }
+
+    int32_t le_is_resize_armed(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->resize().armed ? 1 : 0;
+    }
+
+    void le_set_shape_snap_mode(LeHandle *handle, int32_t kind, int32_t mode)
+    {
+        if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_PATH || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
+            return;
+        const le::PieceKind piece_kind = static_cast<le::PieceKind>(kind);
+        const le::ShapeSnapMode snap_mode = static_cast<le::ShapeSnapMode>(mode);
+        if (!le::shape_snap_mode_applies(piece_kind, snap_mode))
+            return;
+        HandleWriteLock lock(handle);
+        handle->set_shape_snap_mode(piece_kind, snap_mode);
+    }
+
+    int32_t le_get_shape_snap_mode(LeHandle *handle, int32_t kind)
+    {
+        if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_PATH)
+            return LE_SHAPE_SNAP_USER_GRID;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return static_cast<int32_t>(handle->shape_snap_mode(static_cast<le::PieceKind>(kind)));
+    }
+
+    int32_t le_is_shape_snap_mode_available(LeHandle *handle, int32_t kind, int32_t mode)
+    {
+        if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_PATH || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
+            return 0;
+        const le::PieceKind piece_kind = static_cast<le::PieceKind>(kind);
+        const le::ShapeSnapMode snap_mode = static_cast<le::ShapeSnapMode>(mode);
+        if (!le::shape_snap_mode_applies(piece_kind, snap_mode))
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        switch (snap_mode)
+        {
+        case le::ShapeSnapMode::NONE:
+        case le::ShapeSnapMode::USER_GRID:
+            return 1;
+        case le::ShapeSnapMode::MANUFACTURING_GRID:
+            return le::technology_manufacturing_grid(handle->root) ? 1 : 0;
+        case le::ShapeSnapMode::FIN_GRID:
+            return le::technology_fin_grid(handle->root) ? 1 : 0;
+        case le::ShapeSnapMode::TRACKS:
+            for (const LeHandle::SelectedObject &selected : handle->selection())
+                if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
+                    piece && piece->piece_kind == le::PieceKind::PATH)
+                    if (const le::ShapeData *data = handle->root.get_shape(piece->shape_id);
+                        data && !le::layer_track_grids(handle->root, handle->current_layout(), data->layer).empty())
+                        return 1;
+            return 0;
+        }
+        return 0;
+    }
+
+    int32_t le_selected_piece_kinds(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        int32_t mask = 0;
+        for (const LeHandle::SelectedObject &selected : handle->selection())
+            if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected))
+                mask |= 1 << static_cast<int32_t>(piece->piece_kind);
+        return mask;
+    }
+
     int32_t le_is_layer_name_selectable(LeHandle *handle, const char *layer_name)
     {
         if (!handle || !layer_name)
@@ -3163,6 +3341,7 @@ extern "C"
             // unreliable in exactly the workflow that uses Shift most.
             handle->finish_active_ruler();
             handle->end_move(); // UPDATES.md item 21 - Escape also cancels an in-progress move
+            handle->end_resize(); // ...and disarms Resize (NEW_FEATURES_SEPT_2026.md item 3)
             break;
         default:
             break;
@@ -3197,6 +3376,14 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
+        // NEW_FEATURES_SEPT_2026.md item 3 - with Resize armed, a press on
+        // a selected piece's edge/segment grabs it instead of starting a
+        // rubber band.
+        if (handle->mode() == LeHandle::Mode::EDIT && handle->resize().armed && try_begin_resize_grab_unlocked(handle, x, y))
+        {
+            handle->begin_drag(x, y, LeHandle::DragKind::RESIZE);
+            return;
+        }
         handle->begin_drag(x, y);
     }
 
@@ -3354,6 +3541,16 @@ extern "C"
         const int32_t dx = x - handle->drag_start_x_px();
         const int32_t dy = y - handle->drag_start_y_px();
         const bool is_click = dx * dx + dy * dy < kClickDragThresholdPx * kClickDragThresholdPx;
+
+        if (handle->drag_kind() == LeHandle::DragKind::RESIZE)
+        {
+            // A click-sized release changes nothing; a real drag commits.
+            if (!is_click && handle->resize().grab)
+                commit_resize_unlocked(handle, x, y);
+            handle->end_resize_grab();
+            handle->end_drag();
+            return;
+        }
 
         if (handle->drag_kind() == LeHandle::DragKind::ZOOM)
         {

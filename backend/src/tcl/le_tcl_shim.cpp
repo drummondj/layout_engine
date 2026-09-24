@@ -895,6 +895,26 @@ int apply_placement_orientation_op_cmd(int op)
     return le_apply_placement_orientation_op(session(), op);
 }
 
+void arm_resize_cmd()
+{
+    le_arm_resize(session());
+}
+
+void set_shape_snap_mode_cmd(int kind, int mode)
+{
+    le_set_shape_snap_mode(session(), kind, mode);
+}
+
+int get_shape_snap_mode_cmd(int kind)
+{
+    return le_get_shape_snap_mode(session(), kind);
+}
+
+bool is_shape_snap_mode_available_cmd(int kind, int mode)
+{
+    return le_is_shape_snap_mode_available(session(), kind, mode) != 0;
+}
+
 void request_show_gui_cmd()
 {
     le_request_show_gui(session());

@@ -128,3 +128,79 @@ top-level pin endpoints, unlinked placements draw nothing);
 once visible, gone after deselect); purpose/row count tests updated.
 Full ctest 826/826.
 
+## Item 3 — Shape resizing
+
+**What was needed:** a resize tool: drag a rectangle's edges, move a
+polygon's edges, move a path's segments (dragging anywhere on the segment,
+its neighbours following), with a secondary toolbar of per-kind snapping
+options.
+
+**Fix:**
+- `src/core/shape_resize.hpp`: `find_resize_handle` (the rect edge,
+  polygon edge or path segment nearest a point - a path segment anywhere
+  within half its width), `resize_piece` (drag it by a delta and snap),
+  `ShapeSnapContext`, `TrackGrid`/`layer_track_grids`, `replace_piece`.
+  - A rect edge moves across its own axis; dragged past the opposite edge
+    the rect renormalizes.
+  - A polygon edge or path segment moves as a whole, both of its points
+    together, so the adjacent edges/segments stretch; an axis-aligned one
+    moves only across its own axis (rectilinear stays rectilinear).
+    A polygon that repeats its first point keeps the repeat in step.
+- `LeHandle::ResizeState` (armed + current grab) and per-kind
+  `shape_snap_modes_`; arming Resize disarms Move and vice versa; Escape or
+  leaving Edit mode disarms.
+- api.cpp: `le_mouse_down` with Resize armed grabs the nearest edge/segment
+  of a *selected* piece within 6px (`try_begin_resize_grab_unlocked`,
+  `DragKind::RESIZE` - no rubber band); the ghost reuses the Move ghost
+  overlay; `le_mouse_up` after a real drag commits one undoable "resize"
+  (`commit_resize_unlocked`), a click-sized release changes nothing.
+  C API: `le_arm_resize`, `le_is_resize_armed`, `le_set/get_shape_snap_mode`,
+  `le_is_shape_snap_mode_available`, `le_selected_piece_kinds`. TCL:
+  `arm_resize`, `set_shape_snap_mode <rect|polygon|path> <mode>`,
+  `get_shape_snap_mode`, `shape_snap_mode_available`.
+- GUI: a Resize button (Lucide "scaling") next to Move in the Edit toolbar
+  (`draw_tool_button`, shared with Move); while armed, the secondary toolbar
+  shows one snap group per kind of piece selected ("Rects:", "Polygons:",
+  "Paths:"). `secondary_toolbar.cpp` was refactored so both toolbars share
+  `draw_snap_group`/`Row`/`PendingChoice`.
+- Fixed in passing: the Move button's optimistic "armed" highlight stayed
+  on forever if arming was refused (e.g. nothing selected); a pending arm
+  now expires after 30 frames (both buttons).
+
+**Judgment calls:**
+- **Resize is an Edit-mode tool like Move**, not a new mode, and uses
+  press-drag-release (the spec says "dragging") where Move uses two clicks.
+  Only edges of *selected* pieces can be grabbed - select first, as for Move.
+- **Snap settings are per kind and persist** (defaulting to the user grid,
+  which is always available): rects and polygons are listed separately in
+  the spec, so each has its own setting even though they offer the same
+  options.
+- **FinFET grid** snaps only the coordinate across the fins (y for
+  HORIZONTAL fins); the other axis snaps to the manufacturing grid - the
+  same rule as Placement Move.
+- **"Snap edges to manufacturing grid" (paths)** puts the centerline at
+  `grid(center - width/2) + width/2`: the lower/left edge lands on the grid;
+  the other edge does too whenever the width is a grid multiple (true for
+  real routing widths).
+- **"Snap center of path to tracks"** uses the Layout's DEF TRACKS naming
+  the path's layer (horizontal segment -> TRACKS Y, vertical -> TRACKS X);
+  with no such tracks (e.g. an Abstract view) it falls back to an unbounded
+  grid from the layer's LEF PITCH/OFFSET (offset defaulting to pitch/2,
+  LEF's own default). "Tracks" is disabled when neither exists.
+- **Diagonal edges/segments** move by the full delta, each axis snapped.
+- **No keyboard shortcut** for Resize (Move's is Ctrl-M); easy to add.
+- **Not exercised in the real GUI** (no display available overnight) - the
+  API-level test drives the same `le_mouse_down`/`le_set_mouse_position`/
+  `le_mouse_up` calls `forward_mouse_input` makes, and checks the ghost's
+  pixels mid-drag, but the toolbar's look is unverified.
+
+**Tests:** `core/tests/shape_resize_test.cpp` (11: handle finding incl. a
+path grabbed within its width, rect edge per snap mode incl. FinFET per
+axis, renormalizing, polygon edge + neighbours, closed-polygon repeat,
+path segment + neighbours, tracks/mfg-edge/user snapping, per-kind modes,
+track grids from TRACKS vs LEF PITCH with clamping, `replace_piece`);
+`api_test.cpp` `ResizeDragsARectEdgeSnapsItAndIsUndoable` (miss, ghost
+mid-drag, snapped commit, stays armed, undo, Escape) and
+`ShapeSnapModesArePerKindAndOnlyAcceptModesTheKindOffers`; TCL smoke
+checks. Full ctest 839/839.
+

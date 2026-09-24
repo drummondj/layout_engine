@@ -4,6 +4,7 @@
 
 #include "../core/flightlines.hpp"
 #include "../core/placement_move.hpp"
+#include "../core/shape_resize.hpp"
 #include "../database/database.hpp"
 #include "../editing/editing.hpp"
 #include "../pipelines/view_render_pipeline.hpp"
@@ -12,6 +13,7 @@
 #include <oneapi/tbb/global_control.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <condition_variable>
@@ -760,6 +762,7 @@ struct LeHandle
         {
             SELECT,
             ZOOM,
+            RESIZE, // a Resize grab (NEW_FEATURES_SEPT_2026.md item 3) - no rubber band drawn
         };
 
         // Tracks a mouse-down-to-mouse-up rubber-band gesture in screen
@@ -853,7 +856,10 @@ struct LeHandle
             if (mode_ == Mode::RULER)
                 finish_active_ruler();
             if (mode_ == Mode::EDIT)
-                end_move(); // leaving Edit mode cancels an in-progress (not yet committed) Move, same reasoning as finishing an active ruler above
+            {
+                end_move();   // leaving Edit mode cancels an in-progress (not yet committed) Move, same reasoning as finishing an active ruler above
+                end_resize(); // ...and likewise Resize
+            }
             mode_ = mode;
             if (mode_ != Mode::SELECT)
                 clear_hover();
@@ -926,6 +932,7 @@ struct LeHandle
             if (selection_.empty())
                 return;
 
+            end_resize(); // one Edit-mode tool at a time
             move_.armed = true;
             move_.anchor.reset();
             move_.anchor_raw.reset();
@@ -1004,6 +1011,79 @@ struct LeHandle
                     ids.push_back(*id);
             return ids;
         }
+
+        // --- Resize (NEW_FEATURES_SEPT_2026.md item 3) ---
+        // A tool like Move, armed in Edit mode (arm_resize - one of the two
+        // at a time), then driven by press-drag-release: a mouse-down on an
+        // edge/segment of a selected piece grabs it (`grab`: which piece
+        // and handle, the piece's original one-piece geometry, and the raw
+        // dbu press point), the ghost follows the mouse, and the release
+        // commits it (api.cpp). Stays armed across grabs, like Move, until
+        // Escape or leaving Edit mode.
+        struct ResizeGrab
+        {
+            ShapePiece piece;
+            le::ResizeHandle handle;
+            le::Shape original;
+            le::Point start;
+        };
+        struct ResizeState
+        {
+            bool armed = false;
+            std::optional<ResizeGrab> grab;
+        };
+
+        // Arms Resize, disarming Move - a no-op with nothing selected.
+        // Callers gate on Mode::EDIT (api.cpp's arm_resize_unlocked).
+        void arm_resize()
+        {
+            if (selection_.empty())
+                return;
+            end_move();
+            resize_.armed = true;
+            resize_.grab.reset();
+            ++mouse_version_;
+        }
+
+        void begin_resize_grab(ResizeGrab grab)
+        {
+            if (!resize_.armed)
+                return;
+            resize_.grab = std::move(grab);
+            ++mouse_version_;
+        }
+
+        void end_resize_grab()
+        {
+            if (!resize_.grab)
+                return;
+            resize_.grab.reset();
+            ++mouse_version_;
+        }
+
+        void end_resize()
+        {
+            if (!resize_.armed && !resize_.grab)
+                return;
+            resize_ = ResizeState{};
+            ++mouse_version_;
+        }
+
+        const ResizeState &resize() const { return resize_; }
+
+        // Per piece kind (PieceKind's own ordinal): what a resized
+        // edge/segment snaps to - persists across grabs, USER_GRID by
+        // default (always available). Bumps mouse_version_ on a real
+        // change so a live ghost re-snaps immediately.
+        void set_shape_snap_mode(le::PieceKind kind, le::ShapeSnapMode mode)
+        {
+            le::ShapeSnapMode &slot = shape_snap_modes_[static_cast<size_t>(kind)];
+            if (slot == mode)
+                return;
+            slot = mode;
+            ++mouse_version_;
+        }
+        le::ShapeSnapMode shape_snap_mode(le::PieceKind kind) const { return shape_snap_modes_[static_cast<size_t>(kind)]; }
 
         // What a moving Placement's location snaps to (the secondary
         // toolbar's snap buttons) - persists across moves, SITE by
@@ -1525,6 +1605,8 @@ struct LeHandle
         uint64_t ruler_version_ = 0;
         bool ruler_free_form_ = false;
         MoveState move_;
+        ResizeState resize_;
+        std::array<le::ShapeSnapMode, 3> shape_snap_modes_{le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID};
         le::PlacementSnapMode placement_snap_mode_ = le::PlacementSnapMode::SITE;
         double ruler_label_size_px_ = 11.0;
         // Minimum on-screen distance (px, converted via the current
