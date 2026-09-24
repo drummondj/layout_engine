@@ -113,14 +113,14 @@
 // as a native int), so preserving LeProperty's STRING/INT/DOUBLE tag
 // across this boundary isn't worth the extra accessors it would take.
 
-int read_lef(const char *path);
-int read_def(const char *path);
+int read_lef(const char *path, const char *library_name);
+int read_def(const char *path, const char *library_name);
 // paths is a space-separated list of one or more filenames, all read
 // into the same le_read_verilog call - see this function's own .cpp
 // comment for why that matters specifically for read_netlist (letting a
 // generated Verilog stub file and a real netlist share one slang
 // elaboration - verilog_stub_writer.hpp).
-int read_verilog_cmd(const char *paths, int is_netlist);
+int read_verilog_cmd(const char *paths, int is_netlist, const char *library_name);
 int link_unresolved_instances_cmd();
 
 /// @brief Tcl-facing wrapper for le_write_verilog_stubs - see that

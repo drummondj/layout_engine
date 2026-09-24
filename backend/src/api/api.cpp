@@ -1457,7 +1457,7 @@ extern "C"
         delete handle;
     }
 
-    int le_read_lef(LeHandle *handle, const char *path)
+    int le_read_lef(LeHandle *handle, const char *path, const char *library_name)
     {
         if (!handle)
             return 1;
@@ -1466,6 +1466,11 @@ extern "C"
         if (!path)
         {
             spdlog::error("read_lef: path is null");
+            return 1;
+        }
+        if (!library_name || !library_name[0])
+        {
+            spdlog::error("read_lef: a library name is required");
             return 1;
         }
 
@@ -1488,7 +1493,7 @@ extern "C"
 
         const std::filesystem::path lef_path(path);
         le::LEFReader reader;
-        const int result = reader.read_lef(lef_path.string(), handle->root, lef_path.stem().string());
+        const int result = reader.read_lef(lef_path.string(), handle->root, library_name);
         if (result != 0)
             return result;
 
@@ -1534,7 +1539,7 @@ extern "C"
         return 0;
     }
 
-    int le_read_def(LeHandle *handle, const char *path)
+    int le_read_def(LeHandle *handle, const char *path, const char *library_name)
     {
         if (!handle)
             return 1;
@@ -1545,10 +1550,15 @@ extern "C"
             spdlog::error("read_def: path is null");
             return 1;
         }
+        if (!library_name || !library_name[0])
+        {
+            spdlog::error("read_def: a library name is required");
+            return 1;
+        }
 
         const std::filesystem::path def_path(path);
         le::DEFReader reader;
-        const int result = reader.read_def(def_path.string(), handle->root, def_path.stem().string());
+        const int result = reader.read_def(def_path.string(), handle->root, library_name);
         if (result != 0)
             return result;
 
@@ -1568,7 +1578,7 @@ extern "C"
         return 0;
     }
 
-    int le_read_verilog(LeHandle *handle, const char *const *filenames, int32_t filename_count, int32_t is_netlist)
+    int le_read_verilog(LeHandle *handle, const char *const *filenames, int32_t filename_count, int32_t is_netlist, const char *library_name)
     {
         if (!handle)
             return 1;
@@ -1577,6 +1587,11 @@ extern "C"
         if (!filenames || filename_count <= 0)
         {
             spdlog::error("read_verilog: filenames is null or empty");
+            return 1;
+        }
+        if (!library_name || !library_name[0])
+        {
+            spdlog::error("read_verilog: a library name is required");
             return 1;
         }
 
@@ -1625,11 +1640,10 @@ extern "C"
             }
         }
 
-        const std::filesystem::path first_path(filename_strings.front());
         le::SVReader reader;
         const int result = is_netlist
-            ? reader.read_netlist(filename_strings, handle->root, first_path.stem().string())
-            : reader.read_rtl(filename_strings, handle->root, first_path.stem().string());
+            ? reader.read_netlist(filename_strings, handle->root, library_name)
+            : reader.read_rtl(filename_strings, handle->root, library_name);
 
         if (!stub_path.empty())
         {

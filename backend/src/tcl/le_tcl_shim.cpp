@@ -473,14 +473,14 @@ namespace
 // via the regen-tcl skill instead.
 #include "generated/le_tcl_shim_generated.inc"
 
-int read_lef(const char *path)
+int read_lef(const char *path, const char *library_name)
 {
-    return le_read_lef(session(), path);
+    return le_read_lef(session(), path, library_name);
 }
 
-int read_def(const char *path)
+int read_def(const char *path, const char *library_name)
 {
-    return le_read_def(session(), path);
+    return le_read_def(session(), path, library_name);
 }
 
 // paths is a space-separated list of one or more filenames - same
@@ -494,7 +494,7 @@ int read_def(const char *path)
 // call share one slang::ast::Compilation, which is what lets a
 // generated stub file (write_verilog_stubs) actually resolve a real
 // netlist's own leaf-cell instantiations.
-int read_verilog_cmd(const char *paths, int is_netlist)
+int read_verilog_cmd(const char *paths, int is_netlist, const char *library_name)
 {
     std::vector<std::string> path_strings;
     std::istringstream stream(paths ? paths : "");
@@ -507,7 +507,7 @@ int read_verilog_cmd(const char *paths, int is_netlist)
     for (const std::string &s : path_strings)
         path_ptrs.push_back(s.c_str());
 
-    return le_read_verilog(session(), path_ptrs.empty() ? nullptr : path_ptrs.data(), static_cast<int32_t>(path_ptrs.size()), is_netlist);
+    return le_read_verilog(session(), path_ptrs.empty() ? nullptr : path_ptrs.data(), static_cast<int32_t>(path_ptrs.size()), is_netlist, library_name);
 }
 
 int write_verilog_stubs_cmd(const char *path, const char *library_token)

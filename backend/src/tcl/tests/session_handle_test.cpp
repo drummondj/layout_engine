@@ -34,7 +34,7 @@ TEST(SessionHandle, InjectedHandleIsSharedNotFresh)
 {
     LeHandle *handle = le_create();
     ASSERT_NE(handle, nullptr);
-    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef"), 0);
+    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef", "testcell"), 0);
     ASSERT_EQ(le_design_count(handle), 1);
 
     Tcl_FindExecutable(nullptr);
@@ -110,7 +110,7 @@ TEST(SessionHandle, ReadLefThroughTclFirstDoesNotCrash)
     const std::string load_command = std::string("load {") + LE_TCL_MODULE_PATH + "} le_tcl";
     ASSERT_EQ(Tcl_Eval(interp, load_command.c_str()), TCL_OK) << Tcl_GetStringResult(interp);
 
-    const std::string read_command = std::string("read_lef {") + API_TEST_FIXTURES_DIR + "/testcell.lef}";
+    const std::string read_command = std::string("read_lef {") + API_TEST_FIXTURES_DIR + "/testcell.lef} testcell";
     ASSERT_EQ(Tcl_Eval(interp, read_command.c_str()), TCL_OK) << Tcl_GetStringResult(interp);
     EXPECT_STREQ(Tcl_GetStringResult(interp), "0");
 
@@ -157,7 +157,7 @@ TEST(SessionHandle, GetShapesThroughTclDoesNotCrash)
 {
     LeHandle *handle = le_create();
     ASSERT_NE(handle, nullptr);
-    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef"), 0);
+    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef", "testcell"), 0);
 
     Tcl_FindExecutable(nullptr);
     Tcl_Interp *interp = Tcl_CreateInterp();
@@ -188,7 +188,7 @@ TEST(SessionHandle, DirectReadThenSingleTclInterpReadBothSucceed)
 {
     LeHandle *handle = le_create();
     ASSERT_NE(handle, nullptr);
-    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef"), 0);
+    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef", "testcell"), 0);
     le_destroy(handle);
 
     Tcl_FindExecutable(nullptr);
@@ -199,7 +199,7 @@ TEST(SessionHandle, DirectReadThenSingleTclInterpReadBothSucceed)
     const std::string load_command = std::string("load {") + LE_TCL_MODULE_PATH + "} le_tcl";
     ASSERT_EQ(Tcl_Eval(interp, load_command.c_str()), TCL_OK) << Tcl_GetStringResult(interp);
 
-    const std::string read_command = std::string("read_lef {") + API_TEST_FIXTURES_DIR + "/testcell.lef}";
+    const std::string read_command = std::string("read_lef {") + API_TEST_FIXTURES_DIR + "/testcell.lef} testcell";
     ASSERT_EQ(Tcl_Eval(interp, read_command.c_str()), TCL_OK) << Tcl_GetStringResult(interp);
     EXPECT_STREQ(Tcl_GetStringResult(interp), "0");
 
@@ -221,7 +221,7 @@ TEST(SessionHandle, EnqueuedTclCommandDrainsThroughLeReplEvalAndRecordsHistory)
 {
     LeHandle *handle = le_create();
     ASSERT_NE(handle, nullptr);
-    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef"), 0);
+    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef", "testcell"), 0);
 
     Tcl_FindExecutable(nullptr);
     Tcl_Interp *interp = Tcl_CreateInterp();

@@ -36,7 +36,7 @@ Shapes can be resized using a resize tool. A snapping options secondary toolbar 
 - Polygons segments can be individually moved by dragging their edges.
 - Paths segments can be individually moved by dragging anywhere on the segment and the adjacent segment points are moved too.
 
-4. Custom library naming
+4. Custom library naming - DONE
 
 Currently, when the user reads LEF, DEF and Verilog a library is created automatically based on the filename. I would like to change this behavour so that a library name is required as a TCL argument.
 

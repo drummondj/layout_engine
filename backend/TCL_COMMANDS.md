@@ -2343,34 +2343,37 @@ Returns 1 if <mode> has anything to snap to in the current view - rows in the cu
 
 ## read_def
 
-`read_def <path> [-help]`
+`read_def -library <name> <path> [-help]`
 
-Reads one DEF file into a new Layout under this session's shared Root - the DEF's own referenced layers/macros must already be present (read the tech/macro LEF(s) first via read_lef). Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal.
+Reads one DEF file into a new Layout under this session's shared Root - the DEF's own referenced layers/macros must already be present (read the tech/macro LEF(s) first via read_lef). The DEF's DESIGN goes into the -library Library, created if it doesn't exist; an existing design of that name (e.g. from read_verilog) gains the Layout view instead, but one that already has a Layout is an error. Returns 0 on success; a nonzero code on a parse problem or error, with details logged via spdlog to the terminal.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
+| `-library` | `str` | yes | Library to read the DEF's design into - created if it doesn't exist |
 | `<path>` | `file` | yes | DEF file to read |
 
 ## read_lef
 
-`read_lef <path> [-help]`
+`read_lef -library <name> <path> [-help]`
 
-Reads one LEF file (a tech LEF, a macro LEF, or both combined) into this session's shared Root - callable multiple times to layer a tech file and one or more macro files. Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal.
+Reads one LEF file (a tech LEF, a macro LEF, or both combined) into this session's shared Root - callable multiple times to layer a tech file and one or more macro files. Every MACRO goes into the -library Library, created if it doesn't exist yet (at the first MACRO - a tech-only LEF creates none). A MACRO whose design already has an Abstract view (from any earlier read) is an error. Returns 0 on success; a nonzero code on a parse problem or error, with details logged via spdlog to the terminal.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
+| `-library` | `str` | yes | Library to read the LEF's macros into - created if it doesn't exist |
 | `<path>` | `file` | yes | LEF file to read |
 
 ## read_verilog
 
-`read_verilog -netlist|-rtl <path> [<path> ...] [-help]`
+`read_verilog -netlist|-rtl -library <name> <path> [<path> ...] [-help]`
 
-Reads one or more files, all elaborated together in one slang compilation, into this session's shared Root, populating Schematic/Port/Net/Instance/Pin. -netlist requires accurate parameter/generate elaboration (does not tolerate errors in structural content, though an unresolvable module instantiation on its own doesn't fail the read) - it also automatically generates a stub Verilog module (see write_verilog_stubs) for every Design already read via read_lef that has no real Verilog of its own, and includes it in this same elaboration, so a gate-level netlist's own leaf-cell/macro instantiations (standard cells, SRAMs, ...) resolve for real with no extra step; -rtl tolerates invalid/unsupported content by storing it as a logic-cloud Instance (see the Instance klass's own rtl_text field) and never generates stubs (it doesn't elaborate at all). Reading further files later calls this again - each call's own get-or-create-by-name Design/Schematic handling makes that work naturally, though only files given to the *same* call (stubs included) share one elaboration. Automatically re-links any newly-resolvable Instance against Designs already in this session (see link). Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal.
+Reads one or more files, all elaborated together in one slang compilation, into this session's shared Root, populating Schematic/Port/Net/Instance/Pin. -netlist requires accurate parameter/generate elaboration (does not tolerate errors in structural content, though an unresolvable module instantiation on its own doesn't fail the read) - it also automatically generates a stub Verilog module (see write_verilog_stubs) for every Design already read via read_lef that has no real Verilog of its own, and includes it in this same elaboration, so a gate-level netlist's own leaf-cell/macro instantiations (standard cells, SRAMs, ...) resolve for real with no extra step; -rtl tolerates invalid/unsupported content by storing it as a logic-cloud Instance (see the Instance klass's own rtl_text field) and never generates stubs (it doesn't elaborate at all). New designs go into the -library Library, created if it doesn't exist; a module whose design already exists (e.g. from read_lef) gains the Schematic view instead, but one that already has a Schematic is an error that fails the read before anything is created. Reading further files later calls this again, though only files given to the *same* call (stubs included) share one elaboration. Automatically re-links any newly-resolvable Instance against Designs already in this session (see link). Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-netlist` | `flag` | no | Full-elaboration flavor for a gate-level netlist |
 | `-rtl` | `flag` | no | Syntax-only flavor, tolerant of invalid/unsupported content |
+| `-library` | `str` | yes | Library to read new designs into - created if it doesn't exist |
 | `<path>` | `file...` | yes | One or more SystemVerilog/Verilog files to read together |
 
 ## redo

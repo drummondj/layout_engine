@@ -257,19 +257,19 @@ TEST(Api, DestroyNullHandleDoesNotCrash)
 
 TEST_F(ApiFixture, ReadLefWithMissingFileReturnsNonzeroAndLoadsNoDesigns)
 {
-    EXPECT_NE(le_read_lef(handle, "/does/not/exist.lef"), 0);
+    EXPECT_NE(le_read_lef(handle, "/does/not/exist.lef", "test_lib"), 0);
     EXPECT_EQ(le_design_count(handle), 0);
 }
 
 TEST_F(ApiFixture, ReadLefWithNullHandleOrPathReturnsNonzero)
 {
-    EXPECT_NE(le_read_lef(nullptr, fixture_path("testcell.lef").c_str()), 0);
-    EXPECT_NE(le_read_lef(handle, nullptr), 0);
+    EXPECT_NE(le_read_lef(nullptr, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    EXPECT_NE(le_read_lef(handle, nullptr, "test_lib"), 0);
 }
 
 TEST_F(ApiFixture, ReadLefWithValidFileSucceedsAndPopulatesOneDesign)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_design_count(handle), 1);
 
     const char *name = le_design_name(handle, 0);
@@ -288,12 +288,12 @@ TEST_F(ApiFixture, ReadLefWithValidFileSucceedsAndPopulatesOneDesign)
 // re-asserting here, at the API layer.
 TEST_F(ApiFixture, ReadLefWithMalformedContentReturnsNonzero)
 {
-    EXPECT_NE(le_read_lef(handle, fixture_path("malformed.lef").c_str()), 0);
+    EXPECT_NE(le_read_lef(handle, fixture_path("malformed.lef").c_str(), "malformed"), 0);
 }
 
 TEST_F(ApiFixture, ReadLefWithAWarningProducingFileStillSucceeds)
 {
-    EXPECT_EQ(le_read_lef(handle, fixture_path("warning_currentden.lef").c_str()), 0);
+    EXPECT_EQ(le_read_lef(handle, fixture_path("warning_currentden.lef").c_str(), "warning_currentden"), 0);
 }
 
 // le_tooltip_message (UPDATES.md item 7.3).
@@ -402,14 +402,14 @@ TEST_F(ApiFixture, DesignCountAndNameAreZeroOrNullForNullHandle)
 
 TEST_F(ApiFixture, DesignNameOutOfRangeReturnsNull)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_EQ(le_design_name(handle, 1), nullptr);
     EXPECT_EQ(le_design_name(handle, -1), nullptr);
 }
 
 TEST_F(ApiFixture, SetCurrentDesignOutOfRangeReturnsNonzero)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_NE(le_set_current_design_abstract(handle, 1), 0);
     EXPECT_NE(le_set_current_design_abstract(handle, -1), 0);
     EXPECT_NE(le_set_current_design_abstract(nullptr, 0), 0);
@@ -417,7 +417,7 @@ TEST_F(ApiFixture, SetCurrentDesignOutOfRangeReturnsNonzero)
 
 TEST_F(ApiFixture, SetCurrentDesignValidIndexSucceeds)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_EQ(le_set_current_design_abstract(handle, 0), 0);
 }
 
@@ -452,7 +452,7 @@ TEST_F(ApiFixture, RenderPixelBufferWithZeroSizedViewportDoesNotCrash)
 
 TEST_F(ApiFixture, RenderPixelBufferProducesTheRequestedDimensions)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 200, 200);
@@ -479,7 +479,7 @@ TEST_F(ApiFixture, SubPixelShapeIsNotRenderedAndIsNotSelectable)
     // investigation: a real design's own overwhelming majority of
     // sub-pixel shapes at full-design zoom made walking/drawing every
     // one of them, dot or not, the dominant Rasterize cost).
-    ASSERT_EQ(le_read_lef(handle, fixture_path("tiny_shape.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("tiny_shape.lef").c_str(), "tiny_shape"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -523,7 +523,7 @@ TEST_F(ApiFixture, FitSceneWithNoDesignSelectedFallsBackToDefaultScaleAndPan)
 
 TEST_F(ApiFixture, FitSceneFillsTheViewportWithThePinVisible)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 200, 200);
@@ -564,7 +564,7 @@ TEST_F(ApiFixture, FitRectUsesTheGivenRectNotTheDesignsOwnBbox)
     // 1000 dbu/um), not raw dbu - the point here is that it frames
     // whatever rect the caller passes, not the whole macro's own
     // declared bbox the way le_fit_scene does.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 200, 200);
 
@@ -626,7 +626,7 @@ TEST_F(ApiFixture, FitSceneInLayoutViewFramesTheDiereaNotTheOrigin)
     // actually frames the real content rather than replicating fit's own
     // pan/scale math by hand (no direct pan/scale getter exists in the
     // C API to assert against directly).
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
 
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
@@ -663,7 +663,7 @@ TEST_F(ApiFixture, LibraryCountAndAtAreZeroOrInvalidForNullHandle)
 
 TEST_F(ApiFixture, LibraryAtOutOfRangeReturnsInvalidRow)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     const LeLibraryInfo info = le_library_at(handle, 1);
     EXPECT_EQ(info.id.index, UINT32_MAX);
@@ -672,8 +672,8 @@ TEST_F(ApiFixture, LibraryAtOutOfRangeReturnsInvalidRow)
 
 TEST_F(ApiFixture, EachLefReadCreatesItsOwnLibrary)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_read_lef(handle, fixture_path("othercell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("othercell.lef").c_str(), "othercell"), 0);
 
     ASSERT_EQ(le_library_count(handle), 2);
 
@@ -692,7 +692,7 @@ TEST_F(ApiFixture, LibraryDesignCountAndAtAreZeroOrInvalidForNullHandleOrBadInde
 {
     EXPECT_EQ(le_library_design_count(nullptr, 0), 0);
 
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_EQ(le_library_design_count(handle, 1), 0);  // out-of-range library
     EXPECT_EQ(le_library_design_count(handle, -1), 0); // negative
 
@@ -705,7 +705,7 @@ TEST_F(ApiFixture, LibraryDesignCountAndAtAreZeroOrInvalidForNullHandleOrBadInde
 
 TEST_F(ApiFixture, LibraryDesignAtReturnsTheDesignAndItsAbstractId)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     ASSERT_EQ(le_library_design_count(handle, 0), 1);
 
@@ -728,8 +728,8 @@ TEST_F(ApiFixture, LibraryDesignAtReturnsAValidLayoutIdOnceADefIsReadIntoTheSame
     // Design a LEF-only read already created (BUGS_AND_ENHANCEMENTS.md
     // E15 - a Design can carry both an Abstract and a Layout view at
     // once, not just one or the other).
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "testcell"), 0);
 
     ASSERT_EQ(le_library_design_count(handle, 0), 1);
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
@@ -742,7 +742,7 @@ TEST_F(ApiFixture, SetCurrentDesignByIdWithNullHandleOrUnknownIdReturnsNonzero)
 {
     EXPECT_NE(le_set_current_design_abstract_by_id(nullptr, LeDesignId{0, 0}), 0);
 
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_NE(le_set_current_design_abstract_by_id(handle, LeDesignId{UINT32_MAX, 0}), 0);
     EXPECT_NE(le_set_current_design_abstract_by_id(handle, LeDesignId{99, 0}), 0);
 }
@@ -756,7 +756,7 @@ TEST_F(ApiFixture, SetCurrentDesignByIdAlsoSetsTheGeneratedCurrentAbstract)
     // scope (le_current_abstract - the generated has_current_access
     // state, not LeHandle::current_abstract()) has to move too, not just
     // whatever the render actually shows.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
     EXPECT_EQ(le_current_abstract(handle).index, UINT32_MAX); // nothing selected yet
@@ -772,7 +772,7 @@ TEST_F(ApiFixture, SetCurrentDesignAlsoSetsTheGeneratedCurrentAbstract)
 {
     // Same as SetCurrentDesignByIdAlsoSetsTheGeneratedCurrentAbstract
     // above, for the index-addressed sibling entry point.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
@@ -784,7 +784,7 @@ TEST_F(ApiFixture, SetCurrentDesignAlsoSetsTheGeneratedCurrentAbstract)
 
 TEST_F(ApiFixture, SetCurrentDesignByIdSelectsTheSameDesignAsSetCurrentDesign)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
     ASSERT_EQ(le_set_current_design_abstract_by_id(handle, design.id), 0);
@@ -857,7 +857,7 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutRendersThePlacedInstancesOwnContent)
     // SetCurrentDesignByIdSelectsTheSameDesignAsSetCurrentDesign above,
     // so the expected pixel region is identical, letting this test lean
     // on that one's already-proven math instead of re-deriving it.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
 
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
@@ -880,7 +880,7 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutRendersThePlacedInstancesOwnContent)
 
 TEST_F(ApiFixture, SetCurrentDesignLayoutClearsTheAbstractViewAndViceVersa)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
 
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
@@ -928,7 +928,7 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutWithZeroHierarchyDepthStillRendersOwnPl
     // == 0, so a placement still falls back to its own Abstract (0 means
     // "no further recursion into nested Layouts", not "don't render
     // placements at all").
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
 
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
@@ -988,7 +988,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersAnOwnShapeOverAPlacementsBoundin
     // (8,8) um - inside the placement's own bbox, away from the
     // blockage entirely - still falls through to the Placement exactly
     // as before, confirming the fallback wasn't broken by this fix.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
 
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
@@ -1090,7 +1090,7 @@ TEST_F(ApiFixture, UnsetOptionalReferenceFieldDisplaysAsEmptyStringNotADanglingT
     // for the default-invalid LeLayerId, not dereference a null pointer
     // or otherwise fall back to the raw "Id{index=.., generation=..}"
     // debug string.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
@@ -1127,7 +1127,7 @@ TEST_F(ApiFixture, UnsetOptionalEnumFieldDisplaysAsEmptyStringNotItsZeroValuedMe
     // is_optional enum field (Field._optional_enum_needs_unset_guard(),
     // codegen/codegen/schema.py) - a real has_value() check now degrades
     // to an empty string instead.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
@@ -1165,7 +1165,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersARouteOwnShapeOverAPlacementsBou
     // Same TESTCELL/6x6-shape/(3,3)-vs-(8,8) setup as the Blockage
     // version of this test above, just with a Route's own Shape instead
     // of a Blockage's.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
 
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
@@ -1209,7 +1209,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersARouteOwnShapeOverAPlacementsBou
 
 TEST_F(ApiFixture, MouseClickInLayoutViewSelectsAPhysicalPortOwnShape)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0); // establishes the Technology
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0); // establishes the Technology
 
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
@@ -1253,7 +1253,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewSelectsAPhysicalPortOwnShape)
 
 TEST_F(ApiFixture, SelectObjectRefWithRouteKindSelectsEveryPieceOfEveryChildShape)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
@@ -1299,7 +1299,7 @@ TEST_F(ApiFixture, SelectObjectRefWithRouteKindFailsForAnUnknownId)
 // (MouseClickDoesNotSelectATerminalOnAHiddenLayer).
 TEST_F(ApiFixture, MouseClickInLayoutViewDoesNotSelectARouteOnAHiddenLayer)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
@@ -1325,7 +1325,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewDoesNotSelectARouteOnAHiddenLayer)
 
 TEST_F(ApiFixture, SelectObjectRefWithPhysicalPortKindSelectsEveryPieceOfEverySegmentShape)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
@@ -1357,7 +1357,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewSelectsARowWithNoBackingShape)
     // see append_row_shapes' own comment) - this is the specific
     // "origin set but shape_id unset" fork le_mouse_up needs, distinct
     // from the ShapeId+piece path every other kind above/below uses.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0); // establishes the Technology
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0); // establishes the Technology
 
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
@@ -1401,7 +1401,7 @@ TEST_F(ApiFixture, LayerCountAndAtAreZeroOrInvalidForNullHandleOrNoViewLayerSetY
 
 TEST_F(ApiFixture, LayerAtOutOfRangeReturnsInvalidRow)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     const LeLayerRow row = le_layer_at(handle, 9);
     EXPECT_EQ(row.name, nullptr);
@@ -1409,7 +1409,7 @@ TEST_F(ApiFixture, LayerAtOutOfRangeReturnsInvalidRow)
 
 TEST_F(ApiFixture, LayerAtListsRowThenBoundaryThenEveryPhysicalLayer)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     // testcell.lef declares one physical Layer (M1) - the API doesn't
     // special-case BOUNDARY, it's just another row, so the count is
@@ -1458,7 +1458,7 @@ TEST_F(ApiFixture, PurposeCountAndAtAreZeroOrInvalidForNullHandleOrNoViewLayerSe
 
 TEST_F(ApiFixture, PurposeAtOutOfRangeReturnsInvalid)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     EXPECT_EQ(le_purpose_at(handle, 15), -1);
     EXPECT_EQ(le_purpose_at(handle, -1), -1);
@@ -1466,7 +1466,7 @@ TEST_F(ApiFixture, PurposeAtOutOfRangeReturnsInvalid)
 
 TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     // The "columns" axis - row-independent, not scoped to M1 or any other
     // specific layer (see ViewLayerSet::purposes()'s own comment). Migration
@@ -1507,7 +1507,7 @@ TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
 
 TEST_F(ApiFixture, LayerNameVisibilityDefaultsTrueAndRoundTrips)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     EXPECT_NE(le_is_layer_name_visible(handle, "M1"), 0);
     // Unknown-to-null-handle/name default matches LeHandle's own default.
@@ -1528,7 +1528,7 @@ TEST_F(ApiFixture, ReadLefDefaultsNonRoutingCutLayersToHidden)
     // mixed_layer_types.lef: M1 (ROUTING), V1 (CUT), OVERLAP (OVERLAP),
     // SLICE (MASTERSLICE) - UPDATES.md 10 says only ROUTING/CUT/BOUNDARY
     // should default visible.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("mixed_layer_types.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("mixed_layer_types.lef").c_str(), "mixed_layer_types"), 0);
 
     EXPECT_NE(le_is_layer_name_visible(handle, "M1"), 0);
     EXPECT_NE(le_is_layer_name_visible(handle, "V1"), 0);
@@ -1542,7 +1542,7 @@ TEST_F(ApiFixture, ReadLefDefaultsNonRoutingCutLayersToHidden)
 
 TEST_F(ApiFixture, ReadLefDefaultHidingOnlyAppliesToNewlyIntroducedLayers)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("mixed_layer_types.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("mixed_layer_types.lef").c_str(), "mixed_layer_types"), 0);
     ASSERT_EQ(le_is_layer_name_visible(handle, "OVERLAP"), 0);
 
     le_set_layer_name_visible(handle, "OVERLAP", 1); // user explicitly reveals it via the layer manager
@@ -1553,7 +1553,7 @@ TEST_F(ApiFixture, ReadLefDefaultHidingOnlyAppliesToNewlyIntroducedLayers)
     // only layers newly introduced by *this* read get defaulted (see
     // le_read_lef's own comment). via_pairing.lef doesn't declare an
     // OVERLAP layer at all.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str(), "via_pairing"), 0);
     EXPECT_NE(le_is_layer_name_visible(handle, "OVERLAP"), 0);
 }
 
@@ -1570,7 +1570,7 @@ TEST_F(ApiFixture, DigitKeysToggleTheNthRoutingLayerAndPairTheCutLayerBetweenThe
     // Technology's own layer list is populated straight from LAYER
     // statements (see LEFReader::lefrLayerCbkFn), independent of any
     // Library/Design.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str(), "via_pairing"), 0);
 
     ASSERT_NE(le_is_layer_name_visible(handle, "M1"), 0); // default-visible
     ASSERT_NE(le_is_layer_name_visible(handle, "M2"), 0);
@@ -1599,7 +1599,7 @@ TEST_F(ApiFixture, DigitKeysToggleTheNthRoutingLayerAndPairTheCutLayerBetweenThe
 
 TEST_F(ApiFixture, ManualLayerVisibilityDoesNotTriggerViaPairing)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str(), "via_pairing"), 0);
 
     le_set_layer_name_visible(handle, "M1", 0);
     le_set_layer_name_visible(handle, "M2", 0);
@@ -1618,7 +1618,7 @@ TEST_F(ApiFixture, ManualLayerVisibilityDoesNotTriggerViaPairing)
 
 TEST_F(ApiFixture, DigitKeyWithNoNthRoutingLayerIsANoOp)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str(), "via_pairing"), 0);
 
     // Only two ROUTING layers (M1, M2) exist - LE_KEY_3..LE_KEY_9 have no
     // 3rd+ routing layer to toggle.
@@ -1633,7 +1633,7 @@ TEST_F(ApiFixture, DigitKey0TogglesTheTenthRoutingLayer)
     // many_routing_layers.lef: M1..M12 ROUTING, with V10 between M10/M11
     // and V11 between M11/M12 - LE_KEY_0 addresses M10 (the 10th ROUTING
     // layer, routing_index 9), unconditional on LE_KEY_CTRL.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("many_routing_layers.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("many_routing_layers.lef").c_str(), "many_routing_layers"), 0);
     ASSERT_NE(le_is_layer_name_visible(handle, "M10"), 0); // default-visible
 
     le_key_down(handle, LE_KEY_0);
@@ -1645,7 +1645,7 @@ TEST_F(ApiFixture, DigitKey0TogglesTheTenthRoutingLayer)
 
 TEST_F(ApiFixture, CtrlPlusDigitKeysToggleTheEleventhAndTwelfthRoutingLayersAndPairTheirCutLayers)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("many_routing_layers.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("many_routing_layers.lef").c_str(), "many_routing_layers"), 0);
 
     ASSERT_NE(le_is_layer_name_visible(handle, "M10"), 0);
     ASSERT_NE(le_is_layer_name_visible(handle, "M11"), 0);
@@ -1688,7 +1688,7 @@ TEST_F(ApiFixture, CtrlPlusDigitKeysToggleTheEleventhAndTwelfthRoutingLayersAndP
 
 TEST_F(ApiFixture, DigitKey0WithNoTenthRoutingLayerIsANoOp)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str()), 0); // only M1, M2 ROUTING
+    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str(), "via_pairing"), 0); // only M1, M2 ROUTING
 
     le_key_down(handle, LE_KEY_0);
     EXPECT_NE(le_is_layer_name_visible(handle, "M1"), 0);
@@ -1698,7 +1698,7 @@ TEST_F(ApiFixture, DigitKey0WithNoTenthRoutingLayerIsANoOp)
 
 TEST_F(ApiFixture, CtrlPlusDigitKeyWithNoLayerAtThatPositionIsANoOp)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str()), 0); // only M1, M2 ROUTING - no 11th
+    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str(), "via_pairing"), 0); // only M1, M2 ROUTING - no 11th
 
     le_key_down(handle, LE_KEY_CTRL);
     le_key_down(handle, LE_KEY_1);
@@ -1714,7 +1714,7 @@ TEST_F(ApiFixture, DigitKey0WithNullHandleDoesNotCrash)
 
 TEST_F(ApiFixture, DigitKeysWithShiftHeldAreANoOp)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("via_pairing.lef").c_str(), "via_pairing"), 0);
 
     le_key_down(handle, LE_KEY_SHIFT);
     le_key_down(handle, LE_KEY_1);
@@ -1759,7 +1759,7 @@ TEST_F(ApiFixture, SetPurposeVisibleWithNullHandleDoesNotCrash)
 
 TEST_F(ApiFixture, LayerNameSelectabilityDefaultsTrueAndRoundTrips)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     EXPECT_NE(le_is_layer_name_selectable(handle, "M1"), 0);
     EXPECT_NE(le_is_layer_name_selectable(nullptr, "M1"), 0);
@@ -1797,7 +1797,7 @@ TEST_F(ApiFixture, SetPurposeSelectableWithNullHandleDoesNotCrash)
 
 TEST_F(ApiFixture, HidingALayerByNameRemovesItFromTheRenderedBuffer)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -1816,7 +1816,7 @@ TEST_F(ApiFixture, HidingALayerByNameRemovesItFromTheRenderedBuffer)
 
 TEST_F(ApiFixture, HidingATerminalPurposeRemovesItFromTheRenderedBuffer)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -1910,7 +1910,7 @@ TEST_F(ApiFixture, SnappedMousePositionWithNullHandleReturnsNoPosition)
 
 TEST_F(ApiFixture, SnappedMousePositionHasNoPositionUntilMouseIsSet)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     le_set_viewport_size(handle, 100, 100);
     const LeSnappedMousePosition result = le_snapped_mouse_position(handle);
     EXPECT_EQ(result.has_position, 0);
@@ -1930,7 +1930,7 @@ TEST_F(ApiFixture, SnappedMousePositionHasNoPositionWithoutATechnologyLoaded)
 TEST_F(ApiFixture, SnappedMousePositionReturnsGridSnappedMicronCoordinates)
 {
     // testcell.lef declares DATABASE MICRONS 1000 - 1000 dbu per micron.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     le_set_viewport_size(handle, 100, 100);
     le_set_minor_grid_spacing(handle, 10);
@@ -1947,7 +1947,7 @@ TEST_F(ApiFixture, SnappedMousePositionReturnsGridSnappedMicronCoordinates)
 
 TEST_F(ApiFixture, SnappedMousePositionHasNoPositionAfterClear)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     le_set_viewport_size(handle, 100, 100);
     le_set_mouse_position(handle, 50, 50);
     ASSERT_EQ(le_snapped_mouse_position(handle).has_position, 1);
@@ -2005,7 +2005,7 @@ TEST_F(ApiFixture, ZoomWithNullHandleDoesNotCrash)
 
 TEST_F(ApiFixture, ZoomWithDegenerateFactorLeavesScaleAndPanUnchanged)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2023,7 +2023,7 @@ TEST_F(ApiFixture, ZoomWithDegenerateFactorLeavesScaleAndPanUnchanged)
 
 TEST_F(ApiFixture, ZoomKeepsTheAnchorPixelFixedOnScreen)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2053,7 +2053,7 @@ TEST_F(ApiFixture, PanWithNullHandleDoesNotCrash)
 
 TEST_F(ApiFixture, PanShiftsContentOutOfView)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2075,7 +2075,7 @@ TEST_F(ApiFixture, PanShiftsContentOutOfView)
 
 TEST_F(ApiFixture, KeyDownZoomZoomsInAnchoredAtTheCurrentMousePosition)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2098,7 +2098,7 @@ TEST_F(ApiFixture, KeyDownZoomZoomsInAnchoredAtTheCurrentMousePosition)
 
 TEST_F(ApiFixture, KeyDownZoomWithShiftHeldZoomsOutInstead)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2126,7 +2126,7 @@ TEST_F(ApiFixture, KeyDownZoomWithShiftHeldZoomsOutInstead)
 
 TEST_F(ApiFixture, KeyDownZoomWithoutAMousePositionSetDoesNotCrash)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
 
@@ -2138,7 +2138,7 @@ TEST_F(ApiFixture, KeyDownZoomWithoutAMousePositionSetDoesNotCrash)
 
 TEST_F(ApiFixture, ZoomDragFitsTheDraggedRectToTheViewport)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
 
@@ -2162,7 +2162,7 @@ TEST_F(ApiFixture, ZoomDragFitsTheDraggedRectToTheViewport)
 
 TEST_F(ApiFixture, ClickSizedZoomDragDoesNotChangeTheView)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2179,7 +2179,7 @@ TEST_F(ApiFixture, ClickSizedZoomDragDoesNotChangeTheView)
 
 TEST_F(ApiFixture, ZoomDragWithoutAMouseUpLeavesTheSceneStillDragging)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
 
@@ -2191,7 +2191,7 @@ TEST_F(ApiFixture, ZoomDragWithoutAMouseUpLeavesTheSceneStillDragging)
 
 TEST_F(ApiFixture, SelectDragRectangleIsBlueZoomDragRectangleIsGreen)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
 
@@ -2230,7 +2230,7 @@ TEST_F(ApiFixture, ZoomDragDownWithNullHandleDoesNotCrash)
 
 TEST_F(ApiFixture, KeyDownFitFitsTheViewportToContent)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 200, 200);
@@ -2245,7 +2245,7 @@ TEST_F(ApiFixture, KeyDownFitFitsTheViewportToContent)
 
 TEST_F(ApiFixture, KeyDownPanLeftShiftsContentOutOfView)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2267,7 +2267,7 @@ TEST_F(ApiFixture, KeyDownPanLeftShiftsContentOutOfView)
 
 TEST_F(ApiFixture, KeyDownPanDirectionsAreEachOthersOpposite)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2289,7 +2289,7 @@ TEST_F(ApiFixture, KeyDownPanDirectionsAreEachOthersOpposite)
 
 TEST_F(ApiFixture, KeyDownPanWithCtrlOrShiftHeldIsANoOp)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2383,7 +2383,7 @@ TEST_F(ApiFixture, KeyDownRulerModeWithCtrlOrShiftHeldIsANoOp)
 
 TEST_F(ApiFixture, RenderPixelBufferDrawsThePinRectAtItsExpectedLocation)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     // MACRO SIZE is 10x10 microns, PIN A's RECT is (2,2)-(8,8) microns.
@@ -2414,7 +2414,7 @@ TEST_F(ApiFixture, RenderPixelBufferDrawsThePinRectAtItsExpectedLocation)
 
 TEST_F(ApiFixture, MouseMoveOverASelectableShapeShowsAYellowHoverOutline)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     // Same pan/scale as RenderPixelBufferDrawsThePinRectAtItsExpectedLocation -
@@ -2434,7 +2434,7 @@ TEST_F(ApiFixture, MouseMoveOverAShapeInRulerModeDoesNotShowAHoverOutline)
     // Regression: the hover outline is a Select-mode-only affordance -
     // it was left on unconditionally, so it kept highlighting shapes
     // under the cursor while placing ruler points too.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2450,7 +2450,7 @@ TEST_F(ApiFixture, MouseMoveOverAShapeInRulerModeDoesNotShowAHoverOutline)
 
 TEST_F(ApiFixture, SwitchingToRulerModeClearsAnAlreadyShownHoverOutline)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2465,7 +2465,7 @@ TEST_F(ApiFixture, SwitchingToRulerModeClearsAnAlreadyShownHoverOutline)
 
 TEST_F(ApiFixture, MouseMoveAwayFromAnyShapeClearsTheHoverOutline)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2481,7 +2481,7 @@ TEST_F(ApiFixture, MouseMoveAwayFromAnyShapeClearsTheHoverOutline)
 
 TEST_F(ApiFixture, ClearMousePositionAlsoClearsTheHoverOutline)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2497,7 +2497,7 @@ TEST_F(ApiFixture, ClearMousePositionAlsoClearsTheHoverOutline)
 
 TEST_F(ApiFixture, MouseMoveOverAnUnselectableLayerNeverShowsAHoverOutline)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2517,7 +2517,7 @@ TEST_F(ApiFixture, MouseMoveOverAnUnselectableLayerNeverShowsAHoverOutline)
 // is_selectable predicate (le_set_mouse_position, api.cpp).
 TEST_F(ApiFixture, MouseMoveOverAHiddenLayerNeverShowsAHoverOutline)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 100, 100);
@@ -2587,7 +2587,7 @@ namespace
     //     macro, outside both pins).
     void load_two_shapes_at_known_scale(LeHandle *handle)
     {
-        ASSERT_EQ(le_read_lef(handle, fixture_path("two_shapes.lef").c_str()), 0);
+        ASSERT_EQ(le_read_lef(handle, fixture_path("two_shapes.lef").c_str(), "two_shapes"), 0);
         ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
         le_set_viewport_size(handle, 200, 200);
@@ -2639,7 +2639,7 @@ TEST_F(ApiFixture, SelectAllSkipsUnselectableLayers)
 TEST_F(ApiFixture, SelectAllIsCappedAt10000AndWarns)
 {
     const std::string path = generate_concurrency_stress_lef(10050);
-    ASSERT_EQ(le_read_lef(handle, path.c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, path.c_str(), "test_lib"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_key_down(handle, LE_KEY_CTRL);
@@ -3245,7 +3245,7 @@ TEST_F(ApiFixture, ClearingTheSelectionRemovesTheWhiteOutline)
 TEST_F(ApiFixture, SwitchingToADifferentDesignClearsTheSelection)
 {
     load_two_shapes_at_known_scale(handle); // design 0 = TWOSHAPES
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0); // design 1 = TESTCELL
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0); // design 1 = TESTCELL
 
     le_mouse_down(handle, 25, 175); // PIN A on TWOSHAPES
     le_mouse_up(handle, 25, 175);
@@ -3261,7 +3261,7 @@ TEST_F(ApiFixture, SwitchingToADifferentDesignClearsRulers)
     // Design's abstract view, they'd keep showing up (at the same raw
     // dbu coordinates) after switching to a different Design entirely.
     load_two_shapes_at_known_scale(handle); // design 0 = TWOSHAPES
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0); // design 1 = TESTCELL
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0); // design 1 = TESTCELL
 
     le_set_mode(handle, LE_MODE_RULER);
     le_set_mouse_position(handle, 25, 175);
@@ -3306,7 +3306,7 @@ namespace
     //   - The OBS rect occupies device (100,50)-(150,100) - center ~(125,75).
     void load_pin_and_obstruction_at_known_scale(LeHandle *handle)
     {
-        ASSERT_EQ(le_read_lef(handle, fixture_path("pin_and_obstruction.lef").c_str()), 0);
+        ASSERT_EQ(le_read_lef(handle, fixture_path("pin_and_obstruction.lef").c_str(), "pin_and_obstruction"), 0);
         ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
         le_set_viewport_size(handle, 200, 200);
@@ -3450,7 +3450,7 @@ TEST_F(ApiFixture, SelectedTerminalRectTrimsTrailingZerosInWholeGroupsOfThree)
     // trim down to the last *significant* group of three ("0.340"), not
     // strip further into the significant "340" group and not leave a
     // partial group like "0.34".
-    ASSERT_EQ(le_read_lef(handle, fixture_path("fractional_pin.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("fractional_pin.lef").c_str(), "fractional_pin"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 0.01 - 1.0, 0, 100);
@@ -3474,7 +3474,7 @@ TEST_F(ApiFixture, SelectedTerminalRectKeepsFullPrecisionWhenNotAMultipleOfAThou
     // RECT at (0.0005,0.0005)-(5.0005,5.0005) micron - a value that
     // genuinely needs all 6 decimal digits, so the trim loop's first
     // check ("500" isn't "000") must fail immediately and leave it alone.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("full_precision_pin.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("full_precision_pin.lef").c_str(), "full_precision_pin"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 100, 100);
     le_zoom(handle, 0.01 - 1.0, 0, 100);
@@ -3707,7 +3707,7 @@ TEST_F(ApiFixture, ConcurrentRenderAndMousePositionCallsOnTheSameHandleDoNotCras
     // pattern. Every LeHandle-touching function now locks the handle's
     // own mutex; this drives both call paths concurrently, repeatedly,
     // and must complete without crashing, deadlocking, or hanging.
-    ASSERT_EQ(le_read_lef(handle, generate_concurrency_stress_lef(3000).c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, generate_concurrency_stress_lef(3000).c_str(), "test_lib"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 200, 200);
 
@@ -3745,7 +3745,7 @@ TEST_F(ApiFixture, IsRenderingReflectsWhetherARenderIsActuallyInProgress)
     // observable time: a render_thread does the actual render while this
     // thread tight-spin-polls le_is_rendering concurrently, expecting to
     // catch it true at least once before the render finishes.
-    ASSERT_EQ(le_read_lef(handle, generate_concurrency_stress_lef(3000).c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, generate_concurrency_stress_lef(3000).c_str(), "test_lib"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 200, 200);
 
@@ -3868,8 +3868,8 @@ TEST_F(ApiFixture, SelectObjectRefWithAnInvalidShapeFailsWithAMessage)
 
 TEST_F(ApiFixture, SelectObjectRefIsAdditiveNotReplacing)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "testcell"), 0);
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, design.id), 0);
     const LeLayoutId layout_id = design.layout_id;
@@ -3888,8 +3888,8 @@ TEST_F(ApiFixture, SelectObjectRefIsAdditiveNotReplacing)
 
 TEST_F(ApiFixture, SelectObjectRefWithAPlacementSelectsIt)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "testcell"), 0);
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, design.id), 0);
     const LeLayoutId layout_id = design.layout_id;
@@ -3909,7 +3909,7 @@ TEST_F(ApiFixture, SelectObjectRefWithAPlacementSelectsIt)
 
 TEST_F(ApiFixture, SelectObjectRefWithAnUnsupportedKindFailsWithAMessage)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     ASSERT_NE(abstract_id.index, UINT32_MAX);
 
@@ -3924,7 +3924,7 @@ TEST_F(ApiFixture, SelectObjectRefWithNullHandleDoesNotCrash)
 
 TEST_F(ApiFixture, CreateTerminalWithNullHandleOrNameReturnsInvalidId)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
 
     EXPECT_EQ(le_create_terminal(nullptr, abstract_id, "IN0", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0).index, UINT32_MAX);
@@ -3933,7 +3933,7 @@ TEST_F(ApiFixture, CreateTerminalWithNullHandleOrNameReturnsInvalidId)
 
 TEST_F(ApiFixture, CreateTerminalWithUnknownAbstractIdReturnsInvalidId)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId bogus{.index = UINT32_MAX, .generation = 0};
 
     EXPECT_EQ(le_create_terminal(handle, bogus, "IN0", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0).index, UINT32_MAX);
@@ -3941,7 +3941,7 @@ TEST_F(ApiFixture, CreateTerminalWithUnknownAbstractIdReturnsInvalidId)
 
 TEST_F(ApiFixture, CreateTerminalSucceedsAndIsReadableViaProperties)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
 
     const LeTerminalId id = le_create_terminal(handle, abstract_id, "IN0", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
@@ -3983,8 +3983,8 @@ TEST_F(ApiFixture, CreateTerminalWithADuplicateNameOnTheSameAbstractFailsButDiff
     // id, same as any other failure. Two different Abstracts legitimately
     // reuse the same pin name (e.g. VDD/IN0 across a library's cells), so
     // that must keep succeeding.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_read_lef(handle, fixture_path("othercell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("othercell.lef").c_str(), "othercell"), 0);
     const LeAbstractId testcell_id = testcell_abstract_id(handle);
     const LeAbstractId othercell_id = le_library_design_at(handle, 1, 0).abstract_id;
     ASSERT_NE(testcell_id.index, UINT32_MAX);
@@ -4002,7 +4002,7 @@ TEST_F(ApiFixture, CreateTerminalWithADuplicateNameOnTheSameAbstractFailsButDiff
 
 TEST_F(ApiFixture, UpdateTerminalNameToADuplicateOnTheSameAbstractFailsButRenamingToItsOwnCurrentNameSucceeds)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
 
     const LeTerminalId first = le_create_terminal(handle, abstract_id, "FIRST", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
@@ -4027,7 +4027,7 @@ TEST_F(ApiFixture, TerminalPropertyCountAndAtForUnknownIdDegradeGracefully)
 
 TEST_F(ApiFixture, UpdateTerminalNameAndDirectionUpdateTheirProperties)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeTerminalId id = le_create_terminal(handle, abstract_id, "IN0", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
     ASSERT_NE(id.index, UINT32_MAX);
@@ -4069,7 +4069,7 @@ TEST_F(ApiFixture, UpdateTerminalWithNullHandleOrUnknownIdReturnsNonzero)
 
 TEST_F(ApiFixture, DeleteTerminalRemovesItAndIsIdempotentlySafeAfterwards)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeTerminalId id = le_create_terminal(handle, abstract_id, "IN0", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
     ASSERT_NE(id.index, UINT32_MAX);
@@ -4113,7 +4113,7 @@ TEST_F(ApiFixture, BuildingALibraryDesignAbstractFromScratchAndSelectingItWithLe
     // Technology has to exist even though every one of them is omitted
     // (has_*=0) below - matches the original bug report's own script,
     // which also read_lef's a tech file before building anything.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = le_create_abstract(
         handle, design_id, nullptr, 0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, nullptr, nullptr, nullptr, 0, 0.0, nullptr, 0);
     ASSERT_NE(abstract_id.index, UINT32_MAX);
@@ -4138,7 +4138,7 @@ TEST_F(ApiFixture, BuildingALibraryDesignAbstractFromScratchAndSelectingItWithLe
 
 TEST_F(ApiFixture, SearchTerminalFindsMatchesByFilterExpression)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeTerminalId in0 = le_create_terminal(handle, abstract_id, "IN0", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
     const LeTerminalId in1 = le_create_terminal(handle, abstract_id, "IN1", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
@@ -4159,7 +4159,7 @@ TEST_F(ApiFixture, SearchTerminalFindsMatchesByFilterExpression)
 
 TEST_F(ApiFixture, SearchTerminalWithBadFilterExpressionReturnsNegativeOneAndPushesAMessage)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     EXPECT_EQ(le_search_terminal(handle, "not a filter expression"), -1);
 
@@ -4169,7 +4169,7 @@ TEST_F(ApiFixture, SearchTerminalWithBadFilterExpressionReturnsNegativeOneAndPus
 
 TEST_F(ApiFixture, SearchResultTerminalAtOutOfRangeReturnsInvalidId)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_search_terminal(handle, ".name == DOES_NOT_EXIST"), 0);
 
     EXPECT_EQ(le_search_result_terminal_at(handle, 0).index, UINT32_MAX);
@@ -4228,7 +4228,7 @@ namespace
 
 TEST_F(ApiFixture, CreateTerminalPortWithNullHandleOrUnknownTerminalReturnsInvalidId)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     EXPECT_EQ(le_create_terminal_port(nullptr, LeTerminalId{.index = UINT32_MAX, .generation = 0}, nullptr).index, UINT32_MAX);
     EXPECT_EQ(le_create_terminal_port(handle, LeTerminalId{.index = UINT32_MAX, .generation = 0}, nullptr).index, UINT32_MAX);
@@ -4236,7 +4236,7 @@ TEST_F(ApiFixture, CreateTerminalPortWithNullHandleOrUnknownTerminalReturnsInval
 
 TEST_F(ApiFixture, CreateTerminalPortSucceedsAndIsReadableViaProperties)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeTerminalId terminal_id = le_create_terminal(handle, abstract_id, "IN0", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
 
@@ -4268,7 +4268,7 @@ TEST_F(ApiFixture, CreateTerminalPortSucceedsAndIsReadableViaProperties)
 
 TEST_F(ApiFixture, DeleteTerminalPortCascadesToItsShapesAndIsIdempotentlySafeAfterwards)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeTerminalId terminal_id = le_create_terminal(handle, abstract_id, "IN0", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
     const LeTerminalPortId port_id = create_terminal_port_with_rect(handle, terminal_id, "M4", kRect0);
@@ -4334,7 +4334,7 @@ TEST_F(ApiFixture, DeleteSchematicCascadesThroughPortsNetsInstancesAndTheirPins)
 
 TEST_F(ApiFixture, SearchTerminalPortFindsMatchesUsingUpdatesMdItem15SExampleExpression)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeTerminalId in0 = le_create_terminal(handle, abstract_id, "IN0", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
     const LeTerminalId out0 = le_create_terminal(handle, abstract_id, "OUT0", "OUTPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
@@ -4350,13 +4350,13 @@ TEST_F(ApiFixture, SearchTerminalPortFindsMatchesUsingUpdatesMdItem15SExampleExp
 
 TEST_F(ApiFixture, SearchTerminalPortWithBadFilterExpressionReturnsNegativeOne)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_EQ(le_search_terminal_port(handle, "not a filter expression"), -1);
 }
 
 TEST_F(ApiFixture, CreateObstructionWithNullHandleOrUnknownAbstractReturnsInvalidId)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     EXPECT_EQ(le_create_obstruction(nullptr, LeAbstractId{.index = UINT32_MAX, .generation = 0}).index, UINT32_MAX);
     EXPECT_EQ(le_create_obstruction(handle, LeAbstractId{.index = UINT32_MAX, .generation = 0}).index, UINT32_MAX);
@@ -4364,7 +4364,7 @@ TEST_F(ApiFixture, CreateObstructionWithNullHandleOrUnknownAbstractReturnsInvali
 
 TEST_F(ApiFixture, CreateObstructionSucceedsAndIsReadableViaProperties)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
 
     const LeObstructionId id = create_obstruction_with_rect(handle, abstract_id, "M4", kRect0);
@@ -4386,7 +4386,7 @@ TEST_F(ApiFixture, CreateObstructionSucceedsAndIsReadableViaProperties)
 
 TEST_F(ApiFixture, DeleteObstructionCascadesToItsShapesAndIsIdempotentlySafeAfterwards)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId id = create_obstruction_with_rect(handle, abstract_id, "M4", kRect0);
     ASSERT_NE(id.index, UINT32_MAX);
@@ -4402,7 +4402,7 @@ TEST_F(ApiFixture, DeleteObstructionCascadesToItsShapesAndIsIdempotentlySafeAfte
 
 TEST_F(ApiFixture, SearchObstructionFindsMatchesByLayerName)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId matching = create_obstruction_with_rect(handle, abstract_id, "M4", kRect0);
     create_obstruction_with_rect(handle, abstract_id, "M5", kRect0);
@@ -4420,7 +4420,7 @@ TEST_F(ApiFixture, SearchObstructionFindsMatchesByLayerName)
 
 TEST_F(ApiFixture, CreateShapeWithNullHandleOrUnknownLayerOrUnknownParentReturnsInvalidId)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeTerminalId terminal_id = le_create_terminal(handle, abstract_id, "IN0", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
     const LeTerminalPortId port_id = le_create_terminal_port(handle, terminal_id, nullptr);
@@ -4443,7 +4443,7 @@ TEST_F(ApiFixture, CreateShapeWithNullHandleOrUnknownLayerOrUnknownParentReturns
 
 TEST_F(ApiFixture, TerminalPortShapeCountAndAtEnumerateAndReadBackWhatWasCreated)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeTerminalId terminal_id = le_create_terminal(handle, abstract_id, "IN0", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
     const LeTerminalPortId port_id = create_terminal_port_with_rect(handle, terminal_id, "M4", kRect0);
@@ -4466,7 +4466,7 @@ TEST_F(ApiFixture, TerminalPortShapeCountAndAtEnumerateAndReadBackWhatWasCreated
 
 TEST_F(ApiFixture, ObstructionShapeCountAndAtEnumerateAndReadBackWhatWasCreated)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId obstruction_id = create_obstruction_with_rect(handle, abstract_id, "M5", kRect0);
     ASSERT_NE(obstruction_id.index, UINT32_MAX);
@@ -4479,7 +4479,7 @@ TEST_F(ApiFixture, ObstructionShapeCountAndAtEnumerateAndReadBackWhatWasCreated)
 
 TEST_F(ApiFixture, UpdateShapeLayerNameRenamesWithoutTouchingGeometryOrParent)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId obstruction_id = create_obstruction_with_rect(handle, abstract_id, "M4", kRect0);
     const LeShapeId shape_id = le_obstruction_shape_at(handle, obstruction_id, 0);
@@ -4500,7 +4500,7 @@ TEST_F(ApiFixture, UpdateShapeLayerNameRenamesWithoutTouchingGeometryOrParent)
 
 TEST_F(ApiFixture, UpdateShapeLayerNameWithNullHandleOrUnknownIdReturnsNonzero)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId obstruction_id = create_obstruction_with_rect(handle, abstract_id, "M4", kRect0);
     const LeShapeId shape_id = le_obstruction_shape_at(handle, obstruction_id, 0);
@@ -4515,7 +4515,7 @@ TEST_F(ApiFixture, UpdateShapeLayerNameWithNullHandleOrUnknownIdReturnsNonzero)
 
 TEST_F(ApiFixture, CreateShapeWithRectsThenUpdateReplacesThemAndRemoveShapeRectWorks)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId obstruction_id = le_create_obstruction(handle, abstract_id);
 
@@ -4546,7 +4546,7 @@ TEST_F(ApiFixture, CreateShapeWithRectsThenUpdateReplacesThemAndRemoveShapeRectW
 
 TEST_F(ApiFixture, CreateShapeWithPolygonThenRemoveShapePolygonWorks)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId obstruction_id = le_create_obstruction(handle, abstract_id);
 
@@ -4579,7 +4579,7 @@ TEST_F(ApiFixture, CreateShapeWithPolygonThenRemoveShapePolygonWorks)
 
 TEST_F(ApiFixture, CreateShapeWithPathThenRemoveShapePathWorks)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId obstruction_id = le_create_obstruction(handle, abstract_id);
 
@@ -4610,7 +4610,7 @@ TEST_F(ApiFixture, CreateShapeWithPathThenRemoveShapePathWorks)
 
 TEST_F(ApiFixture, DeleteShapeRemovesItAndParentCountDropsButParentSurvives)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId obstruction_id = create_obstruction_with_rect(handle, abstract_id, "M4", kRect0);
     const LeShapeId shape_id = le_obstruction_shape_at(handle, obstruction_id, 0);
@@ -4687,7 +4687,7 @@ TEST_F(ApiFixture, UndoRedoRoundTripsAGeneratedUpdateCallThroughBeginEndCommand)
     // Confirms the generated recording hook actually fires end-to-end
     // through the real le_update_shape entry point, not just at the
     // Root layer directly (see editing_test.cpp for that).
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId obstruction_id = create_obstruction_with_rect(handle, abstract_id, "M4", kRect0);
     const LeShapeId shape_id = le_obstruction_shape_at(handle, obstruction_id, 0);
@@ -4788,7 +4788,7 @@ TEST_F(ApiFixture, MoveTranslatesSelectedShapeGeometryAndIsUndoable)
     // (100,100)-(300,400) dbu), rather than the LEF-fixture pins
     // load_two_shapes_at_known_scale sets up, so the exact rect can be
     // read back and compared by value below.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId obstruction_id = create_obstruction_with_rect(handle, abstract_id, "M4", kRect0);
@@ -4891,7 +4891,7 @@ namespace
     // dbu/px with pan (0,0): pixel (x,y) = dbu (200x, 200(100-y)).
     LePlacementId select_placement_between_two_rows(LeHandle *handle, const std::string &lef_path, int32_t sym_r90, int32_t sym_x, int32_t sym_y)
     {
-        le_read_lef(handle, lef_path.c_str());
+        le_read_lef(handle, lef_path.c_str(), "test_lib");
         const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
         le_create_site(handle, le_technology_id(handle), "CORE", nullptr, 1, 1.0, 10.0, 1, sym_r90, sym_x, sym_y);
         const LeDesignId top_design = le_create_design(handle, le_create_library(handle, "TOPLIB"), "TOP");
@@ -5035,7 +5035,7 @@ TEST_F(ApiFixture, ArmedMoveRendersADashedTranslucentGhostAtTheOffsetPositionBef
     // the next le_read_lef - a real, separate, already-flagged gap this
     // test deliberately avoids exercising, since it's here to verify
     // ghost *rendering*, not that unrelated bug).
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     const LeObstructionId obstruction_id = create_obstruction_with_rect(handle, abstract_id, "M1", kRect0);
@@ -5088,7 +5088,7 @@ TEST_F(ApiFixture, ArmedMoveRendersADashedTranslucentGhostAtTheOffsetPositionBef
 
 TEST_F(ApiFixture, CommittedRulerSegmentRendersAsAnOpaqueOrangeLine)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     // scale 0.1 (10 dbu/px), pan (0,0) - same recipe as the Move ghost
@@ -5123,7 +5123,7 @@ TEST_F(ApiFixture, CommittedRulerSegmentRendersAsAnOpaqueOrangeLine)
 
 TEST_F(ApiFixture, LiveRulerGhostSegmentRendersAsATranslucentOrangeLineBeforeTheNextPointCommits)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 200, 200);
@@ -5148,7 +5148,7 @@ TEST_F(ApiFixture, LiveRulerGhostSegmentRendersAsATranslucentOrangeLineBeforeThe
 
 TEST_F(ApiFixture, RenderPixelBufferShowsMajorGridDotsAndTheAbstractOriginMarker)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 200, 200);
@@ -5186,7 +5186,7 @@ TEST_F(ApiFixture, RenderPixelBufferShowsMajorGridDotsAndTheAbstractOriginMarker
 
 TEST_F(ApiFixture, RenderPixelBufferShowsMinorGridDotsOnceZoomedInEnough)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_set_viewport_size(handle, 200, 200);
@@ -5273,7 +5273,7 @@ TEST_F(ApiFixture, ClickSelectsAndMovesOnlyOneRectOfATwoRectShapeNotBothOrTheWro
     // (e.g. several RECT statements under one LEF OBS LAYER line) must
     // select and move only that raw piece, at its real stored index, not
     // the whole Shape or the wrong sibling.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
 
@@ -5324,7 +5324,7 @@ TEST_F(ApiFixture, DragSelectEnclosingTwoPiecesOfTheSameShapeSelectsBothAsSepara
     // Selection is piece-granular (UPDATES.md item 21) - a drag enclosing
     // two rects that happen to belong to the same Shape must select both
     // as independent entries, not dedup down to one whole-shape entry.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
 
@@ -5372,13 +5372,13 @@ TEST_F(ApiFixture, WriteLefWithNullHandleOrPathReturnsNonzero)
                             nullptr, 0, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_NONE),
               0);
 
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_NE(le_write_lef(handle, nullptr, nullptr, 0, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_NONE), 0);
 }
 
 TEST_F(ApiFixture, WriteLefWithAnExplicitAbstractSucceedsAndProducesARealFile)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     ASSERT_NE(abstract_id.index, UINT32_MAX);
 
@@ -5389,7 +5389,7 @@ TEST_F(ApiFixture, WriteLefWithAnExplicitAbstractSucceedsAndProducesARealFile)
 
 TEST_F(ApiFixture, WriteLefWithNoAbstractOrLibraryGivenAndNoCurrentAbstractSetFailsWithAMessage)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_EQ(le_current_abstract(handle).index, UINT32_MAX); // nothing selected yet
 
     EXPECT_NE(le_write_lef(handle, scratch_path("le_write_lef_no_current.lef").c_str(),
@@ -5401,7 +5401,7 @@ TEST_F(ApiFixture, WriteLefFallsBackToTheCurrentAbstractWhenNoneIsGiven)
 {
     // The exact scenario BUGS_AND_ENHANCEMENTS.md E28 itself asks for:
     // "uses current_abstract" when -abstract is omitted.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
     ASSERT_EQ(le_set_current_design_abstract_by_id(handle, design.id), 0);
     ASSERT_NE(le_current_abstract(handle).index, UINT32_MAX);
@@ -5416,7 +5416,7 @@ TEST_F(ApiFixture, WriteLefTechnologyOnlyModeSucceedsWithNoAbstractAndNoCurrentA
     // LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY ignores abstract_id/current
     // Abstract entirely (LEFWriter::LayerWriteMode::TechnologyOnly's own
     // doc comment) - the one mode that doesn't need either set.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_EQ(le_current_abstract(handle).index, UINT32_MAX);
 
     const std::string out_path = scratch_path("le_write_lef_tech_only.lef");
@@ -5435,7 +5435,7 @@ TEST_F(ApiFixture, WriteLefWithALibraryWritesAMacroForEveryAbstractInEveryDesign
     // real Library, so it builds both from scratch instead (still needs
     // testcell.lef read first, purely to establish a real Technology -
     // le_create_abstract fails with no Technology present).
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     const LeLibraryId library_id = le_create_library(handle, "MULTI_LIB");
     ASSERT_NE(library_id.index, UINT32_MAX);
@@ -5457,15 +5457,15 @@ TEST_F(ApiFixture, WriteLefWithALibraryWritesAMacroForEveryAbstractInEveryDesign
     // (also survives the file happening to have neither string spelled
     // that way for some unrelated reason).
     LeHandle *reread = le_create();
-    ASSERT_EQ(le_read_lef(reread, out_path.c_str()), 0);
+    ASSERT_EQ(le_read_lef(reread, out_path.c_str(), "test_lib"), 0);
     EXPECT_EQ(le_design_count(reread), 2);
     le_destroy(reread);
 }
 
 TEST_F(ApiFixture, WriteLefWithAnExplicitAbstractListWritesOnlyThoseAbstracts)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_read_lef(handle, fixture_path("othercell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("othercell.lef").c_str(), "othercell"), 0);
     const LeAbstractId testcell_id = testcell_abstract_id(handle);
     ASSERT_NE(testcell_id.index, UINT32_MAX);
 
@@ -5474,14 +5474,14 @@ TEST_F(ApiFixture, WriteLefWithAnExplicitAbstractListWritesOnlyThoseAbstracts)
     ASSERT_TRUE(file_is_nonempty(out_path));
 
     LeHandle *reread = le_create();
-    ASSERT_EQ(le_read_lef(reread, out_path.c_str()), 0);
+    ASSERT_EQ(le_read_lef(reread, out_path.c_str(), "test_lib"), 0);
     EXPECT_EQ(le_design_count(reread), 1); // only TESTCELL, not OTHERCELL
     le_destroy(reread);
 }
 
 TEST_F(ApiFixture, WriteLefWithALibraryThatHasNoAbstractsWritesNoMacrosAndIsNotAnError)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeLibraryId library_id = le_library_at(handle, 0).id;
     ASSERT_NE(library_id.index, UINT32_MAX);
     // A hand-built Design with no Abstract at all yet - the case
@@ -5493,7 +5493,7 @@ TEST_F(ApiFixture, WriteLefWithALibraryThatHasNoAbstractsWritesNoMacrosAndIsNotA
     ASSERT_EQ(le_write_lef(handle, out_path.c_str(), nullptr, 0, library_id, LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT), 0);
 
     LeHandle *reread = le_create();
-    ASSERT_EQ(le_read_lef(reread, out_path.c_str()), 0);
+    ASSERT_EQ(le_read_lef(reread, out_path.c_str(), "test_lib"), 0);
     EXPECT_EQ(le_design_count(reread), 1); // only TESTCELL - EMPTY_DESIGN has no Abstract to write a MACRO from
     le_destroy(reread);
 }
@@ -5502,16 +5502,16 @@ TEST_F(ApiFixture, WriteDefWithNullHandleOrPathReturnsNonzero)
 {
     EXPECT_NE(le_write_def(nullptr, scratch_path("le_write_def_null_handle.def").c_str(), LeLayoutId{.index = UINT32_MAX, .generation = 0}), 0);
 
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "testcell"), 0);
     const LeLayoutId layout_id = le_library_design_at(handle, 0, 0).layout_id;
     EXPECT_NE(le_write_def(handle, nullptr, layout_id), 0);
 }
 
 TEST_F(ApiFixture, WriteDefWithAnExplicitLayoutSucceedsAndProducesARealFile)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "testcell"), 0);
     const LeLayoutId layout_id = le_library_design_at(handle, 0, 0).layout_id;
     ASSERT_NE(layout_id.index, UINT32_MAX);
 
@@ -5522,8 +5522,8 @@ TEST_F(ApiFixture, WriteDefWithAnExplicitLayoutSucceedsAndProducesARealFile)
 
 TEST_F(ApiFixture, WriteDefWithNoLayoutGivenAndNoCurrentLayoutSetFailsWithAMessage)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "testcell"), 0);
     EXPECT_EQ(le_current_layout(handle).index, UINT32_MAX); // nothing selected yet
 
     EXPECT_NE(le_write_def(handle, scratch_path("le_write_def_no_current.def").c_str(), LeLayoutId{.index = UINT32_MAX, .generation = 0}), 0);
@@ -5531,8 +5531,8 @@ TEST_F(ApiFixture, WriteDefWithNoLayoutGivenAndNoCurrentLayoutSetFailsWithAMessa
 
 TEST_F(ApiFixture, WriteDefFallsBackToTheCurrentLayoutWhenNoneIsGiven)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
-    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "testcell"), 0);
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, design.id), 0);
     ASSERT_NE(le_current_layout(handle).index, UINT32_MAX);
@@ -5547,7 +5547,7 @@ TEST_F(ApiFixture, WriteDefFallsBackToTheCurrentLayoutWhenNoneIsGiven)
 // rasterized end to end through le_render_pixel_buffer.
 TEST_F(ApiFixture, FreeShapeOnALayerRendersAndHidesWithTheCustomShapePurpose)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str()), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 200, 200);
 
@@ -5583,4 +5583,77 @@ TEST_F(ApiFixture, FreeShapeOnALayerRendersAndHidesWithTheCustomShapePurpose)
 
     le_set_purpose_visible(handle, 13 /* CUSTOM_SHAPE */, 0);
     EXPECT_FALSE(region_has_colored_pixel(le_render_pixel_buffer(handle), 50, 50, 150, 150));
+}
+
+// --- NEW_FEATURES_SEPT_2026.md item 4: custom library naming ---
+
+TEST_F(ApiFixture, ReadRequiresALibraryName)
+{
+    EXPECT_NE(le_read_lef(handle, fixture_path("testcell.lef").c_str(), nullptr), 0);
+    EXPECT_NE(le_read_lef(handle, fixture_path("testcell.lef").c_str(), ""), 0);
+    EXPECT_NE(le_read_def(handle, fixture_path("testcell.def").c_str(), ""), 0);
+    const std::string any_path = fixture_path("testcell.def");
+    const char *paths[] = {any_path.c_str()};
+    EXPECT_NE(le_read_verilog(handle, paths, 1, 0, nullptr), 0);
+    EXPECT_EQ(le_library_count(handle), 0);
+}
+
+TEST_F(ApiFixture, ReadLefCreatesTheNamedLibraryOnceThenReusesIt)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "cells"), 0);
+    ASSERT_EQ(le_library_count(handle), 1);
+    EXPECT_STREQ(le_library_at(handle, 0).name, "cells");
+
+    ASSERT_EQ(le_read_lef(handle, fixture_path("othercell.lef").c_str(), "cells"), 0);
+    ASSERT_EQ(le_library_count(handle), 1); // reused, not a second "cells"
+    EXPECT_EQ(le_library_design_count(handle, 0), 2);
+}
+
+TEST_F(ApiFixture, ReadingAViewTheDesignAlreadyHasIsAnError)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "cells"), 0);
+    EXPECT_NE(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "cells"), 0);
+
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "cells"), 0);
+    // Used to log an error but still return 0.
+    EXPECT_NE(le_read_def(handle, fixture_path("testcell.def").c_str(), "cells"), 0);
+}
+
+// Abstract (LEF), Layout (DEF) and Schematic (Verilog) all land on the one
+// TESTCELL design; a second Schematic read is refused before it creates
+// anything - not even its (new) library.
+TEST_F(ApiFixture, AbstractLayoutAndSchematicViewsCombineOnOneDesign)
+{
+    const std::filesystem::path verilog_path = std::filesystem::temp_directory_path() / "le_library_naming_testcell.v";
+    {
+        std::ofstream out(verilog_path);
+        out << "module TESTCELL(input A);\nendmodule\n";
+    }
+    const std::string verilog = verilog_path.string();
+    const char *paths[] = {verilog.c_str()};
+
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "cells"), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "cells"), 0);
+    ASSERT_EQ(le_read_verilog(handle, paths, 1, /*is_netlist=*/0, "cells"), 0);
+
+    ASSERT_EQ(le_library_count(handle), 1);
+    ASSERT_EQ(le_library_design_count(handle, 0), 1);
+    const LeDesignInfo design = le_library_design_at(handle, 0, 0);
+    EXPECT_NE(design.abstract_id.index, UINT32_MAX);
+    EXPECT_NE(design.layout_id.index, UINT32_MAX);
+
+    EXPECT_NE(le_read_verilog(handle, paths, 1, /*is_netlist=*/0, "other"), 0);
+    EXPECT_EQ(le_library_count(handle), 1);
+
+    std::filesystem::remove(verilog_path);
+}
+
+// A new design goes into the named library even when other libraries exist.
+TEST_F(ApiFixture, NewDesignsGoIntoTheNamedLibrary)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "cells"), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("othercell.lef").c_str(), "more_cells"), 0);
+    ASSERT_EQ(le_library_count(handle), 2);
+    for (int32_t i = 0; i < 2; ++i)
+        EXPECT_EQ(le_library_design_count(handle, i), 1);
 }

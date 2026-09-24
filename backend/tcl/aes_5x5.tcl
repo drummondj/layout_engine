@@ -1,7 +1,7 @@
 # Open design and set hierarhcy depth so that leaf cells are visible
-read_lef ../test_data/ISPD22__final_benchmarks/__Nangate/NangateOpenCellLibrary.lef
-read_def ../test_data/ISPD22__final_benchmarks/AES_1/design_original.def
-read_def ../test_data/aes_5x5.def
+read_lef -library nangate ../test_data/ISPD22__final_benchmarks/__Nangate/NangateOpenCellLibrary.lef
+read_def -library aes_1 ../test_data/ISPD22__final_benchmarks/AES_1/design_original.def
+read_def -library aes_5x5 ../test_data/aes_5x5.def
 # set_viewport_size -width 800 -height 800
 set_hierarchy_depth 2
 open_design aes_5x5 -view layout

@@ -1,6 +1,7 @@
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include "lef_reader.hpp"
+#include "../database/library_helpers.hpp"
 #include "../geometry/geometry.hpp"
 #include <cmath>
 #include <utility>
@@ -1468,28 +1469,22 @@ namespace le
 
         auto reader = static_cast<LEFReader *>(user_data);
 
-        // If library has not been created, then create one
+        // The named library (NEW_FEATURES_SEPT_2026.md item 4), created on
+        // first use - lazily, at the first MACRO, so a tech-only LEF never
+        // leaves an empty library behind.
         if (!reader->library_id_.valid())
-        {
-            reader->library_id_ = reader->root_->create_library(LibraryData{.name = reader->library_name_});
-        }
+            reader->library_id_ = get_or_create_library(*reader->root_, reader->library_name_);
 
-        // If design does not exist, then create it
-        auto design_id = reader->root_->get_design_by_name(name);
-        if (!design_id.valid())
-        {
-            design_id = reader->root_->create_design(
-                DesignData{
-                    .library = reader->library_id_,
-                    .name = name,
-                });
-        }
+        // A design is identified by name alone (Design.name is one global
+        // index): an existing one gains this Abstract view - e.g. a DEF or
+        // Verilog read made it first - and only a brand-new one is created
+        // in the named library.
+        const DesignId design_id = get_or_create_design(*reader->root_, reader->library_id_, name, "read_lef");
 
-        // If abstract view exists, then error
-        auto abstract_id = reader->root_->get_design_abstract(design_id);
-        if (abstract_id.valid())
+        // Each view can only be read once per design.
+        if (reader->root_->get_design_abstract(design_id).valid())
         {
-            log_error("Abstract view for design {} already exists.", name);
+            log_error("read_lef: design {} already has an Abstract view - each view can only be read once per design.", name);
             return 1;
         }
 

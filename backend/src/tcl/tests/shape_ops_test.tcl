@@ -49,8 +49,8 @@ source $procs_path
 
 # M1..M12 first; testcell.lef's own M1 is then a harmless duplicate
 # (warned about, first definition kept).
-check "read layers" 0 [read_lef $layers_lef]
-check "read cell" 0 [read_lef $cell_lef]
+check "read layers" 0 [read_lef -library shape_ops $layers_lef]
+check "read cell" 0 [read_lef -library shape_ops $cell_lef]
 open_design TESTCELL
 set abstract [get_abstracts]
 
@@ -189,7 +189,7 @@ check_error "shape_change_layer unknown -layer" {shape_change_layer $a -layer la
 check_error "shape_change_layer unknown shape" {shape_change_layer shape:999999 -layer layer:M1} "shape_change_layer: failed*"
 
 # --- free-standing shapes aren't written by write_def ---
-check "read def" 0 [read_def $cell_def]
+check "read def" 0 [read_def -library shape_ops $cell_def]
 set layout [get_layouts -of design:TESTCELL]
 
 proc write_def_text {layout} {

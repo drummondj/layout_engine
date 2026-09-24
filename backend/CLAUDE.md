@@ -455,7 +455,12 @@ none of these are duplicated here.
   wrapping one `Root`/`ViewLayerSet` plus the pipelines module's own
   `ViewRenderPipeline` per handle (reused across calls, not reconstructed
   per call); `le_read_lef` (callable multiple times on one handle — e.g.
-  tech file then macro file(s)); `le_read_verilog`/
+  tech file then macro file(s)); every read (`le_read_lef`/`_def`/
+  `_verilog`, TCL `-library`) takes a required library name
+  (NEW_FEATURES_SEPT_2026.md item 4 — `database/library_helpers.hpp`:
+  the library is get-or-created by name; a Design is matched by its
+  global name and only a new one lands in that library; re-reading a
+  view a Design already has is an error that fails the read); `le_read_verilog`/
   `le_link_unresolved_instances` (`SVReader`, `src/sv/`'s own bullet
   above); `le_design_count`/`le_design_name`/
   `le_set_current_design`; `le_set_pan`/`le_set_scale`/

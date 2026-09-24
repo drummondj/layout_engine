@@ -75,9 +75,9 @@
 }
 
 
-int read_lef(const char *path);
-int read_def(const char *path);
-int read_verilog_cmd(const char *paths, int is_netlist);
+int read_lef(const char *path, const char *library_name);
+int read_def(const char *path, const char *library_name);
+int read_verilog_cmd(const char *paths, int is_netlist, const char *library_name);
 int link_unresolved_instances_cmd();
 int write_verilog_stubs_cmd(const char *path, const char *library_token);
 int get_instances_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);

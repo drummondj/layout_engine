@@ -165,8 +165,11 @@ extern "C"
     /// live references elsewhere - not a new constraint this introduces).
     void le_destroy(LeHandle *handle);
 
-    /// @brief Read a LEF file into this handle's shared Root, deriving a
-    /// library name from the file's stem. Safe to call multiple times on
+    /// @brief Read a LEF file into this handle's shared Root, its MACROs
+    /// into the Library named `library_name` (required - NEW_FEATURES_SEPT_2026.md
+    /// item 4; created at the first MACRO if it doesn't exist yet). A
+    /// MACRO whose Design (matched by name) already has an Abstract view
+    /// is an error that fails the read. Safe to call multiple times on
     /// the same handle - e.g. a tech file (LAYER definitions, no macros)
     /// followed by one or more macro files that reference those layers by
     /// name, matching LEFReader::read_lef's own existing-Technology reuse
@@ -174,10 +177,12 @@ extern "C"
     /// render_preview.cpp for the same convention already used there).
     /// Returns 0 on success, matching LEFReader::read_lef's own result
     /// code (nonzero otherwise, including if handle or path is null).
-    int le_read_lef(LeHandle *handle, const char *path);
+    int le_read_lef(LeHandle *handle, const char *path, const char *library_name);
 
     /// @brief Reads a DEF file into this handle's Root via DEFReader,
-    /// same shape as le_read_lef (messages appended, 0 on success).
+    /// same shape as le_read_lef (0 on success) - its DESIGN into the
+    /// Library named `library_name` (required, created if missing); a
+    /// Design that already has a Layout view is an error.
     /// Unlike le_read_lef, doesn't touch layer visibility defaults or
     /// rebuild ViewLayerSet - DEF doesn't introduce new physical Layers
     /// of its own (Step 2's own layer-generation work, not yet done, is
@@ -186,13 +191,15 @@ extern "C"
     /// (DEFReader::technology_id_) the same reuse-or-create way
     /// le_read_lef's own LEFReader does, since NONDEFAULTRULES needs one
     /// even when no LEF has been read into this handle yet.
-    int le_read_def(LeHandle *handle, const char *path);
+    int le_read_def(LeHandle *handle, const char *path, const char *library_name);
 
     /// @brief Reads one or more SystemVerilog/Verilog files (filenames/
     /// filename_count - a plain C array, not std::vector, matching every
     /// other multi-value api.hpp entry point) into this handle's shared
-    /// Root via SVReader, deriving a library name from the first file's
-    /// stem. is_netlist nonzero selects the full-elaboration netlist
+    /// Root via SVReader, new Designs into the Library named
+    /// `library_name` (required, created if missing); any module whose
+    /// Design already has a Schematic view is an error that fails the
+    /// read before anything is created. is_netlist nonzero selects the full-elaboration netlist
     /// flavor (SVReader::read_netlist - accurate parameter/generate
     /// resolution, for a real gate-level netlist); zero selects the
     /// syntax-only RTL flavor (SVReader::read_rtl - tolerates invalid/
@@ -217,7 +224,7 @@ extern "C"
     /// le_link_unresolved_instances for a later read, e.g. an LEF read
     /// after this one supplies a previously-missing leaf cell). Same
     /// 0/nonzero return + spdlog-logged-messages convention as le_read_lef/le_read_def.
-    int le_read_verilog(LeHandle *handle, const char *const *filenames, int32_t filename_count, int32_t is_netlist);
+    int le_read_verilog(LeHandle *handle, const char *const *filenames, int32_t filename_count, int32_t is_netlist, const char *library_name);
 
     /// @brief Writes stub Verilog module declarations (a port list plus
     /// an empty body - see verilog_stub_writer.hpp's own top-of-file
@@ -371,9 +378,9 @@ extern "C"
     /// left unchanged on failure.
     int le_set_current_design_abstract(LeHandle *handle, int32_t index);
 
-    /// @brief Number of Libraries currently loaded - one per le_read_lef()
-    /// call so far (see its own comment: each derives a fresh Library from
-    /// its file's stem). 0 if handle is null. The top level of a
+    /// @brief Number of Libraries currently loaded - one per distinct
+    /// library name given to le_read_lef/le_read_def/le_read_verilog (or
+    /// created directly). 0 if handle is null. The top level of a
     /// Library -> Design -> Abstract browser widget; see
     /// le_library_design_count()/le_library_design_at() for the next level.
     int32_t le_library_count(LeHandle *handle);

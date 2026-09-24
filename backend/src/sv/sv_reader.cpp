@@ -1,5 +1,7 @@
 #include "sv_reader.hpp"
 
+#include "../database/library_helpers.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <functional>
@@ -44,12 +46,42 @@ namespace le
                 spdlog::info("{}", line);
         }
 
+        // Design lookup is by global name (le::get_or_create_design) - no
+        // cross-library warning here: a netlist read's generated stub
+        // modules deliberately attach to LEF cells in another library.
         DesignId get_or_create_design(Root &root, LibraryId library_id, const std::string &name)
         {
-            DesignId id = root.get_design_by_name(name);
-            if (!id.valid())
-                id = root.create_design(DesignData{.library = library_id, .name = name});
-            return id;
+            return le::get_or_create_design(root, library_id, name, "");
+        }
+
+        // NEW_FEATURES_SEPT_2026.md item 4 - each view can only be read once
+        // per design: every module declared in `trees` whose Design already
+        // has a Schematic is an error, reported (all of them) before the
+        // read creates anything. Returns false if there was any.
+        bool check_no_existing_schematics(const Root &root, const std::vector<std::shared_ptr<slang::syntax::SyntaxTree>> &trees,
+                                          const char *caller, std::vector<std::string> &messages)
+        {
+            bool ok = true;
+            for (const auto &tree : trees)
+            {
+                auto visitor = slang::syntax::makeSyntaxVisitor(
+                    [&](auto &self, const slang::syntax::ModuleDeclarationSyntax &node)
+                    {
+                        const std::string name(node.header->name.valueText());
+                        const DesignId design_id = root.get_design_by_name(name);
+                        if (design_id.valid() && root.get_design_schematic(design_id).valid())
+                        {
+                            const std::string msg = fmt::format(
+                                "{}: design {} already has a Schematic view - each view can only be read once per design.", caller, name);
+                            spdlog::error("{}", msg);
+                            messages.push_back("ERROR: " + msg);
+                            ok = false;
+                        }
+                        self.visitDefault(node);
+                    });
+                tree->root().visit(visitor);
+            }
+            return ok;
         }
 
         SchematicId get_or_create_schematic(Root &root, DesignId design_id)
@@ -714,12 +746,7 @@ namespace le
         messages_.clear();
         root_ = &root;
 
-        library_id_ = root.get_library_by_name(library_name);
-        if (!library_id_.valid())
-            library_id_ = root.create_library(LibraryData{.name = library_name});
-
-        slang::ast::Compilation compilation;
-        bool any_tree_loaded = false;
+        std::vector<std::shared_ptr<slang::syntax::SyntaxTree>> trees;
         for (const auto &filename : filenames)
         {
             auto tree = slang::syntax::SyntaxTree::fromFile(filename);
@@ -730,11 +757,18 @@ namespace le
                 messages_.push_back("ERROR: " + msg);
                 continue;
             }
-            compilation.addSyntaxTree(tree.value());
-            any_tree_loaded = true;
+            trees.push_back(tree.value());
         }
-        if (!any_tree_loaded)
+        if (trees.empty())
             return 1;
+        if (!check_no_existing_schematics(root, trees, "read_verilog", messages_))
+            return 1;
+
+        library_id_ = le::get_or_create_library(root, library_name);
+
+        slang::ast::Compilation compilation;
+        for (const auto &tree : trees)
+            compilation.addSyntaxTree(tree);
 
         const auto &source_manager = slang::syntax::SyntaxTree::getDefaultSourceManager();
         const auto &design_root = compilation.getRoot();
@@ -1035,10 +1069,6 @@ namespace le
         messages_.clear();
         root_ = &root;
 
-        library_id_ = root.get_library_by_name(library_name);
-        if (!library_id_.valid())
-            library_id_ = root.create_library(LibraryData{.name = library_name});
-
         std::vector<std::shared_ptr<slang::syntax::SyntaxTree>> trees;
         for (const auto &filename : filenames)
         {
@@ -1054,6 +1084,10 @@ namespace le
         }
         if (trees.empty())
             return 1;
+        if (!check_no_existing_schematics(root, trees, "read_verilog", messages_))
+            return 1;
+
+        library_id_ = le::get_or_create_library(root, library_name);
 
         const auto &source_manager = slang::syntax::SyntaxTree::getDefaultSourceManager();
 

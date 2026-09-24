@@ -184,7 +184,7 @@ int main(int argc, char **argv)
 
     LeHandle *handle = le_create();
 
-    if (le_read_lef(handle, args.lef_path.c_str()) != 0)
+    if (le_read_lef(handle, args.lef_path.c_str(), "test_lib") != 0)
     {
         std::fprintf(stderr, "pipeline_stage_benchmark: failed to read LEF '%s' - see spdlog output above for details\n", args.lef_path.c_str());
         return 1;
@@ -192,7 +192,7 @@ int main(int argc, char **argv)
 
     for (const std::string &def_path : args.def_paths)
     {
-        if (le_read_def(handle, def_path.c_str()) != 0)
+        if (le_read_def(handle, def_path.c_str(), "test_lib") != 0)
         {
             std::fprintf(stderr, "pipeline_stage_benchmark: failed to read DEF '%s' - see spdlog output above for details\n", def_path.c_str());
             return 1;

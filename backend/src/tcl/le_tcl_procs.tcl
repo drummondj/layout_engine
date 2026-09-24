@@ -508,8 +508,9 @@ proc _property_path_candidates {class_key partial} {
 
 # complete_command's own filename-completion hook (BUGS_AND_ENHANCEMENTS.md
 # E11) - the name (without its angle brackets) of $command_name's own
-# positional argument, if it has exactly one registered option and its
-# type is "file"; {} otherwise (not registered at all, no positional
+# positional argument, if it has exactly one registered positional
+# (`<name>`) option - flags like read_lef's own `-library` don't count -
+# and its type is "file"; {} otherwise (not registered at all, no positional
 # argument, or a positional whose type isn't "file"). "file" is a plain
 # free-form label like every other `type` value here (str/bool/flag/
 # token...) - nothing else in this file switches on it, so introducing
@@ -518,21 +519,23 @@ proc _property_path_candidates {class_key partial} {
 # Checking "does this command have exactly one positional, and is *it*
 # file-typed" (not "which specific positional index is being typed") is
 # enough for every command wired into this so far (read_lef/read_def/
-# source/dump_png each take exactly one argument, full stop) - a future
+# source/dump_png each take exactly one positional argument) - a future
 # command with more than one positional, only some of them file-typed,
 # would need a real index-aware lookup instead of this presence check.
 proc _file_positional_name {command_name} {
     if {![dict exists $::command_help $command_name]} {
         return {}
     }
-    set options [dict get $::command_help $command_name options]
-    if {[llength $options] != 1} {
+    set positionals {}
+    foreach option [dict get $::command_help $command_name options] {
+        if {[string index [lindex $option 0] 0] eq "<"} {
+            lappend positionals $option
+        }
+    }
+    if {[llength $positionals] != 1} {
         return {}
     }
-    lassign [lindex $options 0] name meta
-    if {[string index $name 0] ne "<"} {
-        return {}
-    }
+    lassign [lindex $positionals 0] name meta
     if {[dict get $meta type] ne "file"} {
         return {}
     }
@@ -1334,31 +1337,66 @@ register_command_help get_antialiasing_enabled \
 # command would have (confirmed empirically: a variable a sourced script
 # sets lands in the right scope whether `source` is called at top level
 # or from inside another proc).
-rename read_lef _read_lef_cmd
-proc read_lef {path} {
-    if {$path eq "-help"} {
-        return "read_lef <path> \[-help\] - Reads a LEF file into the shared Technology/Library"
+# Shared by read_lef/read_def/read_verilog (NEW_FEATURES_SEPT_2026.md
+# item 4): pulls the required `-library <name>` flag out of `arglist`,
+# returning {library_name remaining_args}.
+proc _take_library_flag {command arglist} {
+    set library ""
+    set rest {}
+    set n [llength $arglist]
+    for {set i 0} {$i < $n} {incr i} {
+        set arg [lindex $arglist $i]
+        if {$arg eq "-library"} {
+            incr i
+            if {$i >= $n} {
+                error "$command: -library needs a library name"
+            }
+            set library [lindex $arglist $i]
+        } else {
+            lappend rest $arg
+        }
     }
-    return [_read_lef_cmd $path]
+    if {$library eq ""} {
+        error "$command: -library <name> is required"
+    }
+    return [list $library $rest]
+}
+
+rename read_lef _read_lef_cmd
+proc read_lef {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "read_lef -library <name> <path> \[-help\] - Reads a LEF file into the shared Technology and a named Library"
+    }
+    lassign [_take_library_flag read_lef $args] library positional
+    if {[llength $positional] != 1} {
+        error "read_lef: expected exactly one <path> argument, got \"$positional\""
+    }
+    return [_read_lef_cmd [lindex $positional 0] $library]
 }
 register_command_help read_lef \
-    "read_lef <path> \[-help\] - Reads a LEF file into the shared Technology/Library" \
-    "Reads one LEF file (a tech LEF, a macro LEF, or both combined) into this session's shared Root - callable multiple times to layer a tech file and one or more macro files. Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal." \
+    "read_lef -library <name> <path> \[-help\] - Reads a LEF file into the shared Technology and a named Library" \
+    "Reads one LEF file (a tech LEF, a macro LEF, or both combined) into this session's shared Root - callable multiple times to layer a tech file and one or more macro files. Every MACRO goes into the -library Library, created if it doesn't exist yet (at the first MACRO - a tech-only LEF creates none). A MACRO whose design already has an Abstract view (from any earlier read) is an error. Returns 0 on success; a nonzero code on a parse problem or error, with details logged via spdlog to the terminal." \
     {
+        {-library {type str required 1 description {Library to read the LEF's macros into - created if it doesn't exist}}}
         {<path> {type file required 1 description {LEF file to read}}}
     }
 
 rename read_def _read_def_cmd
-proc read_def {path} {
-    if {$path eq "-help"} {
-        return "read_def <path> \[-help\] - Reads a DEF file into a new Layout"
+proc read_def {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "read_def -library <name> <path> \[-help\] - Reads a DEF file into a new Layout in a named Library"
     }
-    return [_read_def_cmd $path]
+    lassign [_take_library_flag read_def $args] library positional
+    if {[llength $positional] != 1} {
+        error "read_def: expected exactly one <path> argument, got \"$positional\""
+    }
+    return [_read_def_cmd [lindex $positional 0] $library]
 }
 register_command_help read_def \
-    "read_def <path> \[-help\] - Reads a DEF file into a new Layout" \
-    "Reads one DEF file into a new Layout under this session's shared Root - the DEF's own referenced layers/macros must already be present (read the tech/macro LEF(s) first via read_lef). Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal." \
+    "read_def -library <name> <path> \[-help\] - Reads a DEF file into a new Layout in a named Library" \
+    "Reads one DEF file into a new Layout under this session's shared Root - the DEF's own referenced layers/macros must already be present (read the tech/macro LEF(s) first via read_lef). The DEF's DESIGN goes into the -library Library, created if it doesn't exist; an existing design of that name (e.g. from read_verilog) gains the Layout view instead, but one that already has a Layout is an error. Returns 0 on success; a nonzero code on a parse problem or error, with details logged via spdlog to the terminal." \
     {
+        {-library {type str required 1 description {Library to read the DEF's design into - created if it doesn't exist}}}
         {<path> {type file required 1 description {DEF file to read}}}
     }
 
@@ -1373,8 +1411,9 @@ register_command_help read_def \
 # {flag value} pairs.
 proc read_verilog {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
-        return "read_verilog -netlist|-rtl <path> \[<path> ...\] \[-help\] - Reads one or more SystemVerilog/Verilog files"
+        return "read_verilog -netlist|-rtl -library <name> <path> \[<path> ...\] \[-help\] - Reads one or more SystemVerilog/Verilog files"
     }
+    lassign [_take_library_flag read_verilog $args] library args
     set is_netlist -1
     set positional {}
     foreach arg $args {
@@ -1402,14 +1441,15 @@ proc read_verilog {args} {
     if {[llength $positional] < 1} {
         error "read_verilog: expected at least one <path> argument, got \"$args\""
     }
-    return [read_verilog_cmd [join $positional] $is_netlist]
+    return [read_verilog_cmd [join $positional] $is_netlist $library]
 }
 register_command_help read_verilog \
-    "read_verilog -netlist|-rtl <path> \[<path> ...\] \[-help\] - Reads one or more SystemVerilog/Verilog files" \
-    "Reads one or more files, all elaborated together in one slang compilation, into this session's shared Root, populating Schematic/Port/Net/Instance/Pin. -netlist requires accurate parameter/generate elaboration (does not tolerate errors in structural content, though an unresolvable module instantiation on its own doesn't fail the read) - it also automatically generates a stub Verilog module (see write_verilog_stubs) for every Design already read via read_lef that has no real Verilog of its own, and includes it in this same elaboration, so a gate-level netlist's own leaf-cell/macro instantiations (standard cells, SRAMs, ...) resolve for real with no extra step; -rtl tolerates invalid/unsupported content by storing it as a logic-cloud Instance (see the Instance klass's own rtl_text field) and never generates stubs (it doesn't elaborate at all). Reading further files later calls this again - each call's own get-or-create-by-name Design/Schematic handling makes that work naturally, though only files given to the *same* call (stubs included) share one elaboration. Automatically re-links any newly-resolvable Instance against Designs already in this session (see link). Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal." \
+    "read_verilog -netlist|-rtl -library <name> <path> \[<path> ...\] \[-help\] - Reads one or more SystemVerilog/Verilog files" \
+    "Reads one or more files, all elaborated together in one slang compilation, into this session's shared Root, populating Schematic/Port/Net/Instance/Pin. -netlist requires accurate parameter/generate elaboration (does not tolerate errors in structural content, though an unresolvable module instantiation on its own doesn't fail the read) - it also automatically generates a stub Verilog module (see write_verilog_stubs) for every Design already read via read_lef that has no real Verilog of its own, and includes it in this same elaboration, so a gate-level netlist's own leaf-cell/macro instantiations (standard cells, SRAMs, ...) resolve for real with no extra step; -rtl tolerates invalid/unsupported content by storing it as a logic-cloud Instance (see the Instance klass's own rtl_text field) and never generates stubs (it doesn't elaborate at all). New designs go into the -library Library, created if it doesn't exist; a module whose design already exists (e.g. from read_lef) gains the Schematic view instead, but one that already has a Schematic is an error that fails the read before anything is created. Reading further files later calls this again, though only files given to the *same* call (stubs included) share one elaboration. Automatically re-links any newly-resolvable Instance against Designs already in this session (see link). Returns 0 on success; a nonzero code on a parse problem, with details logged via spdlog to the terminal." \
     {
         {-netlist {type flag required 0 description {Full-elaboration flavor for a gate-level netlist}}}
         {-rtl {type flag required 0 description {Syntax-only flavor, tolerant of invalid/unsupported content}}}
+        {-library {type str required 1 description {Library to read new designs into - created if it doesn't exist}}}
         {<path> {type file... required 1 description {One or more SystemVerilog/Verilog files to read together}}}
     }
 

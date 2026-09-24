@@ -27,7 +27,7 @@ proc check {what expected actual} {
     puts "ok: $what = {$actual}"
 }
 
-check "read_lef return code" 0 [read_lef $lef_path]
+check "read_lef return code" 0 [read_lef -library testcell $lef_path]
 check "design_count" 1 [design_count]
 
 open_design TESTCELL

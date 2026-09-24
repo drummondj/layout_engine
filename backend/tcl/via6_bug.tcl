@@ -1,6 +1,6 @@
-read_lef ../test_data/ISPD22__final_benchmarks/__Nangate/NangateOpenCellLibrary.lef
-read_def ../test_data/ISPD22__final_benchmarks/AES_1/design_original.def
-read_def ../test_data/aes_5x5.def
+read_lef -library nangate ../test_data/ISPD22__final_benchmarks/__Nangate/NangateOpenCellLibrary.lef
+read_def -library aes_1 ../test_data/ISPD22__final_benchmarks/AES_1/design_original.def
+read_def -library aes_5x5 ../test_data/aes_5x5.def
 show_gui
 set_hierarchy_depth 2
 open_design aes -view layout

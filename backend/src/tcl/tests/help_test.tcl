@@ -243,8 +243,8 @@ file delete -force $scratch_dir
 # (BUGS_AND_ENHANCEMENTS.md E11 - the three commands E11 needed a real
 # command_help registration for anyway) ---
 
-check_contains "read_lef -help returns its own usage text" [read_lef -help] "read_lef <path>"
-check_contains "read_def -help returns its own usage text" [read_def -help] "read_def <path>"
+check_contains "read_lef -help returns its own usage text" [read_lef -help] "read_lef -library <name> <path>"
+check_contains "read_def -help returns its own usage text" [read_def -help] "read_def -library <name> <path>"
 check_contains "source -help returns its own usage text" [source -help] "source <path>"
 check_contains "help r* now includes read_lef" [help r*] "read_lef"
 check_contains "help r* now includes read_def" [help r*] "read_def"

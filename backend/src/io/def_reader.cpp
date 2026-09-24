@@ -1,5 +1,6 @@
 #include <fmt/format.h>
 #include "def_reader.hpp"
+#include "../database/library_helpers.hpp"
 #include "../geometry/geometry.hpp"
 #include <cmath>
 #include <cstring>
@@ -388,18 +389,19 @@ namespace le
     {
         auto reader = static_cast<DEFReader *>(user_data);
 
-        reader->library_id_ = reader->root_->get_library_by_name(reader->library_name_);
-        if (!reader->library_id_.valid())
-            reader->library_id_ = reader->root_->create_library(LibraryData{.name = reader->library_name_});
+        // NEW_FEATURES_SEPT_2026.md item 4 - the named library, created if
+        // needed; the design by (global) name, created in that library if
+        // new - see get_or_create_design's own comment.
+        reader->library_id_ = get_or_create_library(*reader->root_, reader->library_name_);
+        reader->design_id_ = get_or_create_design(*reader->root_, reader->library_id_, name, "read_def");
 
-        reader->design_id_ = reader->root_->get_design_by_name(name);
-        if (!reader->design_id_.valid())
-            reader->design_id_ = reader->root_->create_design(DesignData{.library = reader->library_id_, .name = name});
-
+        // Each view can only be read once per design - a real error that
+        // aborts the read (it used to log and carry on with no Layout,
+        // silently dropping everything after DESIGN).
         if (reader->root_->get_design_layout(reader->design_id_).valid())
         {
-            log_error("DEF DESIGN {} already has a Layout - re-reading a DEF file into the same design is not supported.", name);
-            return 0;
+            log_error("read_def: design {} already has a Layout view - each view can only be read once per design.", name);
+            return 1;
         }
         reader->layout_id_ = reader->root_->create_layout(LayoutData{.design = reader->design_id_});
         return 0;

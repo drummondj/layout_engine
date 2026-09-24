@@ -32,7 +32,7 @@ proc check {what expected actual} {
 load $module_path le_tcl
 source $procs_path
 
-check "read_lef return code" 0 [read_lef $lef_path]
+check "read_lef return code" 0 [read_lef -library testcell $lef_path]
 
 set library [create_library -name lib]
 set design [create_design -library $library -name TOP]

@@ -42,7 +42,7 @@ proc check_true {what condition} {
 load $module_path le_tcl
 source $procs_path
 
-check "read_lef return code" 0 [read_lef $lef_path]
+check "read_lef return code" 0 [read_lef -library testcell $lef_path]
 
 set abstract_id [design_abstract_id 0]
 check_true "design_abstract_id is valid" [expr {$abstract_id != $kInvalidId}]
@@ -450,7 +450,7 @@ puts "ok: update_abstract with zero flags fails"
 # section below, which already expects it loaded by the time it gets
 # there. ---
 
-check "read_lef (othercell.lef) return code" 0 [read_lef $other_lef_path]
+check "read_lef (othercell.lef) return code" 0 [read_lef -library othercell $other_lef_path]
 set other_abstract_token [get_abstracts -of design:OTHERCELL]
 check_true "other_abstract_token is a friendly id" [expr {$other_abstract_token ne {}}]
 

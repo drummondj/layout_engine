@@ -27,7 +27,7 @@ proc check {what expected actual} {
 load $module_path le_tcl
 source $procs_path
 
-check "read_verilog -netlist return code" 0 [read_verilog -netlist $sv_path]
+check "read_verilog -netlist return code" 0 [read_verilog -netlist -library sv_lib $sv_path]
 
 set top_tokens [get_designs top]
 check "get_designs top count" 1 [llength $top_tokens]
