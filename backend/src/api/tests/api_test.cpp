@@ -878,6 +878,55 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutRendersThePlacedInstancesOwnContent)
     EXPECT_TRUE(region_has_opaque_pixel(buffer, 21, 21, 79, 79));
 }
 
+// PLACEMENT_NAME draws only the label and PLACEMENT_BOUNDARY only the
+// outline - PLACEMENT_NAME used to stroke its own label reference rect
+// too, so hiding PLACEMENT_BOUNDARY still left a gray outline behind.
+TEST_F(ApiFixture, PlacementNameDrawsOnlyTheLabelAndPlacementBoundaryDrawsTheOutline)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+    ASSERT_NE(le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr).index, UINT32_MAX);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_hierarchy_depth(handle, 1);
+    le_set_viewport_size(handle, 200, 200);
+    le_fit_rect(handle, -5.0, -5.0, 15.0, 15.0, 0); // TESTCELL's 10um x 10um spans pixels ~50-150
+
+    // Alpha > 64, not merely nonzero: a faint alpha-1 line along the
+    // placement's left edge shows up even with every purpose hidden.
+    auto region_has_visible_pixel = [](const LePixelBuffer &buffer, int x0, int y0, int x1, int y1)
+    {
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+                if (buffer.data[static_cast<size_t>(y) * static_cast<size_t>(buffer.row_bytes) + static_cast<size_t>(x) * 4 + 3] > 64)
+                    return true;
+        return false;
+    };
+
+    auto show_only = [&](int32_t purpose)
+    {
+        for (int32_t i = 0; i < le_purpose_count(handle); ++i)
+            le_set_purpose_visible(handle, le_purpose_at(handle, i), le_purpose_at(handle, i) == purpose ? 1 : 0);
+    };
+
+    // The placement's left edge (x ~50), well above the bottom-left-
+    // anchored label and clear of the grid dots (every 50px).
+    show_only(12 /* PLACEMENT_BOUNDARY */);
+    LePixelBuffer boundary_only = le_render_pixel_buffer(handle);
+    ASSERT_NE(boundary_only.data, nullptr);
+    EXPECT_TRUE(region_has_visible_pixel(boundary_only, 45, 60, 55, 95));
+
+    show_only(11 /* PLACEMENT_NAME */);
+    LePixelBuffer name_only = le_render_pixel_buffer(handle);
+    ASSERT_NE(name_only.data, nullptr);
+    EXPECT_TRUE(region_has_visible_pixel(name_only, 55, 120, 120, 148)); // the label itself
+    EXPECT_FALSE(region_has_visible_pixel(name_only, 45, 60, 55, 95)); // but no outline
+}
+
 TEST_F(ApiFixture, SetCurrentDesignLayoutClearsTheAbstractViewAndViceVersa)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
@@ -1205,6 +1254,57 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersARouteOwnShapeOverAPlacementsBou
     le_mouse_up(handle, 40, 60);
     ASSERT_EQ(le_selection_count(handle), 1); // no shift held - replaces the previous selection
     EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_PLACEMENT);
+}
+
+// A placement is picked through its PLACEMENT_BOUNDARY outline - hiding
+// that purpose, or making it unselectable, stops both click and drag
+// selection from picking the placement up.
+TEST_F(ApiFixture, PlacementsAreSelectableOnlyWhilePlacementBoundaryIsVisibleAndSelectable)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+    ASSERT_NE(le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr).index, UINT32_MAX);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_hierarchy_depth(handle, 1);
+    le_set_viewport_size(handle, 100, 100);
+    le_zoom(handle, 0.005 - 1.0, 0, 100); // same setup as the Route version above: (8,8) um is pixel (40,60)
+
+    auto click = [&]
+    {
+        le_deselect_all(handle);
+        le_mouse_down(handle, 40, 60);
+        le_mouse_up(handle, 40, 60);
+        return le_selection_count(handle);
+    };
+    auto drag = [&]
+    {
+        le_deselect_all(handle);
+        le_mouse_down(handle, -5, 105); // encloses the whole 0-10um placement
+        le_mouse_up(handle, 60, 40);
+        return le_selection_count(handle);
+    };
+
+    ASSERT_EQ(click(), 1);
+    EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_PLACEMENT);
+    ASSERT_EQ(drag(), 1);
+    EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_PLACEMENT);
+
+    le_set_purpose_visible(handle, 12 /* PLACEMENT_BOUNDARY */, 0);
+    EXPECT_EQ(click(), 0);
+    EXPECT_EQ(drag(), 0);
+
+    le_set_purpose_visible(handle, 12, 1);
+    le_set_purpose_selectable(handle, 12, 0);
+    EXPECT_EQ(click(), 0);
+    EXPECT_EQ(drag(), 0);
+
+    le_set_purpose_selectable(handle, 12, 1);
+    EXPECT_EQ(click(), 1);
 }
 
 TEST_F(ApiFixture, MouseClickInLayoutViewSelectsAPhysicalPortOwnShape)

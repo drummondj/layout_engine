@@ -308,7 +308,7 @@ TEST_F(ViewStyleFixture, PlacementNameRowHasASingleColumnNoLayerAndIsOneShadeLig
     EXPECT_EQ(placement_name->style.fill_color.a, 0);
 }
 
-TEST_F(ViewStyleFixture, PlacementBoundaryRowHasASingleColumnNoLayerAndIsDashed)
+TEST_F(ViewStyleFixture, PlacementBoundaryRowHasASingleColumnNoLayerAndIsSolidPlacementNameGray)
 {
     // HierarchyResolverStage's own collect_layout_content draws one of
     // these per Placement, alongside (but independently toggleable from)
@@ -320,8 +320,16 @@ TEST_F(ViewStyleFixture, PlacementBoundaryRowHasASingleColumnNoLayerAndIsDashed)
     const ViewLayerData *placement_boundary = view_layers.get(placement_boundary_row.columns[0].id);
     ASSERT_NE(placement_boundary, nullptr);
     EXPECT_FALSE(placement_boundary->layer.valid());
-    EXPECT_TRUE(placement_boundary->style.dashed);
+    EXPECT_FALSE(placement_boundary->style.dashed);
     EXPECT_EQ(placement_boundary->style.fill_color.a, 0);
+
+    // The same gray as PLACEMENT_NAME's label - PLACEMENT_BOUNDARY owns
+    // the outline PLACEMENT_NAME used to draw itself.
+    const ViewLayerData *placement_name = view_layers.get(view_layers.placement_name_view_layer());
+    ASSERT_NE(placement_name, nullptr);
+    EXPECT_EQ(placement_boundary->style.outline_color.r, placement_name->style.outline_color.r);
+    EXPECT_EQ(placement_boundary->style.outline_color.g, placement_name->style.outline_color.g);
+    EXPECT_EQ(placement_boundary->style.outline_color.b, placement_name->style.outline_color.b);
 }
 
 TEST_F(ViewStyleFixture, RowGCellGridAndPlacementBlockagePseudoRowsEachHaveTheirOwnSingleColumnAndNoLayer)

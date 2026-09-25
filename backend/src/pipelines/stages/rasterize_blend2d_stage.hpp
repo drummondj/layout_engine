@@ -751,6 +751,12 @@ namespace le
                         ctx.stroke_rect(rect);
                         continue;
                     }
+                    // A PLACEMENT_NAME rect is only the label's own
+                    // reference box (width-fit truncation below) - the
+                    // visible outline belongs to PLACEMENT_BOUNDARY, so
+                    // hiding that row really hides it.
+                    if (is_placement_name_layer)
+                        continue;
                     if (has_fill)
                         ctx.fill_rect(rect);
                     ctx.stroke_rect(rect);

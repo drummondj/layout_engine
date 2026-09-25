@@ -603,16 +603,14 @@ namespace le
             return ViewLayerStyle{.outline_color = {220, 220, 220, 255}, .fill_color = {0, 0, 0, 0}};
         }
 
-        // A distinct, cooler hue from placement_name_style()'s own warm
-        // gray - the two are drawn together (see build_for_technology's
-        // own comment) but toggled independently, so they need to read as
-        // visually separate, not shades of the same color. No fill (an
-        // outline of the placement's own already-drawn instance content,
-        // not a region to tint) - dashed, same "boundary of something,
-        // not real geometry" treatment GCELLGRID's own outline uses.
+        // Same light gray as placement_name_style() - the outline and the
+        // label inside it read as one placement, just toggled
+        // independently (see build_for_technology's own comment). No fill
+        // (an outline of the placement's own already-drawn instance
+        // content, not a region to tint).
         static ViewLayerStyle placement_boundary_style()
         {
-            return ViewLayerStyle{.outline_color = {80, 180, 220, 255}, .fill_color = {0, 0, 0, 0}, .dashed = true};
+            return ViewLayerStyle{.outline_color = {220, 220, 220, 255}, .fill_color = {0, 0, 0, 0}};
         }
 
         // Faint translucent blue outline, no fill - DEF GCELLGRID is a
@@ -646,8 +644,7 @@ namespace le
 
         // Bright light blue: clear of every palette entry (nearest are cyan
         // {0,255,255}, medium turquoise {72,209,204} and light blue
-        // {100,100,255}) and brighter than placement_boundary_style()'s
-        // muted {80,180,220}, which is also dashed and unfilled. Readable
+        // {100,100,255}). Readable
         // on both the GUI's black canvas and dump_png's light one, which
         // pure white wasn't. Solid outline plus a reduced-alpha fill, so
         // overlapping debug shapes and the geometry under them stay visible.

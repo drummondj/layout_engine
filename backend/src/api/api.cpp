@@ -240,6 +240,15 @@ namespace
         return layer && handle->is_view_layer_visible(layer->name, purpose) && handle->is_view_layer_selectable(layer->name, purpose);
     }
 
+    // Placements are selectable only while their PLACEMENT_BOUNDARY
+    // outline is visible and selectable - the outline is what a user
+    // sees and picks (PLACEMENT_NAME is just the label inside it).
+    bool placements_selectable(const LeHandle *handle)
+    {
+        return handle->is_view_layer_visible("PLACEMENT_BOUNDARY", le::ViewLayerPurpose::PLACEMENT_BOUNDARY) &&
+               handle->is_view_layer_selectable("PLACEMENT_BOUNDARY", le::ViewLayerPurpose::PLACEMENT_BOUNDARY);
+    }
+
     // Every selectable via whose hit box contains dbu `p`, smallest first
     // (a via stacked inside a bigger one comes before it).
     std::vector<LeHandle::ShapePiece> hit_test_via_point_all(const LeHandle *handle, le::Point p)
@@ -3652,8 +3661,9 @@ extern "C"
         {
             add_pieces(le::hit_test_layout_point_all(handle->root, handle->view_layers, layout_id, p, handle->scale(), is_selectable));
             const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
-            for (const le::PlacementId placement_id : le::hit_test_placements_point_all(handle->root, layout_id, remaining_depth, p))
-                objects.emplace_back(placement_id);
+            if (placements_selectable(handle))
+                for (const le::PlacementId placement_id : le::hit_test_placements_point_all(handle->root, layout_id, remaining_depth, p))
+                    objects.emplace_back(placement_id);
         }
         else
             add_pieces(le::hit_test_abstract_point_all(handle->root, handle->view_layers, handle->current_abstract(), p, handle->scale(), is_selectable));
@@ -3809,8 +3819,9 @@ extern "C"
                 .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
             };
 
-            for (le::PlacementId placement_id : le::hit_test_placements_rect(handle->root, layout_id, remaining_depth, drag_rect))
-                handle->select(placement_id);
+            if (placements_selectable(handle))
+                for (le::PlacementId placement_id : le::hit_test_placements_rect(handle->root, layout_id, remaining_depth, drag_rect))
+                    handle->select(placement_id);
 
             for (const le::AbstractHitPiece &hit : le::hit_test_layout_rect(handle->root, handle->view_layers, layout_id, drag_rect, handle->scale(), is_selectable))
                 handle->select(hit.shape_id, hit.piece_kind, hit.piece_index);
