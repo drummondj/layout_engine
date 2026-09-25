@@ -5954,3 +5954,146 @@ TEST_F(ApiFixture, FlightlineMaxFanoutDefaultsToTenAndRejectsNegativeValues)
     EXPECT_EQ(le_flightline_max_fanout(handle), 0);
     EXPECT_EQ(le_flightline_max_fanout(nullptr), 0);
 }
+
+// --- NEW_FEATURES_SEPT_2026.md item 6: selecting and moving vias ---
+
+namespace
+{
+    // via_cell.lef's VIACELL open in the Abstract view at 50 dbu/px, pan
+    // (0,0) - pixel (x,y) = um (x/20, (200-y)/20). Pin A's port Shape has an
+    // M1 rect at (1,1)-(3,3)um and a VIA12 (1um square) at (7,7)um =
+    // pixel (140, 60).
+    LeShapeId open_via_cell(LeHandle *handle, const std::string &lef_path)
+    {
+        le_read_lef(handle, lef_path.c_str(), "via_cell");
+        le_set_current_design_abstract(handle, 0);
+        const LeAbstractId abstract_id = le_library_design_at(handle, 0, 0).abstract_id;
+        const LeTerminalId terminal = le_abstract_terminals_at(handle, abstract_id, 0);
+        le_set_viewport_size(handle, 200, 200);
+        le_zoom(handle, 0.02 - 1.0, 0, 200);
+        return le_terminal_port_shapes_at(handle, le_terminal_ports_at(handle, terminal, 0), 0);
+    }
+}
+
+// A click on the via selects it (the via piece alone, not the pin's
+// rect), and the selection outline traces its geometry.
+TEST_F(ApiFixture, ClickingAViaSelectsItAndOutlinesIt)
+{
+    open_via_cell(handle, fixture_path("via_cell.lef"));
+
+    // Hovering it outlines it in yellow (left edge at pixel 130).
+    le_set_mouse_position(handle, 140, 60);
+    const LePixelBuffer hover_buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(hover_buffer.data, nullptr);
+    EXPECT_TRUE(region_has_yellow_hover_pixel(hover_buffer, 128, 55, 132, 65));
+
+    le_mouse_down(handle, 140, 60);
+    le_mouse_up(handle, 140, 60);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_SHAPE);
+    le_set_mouse_position(handle, 5, 195); // off the via, so its yellow hover outline doesn't cover the white selection one
+
+    // The white outline runs along the via's 1um square: its left edge at
+    // x = 6.5um = pixel 130.
+    const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_white_selection_pixel(buffer, 128, 55, 132, 65));
+    // ...and the pin's rect (x 20..60px) isn't outlined.
+    EXPECT_FALSE(region_has_white_selection_pixel(buffer, 18, 150, 22, 170));
+
+    // A drag-select around just the via selects just it too.
+    le_mouse_down(handle, 120, 40);
+    le_set_mouse_position(handle, 160, 80);
+    le_mouse_up(handle, 160, 80);
+    EXPECT_EQ(le_selection_count(handle), 1);
+}
+
+// Move a selected via: its origin moves (the pin's rect stays), shown by a
+// ghost first, as one undoable edit.
+TEST_F(ApiFixture, MovingASelectedViaMovesItsOriginAndIsUndoable)
+{
+    const LeShapeId shape_id = open_via_cell(handle, fixture_path("via_cell.lef"));
+    le_mouse_down(handle, 140, 60);
+    le_mouse_up(handle, 140, 60);
+    ASSERT_EQ(le_selection_count(handle), 1);
+
+    le_set_mode(handle, LE_MODE_EDIT);
+    le_arm_move(handle);
+    le_set_minor_grid_spacing(handle, 100);
+    le_set_mouse_position(handle, 140, 60); // anchor at (7,7)um
+    le_mouse_down(handle, 140, 60);
+    le_mouse_up(handle, 140, 60);
+    le_set_mouse_position(handle, 140, 100); // (7,5)um - a 2um move down
+
+    // Ghost: the via's square around (7,5)um = pixel (140,100), its top edge at y = 5.5um = pixel 90.
+    const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_move_ghost_pixel(buffer, 132, 88, 148, 92));
+
+    le_mouse_down(handle, 140, 100);
+    le_mouse_up(handle, 140, 100);
+
+    const LeRectUm rect = le_shape_rect_at(handle, shape_id, 0);
+    EXPECT_DOUBLE_EQ(rect.ll_x_um, 1.0); // the pin's rect didn't move
+    EXPECT_DOUBLE_EQ(rect.ur_y_um, 3.0);
+
+    // Selecting the via again at its new place proves the move landed.
+    le_set_mode(handle, LE_MODE_SELECT);
+    le_deselect_all(handle);
+    le_mouse_down(handle, 140, 100);
+    le_mouse_up(handle, 140, 100);
+    EXPECT_EQ(le_selection_count(handle), 1);
+
+    ASSERT_NE(le_undo(handle), 0);
+    le_deselect_all(handle);
+    le_mouse_down(handle, 140, 100);
+    le_mouse_up(handle, 140, 100);
+    EXPECT_EQ(le_selection_count(handle), 0); // back at (7,7) - nothing at (7,5)
+    le_mouse_down(handle, 140, 60);
+    le_mouse_up(handle, 140, 60);
+    EXPECT_EQ(le_selection_count(handle), 1);
+}
+
+// Layout view: a DEF route's via (N1's VIA12 at (7,7)um, between an M1 wire
+// ending there and an M2 wire leaving it) is selected by a click - rather
+// than the M1 wire under it - and moves on its own.
+TEST_F(ApiFixture, ARoutesViaIsSelectableAndMovableInTheLayoutView)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("via_cell.lef").c_str(), "via_cell"), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("via_route.def").c_str(), "top"), 0);
+    LeDesignId top_design{.index = UINT32_MAX, .generation = 0};
+    for (int32_t l = 0; l < le_library_count(handle); ++l)
+        for (int32_t d = 0; d < le_library_design_count(handle, l); ++d)
+            if (std::string(le_library_design_at(handle, l, d).name) == "VIATOP")
+                top_design = le_library_design_at(handle, l, d).id;
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_viewport_size(handle, 200, 200);
+    le_zoom(handle, 0.02 - 1.0, 0, 200); // pixel (x,y) = um (x/20, (200-y)/20)
+
+    le_mouse_down(handle, 140, 60);
+    le_mouse_up(handle, 140, 60);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_white_selection_pixel(buffer, 128, 55, 132, 65));  // the via's outline
+    EXPECT_FALSE(region_has_white_selection_pixel(buffer, 55, 45, 65, 55));   // not the M1 wire's
+
+    le_set_mode(handle, LE_MODE_EDIT);
+    le_arm_move(handle);
+    le_set_minor_grid_spacing(handle, 100);
+    le_set_mouse_position(handle, 140, 60);
+    le_mouse_down(handle, 140, 60);
+    le_mouse_up(handle, 140, 60);
+    le_set_mouse_position(handle, 140, 100); // 2um down
+    le_mouse_down(handle, 140, 100);
+    le_mouse_up(handle, 140, 100);
+
+    le_set_mode(handle, LE_MODE_SELECT);
+    le_deselect_all(handle);
+    le_mouse_down(handle, 140, 100);
+    le_mouse_up(handle, 140, 100);
+    ASSERT_EQ(le_selection_count(handle), 1); // the via, now at (7,5)um - on the M2 wire, but the via wins
+    le_set_mouse_position(handle, 5, 195);
+    buffer = le_render_pixel_buffer(handle);
+    EXPECT_TRUE(region_has_white_selection_pixel(buffer, 128, 95, 132, 105));
+}

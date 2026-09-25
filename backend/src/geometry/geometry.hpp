@@ -945,6 +945,10 @@ namespace le
                 if (index < shape.paths.size())
                     piece.paths = {shape.paths[index]};
                 break;
+            case PieceKind::VIA:
+                if (index < shape.vias.size())
+                    piece.vias = {shape.vias[index]};
+                break;
             }
             return piece;
         }
@@ -964,6 +968,8 @@ namespace le
                 return index < shape.polygons.size();
             case PieceKind::PATH:
                 return index < shape.paths.size();
+            case PieceKind::VIA:
+                return index < shape.vias.size();
             }
             return false;
         }
@@ -991,6 +997,13 @@ namespace le
             case PieceKind::PATH:
                 if (index < data.paths.size())
                     data.paths[index] = transform(data.paths[index], offset);
+                break;
+            case PieceKind::VIA:
+                if (index < data.vias.size())
+                {
+                    data.vias[index].origin.x += offset.x;
+                    data.vias[index].origin.y += offset.y;
+                }
                 break;
             }
         }

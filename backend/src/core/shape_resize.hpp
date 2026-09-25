@@ -40,7 +40,7 @@ namespace le
         case ShapeSnapMode::TRACKS:
             return kind == PieceKind::PATH;
         }
-        return false;
+        return false; // unreachable
     }
 
     /// @brief One family of routing tracks: lines at `start + k * step`
@@ -316,6 +316,8 @@ namespace le
             const Point b = piece.paths.front().polygon.points[handle.edge + 1];
             return ResizeHandleSegment{a, b, classify(a, b)};
         }
+        case PieceKind::VIA: // a via has no edges to resize
+            return std::nullopt;
         }
         return std::nullopt;
     }
@@ -387,6 +389,8 @@ namespace le
                                               { return snap.snap_path_center(v, x_axis, path.width); });
             break;
         }
+        case PieceKind::VIA: // a via has no edges to resize
+            break;
         }
         return out;
     }
@@ -446,6 +450,10 @@ namespace le
         case PieceKind::PATH:
             if (index < data.paths.size() && !piece.paths.empty())
                 data.paths[index] = piece.paths.front();
+            break;
+        case PieceKind::VIA:
+            if (index < data.vias.size() && !piece.vias.empty())
+                data.vias[index] = piece.vias.front();
             break;
         }
     }

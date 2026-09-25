@@ -15,5 +15,7 @@ namespace le
         RECT,
         POLYGON,
         PATH,
+        VIA, // a plain via instance (Shape.vias - a named via at an origin);
+             // a via array (Shape.via_iterates) isn't a piece. NEW_FEATURES_SEPT_2026.md item 6.
     };
 }

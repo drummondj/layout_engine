@@ -517,7 +517,15 @@ none of these are duplicated here.
   toggleable `TERMINAL`/`OBSTRUCTION` visibility. Selection
   (`LeHandle::SelectedObject`) is `std::variant<ShapePiece, RowId,
   PlacementId, RegionId>` (E1) — extend the variant as more selectable
-  kinds need it rather than generalizing early. `LeHandle::Mode`
+  kinds need it rather than generalizing early. A via instance
+  (`Shape.vias`) is a `ShapePiece` of `PieceKind::VIA`
+  (NEW_FEATURES_SEPT_2026.md item 6): api.cpp hit-tests vias itself
+  (`hit_test_via_point`/`_rect` - its geometry comes from
+  `pipelines/via_shapes.hpp`, which `core` can't depend on), a via wins a
+  click over the wire under it, and Move moves its origin. The generated
+  `update_shape`/`apply_shape_snapshot` don't carry `vias`, so Shape edits
+  record `apply_shape_snapshot_with_vias` for undo. Via arrays
+  (`via_iterates`) aren't pieces. `LeHandle::Mode`
   (`SELECT`/`EDIT`/`RULER`, UPDATES.md items 11/13) is Select by default —
   Select is the only mode where `le_mouse_up` changes the current
   selection; Edit mode restricts mouse interaction to editing whatever is
