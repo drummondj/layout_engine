@@ -78,3 +78,18 @@ any purpose (harmless, and keeps scripts working).
 **Tests:** `GuiProviderFixture.OnlyPurposesWithSelectableObjectsOfferASelectableToggle`.
 Full suite: 843/843.
 
+## Item 10 — Library browser collapsed by default
+
+**Fix:** `library_browser.cpp` library nodes used `ImGuiTreeNodeFlags_DefaultOpen`;
+now a plain `TreeNode` (design nodes were already collapsed).
+
+**Judgment call:** collapsing by default would hide filter matches, so on
+the frame the filter text changes every still-shown library is opened
+(or, when the filter is cleared, collapsed again) via
+`SetNextItemOpen(..., ImGuiCond_Always)`. It only fires on the change, so
+nodes can still be toggled by hand while a filter is active.
+
+**Verified:** real GUI (`le_shell` + `show_gui`, AES_1 + Nangate) — both
+libraries start collapsed. No automated test: there's no headless ImGui
+harness in `src/gui/tests`, only `GuiProvider` state tests.
+

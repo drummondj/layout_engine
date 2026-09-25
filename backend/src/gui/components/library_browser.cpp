@@ -117,7 +117,12 @@ namespace le::gui
     {
         static char filter_buf[256] = "";
         ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputTextWithHint("##library_browser_filter", "filter", filter_buf, sizeof(filter_buf));
+        // Libraries start collapsed (NEW_FEATURES_SEPT_2026.md item 10).
+        // Editing the filter opens every library still shown (so its
+        // matches are visible) or, once cleared, collapses them again -
+        // only on the frame the text changes, so a library can still be
+        // collapsed/expanded by hand while a filter is active.
+        const bool filter_changed = ImGui::InputTextWithHint("##library_browser_filter", "filter", filter_buf, sizeof(filter_buf));
 
         const int32_t library_count = provider.library_count();
         if (library_count == 0)
@@ -165,7 +170,9 @@ namespace le::gui
                 continue;
             }
 
-            if (!ImGui::TreeNodeEx(library.name, ImGuiTreeNodeFlags_DefaultOpen))
+            if (filter_changed)
+                ImGui::SetNextItemOpen(filter_buf[0] != '\0', ImGuiCond_Always);
+            if (!ImGui::TreeNode(library.name))
             {
                 continue;
             }

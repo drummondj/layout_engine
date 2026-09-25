@@ -71,7 +71,7 @@ Then move the hierarchy depth and flight line limit into the new settings window
 
 There should be an option to save the settings into your home dir or a file of the users choosing, using a system file dialog. JSON is the prefered format.
 
-10. Library browser tree should be collapsed by default
+10. Library browser tree should be collapsed by default - DONE
 
 11. Let's just merge placementBoundary and placementName into one purpose called placement - DONE
 
