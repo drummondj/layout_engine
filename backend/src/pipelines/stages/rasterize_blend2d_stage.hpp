@@ -540,7 +540,7 @@ namespace le
         // 100% miss rate against this exact fact
         // (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md).
         const BLFontFace &font_face = default_blend2d_font_face();
-        const ViewLayerId placement_name_layer_id = view_layers.placement_name_view_layer();
+        const ViewLayerId placement_layer_id = view_layers.placement_view_layer();
 
         // Shared by both the generic per-shape text loop and the
         // placement-name branch below (draw_one_shape) - looks up
@@ -589,7 +589,7 @@ namespace le
             // and every other hand-written style literal sets one too) -
             // has_outline is unconditionally true for every real style
             // today, unlike has_fill (which genuinely varies - ROW/
-            // BOUNDARY/PLACEMENT_NAME/PLACEMENT_BOUNDARY/GCELLGRID/REGION
+            // BOUNDARY/PLACEMENT/GCELLGRID/REGION
             // all have no fill at all). draw_one_shape below therefore
             // draws the outline/stroke unconditionally rather than
             // re-checking has_outline on every single shape the way it
@@ -608,7 +608,7 @@ namespace le
                 continue;
 
             const bool is_cross = style.fill_pattern == FillPattern::CROSS;
-            const bool is_placement_name_layer = view_layer_id == placement_name_layer_id;
+            const bool is_placement_layer = view_layer_id == placement_layer_id;
 
             const BLRgba32 fill_color = to_bl_color(style.fill_color);
             const BLRgba32 stroke_color = to_bl_color(style.outline_color);
@@ -751,12 +751,6 @@ namespace le
                         ctx.stroke_rect(rect);
                         continue;
                     }
-                    // A PLACEMENT_NAME rect is only the label's own
-                    // reference box (width-fit truncation below) - the
-                    // visible outline belongs to PLACEMENT_BOUNDARY, so
-                    // hiding that row really hides it.
-                    if (is_placement_name_layer)
-                        continue;
                     if (has_fill)
                         ctx.fill_rect(rect);
                     ctx.stroke_rect(rect);
@@ -832,14 +826,14 @@ namespace le
                 if (!any_geometry_drawn)
                     return; // no visible geometry to attach a label to - draw nothing
 
-                if (is_placement_name_layer)
+                if (is_placement_layer)
                 {
                     // Placement name labels: floored/capped font size (no
                     // kLabelWidthRatio here - unlike a Terminal/ROUTE
                     // label, text.size already bakes in
                     // kPlacementLabelHeightRatio at construction time,
                     // hierarchy_resolver_stage.hpp's own
-                    // placement_name_shape), bottom-left-anchored with a
+                    // placement_shape), bottom-left-anchored with a
                     // small constant on-screen padding, truncated to fit
                     // the placement's own on-screen width via the
                     // index-paired shape.rects entry - see this function's

@@ -56,6 +56,30 @@ Vias are not selectable or moveable at the moment, so please add that feature.
 
 In a previous bug, the layer selection list contained layers that only have purposes. The layer list should only contain technology layers. Please make sure there is a regression test for this.
 
+8. Objects that not selectable should not have a selectable checkbox.
+
+9. Settings window
+
+Please add a setting window in the right side bar to change the following parameters:
+
+9.1. Major and minor grid spacing
+9.2. Ruler font size
+9.3. Label font size
+9.4 Any other settings? Please suggest.
+
+Then move the hierarchy depth and flight line limit into the new settings window.
+
+There should be an option to save the settings into your home dir or a file of the users choosing, using a system file dialog. JSON is the prefered format.
+
+10. Library browser tree should be collapsed by default
+
+11. Let's just merge placementBoundary and placementName into one purpose called placement - DONE
+
+12. Please allow via arrays to be selectable and moveable
+
+13. Please update the move tool so it has the same grid snapping options as resize for routes and vias.
+
+14. Resize tool button should be disabled when placements are selected
 
 
 

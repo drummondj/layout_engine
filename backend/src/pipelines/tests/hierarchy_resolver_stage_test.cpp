@@ -104,27 +104,16 @@ TEST_F(HierarchyResolverStageFixture, DepthZeroShowsOnlyTopLevelContent)
     const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
     EXPECT_TRUE(top_data.placement_data.empty());
 
-    // Still shows a PLACEMENT_BOUNDARY placeholder for block0 - its own
-    // footprint (sized via resolve_design_target for bbox purposes only -
-    // collect_layout_content's own placement-boundary comment) is real
-    // *data* about this Layout's own direct content, unaffected by
-    // whether anything past it ever gets resolved.
-    const ViewLayerId placement_boundary_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
-    const auto boundary_group_it = top_data.shapes->find(placement_boundary_layer);
-    ASSERT_NE(boundary_group_it, top_data.shapes->end());
-    ASSERT_EQ(boundary_group_it->second.size(), 1u);
-    EXPECT_TRUE(boundary_group_it->second[0].texts.empty()); // boundary Shape carries only the outline now - see placement_name_layer below
-
-    // The name label itself lives on its own dedicated PLACEMENT_NAME
-    // Shape/ViewLayer (view_style.hpp, BUGS_AND_ENHANCEMENTS.md E13) -
-    // split out from PLACEMENT_BOUNDARY so its own color/visibility is
-    // independently toggleable, matching pipelines.old's own
-    // draw_placement_labels/PLACEMENT_NAME split.
-    const auto name_group_it = top_data.shapes->find(view_layers.placement_name_view_layer());
-    ASSERT_NE(name_group_it, top_data.shapes->end());
-    ASSERT_EQ(name_group_it->second.size(), 1u);
-    ASSERT_EQ(name_group_it->second[0].texts.size(), 1u);
-    EXPECT_EQ(name_group_it->second[0].texts[0].label, "block0");
+    // Still shows a PLACEMENT placeholder (outline + name) for block0 -
+    // its own footprint (sized via resolve_design_target for bbox
+    // purposes only) is real *data* about this Layout's own direct
+    // content, unaffected by whether anything past it ever gets resolved.
+    const auto placement_group_it = top_data.shapes->find(view_layers.placement_view_layer());
+    ASSERT_NE(placement_group_it, top_data.shapes->end());
+    ASSERT_EQ(placement_group_it->second.size(), 1u);
+    ASSERT_EQ(placement_group_it->second[0].rects.size(), 1u);
+    ASSERT_EQ(placement_group_it->second[0].texts.size(), 1u);
+    EXPECT_EQ(placement_group_it->second[0].texts[0].label, "block0");
 }
 
 TEST_F(HierarchyResolverStageFixture, DepthOneResolvesTopLevelPlacementsButNotTheirOwn)
@@ -168,11 +157,10 @@ TEST_F(HierarchyResolverStageFixture, PlacementDataBboxMatchesPlacementBoundaryS
     EXPECT_EQ(bbox.ur.y, 1100);
 
     // Not just equal in value - the exact same bbox computed once and
-    // reused for the PLACEMENT_BOUNDARY placeholder shape's own rect
+    // reused for the PLACEMENT placeholder shape's own rect
     // (the whole point of folding this computation into one pass - see
     // the main compute() loop's own comment).
-    const ViewLayerId placement_boundary_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
-    const auto boundary_group_it = top_data.shapes->find(placement_boundary_layer);
+    const auto boundary_group_it = top_data.shapes->find(view_layers.placement_view_layer());
     ASSERT_NE(boundary_group_it, top_data.shapes->end());
     ASSERT_EQ(boundary_group_it->second.size(), 1u);
     const RenderShape &top_boundary_shape = boundary_group_it->second[0];
@@ -229,52 +217,37 @@ TEST_F(HierarchyResolverStageFixture, ShapesResolveExpectedViewLayers)
     EXPECT_TRUE(leaf_data.shapes->contains(view_layers.boundary_view_layer()));
 }
 
-TEST_F(HierarchyResolverStageFixture, AddsPlacementBoundaryShapesWithNameLabels)
+TEST_F(HierarchyResolverStageFixture, AddsPlacementShapesWithOutlinesAndNameLabels)
 {
     const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 1);
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options);
 
-    const ViewLayerId placement_boundary_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
-    ASSERT_TRUE(placement_boundary_layer.valid());
+    // Every placement in a Layout batches into a single PLACEMENT Shape
+    // (one rect + one Text per placement, index-paired - draw_view_shapes'
+    // own comment) rather than one Shape per placement - see the main
+    // compute() loop's own comment for why batching matters (measured
+    // allocation cost at real placement counts).
+    const ViewLayerId placement_layer = view_layers.placement_view_layer();
+    ASSERT_TRUE(placement_layer.valid());
 
-    // Every placement in a Layout batches into a single PLACEMENT_BOUNDARY
-    // Shape (one rect per placement) plus a single, separate
-    // PLACEMENT_NAME Shape (one rect + one Text per placement, index-
-    // paired with the boundary rects - draw_view_shapes' own comment)
-    // rather than one Shape per placement - see the main compute() loop's
-    // own comment for why batching matters (measured allocation cost at
-    // real placement counts), and view_style.hpp's own PLACEMENT_NAME
-    // purpose for why the label is its own Shape/ViewLayer rather than
-    // living on the boundary Shape itself (independent color/visibility,
-    // BUGS_AND_ENHANCEMENTS.md E13).
-    const ViewLayerId placement_name_layer = view_layers.placement_name_view_layer();
-    ASSERT_TRUE(placement_name_layer.valid());
-
-    // TOP has one placement (block0) - its own PLACEMENT_BOUNDARY shape
-    // holds block0's resolved world bbox (BLOCK's own declared 1000x1000
-    // size, translated by its location); its own PLACEMENT_NAME shape
-    // holds that same rect plus a Text labeled "block0".
+    // TOP has one placement (block0) - its rect is block0's resolved world
+    // bbox (BLOCK's own declared 1000x1000 size, translated by its
+    // location), its Text is labeled "block0".
     const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
-    const auto top_boundary_it = top_data.shapes->find(placement_boundary_layer);
-    ASSERT_NE(top_boundary_it, top_data.shapes->end());
-    ASSERT_EQ(top_boundary_it->second.size(), 1u);
-    const RenderShape &top_boundary_shape = top_boundary_it->second[0];
-    ASSERT_EQ(top_boundary_shape.rects.size(), 1u);
-    EXPECT_GT(top_boundary_shape.rects[0].ur.x, top_boundary_shape.rects[0].ll.x);
-    EXPECT_GT(top_boundary_shape.rects[0].ur.y, top_boundary_shape.rects[0].ll.y);
-    EXPECT_TRUE(top_boundary_shape.texts.empty());
-
-    const auto top_name_it = top_data.shapes->find(placement_name_layer);
-    ASSERT_NE(top_name_it, top_data.shapes->end());
-    ASSERT_EQ(top_name_it->second.size(), 1u);
-    const RenderShape &top_name_shape = top_name_it->second[0];
-    ASSERT_EQ(top_name_shape.texts.size(), 1u);
-    EXPECT_EQ(top_name_shape.texts[0].label, "block0");
+    const auto top_it = top_data.shapes->find(placement_layer);
+    ASSERT_NE(top_it, top_data.shapes->end());
+    ASSERT_EQ(top_it->second.size(), 1u);
+    const RenderShape &top_shape = top_it->second[0];
+    ASSERT_EQ(top_shape.rects.size(), 1u);
+    EXPECT_GT(top_shape.rects[0].ur.x, top_shape.rects[0].ll.x);
+    EXPECT_GT(top_shape.rects[0].ur.y, top_shape.rects[0].ll.y);
+    ASSERT_EQ(top_shape.texts.size(), 1u);
+    EXPECT_EQ(top_shape.texts[0].label, "block0");
 
     // BLOCK's own Layout has two placements (leaf0/leaf1) - one shared
-    // PLACEMENT_NAME shape with 2 rects/labels, not two shapes.
+    // PLACEMENT shape with 2 rects/labels, not two shapes.
     const ViewData &block_data = output.view_data.at(HierarchyId{block_layout});
-    const auto block_name_it = block_data.shapes->find(placement_name_layer);
+    const auto block_name_it = block_data.shapes->find(placement_layer);
     ASSERT_NE(block_name_it, block_data.shapes->end());
     ASSERT_EQ(block_name_it->second.size(), 1u);
     const RenderShape &block_name_shape = block_name_it->second[0];

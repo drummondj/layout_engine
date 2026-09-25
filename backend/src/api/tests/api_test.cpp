@@ -878,10 +878,9 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutRendersThePlacedInstancesOwnContent)
     EXPECT_TRUE(region_has_opaque_pixel(buffer, 21, 21, 79, 79));
 }
 
-// PLACEMENT_NAME draws only the label and PLACEMENT_BOUNDARY only the
-// outline - PLACEMENT_NAME used to stroke its own label reference rect
-// too, so hiding PLACEMENT_BOUNDARY still left a gray outline behind.
-TEST_F(ApiFixture, PlacementNameDrawsOnlyTheLabelAndPlacementBoundaryDrawsTheOutline)
+// The PLACEMENT purpose draws each placement's outline and name label,
+// and hiding it hides both.
+TEST_F(ApiFixture, PlacementPurposeDrawsTheOutlineAndLabelAndHidingItHidesBoth)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
@@ -914,17 +913,19 @@ TEST_F(ApiFixture, PlacementNameDrawsOnlyTheLabelAndPlacementBoundaryDrawsTheOut
     };
 
     // The placement's left edge (x ~50), well above the bottom-left-
-    // anchored label and clear of the grid dots (every 50px).
-    show_only(12 /* PLACEMENT_BOUNDARY */);
-    LePixelBuffer boundary_only = le_render_pixel_buffer(handle);
-    ASSERT_NE(boundary_only.data, nullptr);
-    EXPECT_TRUE(region_has_visible_pixel(boundary_only, 45, 60, 55, 95));
+    // anchored label and clear of the grid dots (every 50px); the label
+    // itself sits just inside the bottom-left corner.
+    show_only(11 /* PLACEMENT */);
+    LePixelBuffer shown = le_render_pixel_buffer(handle);
+    ASSERT_NE(shown.data, nullptr);
+    EXPECT_TRUE(region_has_visible_pixel(shown, 45, 60, 55, 95));    // outline
+    EXPECT_TRUE(region_has_visible_pixel(shown, 55, 120, 120, 148)); // label
 
-    show_only(11 /* PLACEMENT_NAME */);
-    LePixelBuffer name_only = le_render_pixel_buffer(handle);
-    ASSERT_NE(name_only.data, nullptr);
-    EXPECT_TRUE(region_has_visible_pixel(name_only, 55, 120, 120, 148)); // the label itself
-    EXPECT_FALSE(region_has_visible_pixel(name_only, 45, 60, 55, 95)); // but no outline
+    show_only(-1);
+    LePixelBuffer hidden = le_render_pixel_buffer(handle);
+    ASSERT_NE(hidden.data, nullptr);
+    EXPECT_FALSE(region_has_visible_pixel(hidden, 45, 60, 55, 95));
+    EXPECT_FALSE(region_has_visible_pixel(hidden, 55, 120, 120, 148));
 }
 
 TEST_F(ApiFixture, SetCurrentDesignLayoutClearsTheAbstractViewAndViceVersa)
@@ -1256,10 +1257,9 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersARouteOwnShapeOverAPlacementsBou
     EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_PLACEMENT);
 }
 
-// A placement is picked through its PLACEMENT_BOUNDARY outline - hiding
-// that purpose, or making it unselectable, stops both click and drag
-// selection from picking the placement up.
-TEST_F(ApiFixture, PlacementsAreSelectableOnlyWhilePlacementBoundaryIsVisibleAndSelectable)
+// Hiding the PLACEMENT purpose, or making it unselectable, stops both
+// click and drag selection from picking a placement up.
+TEST_F(ApiFixture, PlacementsAreSelectableOnlyWhilePlacementPurposeIsVisibleAndSelectable)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
@@ -1294,16 +1294,16 @@ TEST_F(ApiFixture, PlacementsAreSelectableOnlyWhilePlacementBoundaryIsVisibleAnd
     ASSERT_EQ(drag(), 1);
     EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_PLACEMENT);
 
-    le_set_purpose_visible(handle, 12 /* PLACEMENT_BOUNDARY */, 0);
+    le_set_purpose_visible(handle, 11 /* PLACEMENT */, 0);
     EXPECT_EQ(click(), 0);
     EXPECT_EQ(drag(), 0);
 
-    le_set_purpose_visible(handle, 12, 1);
-    le_set_purpose_selectable(handle, 12, 0);
+    le_set_purpose_visible(handle, 11, 1);
+    le_set_purpose_selectable(handle, 11, 0);
     EXPECT_EQ(click(), 0);
     EXPECT_EQ(drag(), 0);
 
-    le_set_purpose_selectable(handle, 12, 1);
+    le_set_purpose_selectable(handle, 11, 1);
     EXPECT_EQ(click(), 1);
 }
 
@@ -1514,29 +1514,22 @@ TEST_F(ApiFixture, LayerAtListsRowThenBoundaryThenEveryPhysicalLayer)
     // testcell.lef declares one physical Layer (M1) - the API doesn't
     // special-case BOUNDARY, it's just another row, so the count is
     // M1 + ROW + GCELLGRID + PLACEMENT_BLOCKAGE + REGION + BOUNDARY +
-    // PLACEMENT_NAME + PLACEMENT_BOUNDARY + DEBUG + FLIGHTLINE = 10 (Migration Step 2/3 plus
-    // BUGS_AND_ENHANCEMENTS.md E13 and view_style.hpp's own
-    // PLACEMENT_BOUNDARY purpose - see ViewLayerSet::build_for_technology).
-    // ROW then BOUNDARY then PLACEMENT_NAME then PLACEMENT_BOUNDARY come
-    // first (BUGS_AND_ENHANCEMENTS.md E8/E13 plus PLACEMENT_BOUNDARY's own
-    // "own row right after PLACEMENT_NAME" placement - this declaration
-    // order is also the real draw z-order, see ViewLayerSet::rows()'s own
-    // doc comment).
-    ASSERT_EQ(le_layer_count(handle), 10);
+    // PLACEMENT + DEBUG + FLIGHTLINE = 9 (Migration Step 2/3 plus
+    // BUGS_AND_ENHANCEMENTS.md E13 - see ViewLayerSet::build_for_technology).
+    // ROW then BOUNDARY then PLACEMENT come first (BUGS_AND_ENHANCEMENTS.md
+    // E8/E13 - this declaration order is also the real draw z-order, see
+    // ViewLayerSet::rows()'s own doc comment).
+    ASSERT_EQ(le_layer_count(handle), 9);
 
     const LeLayerRow boundary_row = le_layer_at(handle, 1);
     ASSERT_NE(boundary_row.name, nullptr);
     EXPECT_STREQ(boundary_row.name, "BOUNDARY");
 
-    const LeLayerRow placement_name_row = le_layer_at(handle, 2);
-    ASSERT_NE(placement_name_row.name, nullptr);
-    EXPECT_STREQ(placement_name_row.name, "PLACEMENT_NAME");
+    const LeLayerRow placement_row = le_layer_at(handle, 2);
+    ASSERT_NE(placement_row.name, nullptr);
+    EXPECT_STREQ(placement_row.name, "PLACEMENT");
 
-    const LeLayerRow placement_boundary_row = le_layer_at(handle, 3);
-    ASSERT_NE(placement_boundary_row.name, nullptr);
-    EXPECT_STREQ(placement_boundary_row.name, "PLACEMENT_BOUNDARY");
-
-    const LeLayerRow m1_row = le_layer_at(handle, 4);
+    const LeLayerRow m1_row = le_layer_at(handle, 3);
     ASSERT_NE(m1_row.name, nullptr);
     EXPECT_STREQ(m1_row.name, "M1");
 
@@ -1560,7 +1553,7 @@ TEST_F(ApiFixture, PurposeAtOutOfRangeReturnsInvalid)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
-    EXPECT_EQ(le_purpose_at(handle, 16), -1);
+    EXPECT_EQ(le_purpose_at(handle, 15), -1);
     EXPECT_EQ(le_purpose_at(handle, -1), -1);
 }
 
@@ -1578,32 +1571,27 @@ TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
     // pseudo-row). E8 moved ROW then BOUNDARY to the front (this walks
     // ViewLayerSet::rows() in its own declaration order, which is also the
     // real draw z-order - see that method's own doc comment); E13 added
-    // PLACEMENT_NAME right after BOUNDARY, its own pseudo-row; view_style.hpp's
-    // own PLACEMENT_BOUNDARY purpose (HierarchyResolverStage's placement
-    // footprint outline) added its own pseudo-row right after PLACEMENT_NAME,
-    // and - deliberately, per that purpose's own declaration comment - was
-    // appended *last* in le::ViewLayerPurpose's raw ordinal order rather
-    // than inserted alongside PLACEMENT_NAME, so no other purpose's own raw
-    // ordinal below shifted. The raw ordinal values below (le::ViewLayerPurpose's
-    // own declaration order, unrelated to and unchanged by this traversal
-    // order) are otherwise unaffected.
-    ASSERT_EQ(le_purpose_count(handle), 16);
+    // PLACEMENT right after BOUNDARY, its own pseudo-row (merged from
+    // PLACEMENT_NAME/PLACEMENT_BOUNDARY, keeping PLACEMENT_NAME's ordinal;
+    // CUSTOM_SHAPE and later shifted down by one). The raw ordinal values
+    // below are le::ViewLayerPurpose's own declaration order, unrelated to
+    // this traversal order.
+    ASSERT_EQ(le_purpose_count(handle), 15);
     EXPECT_EQ(le_purpose_at(handle, 0), 6);   // ROW
     EXPECT_EQ(le_purpose_at(handle, 1), 2);   // BOUNDARY
-    EXPECT_EQ(le_purpose_at(handle, 2), 11);  // PLACEMENT_NAME
-    EXPECT_EQ(le_purpose_at(handle, 3), 12);  // PLACEMENT_BOUNDARY
-    EXPECT_EQ(le_purpose_at(handle, 4), 0);   // TERMINAL
-    EXPECT_EQ(le_purpose_at(handle, 5), 1);   // OBSTRUCTION
-    EXPECT_EQ(le_purpose_at(handle, 6), 3);   // TRACK_PREFERRED
-    EXPECT_EQ(le_purpose_at(handle, 7), 4);   // TRACK_NON_PREFERRED
-    EXPECT_EQ(le_purpose_at(handle, 8), 5);   // ROUTING_BLOCKAGE
-    EXPECT_EQ(le_purpose_at(handle, 9), 9);   // ROUTE
-    EXPECT_EQ(le_purpose_at(handle, 10), 13); // CUSTOM_SHAPE
-    EXPECT_EQ(le_purpose_at(handle, 11), 7);  // GCELLGRID
-    EXPECT_EQ(le_purpose_at(handle, 12), 8);  // PLACEMENT_BLOCKAGE
-    EXPECT_EQ(le_purpose_at(handle, 13), 10); // REGION
-    EXPECT_EQ(le_purpose_at(handle, 14), 14); // DEBUG
-    EXPECT_EQ(le_purpose_at(handle, 15), 15); // FLIGHTLINE (NEW_FEATURES_SEPT_2026.md item 5)
+    EXPECT_EQ(le_purpose_at(handle, 2), 11);  // PLACEMENT
+    EXPECT_EQ(le_purpose_at(handle, 3), 0);   // TERMINAL
+    EXPECT_EQ(le_purpose_at(handle, 4), 1);   // OBSTRUCTION
+    EXPECT_EQ(le_purpose_at(handle, 5), 3);   // TRACK_PREFERRED
+    EXPECT_EQ(le_purpose_at(handle, 6), 4);   // TRACK_NON_PREFERRED
+    EXPECT_EQ(le_purpose_at(handle, 7), 5);   // ROUTING_BLOCKAGE
+    EXPECT_EQ(le_purpose_at(handle, 8), 9);   // ROUTE
+    EXPECT_EQ(le_purpose_at(handle, 9), 12);  // CUSTOM_SHAPE
+    EXPECT_EQ(le_purpose_at(handle, 10), 7);  // GCELLGRID
+    EXPECT_EQ(le_purpose_at(handle, 11), 8);  // PLACEMENT_BLOCKAGE
+    EXPECT_EQ(le_purpose_at(handle, 12), 10); // REGION
+    EXPECT_EQ(le_purpose_at(handle, 13), 13); // DEBUG
+    EXPECT_EQ(le_purpose_at(handle, 14), 14); // FLIGHTLINE (NEW_FEATURES_SEPT_2026.md item 5)
 }
 
 TEST_F(ApiFixture, LayerNameVisibilityDefaultsTrueAndRoundTrips)
@@ -5582,7 +5570,7 @@ TEST_F(ApiFixture, FreeShapeOnALayerRendersAndHidesWithTheCustomShapePurpose)
 
     EXPECT_TRUE(region_has_colored_pixel(le_render_pixel_buffer(handle), 50, 50, 150, 150));
 
-    le_set_purpose_visible(handle, 13 /* CUSTOM_SHAPE */, 0);
+    le_set_purpose_visible(handle, 12 /* CUSTOM_SHAPE */, 0);
     EXPECT_FALSE(region_has_colored_pixel(le_render_pixel_buffer(handle), 50, 50, 150, 150));
 }
 
@@ -5729,7 +5717,7 @@ TEST_F(ApiFixture, SelectedPlacementDrawsFlightlinesOnlyWhenTheFlightlinePurpose
     ASSERT_NE(buffer.data, nullptr);
     EXPECT_FALSE(region_has_flightline_pixel(buffer, 30, 87, 50, 93)); // hidden by default
 
-    le_set_purpose_visible(handle, /*FLIGHTLINE=*/15, 1);
+    le_set_purpose_visible(handle, /*FLIGHTLINE=*/14, 1);
     buffer = le_render_pixel_buffer(handle);
     ASSERT_NE(buffer.data, nullptr);
     EXPECT_TRUE(region_has_flightline_pixel(buffer, 30, 87, 50, 93));

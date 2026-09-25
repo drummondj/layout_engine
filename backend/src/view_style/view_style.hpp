@@ -52,22 +52,16 @@ namespace le
         REGION,             // DEF REGIONS - own pseudo-row, no Layer (Region has no color/
                              // style field of its own, same "no physical Layer" treatment as
                              // ROW/GCELLGRID)
-        PLACEMENT_NAME,     // A Placement's own name label (BUGS_AND_ENHANCEMENTS.md E13) -
-                             // own pseudo-row, no Layer, same "no physical Layer" treatment
-                             // as ROW/GCELLGRID/REGION - split out from BOUNDARY (which it
-                             // used to borrow its color from) so a label's own color/
-                             // visibility can be tuned independently of the boundary outline
-                             // itself.
-        PLACEMENT_BOUNDARY, // A Placement's own resolved footprint outline (HierarchyResolverStage's
-                             // own collect_layout_content, PIPELINE_REFACTOR.md) - own pseudo-row,
-                             // no Layer, same "no physical Layer" treatment as PLACEMENT_NAME, which
-                             // this is drawn alongside (the outline this purpose draws, the name
-                             // PLACEMENT_NAME draws) - kept as its own purpose rather than folded
-                             // into BOUNDARY so a placement's own footprint can be toggled
-                             // independently of a Design's own boundary/diearea outline. Appended
-                             // last, not inserted alongside PLACEMENT_NAME above - this enum's raw
-                             // ordinal crosses the C API (le_purpose_at, see this enum's own top
-                             // comment), so an existing member's ordinal must never shift.
+        PLACEMENT,          // A Placement's own resolved footprint outline plus its name
+                             // label (HierarchyResolverStage's collect_layout_content) - own
+                             // pseudo-row, no Layer, same "no physical Layer" treatment as
+                             // ROW/GCELLGRID/REGION. Kept apart from BOUNDARY so a placement's
+                             // footprint can be toggled independently of a Design's own
+                             // boundary/diearea outline. Was two purposes (PLACEMENT_NAME/
+                             // PLACEMENT_BOUNDARY) until they were merged on request; this
+                             // keeps PLACEMENT_NAME's ordinal, and every later ordinal shifted
+                             // down by one (api.hpp's le_purpose_at comment, layer_manager.cpp's
+                             // kPurposeNames and le_tcl_procs.tcl's ::purpose_names changed with it).
         CUSTOM_SHAPE,       // A free-standing Shape (Abstract/Layout.free_shapes - e.g. a shape_*
                              // TCL command's result) on a real Layer - contributes into that
                              // Layer's own row with its own color and fill, as its own column so
@@ -202,27 +196,11 @@ namespace le
             // Own row right after BOUNDARY, one shade lighter (same
             // "derives from the row above it, one shade lighter" relation
             // BOUNDARY itself has to ROW - see this block's own opening
-            // comment) - placement labels used to just borrow BOUNDARY's
-            // own color/alpha (BUGS_AND_ENHANCEMENTS.md E13); this gives
-            // them their own row instead.
-            set.placement_name_id_ = set.add("PLACEMENT_NAME", "PLACEMENT_NAME", ViewLayerPurpose::PLACEMENT_NAME, LayerId{}, placement_name_style());
+            // comment): each placement's footprint outline and name label.
+            set.placement_id_ = set.add("PLACEMENT", "PLACEMENT", ViewLayerPurpose::PLACEMENT, LayerId{}, placement_style());
             set.rows_.push_back(ViewLayerRow{
-                .name = "PLACEMENT_NAME",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PLACEMENT_NAME, .id = set.placement_name_id_}},
-            });
-
-            // Own row right after PLACEMENT_NAME - the outline this
-            // purpose draws and the name PLACEMENT_NAME draws are two
-            // independently toggleable treatments of the same placement,
-            // so they sit next to each other here the same way TERMINAL/
-            // OBSTRUCTION sit together per physical Layer below. No
-            // dedicated accessor (unlike boundary_view_layer()/
-            // placement_name_view_layer()) - resolved via find(LayerId{},
-            // ...) at the call site, same as ROW/GCELLGRID/REGION.
-            const ViewLayerId placement_boundary_id = set.add("PLACEMENT_BOUNDARY", "PLACEMENT_BOUNDARY", ViewLayerPurpose::PLACEMENT_BOUNDARY, LayerId{}, placement_boundary_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "PLACEMENT_BOUNDARY",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PLACEMENT_BOUNDARY, .id = placement_boundary_id}},
+                .name = "PLACEMENT",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PLACEMENT, .id = set.placement_id_}},
             });
 
             for (LayerId layer_id : root.get_technology_layers(technology_id))
@@ -369,7 +347,7 @@ namespace le
         }
 
         ViewLayerId boundary_view_layer() const { return boundary_id_; }
-        ViewLayerId placement_name_view_layer() const { return placement_name_id_; }
+        ViewLayerId placement_view_layer() const { return placement_id_; }
 
         /// @brief Identifies *which* built ViewLayerSet this is - distinct
         /// from every other one build_for_technology() has ever produced,
@@ -390,7 +368,7 @@ namespace le
         std::vector<ViewLayerId> all() const { return pool_.ids(); }
 
         /// @brief Every row of a layer visibility/selectability widget, in
-        /// declaration order (ROW, then BOUNDARY, then PLACEMENT_NAME, then
+        /// declaration order (ROW, then BOUNDARY, then PLACEMENT, then
         /// physical Layers in their LEF-declared bottom-up stacking order,
         /// then GCELLGRID/PLACEMENT_BLOCKAGE/REGION -
         /// BUGS_AND_ENHANCEMENTS.md E8/E13) - see ViewLayerRow's own
@@ -405,20 +383,15 @@ namespace le
         /// first, assigned in strict call order by `add()` below) - so
         /// BOUNDARY sitting between ROW and the physical layers here is
         /// exactly what puts it "below every technology layer but above
-        /// rows" on screen. PLACEMENT_NAME is the one exception: no real
-        /// Shape is ever tagged with it (a Placement has no ViewLayer/
-        /// purpose of its own to draw real geometry in), so this insertion
-        /// position only governs its listing position in this row list
-        /// (and le_purpose_at's own index order) - its actual draw order
-        /// is decided separately, by draw_placement_labels's own call site
-        /// in BuildLayoutPictureStage::run.
+        /// rows" on screen; PLACEMENT (HierarchyResolverStage's
+        /// placement outlines and labels) follows the same rule.
         const std::vector<ViewLayerRow> &rows() const { return rows_; }
 
         /// @brief Every distinct ViewLayerPurpose present across every row,
         /// in first-encountered order (rows() order - ROW/BOUNDARY/
-        /// PLACEMENT_NAME, then LEF declaration order, then GCELLGRID/
+        /// PLACEMENT, then LEF declaration order, then GCELLGRID/
         /// PLACEMENT_BLOCKAGE/REGION) with duplicates removed, e.g. {ROW,
-        /// BOUNDARY, PLACEMENT_NAME, TERMINAL, OBSTRUCTION} for a typical
+        /// BOUNDARY, PLACEMENT, TERMINAL, OBSTRUCTION} for a typical
         /// Technology. The "columns"
         /// axis of a layer visibility/selectability widget - deliberately
         /// not scoped to any one row/layer, since Scene's own visibility/
@@ -595,20 +568,11 @@ namespace le
         // BUGS_AND_ENHANCEMENTS.md E13 - one shade lighter than
         // boundary_style()'s own color (same "derives from the row above
         // it, one shade lighter" relation boundary_style() itself has to
-        // row_style()), so a placement's own name label reads as related
-        // to, but distinct from, the boundary outline it sits inside. No
-        // fill (plain text, same as row_style()/boundary_style()).
-        static ViewLayerStyle placement_name_style()
-        {
-            return ViewLayerStyle{.outline_color = {220, 220, 220, 255}, .fill_color = {0, 0, 0, 0}};
-        }
-
-        // Same light gray as placement_name_style() - the outline and the
-        // label inside it read as one placement, just toggled
-        // independently (see build_for_technology's own comment). No fill
-        // (an outline of the placement's own already-drawn instance
-        // content, not a region to tint).
-        static ViewLayerStyle placement_boundary_style()
+        // row_style()), so a placement reads as related to, but distinct
+        // from, a design's own boundary. Used for both the outline and the
+        // name label. No fill - an outline of the placement's own
+        // already-drawn instance content, not a region to tint.
+        static ViewLayerStyle placement_style()
         {
             return ViewLayerStyle{.outline_color = {220, 220, 220, 255}, .fill_color = {0, 0, 0, 0}};
         }
@@ -666,7 +630,7 @@ namespace le
         Pool<ViewLayerData, ViewLayerId> pool_;
         std::vector<LookupEntry> lookup_;
         ViewLayerId boundary_id_;
-        ViewLayerId placement_name_id_;
+        ViewLayerId placement_id_;
         std::vector<ViewLayerRow> rows_;
         uint64_t generation_ = 0;
     };

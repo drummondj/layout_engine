@@ -26,11 +26,10 @@ namespace
 TEST_F(ViewStyleFixture, CreatesSevenPurposesPerLayerPlusEightPseudoLayers)
 {
     // 2 layers x 7 purposes (TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
-    // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/CUSTOM_SHAPE) + 9
-    // pseudo-ViewLayers with no physical Layer (BOUNDARY/ROW/
-    // PLACEMENT_NAME/PLACEMENT_BOUNDARY/GCELLGRID/PLACEMENT_BLOCKAGE/
-    // REGION/DEBUG/FLIGHTLINE) = 23.
-    EXPECT_EQ(view_layers.all().size(), 23u);
+    // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/CUSTOM_SHAPE) + 8
+    // pseudo-ViewLayers with no physical Layer (BOUNDARY/ROW/PLACEMENT/
+    // GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/FLIGHTLINE) = 22.
+    EXPECT_EQ(view_layers.all().size(), 22u);
 }
 
 TEST_F(ViewStyleFixture, FindResolvesDistinctViewLayersPerLayerAndPurpose)
@@ -124,33 +123,30 @@ TEST_F(ViewStyleFixture, BoundaryColorIsUnaffectedByThePerLayerPaletteAndLighter
     EXPECT_EQ(boundary->style.fill_color.a, 0);
 }
 
-TEST_F(ViewStyleFixture, RowsHasRowThenBoundaryThenPlacementNameThenPlacementBoundaryThenOneRowPerPhysicalLayerThenThreePseudoRows)
+TEST_F(ViewStyleFixture, RowsHasRowThenBoundaryThenPlacementThenOneRowPerPhysicalLayerThenThreePseudoRows)
 {
-    // ROW + BOUNDARY + PLACEMENT_NAME + PLACEMENT_BOUNDARY + 2 physical
-    // Layers (M1, M2) + GCELLGRID + PLACEMENT_BLOCKAGE + REGION + DEBUG +
-    // FLIGHTLINE = 11 rows -
-    // ROW then BOUNDARY then PLACEMENT_NAME then PLACEMENT_BOUNDARY first
-    // (BUGS_AND_ENHANCEMENTS.md E8/E13 - this declaration order is also
-    // the real draw z-order, see rows()'s own doc comment), everything
-    // else unchanged.
+    // ROW + BOUNDARY + PLACEMENT + 2 physical Layers (M1, M2) + GCELLGRID +
+    // PLACEMENT_BLOCKAGE + REGION + DEBUG + FLIGHTLINE = 10 rows - ROW then
+    // BOUNDARY then PLACEMENT first (BUGS_AND_ENHANCEMENTS.md E8/E13 - this
+    // declaration order is also the real draw z-order, see rows()'s own
+    // doc comment), everything else unchanged.
     const auto &rows = view_layers.rows();
-    ASSERT_EQ(rows.size(), 11u);
+    ASSERT_EQ(rows.size(), 10u);
     EXPECT_EQ(rows[0].name, "ROW");
     EXPECT_EQ(rows[1].name, "BOUNDARY");
-    EXPECT_EQ(rows[2].name, "PLACEMENT_NAME");
-    EXPECT_EQ(rows[3].name, "PLACEMENT_BOUNDARY");
-    EXPECT_EQ(rows[4].name, "M1");
-    EXPECT_EQ(rows[5].name, "M2");
-    EXPECT_EQ(rows[6].name, "GCELLGRID");
-    EXPECT_EQ(rows[7].name, "PLACEMENT_BLOCKAGE");
-    EXPECT_EQ(rows[8].name, "REGION");
-    EXPECT_EQ(rows[9].name, "DEBUG");       // last rasterized row, so debug output draws on top of everything
-    EXPECT_EQ(rows[10].name, "FLIGHTLINE"); // an overlay (ComposeStage), not rasterized
+    EXPECT_EQ(rows[2].name, "PLACEMENT");
+    EXPECT_EQ(rows[3].name, "M1");
+    EXPECT_EQ(rows[4].name, "M2");
+    EXPECT_EQ(rows[5].name, "GCELLGRID");
+    EXPECT_EQ(rows[6].name, "PLACEMENT_BLOCKAGE");
+    EXPECT_EQ(rows[7].name, "REGION");
+    EXPECT_EQ(rows[8].name, "DEBUG");      // last rasterized row, so debug output draws on top of everything
+    EXPECT_EQ(rows[9].name, "FLIGHTLINE"); // an overlay (ComposeStage), not rasterized
 }
 
 TEST_F(ViewStyleFixture, PhysicalLayerRowHasTerminalObstructionTrackRoutingBlockageAndRouteColumns)
 {
-    const auto &row = view_layers.rows().at(4);
+    const auto &row = view_layers.rows().at(3);
     ASSERT_EQ(row.columns.size(), 7u);
     EXPECT_EQ(row.columns[0].purpose, ViewLayerPurpose::TERMINAL);
     EXPECT_EQ(row.columns[0].id, view_layers.find(m1, ViewLayerPurpose::TERMINAL));
@@ -242,7 +238,7 @@ TEST_F(ViewStyleFixture, TrackAndGCellGridStylesAreDashedButRowAndRoutingBlockag
 
     const auto &rows = view_layers.rows();
     const ViewLayerData *row_data = view_layers.get(rows.at(0).columns[0].id);
-    const ViewLayerData *gcellgrid_data = view_layers.get(rows.at(6).columns[0].id);
+    const ViewLayerData *gcellgrid_data = view_layers.get(rows.at(5).columns[0].id);
     ASSERT_NE(row_data, nullptr);
     ASSERT_NE(gcellgrid_data, nullptr);
     EXPECT_FALSE(row_data->style.dashed);
@@ -283,53 +279,30 @@ TEST_F(ViewStyleFixture, BoundaryRowHasASingleBoundaryColumn)
     EXPECT_EQ(row.columns[0].id, view_layers.boundary_view_layer());
 }
 
-TEST_F(ViewStyleFixture, PlacementNameRowHasASingleColumnNoLayerAndIsOneShadeLighterThanBoundary)
+TEST_F(ViewStyleFixture, PlacementRowHasASingleColumnNoLayerAndIsOneShadeLighterThanBoundary)
 {
-    // BUGS_AND_ENHANCEMENTS.md E13 - split out from BOUNDARY into its own
-    // purpose/row so a placement's own name label can be colored/toggled
-    // independently, one shade lighter than boundary_style()'s own color
-    // (same "derives from the row above it, one shade lighter" relation
-    // boundary_style() itself has to row_style()).
-    const auto &placement_name_row = view_layers.rows().at(2);
-    ASSERT_EQ(placement_name_row.columns.size(), 1u);
-    EXPECT_EQ(placement_name_row.columns[0].purpose, ViewLayerPurpose::PLACEMENT_NAME);
-    EXPECT_EQ(placement_name_row.columns[0].id, view_layers.placement_name_view_layer());
+    // One purpose for a placement's outline and name label (formerly
+    // PLACEMENT_NAME/PLACEMENT_BOUNDARY), one shade lighter than
+    // boundary_style()'s own color (same "derives from the row above it,
+    // one shade lighter" relation boundary_style() itself has to
+    // row_style()), solid and unfilled.
+    const auto &placement_row = view_layers.rows().at(2);
+    ASSERT_EQ(placement_row.columns.size(), 1u);
+    EXPECT_EQ(placement_row.columns[0].purpose, ViewLayerPurpose::PLACEMENT);
+    EXPECT_EQ(placement_row.columns[0].id, view_layers.placement_view_layer());
 
-    const ViewLayerData *placement_name = view_layers.get(view_layers.placement_name_view_layer());
-    ASSERT_NE(placement_name, nullptr);
-    EXPECT_FALSE(placement_name->layer.valid());
+    const ViewLayerData *placement = view_layers.get(view_layers.placement_view_layer());
+    ASSERT_NE(placement, nullptr);
+    EXPECT_FALSE(placement->layer.valid());
 
     const ViewLayerData *boundary = view_layers.get(view_layers.boundary_view_layer());
     ASSERT_NE(boundary, nullptr);
-    EXPECT_EQ(placement_name->style.outline_color.r, 220);
-    EXPECT_EQ(placement_name->style.outline_color.g, 220);
-    EXPECT_EQ(placement_name->style.outline_color.b, 220);
-    EXPECT_GT(placement_name->style.outline_color.r, boundary->style.outline_color.r) << "should be lighter than boundary_style()'s own 160";
-    EXPECT_EQ(placement_name->style.fill_color.a, 0);
-}
-
-TEST_F(ViewStyleFixture, PlacementBoundaryRowHasASingleColumnNoLayerAndIsSolidPlacementNameGray)
-{
-    // HierarchyResolverStage's own collect_layout_content draws one of
-    // these per Placement, alongside (but independently toggleable from)
-    // PLACEMENT_NAME's own label - see this purpose's own enum comment.
-    const auto &placement_boundary_row = view_layers.rows().at(3);
-    ASSERT_EQ(placement_boundary_row.columns.size(), 1u);
-    EXPECT_EQ(placement_boundary_row.columns[0].purpose, ViewLayerPurpose::PLACEMENT_BOUNDARY);
-
-    const ViewLayerData *placement_boundary = view_layers.get(placement_boundary_row.columns[0].id);
-    ASSERT_NE(placement_boundary, nullptr);
-    EXPECT_FALSE(placement_boundary->layer.valid());
-    EXPECT_FALSE(placement_boundary->style.dashed);
-    EXPECT_EQ(placement_boundary->style.fill_color.a, 0);
-
-    // The same gray as PLACEMENT_NAME's label - PLACEMENT_BOUNDARY owns
-    // the outline PLACEMENT_NAME used to draw itself.
-    const ViewLayerData *placement_name = view_layers.get(view_layers.placement_name_view_layer());
-    ASSERT_NE(placement_name, nullptr);
-    EXPECT_EQ(placement_boundary->style.outline_color.r, placement_name->style.outline_color.r);
-    EXPECT_EQ(placement_boundary->style.outline_color.g, placement_name->style.outline_color.g);
-    EXPECT_EQ(placement_boundary->style.outline_color.b, placement_name->style.outline_color.b);
+    EXPECT_EQ(placement->style.outline_color.r, 220);
+    EXPECT_EQ(placement->style.outline_color.g, 220);
+    EXPECT_EQ(placement->style.outline_color.b, 220);
+    EXPECT_GT(placement->style.outline_color.r, boundary->style.outline_color.r) << "should be lighter than boundary_style()'s own 160";
+    EXPECT_FALSE(placement->style.dashed);
+    EXPECT_EQ(placement->style.fill_color.a, 0);
 }
 
 TEST_F(ViewStyleFixture, RowGCellGridAndPlacementBlockagePseudoRowsEachHaveTheirOwnSingleColumnAndNoLayer)
@@ -343,21 +316,21 @@ TEST_F(ViewStyleFixture, RowGCellGridAndPlacementBlockagePseudoRowsEachHaveTheir
     ASSERT_NE(row_data, nullptr);
     EXPECT_FALSE(row_data->layer.valid());
 
-    const auto &gcellgrid_row = rows.at(6);
+    const auto &gcellgrid_row = rows.at(5);
     ASSERT_EQ(gcellgrid_row.columns.size(), 1u);
     EXPECT_EQ(gcellgrid_row.columns[0].purpose, ViewLayerPurpose::GCELLGRID);
     const ViewLayerData *gcellgrid_data = view_layers.get(gcellgrid_row.columns[0].id);
     ASSERT_NE(gcellgrid_data, nullptr);
     EXPECT_FALSE(gcellgrid_data->layer.valid());
 
-    const auto &placement_blockage_row = rows.at(7);
+    const auto &placement_blockage_row = rows.at(6);
     ASSERT_EQ(placement_blockage_row.columns.size(), 1u);
     EXPECT_EQ(placement_blockage_row.columns[0].purpose, ViewLayerPurpose::PLACEMENT_BLOCKAGE);
     const ViewLayerData *placement_blockage_data = view_layers.get(placement_blockage_row.columns[0].id);
     ASSERT_NE(placement_blockage_data, nullptr);
     EXPECT_FALSE(placement_blockage_data->layer.valid());
 
-    const auto &region_row = rows.at(8);
+    const auto &region_row = rows.at(7);
     ASSERT_EQ(region_row.columns.size(), 1u);
     EXPECT_EQ(region_row.columns[0].purpose, ViewLayerPurpose::REGION);
     const ViewLayerData *region_data = view_layers.get(region_row.columns[0].id);
@@ -373,37 +346,35 @@ TEST_F(ViewStyleFixture, RoutingAndPlacementBlockagesAreDistinctPurposesNotOneSh
     // OBSTRUCTION of the same layer never merge either.
     EXPECT_NE(ViewLayerPurpose::ROUTING_BLOCKAGE, ViewLayerPurpose::PLACEMENT_BLOCKAGE);
 
-    const auto &placement_blockage_row = view_layers.rows().at(7);
+    const auto &placement_blockage_row = view_layers.rows().at(6);
     EXPECT_NE(placement_blockage_row.columns[0].id, view_layers.find(m1, ViewLayerPurpose::ROUTING_BLOCKAGE));
 }
 
 TEST_F(ViewStyleFixture, PurposesListsEachDistinctPurposeOnceInFirstEncounteredOrder)
 {
-    // ROW then BOUNDARY then PLACEMENT_NAME then PLACEMENT_BOUNDARY each
-    // contribute their own purpose first (BUGS_AND_ENHANCEMENTS.md
+    // ROW then BOUNDARY then PLACEMENT each contribute their own purpose first (BUGS_AND_ENHANCEMENTS.md
     // E8/E13); M1's row then contributes TERMINAL/OBSTRUCTION/
     // TRACK_PREFERRED/TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/
     // CUSTOM_SHAPE; M2's row repeats all seven (deduplicated, not appended
     // again); GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/FLIGHTLINE each
     // contribute their own single new purpose last.
     const auto purposes = view_layers.purposes();
-    ASSERT_EQ(purposes.size(), 16u);
+    ASSERT_EQ(purposes.size(), 15u);
     EXPECT_EQ(purposes[0], ViewLayerPurpose::ROW);
     EXPECT_EQ(purposes[1], ViewLayerPurpose::BOUNDARY);
-    EXPECT_EQ(purposes[2], ViewLayerPurpose::PLACEMENT_NAME);
-    EXPECT_EQ(purposes[3], ViewLayerPurpose::PLACEMENT_BOUNDARY);
-    EXPECT_EQ(purposes[4], ViewLayerPurpose::TERMINAL);
-    EXPECT_EQ(purposes[5], ViewLayerPurpose::OBSTRUCTION);
-    EXPECT_EQ(purposes[6], ViewLayerPurpose::TRACK_PREFERRED);
-    EXPECT_EQ(purposes[7], ViewLayerPurpose::TRACK_NON_PREFERRED);
-    EXPECT_EQ(purposes[8], ViewLayerPurpose::ROUTING_BLOCKAGE);
-    EXPECT_EQ(purposes[9], ViewLayerPurpose::ROUTE);
-    EXPECT_EQ(purposes[10], ViewLayerPurpose::CUSTOM_SHAPE);
-    EXPECT_EQ(purposes[11], ViewLayerPurpose::GCELLGRID);
-    EXPECT_EQ(purposes[12], ViewLayerPurpose::PLACEMENT_BLOCKAGE);
-    EXPECT_EQ(purposes[13], ViewLayerPurpose::REGION);
-    EXPECT_EQ(purposes[14], ViewLayerPurpose::DEBUG);
-    EXPECT_EQ(purposes[15], ViewLayerPurpose::FLIGHTLINE);
+    EXPECT_EQ(purposes[2], ViewLayerPurpose::PLACEMENT);
+    EXPECT_EQ(purposes[3], ViewLayerPurpose::TERMINAL);
+    EXPECT_EQ(purposes[4], ViewLayerPurpose::OBSTRUCTION);
+    EXPECT_EQ(purposes[5], ViewLayerPurpose::TRACK_PREFERRED);
+    EXPECT_EQ(purposes[6], ViewLayerPurpose::TRACK_NON_PREFERRED);
+    EXPECT_EQ(purposes[7], ViewLayerPurpose::ROUTING_BLOCKAGE);
+    EXPECT_EQ(purposes[8], ViewLayerPurpose::ROUTE);
+    EXPECT_EQ(purposes[9], ViewLayerPurpose::CUSTOM_SHAPE);
+    EXPECT_EQ(purposes[10], ViewLayerPurpose::GCELLGRID);
+    EXPECT_EQ(purposes[11], ViewLayerPurpose::PLACEMENT_BLOCKAGE);
+    EXPECT_EQ(purposes[12], ViewLayerPurpose::REGION);
+    EXPECT_EQ(purposes[13], ViewLayerPurpose::DEBUG);
+    EXPECT_EQ(purposes[14], ViewLayerPurpose::FLIGHTLINE);
 }
 
 TEST(ViewStylePalette, CutLayerAboveARoutingLayerSharesItsColor)

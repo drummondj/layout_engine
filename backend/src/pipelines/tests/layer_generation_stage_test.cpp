@@ -59,14 +59,14 @@ TEST_F(LayerGenerationStageFixture, CacheHitOnUnchangedMutationVersion)
     ASSERT_FALSE(runner.would_recompute(0, options));
 
     const ViewLayerSet &second = runner.run(&root, 0, options);
-    EXPECT_EQ(second.all().size(), 23u); // 2 layers x 7 purposes + 9 pseudo-layers
+    EXPECT_EQ(second.all().size(), 22u); // 2 layers x 7 purposes + 8 pseudo-layers
 }
 
 TEST_F(LayerGenerationStageFixture, RecomputesWhenRootMutationVersionChanges)
 {
     ViewRenderOptions first_options{.root_mutation_version = root.mutation_version()};
     const ViewLayerSet &first = runner.run(&root, 0, first_options);
-    EXPECT_EQ(first.all().size(), 23u);
+    EXPECT_EQ(first.all().size(), 22u);
     const std::uint64_t generation_before = first.generation();
 
     root.create_layer(LayerData{.technology = technology_id, .name = "M3", .type = "ROUTING"});
@@ -76,6 +76,6 @@ TEST_F(LayerGenerationStageFixture, RecomputesWhenRootMutationVersionChanges)
     ASSERT_TRUE(runner.would_recompute(0, second_options));
 
     const ViewLayerSet &second = runner.run(&root, 0, second_options);
-    EXPECT_EQ(second.all().size(), 30u); // +1 layer x 7 purposes
+    EXPECT_EQ(second.all().size(), 29u); // +1 layer x 7 purposes
     EXPECT_NE(second.generation(), generation_before);
 }

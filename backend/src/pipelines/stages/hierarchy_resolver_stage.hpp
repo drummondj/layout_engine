@@ -340,7 +340,7 @@ namespace le
     /// placements are never *resolved* into anything at all (not even a
     /// fallback to their own Abstract) - placement_data stays empty and
     /// nothing is pushed onto the worklist - but each placement's own
-    /// PLACEMENT_BOUNDARY placeholder rect+label is still drawn (see the
+    /// PLACEMENT placeholder rect+label is still drawn (see the
     /// main compute() loop's own comment), since that's real data about
     /// this Layout's own direct content, not about what a placement
     /// resolves to. This is a deliberate departure from
@@ -442,7 +442,7 @@ namespace le
                     if (item.remaining_depth > 0)
                         data.placement_data.reserve(placements.size()); // exact upper bound - not every placement resolves
 
-                    // One PLACEMENT_BOUNDARY rect+label per placement,
+                    // One PLACEMENT rect+label per placement,
                     // batched into a single Shape - measured directly
                     // against aes_scaling_3x3 (372,096 placements): a
                     // one-Shape-per-placement version spent ~126ms of its
@@ -466,23 +466,15 @@ namespace le
                     // rect are now the exact same value, computed once,
                     // not twice) - a real, measured redundancy this
                     // consolidation removes, not just a tidiness pass.
-                    RenderShape placement_boundary_shape;
-                    placement_boundary_shape.rects.reserve(placements.size());
-
-                    // A Placement's own name label is its own Shape, on
-                    // its own dedicated PLACEMENT_NAME ViewLayer (view_style.hpp)
-                    // - split out from PLACEMENT_BOUNDARY (BUGS_AND_ENHANCEMENTS.md
-                    // E13) so a label's own color/visibility toggle is
-                    // independent of the boundary outline it's drawn
-                    // alongside, matching pipelines.old/draw_helpers.hpp's
-                    // own draw_placement_labels. rects/texts stay index-
-                    // parallel (rects[i] is texts[i]'s own reference box,
+                    //
+                    // rects/texts stay index-parallel (rects[i] is both
+                    // the drawn outline and texts[i]'s own reference box,
                     // for RasterizeBlend2DStage's own width-fit
                     // truncation) - see draw_view_shapes_blend2d's own
                     // comment.
-                    RenderShape placement_name_shape;
-                    placement_name_shape.rects.reserve(placements.size());
-                    placement_name_shape.texts.reserve(placements.size());
+                    RenderShape placement_shape;
+                    placement_shape.rects.reserve(placements.size());
+                    placement_shape.texts.reserve(placements.size());
 
                     for (PlacementId placement_id : placements)
                     {
@@ -539,9 +531,8 @@ namespace le
                         // ... used to size the rendered text") rather than
                         // a literal pixel font size.
                         const double height_dbu = static_cast<double>(bbox.ur.y - bbox.ll.y);
-                        placement_boundary_shape.rects.push_back(bbox);
-                        placement_name_shape.rects.push_back(bbox);
-                        placement_name_shape.texts.push_back(Text{.label = placement->name, .location = bbox.ll, .size = height_dbu * kPlacementLabelHeightRatio});
+                        placement_shape.rects.push_back(bbox);
+                        placement_shape.texts.push_back(Text{.label = placement->name, .location = bbox.ll, .size = height_dbu * kPlacementLabelHeightRatio});
 
                         if (item.remaining_depth <= 0)
                             continue; // depth exhausted - placeholder drawn above, nothing further resolved/visited
@@ -557,12 +548,8 @@ namespace le
                         worklist.push_back(WorkItem{child_id, child_remaining_depth});
                     }
 
-                    if (!placement_boundary_shape.rects.empty())
-                    {
-                        const ViewLayerId placement_boundary_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::PLACEMENT_BOUNDARY);
-                        shapes_by_layer[placement_boundary_view_layer].push_back(std::move(placement_boundary_shape));
-                        shapes_by_layer[view_layers.placement_name_view_layer()].push_back(std::move(placement_name_shape));
-                    }
+                    if (!placement_shape.rects.empty())
+                        shapes_by_layer[view_layers.placement_view_layer()].push_back(std::move(placement_shape));
 
                     data.shapes = std::make_shared<const ViewLayerShapes>(std::move(shapes_by_layer));
                     data.shapes_index = build_shape_index(*data.shapes);
@@ -938,7 +925,7 @@ namespace le
 
         // Returns just the shapes, grouped by ViewLayer - placement_data
         // is always filled in by the caller (compute()'s own Layout
-        // branch), and the PLACEMENT_BOUNDARY shape below is appended to
+        // branch), and the PLACEMENT shape below is appended to
         // this same structure by that caller too, before it wraps the
         // whole thing into ViewData::shapes' own ViewShapesHandle exactly
         // once (see that type's own comment) - collect_layout_content
@@ -979,7 +966,7 @@ namespace le
             append_track_shapes(root, layout_id, view_layers, shapes_by_layer);
             append_gcell_grid_shapes(root, layout_id, view_layers, shapes_by_layer);
             append_region_shapes(root, layout_id, view_layers, shapes_by_layer);
-            // PLACEMENT_BOUNDARY is added by the main compute() loop, not
+            // PLACEMENT is added by the main compute() loop, not
             // here - it needs resolve_design_target's own per-placement
             // dispatch (Layout vs. Abstract, depth-dependent) and the
             // same resolved bbox that loop's own ViewPlacementData::bbox

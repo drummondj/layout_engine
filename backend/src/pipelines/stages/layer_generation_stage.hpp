@@ -13,7 +13,7 @@ namespace le
     /// @brief Cold-tier stage 1 (PIPELINE_REFACTOR.md): builds the
     /// technology's ViewLayers - a TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
     /// TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE ViewLayer per physical
-    /// Layer plus the fixed ROW/BOUNDARY/PLACEMENT_NAME/GCELLGRID/
+    /// Layer plus the fixed ROW/BOUNDARY/PLACEMENT/GCELLGRID/
     /// PLACEMENT_BLOCKAGE/REGION ones - from a Root's own Technology data.
     /// A thin MemoizingStage wrapper around the existing, already-tested
     /// ViewLayerSet::build_for_technology(): this stage's only job is

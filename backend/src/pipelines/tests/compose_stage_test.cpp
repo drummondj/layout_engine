@@ -75,14 +75,14 @@ namespace
                 .hierarchy_depth = 2, .viewport = Rect{.ll = Point{0, 0}, .ur = Point{200, 200}}, .scale = kScale,
             };
             // This fixture's own coordinates ((20,20)/(30,30)) put BLOCK's
-            // own always-drawn "leaf0" placement-name label directly on
+            // own always-drawn "leaf0" placement label directly on
             // top of the pixel ComposesA90DegreeRotatedChildAtTheCorrectlyTransformedOffset
             // samples to confirm the TERMINAL rect's own rotation (a
             // coincidence of both deriving from the same placement
             // coordinates, not a real interaction) - hidden here since
             // this whole fixture is about geometry rotation, not label
             // rendering, which no test in this file otherwise exercises.
-            options.purpose_visible[ViewLayerPurpose::PLACEMENT_NAME] = false;
+            options.purpose_visible[ViewLayerPurpose::PLACEMENT] = false;
 
             hierarchy_resolver_runner.run(view_layers_handle, 0, options);
             rasterize_runner.run(hierarchy_resolver_runner.last_handle(), 0, options);

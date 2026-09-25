@@ -2088,7 +2088,7 @@ Returns whether one purpose column is currently selectable (0 or 1) - see set_pu
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placementName |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## get_purpose_visible
@@ -2099,7 +2099,7 @@ Returns whether one purpose column is currently visible (0 or 1) - see set_purpo
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placementName |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## get_regions
@@ -2591,7 +2591,7 @@ Sets whether one purpose column is selectable, across every real Layer - see set
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placementName |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline |
 | `<selectable>` | `bool` | yes | 0/1 or true/false |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
@@ -2599,11 +2599,11 @@ Sets whether one purpose column is selectable, across every real Layer - see set
 
 `set_purpose_visible <purpose> <visible> [-help]`
 
-Sets whether one purpose column (e.g. every Layer's own obstruction shapes) is visible, across every real Layer - the other axis from set_layer_visible's own whole-row toggle. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placementBlockage placementBoundary placementName region route routingBlockage row terminal trackNonPreferred trackPreferred. Visible by default until toggled.
+Sets whether one purpose column (e.g. every Layer's own obstruction shapes) is visible, across every real Layer - the other axis from set_layer_visible's own whole-row toggle. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placement placementBlockage region route routingBlockage row terminal trackNonPreferred trackPreferred. Visible by default until toggled.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placementName |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline |
 | `<visible>` | `bool` | yes | 0/1 or true/false - hide/show |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 

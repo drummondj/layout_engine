@@ -936,8 +936,7 @@ register_command_help get_layer_selectable \
 # kept in sync with it and with le_gui's own layer_manager.cpp
 # (kPurposeNames) - a purpose appended to ViewLayerPurpose (view_style.hpp)
 # must be added to both, or a caller passing its new keyword here gets
-# "unknown purpose" while the GUI side shows "?" for it (PLACEMENT_BOUNDARY
-# was missing from both until this was noticed).
+# "unknown purpose" while the GUI side shows "?" for it.
 array set ::purpose_names {
     terminal 0
     obstruction 1
@@ -950,11 +949,10 @@ array set ::purpose_names {
     placementBlockage 8
     route 9
     region 10
-    placementName 11
-    placementBoundary 12
-    customShape 13
-    debug 14
-    flightline 15
+    placement 11
+    customShape 12
+    debug 13
+    flightline 14
 }
 
 proc _resolve_purpose_name {command purpose} {
@@ -978,7 +976,7 @@ register_command_help set_purpose_visible \
     "set_purpose_visible <purpose> <visible> \[-help\]" \
     "Sets whether one purpose column (e.g. every Layer's own obstruction shapes) is visible, across every real Layer - the other axis from set_layer_visible's own whole-row toggle. <purpose> is one of: [lsort [array names ::purpose_names]]. Visible by default until toggled." \
     {
-        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placementName}}}
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline}}}
         {<visible> {type bool required 1 description {0/1 or true/false - hide/show}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
@@ -993,7 +991,7 @@ register_command_help get_purpose_visible \
     "get_purpose_visible <purpose> \[-help\]" \
     "Returns whether one purpose column is currently visible (0 or 1) - see set_purpose_visible's own comment." \
     {
-        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placementName}}}
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
@@ -1011,7 +1009,7 @@ register_command_help set_purpose_selectable \
     "set_purpose_selectable <purpose> <selectable> \[-help\]" \
     "Sets whether one purpose column is selectable, across every real Layer - see set_purpose_visible's own comment for the axis. Selectable by default until toggled." \
     {
-        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placementName}}}
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline}}}
         {<selectable> {type bool required 1 description {0/1 or true/false}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
@@ -1026,7 +1024,7 @@ register_command_help get_purpose_selectable \
     "get_purpose_selectable <purpose> \[-help\]" \
     "Returns whether one purpose column is currently selectable (0 or 1) - see set_purpose_visible's own comment." \
     {
-        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placementName}}}
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 

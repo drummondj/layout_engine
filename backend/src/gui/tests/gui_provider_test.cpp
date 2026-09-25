@@ -24,7 +24,7 @@ namespace
 
 // Regression test (BUGS_AND_ENHANCEMENTS.md E12, NEW_FEATURES_SEPT_2026.md
 // item 7): the Layers panel lists technology layers only. Pseudo-rows with
-// no physical Layer (ROW, BOUNDARY, PLACEMENT_NAME, PLACEMENT_BOUNDARY,
+// no physical Layer (ROW, BOUNDARY, PLACEMENT,
 // GCELLGRID, PLACEMENT_BLOCKAGE, REGION, DEBUG, FLIGHTLINE, ...) have only a
 // purpose, and are listed once, under purposes. The filter lived in the old
 // Flutter frontend and was lost when GuiProvider::refresh took over the loop.
@@ -46,8 +46,9 @@ TEST_F(GuiProviderFixture, LayersListsOnlyTechnologyLayersAndPseudoRowsOnlyAsPur
                                  { return p.ordinal == ordinal; }); };
     EXPECT_TRUE(has_purpose(2));  // BOUNDARY
     EXPECT_TRUE(has_purpose(6));  // ROW
-    EXPECT_TRUE(has_purpose(14)); // DEBUG
-    EXPECT_TRUE(has_purpose(15)); // FLIGHTLINE
+    EXPECT_TRUE(has_purpose(11)); // PLACEMENT
+    EXPECT_TRUE(has_purpose(13)); // DEBUG
+    EXPECT_TRUE(has_purpose(14)); // FLIGHTLINE
 
     provider.refresh(); // rebuilt, not appended to
     EXPECT_EQ(provider.state().layer_manager.layers.size(), 1u);

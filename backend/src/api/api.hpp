@@ -477,11 +477,10 @@ extern "C"
     /// 1 = OBSTRUCTION, 2 = BOUNDARY, 3 = TRACK_PREFERRED,
     /// 4 = TRACK_NON_PREFERRED, 5 = ROUTING_BLOCKAGE, 6 = ROW,
     /// 7 = GCELLGRID, 8 = PLACEMENT_BLOCKAGE, 9 = ROUTE, 10 = REGION,
-    /// 11 = PLACEMENT_NAME, 12 = PLACEMENT_BOUNDARY, 13 = CUSTOM_SHAPE,
-    /// 14 = DEBUG, 15 = FLIGHTLINE.
+    /// 11 = PLACEMENT, 12 = CUSTOM_SHAPE, 13 = DEBUG, 14 = FLIGHTLINE.
     /// `index` itself walks ViewLayerSet::purposes()'s own
     /// first-encountered order instead (ROW, then BOUNDARY, then
-    /// PLACEMENT_NAME, then TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
+    /// PLACEMENT, then TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
     /// TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE from the first physical
     /// Layer row, then GCELLGRID/PLACEMENT_BLOCKAGE/REGION's own
     /// pseudo-rows - BUGS_AND_ENHANCEMENTS.md E8/E13) - a caller must
@@ -493,10 +492,8 @@ extern "C"
     /// le_gui's own layer_manager.cpp (kPurposeNames) and le_tcl_procs.tcl's
     /// own ::purpose_names dict - update both together if
     /// le::ViewLayerPurpose's declaration order (or member count) ever
-    /// changes again; PLACEMENT_BOUNDARY was appended to the enum without
-    /// either being updated, so it displayed as "?" in the Layer Manager
-    /// and had no working Tcl keyword until this comment (and both
-    /// mirrors) were fixed.
+    /// changes again (PLACEMENT_NAME/PLACEMENT_BOUNDARY were merged into
+    /// PLACEMENT, shifting CUSTOM_SHAPE and later down by one).
     ///
     /// Returns -1 if handle is null or index is out of range, rather than
     /// crashing.

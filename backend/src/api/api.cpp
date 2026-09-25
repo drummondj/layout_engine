@@ -240,13 +240,12 @@ namespace
         return layer && handle->is_view_layer_visible(layer->name, purpose) && handle->is_view_layer_selectable(layer->name, purpose);
     }
 
-    // Placements are selectable only while their PLACEMENT_BOUNDARY
-    // outline is visible and selectable - the outline is what a user
-    // sees and picks (PLACEMENT_NAME is just the label inside it).
+    // Placements are selectable only while the PLACEMENT purpose (their
+    // outline and name) is visible and selectable.
     bool placements_selectable(const LeHandle *handle)
     {
-        return handle->is_view_layer_visible("PLACEMENT_BOUNDARY", le::ViewLayerPurpose::PLACEMENT_BOUNDARY) &&
-               handle->is_view_layer_selectable("PLACEMENT_BOUNDARY", le::ViewLayerPurpose::PLACEMENT_BOUNDARY);
+        return handle->is_view_layer_visible("PLACEMENT", le::ViewLayerPurpose::PLACEMENT) &&
+               handle->is_view_layer_selectable("PLACEMENT", le::ViewLayerPurpose::PLACEMENT);
     }
 
     // Every selectable via whose hit box contains dbu `p`, smallest first
