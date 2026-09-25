@@ -202,3 +202,110 @@ tests fail with per-piece snapping switched off). Tcl smoke test covers
 both groups shown and wrapped, and clicking Vias -> Tracks sets the mode.
 `TCL_COMMANDS.md` regenerated. Full suite: 852/852.
 
+## Item 9 — Settings window — ⚠️ UNCOMMITTED, needs sign-off
+
+Left uncommitted in the working tree (all of it, including item 9's
+`- DONE` in NEW_FEATURES_SEPT_2026.md) because it adds **two new
+third-party dependencies** fetched at configure time and a new
+**startup behaviour** (reading a file from `$HOME`) - cheap to review
+now, costly to discover later (offline builds, the rootless Rocky 8
+bootstrap). Everything builds and passes (856/856, both trees); review
+the diff and commit if happy.
+
+**What was built:**
+- A **Settings** tab in the right sidebar (next to Properties/Layers,
+  `components/settings_panel.cpp`): minor/major grid spacing (um), ruler
+  font size, label font size, and Hierarchy Depth + Flightline Max
+  Fanout moved out of the Layers tab. Commit-on-Enter fields shared via
+  a new `committed_field.hpp` (the int field moved from
+  `layer_manager.cpp`, plus a double variant).
+- **Save** (to `~/.layout_engine/settings.json`), **Save As...** and
+  **Load...** via the system file dialog. `le_shell` loads the default
+  file at startup.
+- Backend: `le_save_settings`/`le_load_settings`/
+  `le_default_settings_path`, `le_grid_spacing_um`/
+  `le_set_grid_spacing_um`, `le_label_size`/`le_set_label_size`; Tcl
+  `save_settings`/`load_settings`, `set_grid_spacing -minor/-major`,
+  `get_grid_spacing ?-major?`, `set/get_ruler_label_size`,
+  `set/get_label_size` (none of the grid/ruler settings had Tcl commands
+  before). `TCL_COMMANDS.md` regenerated.
+- JSON (v1): `grid.minor_um/major_um`, `ruler_label_size_px`,
+  `label_size_px`, `hierarchy_depth`, `flightline_max_fanout`,
+  `placement_snap_mode`, `shape_snap_modes.{rect,polygon,path,via}`.
+
+**New dependencies (both header-only, pinned by URL + SHA256 in
+CMakeLists.txt):**
+- nlohmann/json v3.11.3 (`json.hpp`) - for the settings file.
+- portable-file-dialogs @7f852d8 - the file dialogs. It drives the
+  platform's own dialog at *runtime* (zenity/kdialog on Linux, osascript
+  on macOS, Win32 on Windows), so there's no GTK/Qt build dependency.
+  This dev machine has neither zenity nor kdialog (and no GTK dev
+  packages), so the panel falls back to an in-app path prompt, prefilled
+  with the default path - verified working here. The zenity path itself
+  is untested. Consider adding `zenity` to Dockerfile.linux-release's
+  runtime packages.
+
+**Judgment calls:**
+- **Label font size = the largest size labels grow to** (it replaces the
+  fixed 24px `kMaxLabelPixelSize` cap; labels still shrink with their
+  geometry down to 12px, or to the setting if smaller). A fixed size for
+  every label was the alternative - say if that's what was meant.
+- **Grid spacing is saved and shown in microns**, not dbu (portable
+  across technologies). A file loaded before any LEF (the startup case)
+  holds the um values on the handle until the first `read_lef`/`read_def`
+  establishes a dbu scale. With no technology the grid fields show a
+  disabled placeholder.
+- **Default file `~/.layout_engine/settings.json`**, auto-loaded by
+  `le_shell` **only in interactive mode** - batch scripts (and every
+  ctest run of `le_shell`) stay reproducible and can call
+  `load_settings` themselves.
+- **Loading is lenient**: a missing key keeps its current value; a key
+  of the wrong type or an unknown value is skipped with a warning; a
+  file that isn't a JSON object fails the whole load.
+- Snap modes (placement + per shape kind) are saved too - the answer to
+  9.4's "any other settings", as they're already user preferences.
+
+**9.4 - further settings worth adding (not built):** background colour
+/ light theme; selection and hover colours; zoom and pan step sizes;
+per-layer default visibility (the "hide non-ROUTING/CUT layers" rule is
+hard-coded in `le_read_lef`); default hierarchy depth on open; label
+minimum size; undo history depth; `set_max_concurrency`; recently opened
+files.
+
+**Tests:** `SettingsSaveThenLoadRoundTripsEverySetting`,
+`SettingsLoadedBeforeAnyTechnologyApplyTheGridOnceOneIsRead`,
+`SettingsLoadSkipsInvalidKeysAndRejectsMalformedFiles`,
+`LabelSizeCapsTheRenderedLabelSize` (fails with the option unwired), and
+smoke-test coverage of every new Tcl command. Verified in the real GUI
+with `HOME` pointed at a scratch dir: panel values, editing label size,
+Save, Save As through the fallback prompt, and startup auto-load
+(label 14 restored; grid 0.0025um applied after the LEF read).
+
+## Closing summary
+
+**Done and pushed:** items 11 (merge placement purposes), 8 (selectable
+checkbox only where something can be selected), 10 (library tree
+collapsed), 14 (Resize disabled with placements selected), 12 (via
+arrays selectable/movable), 13 (Move snaps routes and vias).
+
+**Needs sign-off:** [item 9](#item-9--settings-window--️-uncommitted-needs-sign-off)
+is complete but uncommitted - new dependencies and startup behaviour.
+Review the working tree and commit.
+
+**Judgment calls most worth a look:** item 11's purpose renumbering
+(Tcl keyword now `placement`); item 13's absolute (not relative)
+snapping of moved paths/vias; item 9's meaning of "label font size".
+
+**Follow-ups worth adding to the backlog:**
+- A faint alpha-1 line is drawn along a placement's left edge even with
+  every purpose hidden (found while writing the placement render test;
+  not investigated).
+- CUSTOM_SHAPE free shapes aren't hit-testable, so the customShape row has
+  no selectable checkbox (item 8) - one to revisit when they become
+  selectable.
+- A mixed placement + route selection in Move shows only the placement
+  snap toolbar (item 13); path/via snap settings still apply but can't be
+  changed from that toolbar.
+- No headless ImGui test harness exists, so GUI-only behaviour (items 8,
+  10, 14's button, 13's toolbar, 9's panel) is verified by screenshots, not
+  ctest.
