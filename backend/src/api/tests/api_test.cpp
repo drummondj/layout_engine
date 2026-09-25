@@ -6177,6 +6177,97 @@ TEST_F(ApiFixture, ARoutesViaIsSelectableAndMovableInTheLayoutView)
     EXPECT_TRUE(region_has_white_selection_pixel(buffer, 128, 95, 132, 105));
 }
 
+// --- NEW_FEATURES_SEPT_2026.md item 13: Move snaps routes and vias ---
+
+namespace
+{
+    // via_route.def's VIATOP open in the Layout view, same 20 px/um view as
+    // ARoutesViaIsSelectableAndMovableInTheLayoutView - pixel (x,y) = um
+    // (x/20, (200-y)/20). M1's LEF PITCH 2um gives tracks every 2um from
+    // 1um (the default offset, pitch/2): ... 5, 7 ... um.
+    void open_via_route(LeHandle *handle, const std::string &lef_path, const std::string &def_path)
+    {
+        le_read_lef(handle, lef_path.c_str(), "via_cell");
+        le_read_def(handle, def_path.c_str(), "top");
+        for (int32_t l = 0; l < le_library_count(handle); ++l)
+            for (int32_t d = 0; d < le_library_design_count(handle, l); ++d)
+                if (std::string(le_library_design_at(handle, l, d).name) == "VIATOP")
+                    le_set_current_design_layout_by_id(handle, le_library_design_at(handle, l, d).id);
+        le_set_viewport_size(handle, 200, 200);
+        le_zoom(handle, 0.02 - 1.0, 0, 200);
+        le_set_minor_grid_spacing(handle, 100);
+    }
+
+    // Moves the selection from pixel `from` to `to` (two Move clicks).
+    void move_selection(LeHandle *handle, int32_t from_x, int32_t from_y, int32_t to_x, int32_t to_y)
+    {
+        le_set_mode(handle, LE_MODE_EDIT);
+        le_arm_move(handle);
+        le_set_mouse_position(handle, from_x, from_y);
+        le_mouse_down(handle, from_x, from_y);
+        le_mouse_up(handle, from_x, from_y);
+        le_set_mouse_position(handle, to_x, to_y);
+        le_mouse_down(handle, to_x, to_y);
+        le_mouse_up(handle, to_x, to_y);
+        le_set_mouse_position(handle, 5, 195);
+    }
+}
+
+// The via at (7,7)um moved 1.5um down: on the user grid it would land at
+// (7,5.5); snapping its origin to M1's tracks puts it at (7,5) instead.
+TEST_F(ApiFixture, MovingAViaSnapsItsOriginToTracksWhenAsked)
+{
+    open_via_route(handle, fixture_path("via_cell.lef"), fixture_path("via_route.def"));
+    le_mouse_down(handle, 140, 60);
+    le_mouse_up(handle, 140, 60);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    EXPECT_EQ(le_selected_move_snap_piece_kinds(handle), 1 << LE_PIECE_KIND_VIA);
+
+    ASSERT_NE(le_is_shape_snap_mode_available(handle, LE_PIECE_KIND_VIA, LE_SHAPE_SNAP_TRACKS), 0);
+    le_set_shape_snap_mode(handle, LE_PIECE_KIND_VIA, LE_SHAPE_SNAP_TRACKS);
+    move_selection(handle, 140, 60, 140, 90); // raw (7,5.5)um
+
+    // Still selected: its outline's top edge is at 5.5um = pixel 90, not
+    // 6um = pixel 80 (where the user grid would have put it).
+    const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_white_selection_pixel(buffer, 134, 88, 146, 92));
+    EXPECT_FALSE(region_has_white_selection_pixel(buffer, 134, 78, 146, 82));
+}
+
+TEST_F(ApiFixture, MovingAViaSnapsItsOriginToTheUserGridByDefault)
+{
+    open_via_route(handle, fixture_path("via_cell.lef"), fixture_path("via_route.def"));
+    le_mouse_down(handle, 140, 60);
+    le_mouse_up(handle, 140, 60);
+    ASSERT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_VIA), LE_SHAPE_SNAP_USER_GRID);
+    move_selection(handle, 140, 60, 140, 90);
+
+    const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_white_selection_pixel(buffer, 134, 78, 146, 82)); // top edge at 6um
+}
+
+// N1's M1 wire (centreline y = 7um, width 1um) moved 1.5um down with paths
+// snapping to tracks: its centreline lands on the 5um track, so its top
+// edge is at 5.5um = pixel 90.
+TEST_F(ApiFixture, MovingARoutesPathSnapsItsCentrelineToTracksWhenAsked)
+{
+    open_via_route(handle, fixture_path("via_cell.lef"), fixture_path("via_route.def"));
+    le_mouse_down(handle, 60, 60); // (3,7)um - on the M1 wire only
+    le_mouse_up(handle, 60, 60);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    EXPECT_EQ(le_selected_move_snap_piece_kinds(handle), 1 << LE_PIECE_KIND_PATH);
+
+    le_set_shape_snap_mode(handle, LE_PIECE_KIND_PATH, LE_SHAPE_SNAP_TRACKS);
+    move_selection(handle, 60, 60, 60, 90);
+
+    const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_white_selection_pixel(buffer, 40, 88, 80, 92));
+    EXPECT_FALSE(region_has_white_selection_pixel(buffer, 40, 78, 80, 82));
+}
+
 // --- Click cycling: a plain click steps through everything under the mouse ---
 
 namespace

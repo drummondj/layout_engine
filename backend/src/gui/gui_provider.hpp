@@ -106,14 +106,18 @@ namespace le::gui
             } placement_move;
 
             // secondary_toolbar.cpp's resize toolbar (NEW_FEATURES_SEPT_2026.md
-            // item 3) - shown while Resize is armed; only refreshed then.
-            // Arrays are LePieceKind-indexed (then LeShapeSnapMode-indexed).
+            // item 3) - shown while Resize is armed - and Move's path/via
+            // snap toolbar (item 13), shown while Move is armed with paths
+            // or vias selected; the snap settings are only refreshed then.
+            // Arrays are LePieceKind-indexed, RECT..VIA (then
+            // LeShapeSnapMode-indexed).
             struct Resize
             {
                 int32_t hover_axis = LE_RESIZE_AXIS_NONE; // le_gui.cpp's resize cursor
-                int32_t selected_piece_kinds = 0;
-                int32_t snap_modes[3] = {LE_SHAPE_SNAP_USER_GRID, LE_SHAPE_SNAP_USER_GRID, LE_SHAPE_SNAP_USER_GRID};
-                bool snap_available[3][5] = {};
+                int32_t selected_piece_kinds = 0;         // le_selected_piece_kinds, while Resize is armed
+                int32_t move_snap_piece_kinds = 0;        // le_selected_move_snap_piece_kinds, while Move is armed
+                int32_t snap_modes[4] = {LE_SHAPE_SNAP_USER_GRID, LE_SHAPE_SNAP_USER_GRID, LE_SHAPE_SNAP_USER_GRID, LE_SHAPE_SNAP_USER_GRID};
+                bool snap_available[4][5] = {};
             } resize;
         };
 

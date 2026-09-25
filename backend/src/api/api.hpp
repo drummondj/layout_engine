@@ -818,6 +818,8 @@ extern "C"
         LE_PIECE_KIND_RECT = 0,
         LE_PIECE_KIND_POLYGON = 1,
         LE_PIECE_KIND_PATH = 2,
+        LE_PIECE_KIND_VIA = 3,         // a via instance (NEW_FEATURES_SEPT_2026.md item 6)
+        LE_PIECE_KIND_VIA_ITERATE = 4, // a via array (item 12) - shares LE_PIECE_KIND_VIA's snap mode
     } LePieceKind;
 
     /// @brief What a resized edge/segment snaps to (NEW_FEATURES_SEPT_2026.md
@@ -826,6 +828,10 @@ extern "C"
     /// NONE/USER_GRID/MANUFACTURING_GRID (the path's edges land on it)/
     /// TRACKS (its centerline lands on a routing track of its layer - the
     /// Layout's TRACKS, else the layer's own LEF PITCH/OFFSET grid).
+    /// Move uses the same settings for paths, and vias/via arrays take
+    /// NONE/USER_GRID/MANUFACTURING_GRID/TRACKS for their origin (item
+    /// 13): a moved path or via snaps on its own; rects and polygons move
+    /// by the user-grid-snapped mouse offset.
     typedef enum LeShapeSnapMode
     {
         LE_SHAPE_SNAP_NONE = 0,
@@ -883,8 +889,16 @@ extern "C"
 
     /// @brief Which LePieceKinds the current selection holds, as a bitmask
     /// (1 << kind) - the resize toolbar shows one snap group per kind
-    /// present. 0 if handle is null.
+    /// present. Rects, polygons and paths only - vias have nothing to
+    /// resize. 0 if handle is null.
     int32_t le_selected_piece_kinds(LeHandle *handle);
+
+    /// @brief Which LePieceKinds in the current selection Move snaps one by
+    /// one (NEW_FEATURES_SEPT_2026.md item 13), as a bitmask: 1 <<
+    /// LE_PIECE_KIND_PATH and/or 1 << LE_PIECE_KIND_VIA (a via array sets
+    /// the VIA bit) - the Move toolbar shows one snap group per kind
+    /// present. 0 if handle is null.
+    int32_t le_selected_move_snap_piece_kinds(LeHandle *handle);
 
     /// @brief Current selectability of every ViewLayer whose LeLayerRow::name
     /// is `layer_name` - see le_is_layer_name_visible()'s comment for the

@@ -146,3 +146,59 @@ without the api.cpp change. The Layout-view (DEF route) path shares the
 same code via `for_each_via_owner_shape` and isn't separately tested.
 Full suite: 846/846.
 
+## Item 13 — Move snaps routes and vias like Resize
+
+**What was needed:** Move shifted every shape piece by one shared,
+user-grid-snapped mouse offset - a piece that started off-grid stayed
+off-grid, and there was no track/manufacturing-grid option. Resize
+(item 3) already had per-kind snap modes.
+
+**Fix:**
+- `snap_moved_piece_delta` (`core/shape_resize.hpp`): from the raw
+  (unsnapped, axis-constrained) mouse offset, the delta that lands a
+  path's first centerline point, or a via's / via array's origin, on the
+  snap target. It reuses `ShapeSnapContext::snap_path_center`, so
+  MANUFACTURING_GRID puts a path's *edges* on the grid and TRACKS its
+  centerline on a track, exactly as Resize does. An axis the move doesn't
+  change isn't snapped.
+- `api.cpp` `moving_piece_deltas_unlocked`: one delta per moving piece,
+  shared by the ghost and the commit (same "plan once" pattern as
+  placements and Resize). Paths/vias/via arrays snap individually; other
+  pieces keep the shared user-grid delta. Snap contexts are cached per
+  (kind, layer) so TRACKS doesn't re-resolve track grids per piece.
+- Snap settings: `LE_PIECE_KIND_VIA`/`VIA_ITERATE` added to the C enum;
+  vias and via arrays share one slot (`shape_snap_slot`), offering
+  NONE/USER_GRID/MANUFACTURING_GRID/TRACKS. New
+  `le_selected_move_snap_piece_kinds`. Tcl `set_shape_snap_mode via ...`.
+- GUI: while Move is armed with paths/vias selected (and no placements -
+  the placement toolbar keeps precedence), the secondary toolbar shows
+  "Paths:" and "Vias:" snap groups. The toolbar now wraps a group onto a
+  second line when it won't fit (the overlay auto-sizes its height) -
+  at the default 1280px window, Paths + Vias overflowed and clipped
+  (this also fixes the same latent clipping for Resize with rects +
+  polygons + paths selected).
+
+**Judgment calls:**
+- Paths share *one* snap setting between Move and Resize ("the same
+  options as resize"), rather than separate Move/Resize settings.
+- Vias get Tracks/Mfg grid/User grid/None - no FinFET option (via
+  positions relate to routing tracks, not fins).
+- Snapping is now *absolute* for paths and vias: the reference point
+  lands on the grid, where before the piece moved by a whole number of
+  grid steps from wherever it was. Default mode is still User grid.
+- A path's reference point is its first centerline point - for a
+  multi-segment route that's one end; other points move rigidly with it.
+- Rects/polygons (e.g. a DEF route RECT) keep the old shared-delta
+  behaviour - the item names routes and vias only.
+
+**Tests:** `ShapeMoveSnap.*` (core: path user/mfg/none/tracks, via user
+grid with an untouched axis, via array mfg grid, other kinds untouched),
+`SnapModesOfferedPerKind` extended, and end-to-end
+`MovingAViaSnapsItsOriginToTracksWhenAsked`,
+`MovingAViaSnapsItsOriginToTheUserGridByDefault`,
+`MovingARoutesPathSnapsItsCentrelineToTracksWhenAsked` (the two track
+tests fail with per-piece snapping switched off). Tcl smoke test covers
+`via tracks` round-trip and `via fin` rejection. Verified in the real GUI:
+both groups shown and wrapped, and clicking Vias -> Tracks sets the mode.
+`TCL_COMMANDS.md` regenerated. Full suite: 852/852.
+

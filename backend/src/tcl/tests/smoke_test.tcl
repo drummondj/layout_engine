@@ -143,6 +143,14 @@ set_shape_snap_mode path tracks
 check "set_shape_snap_mode path tracks round-trips" "tracks" [get_shape_snap_mode path]
 set_shape_snap_mode polygon none
 check "set_shape_snap_mode polygon none round-trips" "none" [get_shape_snap_mode polygon]
+set_shape_snap_mode via tracks
+check "set_shape_snap_mode via tracks round-trips" "tracks" [get_shape_snap_mode via]
+if {[catch {set_shape_snap_mode via fin} err]} {
+    puts "ok: set_shape_snap_mode rejects fin for a via ($err)"
+} else {
+    puts stderr "FAIL: set_shape_snap_mode accepted fin for a via"
+    exit 1
+}
 if {[catch {set_shape_snap_mode rect tracks} err]} {
     puts "ok: set_shape_snap_mode rejects a mode the kind doesn't offer ($err)"
 } else {

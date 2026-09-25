@@ -1346,14 +1346,16 @@ namespace le::gui
                 // draw_status_bar below lands where it always does.
                 if (have_content && has_secondary_toolbar(provider))
                 {
-                    constexpr float kSecondaryToolbarHeight = 48.0f; // secondary_toolbar.cpp's 36px buttons + 6px padding each side
                     const ImVec2 resume_pos = ImGui::GetCursorScreenPos();
                     ImGui::SetCursorScreenPos(content_screen_pos);
                     // Opaque black, square corners - matches mode_toolbar_row.
                     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
                     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
                     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0.0f);
-                    ImGui::BeginChild("secondary_toolbar_row", ImVec2(panel_width, kSecondaryToolbarHeight), ImGuiChildFlags_AlwaysUseWindowPadding,
+                    // AutoResizeY: one 48px line (36px buttons + 6px padding
+                    // each side), taller when a snap toolbar wraps a group
+                    // onto another line at a narrow width.
+                    ImGui::BeginChild("secondary_toolbar_row", ImVec2(panel_width, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_AutoResizeY,
                                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
                     draw_secondary_toolbar(provider);
                     ImGui::EndChild();

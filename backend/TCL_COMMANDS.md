@@ -2167,11 +2167,11 @@ Returns the current selection as a list of tokens (shape:/row:/placement:/region
 
 `get_shape_snap_mode <kind> [-help]`
 
-Returns Resize's snap mode for <kind> (rect, polygon or path) - none, user, manufacturing, fin or tracks.
+Returns the snap mode for <kind> (rect, polygon, path or via) - none, user, manufacturing, fin or tracks. See set_shape_snap_mode.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<kind>` | `str` | yes | rect, polygon or path |
+| `<kind>` | `str` | yes | rect, polygon, path or via |
 
 ## get_shapes
 
@@ -2611,12 +2611,12 @@ Sets whether one purpose column (e.g. every Layer's own obstruction shapes) is v
 
 `set_shape_snap_mode <kind> <mode> [-help]`
 
-Sets what Resize snaps a <kind> (rect, polygon or path) to. Rects and polygons: user (the user grid - the default), manufacturing (MANUFACTURINGGRID), fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths: user, manufacturing (the path's edges land on the grid), tracks (its centerline lands on a routing track of its layer - the Layout's TRACKS, else the layer's LEF PITCH/OFFSET) or none. Persists.
+Sets what Resize snaps a <kind> (rect, polygon or path) to, and what Move snaps a path or via to. Rects and polygons (Resize only): user (the user grid - the default), manufacturing (MANUFACTURINGGRID), fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths: user, manufacturing (the path's edges land on the grid), tracks (its centerline lands on a routing track of its layer - the Layout's TRACKS, else the layer's LEF PITCH/OFFSET) or none. Vias and via arrays (Move only): user, manufacturing, tracks (the origin lands on a track intersection of its shape's layer) or none. Persists.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<kind>` | `str` | yes | rect, polygon or path |
-| `<mode>` | `str` | yes | none, user, manufacturing, fin (rect/polygon) or tracks (path) |
+| `<kind>` | `str` | yes | rect, polygon, path or via |
+| `<mode>` | `str` | yes | none, user, manufacturing, fin (rect/polygon) or tracks (path/via) |
 
 ## set_viewport_size
 

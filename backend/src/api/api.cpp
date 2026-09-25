@@ -36,6 +36,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -428,9 +429,56 @@ namespace
         context.user_grid = handle->minor_grid_spacing();
         context.manufacturing_grid = le::technology_manufacturing_grid(handle->root);
         context.fin_grid = le::technology_fin_grid(handle->root);
-        if (kind == le::PieceKind::PATH && context.mode == le::ShapeSnapMode::TRACKS)
+        if (context.mode == le::ShapeSnapMode::TRACKS && le::shape_snap_mode_applies(kind, le::ShapeSnapMode::TRACKS))
             context.tracks = le::layer_track_grids(handle->root, handle->current_layout(), layer);
         return context;
+    }
+
+    // Pieces Move snaps one by one (NEW_FEATURES_SEPT_2026.md item 13) -
+    // routes' paths, vias and via arrays - rather than by the shared
+    // user-grid delta.
+    bool snaps_individually_when_moved(le::PieceKind kind)
+    {
+        return kind == le::PieceKind::PATH || kind == le::PieceKind::VIA || kind == le::PieceKind::VIA_ITERATE;
+    }
+
+    // The delta each of move().moving_pieces moves by right now (parallel
+    // to it) - shared by the ghost and the commit so they always agree.
+    // A path/via/via array snaps on its own (le::snap_moved_piece_delta,
+    // under its kind's snap mode, from the raw mouse offset); every other
+    // piece moves by the shared user-grid delta (a Placement's entry is
+    // unused - plan_moving_placements_unlocked places those). nullopt until
+    // anchored.
+    std::optional<std::vector<le::Point>> moving_piece_deltas_unlocked(const LeHandle *handle)
+    {
+        const std::optional<le::Point> delta = handle->move_delta(handle->move_free_form());
+        if (!delta)
+            return std::nullopt;
+        const std::optional<le::Point> raw_delta = handle->move_raw_delta(handle->move_free_form());
+
+        // One snap context per (snap slot, layer) - a TRACKS context
+        // resolves the layer's track grids, not worth redoing per piece.
+        std::map<std::pair<le::PieceKind, le::LayerId>, le::ShapeSnapContext> contexts;
+        std::vector<le::Point> deltas;
+        deltas.reserve(handle->move().moving_pieces.size());
+        for (const LeHandle::SelectedObject &selected : handle->move().moving_pieces)
+        {
+            le::Point piece_delta = *delta;
+            const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
+            if (piece && raw_delta && snaps_individually_when_moved(piece->piece_kind))
+                if (const le::ShapeData *data = handle->root.get_shape(piece->shape_id);
+                    data && le::Geometry::piece_in_range(*data, piece->piece_kind, piece->piece_index))
+                {
+                    const auto key = std::make_pair(le::shape_snap_slot(piece->piece_kind), data->layer);
+                    auto it = contexts.find(key);
+                    if (it == contexts.end())
+                        it = contexts.emplace(key, shape_snap_context_unlocked(handle, piece->piece_kind, data->layer)).first;
+                    piece_delta = le::snap_moved_piece_delta(le::Geometry::extract_piece(*data, piece->piece_kind, piece->piece_index),
+                                                             piece->piece_kind, *raw_delta, it->second);
+                }
+            deltas.push_back(piece_delta);
+        }
+        return deltas;
     }
 
     // The grabbed piece resized to the mouse at dbu `current` - the ghost
@@ -743,18 +791,34 @@ namespace
             // (user-grid) delta to match.
             if (const std::optional<le::Point> raw_delta = handle->move_raw_delta(handle->move_free_form()))
             {
-                const std::optional<le::Point> shape_delta = handle->move_delta(handle->move_free_form());
-                for (const le::Shape &piece : handle->move().moving_geometry)
-                    if (!piece.rects.empty() || !piece.polygons.empty() || !piece.paths.empty())
-                        options.move_ghost_pieces_dbu.push_back(le::Geometry::transform(piece, shape_delta.value_or(le::Point{})));
+                const std::optional<std::vector<le::Point>> deltas = moving_piece_deltas_unlocked(handle);
+                const std::vector<le::Shape> &geometry = handle->move().moving_geometry;
+                for (size_t i = 0; i < geometry.size(); ++i)
+                    if (!geometry[i].rects.empty() || !geometry[i].polygons.empty() || !geometry[i].paths.empty())
+                        options.move_ghost_pieces_dbu.push_back(le::Geometry::transform(geometry[i], deltas && i < deltas->size() ? (*deltas)[i] : le::Point{}));
                 for (const le::PlacementMoveTarget &target : plan_moving_placements_unlocked(handle, placements, *raw_delta))
                     options.move_ghost_pieces_dbu.push_back(le::placement_move_ghost(target));
             }
         }
-        else if (const std::optional<le::Point> delta = handle->move_delta(handle->move_free_form()))
+        else if (const std::optional<std::vector<le::Point>> deltas = moving_piece_deltas_unlocked(handle))
         {
-            options.move_ghost_pieces_dbu = handle->move().moving_geometry;
-            options.move_ghost_offset_dbu = *delta;
+            // One shared offset unless some piece snaps on its own
+            // (item 13) - then each is pre-translated by its own delta.
+            const std::vector<LeHandle::SelectedObject> &pieces = handle->move().moving_pieces;
+            const bool per_piece = std::ranges::any_of(pieces, [](const LeHandle::SelectedObject &selected)
+                                                       {
+                                                           const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
+                                                           return piece && snaps_individually_when_moved(piece->piece_kind);
+                                                       });
+            const std::vector<le::Shape> &geometry = handle->move().moving_geometry;
+            if (!per_piece)
+            {
+                options.move_ghost_pieces_dbu = geometry;
+                options.move_ghost_offset_dbu = handle->move_delta(handle->move_free_form()).value_or(le::Point{});
+            }
+            else
+                for (size_t i = 0; i < geometry.size() && i < deltas->size(); ++i)
+                    options.move_ghost_pieces_dbu.push_back(le::Geometry::transform(geometry[i], (*deltas)[i]));
         }
 
         options.ruler_version = handle->ruler_version();
@@ -1305,10 +1369,10 @@ namespace
             return;
         }
 
-        const std::optional<le::Point> delta = handle->move_delta(handle->move_free_form());
+        const std::optional<std::vector<le::Point>> deltas = moving_piece_deltas_unlocked(handle);
         const std::vector<le::PlacementId> placements = handle->moving_placements();
         const std::optional<le::Point> raw_delta = handle->move_raw_delta(handle->move_free_form());
-        if (!delta || (!placements.empty() && !raw_delta))
+        if (!deltas || (!placements.empty() && !raw_delta))
         {
             handle->end_move();
             return;
@@ -1320,8 +1384,9 @@ namespace
 
         handle->command_history.begin("move");
         const std::vector<LeHandle::SelectedObject> moving_pieces = handle->move().moving_pieces;
-        for (const LeHandle::SelectedObject &selected : moving_pieces)
+        for (size_t moving_index = 0; moving_index < moving_pieces.size() && moving_index < deltas->size(); ++moving_index)
         {
+            const LeHandle::SelectedObject &selected = moving_pieces[moving_index];
             // Only ShapePieces here - Placements commit from
             // placement_targets below, Rows/Regions aren't movable.
             const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
@@ -1334,7 +1399,7 @@ namespace
 
             const le::ShapeData before = *existing;
             le::ShapeData after = before;
-            le::Geometry::transform_piece_in_place(after, piece->piece_kind, piece->piece_index, *delta);
+            le::Geometry::transform_piece_in_place(after, piece->piece_kind, piece->piece_index, (*deltas)[moving_index]);
             apply_shape_snapshot_with_vias(handle->root, piece->shape_id, after); // a via piece moves its origin (NEW_FEATURES_SEPT_2026.md item 6)
             handle->root.bump_mutation_version();
 
@@ -3253,7 +3318,7 @@ extern "C"
 
     void le_set_shape_snap_mode(LeHandle *handle, int32_t kind, int32_t mode)
     {
-        if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_PATH || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
+        if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_VIA_ITERATE || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
             return;
         const le::PieceKind piece_kind = static_cast<le::PieceKind>(kind);
         const le::ShapeSnapMode snap_mode = static_cast<le::ShapeSnapMode>(mode);
@@ -3265,7 +3330,7 @@ extern "C"
 
     int32_t le_get_shape_snap_mode(LeHandle *handle, int32_t kind)
     {
-        if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_PATH)
+        if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_VIA_ITERATE)
             return LE_SHAPE_SNAP_USER_GRID;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return static_cast<int32_t>(handle->shape_snap_mode(static_cast<le::PieceKind>(kind)));
@@ -3273,7 +3338,7 @@ extern "C"
 
     int32_t le_is_shape_snap_mode_available(LeHandle *handle, int32_t kind, int32_t mode)
     {
-        if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_PATH || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
+        if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_VIA_ITERATE || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
             return 0;
         const le::PieceKind piece_kind = static_cast<le::PieceKind>(kind);
         const le::ShapeSnapMode snap_mode = static_cast<le::ShapeSnapMode>(mode);
@@ -3292,7 +3357,7 @@ extern "C"
         case le::ShapeSnapMode::TRACKS:
             for (const LeHandle::SelectedObject &selected : handle->selection())
                 if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
-                    piece && piece->piece_kind == le::PieceKind::PATH)
+                    piece && le::shape_snap_slot(piece->piece_kind) == le::shape_snap_slot(piece_kind))
                     if (const le::ShapeData *data = handle->root.get_shape(piece->shape_id);
                         data && !le::layer_track_grids(handle->root, handle->current_layout(), data->layer).empty())
                         return 1;
@@ -3311,6 +3376,19 @@ extern "C"
             if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
                 piece && piece->piece_kind != le::PieceKind::VIA && piece->piece_kind != le::PieceKind::VIA_ITERATE) // a via has nothing to resize
                 mask |= 1 << static_cast<int32_t>(piece->piece_kind);
+        return mask;
+    }
+
+    int32_t le_selected_move_snap_piece_kinds(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        int32_t mask = 0;
+        for (const LeHandle::SelectedObject &selected : handle->selection())
+            if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
+                piece && snaps_individually_when_moved(piece->piece_kind))
+                mask |= 1 << static_cast<int32_t>(le::shape_snap_slot(piece->piece_kind));
         return mask;
     }
 

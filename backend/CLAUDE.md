@@ -124,7 +124,13 @@ none of these are duplicated here.
   `draw_resize_hover_overlay`, plus `le_resize_hover_axis` for the GUI's
   resize cursor), `resize_click_unlocked` grabs on the first click and
   commits one undoable "resize" on the second; Escape cancels a grab. The
-  ghost reuses the Move ghost overlay.
+  ghost reuses the Move ghost overlay. Move (item 13) snaps each selected
+  path, via or via array on its own - `snap_moved_piece_delta` lands a
+  path's first centerline point or a via's origin on its kind's snap
+  target (paths share Resize's setting; vias/via arrays have their own,
+  `shape_snap_slot`), from the raw mouse offset - via api.cpp's
+  `moving_piece_deltas_unlocked`, shared by ghost and commit; rects and
+  polygons still move by the user-grid-snapped offset.
   `RenderedShape`/
   `TinyShapeDot`/`VersionedStage`/`ShapeGenerationStage` (the pre-restart
   `pipeline` module's own shape-generation output/render-input types and

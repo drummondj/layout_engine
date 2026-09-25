@@ -1047,15 +1047,17 @@ struct LeHandle
         // edge/segment snaps to - persists across grabs, USER_GRID by
         // default (always available). Bumps mouse_version_ on a real
         // change so a live ghost re-snaps immediately.
+        // A via array shares its via's slot (le::shape_snap_slot) - vias
+        // snap only when moved (NEW_FEATURES_SEPT_2026.md item 13).
         void set_shape_snap_mode(le::PieceKind kind, le::ShapeSnapMode mode)
         {
-            le::ShapeSnapMode &slot = shape_snap_modes_[static_cast<size_t>(kind)];
+            le::ShapeSnapMode &slot = shape_snap_modes_[static_cast<size_t>(le::shape_snap_slot(kind))];
             if (slot == mode)
                 return;
             slot = mode;
             ++mouse_version_;
         }
-        le::ShapeSnapMode shape_snap_mode(le::PieceKind kind) const { return shape_snap_modes_[static_cast<size_t>(kind)]; }
+        le::ShapeSnapMode shape_snap_mode(le::PieceKind kind) const { return shape_snap_modes_[static_cast<size_t>(le::shape_snap_slot(kind))]; }
 
         // What a moving Placement's location snaps to (the secondary
         // toolbar's snap buttons) - persists across moves, SITE by
@@ -1562,7 +1564,7 @@ struct LeHandle
         MoveState move_;
         ResizeState resize_;
         int flightline_max_fanout_ = 10;
-        std::array<le::ShapeSnapMode, 3> shape_snap_modes_{le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID};
+        std::array<le::ShapeSnapMode, 4> shape_snap_modes_{le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID}; // RECT, POLYGON, PATH, VIA (+ VIA_ITERATE)
         le::PlacementSnapMode placement_snap_mode_ = le::PlacementSnapMode::SITE;
         double ruler_label_size_px_ = 11.0;
         // Minimum on-screen distance (px, converted via the current

@@ -137,6 +137,47 @@ TEST(ShapeResize, SnapModesOfferedPerKind)
     EXPECT_FALSE(shape_snap_mode_applies(PieceKind::RECT, ShapeSnapMode::TRACKS));
     EXPECT_TRUE(shape_snap_mode_applies(PieceKind::PATH, ShapeSnapMode::TRACKS));
     EXPECT_FALSE(shape_snap_mode_applies(PieceKind::PATH, ShapeSnapMode::FIN_GRID));
+    EXPECT_TRUE(shape_snap_mode_applies(PieceKind::VIA, ShapeSnapMode::TRACKS));
+    EXPECT_FALSE(shape_snap_mode_applies(PieceKind::VIA, ShapeSnapMode::FIN_GRID));
+    EXPECT_TRUE(shape_snap_mode_applies(PieceKind::VIA_ITERATE, ShapeSnapMode::MANUFACTURING_GRID));
+    EXPECT_EQ(shape_snap_slot(PieceKind::VIA_ITERATE), PieceKind::VIA);
+}
+
+// NEW_FEATURES_SEPT_2026.md item 13: a moved path lands its first
+// centerline point, and a moved via / via array its origin, on the snap
+// target; an axis the move doesn't change stays put.
+TEST(ShapeMoveSnap, APathsFirstPointLandsOnTheTargetFromTheRawDelta)
+{
+    const Shape piece{.paths = {u_path()}}; // first point (0,0), width 20
+
+    // Raw (137, 0): x 137 -> user grid 100; y untouched.
+    EXPECT_EQ(snap_moved_piece_delta(piece, PieceKind::PATH, Point{137, 0}, snap(ShapeSnapMode::USER_GRID)), (Point{100, 0}));
+    // Manufacturing grid puts the edges (x - 10) on the 5-dbu grid: 137 -> edge 127 -> 125 -> centre 135.
+    EXPECT_EQ(snap_moved_piece_delta(piece, PieceKind::PATH, Point{137, 0}, snap(ShapeSnapMode::MANUFACTURING_GRID)), (Point{135, 0}));
+    EXPECT_EQ(snap_moved_piece_delta(piece, PieceKind::PATH, Point{137, 0}, snap(ShapeSnapMode::NONE)), (Point{137, 0}));
+
+    ShapeSnapContext tracks = snap(ShapeSnapMode::TRACKS);
+    tracks.tracks = {TrackGrid{.vertical = true, .start = 30, .step = 140, .count = 0}};
+    // x 137 -> nearest vertical track 170 (30 + 140).
+    EXPECT_EQ(snap_moved_piece_delta(piece, PieceKind::PATH, Point{137, 0}, tracks), (Point{170, 0}));
+}
+
+TEST(ShapeMoveSnap, AViaOrViaArrayOriginLandsOnTheTarget)
+{
+    const Shape via{.vias = {ShapeVia{.via_name = "V", .origin = Point{1010, 2020}}}};
+    // Origin (1010, 2020) + raw (240, 370) = (1250, 2390) -> user grid (1300, 2400).
+    EXPECT_EQ(snap_moved_piece_delta(via, PieceKind::VIA, Point{240, 370}, snap(ShapeSnapMode::USER_GRID)), (Point{290, 380}));
+    // A raw delta along x only doesn't pull the off-grid y onto the grid.
+    EXPECT_EQ(snap_moved_piece_delta(via, PieceKind::VIA, Point{240, 0}, snap(ShapeSnapMode::USER_GRID)), (Point{290, 0}));
+
+    const Shape array{.via_iterates = {ShapeViaIterate{.via_name = "V", .origin = Point{3, 0}, .num_x = 2, .num_y = 2, .space_x = 100, .space_y = 100}}};
+    // (3 + 11) = 14 -> manufacturing grid 15.
+    EXPECT_EQ(snap_moved_piece_delta(array, PieceKind::VIA_ITERATE, Point{11, 0}, snap(ShapeSnapMode::MANUFACTURING_GRID)), (Point{12, 0}));
+}
+
+TEST(ShapeMoveSnap, OtherKindsKeepTheRawDelta)
+{
+    EXPECT_EQ(snap_moved_piece_delta(rect_piece(Rect{{0, 0}, {10, 10}}), PieceKind::RECT, Point{37, 0}, snap(ShapeSnapMode::USER_GRID)), (Point{37, 0}));
 }
 
 TEST(ShapeResize, LayerTrackGridsUseLayoutTracksElseTheLayersPitch)

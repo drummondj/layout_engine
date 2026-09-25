@@ -77,7 +77,7 @@ There should be an option to save the settings into your home dir or a file of t
 
 12. Please allow via arrays to be selectable and moveable - DONE
 
-13. Please update the move tool so it has the same grid snapping options as resize for routes and vias.
+13. Please update the move tool so it has the same grid snapping options as resize for routes and vias. - DONE
 
 14. Resize tool button should be disabled when placements are selected - DONE
 

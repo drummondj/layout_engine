@@ -27,8 +27,20 @@ namespace le
         TRACKS = 4,
     };
 
+    /// @brief Vias and via arrays share one snap setting (the VIA slot) -
+    /// they're both placed by an origin (NEW_FEATURES_SEPT_2026.md item 13).
+    inline PieceKind shape_snap_slot(PieceKind kind)
+    {
+        return kind == PieceKind::VIA_ITERATE ? PieceKind::VIA : kind;
+    }
+
+    /// @brief Rects/polygons: NONE/USER_GRID/MANUFACTURING_GRID/FIN_GRID.
+    /// Paths: NONE/USER_GRID/MANUFACTURING_GRID/TRACKS. Vias and via arrays
+    /// (Move only - item 13): NONE/USER_GRID/MANUFACTURING_GRID/TRACKS (the
+    /// origin lands on a track intersection of its Shape's layer).
     inline bool shape_snap_mode_applies(PieceKind kind, ShapeSnapMode mode)
     {
+        const bool is_path_like = kind == PieceKind::PATH || kind == PieceKind::VIA || kind == PieceKind::VIA_ITERATE;
         switch (mode)
         {
         case ShapeSnapMode::NONE:
@@ -36,9 +48,9 @@ namespace le
         case ShapeSnapMode::MANUFACTURING_GRID:
             return true;
         case ShapeSnapMode::FIN_GRID:
-            return kind != PieceKind::PATH;
+            return !is_path_like;
         case ShapeSnapMode::TRACKS:
-            return kind == PieceKind::PATH;
+            return is_path_like;
         }
         return false; // unreachable
     }
@@ -138,6 +150,40 @@ namespace le
             return offset + static_cast<int64_t>(std::llround(static_cast<double>(v - offset) / static_cast<double>(pitch))) * pitch;
         }
     };
+
+    /// @brief The delta a Move applies to one path, via or via array piece
+    /// (NEW_FEATURES_SEPT_2026.md item 13): `raw_delta` (the unsnapped,
+    /// axis-constrained mouse offset) adjusted so the piece's reference
+    /// point lands on `snap`'s target - a path's first centerline point
+    /// (snapped like a path centerline, so MANUFACTURING_GRID puts its
+    /// edges on the grid and TRACKS its centerline on a track), or a via's
+    /// / via array's origin (width 0). An axis the move doesn't change
+    /// (raw delta 0 there) isn't snapped, so a constrained move stays on
+    /// its axis. `piece` is the one-piece Shape (Geometry::extract_piece);
+    /// raw_delta unchanged for any other kind or an empty piece.
+    inline Point snap_moved_piece_delta(const Shape &piece, PieceKind kind, Point raw_delta, const ShapeSnapContext &snap)
+    {
+        std::optional<Point> reference;
+        int64_t width = 0;
+        if (kind == PieceKind::PATH && !piece.paths.empty() && !piece.paths.front().polygon.points.empty())
+        {
+            reference = piece.paths.front().polygon.points.front();
+            width = piece.paths.front().width;
+        }
+        else if (kind == PieceKind::VIA && !piece.vias.empty())
+            reference = piece.vias.front().origin;
+        else if (kind == PieceKind::VIA_ITERATE && !piece.via_iterates.empty())
+            reference = piece.via_iterates.front().origin;
+        if (!reference)
+            return raw_delta;
+
+        Point delta = raw_delta;
+        if (raw_delta.x != 0)
+            delta.x = snap.snap_path_center(reference->x + raw_delta.x, true, width) - reference->x;
+        if (raw_delta.y != 0)
+            delta.y = snap.snap_path_center(reference->y + raw_delta.y, false, width) - reference->y;
+        return delta;
+    }
 
     /// @brief The part of a one-piece Shape a resize drags: a rect's edge
     /// (0 left, 1 right, 2 bottom, 3 top), or a polygon edge / path segment

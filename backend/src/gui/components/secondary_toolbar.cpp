@@ -44,6 +44,13 @@ namespace le::gui
             {LE_SHAPE_SNAP_USER_GRID, "User grid", "Snap the segment's centerline to the user grid"},
             {LE_SHAPE_SNAP_NONE, "None", "No snapping"},
         };
+        // Item 13 - a moved via's (or via array's) origin.
+        constexpr SnapChoice kViaSnapChoices[] = {
+            {LE_SHAPE_SNAP_TRACKS, "Tracks", "Snap the via's origin to a routing track intersection of its layer"},
+            {LE_SHAPE_SNAP_MANUFACTURING_GRID, "Mfg grid", "Snap the via's origin to the manufacturing grid"},
+            {LE_SHAPE_SNAP_USER_GRID, "User grid", "Snap the via's origin to the user grid"},
+            {LE_SHAPE_SNAP_NONE, "None", "No snapping"},
+        };
 
         // Every item in the row is pinned to the row's own top y
         // explicitly - after SameLine(), ImGui's own text-baseline
@@ -53,6 +60,14 @@ namespace le::gui
         {
         public:
             Row() : y_(ImGui::GetCursorPosY()) {}
+
+            // Moves every following item onto a fresh line below this one.
+            void wrap()
+            {
+                y_ += kButtonSize + ImGui::GetStyle().ItemSpacing.y;
+                ImGui::SetCursorPosY(y_);
+                first_ = true;
+            }
 
             void same_line(float spacing = -1.0f)
             {
@@ -180,9 +195,11 @@ namespace le::gui
                 provider.flip_placement_vertical();
         }
 
-        // NEW_FEATURES_SEPT_2026.md item 3 - one snap group per kind of
-        // shape piece in the selection (rects, polygons, paths).
-        void draw_resize_toolbar(GuiProvider &provider)
+        // One snap group per kind of shape piece in `kinds` (a 1 <<
+        // LePieceKind mask) - Resize's rects/polygons/paths (item 3), or
+        // Move's paths/vias (item 13). Paths share one setting between the
+        // two tools, so one pending state per kind serves both.
+        void draw_shape_snap_toolbar(GuiProvider &provider, int32_t kinds)
         {
             const GuiProvider::State::Resize &state = provider.state().resize;
             Row row;
@@ -197,14 +214,36 @@ namespace le::gui
                 {LE_PIECE_KIND_RECT, "Rects:", kRectPolygonSnapChoices},
                 {LE_PIECE_KIND_POLYGON, "Polygons:", kRectPolygonSnapChoices},
                 {LE_PIECE_KIND_PATH, "Paths:", kPathSnapChoices},
+                {LE_PIECE_KIND_VIA, "Vias:", kViaSnapChoices},
             };
-            static PendingChoice pending[3] = {{.pending = LE_SHAPE_SNAP_USER_GRID}, {.pending = LE_SHAPE_SNAP_USER_GRID}, {.pending = LE_SHAPE_SNAP_USER_GRID}};
+            static PendingChoice pending[4] = {{.pending = LE_SHAPE_SNAP_USER_GRID}, {.pending = LE_SHAPE_SNAP_USER_GRID}, {.pending = LE_SHAPE_SNAP_USER_GRID}, {.pending = LE_SHAPE_SNAP_USER_GRID}};
+
+            // A group that won't fit on the current line starts a new one
+            // (the row's child window grows to fit - le_gui.cpp).
+            const ImGuiStyle &style = ImGui::GetStyle();
+            const auto group_width = [&](const Group &group)
+            {
+                float width = ImGui::CalcTextSize(group.label).x;
+                for (const SnapChoice &choice : group.choices)
+                    width += style.ItemSpacing.x + ImGui::CalcTextSize(choice.label).x + style.FramePadding.x * 2.0f;
+                return width;
+            };
+            const float line_width = ImGui::GetContentRegionAvail().x;
+            float used = 0.0f;
 
             bool first_group = true;
             for (const Group &group : groups)
             {
-                if (!(state.selected_piece_kinds & (1 << group.kind)))
+                if (!(kinds & (1 << group.kind)))
                     continue;
+                const float width = group_width(group);
+                if (!first_group && used + 16.0f + width > line_width)
+                {
+                    row.wrap();
+                    first_group = true;
+                    used = 0.0f;
+                }
+                used += (first_group ? 0.0f : 16.0f) + width;
                 draw_snap_group(
                     row, group.label, first_group ? -1.0f : 16.0f, group.choices, pending[group.kind], state.snap_modes[group.kind],
                     [&](int32_t mode)
@@ -221,16 +260,20 @@ namespace le::gui
         const GuiProvider::State &state = provider.state();
         if (state.mode != LE_MODE_EDIT)
             return false;
-        return (state.is_resize_armed && state.resize.selected_piece_kinds != 0) || state.placement_move.selected_count > 0;
+        return (state.is_resize_armed && state.resize.selected_piece_kinds != 0) || state.placement_move.selected_count > 0 ||
+               (state.is_move_armed && state.resize.move_snap_piece_kinds != 0);
     }
 
     void draw_secondary_toolbar(GuiProvider &provider)
     {
-        // Resize, while armed, owns the row; otherwise placements' options.
+        // Resize, while armed, owns the row; otherwise placements' options;
+        // otherwise, while Move is armed, its path/via snapping (item 13).
         const GuiProvider::State &state = provider.state();
         if (state.is_resize_armed && state.resize.selected_piece_kinds != 0)
-            draw_resize_toolbar(provider);
+            draw_shape_snap_toolbar(provider, state.resize.selected_piece_kinds);
         else if (state.placement_move.selected_count > 0)
             draw_placement_toolbar(provider);
+        else if (state.is_move_armed && state.resize.move_snap_piece_kinds != 0)
+            draw_shape_snap_toolbar(provider, state.resize.move_snap_piece_kinds);
     }
 }

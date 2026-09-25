@@ -35,10 +35,11 @@ namespace le::gui
         state_.is_move_armed = le_is_move_armed(handle_) != 0;
         state_.is_resize_armed = le_is_resize_armed(handle_) != 0;
         state_.resize.hover_axis = state_.is_resize_armed ? le_resize_hover_axis(handle_) : LE_RESIZE_AXIS_NONE;
-        if (state_.is_resize_armed)
+        state_.resize.selected_piece_kinds = state_.is_resize_armed ? le_selected_piece_kinds(handle_) : 0;
+        state_.resize.move_snap_piece_kinds = state_.is_move_armed ? le_selected_move_snap_piece_kinds(handle_) : 0;
+        if (state_.is_resize_armed || state_.resize.move_snap_piece_kinds != 0)
         {
-            state_.resize.selected_piece_kinds = le_selected_piece_kinds(handle_);
-            for (int32_t kind = LE_PIECE_KIND_RECT; kind <= LE_PIECE_KIND_PATH; ++kind)
+            for (int32_t kind = LE_PIECE_KIND_RECT; kind <= LE_PIECE_KIND_VIA; ++kind)
             {
                 state_.resize.snap_modes[kind] = le_get_shape_snap_mode(handle_, kind);
                 for (int32_t mode = LE_SHAPE_SNAP_NONE; mode <= LE_SHAPE_SNAP_TRACKS; ++mode)
@@ -347,9 +348,9 @@ namespace le::gui
 
     void GuiProvider::set_shape_snap_mode(int32_t kind, int32_t mode)
     {
-        static const char *const kKinds[] = {"rect", "polygon", "path"};
+        static const char *const kKinds[] = {"rect", "polygon", "path", "via"};
         static const char *const kModes[] = {"none", "user", "manufacturing", "fin", "tracks"};
-        if (kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_PATH || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
+        if (kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_VIA || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
             return;
         run_tcl_command(std::string("set_shape_snap_mode ") + kKinds[kind] + " " + kModes[mode]);
     }

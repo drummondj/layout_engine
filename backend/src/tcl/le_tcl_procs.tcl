@@ -1236,7 +1236,7 @@ register_command_help placement_snap_mode_available \
 # --- shape resizing (NEW_FEATURES_SEPT_2026.md item 3 - backed by
 # arm_resize_cmd/set_shape_snap_mode_cmd/get_shape_snap_mode_cmd/
 # is_shape_snap_mode_available_cmd) ---
-array set ::shape_kind_names {rect 0 polygon 1 path 2}
+array set ::shape_kind_names {rect 0 polygon 1 path 2 via 3}
 array set ::shape_snap_names {none 0 user 1 manufacturing 2 fin 3 tracks 4}
 array set ::shape_snap_names_reverse {0 none 1 user 2 manufacturing 3 fin 4 tracks}
 
@@ -1270,7 +1270,7 @@ register_command_help arm_resize \
 
 proc set_shape_snap_mode {kind args} {
     if {$kind eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "set_shape_snap_mode <kind> <mode> \[-help\] - Sets what a resized shape of one kind snaps to"
+        return "set_shape_snap_mode <kind> <mode> \[-help\] - Sets what a resized or moved shape of one kind snaps to"
     }
     if {[llength $args] != 1} {
         error "set_shape_snap_mode: expected exactly 2 arguments (kind, mode), got [expr {1 + [llength $args]}]"
@@ -1278,31 +1278,32 @@ proc set_shape_snap_mode {kind args} {
     set mode [lindex $args 0]
     set kind_code [_shape_kind_code set_shape_snap_mode $kind]
     set mode_code [_shape_snap_code set_shape_snap_mode $mode]
-    if {($kind eq "path" && $mode eq "fin") || ($kind ne "path" && $mode eq "tracks")} {
+    set path_like [expr {$kind eq "path" || $kind eq "via"}]
+    if {($path_like && $mode eq "fin") || (!$path_like && $mode eq "tracks")} {
         error "set_shape_snap_mode: $kind shapes can't snap to $mode"
     }
     set_shape_snap_mode_cmd $kind_code $mode_code
     return ""
 }
 register_command_help set_shape_snap_mode \
-    "set_shape_snap_mode <kind> <mode> \[-help\] - Sets what a resized shape of one kind snaps to" \
-    "Sets what Resize snaps a <kind> (rect, polygon or path) to. Rects and polygons: user (the user grid - the default), manufacturing (MANUFACTURINGGRID), fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths: user, manufacturing (the path's edges land on the grid), tracks (its centerline lands on a routing track of its layer - the Layout's TRACKS, else the layer's LEF PITCH/OFFSET) or none. Persists." \
+    "set_shape_snap_mode <kind> <mode> \[-help\] - Sets what a resized or moved shape of one kind snaps to" \
+    "Sets what Resize snaps a <kind> (rect, polygon or path) to, and what Move snaps a path or via to. Rects and polygons (Resize only): user (the user grid - the default), manufacturing (MANUFACTURINGGRID), fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths: user, manufacturing (the path's edges land on the grid), tracks (its centerline lands on a routing track of its layer - the Layout's TRACKS, else the layer's LEF PITCH/OFFSET) or none. Vias and via arrays (Move only): user, manufacturing, tracks (the origin lands on a track intersection of its shape's layer) or none. Persists." \
     {
-        {<kind> {type str required 1 description {rect, polygon or path}}}
-        {<mode> {type str required 1 description {none, user, manufacturing, fin (rect/polygon) or tracks (path)}}}
+        {<kind> {type str required 1 description {rect, polygon, path or via}}}
+        {<mode> {type str required 1 description {none, user, manufacturing, fin (rect/polygon) or tracks (path/via)}}}
     }
 
 proc get_shape_snap_mode {kind} {
     if {$kind eq "-help"} {
-        return "get_shape_snap_mode <kind> \[-help\] - Returns what a resized shape of one kind snaps to"
+        return "get_shape_snap_mode <kind> \[-help\] - Returns what a resized or moved shape of one kind snaps to"
     }
     return $::shape_snap_names_reverse([get_shape_snap_mode_cmd [_shape_kind_code get_shape_snap_mode $kind]])
 }
 register_command_help get_shape_snap_mode \
-    "get_shape_snap_mode <kind> \[-help\] - Returns what a resized shape of one kind snaps to" \
-    "Returns Resize's snap mode for <kind> (rect, polygon or path) - none, user, manufacturing, fin or tracks." \
+    "get_shape_snap_mode <kind> \[-help\] - Returns what a resized or moved shape of one kind snaps to" \
+    "Returns the snap mode for <kind> (rect, polygon, path or via) - none, user, manufacturing, fin or tracks. See set_shape_snap_mode." \
     {
-        {<kind> {type str required 1 description {rect, polygon or path}}}
+        {<kind> {type str required 1 description {rect, polygon, path or via}}}
     }
 
 proc shape_snap_mode_available {kind args} {
