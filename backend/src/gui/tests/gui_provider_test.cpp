@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -52,6 +53,22 @@ TEST_F(GuiProviderFixture, LayersListsOnlyTechnologyLayersAndPseudoRowsOnlyAsPur
 
     provider.refresh(); // rebuilt, not appended to
     EXPECT_EQ(provider.state().layer_manager.layers.size(), 1u);
+}
+
+// NEW_FEATURES_SEPT_2026.md item 8: only purposes something can actually
+// be selected on get a selectable checkbox in the Layers panel.
+TEST_F(GuiProviderFixture, OnlyPurposesWithSelectableObjectsOfferASelectableToggle)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    le::gui::GuiProvider provider(handle);
+    provider.refresh();
+
+    std::vector<int32_t> with_toggle;
+    for (const auto &purpose : provider.state().layer_manager.purposes)
+        if (purpose.has_selectable_objects)
+            with_toggle.push_back(purpose.ordinal);
+    std::ranges::sort(with_toggle);
+    EXPECT_EQ(with_toggle, (std::vector<int32_t>{0 /* TERMINAL */, 1 /* OBSTRUCTION */, 9 /* ROUTE */, 11 /* PLACEMENT */}));
 }
 
 TEST_F(GuiProviderFixture, EveryTechnologyLayerIsListedInDeclarationOrder)

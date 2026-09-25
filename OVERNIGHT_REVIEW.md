@@ -49,3 +49,32 @@ selection test became
 `PlacementsAreSelectableOnlyWhilePlacementPurposeIsVisibleAndSelectable`.
 `TCL_COMMANDS.md` regenerated. Full suite: 842/842.
 
+## Item 8 — No selectable checkbox for objects that can't be selected
+
+**What was needed:** every purpose row in the Layers panel had an S
+checkbox, but most purposes (row, boundary, tracks, gcellgrid, blockages,
+region, customShape, debug, flightline) have nothing hit-testing ever
+selects, so the toggle did nothing.
+
+**Fix:**
+- `purpose_has_selectable_objects(ViewLayerPurpose)` (`view_style.hpp`)
+  — true for TERMINAL, OBSTRUCTION, ROUTE and PLACEMENT only, which is
+  exactly what `placement_geometry.hpp`'s hit-tests and `api.cpp`'s
+  `placements_selectable` walk (vias follow their owning Shape's purpose).
+  Its doc comment says to extend it when a new kind becomes selectable.
+- C API `le_purpose_has_selectable_objects(purpose)` (the GUI only
+  depends on `api`), carried into `GuiProvider::PurposeRow::has_selectable_objects`.
+- `layer_manager.cpp`: `draw_toggle_row` leaves the S cell empty when the
+  purpose has nothing selectable; the "All"/"Purposes" aggregate S
+  checkboxes ignore those purposes both when computing their checked state
+  and when toggling.
+
+**Judgment call:** layer rows keep their S checkbox - every technology
+layer can carry terminal/obstruction/route shapes. CUSTOM_SHAPE free
+shapes aren't hit-tested yet (CLAUDE.md), so customShape loses its
+checkbox until they are. The Tcl `set_purpose_selectable` still accepts
+any purpose (harmless, and keeps scripts working).
+
+**Tests:** `GuiProviderFixture.OnlyPurposesWithSelectableObjectsOfferASelectableToggle`.
+Full suite: 843/843.
+

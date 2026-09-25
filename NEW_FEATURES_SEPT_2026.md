@@ -56,7 +56,7 @@ Vias are not selectable or moveable at the moment, so please add that feature.
 
 In a previous bug, the layer selection list contained layers that only have purposes. The layer list should only contain technology layers. Please make sure there is a regression test for this.
 
-8. Objects that not selectable should not have a selectable checkbox.
+8. Objects that not selectable should not have a selectable checkbox. - DONE
 
 9. Settings window
 

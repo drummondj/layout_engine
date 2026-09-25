@@ -54,6 +54,7 @@ namespace le::gui
             int32_t ordinal;
             bool visible;
             bool selectable;
+            bool has_selectable_objects; // false - no selectable checkbox (le_purpose_has_selectable_objects)
         };
 
         // Ambient state - read in full, unconditionally, by one or more

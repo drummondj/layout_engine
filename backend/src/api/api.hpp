@@ -900,6 +900,12 @@ extern "C"
     /// A no-op if handle or layer_name is null.
     void le_set_layer_name_selectable(LeHandle *handle, const char *layer_name, int32_t selectable);
 
+    /// @brief Nonzero if anything drawn on `purpose` (a le_purpose_at
+    /// ordinal) can ever be selected - zero means le_set_purpose_selectable
+    /// has no effect on it, e.g. ROW/GCELLGRID/DEBUG. Needs no handle:
+    /// a fixed property of the purpose itself.
+    int32_t le_purpose_has_selectable_objects(int32_t purpose);
+
     /// @brief Current selectability of every ViewLayer whose purpose is
     /// `purpose`, across every layer. Selectable by default until toggled.
     /// Returns nonzero (selectable) if handle is null.

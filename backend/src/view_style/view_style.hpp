@@ -74,6 +74,28 @@ namespace le
                              // invisible); drawn by ComposeStage as an overlay, not rasterized.
     };
 
+    /// @brief Whether anything drawn on `purpose` can ever be selected -
+    /// false means its selectable toggle does nothing, so the Layers panel
+    /// shows no checkbox for it (NEW_FEATURES_SEPT_2026.md item 8). Must
+    /// match what hit-testing actually walks: TERMINAL/OBSTRUCTION
+    /// (hit_test_abstract_*), ROUTE/TERMINAL (hit_test_layout_*, a
+    /// PhysicalPort's own shapes draw as TERMINAL), PLACEMENT
+    /// (api.cpp's placements_selectable) - vias follow their owning
+    /// Shape's purpose. Extend this when a new kind becomes selectable.
+    constexpr bool purpose_has_selectable_objects(ViewLayerPurpose purpose)
+    {
+        switch (purpose)
+        {
+        case ViewLayerPurpose::TERMINAL:
+        case ViewLayerPurpose::OBSTRUCTION:
+        case ViewLayerPurpose::ROUTE:
+        case ViewLayerPurpose::PLACEMENT:
+            return true;
+        default:
+            return false;
+        }
+    }
+
     struct Color
     {
         uint8_t r = 0;

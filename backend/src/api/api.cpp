@@ -3284,6 +3284,11 @@ extern "C"
         handle->set_layer_name_selectable(layer_name, selectable != 0);
     }
 
+    int32_t le_purpose_has_selectable_objects(int32_t purpose)
+    {
+        return le::purpose_has_selectable_objects(static_cast<le::ViewLayerPurpose>(purpose)) ? 1 : 0;
+    }
+
     int32_t le_is_purpose_selectable(LeHandle *handle, int32_t purpose)
     {
         if (!handle)

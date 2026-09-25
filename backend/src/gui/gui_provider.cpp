@@ -97,7 +97,7 @@ namespace le::gui
             const int32_t ordinal = le_purpose_at(handle_, i);
             const bool visible = le_is_purpose_visible(handle_, ordinal) != 0;
             const bool selectable = le_is_purpose_selectable(handle_, ordinal) != 0;
-            state_.layer_manager.purposes.push_back(PurposeRow{ordinal, visible, selectable});
+            state_.layer_manager.purposes.push_back(PurposeRow{ordinal, visible, selectable, le_purpose_has_selectable_objects(ordinal) != 0});
         }
     }
 

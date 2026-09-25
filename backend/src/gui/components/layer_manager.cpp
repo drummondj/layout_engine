@@ -109,10 +109,13 @@ namespace le::gui
         // with the new value) after whatever `draw_name` puts in the
         // first column (plain text for a purpose/aggregate row, a color
         // swatch + text for a layer row). `id` must be unique per row.
+        // `has_selectable` false leaves the S cell empty - a purpose
+        // nothing on which can ever be selected (NEW_FEATURES_SEPT_2026.md
+        // item 8).
         template <typename DrawName, typename OnVisible, typename OnSelectable>
         void draw_toggle_row(
             const char *id, DrawName &&draw_name, bool visible, bool selectable, OnVisible &&on_visible,
-            OnSelectable &&on_selectable)
+            OnSelectable &&on_selectable, bool has_selectable = true)
         {
             ImGui::PushID(id);
             ImGui::TableNextRow();
@@ -120,8 +123,11 @@ namespace le::gui
             draw_name();
             ImGui::TableSetColumnIndex(1);
             draw_optimistic_checkbox("##visible", visible, on_visible);
-            ImGui::TableSetColumnIndex(2);
-            draw_optimistic_checkbox("##selectable", selectable, on_selectable);
+            if (has_selectable)
+            {
+                ImGui::TableSetColumnIndex(2);
+                draw_optimistic_checkbox("##selectable", selectable, on_selectable);
+            }
             ImGui::PopID();
         }
 
@@ -260,7 +266,10 @@ namespace le::gui
         for (const GuiProvider::PurposeRow &purpose : purposes)
         {
             all_purposes_visible = all_purposes_visible && purpose.visible;
-            all_purposes_selectable = all_purposes_selectable && purpose.selectable;
+            // A purpose without a selectable checkbox can't hold the
+            // "All"/"Purposes" aggregate unchecked, and isn't toggled by it.
+            if (purpose.has_selectable_objects)
+                all_purposes_selectable = all_purposes_selectable && purpose.selectable;
         }
 
         if (!ImGui::BeginTable("layer_manager_table", 3, ImGuiTableFlags_SizingFixedFit))
@@ -311,6 +320,8 @@ namespace le::gui
                 }
                 for (const GuiProvider::PurposeRow &purpose : purposes)
                 {
+                    if (!purpose.has_selectable_objects)
+                        continue;
                     if (!script.empty())
                         script += "; ";
                     script += std::string("set_purpose_selectable ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
@@ -341,6 +352,8 @@ namespace le::gui
                 std::string script;
                 for (const GuiProvider::PurposeRow &purpose : purposes)
                 {
+                    if (!purpose.has_selectable_objects)
+                        continue;
                     if (!script.empty())
                         script += "; ";
                     script += std::string("set_purpose_selectable ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
@@ -357,7 +370,8 @@ namespace le::gui
                 [&](bool value)
                 { provider.set_purpose_visible(purpose_name(purpose.ordinal), value); },
                 [&](bool value)
-                { provider.set_purpose_selectable(purpose_name(purpose.ordinal), value); });
+                { provider.set_purpose_selectable(purpose_name(purpose.ordinal), value); },
+                purpose.has_selectable_objects);
         }
 
         draw_spacer_row();
