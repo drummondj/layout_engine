@@ -831,18 +831,34 @@ extern "C"
 
     /// @brief Arms the Resize tool (NEW_FEATURES_SEPT_2026.md item 3) - Edit
     /// mode with at least one selected rect/polygon/path piece, a no-op
-    /// otherwise. Disarms Move (and arming Move disarms Resize). Then a
-    /// press on a selected piece's edge (rect, polygon) or anywhere on a
-    /// path segment grabs it, dragging shows the result, and the release
-    /// commits it as one undoable edit: a rect edge moves across its own
-    /// axis; a polygon edge or path segment moves as a whole, stretching
-    /// its neighbours (an axis-aligned one only across its own axis).
-    /// Stays armed until Escape or leaving Edit mode. A no-op if handle is
-    /// null.
+    /// otherwise. Disarms Move (and arming Move disarms Resize). Then, like
+    /// Move, two clicks (le_mouse_up clicks): hovering a selected piece's
+    /// edge (rect, polygon) or anywhere on a path segment highlights it
+    /// (le_resize_hover_axis); the first click grabs it and a ghost follows
+    /// the mouse; the second commits it as one undoable edit. A rect edge
+    /// moves across its own axis; a polygon edge or path segment moves as
+    /// a whole, stretching its neighbours (an axis-aligned one only across
+    /// its own axis). Escape cancels a grab, or disarms with none; leaving
+    /// Edit mode disarms. A no-op if handle is null.
     void le_arm_resize(LeHandle *handle);
 
     /// @brief Nonzero while Resize is armed. 0 if handle is null.
     int32_t le_is_resize_armed(LeHandle *handle);
+
+    /// @brief Which way the Resize hover target (the selected piece's
+    /// edge/segment under the mouse, armed with nothing grabbed) would move
+    /// - for the GUI's resize cursor.
+    typedef enum LeResizeAxis
+    {
+        LE_RESIZE_AXIS_NONE = -1, // nothing grabbable under the mouse
+        LE_RESIZE_AXIS_X = 0,     // a vertical edge - moves left/right
+        LE_RESIZE_AXIS_Y = 1,     // a horizontal edge - moves up/down
+        LE_RESIZE_AXIS_BOTH = 2,  // a diagonal polygon edge/path segment
+    } LeResizeAxis;
+
+    /// @brief The current Resize hover target's LeResizeAxis.
+    /// LE_RESIZE_AXIS_NONE if handle is null.
+    int32_t le_resize_hover_axis(LeHandle *handle);
 
     /// @brief Sets `kind`'s (LePieceKind) resize snap mode (LeShapeSnapMode)
     /// - persists, USER_GRID by default. Ignores a mode `kind` doesn't
@@ -1114,6 +1130,10 @@ extern "C"
         /// explicit "abandon the current ruler" shortcut. While in Ruler
         /// mode, le_mouse_up's clicks place ruler points instead of
         /// changing the selection - see le_finish_ruler/le_clear_rulers.
+        /// With Ctrl held (and not Shift) the same key arms Resize instead
+        /// (Ctrl-R, NEW_FEATURES_SEPT_2026.md item 3 - see le_arm_resize) -
+        /// branching inside this code, like Ctrl-Z inside LE_KEY_ZOOM,
+        /// since the frontend sends every "r" press as this code.
         LE_KEY_RULER_MODE = 23,
         /// Finishes the active ruler, if any (UPDATES.md item 13, see
         /// le_finish_ruler) - the Esc key. Idempotent/safe to fire on

@@ -178,3 +178,21 @@ TEST(ShapeResize, ReplacePieceSwapsOnlyThatPiece)
     EXPECT_EQ(data.rects[0], (Rect{.ll = {0, 0}, .ur = {1, 1}}));
     EXPECT_EQ(data.rects[1], (Rect{.ll = {5, 5}, .ur = {9, 9}}));
 }
+
+TEST(ShapeResize, OtherPathRunsOnAMovedSegmentsEndpointsFollowIt)
+{
+    // A DEF route's three wire runs as separate paths: up, across, down.
+    Shape shape{.paths = {
+                    Path{.width = 20, .polygon = Polygon{.points = {{0, 0}, {0, 1000}}}},
+                    Path{.width = 20, .polygon = Polygon{.points = {{0, 1000}, {1000, 1000}}}},
+                    Path{.width = 20, .polygon = Polygon{.points = {{1000, 1000}, {1000, 0}}}},
+                    Path{.width = 20, .polygon = Polygon{.points = {{5000, 5000}, {6000, 5000}}}},
+                }};
+    // Move the middle run up by 300 (already applied to piece 1).
+    shape.paths[1].polygon.points = {{0, 1300}, {1000, 1300}};
+    const std::vector<size_t> changed = follow_moved_path_segment(shape, 1, Point{0, 1000}, Point{0, 1300}, Point{1000, 1000}, Point{1000, 1300});
+    EXPECT_EQ(changed, (std::vector<size_t>{0, 2}));
+    EXPECT_EQ(shape.paths[0].polygon.points, (std::vector<Point>{{0, 0}, {0, 1300}}));
+    EXPECT_EQ(shape.paths[2].polygon.points, (std::vector<Point>{{1000, 1300}, {1000, 0}}));
+    EXPECT_EQ(shape.paths[3].polygon.points, (std::vector<Point>{{5000, 5000}, {6000, 5000}})); // unconnected - untouched
+}

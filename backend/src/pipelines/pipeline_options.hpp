@@ -4,6 +4,7 @@
 #include "../database/database.hpp"
 #include "../view_style/view_style.hpp"
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -149,6 +150,11 @@ namespace le
         /// item 5, core/flightlines.hpp) - empty unless the FLIGHTLINE
         /// purpose is visible. Drawn in `flightline_color`.
         std::vector<Flightline> flightlines_dbu;
+
+        /// @brief The Resize tool's hover indicator (NEW_FEATURES_SEPT_2026.md
+        /// item 3) - the selected piece's edge/segment under the mouse that a
+        /// click would grab. Changes only alongside `mouse_version`.
+        std::optional<std::array<Point, 2>> resize_hover_segment_dbu;
         Color flightline_color;
 
         /// @brief Bumped whenever `flightlines_dbu` changes (api.cpp's own
@@ -212,7 +218,10 @@ namespace le
         /// applied in dbu space, before mapping to pixels, so the preview
         /// traces the exact geometry Move would actually commit (not a
         /// pixel-space translation of the already-projected outline).
-        Point move_ghost_offset_dbu;
+        /// Value-initialized: the Resize and Placement Move ghosts are
+        /// pre-placed and never set this - left uninitialized it was stack
+        /// garbage, drawing their ghosts somewhere off-screen.
+        Point move_ghost_offset_dbu{};
 
         /// @brief Every ruler's own committed dbu-space points
         /// (`LeHandle::rulers()`, one entry per `Ruler` - `Ruler::finished`

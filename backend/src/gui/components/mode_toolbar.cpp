@@ -110,7 +110,7 @@ namespace le::gui
             // edges/segments; its snap options appear in the secondary
             // toolbar while armed.
             static ToolButtonState resize_state;
-            draw_tool_button(ICON_LC_SCALING, "resize", "Resize - drag an edge of a selected shape", provider.state().is_resize_armed, resize_state,
+            draw_tool_button(ICON_LC_SCALING, "resize", "Resize (ctrl-r) - click an edge of a selected shape, then click again to place it", provider.state().is_resize_armed, resize_state,
                              [&]
                              { provider.arm_resize(); });
 

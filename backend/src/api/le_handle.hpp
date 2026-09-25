@@ -762,7 +762,6 @@ struct LeHandle
         {
             SELECT,
             ZOOM,
-            RESIZE, // a Resize grab (NEW_FEATURES_SEPT_2026.md item 3) - no rubber band drawn
         };
 
         // Tracks a mouse-down-to-mouse-up rubber-band gesture in screen
@@ -1014,12 +1013,14 @@ struct LeHandle
 
         // --- Resize (NEW_FEATURES_SEPT_2026.md item 3) ---
         // A tool like Move, armed in Edit mode (arm_resize - one of the two
-        // at a time), then driven by press-drag-release: a mouse-down on an
-        // edge/segment of a selected piece grabs it (`grab`: which piece
-        // and handle, the piece's original one-piece geometry, and the raw
-        // dbu press point), the ghost follows the mouse, and the release
-        // commits it (api.cpp). Stays armed across grabs, like Move, until
-        // Escape or leaving Edit mode.
+        // at a time), then driven by two clicks, like Move: while nothing is
+        // grabbed, `hover` is the selected piece's edge/segment under the
+        // mouse (highlighted, and the GUI's resize cursor); a click on it
+        // grabs it (`grab`: which piece and handle, the piece's original
+        // one-piece geometry, and the raw dbu click point), the ghost
+        // follows the mouse, and a second click commits it (api.cpp).
+        // Escape cancels a grab (and disarms when nothing is grabbed);
+        // otherwise it stays armed across grabs until leaving Edit mode.
         struct ResizeGrab
         {
             ShapePiece piece;
@@ -1031,6 +1032,7 @@ struct LeHandle
         {
             bool armed = false;
             std::optional<ResizeGrab> grab;
+            std::optional<le::ResizeHandleSegment> hover;
         };
 
         // Arms Resize, disarming Move - a no-op with nothing selected.
@@ -1050,6 +1052,23 @@ struct LeHandle
             if (!resize_.armed)
                 return;
             resize_.grab = std::move(grab);
+            resize_.hover.reset();
+            ++mouse_version_;
+        }
+
+        // The hover indicator - api.cpp's le_set_mouse_position recomputes
+        // it on every mouse move while armed and nothing is grabbed.
+        void set_resize_hover(std::optional<le::ResizeHandleSegment> hover)
+        {
+            const auto same = [](const std::optional<le::ResizeHandleSegment> &a, const std::optional<le::ResizeHandleSegment> &b)
+            {
+                if (a.has_value() != b.has_value())
+                    return false;
+                return !a || (a->a.x == b->a.x && a->a.y == b->a.y && a->b.x == b->b.x && a->b.y == b->b.y && a->axis == b->axis);
+            };
+            if (same(resize_.hover, hover))
+                return;
+            resize_.hover = hover;
             ++mouse_version_;
         }
 
@@ -1251,11 +1270,9 @@ struct LeHandle
         {
             finish_active_ruler();
             clear_hover();
-            if (mode_ != Mode::RULER)
-            {
-                mode_ = Mode::RULER;
-                ++mouse_version_;
-            }
+            // Through set_mode, not a bare mode_ assignment, so leaving Edit
+            // mode this way ('r' from Edit) also disarms Move/Resize.
+            set_mode(Mode::RULER);
         }
 
         void clear_rulers()

@@ -115,10 +115,13 @@ none of these are duplicated here.
   segment near a point) and `resize_piece` (drag it by a delta, snapped
   per `ShapeSnapContext`: user/manufacturing/FinFET grid, path edges on
   the manufacturing grid, path centerline on `layer_track_grids`).
-  `LeHandle::ResizeState` is the armed tool plus the current grab;
-  api.cpp's `le_mouse_down` grabs (`DragKind::RESIZE`, no rubber band),
-  the ghost reuses the Move ghost overlay, `le_mouse_up` commits one
-  undoable "resize".
+  `LeHandle::ResizeState` is the armed tool, the hover target and the
+  current grab. Two clicks, like Move: api.cpp's `le_set_mouse_position`
+  keeps the hover indicator current (ComposeStage's
+  `draw_resize_hover_overlay`, plus `le_resize_hover_axis` for the GUI's
+  resize cursor), `resize_click_unlocked` grabs on the first click and
+  commits one undoable "resize" on the second; Escape cancels a grab. The
+  ghost reuses the Move ghost overlay.
   `RenderedShape`/
   `TinyShapeDot`/`VersionedStage`/`ShapeGenerationStage` (the pre-restart
   `pipeline` module's own shape-generation output/render-input types and

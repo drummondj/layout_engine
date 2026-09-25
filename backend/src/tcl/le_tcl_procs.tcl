@@ -1265,7 +1265,7 @@ proc arm_resize {args} {
 }
 register_command_help arm_resize \
     "arm_resize \[-help\]" \
-    "Arms the Resize tool - only meaningful in Edit mode with selected shape pieces, a no-op otherwise. Then drag a selected rectangle's edge, a polygon's edge, or anywhere on a path segment; releasing commits it as one undoable edit. Stays armed until Escape or leaving Edit mode. Snapping is set per shape kind with set_shape_snap_mode." \
+    "Arms the Resize tool - only meaningful in Edit mode with selected shape pieces, a no-op otherwise. Hovering a selected rectangle's edge, a polygon's edge, or anywhere on a path segment highlights it; click it, move, and click again to commit (one undoable edit), or press Escape to cancel. Stays armed until Escape (with nothing grabbed) or leaving Edit mode. Snapping is set per shape kind with set_shape_snap_mode. Also reachable via Ctrl-R in the GUI." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }

@@ -247,6 +247,79 @@ namespace le
         return best;
     }
 
+    /// @brief Which way a handle moves when dragged - for the hover cursor
+    /// (NEW_FEATURES_SEPT_2026.md item 3): across x (a vertical edge), across
+    /// y (a horizontal one), or both (a diagonal polygon edge/path segment).
+    enum class ResizeAxis
+    {
+        X,
+        Y,
+        BOTH,
+    };
+
+    /// @brief `handle`'s own segment in `piece` (one-piece) - what the hover
+    /// indicator highlights - plus the axis it moves along. nullopt if the
+    /// handle doesn't address a real edge/segment of `piece`.
+    struct ResizeHandleSegment
+    {
+        Point a;
+        Point b;
+        ResizeAxis axis = ResizeAxis::BOTH;
+    };
+
+    inline std::optional<ResizeHandleSegment> resize_handle_segment(const Shape &piece, ResizeHandle handle)
+    {
+        const auto classify = [](Point a, Point b)
+        {
+            if (a.y == b.y && a.x != b.x)
+                return ResizeAxis::Y;
+            if (a.x == b.x && a.y != b.y)
+                return ResizeAxis::X;
+            return ResizeAxis::BOTH;
+        };
+        switch (handle.kind)
+        {
+        case PieceKind::RECT:
+        {
+            if (piece.rects.empty() || handle.edge > 3)
+                return std::nullopt;
+            const Rect &r = piece.rects.front();
+            switch (handle.edge)
+            {
+            case 0:
+                return ResizeHandleSegment{r.ll, Point{r.ll.x, r.ur.y}, ResizeAxis::X};
+            case 1:
+                return ResizeHandleSegment{Point{r.ur.x, r.ll.y}, r.ur, ResizeAxis::X};
+            case 2:
+                return ResizeHandleSegment{r.ll, Point{r.ur.x, r.ll.y}, ResizeAxis::Y};
+            default:
+                return ResizeHandleSegment{Point{r.ll.x, r.ur.y}, r.ur, ResizeAxis::Y};
+            }
+        }
+        case PieceKind::POLYGON:
+        {
+            if (piece.polygons.empty())
+                return std::nullopt;
+            const Polygon &polygon = piece.polygons.front();
+            const size_t n = shape_resize_detail::unique_point_count(polygon);
+            if (n < 2 || handle.edge >= n)
+                return std::nullopt;
+            const Point a = polygon.points[handle.edge];
+            const Point b = polygon.points[(handle.edge + 1) % n];
+            return ResizeHandleSegment{a, b, classify(a, b)};
+        }
+        case PieceKind::PATH:
+        {
+            if (piece.paths.empty() || handle.edge + 1 >= piece.paths.front().polygon.points.size())
+                return std::nullopt;
+            const Point a = piece.paths.front().polygon.points[handle.edge];
+            const Point b = piece.paths.front().polygon.points[handle.edge + 1];
+            return ResizeHandleSegment{a, b, classify(a, b)};
+        }
+        }
+        return std::nullopt;
+    }
+
     /// @brief `piece` (one-piece) with `handle` dragged by `delta` (dbu),
     /// the moved coordinate snapped per `snap`:
     ///  - a rect edge moves across its own axis (the rect is renormalized
@@ -316,6 +389,43 @@ namespace le
         }
         }
         return out;
+    }
+
+    /// @brief Keeps a moved path segment connected to the rest of its
+    /// route: a DEF route stores each wire run as its own Path, so the
+    /// runs meeting the moved segment are separate pieces that merely
+    /// share its endpoint coordinates. Every point of every path in
+    /// `shape` - except piece `skip` (the segment's own path, already
+    /// moved) - sitting exactly on the segment's original endpoint `a_from`
+    /// / `b_from` moves to `a_to` / `b_to`, stretching that run to follow.
+    /// Returns the indices of the paths that changed.
+    inline std::vector<size_t> follow_moved_path_segment(Shape &shape, std::optional<size_t> skip, Point a_from, Point a_to, Point b_from, Point b_to)
+    {
+        const auto same = [](Point p, Point q)
+        { return p.x == q.x && p.y == q.y; };
+        std::vector<size_t> changed;
+        for (size_t i = 0; i < shape.paths.size(); ++i)
+        {
+            if (skip && *skip == i)
+                continue;
+            bool touched = false;
+            for (Point &point : shape.paths[i].polygon.points)
+            {
+                if (same(point, a_from))
+                {
+                    point = a_to;
+                    touched = true;
+                }
+                else if (same(point, b_from))
+                {
+                    point = b_to;
+                    touched = true;
+                }
+            }
+            if (touched)
+                changed.push_back(i);
+        }
+        return changed;
     }
 
     /// @brief Replaces piece `index` of `kind` in `data` with one-piece

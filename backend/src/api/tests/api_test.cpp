@@ -5741,51 +5741,83 @@ TEST_F(ApiFixture, SelectedPlacementDrawsFlightlinesOnlyWhenTheFlightlinePurpose
 
 // --- NEW_FEATURES_SEPT_2026.md item 3: shape resizing ---
 
-// TESTCELL's pin A rect (2,2)-(8,8)um, selected, Resize armed: pressing
-// on its right edge and releasing further right moves just that edge,
-// snapped to the (200-dbu) user grid, as one undoable edit. A press away
-// from every edge grabs nothing, and Resize stays armed after a commit.
-TEST_F(ApiFixture, ResizeDragsARectEdgeSnapsItAndIsUndoable)
+namespace
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
-    const LeAbstractId abstract_id = testcell_abstract_id(handle);
-    const LeTerminalId terminal = le_abstract_terminals_at(handle, abstract_id, 0);
-    const LeTerminalPortId port = le_terminal_ports_at(handle, terminal, 0);
-    const LeShapeId shape_id = le_terminal_port_shapes_at(handle, port, 0);
-    ASSERT_NE(shape_id.index, UINT32_MAX);
-    ASSERT_EQ(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = shape_id.index, .generation = shape_id.generation}), 0);
+    // A mouse click, Move/Resize style: position first (Move/Resize read the
+    // stored mouse position), then a click-sized down/up.
+    void resize_click(LeHandle *handle, int32_t x, int32_t y)
+    {
+        le_set_mouse_position(handle, x, y);
+        le_mouse_down(handle, x, y);
+        le_mouse_up(handle, x, y);
+    }
 
-    le_set_viewport_size(handle, 200, 200);
-    le_zoom(handle, 0.02 - 1.0, 0, 200); // 50 dbu/px, pan (0,0): pixel (x,y) = dbu (50x, 50(200-y))
-    le_set_minor_grid_spacing(handle, 200);
+    // TESTCELL's pin A rect (2,2)-(8,8)um selected, Edit mode, Resize armed,
+    // at 50 dbu/px with pan (0,0) - pixel (x,y) = dbu (50x, 50(200-y)) - and
+    // a 200-dbu user grid. Returns the rect's Shape.
+    LeShapeId arm_resize_on_testcell_pin(LeHandle *handle, const std::string &lef_path)
+    {
+        le_read_lef(handle, lef_path.c_str(), "testcell");
+        le_set_current_design_abstract(handle, 0);
+        const LeAbstractId abstract_id = le_library_design_at(handle, 0, 0).abstract_id;
+        const LeTerminalId terminal = le_abstract_terminals_at(handle, abstract_id, 0);
+        const LeShapeId shape_id = le_terminal_port_shapes_at(handle, le_terminal_ports_at(handle, terminal, 0), 0);
+        le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = shape_id.index, .generation = shape_id.generation});
+        le_set_viewport_size(handle, 200, 200);
+        le_zoom(handle, 0.02 - 1.0, 0, 200);
+        le_set_minor_grid_spacing(handle, 200);
+        le_set_mode(handle, LE_MODE_EDIT);
+        le_arm_resize(handle);
+        return shape_id;
+    }
+}
 
-    le_set_mode(handle, LE_MODE_EDIT);
-    le_arm_resize(handle);
+// Hovering the rect's right edge (x=8000 dbu = pixel 160) highlights it and
+// reports a left/right resize; the interior reports nothing.
+TEST_F(ApiFixture, ResizeHoverIndicatesTheGrabbableEdgeUnderTheMouse)
+{
+    arm_resize_on_testcell_pin(handle, fixture_path("testcell.lef"));
     ASSERT_NE(le_is_resize_armed(handle), 0);
     EXPECT_EQ(le_is_move_armed(handle), 0);
     EXPECT_EQ(le_selected_piece_kinds(handle), 1 << LE_PIECE_KIND_RECT);
 
-    // A press in the rect's interior, away from every edge, grabs nothing.
     le_set_mouse_position(handle, 100, 100);
-    le_mouse_down(handle, 100, 100);
-    le_set_mouse_position(handle, 120, 100);
-    le_mouse_up(handle, 120, 100);
-    LeRectUm rect = le_shape_rect_at(handle, shape_id, 0);
-    EXPECT_DOUBLE_EQ(rect.ur_x_um, 8.0);
+    EXPECT_EQ(le_resize_hover_axis(handle), LE_RESIZE_AXIS_NONE);
+    LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_FALSE(region_has_yellow_hover_pixel(buffer, 157, 60, 163, 140));
 
-    // Right edge x=8000 dbu is pixel 160; release at pixel 187 = 9350 dbu -> 9400 on the 200-dbu grid.
-    le_set_mouse_position(handle, 160, 100);
-    le_mouse_down(handle, 160, 100);
-    le_set_mouse_position(handle, 187, 100);
-    // Mid-drag: the ghost's moved edge (9400 dbu = pixel 188) is drawn,
-    // the real geometry not yet changed.
+    le_set_mouse_position(handle, 162, 100);
+    EXPECT_EQ(le_resize_hover_axis(handle), LE_RESIZE_AXIS_X);
+    buffer = le_render_pixel_buffer(handle);
+    EXPECT_TRUE(region_has_yellow_hover_pixel(buffer, 157, 60, 163, 140));
+
+    le_set_mouse_position(handle, 100, 41); // near the top edge (y=8000 dbu = pixel 40)
+    EXPECT_EQ(le_resize_hover_axis(handle), LE_RESIZE_AXIS_Y);
+}
+
+// Two clicks: the first grabs the right edge (the ghost then follows the
+// mouse, the real rect untouched), the second commits it - snapped to the
+// 200-dbu user grid - as one undoable edit. Resize stays armed.
+TEST_F(ApiFixture, ResizeGrabsOnTheFirstClickAndCommitsOnTheSecond)
+{
+    const LeShapeId shape_id = arm_resize_on_testcell_pin(handle, fixture_path("testcell.lef"));
+
+    // A click on nothing grabbable grabs nothing; nor does the next click.
+    resize_click(handle, 100, 100);
+    resize_click(handle, 120, 100);
+    EXPECT_DOUBLE_EQ(le_shape_rect_at(handle, shape_id, 0).ur_x_um, 8.0);
+
+    resize_click(handle, 160, 100);
+    EXPECT_EQ(le_resize_hover_axis(handle), LE_RESIZE_AXIS_NONE); // no hover while grabbed
+    le_set_mouse_position(handle, 187, 100); // 9350 dbu -> 9400 on the grid = pixel 188
     const LePixelBuffer buffer = le_render_pixel_buffer(handle);
     ASSERT_NE(buffer.data, nullptr);
     EXPECT_TRUE(region_has_move_ghost_pixel(buffer, 186, 60, 190, 140));
     EXPECT_DOUBLE_EQ(le_shape_rect_at(handle, shape_id, 0).ur_x_um, 8.0);
-    le_mouse_up(handle, 187, 100);
-    rect = le_shape_rect_at(handle, shape_id, 0);
+
+    resize_click(handle, 187, 100);
+    const LeRectUm rect = le_shape_rect_at(handle, shape_id, 0);
     EXPECT_DOUBLE_EQ(rect.ll_x_um, 2.0);
     EXPECT_DOUBLE_EQ(rect.ll_y_um, 2.0);
     EXPECT_DOUBLE_EQ(rect.ur_x_um, 9.4);
@@ -5793,10 +5825,25 @@ TEST_F(ApiFixture, ResizeDragsARectEdgeSnapsItAndIsUndoable)
     EXPECT_NE(le_is_resize_armed(handle), 0);
 
     ASSERT_NE(le_undo(handle), 0);
-    rect = le_shape_rect_at(handle, shape_id, 0);
-    EXPECT_DOUBLE_EQ(rect.ur_x_um, 8.0);
+    EXPECT_DOUBLE_EQ(le_shape_rect_at(handle, shape_id, 0).ur_x_um, 8.0);
+}
 
-    // Escape disarms; arming Move instead would too.
+// Escape after the first click cancels that resize (Resize stays armed);
+// a second Escape, with nothing grabbed, disarms.
+TEST_F(ApiFixture, EscapeCancelsAResizeInProgressThenDisarms)
+{
+    const LeShapeId shape_id = arm_resize_on_testcell_pin(handle, fixture_path("testcell.lef"));
+
+    resize_click(handle, 160, 100);
+    le_set_mouse_position(handle, 187, 100);
+    le_key_down(handle, LE_KEY_FINISH_RULER);
+    le_key_up(handle, LE_KEY_FINISH_RULER);
+    EXPECT_NE(le_is_resize_armed(handle), 0);
+
+    resize_click(handle, 190, 100); // now just a click on nothing grabbable - no commit
+    EXPECT_DOUBLE_EQ(le_shape_rect_at(handle, shape_id, 0).ur_x_um, 8.0);
+    EXPECT_EQ(le_can_undo(handle), 0);
+
     le_key_down(handle, LE_KEY_FINISH_RULER);
     EXPECT_EQ(le_is_resize_armed(handle), 0);
 }
@@ -5814,4 +5861,84 @@ TEST_F(ApiFixture, ShapeSnapModesArePerKindAndOnlyAcceptModesTheKindOffers)
     EXPECT_NE(le_is_shape_snap_mode_available(handle, LE_PIECE_KIND_RECT, LE_SHAPE_SNAP_USER_GRID), 0);
     EXPECT_EQ(le_is_shape_snap_mode_available(handle, LE_PIECE_KIND_RECT, LE_SHAPE_SNAP_MANUFACTURING_GRID), 0); // no technology yet
     EXPECT_EQ(le_is_shape_snap_mode_available(handle, LE_PIECE_KIND_PATH, LE_SHAPE_SNAP_FIN_GRID), 0);      // not offered for paths
+}
+
+// A route whose three wire runs are separate paths (as DEF stores them):
+// moving the middle run up drags the ends of the runs meeting it along,
+// so the route stays connected - in the ghost and the committed result,
+// as one undo step.
+TEST_F(ApiFixture, ResizingAPathSegmentKeepsTheRouteConnected)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    const LeDesignId top_design = le_create_design(handle, le_create_library(handle, "TOPLIB"), "TOP");
+    const LeLayoutId layout = le_create_layout(handle, top_design);
+    const LeRouteId route = le_create_route(handle, layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", 0, 0, 0.0, 0, 0.0, nullptr);
+    // {count, (width, n, x, y ...)...} in um: up (1,1)-(1,5), across (1,5)-(8,5), down (8,5)-(8,1).
+    const double paths_um[] = {3, 0.2, 2, 1, 1, 1, 5, 0.2, 2, 1, 5, 8, 5, 0.2, 2, 8, 5, 8, 1};
+    const LeShapeId shape_id = le_create_shape(
+        handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0},
+        LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, route,
+        LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0},
+        LeLayoutId{.index = UINT32_MAX, .generation = 0}, le_layer_by_name(handle, "M1"), nullptr, 1, paths_um,
+        static_cast<int32_t>(std::size(paths_um)), 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(shape_id.index, UINT32_MAX);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_viewport_size(handle, 200, 200);
+    le_zoom(handle, 0.02 - 1.0, 0, 200); // 50 dbu/px, pan (0,0): pixel (x,y) = um (x/20, (200-y)/20)
+    le_set_minor_grid_spacing(handle, 200);
+    ASSERT_EQ(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = shape_id.index, .generation = shape_id.generation}), 0);
+    le_set_mode(handle, LE_MODE_EDIT);
+    le_arm_resize(handle);
+    ASSERT_NE(le_is_resize_armed(handle), 0);
+
+    le_set_mouse_position(handle, 90, 100); // on the across run, y=5um
+    EXPECT_EQ(le_resize_hover_axis(handle), LE_RESIZE_AXIS_Y);
+    resize_click(handle, 90, 100);
+    le_set_mouse_position(handle, 90, 60); // y=7um
+    // The ghost includes the stretched up/down runs, e.g. the up run at x=1um (pixel 20) above y=5um.
+    const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_move_ghost_pixel(buffer, 17, 64, 23, 76));
+    resize_click(handle, 90, 60);
+
+    const auto point = [&](int path, int index)
+    {
+        const LePointUm p = le_shape_path_point_at(handle, shape_id, path, index);
+        return std::make_pair(p.x_um, p.y_um);
+    };
+    EXPECT_EQ(point(1, 0), std::make_pair(1.0, 7.0));
+    EXPECT_EQ(point(1, 1), std::make_pair(8.0, 7.0));
+    EXPECT_EQ(point(0, 1), std::make_pair(1.0, 7.0)); // the up run's top followed
+    EXPECT_EQ(point(2, 0), std::make_pair(8.0, 7.0)); // the down run's top followed
+    EXPECT_EQ(point(0, 0), std::make_pair(1.0, 1.0)); // far ends untouched
+    EXPECT_EQ(point(2, 1), std::make_pair(8.0, 1.0));
+
+    ASSERT_NE(le_undo(handle), 0);
+    EXPECT_EQ(point(0, 1), std::make_pair(1.0, 5.0));
+    EXPECT_EQ(point(1, 0), std::make_pair(1.0, 5.0));
+}
+
+// Ctrl-R arms Resize (and leaves the mode alone); a bare R still switches
+// to Ruler mode.
+TEST_F(ApiFixture, CtrlRArmsResizeWhileBareRStillSwitchesToRulerMode)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+    const LeAbstractId abstract_id = testcell_abstract_id(handle);
+    const LeShapeId shape_id = le_terminal_port_shapes_at(handle, le_terminal_ports_at(handle, le_abstract_terminals_at(handle, abstract_id, 0), 0), 0);
+    ASSERT_EQ(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = shape_id.index, .generation = shape_id.generation}), 0);
+    le_set_mode(handle, LE_MODE_EDIT);
+
+    le_key_down(handle, LE_KEY_CTRL);
+    le_key_down(handle, LE_KEY_RULER_MODE);
+    le_key_up(handle, LE_KEY_RULER_MODE);
+    le_key_up(handle, LE_KEY_CTRL);
+    EXPECT_NE(le_is_resize_armed(handle), 0);
+    EXPECT_EQ(le_get_mode(handle), LE_MODE_EDIT);
+
+    le_key_down(handle, LE_KEY_RULER_MODE);
+    le_key_up(handle, LE_KEY_RULER_MODE);
+    EXPECT_EQ(le_get_mode(handle), LE_MODE_RULER);
+    EXPECT_EQ(le_is_resize_armed(handle), 0); // leaving Edit mode disarms
 }

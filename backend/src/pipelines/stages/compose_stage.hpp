@@ -135,6 +135,7 @@ namespace le
             draw_flightline_overlay(ctx, options, height);
             draw_selection_overlay(ctx, options, height);
             draw_hover_overlay(ctx, options, height);
+            draw_resize_hover_overlay(ctx, options, height);
             draw_move_ghost_overlay(ctx, options, height);
             draw_ruler_overlay(ctx, options, height);
             draw_cursor_overlay(ctx, options, height);
@@ -311,6 +312,32 @@ namespace le
             ctx.set_stroke_width(kSelectionOutlineStrokeWidth);
             for (const Shape &piece : options.selected_piece_outlines)
                 stroke_piece_outline(ctx, piece, to_pixel);
+        }
+
+        /// @brief Draws the Resize tool's hover indicator
+        /// (`ViewRenderOptions::resize_hover_segment_dbu`) - the grabbable
+        /// edge/segment as a thick line in the hover color, with a small
+        /// square at its midpoint.
+        static void draw_resize_hover_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
+        {
+            if (!options.resize_hover_segment_dbu)
+                return;
+
+            const auto to_pixel = [&](Point p)
+            {
+                return BLPoint(
+                    static_cast<double>(p.x - options.viewport.ll.x) * options.scale,
+                    static_cast<double>(pixel_height) - static_cast<double>(p.y - options.viewport.ll.y) * options.scale);
+            };
+
+            const BLPoint a = to_pixel((*options.resize_hover_segment_dbu)[0]);
+            const BLPoint b = to_pixel((*options.resize_hover_segment_dbu)[1]);
+            ctx.set_stroke_style(to_bl_color(kHoverOutlineColor));
+            ctx.set_stroke_width(kResizeHoverStrokeWidth);
+            ctx.stroke_line(a, b);
+            const double half = kResizeHoverHandleSizePx / 2.0;
+            ctx.set_fill_style(to_bl_color(kHoverOutlineColor));
+            ctx.fill_rect(BLRect((a.x + b.x) / 2.0 - half, (a.y + b.y) / 2.0 - half, kResizeHoverHandleSizePx, kResizeHoverHandleSizePx));
         }
 
         /// @brief Draws the selected placements' flightlines

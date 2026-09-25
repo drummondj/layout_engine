@@ -259,6 +259,69 @@ namespace
                                 shape_snap_context_unlocked(handle, grab.piece.piece_kind, grab.original.layer));
     }
 
+    // One Shape a resize changes - the grabbed piece's own Shape, plus (for
+    // a path segment) any sibling Shape whose runs follow its endpoints -
+    // and the changed pieces' geometry, for the ghost.
+    struct ResizeEdit
+    {
+        le::ShapeId shape_id;
+        le::ShapeData before;
+        le::ShapeData after;
+        std::vector<le::Shape> ghost_pieces;
+    };
+
+    // Every Shape the current grab would change if committed at dbu
+    // `current` - shared by the ghost and the commit so they always agree.
+    // A moved path segment drags along any other path point sitting on
+    // one of its original endpoints (le::follow_moved_path_segment): in its
+    // own Shape, and in its Route's other Shapes on the same layer - a DEF
+    // route's wire runs are separate Paths that only share coordinates.
+    std::vector<ResizeEdit> plan_resize_unlocked(const LeHandle *handle, le::Point current)
+    {
+        const LeHandle::ResizeGrab &grab = *handle->resize().grab;
+        const le::ShapeData *existing = handle->root.get_shape(grab.piece.shape_id);
+        if (!existing || !le::Geometry::piece_in_range(*existing, grab.piece.piece_kind, grab.piece.piece_index))
+            return {};
+
+        const le::Shape resized = resized_piece_unlocked(handle, current);
+        std::vector<ResizeEdit> edits;
+        ResizeEdit own{.shape_id = grab.piece.shape_id, .before = *existing, .after = *existing, .ghost_pieces = {resized}};
+        le::replace_piece(own.after, grab.piece.piece_kind, grab.piece.piece_index, resized);
+
+        if (grab.piece.piece_kind == le::PieceKind::PATH && !grab.original.paths.empty() && !resized.paths.empty())
+        {
+            const auto &from = grab.original.paths.front().polygon.points;
+            const auto &to = resized.paths.front().polygon.points;
+            const size_t e = grab.handle.edge;
+            if (e + 1 < from.size() && e + 1 < to.size())
+            {
+                const auto follow = [&](le::ShapeData &data, std::optional<size_t> skip, std::vector<le::Shape> &ghost)
+                {
+                    const std::vector<size_t> changed = le::follow_moved_path_segment(data, skip, from[e], to[e], from[e + 1], to[e + 1]);
+                    for (const size_t i : changed)
+                        ghost.push_back(le::Geometry::extract_piece(data, le::PieceKind::PATH, i));
+                    return !changed.empty();
+                };
+                follow(own.after, grab.piece.piece_index, own.ghost_pieces);
+
+                if (existing->route.valid())
+                    for (const le::ShapeId sibling_id : handle->root.get_route_shapes(existing->route))
+                    {
+                        const le::ShapeData *sibling = handle->root.get_shape(sibling_id);
+                        if (sibling_id == grab.piece.shape_id || !sibling || sibling->layer != existing->layer)
+                            continue;
+                        ResizeEdit edit{.shape_id = sibling_id, .before = *sibling, .after = *sibling, .ghost_pieces = {}};
+                        if (follow(edit.after, std::nullopt, edit.ghost_pieces))
+                            edits.push_back(std::move(edit));
+                    }
+            }
+        }
+        edits.insert(edits.begin(), std::move(own));
+        return edits;
+    }
+
+    void update_resize_hover_unlocked(LeHandle *handle);
+
     // arm_resize/le_arm_resize's body - Edit mode, with at least one
     // selected piece (Row/Placement/Region selections have no edges to
     // drag).
@@ -271,13 +334,14 @@ namespace
                                  { return std::holds_alternative<LeHandle::ShapePiece>(s); }))
             return;
         handle->arm_resize();
+        update_resize_hover_unlocked(handle);
     }
 
-    // le_mouse_down with Resize armed: grabs the edge/segment of a selected
-    // piece nearest the press (within kResizeGrabTolerancePx), if any.
-    bool try_begin_resize_grab_unlocked(LeHandle *handle, int32_t x, int32_t y)
+    // The edge/segment of a selected piece nearest dbu `p` (within
+    // kResizeGrabTolerancePx) - what the hover indicator shows and a first
+    // click grabs. nullopt if there's none that close.
+    std::optional<LeHandle::ResizeGrab> find_resize_target_unlocked(const LeHandle *handle, le::Point p)
     {
-        const le::Point p = handle->pixel_to_dbu(x, y);
         const int64_t tolerance = static_cast<int64_t>(std::ceil(kResizeGrabTolerancePx / handle->scale()));
         std::optional<LeHandle::ResizeGrab> best;
         for (const LeHandle::SelectedObject &selected : handle->selection())
@@ -293,32 +357,62 @@ namespace
             if (hit && (!best || hit->distance < best->handle.distance))
                 best = LeHandle::ResizeGrab{.piece = *piece, .handle = *hit, .original = std::move(original), .start = p};
         }
-        if (!best)
-            return false;
-        handle->begin_resize_grab(std::move(*best));
-        return true;
+        return best;
     }
 
-    // le_mouse_up after a real drag of a grab: writes the resized piece
-    // back into its Shape, as one undoable "resize". Resize stays armed.
-    void commit_resize_unlocked(LeHandle *handle, int32_t x, int32_t y)
+    // le_set_mouse_position with Resize armed and nothing grabbed: the
+    // hover indicator for whatever is now under the mouse.
+    void update_resize_hover_unlocked(LeHandle *handle)
     {
-        const LeHandle::ResizeGrab &grab = *handle->resize().grab;
-        const le::ShapeData *existing = handle->root.get_shape(grab.piece.shape_id);
-        if (!existing || !le::Geometry::piece_in_range(*existing, grab.piece.piece_kind, grab.piece.piece_index))
+        std::optional<le::ResizeHandleSegment> hover;
+        if (handle->mode() == LeHandle::Mode::EDIT && handle->resize().armed && !handle->resize().grab)
+            if (const std::optional<le::Point> mouse = handle->mouse_dbu_position())
+                if (const std::optional<LeHandle::ResizeGrab> target = find_resize_target_unlocked(handle, *mouse))
+                    hover = le::resize_handle_segment(target->original, target->handle);
+        handle->set_resize_hover(hover);
+    }
+
+    // Applies plan_resize_unlocked at dbu `p` - every changed Shape - as
+    // one undoable "resize". Resize stays armed.
+    void commit_resize_unlocked(LeHandle *handle, le::Point p)
+    {
+        const std::vector<ResizeEdit> edits = plan_resize_unlocked(handle, p);
+        if (edits.empty())
             return;
 
-        const le::ShapeData before = *existing;
-        le::ShapeData after = before;
-        le::replace_piece(after, grab.piece.piece_kind, grab.piece.piece_index, resized_piece_unlocked(handle, handle->pixel_to_dbu(x, y)));
-
         handle->command_history.begin("resize");
-        handle->root.update_shape(grab.piece.shape_id, after.layer, after.purpose, after.paths, after.polygons, after.rects,
-                                  after.spacing, after.design_rule_width, after.except_pg_net);
+        for (const ResizeEdit &edit : edits)
+        {
+            const le::ShapeData &after = edit.after;
+            handle->root.update_shape(edit.shape_id, after.layer, after.purpose, after.paths, after.polygons, after.rects,
+                                      after.spacing, after.design_rule_width, after.except_pg_net);
+            if (le::editing::Transaction *txn = handle->command_history.current())
+                txn->record_update<le::ShapeId, le::ShapeData>(edit.shape_id, edit.before, after, &le::apply_shape_snapshot);
+        }
         handle->root.bump_mutation_version();
-        if (le::editing::Transaction *txn = handle->command_history.current())
-            txn->record_update<le::ShapeId, le::ShapeData>(grab.piece.shape_id, before, after, &le::apply_shape_snapshot);
         handle->command_history.end(/*succeeded=*/true);
+    }
+
+    // le_mouse_up's Edit-mode click with Resize armed - Resize's two-click
+    // gesture: the first click grabs the edge/segment under it (a click
+    // on nothing grabbable does nothing), the second commits the ghost.
+    // Returns false if Resize isn't armed, so the click falls through to
+    // Move.
+    bool resize_click_unlocked(LeHandle *handle, int32_t x, int32_t y)
+    {
+        if (!handle->resize().armed)
+            return false;
+        const le::Point p = handle->pixel_to_dbu(x, y);
+        if (!handle->resize().grab)
+        {
+            if (std::optional<LeHandle::ResizeGrab> target = find_resize_target_unlocked(handle, p))
+                handle->begin_resize_grab(std::move(*target));
+            return true;
+        }
+        commit_resize_unlocked(handle, p);
+        handle->end_resize_grab();
+        update_resize_hover_unlocked(handle);
+        return true;
     }
 
     // Every PlacementId in the current selection, in selection order.
@@ -425,7 +519,7 @@ namespace
             .ur = le::Point{.x = pan.x + static_cast<int64_t>(width_dbu), .y = pan.y + static_cast<int64_t>(height_dbu)},
         };
 
-        if (handle->is_dragging() && handle->drag_kind() != LeHandle::DragKind::RESIZE)
+        if (handle->is_dragging())
         {
             options.drag_rect_dbu = handle->drag_rect_dbu();
             options.drag_is_zoom = handle->drag_kind() == LeHandle::DragKind::ZOOM;
@@ -436,12 +530,16 @@ namespace
         if (handle->hover().has_value())
             options.hover_outline_dbu = handle->hover()->outline;
 
+        if (handle->resize().hover)
+            options.resize_hover_segment_dbu = std::array<le::Point, 2>{handle->resize().hover->a, handle->resize().hover->b};
         if (handle->resize().grab)
         {
             // Resize (NEW_FEATURES_SEPT_2026.md item 3) - the grabbed
             // piece as it would be committed right now, pre-placed.
             if (const std::optional<le::Point> mouse = handle->mouse_dbu_position())
-                options.move_ghost_pieces_dbu.push_back(resized_piece_unlocked(handle, *mouse));
+                for (ResizeEdit &edit : plan_resize_unlocked(handle, *mouse))
+                    for (le::Shape &piece : edit.ghost_pieces)
+                        options.move_ghost_pieces_dbu.push_back(std::move(piece));
         }
         else if (const std::vector<le::PlacementId> placements = handle->moving_placements(); !placements.empty())
         {
@@ -2922,6 +3020,25 @@ extern "C"
         return handle->resize().armed ? 1 : 0;
     }
 
+    int32_t le_resize_hover_axis(LeHandle *handle)
+    {
+        if (!handle)
+            return LE_RESIZE_AXIS_NONE;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        if (!handle->resize().hover)
+            return LE_RESIZE_AXIS_NONE;
+        switch (handle->resize().hover->axis)
+        {
+        case le::ResizeAxis::X:
+            return LE_RESIZE_AXIS_X;
+        case le::ResizeAxis::Y:
+            return LE_RESIZE_AXIS_Y;
+        case le::ResizeAxis::BOTH:
+            return LE_RESIZE_AXIS_BOTH;
+        }
+        return LE_RESIZE_AXIS_NONE;
+    }
+
     void le_set_shape_snap_mode(LeHandle *handle, int32_t kind, int32_t mode)
     {
         if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_PATH || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
@@ -3112,6 +3229,7 @@ extern "C"
         HandleWriteLock lock(handle);
 
         handle->set_mouse_position(x, y);
+        update_resize_hover_unlocked(handle); // NEW_FEATURES_SEPT_2026.md item 3
 
         // Hover is a Select-mode-only affordance (LeHandle::set_mode's
         // own comment - it signals "this is a selection candidate",
@@ -3331,6 +3449,8 @@ extern "C"
         case LE_KEY_RULER_MODE:
             if (!ctrl && !shift)
                 handle->reset_ruler_mode();
+            else if (ctrl && !shift)
+                arm_resize_unlocked(handle); // Ctrl-R (NEW_FEATURES_SEPT_2026.md item 3)
             break;
         case LE_KEY_FINISH_RULER:
             // Deliberately *not* modifier-gated, unlike every other bare
@@ -3341,7 +3461,15 @@ extern "C"
             // unreliable in exactly the workflow that uses Shift most.
             handle->finish_active_ruler();
             handle->end_move(); // UPDATES.md item 21 - Escape also cancels an in-progress move
-            handle->end_resize(); // ...and disarms Resize (NEW_FEATURES_SEPT_2026.md item 3)
+            // NEW_FEATURES_SEPT_2026.md item 3 - Escape cancels a Resize in
+            // progress (its first click), else disarms Resize.
+            if (handle->resize().grab)
+            {
+                handle->end_resize_grab();
+                update_resize_hover_unlocked(handle);
+            }
+            else
+                handle->end_resize();
             break;
         default:
             break;
@@ -3376,14 +3504,6 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        // NEW_FEATURES_SEPT_2026.md item 3 - with Resize armed, a press on
-        // a selected piece's edge/segment grabs it instead of starting a
-        // rubber band.
-        if (handle->mode() == LeHandle::Mode::EDIT && handle->resize().armed && try_begin_resize_grab_unlocked(handle, x, y))
-        {
-            handle->begin_drag(x, y, LeHandle::DragKind::RESIZE);
-            return;
-        }
         handle->begin_drag(x, y);
     }
 
@@ -3542,16 +3662,6 @@ extern "C"
         const int32_t dy = y - handle->drag_start_y_px();
         const bool is_click = dx * dx + dy * dy < kClickDragThresholdPx * kClickDragThresholdPx;
 
-        if (handle->drag_kind() == LeHandle::DragKind::RESIZE)
-        {
-            // A click-sized release changes nothing; a real drag commits.
-            if (!is_click && handle->resize().grab)
-                commit_resize_unlocked(handle, x, y);
-            handle->end_resize_grab();
-            handle->end_drag();
-            return;
-        }
-
         if (handle->drag_kind() == LeHandle::DragKind::ZOOM)
         {
             // Rectangle-zoom (UPDATES.md 9.3) - purely navigational,
@@ -3609,7 +3719,7 @@ extern "C"
             // nothing beyond ending the gesture below, same as Ruler
             // mode's own click-only handling just above. A no-op if
             // Move isn't armed (see move_click_unlocked).
-            if (is_click)
+            if (is_click && !resize_click_unlocked(handle, x, y))
                 move_click_unlocked(handle);
         }
 

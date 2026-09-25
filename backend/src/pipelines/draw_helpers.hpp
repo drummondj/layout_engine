@@ -58,6 +58,12 @@ namespace le
     // net's star of lines stays readable.
     inline constexpr double kFlightlineStrokeWidth = 1.0;
 
+    // The Resize tool's hover indicator (NEW_FEATURES_SEPT_2026.md item 3) -
+    // the grabbable edge/segment, thicker than the hover outline, plus a
+    // small square handle at its midpoint.
+    inline constexpr double kResizeHoverStrokeWidth = 3.0;
+    inline constexpr double kResizeHoverHandleSizePx = 7.0;
+
     // Maximum on-screen text size in pixels, regardless of how large the
     // labeled geometry's own on-screen footprint grows (e.g. zoomed in
     // close on a single cell) - a label only needs to stay legible, not

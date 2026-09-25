@@ -108,6 +108,7 @@ namespace le::gui
             // Arrays are LePieceKind-indexed (then LeShapeSnapMode-indexed).
             struct Resize
             {
+                int32_t hover_axis = LE_RESIZE_AXIS_NONE; // le_gui.cpp's resize cursor
                 int32_t selected_piece_kinds = 0;
                 int32_t snap_modes[3] = {LE_SHAPE_SNAP_USER_GRID, LE_SHAPE_SNAP_USER_GRID, LE_SHAPE_SNAP_USER_GRID};
                 bool snap_available[3][5] = {};

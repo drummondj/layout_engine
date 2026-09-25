@@ -1272,6 +1272,29 @@ namespace le::gui
                     {
                         layout_view_hovered = forward_mouse_input(provider, gesture, scale_x, scale_y);
                         over_layout_content = layout_view_hovered;
+
+                        // NEW_FEATURES_SEPT_2026.md item 3 - with Resize
+                        // armed, a resize cursor over a selected shape's
+                        // grabbable edge/segment, pointing the way it moves
+                        // (state is refreshed at the top of each frame, so
+                        // this trails the mouse by one frame - unnoticeable).
+                        if (layout_view_hovered)
+                        {
+                            switch (provider.state().resize.hover_axis)
+                            {
+                            case LE_RESIZE_AXIS_X:
+                                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                                break;
+                            case LE_RESIZE_AXIS_Y:
+                                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+                                break;
+                            case LE_RESIZE_AXIS_BOTH:
+                                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+                                break;
+                            default:
+                                break;
+                            }
+                        }
                     }
 
                     // A render actually in progress means whatever's

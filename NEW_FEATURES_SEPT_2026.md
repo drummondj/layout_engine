@@ -48,6 +48,10 @@ If the library name doesn't already exist, then a new library should be created.
 
 Net connections should be drawn between selected placement pins using a light blue line. A separate layer purpose should be used for this, which is invisible by default.
 
+6. Selecting and moving vias
+
+Vias are not selectable or moveable at the moment, so please add that feature.
+
 
 
 
