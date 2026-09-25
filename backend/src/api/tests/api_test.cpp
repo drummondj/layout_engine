@@ -5942,3 +5942,15 @@ TEST_F(ApiFixture, CtrlRArmsResizeWhileBareRStillSwitchesToRulerMode)
     EXPECT_EQ(le_get_mode(handle), LE_MODE_RULER);
     EXPECT_EQ(le_is_resize_armed(handle), 0); // leaving Edit mode disarms
 }
+
+TEST_F(ApiFixture, FlightlineMaxFanoutDefaultsToTenAndRejectsNegativeValues)
+{
+    EXPECT_EQ(le_flightline_max_fanout(handle), 10);
+    le_set_flightline_max_fanout(handle, 3);
+    EXPECT_EQ(le_flightline_max_fanout(handle), 3);
+    le_set_flightline_max_fanout(handle, -1); // ignored
+    EXPECT_EQ(le_flightline_max_fanout(handle), 3);
+    le_set_flightline_max_fanout(handle, 0); // no limit
+    EXPECT_EQ(le_flightline_max_fanout(handle), 0);
+    EXPECT_EQ(le_flightline_max_fanout(nullptr), 0);
+}

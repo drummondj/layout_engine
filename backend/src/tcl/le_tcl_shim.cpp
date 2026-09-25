@@ -1261,6 +1261,16 @@ void set_hierarchy_depth_command(int depth)
     le_set_hierarchy_depth(session(), depth);
 }
 
+int get_flightline_max_fanout_command()
+{
+    return le_flightline_max_fanout(session());
+}
+
+void set_flightline_max_fanout_command(int max_fanout)
+{
+    le_set_flightline_max_fanout(session(), max_fanout);
+}
+
 int get_max_concurrency_command()
 {
     return le_max_concurrency(session());

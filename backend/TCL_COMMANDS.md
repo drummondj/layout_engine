@@ -1651,6 +1651,16 @@ One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several.
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_flightline_max_fanout
+
+`get_flightline_max_fanout [-help]`
+
+Returns the flightline fanout limit (0 means no limit).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_foreigns
 
 `get_foreigns [-of <token>...] [-filter <expr>] [-help]`
@@ -2492,6 +2502,17 @@ Sets whether fill/stroke geometry paints antialias their own edges - also covers
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<enabled>` | `bool` | yes | 0/1 or true/false |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## set_flightline_max_fanout
+
+`set_flightline_max_fanout <max_fanout> [-help]`
+
+Sets the flightline fanout limit - a net connecting more than <max_fanout> pins besides the selected one (e.g. a clock or reset net) draws no flightlines. 0 means no limit; 10 by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<max_fanout>` | `int` | yes | The fanout limit, 0 for none |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## set_hierarchy_depth

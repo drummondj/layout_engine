@@ -2458,6 +2458,37 @@ register_command_help set_hierarchy_depth \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+proc set_flightline_max_fanout { max_fanout } {
+    if {$max_fanout eq "-help"} {
+        return "set_flightline_max_fanout <max_fanout> \[-help\] - Sets the flightline fanout limit"
+    }
+    if {![string is integer -strict $max_fanout] || $max_fanout < 0} {
+        error "set_flightline_max_fanout: expected a non-negative integer, got \"$max_fanout\""
+    }
+    set_flightline_max_fanout_command $max_fanout
+    return ""
+}
+register_command_help set_flightline_max_fanout \
+    "set_flightline_max_fanout <max_fanout> \[-help\]" \
+    "Sets the flightline fanout limit - a net connecting more than <max_fanout> pins besides the selected one (e.g. a clock or reset net) draws no flightlines. 0 means no limit; 10 by default." \
+    {
+        {<max_fanout> {type int required 1 description {The fanout limit, 0 for none}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_flightline_max_fanout {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_flightline_max_fanout \[-help\] - Returns the flightline fanout limit"
+    }
+    return [get_flightline_max_fanout_command]
+}
+register_command_help get_flightline_max_fanout \
+    "get_flightline_max_fanout \[-help\]" \
+    "Returns the flightline fanout limit (0 means no limit)." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 proc get_hierarchy_depth {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "get_hierarchy_depth \[-help\] - Returns the visible hierarchy depth"

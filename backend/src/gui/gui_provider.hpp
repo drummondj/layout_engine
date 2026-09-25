@@ -85,6 +85,7 @@ namespace le::gui
             struct LayerManager
             {
                 int32_t hierarchy_depth = 0;
+                int32_t flightline_max_fanout = 0;
                 std::vector<LayerRow> layers;
                 std::vector<PurposeRow> purposes;
             } layer_manager;
@@ -185,6 +186,7 @@ namespace le::gui
         void redo();
         void clear_rulers();
         void set_hierarchy_depth(int32_t depth);
+        void set_flightline_max_fanout(int32_t max_fanout);
         void set_layer_visible(const std::string &layer_name, bool value);
         void set_layer_selectable(const std::string &layer_name, bool value);
         void set_purpose_visible(const std::string &purpose_name, bool value);

@@ -124,6 +124,7 @@ struct LeHandle
         bool lines_valid = false;
         uint64_t lines_mutation_version = 0;
         uint64_t lines_selection_version = 0;
+        int lines_max_fanout = 0;
         le::LayoutId lines_layout;
         std::vector<le::Flightline> lines;
         uint64_t version = 0;
@@ -506,6 +507,18 @@ struct LeHandle
             clear_rulers();
         }
         le::LayoutId current_layout() const { return current_layout_id_; }
+
+        // --- Flightline fanout limit (NEW_FEATURES_SEPT_2026.md item 5) ---
+        // A net with more than this many endpoints besides the selected
+        // pin (a high-fanout clock/reset net) draws no flightlines; 0 means
+        // no limit. Negative values are ignored, like set_hierarchy_depth.
+        // Part of api.cpp's flightline cache key, so a change redraws.
+        void set_flightline_max_fanout(int max_fanout)
+        {
+            if (max_fanout >= 0)
+                flightline_max_fanout_ = max_fanout;
+        }
+        int flightline_max_fanout() const { return flightline_max_fanout_; }
 
         // --- Hierarchy depth (Migration Step 3 Phase C) ---
         // How many further levels of Placement -> Design a Layout view
@@ -1623,6 +1636,7 @@ struct LeHandle
         bool ruler_free_form_ = false;
         MoveState move_;
         ResizeState resize_;
+        int flightline_max_fanout_ = 10;
         std::array<le::ShapeSnapMode, 3> shape_snap_modes_{le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID};
         le::PlacementSnapMode placement_snap_mode_ = le::PlacementSnapMode::SITE;
         double ruler_label_size_px_ = 11.0;

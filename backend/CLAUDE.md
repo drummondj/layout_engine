@@ -106,7 +106,10 @@ none of these are duplicated here.
   `flightlines.hpp` (NEW_FEATURES_SEPT_2026.md item 5): the selected
   placements' net connections — `NetEndpointIndex` (net -> placed pins and
   top-level PhysicalPorts, built from `link`'s Placement.instance/Pin.net)
-  plus `placement_flightlines` (a star from each selected pin). Drawn by
+  plus `placement_flightlines` (a star from each selected pin, skipping
+  nets whose fanout exceeds `LeHandle::flightline_max_fanout()` - 10 by
+  default, 0 = no limit, set under Hierarchy Depth in the Layers panel or
+  via `set_flightline_max_fanout`). Drawn by
   `ComposeStage` as an overlay on the `FLIGHTLINE` purpose (hidden by
   default); api.cpp caches the index per Root mutation and the lines per
   selection (`LeHandle::flightline_cache`, see BENCHMARKS.md 2026-09-25).

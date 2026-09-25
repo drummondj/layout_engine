@@ -142,3 +142,17 @@ TEST_F(FlightlineFixture, UnlinkedOrUnconnectedPlacementsDrawNothing)
     EXPECT_TRUE(lines_for({u4}).empty());
     EXPECT_TRUE(lines_for({}).empty());
 }
+
+TEST_F(FlightlineFixture, NetsAboveTheFanoutLimitDrawNothing)
+{
+    // U1.Y's net n1 has 2 other endpoints (U2.A, U3.A).
+    const NetEndpointIndex index(root, layout);
+    const std::vector<PlacementId> selected{u1};
+    EXPECT_EQ(placement_flightlines(root, index, selected, 0).size(), 2u); // 0: no limit
+    EXPECT_EQ(placement_flightlines(root, index, selected, 2).size(), 2u); // exactly at the limit - drawn
+    EXPECT_TRUE(placement_flightlines(root, index, selected, 1).empty());  // above it - skipped
+
+    // U2: n1 (fanout 2) is skipped at limit 1, n2 (fanout 1, the top-level pin) is kept.
+    const std::vector<PlacementId> u2_selected{u2};
+    EXPECT_EQ(placement_flightlines(root, index, u2_selected, 1).size(), 1u);
+}

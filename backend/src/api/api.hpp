@@ -783,6 +783,15 @@ extern "C"
         LE_ORIENTATION_OP_FLIP_VERTICAL = 2,
     } LeOrientationOp;
 
+    /// @brief Sets the flightline fanout limit (NEW_FEATURES_SEPT_2026.md
+    /// item 5): a net with more than `max_fanout` endpoints besides the
+    /// selected pin draws no flightlines; 0 means no limit. 10 by default.
+    /// Ignores a negative value, or a null handle.
+    void le_set_flightline_max_fanout(LeHandle *handle, int32_t max_fanout);
+
+    /// @brief The flightline fanout limit. 0 if handle is null.
+    int32_t le_flightline_max_fanout(LeHandle *handle);
+
     /// @brief How many Placements are currently selected - nonzero (in Edit
     /// mode) is the GUI's cue to show the placement secondary toolbar. 0
     /// if handle is null.

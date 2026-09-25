@@ -51,6 +51,7 @@ namespace le::gui
         state_.status_bar.selection_count = le_selection_count(handle_);
 
         state_.layer_manager.hierarchy_depth = le_hierarchy_depth(handle_);
+        state_.layer_manager.flightline_max_fanout = le_flightline_max_fanout(handle_);
 
         state_.placement_move.selected_count = state_.mode == LE_MODE_EDIT ? le_selected_placement_count(handle_) : 0;
         if (state_.placement_move.selected_count > 0)
@@ -383,6 +384,11 @@ namespace le::gui
     void GuiProvider::set_hierarchy_depth(int32_t depth)
     {
         run_tcl_command("set_hierarchy_depth " + std::to_string(depth));
+    }
+
+    void GuiProvider::set_flightline_max_fanout(int32_t max_fanout)
+    {
+        run_tcl_command("set_flightline_max_fanout " + std::to_string(max_fanout));
     }
 
     void GuiProvider::set_layer_visible(const std::string &layer_name, bool value)

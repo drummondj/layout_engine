@@ -154,8 +154,12 @@ namespace le
     /// placements' pins and top-level pins, selected or not) - a star per
     /// selected pin. A connection between two selected pins is drawn once.
     /// Placements without a linked Instance (see `link`) have no
-    /// connectivity and draw nothing.
-    inline std::vector<Flightline> placement_flightlines(const Root &root, const NetEndpointIndex &index, std::span<const PlacementId> selected)
+    /// connectivity and draw nothing. A net whose fanout - its endpoints
+    /// other than the selected pin - exceeds `max_fanout` draws nothing
+    /// either (high-fanout clock/reset nets would bury everything else);
+    /// `max_fanout` 0 means no limit.
+    inline std::vector<Flightline> placement_flightlines(const Root &root, const NetEndpointIndex &index, std::span<const PlacementId> selected,
+                                                         int max_fanout = 0)
     {
         flightline_detail::EndpointLocator locator(root);
         std::vector<Flightline> lines;
@@ -178,12 +182,15 @@ namespace le
                 const PinData *pin = root.get_pin(pin_id);
                 if (!pin || !pin->net.valid())
                     continue;
+                const std::span<const NetEndpointIndex::Endpoint> endpoints = index.endpoints(pin->net);
+                if (max_fanout > 0 && endpoints.size() > static_cast<size_t>(max_fanout) + 1)
+                    continue;
                 const NetEndpointIndex::Endpoint self{.placement = placement_id, .pin = pin_id, .port = {}};
                 const std::optional<Point> from = locator.placed_pin(placement_id, pin->name);
                 if (!from)
                     continue;
 
-                for (const NetEndpointIndex::Endpoint &other : index.endpoints(pin->net))
+                for (const NetEndpointIndex::Endpoint &other : endpoints)
                 {
                     if (!other.port.valid() && other.pin == pin_id)
                         continue;

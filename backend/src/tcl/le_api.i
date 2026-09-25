@@ -181,6 +181,8 @@ const char *command_history_at(int index);
 
 int get_hierarchy_depth_command();
 void set_hierarchy_depth_command(int depth);
+int get_flightline_max_fanout_command();
+void set_flightline_max_fanout_command(int max_fanout);
 
 int get_max_concurrency_command();
 void set_max_concurrency_command(int max_concurrency);

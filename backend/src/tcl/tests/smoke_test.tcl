@@ -159,6 +159,16 @@ check "user-grid snapping is always available" 1 [shape_snap_mode_available rect
 arm_resize
 puts "ok: arm_resize is a harmless no-op outside Edit mode"
 
+check "flightline fanout limit defaults to 10" 10 [get_flightline_max_fanout]
+set_flightline_max_fanout 25
+check "set_flightline_max_fanout round-trips" 25 [get_flightline_max_fanout]
+if {[catch {set_flightline_max_fanout -1} err]} {
+    puts "ok: set_flightline_max_fanout rejects a negative value ($err)"
+} else {
+    puts stderr "FAIL: set_flightline_max_fanout accepted a negative value"
+    exit 1
+}
+
 clear_rulers
 puts "ok: clear_rulers"
 select_all

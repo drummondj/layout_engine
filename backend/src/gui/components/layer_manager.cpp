@@ -143,96 +143,101 @@ namespace le::gui
             ImGui::TableSetColumnIndex(0);
             ImGui::Spacing();
         }
+
+        // A non-negative integer setting as a "commit on Enter" field
+        // (ImGuiInputTextFlags_EnterReturnsTrue) with "-"/"+" step buttons
+        // and a label - the Hierarchy Depth row, shared by the flightline
+        // fanout limit. Submitting a valid (non-negative) value shows
+        // *only* that value - ignoring `backend_value`'s own still-stale
+        // value - until the backend actually catches up to it (same
+        // "optimistic until confirmed" reasoning as
+        // draw_optimistic_checkbox above, and the same flicker it avoids:
+        // pressing Enter defocuses the field immediately, so without this,
+        // the very next frame's own re-sync would snap the field back to
+        // the old value for the ~100ms the queued command takes to land,
+        // then snap forward again once it does - a real, reported bug).
+        // Still re-synced whenever nothing is pending and the field isn't
+        // focused, so an external change (e.g. from the Tcl console,
+        // running concurrently with this GUI) shows up here too.
+        struct CommittedIntField
+        {
+            int buf = 0;
+            bool was_active = false;
+            bool has_pending = false;
+            int pending_value = 0;
+        };
+
+        template <typename Apply>
+        void draw_committed_int_field(const char *id, const char *label, int32_t backend_value, CommittedIntField &field, Apply apply)
+        {
+            if (field.has_pending && backend_value == field.pending_value)
+                field.has_pending = false;
+            if (!field.was_active && !field.has_pending)
+                field.buf = backend_value;
+
+            // Shared by Enter and the "-"/"+" buttons. Clamped to 0 for a
+            // button press (a "-" at 0 should visibly settle at 0), unlike
+            // a typed negative value, which resets to the backend's value.
+            const auto submit = [&](int new_value)
+            {
+                if (new_value < 0)
+                    new_value = 0;
+                field.buf = new_value;
+                apply(new_value);
+                field.has_pending = true;
+                field.pending_value = new_value;
+            };
+
+            // 3 characters wide - these fields only ever hold a small
+            // integer.
+            ImGui::SetNextItemWidth(ImGui::CalcTextSize("000").x + ImGui::GetStyle().FramePadding.x * 2.0f);
+            if (ImGui::InputInt(id, &field.buf, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue))
+            {
+                if (field.buf >= 0)
+                    submit(field.buf);
+                else
+                {
+                    // The backend rejects a negative value (left
+                    // unchanged) - reset the field to the real value.
+                    field.buf = backend_value;
+                    field.has_pending = false;
+                }
+            }
+            field.was_active = ImGui::IsItemActive();
+
+            constexpr float kStepButtonWidth = 24.0f;
+            // compact_button (compact_button.hpp), not a plain
+            // ImGui::Button - see its own doc comment for the centering
+            // bug a button this narrow would otherwise hit.
+            ImGui::PushID(id);
+            ImGui::SameLine();
+            if (compact_button("-", kStepButtonWidth))
+                submit(field.buf - 1);
+            ImGui::SameLine();
+            if (compact_button("+", kStepButtonWidth))
+                submit(field.buf + 1);
+            ImGui::PopID();
+            ImGui::SameLine();
+            ImGui::TextUnformatted(label);
+        }
     }
 
     void draw_layer_manager(GuiProvider &provider)
     {
         const GuiProvider::State &state = provider.state();
 
-        // Hierarchy depth - a plain "commit on Enter" field
-        // (ImGuiInputTextFlags_EnterReturnsTrue), matching
-        // HierarchyRow's own TextField(onSubmitted:) in layer_manager.dart
-        // rather than live-updating per keystroke. Submitting a valid
-        // (non-negative) value shows *only* that value - ignoring
-        // state().layer_manager.hierarchy_depth's own still-stale value -
-        // until the backend actually catches up to it (same "optimistic
-        // until confirmed" reasoning as draw_optimistic_checkbox above,
-        // and the same flicker it avoids: pressing Enter defocuses the
-        // field immediately, so without this, the very next frame's own
-        // re-sync would snap the field back to the old value for the
-        // ~100ms the queued command takes to land, then snap forward
-        // again once it does - a real, reported bug). Still re-synced
-        // whenever nothing is pending and the field isn't focused, so an
-        // external change (e.g. from the Tcl console, running
-        // concurrently with this GUI) shows up here too.
-        static int depth_buf = 0;
-        static bool depth_field_was_active = false;
-        static bool has_pending_depth = false;
-        static int pending_depth_value = 0;
-        const int32_t backend_depth = state.layer_manager.hierarchy_depth;
-        if (has_pending_depth && backend_depth == pending_depth_value)
-        {
-            has_pending_depth = false;
-        }
-        if (!depth_field_was_active && !has_pending_depth)
-        {
-            depth_buf = backend_depth;
-        }
-        // Submits `new_value` the same way pressing Enter in the field
-        // itself does (below) - shared by the "-"/"+" buttons so they
-        // stay in lockstep with the field's own optimistic-update/
-        // negative-value handling instead of duplicating it. Clamped to
-        // 0 rather than left as a no-op for a button click specifically
-        // (unlike a typed negative value, which resets to whatever the
-        // backend still reports - see the field's own submit branch
-        // below) - a "-" press at 0 should visibly settle at 0, not
-        // silently do nothing.
-        auto submit_depth = [&](int new_value)
-        {
-            if (new_value < 0)
-                new_value = 0;
-            depth_buf = new_value;
-            provider.set_hierarchy_depth(new_value);
-            has_pending_depth = true;
-            pending_depth_value = new_value;
-        };
-
-        // 3 characters wide (this field only ever holds a small
-        // hierarchy-depth integer, never worth 100px) - the label moved
-        // out to its own TextUnformatted below so the "-"/"+" buttons
-        // can sit between the field and it.
-        ImGui::SetNextItemWidth(ImGui::CalcTextSize("000").x + ImGui::GetStyle().FramePadding.x * 2.0f);
-        if (ImGui::InputInt("##hierarchy_depth", &depth_buf, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue))
-        {
-            if (depth_buf >= 0)
-            {
-                submit_depth(depth_buf);
-            }
-            else
-            {
-                // set_hierarchy_depth itself rejects a negative value
-                // (left unchanged) - reset the field back to the real
-                // current value immediately, matching HierarchyRow's own
-                // _submit() in layer_manager.dart, rather than showing a
-                // value that was never (and never will be) applied.
-                depth_buf = backend_depth;
-                has_pending_depth = false;
-            }
-        }
-        depth_field_was_active = ImGui::IsItemActive();
-
-        constexpr float kStepButtonWidth = 24.0f;
-        // compact_button (compact_button.hpp), not a plain ImGui::Button -
-        // see its own doc comment for the centering bug a button this
-        // narrow would otherwise hit.
-        ImGui::SameLine();
-        if (compact_button("-", kStepButtonWidth))
-            submit_depth(depth_buf - 1);
-        ImGui::SameLine();
-        if (compact_button("+", kStepButtonWidth))
-            submit_depth(depth_buf + 1);
-        ImGui::SameLine();
-        ImGui::TextUnformatted("Hierarchy Depth");
+        // Hierarchy depth, and under it the flightline fanout limit
+        // (NEW_FEATURES_SEPT_2026.md item 5) - see draw_committed_int_field.
+        static CommittedIntField depth_field;
+        draw_committed_int_field("##hierarchy_depth", "Hierarchy Depth", state.layer_manager.hierarchy_depth, depth_field,
+                                 [&](int value)
+                                 { provider.set_hierarchy_depth(value); });
+        static CommittedIntField fanout_field;
+        draw_committed_int_field("##flightline_max_fanout", "Flightline Max Fanout", state.layer_manager.flightline_max_fanout, fanout_field,
+                                 [&](int value)
+                                 { provider.set_flightline_max_fanout(value); });
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Nets connecting more pins than this (besides the selected one) draw no flightlines - 0 for no limit");
 
         ImGui::Separator();
 

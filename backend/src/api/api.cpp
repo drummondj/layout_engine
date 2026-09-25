@@ -474,10 +474,12 @@ namespace
             cache.lines_valid = false;
         }
         if (!cache.lines_valid || cache.lines_selection_version != handle->selection_version() ||
-            cache.lines_mutation_version != mutation_version || cache.lines_layout != layout_id)
+            cache.lines_mutation_version != mutation_version || cache.lines_layout != layout_id ||
+            cache.lines_max_fanout != handle->flightline_max_fanout())
         {
-            cache.lines = le::placement_flightlines(handle->root, cache.index, selected_placements_unlocked(handle));
+            cache.lines = le::placement_flightlines(handle->root, cache.index, selected_placements_unlocked(handle), handle->flightline_max_fanout());
             cache.lines_valid = true;
+            cache.lines_max_fanout = handle->flightline_max_fanout();
             cache.lines_selection_version = handle->selection_version();
             cache.lines_mutation_version = mutation_version;
             cache.lines_layout = layout_id;
@@ -2952,6 +2954,22 @@ extern "C"
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return le::PlacementSnapper::available(handle->root, handle->current_layout(), static_cast<le::PlacementSnapMode>(mode)) ? 1 : 0;
+    }
+
+    void le_set_flightline_max_fanout(LeHandle *handle, int32_t max_fanout)
+    {
+        if (!handle || max_fanout < 0)
+            return;
+        HandleWriteLock lock(handle);
+        handle->set_flightline_max_fanout(max_fanout);
+    }
+
+    int32_t le_flightline_max_fanout(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->flightline_max_fanout();
     }
 
     int32_t le_selected_placement_count(LeHandle *handle)
