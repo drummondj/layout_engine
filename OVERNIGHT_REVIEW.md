@@ -93,3 +93,22 @@ nodes can still be toggled by hand while a filter is active.
 libraries start collapsed. No automated test: there's no headless ImGui
 harness in `src/gui/tests`, only `GuiProvider` state tests.
 
+## Item 14 — Resize disabled while placements are selected
+
+**Fix:**
+- Backend: `arm_resize_unlocked` (`api.cpp`) refuses to arm when the
+  selection holds any `PlacementId`, so Ctrl-R and the Tcl `arm_resize`
+  are covered too, not just the button. `le_arm_resize`'s doc updated.
+- GUI: `mode_toolbar.cpp`'s `draw_tool_button` takes an optional
+  `disabled_reason` — the Resize button is drawn with `BeginDisabled`
+  while `placement_move.selected_count > 0`, and its tooltip (shown with
+  `ImGuiHoveredFlags_AllowWhenDisabled`) says why.
+
+**Judgment call:** a placement selected *alongside* resizable shapes also
+disables Resize, rather than resizing just the shapes - resizing a mixed
+selection would silently ignore part of it.
+
+**Tests:** `ApiFixture.ResizeDoesNotArmWhileAPlacementIsSelected` (fails
+without the guard). Verified in the real GUI: greyed icon plus the
+tooltip. Full suite: 844/844.
+

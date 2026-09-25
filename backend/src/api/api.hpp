@@ -836,8 +836,8 @@ extern "C"
     } LeShapeSnapMode;
 
     /// @brief Arms the Resize tool (NEW_FEATURES_SEPT_2026.md item 3) - Edit
-    /// mode with at least one selected rect/polygon/path piece, a no-op
-    /// otherwise. Disarms Move (and arming Move disarms Resize). Then, like
+    /// mode with at least one selected rect/polygon/path piece and no
+    /// selected placement (item 14), a no-op otherwise. Disarms Move (and arming Move disarms Resize). Then, like
     /// Move, two clicks (le_mouse_up clicks): hovering a selected piece's
     /// edge (rect, polygon) or anywhere on a path segment highlights it
     /// (le_resize_hover_axis); the first click grabs it and a ghost follows

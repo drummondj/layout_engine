@@ -5931,6 +5931,35 @@ TEST_F(ApiFixture, CtrlRArmsResizeWhileBareRStillSwitchesToRulerMode)
     EXPECT_EQ(le_is_resize_armed(handle), 0); // leaving Edit mode disarms
 }
 
+// NEW_FEATURES_SEPT_2026.md item 14: Resize won't arm while a placement
+// is selected, even alongside a resizable shape.
+TEST_F(ApiFixture, ResizeDoesNotArmWhileAPlacementIsSelected)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+    const LePlacementId placement_id = le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+    ASSERT_NE(placement_id.index, UINT32_MAX);
+    const LeRouteId route_id = le_create_route(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", /*is_special=*/0, /*has_width=*/0, 0.0, /*has_voltage=*/0, 0.0, nullptr);
+    const double route_rect_um[4] = {20.0, 20.0, 26.0, 26.0};
+    const LeShapeId route_shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, route_id, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, le_layer_by_name(handle, "M1"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(route_shape_id.index, UINT32_MAX);
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_mode(handle, LE_MODE_EDIT);
+
+    ASSERT_EQ(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = route_shape_id.index, .generation = route_shape_id.generation}), 0);
+    ASSERT_EQ(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_PLACEMENT, .index = placement_id.index, .generation = placement_id.generation}), 0);
+    le_arm_resize(handle);
+    EXPECT_EQ(le_is_resize_armed(handle), 0);
+
+    le_deselect_all(handle);
+    ASSERT_EQ(le_select_object_ref(handle, LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = route_shape_id.index, .generation = route_shape_id.generation}), 0);
+    le_arm_resize(handle);
+    EXPECT_NE(le_is_resize_armed(handle), 0);
+}
+
 TEST_F(ApiFixture, FlightlineMaxFanoutDefaultsToTenAndRejectsNegativeValues)
 {
     EXPECT_EQ(le_flightline_max_fanout(handle), 10);

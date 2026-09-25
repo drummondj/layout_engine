@@ -476,6 +476,12 @@ namespace
         if (handle->mode() != LeHandle::Mode::EDIT)
             return;
         const auto &selection = handle->selection();
+        // A placement has no edges to resize, and resizing the shapes
+        // alongside one would leave it behind (NEW_FEATURES_SEPT_2026.md
+        // item 14) - the GUI's Resize button is disabled to match.
+        if (std::ranges::any_of(selection, [](const LeHandle::SelectedObject &s)
+                                { return std::holds_alternative<le::PlacementId>(s); }))
+            return;
         if (std::ranges::none_of(selection, [](const LeHandle::SelectedObject &s)
                                  {
                                      const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&s);

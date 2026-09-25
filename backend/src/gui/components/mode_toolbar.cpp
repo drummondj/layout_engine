@@ -64,19 +64,24 @@ namespace le::gui
             int pending_since_frame = 0;
         };
 
+        // `disabled_reason` non-null greys the button out (it can't arm
+        // then) and replaces its tooltip.
         template <typename OnArm>
-        void draw_tool_button(const char *icon, const char *id, const char *tooltip, bool backend_armed, ToolButtonState &state, OnArm on_arm)
+        void draw_tool_button(const char *icon, const char *id, const char *tooltip, bool backend_armed, ToolButtonState &state, OnArm on_arm,
+                              const char *disabled_reason = nullptr)
         {
             if (state.has_pending && (backend_armed || ImGui::GetFrameCount() - state.pending_since_frame > kPendingArmFrames))
                 state.has_pending = false;
             const bool armed = state.has_pending || backend_armed;
 
             ImGui::PushStyleColor(ImGuiCol_Button, armed ? kSelectedIconButtonColor : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+            ImGui::BeginDisabled(disabled_reason != nullptr);
             // icon_button - see draw_button's own comment above.
             const bool clicked = icon_button(icon, id, kIconButtonSize);
+            ImGui::EndDisabled();
             ImGui::PopStyleColor();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s", tooltip);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", disabled_reason != nullptr ? disabled_reason : tooltip);
             if (clicked && !armed)
             {
                 on_arm();
@@ -112,7 +117,10 @@ namespace le::gui
             static ToolButtonState resize_state;
             draw_tool_button(ICON_LC_SCALING, "resize", "Resize (ctrl-r) - click an edge of a selected shape, then click again to place it", provider.state().is_resize_armed, resize_state,
                              [&]
-                             { provider.arm_resize(); });
+                             { provider.arm_resize(); },
+                             // NEW_FEATURES_SEPT_2026.md item 14 - le_arm_resize
+                             // refuses a selection with a placement in it.
+                             provider.state().placement_move.selected_count > 0 ? "Resize - not available while a placement is selected" : nullptr);
 
             // mode_toolbar.dart's own Rotate/Align */Delete buttons are
             // all still no-ops there too (`onPressed: () => {}`) - left

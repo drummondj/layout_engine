@@ -79,7 +79,7 @@ There should be an option to save the settings into your home dir or a file of t
 
 13. Please update the move tool so it has the same grid snapping options as resize for routes and vias.
 
-14. Resize tool button should be disabled when placements are selected
+14. Resize tool button should be disabled when placements are selected - DONE
 
 
 
