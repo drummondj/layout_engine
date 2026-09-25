@@ -530,9 +530,12 @@ none of these are duplicated here.
   selected (so repeated shift-clicks add a stack one object at a time). There is no
   hover highlight (removed on request) - only the Resize tool's own
   edge indicator. The generated
-  `update_shape`/`apply_shape_snapshot` don't carry `vias`, so Shape edits
-  record `apply_shape_snapshot_with_vias` for undo. Via arrays
-  (`via_iterates`) aren't pieces. `LeHandle::Mode`
+  `update_shape`/`apply_shape_snapshot` don't carry `vias`/`via_iterates`,
+  so Shape edits record `apply_shape_snapshot_with_vias` for undo. A via
+  array (`Shape.via_iterates`) is one `PieceKind::VIA_ITERATE` piece
+  (item 12): its hit box is its first instance's stretched over every
+  step, a click anywhere in it picks the whole array, and Move moves its
+  origin. `LeHandle::Mode`
   (`SELECT`/`EDIT`/`RULER`, UPDATES.md items 11/13) is Select by default —
   Select is the only mode where `le_mouse_up` changes the current
   selection; Edit mode restricts mouse interaction to editing whatever is

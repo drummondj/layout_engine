@@ -6065,6 +6065,74 @@ TEST_F(ApiFixture, MovingASelectedViaMovesItsOriginAndIsUndoable)
     EXPECT_EQ(le_selection_count(handle), 1);
 }
 
+// --- NEW_FEATURES_SEPT_2026.md item 12: selecting and moving via arrays ---
+// via_array_cell.lef: the same cell and 50 dbu/px view as open_via_cell,
+// with a 2x2 VIA12 array (instances at (5,5)..(7,7)um) instead of the single
+// via - its box is (4.5,4.5)-(7.5,7.5)um = pixels x 90..150, y 50..110.
+
+// A click anywhere in the array's box - here its centre, between the four
+// instances - selects the whole array as one piece and outlines it; so does
+// a drag around it.
+TEST_F(ApiFixture, ClickingAViaArraySelectsTheWholeArray)
+{
+    open_via_cell(handle, fixture_path("via_array_cell.lef"));
+
+    le_mouse_down(handle, 120, 80); // (6,6)um
+    le_mouse_up(handle, 120, 80);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_SHAPE);
+
+    // Outlined: the lower-left instance's left edge (x = 4.5um = pixel 90)
+    // and the upper-right one's right edge (x = 7.5um = pixel 150).
+    const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    EXPECT_TRUE(region_has_white_selection_pixel(buffer, 88, 95, 92, 105));
+    EXPECT_TRUE(region_has_white_selection_pixel(buffer, 148, 55, 152, 65));
+
+    le_deselect_all(handle);
+    le_mouse_down(handle, 80, 40);
+    le_set_mouse_position(handle, 160, 120);
+    le_mouse_up(handle, 160, 120);
+    EXPECT_EQ(le_selection_count(handle), 1); // the array, not four vias
+}
+
+// Moving a selected via array moves every instance (its origin), as one
+// undoable edit.
+TEST_F(ApiFixture, MovingASelectedViaArrayMovesEveryInstanceAndIsUndoable)
+{
+    open_via_cell(handle, fixture_path("via_array_cell.lef"));
+    le_mouse_down(handle, 120, 80);
+    le_mouse_up(handle, 120, 80);
+    ASSERT_EQ(le_selection_count(handle), 1);
+
+    le_set_mode(handle, LE_MODE_EDIT);
+    le_arm_move(handle);
+    le_set_minor_grid_spacing(handle, 100);
+    le_set_mouse_position(handle, 120, 80); // anchor at (6,6)um
+    le_mouse_down(handle, 120, 80);
+    le_mouse_up(handle, 120, 80);
+    le_set_mouse_position(handle, 120, 120); // (6,4)um - a 2um move down
+    le_mouse_down(handle, 120, 120);
+    le_mouse_up(handle, 120, 120);
+
+    // The array's box is now (4.5,2.5)-(7.5,5.5)um: (6,3)um hits it,
+    // (6,7)um - inside the old box only - doesn't.
+    auto selects_at = [&](int32_t x, int32_t y)
+    {
+        le_deselect_all(handle);
+        le_mouse_down(handle, x, y);
+        le_mouse_up(handle, x, y);
+        return le_selection_count(handle);
+    };
+    le_set_mode(handle, LE_MODE_SELECT);
+    EXPECT_EQ(selects_at(120, 140), 1); // (6,3)um
+    EXPECT_EQ(selects_at(120, 60), 0);  // (6,7)um
+
+    ASSERT_NE(le_undo(handle), 0);
+    EXPECT_EQ(selects_at(120, 140), 0);
+    EXPECT_EQ(selects_at(120, 60), 1);
+}
+
 // Layout view: a DEF route's via (N1's VIA12 at (7,7)um, between an M1 wire
 // ending there and an M2 wire leaving it) is selected by a click - rather
 // than the M1 wire under it - and moves on its own.

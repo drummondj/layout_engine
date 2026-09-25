@@ -316,7 +316,8 @@ namespace le
             const Point b = piece.paths.front().polygon.points[handle.edge + 1];
             return ResizeHandleSegment{a, b, classify(a, b)};
         }
-        case PieceKind::VIA: // a via has no edges to resize
+        case PieceKind::VIA: // a via or via array has no edges to resize
+        case PieceKind::VIA_ITERATE:
             return std::nullopt;
         }
         return std::nullopt;
@@ -389,7 +390,8 @@ namespace le
                                               { return snap.snap_path_center(v, x_axis, path.width); });
             break;
         }
-        case PieceKind::VIA: // a via has no edges to resize
+        case PieceKind::VIA: // a via or via array has no edges to resize
+        case PieceKind::VIA_ITERATE:
             break;
         }
         return out;
@@ -454,6 +456,10 @@ namespace le
         case PieceKind::VIA:
             if (index < data.vias.size() && !piece.vias.empty())
                 data.vias[index] = piece.vias.front();
+            break;
+        case PieceKind::VIA_ITERATE:
+            if (index < data.via_iterates.size() && !piece.via_iterates.empty())
+                data.via_iterates[index] = piece.via_iterates.front();
             break;
         }
     }

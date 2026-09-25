@@ -144,11 +144,12 @@ namespace
     // outlines, Move ghosts and hit boxes. A via piece's own extract_piece
     // Shape holds just the ShapeVia record, which stroke_piece_outline
     // can't draw.
-    le::Shape via_instance_geometry(const le::Root &root, const le::ShapeVia &via, le::LayoutId layout_id)
+    // `vias_only` holds just the via/via array to expand (its vias/
+    // via_iterates); a via array expands to every one of its instances.
+    le::Shape expanded_via_geometry(const le::Root &root, const le::Shape &vias_only, le::LayoutId layout_id)
     {
         static const le::ViewLayerSet no_view_layers; // every expanded shape lands under one (invalid) key - only the geometry matters here
-        le::Shape one;
-        one.vias = {via};
+        const le::Shape &one = vias_only;
         std::unordered_map<le::ViewLayerId, std::vector<le::RenderShape>> by_layer;
         le::append_via_shapes(root, one, le::ViewLayerPurpose::ROUTE, no_view_layers, layout_id, by_layer);
 
@@ -163,12 +164,17 @@ namespace
         return out;
     }
 
+    le::Shape via_instance_geometry(const le::Root &root, const le::ShapeVia &via, le::LayoutId layout_id)
+    {
+        return expanded_via_geometry(root, le::Shape{.vias = {via}}, layout_id);
+    }
+
     // A selected piece's drawable geometry: its own one-piece Shape, or for
-    // a via, the via's expanded geometry.
+    // a via or via array, its expanded geometry.
     le::Shape drawable_piece(const le::Root &root, const le::ShapeData &data, le::PieceKind kind, size_t index, le::LayoutId layout_id)
     {
-        if (kind == le::PieceKind::VIA)
-            return index < data.vias.size() ? via_instance_geometry(root, data.vias[index], layout_id) : le::Shape{};
+        if (kind == le::PieceKind::VIA || kind == le::PieceKind::VIA_ITERATE)
+            return le::Geometry::piece_in_range(data, kind, index) ? expanded_via_geometry(root, le::Geometry::extract_piece(data, kind, index), layout_id) : le::Shape{};
         return le::Geometry::extract_piece(data, kind, index);
     }
 
@@ -200,6 +206,25 @@ namespace
                 .translation = via.origin,
             };
             return le::Geometry::transform_bbox(transform, *it->second);
+        }
+
+        // A via array's box: its first instance's box, stretched to cover
+        // every DO/BY step (via_shapes.hpp places instance (ix, iy) at
+        // origin + (ix*space_x, iy*space_y), each with the same orientation).
+        std::optional<le::Rect> bbox(const le::ShapeViaIterate &array)
+        {
+            if (array.num_x <= 0 || array.num_y <= 0)
+                return std::nullopt;
+            std::optional<le::Rect> box = bbox(le::ShapeVia{.via_name = array.via_name, .origin = array.origin, .orientation = array.orientation, .width = array.width});
+            if (!box)
+                return std::nullopt;
+            const int64_t span_x = static_cast<int64_t>(array.num_x - 1) * array.space_x;
+            const int64_t span_y = static_cast<int64_t>(array.num_y - 1) * array.space_y;
+            box->ll.x += std::min<int64_t>(0, span_x);
+            box->ur.x += std::max<int64_t>(0, span_x);
+            box->ll.y += std::min<int64_t>(0, span_y);
+            box->ur.y += std::max<int64_t>(0, span_y);
+            return box;
         }
 
     private:
@@ -248,8 +273,10 @@ namespace
                handle->is_view_layer_selectable("PLACEMENT", le::ViewLayerPurpose::PLACEMENT);
     }
 
-    // Every selectable via whose hit box contains dbu `p`, smallest first
-    // (a via stacked inside a bigger one comes before it).
+    // Every selectable via or via array whose hit box contains dbu `p`,
+    // smallest first (a via stacked inside a bigger one, or inside an
+    // array's box, comes before it). A click anywhere in an array's box -
+    // between its instances too - picks the whole array.
     std::vector<LeHandle::ShapePiece> hit_test_via_point_all(const LeHandle *handle, le::Point p)
     {
         ViaHitBoxes boxes(handle->root, handle->current_layout());
@@ -257,16 +284,19 @@ namespace
         for_each_via_owner_shape(handle, [&](le::ShapeId shape_id, le::ViewLayerPurpose purpose)
                                  {
             const le::ShapeData *shape = handle->root.get_shape(shape_id);
-            if (!shape || shape->vias.empty() || !via_owner_selectable(handle, *shape, purpose))
+            if (!shape || (shape->vias.empty() && shape->via_iterates.empty()) || !via_owner_selectable(handle, *shape, purpose))
                 return;
-            for (size_t i = 0; i < shape->vias.size(); ++i)
+            const auto consider = [&](const std::optional<le::Rect> &box, le::PieceKind kind, size_t i)
             {
-                const std::optional<le::Rect> box = boxes.bbox(shape->vias[i]);
                 if (!box || p.x < box->ll.x || p.x > box->ur.x || p.y < box->ll.y || p.y > box->ur.y)
-                    continue;
+                    return;
                 const double area = static_cast<double>(box->ur.x - box->ll.x) * static_cast<double>(box->ur.y - box->ll.y);
-                hits.emplace_back(area, LeHandle::ShapePiece{.shape_id = shape_id, .piece_kind = le::PieceKind::VIA, .piece_index = i});
-            } });
+                hits.emplace_back(area, LeHandle::ShapePiece{.shape_id = shape_id, .piece_kind = kind, .piece_index = i});
+            };
+            for (size_t i = 0; i < shape->vias.size(); ++i)
+                consider(boxes.bbox(shape->vias[i]), le::PieceKind::VIA, i);
+            for (size_t i = 0; i < shape->via_iterates.size(); ++i)
+                consider(boxes.bbox(shape->via_iterates[i]), le::PieceKind::VIA_ITERATE, i); });
         std::ranges::stable_sort(hits, {}, [](const auto &h)
                                  { return h.first; });
         std::vector<LeHandle::ShapePiece> out;
@@ -276,8 +306,8 @@ namespace
         return out;
     }
 
-    // Every selectable via whose hit box lies entirely inside `rect` - the
-    // rubber-band rule every other piece follows.
+    // Every selectable via or via array whose hit box lies entirely inside
+    // `rect` - the rubber-band rule every other piece follows.
     std::vector<LeHandle::ShapePiece> hit_test_via_rect(const LeHandle *handle, le::Rect rect)
     {
         ViaHitBoxes boxes(handle->root, handle->current_layout());
@@ -285,16 +315,21 @@ namespace
         for_each_via_owner_shape(handle, [&](le::ShapeId shape_id, le::ViewLayerPurpose purpose)
                                  {
             const le::ShapeData *shape = handle->root.get_shape(shape_id);
-            if (!shape || shape->vias.empty() || !via_owner_selectable(handle, *shape, purpose))
+            if (!shape || (shape->vias.empty() && shape->via_iterates.empty()) || !via_owner_selectable(handle, *shape, purpose))
                 return;
+            const auto consider = [&](const std::optional<le::Rect> &box, le::PieceKind kind, size_t i)
+            {
+                if (box && box->ll.x >= rect.ll.x && box->ll.y >= rect.ll.y && box->ur.x <= rect.ur.x && box->ur.y <= rect.ur.y)
+                    hits.push_back(LeHandle::ShapePiece{.shape_id = shape_id, .piece_kind = kind, .piece_index = i});
+            };
             for (size_t i = 0; i < shape->vias.size(); ++i)
-                if (const std::optional<le::Rect> box = boxes.bbox(shape->vias[i]);
-                    box && box->ll.x >= rect.ll.x && box->ll.y >= rect.ll.y && box->ur.x <= rect.ur.x && box->ur.y <= rect.ur.y)
-                    hits.push_back(LeHandle::ShapePiece{.shape_id = shape_id, .piece_kind = le::PieceKind::VIA, .piece_index = i}); });
+                consider(boxes.bbox(shape->vias[i]), le::PieceKind::VIA, i);
+            for (size_t i = 0; i < shape->via_iterates.size(); ++i)
+                consider(boxes.bbox(shape->via_iterates[i]), le::PieceKind::VIA_ITERATE, i); });
         return hits;
     }
 
-    // apply_shape_snapshot, plus Shape.vias - the generated update_shape
+    // apply_shape_snapshot, plus Shape.vias/via_iterates - the generated update_shape
     // (and so the generated snapshot applier) doesn't carry vias, which
     // Move now changes. Used for every Shape edit this file records.
     bool apply_shape_snapshot_with_vias(le::Root &root, le::ShapeId id, const le::ShapeData &data)
@@ -302,7 +337,10 @@ namespace
         if (!le::apply_shape_snapshot(root, id, data))
             return false;
         if (le::ShapeData *shape = root.get_shape(id))
+        {
             shape->vias = data.vias;
+            shape->via_iterates = data.via_iterates; // NEW_FEATURES_SEPT_2026.md item 12
+        }
         return true;
     }
 
@@ -485,7 +523,7 @@ namespace
         if (std::ranges::none_of(selection, [](const LeHandle::SelectedObject &s)
                                  {
                                      const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&s);
-                                     return piece && piece->piece_kind != le::PieceKind::VIA; // a via has no edges to drag
+                                     return piece && piece->piece_kind != le::PieceKind::VIA && piece->piece_kind != le::PieceKind::VIA_ITERATE; // a via has no edges to drag
                                  }))
             return;
         handle->arm_resize();
@@ -1377,6 +1415,8 @@ namespace
                 select_piece(le::PieceKind::PATH, i);
             for (size_t i = 0; i < shape->vias.size(); ++i)
                 select_piece(le::PieceKind::VIA, i);
+            for (size_t i = 0; i < shape->via_iterates.size(); ++i)
+                select_piece(le::PieceKind::VIA_ITERATE, i);
         };
 
         for (le::TerminalId terminal_id : handle->root.get_abstract_terminals(abstract_id))
@@ -3269,7 +3309,7 @@ extern "C"
         int32_t mask = 0;
         for (const LeHandle::SelectedObject &selected : handle->selection())
             if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
-                piece && piece->piece_kind != le::PieceKind::VIA) // a via has nothing to resize
+                piece && piece->piece_kind != le::PieceKind::VIA && piece->piece_kind != le::PieceKind::VIA_ITERATE) // a via has nothing to resize
                 mask |= 1 << static_cast<int32_t>(piece->piece_kind);
         return mask;
     }
@@ -4106,7 +4146,9 @@ extern "C"
                 handle->select(shape_id, le::PieceKind::PATH, i);
             for (size_t i = 0; i < shape->vias.size(); i++)
                 handle->select(shape_id, le::PieceKind::VIA, i);
-            return !shape->rects.empty() || !shape->polygons.empty() || !shape->paths.empty() || !shape->vias.empty();
+            for (size_t i = 0; i < shape->via_iterates.size(); i++)
+                handle->select(shape_id, le::PieceKind::VIA_ITERATE, i);
+            return !shape->rects.empty() || !shape->polygons.empty() || !shape->paths.empty() || !shape->vias.empty() || !shape->via_iterates.empty();
         };
 
         switch (ref.kind)

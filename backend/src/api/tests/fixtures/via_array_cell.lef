@@ -1,0 +1,51 @@
+VERSION 5.8 ;
+BUSBITCHARS "<>" ;
+DIVIDERCHAR "/" ;
+
+UNITS
+   DATABASE MICRONS 1000 ;
+END UNITS
+
+LAYER M1
+   TYPE ROUTING ;
+   WIDTH 1 ;
+   PITCH 2 ;
+   DIRECTION HORIZONTAL ;
+END M1
+
+LAYER V1
+   TYPE CUT ;
+   SPACING 0.1 ;
+END V1
+
+LAYER M2
+   TYPE ROUTING ;
+   WIDTH 1 ;
+   PITCH 2 ;
+   DIRECTION VERTICAL ;
+END M2
+
+VIA VIA12 DEFAULT
+   LAYER M1 ;
+      RECT -0.5 -0.5 0.5 0.5 ;
+   LAYER V1 ;
+      RECT -0.2 -0.2 0.2 0.2 ;
+   LAYER M2 ;
+      RECT -0.5 -0.5 0.5 0.5 ;
+END VIA12
+
+# Pin A: an M1 rect at (1,1)-(3,3)um, plus a 2x2 VIA12 array at (5,5)um,
+# stepping 2um - instances at (5,5), (7,5), (5,7) and (7,7)um.
+MACRO VIAARRAYCELL
+   CLASS CORE ;
+   SIZE 10 BY 10 ;
+
+   PIN A
+      DIRECTION INPUT ;
+      PORT
+         LAYER M1 ;
+         RECT 1 1 3 3 ;
+         VIA ITERATE 5 5 VIA12 DO 2 BY 2 STEP 2 2 ;
+      END
+   END A
+END VIAARRAYCELL

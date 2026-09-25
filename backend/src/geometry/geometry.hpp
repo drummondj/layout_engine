@@ -976,6 +976,10 @@ namespace le
                 if (index < shape.vias.size())
                     piece.vias = {shape.vias[index]};
                 break;
+            case PieceKind::VIA_ITERATE:
+                if (index < shape.via_iterates.size())
+                    piece.via_iterates = {shape.via_iterates[index]};
+                break;
             }
             return piece;
         }
@@ -997,6 +1001,8 @@ namespace le
                 return index < shape.paths.size();
             case PieceKind::VIA:
                 return index < shape.vias.size();
+            case PieceKind::VIA_ITERATE:
+                return index < shape.via_iterates.size();
             }
             return false;
         }
@@ -1030,6 +1036,13 @@ namespace le
                 {
                     data.vias[index].origin.x += offset.x;
                     data.vias[index].origin.y += offset.y;
+                }
+                break;
+            case PieceKind::VIA_ITERATE: // the whole array moves with its origin
+                if (index < data.via_iterates.size())
+                {
+                    data.via_iterates[index].origin.x += offset.x;
+                    data.via_iterates[index].origin.y += offset.y;
                 }
                 break;
             }

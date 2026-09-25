@@ -112,3 +112,37 @@ selection would silently ignore part of it.
 without the guard). Verified in the real GUI: greyed icon plus the
 tooltip. Full suite: 844/844.
 
+## Item 12 — Via arrays selectable and movable
+
+**What was needed:** item 6 made plain vias (`Shape.vias`) pieces;
+arrays (`Shape.via_iterates` — LEF `VIA ITERATE ... DO n BY m STEP x y`,
+DEF routed `VIA DO n BY m STEP x y`) were explicitly left out.
+
+**Fix:** a new `PieceKind::VIA_ITERATE` (appended, so no existing value
+shifts), threaded through every place `VIA` was:
+- `geometry.hpp` `extract_piece`/`piece_in_range`/`transform_piece_in_place`
+  (moving an array moves its origin, so every instance moves together);
+  `shape_resize.hpp` treats it like a via (no edges).
+- `api.cpp`: `expanded_via_geometry` expands either kind through the same
+  `append_via_shapes` the renderer uses (selection outline / Move ghost
+  trace every instance); `ViaHitBoxes::bbox(ShapeViaIterate)` stretches the
+  first instance's cached box over `(num-1)*space` on each axis;
+  `hit_test_via_point_all`/`hit_test_via_rect`, select-all and
+  select-by-shape include arrays; `apply_shape_snapshot_with_vias` also
+  restores `via_iterates` (undo); Resize ignores arrays like vias.
+
+**Judgment call:** an array is selected and moved as *one* unit, not per
+instance - the request says "via arrays", and per-instance selection would
+mean splitting a DEF/LEF array record on edit. A click anywhere inside the
+array's bounding box (including between instances) picks it, the same
+bbox rule placements use; a single via or wire stacked inside it still
+wins because hits are ordered smallest-area first.
+
+**Tests:** new fixture `via_array_cell.lef` (2x2 VIA12 array);
+`ClickingAViaArraySelectsTheWholeArray` (click between instances, outline
+at both far edges, rubber-band gives one piece) and
+`MovingASelectedViaArrayMovesEveryInstanceAndIsUndoable`. Both fail
+without the api.cpp change. The Layout-view (DEF route) path shares the
+same code via `for_each_via_owner_shape` and isn't separately tested.
+Full suite: 846/846.
+

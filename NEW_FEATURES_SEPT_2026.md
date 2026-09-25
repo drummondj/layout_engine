@@ -75,7 +75,7 @@ There should be an option to save the settings into your home dir or a file of t
 
 11. Let's just merge placementBoundary and placementName into one purpose called placement - DONE
 
-12. Please allow via arrays to be selectable and moveable
+12. Please allow via arrays to be selectable and moveable - DONE
 
 13. Please update the move tool so it has the same grid snapping options as resize for routes and vias.
 
