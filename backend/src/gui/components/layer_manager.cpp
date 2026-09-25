@@ -237,9 +237,10 @@ namespace le::gui
         ImGui::Separator();
 
         // Pseudo-rows with no physical Technology Layer of their own
-        // (ROW/BOUNDARY/GCELLGRID/PLACEMENT_BLOCKAGE/REGION) are already
-        // filtered out of state().layer_manager.layers by
-        // GuiProvider::refresh() (has_physical_layer) - each already has
+        // (ROW/BOUNDARY/GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/
+        // FLIGHTLINE/...) are already filtered out of
+        // state().layer_manager.layers by GuiProvider::refresh()
+        // (has_physical_layer, gui_provider_test.cpp) - each already has
         // its own single-purpose entry below, showing it again as if it
         // were a whole extra layer would be a redundant, confusing
         // duplicate (BUGS_AND_ENHANCEMENTS.md E12).

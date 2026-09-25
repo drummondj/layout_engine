@@ -52,6 +52,10 @@ Net connections should be drawn between selected placement pins using a light bl
 
 Vias are not selectable or moveable at the moment, so please add that feature.
 
+7. Regression wrt layer visibility controls - DONE
+
+In a previous bug, the layer selection list contained layers that only have purposes. The layer list should only contain technology layers. Please make sure there is a regression test for this.
+
 
 
 
