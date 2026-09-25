@@ -186,16 +186,14 @@ namespace le
     inline constexpr Color kSelectionOutlineColor = {255, 255, 255, 255};
     inline constexpr double kSelectionOutlineStrokeWidth = 2.0;
 
-    // Red grid-snap cursor box (UPDATES.md 7.1 item 1) and yellow hover
-    // outline (UPDATES.md 7.1) - both ported verbatim from
-    // pipelines.old/draw_helpers.hpp's own kCursorBoxColor/
-    // kCursorBoxStrokeWidth/kCursorBoxSizePx/kHoverOutlineColor/
-    // kHoverOutlineStrokeWidth, same RGBA/width/size.
+    // Red grid-snap cursor box (UPDATES.md 7.1 item 1) - ported verbatim
+    // from pipelines.old/draw_helpers.hpp's own kCursorBoxColor/
+    // kCursorBoxStrokeWidth/kCursorBoxSizePx, same RGBA/width/size - and
+    // the yellow the Resize tool's hover indicator draws in.
     inline constexpr Color kCursorBoxColor = {255, 0, 0, 255};
     inline constexpr double kCursorBoxStrokeWidth = 1.0;
     inline constexpr double kCursorBoxSizePx = 7.0;
     inline constexpr Color kHoverOutlineColor = {255, 255, 0, 255};
-    inline constexpr double kHoverOutlineStrokeWidth = 2.0;
 
     // Dashed, translucent-white Move ghost preview (UPDATES.md item 21) -
     // ported verbatim from pipelines.old/draw_helpers.hpp's own

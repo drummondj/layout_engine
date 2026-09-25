@@ -166,6 +166,22 @@ namespace le
         return std::nullopt;
     }
 
+    /// Every top-level placement whose world bbox contains `dbu_point`,
+    /// topmost first (hit_test_placements_point's own order) - for
+    /// click-cycling through overlapping placements.
+    inline std::vector<PlacementId> hit_test_placements_point_all(const Root &root, LayoutId layout_id, int remaining_depth, Point dbu_point)
+    {
+        std::vector<PlacementId> hits;
+        const auto &placements = root.get_layout_placements(layout_id);
+        for (auto it = placements.rbegin(); it != placements.rend(); ++it)
+        {
+            const std::optional<Rect> bbox = placement_world_bbox(root, *it, remaining_depth);
+            if (bbox && dbu_point.x >= bbox->ll.x && dbu_point.x <= bbox->ur.x && dbu_point.y >= bbox->ll.y && dbu_point.y <= bbox->ur.y)
+                hits.push_back(*it);
+        }
+        return hits;
+    }
+
     /// Rubber-band counterpart to hit_test_placements_point above - every
     /// top-level placement whose own world bbox is fully enclosed by
     /// `dbu_rect` (same "all layers, no topmost-only restriction"
@@ -223,15 +239,55 @@ namespace le
         return width * scale < 1.0 && height * scale < 1.0;
     }
 
+    /// @brief The shared walk behind hit_test_abstract_point_all/
+    /// hit_test_layout_point_all: every selectable piece of the shapes in
+    /// `by_layer` containing `dbu_point`, topmost ViewLayer first
+    /// (`view_layers.all()` is bottom-to-top), each shape's pieces in
+    /// find_hit_pieces order. Sub-pixel pieces aren't rendered, so they
+    /// aren't hit either. `first_only` stops at the first hit.
+    inline std::vector<AbstractHitPiece> point_hits_topmost_first(
+        const Root &root, const ViewLayerSet &view_layers, const std::unordered_map<ViewLayerId, std::vector<ShapeId>> &by_layer,
+        Point dbu_point, double scale, const ViewLayerSelectablePredicate &is_selectable, bool first_only)
+    {
+        std::vector<AbstractHitPiece> hits;
+        const std::vector<ViewLayerId> order = view_layers.all();
+        for (auto layer_it = order.rbegin(); layer_it != order.rend(); ++layer_it)
+        {
+            const auto group_it = by_layer.find(*layer_it);
+            if (group_it == by_layer.end())
+                continue;
+
+            const ViewLayerData *data = view_layers.get(*layer_it);
+            if (data && !is_selectable(data->layer_name, data->purpose))
+                continue;
+
+            for (ShapeId shape_id : group_it->second)
+            {
+                const Shape *shape = root.get_shape(shape_id);
+                if (!shape)
+                    continue;
+                for (HitPiece &piece : Geometry::find_hit_pieces(*shape, dbu_point))
+                {
+                    if (abstract_piece_is_sub_pixel(piece.outline, scale))
+                        continue; // invisible at this scale - not rendered, so not selectable either
+                    hits.push_back(AbstractHitPiece{.shape_id = shape_id, .piece_kind = piece.kind, .piece_index = piece.index, .outline = std::move(piece.outline)});
+                    if (first_only)
+                        return hits;
+                }
+            }
+        }
+        return hits;
+    }
+
     /// @brief Abstract-view analog of hit_test_placements_point above -
     /// the pre-restart `pipelines.old/hit_test.hpp`'s own
     /// `hit_test_point`, rewritten directly against `Root`'s raw
     /// Terminal-port/Obstruction `ShapeData` instead of pipeline-rendered
     /// `RenderedShape` output: a piece a caller selects/moves must be
-    /// addressable in `Root` by `(shape_id, piece_kind, piece_index)`
-    /// (see `LeHandle::HoverTarget`'s own comment for why a Rasterize
-    /// stage's own iterate-expanded geometry isn't always addressable
-    /// that way, the same reason the pre-restart design already
+    /// addressable in `Root` by `(shape_id, piece_kind, piece_index)` (a
+    /// Rasterize stage's own iterate-expanded geometry has more entries
+    /// than Root's raw rects/polygons/paths, so isn't always addressable
+    /// that way - the same reason the pre-restart design already
     /// re-hit-tested against raw `ShapeData` for select/Move rather than
     /// reusing its own `RenderedShape` hit). E1's own scope - only
     /// Terminal/Obstruction pieces are selectable in an Abstract view, no
@@ -249,9 +305,9 @@ namespace le
     /// `HierarchyResolverStage::resolve_view_layer`'s own comment) so
     /// `view_layers.find(shape.layer, purpose)` alone is enough here,
     /// with no fallback-by-purpose branch needed.
-    inline std::optional<AbstractHitPiece> hit_test_abstract_point(
+    inline std::vector<AbstractHitPiece> hit_test_abstract_point_all(
         const Root &root, const ViewLayerSet &view_layers, AbstractId abstract_id, Point dbu_point,
-        double scale, const ViewLayerSelectablePredicate &is_selectable)
+        double scale, const ViewLayerSelectablePredicate &is_selectable, bool first_only = false)
     {
         std::unordered_map<ViewLayerId, std::vector<ShapeId>> by_layer;
 
@@ -274,31 +330,19 @@ namespace le
                 by_layer[view_layers.find(shape->layer, ViewLayerPurpose::OBSTRUCTION)].push_back(shape_id);
             }
 
-        const std::vector<ViewLayerId> order = view_layers.all();
-        for (auto layer_it = order.rbegin(); layer_it != order.rend(); ++layer_it)
-        {
-            const auto group_it = by_layer.find(*layer_it);
-            if (group_it == by_layer.end())
-                continue;
+        return point_hits_topmost_first(root, view_layers, by_layer, dbu_point, scale, is_selectable, first_only);
+    }
 
-            const ViewLayerData *data = view_layers.get(*layer_it);
-            if (data && !is_selectable(data->layer_name, data->purpose))
-                continue;
-
-            for (ShapeId shape_id : group_it->second)
-            {
-                const Shape *shape = root.get_shape(shape_id);
-                if (!shape)
-                    continue;
-                if (auto piece = Geometry::find_hit_piece(*shape, dbu_point))
-                {
-                    if (abstract_piece_is_sub_pixel(piece->outline, scale))
-                        continue; // invisible at this scale - not rendered, so not selectable either
-                    return AbstractHitPiece{.shape_id = shape_id, .piece_kind = piece->kind, .piece_index = piece->index, .outline = piece->outline};
-                }
-            }
-        }
-        return std::nullopt;
+    /// @brief The topmost selectable piece under `dbu_point`, if any -
+    /// hit_test_abstract_point_all's first hit.
+    inline std::optional<AbstractHitPiece> hit_test_abstract_point(
+        const Root &root, const ViewLayerSet &view_layers, AbstractId abstract_id, Point dbu_point,
+        double scale, const ViewLayerSelectablePredicate &is_selectable)
+    {
+        std::vector<AbstractHitPiece> hits = hit_test_abstract_point_all(root, view_layers, abstract_id, dbu_point, scale, is_selectable, /*first_only=*/true);
+        if (hits.empty())
+            return std::nullopt;
+        return std::move(hits.front());
     }
 
     /// @brief Rubber-band counterpart to hit_test_abstract_point above -
@@ -372,9 +416,9 @@ namespace le
     /// therefore already rides the same TERMINAL-purpose gating a
     /// Terminal has, not a separate PHYSICAL_PORT purpose (there isn't
     /// one - view_style.hpp's own ViewLayerPurpose enum).
-    inline std::optional<AbstractHitPiece> hit_test_layout_point(
+    inline std::vector<AbstractHitPiece> hit_test_layout_point_all(
         const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, Point dbu_point,
-        double scale, const ViewLayerSelectablePredicate &is_selectable)
+        double scale, const ViewLayerSelectablePredicate &is_selectable, bool first_only = false)
     {
         std::unordered_map<ViewLayerId, std::vector<ShapeId>> by_layer;
 
@@ -397,31 +441,19 @@ namespace le
                     by_layer[view_layers.find(shape->layer, ViewLayerPurpose::TERMINAL)].push_back(shape_id);
                 }
 
-        const std::vector<ViewLayerId> order = view_layers.all();
-        for (auto layer_it = order.rbegin(); layer_it != order.rend(); ++layer_it)
-        {
-            const auto group_it = by_layer.find(*layer_it);
-            if (group_it == by_layer.end())
-                continue;
+        return point_hits_topmost_first(root, view_layers, by_layer, dbu_point, scale, is_selectable, first_only);
+    }
 
-            const ViewLayerData *data = view_layers.get(*layer_it);
-            if (data && !is_selectable(data->layer_name, data->purpose))
-                continue;
-
-            for (ShapeId shape_id : group_it->second)
-            {
-                const Shape *shape = root.get_shape(shape_id);
-                if (!shape)
-                    continue;
-                if (auto piece = Geometry::find_hit_piece(*shape, dbu_point))
-                {
-                    if (abstract_piece_is_sub_pixel(piece->outline, scale))
-                        continue; // invisible at this scale - not rendered, so not selectable either
-                    return AbstractHitPiece{.shape_id = shape_id, .piece_kind = piece->kind, .piece_index = piece->index, .outline = piece->outline};
-                }
-            }
-        }
-        return std::nullopt;
+    /// @brief The topmost selectable piece under `dbu_point`, if any -
+    /// hit_test_layout_point_all's first hit.
+    inline std::optional<AbstractHitPiece> hit_test_layout_point(
+        const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, Point dbu_point,
+        double scale, const ViewLayerSelectablePredicate &is_selectable)
+    {
+        std::vector<AbstractHitPiece> hits = hit_test_layout_point_all(root, view_layers, layout_id, dbu_point, scale, is_selectable, /*first_only=*/true);
+        if (hits.empty())
+            return std::nullopt;
+        return std::move(hits.front());
     }
 
     /// @brief Rubber-band counterpart to hit_test_layout_point above -

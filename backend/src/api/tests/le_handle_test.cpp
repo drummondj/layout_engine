@@ -31,26 +31,21 @@ TEST(LeHandle, CurrentAbstractRoundTrips)
     EXPECT_EQ(handle.current_abstract(), id);
 }
 
-TEST(LeHandle, SwitchingToADifferentAbstractClearsSelectionAndHover)
+TEST(LeHandle, SwitchingToADifferentAbstractClearsSelection)
 {
     // Regression: TerminalId/ObstructionId/ShapeId are plain
     // {index,generation} pool handles, not namespaced by Abstract - a
-    // selection/hover left over from the old Abstract could otherwise
+    // selection left over from the old Abstract could otherwise
     // reference nothing (best case) or an unrelated object that happens
     // to reuse the same pool slot in the new Abstract (worst case).
     LeHandle handle;
     handle.set_current_abstract(AbstractId{1, 0});
 
-    Shape outline;
-    outline.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
     handle.select(ShapeId{1, 0});
-    handle.set_hover(LeHandle::HoverTarget{.origin = TerminalId{1, 0}, .outline = outline});
     ASSERT_FALSE(handle.selection().empty());
-    ASSERT_TRUE(handle.hover().has_value());
 
     handle.set_current_abstract(AbstractId{2, 0});
     EXPECT_TRUE(handle.selection().empty());
-    EXPECT_FALSE(handle.hover().has_value());
 }
 
 TEST(LeHandle, SwitchingToADifferentAbstractClearsRulers)
@@ -111,9 +106,9 @@ TEST(LeHandle, CurrentLayoutRoundTrips)
     EXPECT_EQ(handle.current_layout(), id);
 }
 
-TEST(LeHandle, SwitchingToADifferentLayoutClearsSelectionHoverAndRulers)
+TEST(LeHandle, SwitchingToADifferentLayoutClearsSelectionAndRulers)
 {
-    // Mirrors SwitchingToADifferentAbstractClearsSelectionAndHover/
+    // Mirrors SwitchingToADifferentAbstractClearsSelection/
     // ClearsRulers - same reasoning (see those tests' own comments)
     // applies to current_layout_ too.
     LeHandle handle;
@@ -123,19 +118,14 @@ TEST(LeHandle, SwitchingToADifferentLayoutClearsSelectionHoverAndRulers)
     handle.set_viewport_size(100, 100);
     handle.set_minor_grid_spacing(1);
 
-    Shape outline;
-    outline.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
     handle.select(ShapeId{1, 0});
-    handle.set_hover(LeHandle::HoverTarget{.origin = TerminalId{1, 0}, .outline = outline});
     handle.set_mouse_position(10, 90); // dbu (10, 10)
     handle.add_ruler_point(false);
     ASSERT_FALSE(handle.selection().empty());
-    ASSERT_TRUE(handle.hover().has_value());
     ASSERT_FALSE(handle.rulers().empty());
 
     handle.set_current_layout(LayoutId{2, 0});
     EXPECT_TRUE(handle.selection().empty());
-    EXPECT_FALSE(handle.hover().has_value());
     EXPECT_TRUE(handle.rulers().empty());
 }
 
@@ -699,81 +689,6 @@ TEST(LeHandle, ClearAllKeysWithNothingHeldIsANoOp)
     LeHandle handle;
     handle.clear_all_keys();
     EXPECT_FALSE(handle.is_key_held(1));
-}
-
-TEST(LeHandle, HoverDefaultsToUnset)
-{
-    LeHandle handle;
-    EXPECT_FALSE(handle.hover().has_value());
-}
-
-TEST(LeHandle, HoverRoundTrips)
-{
-    LeHandle handle;
-    Shape outline;
-    outline.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
-
-    handle.set_hover(LeHandle::HoverTarget{.origin = TerminalId{5, 1}, .outline = outline});
-
-    ASSERT_TRUE(handle.hover().has_value());
-    ASSERT_TRUE(std::holds_alternative<TerminalId>(handle.hover()->origin));
-    EXPECT_EQ(std::get<TerminalId>(handle.hover()->origin), (TerminalId{5, 1}));
-    ASSERT_EQ(handle.hover()->outline.rects.size(), 1u);
-    EXPECT_EQ(handle.hover()->outline.rects.front().ur.x, 10);
-}
-
-TEST(LeHandle, ClearHoverResetsToUnset)
-{
-    LeHandle handle;
-    Shape outline;
-    handle.set_hover(LeHandle::HoverTarget{.origin = ObstructionId{2, 0}, .outline = outline});
-    ASSERT_TRUE(handle.hover().has_value());
-
-    handle.clear_hover();
-    EXPECT_FALSE(handle.hover().has_value());
-}
-
-TEST(LeHandle, SetModeLeavingSelectClearsHover)
-{
-    // Regression: the hover outline is a Select-mode-only affordance
-    // (see set_mode's own comment) - a stale highlight from just before
-    // switching mode must not linger.
-    LeHandle handle;
-    Shape outline;
-    handle.set_hover(LeHandle::HoverTarget{.origin = ObstructionId{2, 0}, .outline = outline});
-    ASSERT_TRUE(handle.hover().has_value());
-
-    handle.set_mode(LeHandle::Mode::RULER);
-    EXPECT_FALSE(handle.hover().has_value());
-}
-
-TEST(LeHandle, SetModeStayingInOrReturningToSelectDoesNotClearHover)
-{
-    LeHandle handle;
-    Shape outline;
-    handle.set_hover(LeHandle::HoverTarget{.origin = ObstructionId{2, 0}, .outline = outline});
-
-    handle.set_mode(LeHandle::Mode::SELECT); // already SELECT - no-op, no change
-    EXPECT_TRUE(handle.hover().has_value());
-}
-
-TEST(LeHandle, SetHoverAndClearHoverDoNotBumpViewportOrVisibilityVersion)
-{
-    // Hover is driven by every pointer-move event (see le_set_mouse_position)
-    // - it must not invalidate the expensive design rasterize cache, only
-    // the small mouse-overlay picture (already keyed on mouse_version,
-    // which set_mouse_position bumps independently - see handle.hpp's own
-    // comment on why set_hover needs no version counter of its own).
-    LeHandle handle;
-    const uint64_t viewport_version_before = handle.viewport_version();
-    const uint64_t visibility_version_before = handle.visibility_version();
-
-    Shape outline;
-    handle.set_hover(LeHandle::HoverTarget{.origin = TerminalId{1, 0}, .outline = outline});
-    handle.clear_hover();
-
-    EXPECT_EQ(handle.viewport_version(), viewport_version_before);
-    EXPECT_EQ(handle.visibility_version(), visibility_version_before);
 }
 
 TEST(LeHandle, LayerNameVisibilityDefaultsToTrueUntilSet)

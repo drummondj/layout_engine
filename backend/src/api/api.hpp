@@ -1014,22 +1014,16 @@ extern "C"
     /// le_render_pixel_buffer()'s output image (top-left origin, y
     /// increasing downward) and le_zoom()'s x/y - meant to be fed straight
     /// from a pointer-move event. Drives the grid-snap indicator box drawn
-    /// by le_render_pixel_buffer() (see Renderer::draw_cursor), and
-    /// updates which selectable shape (if any) is hovered (UPDATES.md
-    /// 7.1 item 1 - Renderer::draw_hover_outline draws its yellow
-    /// outline) via a hit-test against the shapes currently on screen. A
-    /// no-op if handle is null. Never invalidates the (potentially
-    /// design-sized) rasterized design cache - only the small overlay
-    /// picture, see Renderer::compose_with_overlays - but unlike before
-    /// hover was added, this is no longer O(1): the hit-test is bounded
-    /// by the number of shapes currently visible (already viewport-culled
-    /// by Pipeline), not the whole design. See BENCHMARKS.md for measured
-    /// cost on a 1M-shape design.
+    /// by le_render_pixel_buffer() (see Renderer::draw_cursor), and - with
+    /// Resize armed - the Resize hover indicator (le_arm_resize). A no-op
+    /// if handle is null. Never invalidates the (potentially design-sized)
+    /// rasterized design cache - only the small overlay picture, see
+    /// Renderer::compose_with_overlays.
     void le_set_mouse_position(LeHandle *handle, int32_t x, int32_t y);
 
     /// @brief Clear the current mouse position (e.g. on a pointer-leave
-    /// event) so the grid-snap indicator box and any hover outline stop
-    /// showing at/for the last known position. A no-op if handle is null.
+    /// event) so the grid-snap indicator box stops showing at the last
+    /// known position. A no-op if handle is null.
     void le_clear_mouse_position(LeHandle *handle);
 
     /// @brief The current mouse position's coordinates in microns, snapped

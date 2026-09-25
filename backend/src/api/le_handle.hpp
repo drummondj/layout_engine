@@ -38,7 +38,7 @@
 // (backend/ONETBB_INTEGRATION.md migration, Phase 5 cutover - replaces the
 // former Pipeline/Renderer/InstanceRenderer trio) - plus every piece of
 // per-handle mutable view/interaction state (current Abstract/Layout, pan/
-// zoom, layer visibility, selection, hover, rulers, Move-drag state,
+// zoom, layer visibility, selection, rulers, Move-drag state,
 // interaction mode) that used to live in a separate `le::Scene` class
 // (`src/scene/`, since removed) - folded directly onto this struct rather
 // than composed from it, so there's exactly one per-handle state object,
@@ -355,53 +355,6 @@ struct LeHandle
 
     // === Per-handle view/interaction state (formerly `le::Scene`) ===
     //
-    // Selectable object references - the object kinds that have a
-    // rendered geometric representation in an Abstract or Layout view
-    // (E1: top-level Layout-view content - Blockage/Route/PhysicalPort
-    // ride RenderedShape the same way Terminal/Obstruction already do;
-    // Row is synthesized geometry with no backing Shape but still flows
-    // through this same origin mechanism). PlacementId is deliberately
-    // excluded - a Placement never enters the RenderedShape map at all
-    // (instance rendering is a separate, picture-cache-based mechanism
-    // at up to 1,000,000x scale - see src/instancing/), so it never
-    // becomes a HoverTarget::origin; its own hover/selection use a
-    // separate bbox hit-test (api.cpp).
-    using SelectionRef = std::variant<le::TerminalId, le::ObstructionId, le::BlockageId, le::RouteId, le::PhysicalPortId, le::RowId, le::RegionId>;
-
-    /// @brief The result of a point hit-test (UPDATES.md 7.1): which
-    /// selectable object was hit, plus a copy of the specific piece of
-    /// geometry that was actually hit (one RenderedShape's own Shape, not
-    /// the whole Terminal/Obstruction's combined geometry - hover
-    /// highlighting currently outlines just this piece; see
-    /// Pipeline::hit_test_point). Stored as a geometry copy (not just
-    /// `origin`) so Renderer can redraw the outline without needing Root
-    /// access.
-    struct HoverTarget
-    {
-        SelectionRef origin;
-        le::Shape outline;
-
-        /// The exact ShapeId the hit RenderedShape was generated from
-        /// (RenderedShape::shape_id) - nullopt only if the hit somehow
-        /// landed on a RenderedShape with no backing Shape row (shouldn't
-        /// happen for anything with an `origin`, but not assumed).
-        ///
-        /// Deliberately carries no piece index into `shape_id`'s own raw
-        /// Root geometry (UPDATES.md item 21): `outline` here is copied
-        /// from the *Pipeline's* rendered geometry, which can still have
-        /// more entries than Root's own raw rects/polygons/paths for a
-        /// Shape with RECT/POLYGON/PATH ITERATE statements (the expanded
-        /// concrete copies are appended past the raw indices at render
-        /// time - see generate_shapes_stage.hpp's expand_iterates) - so a
-        /// piece index into *this* geometry isn't always addressable in
-        /// Root. Callers that need a piece addressable in Root
-        /// (LeHandle::select/Move) re-hit-test directly against Root's
-        /// own raw ShapeData instead (see api.cpp's le_mouse_up) - this
-        /// struct's own `outline` stays the rendered geometry, fine for
-        /// hover's purely visual highlight.
-        std::optional<le::ShapeId> shape_id;
-    };
-
     /// @brief One selected piece (UPDATES.md item 21 - piece-granular;
     /// originally shape-level per an earlier property-viewer redesign,
     /// UPDATES.md 7) - the exact rect/polygon/path that was clicked/
@@ -417,8 +370,7 @@ struct LeHandle
     /// which specific piece this is. Geometry itself is looked up on
     /// demand (from Root for Move, from the Pipeline's generated shapes
     /// for rendering the highlight - see BuildSelectionOverlayPictureStage)
-    /// rather than stored here, unlike HoverTarget::outline, which still
-    /// carries its own geometry copy for hover rendering.
+    /// rather than stored here.
     ///
     /// Named ShapePiece (not SelectedObject, its name before E1) now that
     /// it's only one alternative of SelectedObject's own variant below -
@@ -454,9 +406,9 @@ struct LeHandle
     using SelectedObject = std::variant<ShapePiece, le::RowId, le::PlacementId, le::RegionId>;
 
         // --- Currently displayed Abstract ---
-        // Switching Abstracts clears selection, hover, and rulers -
-        // selection/hover hold TerminalId/ObstructionId values scoped to
-        // whichever Abstract they were selected/hovered in (they're plain
+        // Switching Abstracts clears selection and rulers - selection
+        // holds ShapeId values scoped to whichever Abstract they were
+        // selected in (they're plain
         // {index,generation} pool handles, not namespaced by Abstract),
         // so leaving them set after switching risks a stale reference
         // that, at best, matches nothing in the new Abstract (id from the
@@ -478,14 +430,13 @@ struct LeHandle
 
             current_abstract_ = id;
             clear_selection();
-            clear_hover();
             clear_rulers();
         }
         le::AbstractId current_abstract() const { return current_abstract_; }
 
         // --- Currently displayed Layout (Migration Step 3 Phase C) ---
         // A second, independent "current view" tracker mirroring
-        // current_abstract_'s own shape exactly (same selection/hover/
+        // current_abstract_'s own shape exactly (same selection/
         // ruler-clearing reasoning applies - Layout content isn't
         // selectable yet, but clearing keeps this consistent with the
         // Abstract path rather than leaving stale state around for when
@@ -503,7 +454,6 @@ struct LeHandle
 
             current_layout_id_ = id;
             clear_selection();
-            clear_hover();
             clear_rulers();
         }
         le::LayoutId current_layout() const { return current_layout_id_; }
@@ -849,15 +799,7 @@ struct LeHandle
         // Leaving Ruler mode always finishes whatever ruler was active
         // (see finish_active_ruler) - keeps "an active ruler exists only
         // in Ruler mode" an invariant callers (render, tests) can rely on
-        // rather than a coincidence. The hover outline (draw_hover_outline)
-        // is a Select-mode-only affordance - it signals "this is a
-        // selection candidate", which isn't meaningful while placing
-        // ruler points or (Edit mode's own interaction, still TBD) - so
-        // leaving SELECT clears it immediately, rather than leaving a
-        // stale highlight visible until the next mouse move happens to
-        // land somewhere with nothing under it (le_set_mouse_position
-        // additionally gates *computing* a fresh hover on SELECT mode
-        // going forward - see its own comment). Bumps mouse_version_ on
+        // rather than a coincidence. Bumps mouse_version_ on
         // an actual mode change only - the ghost-ruler overlay's content
         // is mode-dependent (BuildOverlayPictureStage) and needs to
         // invalidate on mode switch.
@@ -873,8 +815,6 @@ struct LeHandle
                 end_resize(); // ...and likewise Resize
             }
             mode_ = mode;
-            if (mode_ != Mode::SELECT)
-                clear_hover();
             ++mouse_version_;
         }
         Mode mode() const { return mode_; }
@@ -1275,14 +1215,10 @@ struct LeHandle
         // - including when mode is already RULER, which is what lets
         // 'r' double as an explicit "abandon the current ruler"
         // shortcut (a plain set_mode(RULER) would no-op when the mode
-        // doesn't actually change) - this is also why hover needs its
-        // own explicit clear here rather than relying on set_mode's own
-        // (mode may already be RULER, so set_mode's own early-return
-        // would never run its hover-clearing side effect for a re-entry).
+        // doesn't actually change).
         void reset_ruler_mode()
         {
             finish_active_ruler();
-            clear_hover();
             // Through set_mode, not a bare mode_ assignment, so leaving Edit
             // mode this way ('r' from Edit) also disarms Move/Resize.
             set_mode(Mode::RULER);
@@ -1373,21 +1309,6 @@ struct LeHandle
         // shift-click) until that same key happens to be pressed and
         // released again while focused.
         void clear_all_keys() { held_keys_.clear(); }
-
-        // --- Hover (UPDATES.md 7.1) ---
-        // Which selectable object (if any) the mouse currently sits over,
-        // set by the frontend's pointer-move handler via a hit-test
-        // against the currently rendered shapes (see le_set_mouse_position
-        // and Pipeline::hit_test_point). No separate version counter,
-        // unlike mouse position - set_hover/clear_hover are only ever
-        // called from within le_set_mouse_position, which already
-        // unconditionally bumps mouse_version_ on every call, so
-        // Renderer's overlay picture (keyed on mouse_version_) already
-        // redraws on every pointer move; a second counter would be
-        // redundant bookkeeping for no extra invalidation precision.
-        void set_hover(std::optional<HoverTarget> hover) { hovered_ = std::move(hover); }
-        void clear_hover() { hovered_.reset(); }
-        const std::optional<HoverTarget> &hover() const { return hovered_; }
 
         // --- Layer visibility (defaults to visible until toggled, except
         // TRACK_PREFERRED/TRACK_NON_PREFERRED/ROW/GCELLGRID, pre-seeded
@@ -1590,6 +1511,10 @@ struct LeHandle
         const std::vector<SelectedObject> &selection() const { return selection_; }
         uint64_t selection_version() const { return selection_version_; }
 
+        // Adds one already-built SelectedObject of any kind - for a caller
+        // holding a mixed list of candidates (api.cpp's click cycling).
+        void select_any(const SelectedObject &object) { select_object(object); }
+
     private:
         std::set<SelectedObject> selected_keys_;
 
@@ -1650,7 +1575,6 @@ struct LeHandle
         int32_t drag_start_x_px_ = 0;
         int32_t drag_start_y_px_ = 0;
         std::unordered_set<int32_t> held_keys_;
-        std::optional<HoverTarget> hovered_;
         std::unordered_map<std::string, bool> layer_name_visible_;
         // Pre-seeded false for TRACK_PREFERRED/TRACK_NON_PREFERRED/ROW/
         // GCELLGRID (BUGS_AND_ENHANCEMENTS.md E2 - "invisible by

@@ -134,7 +134,6 @@ namespace le
             draw_drag_rect_overlay(ctx, options, height);
             draw_flightline_overlay(ctx, options, height);
             draw_selection_overlay(ctx, options, height);
-            draw_hover_overlay(ctx, options, height);
             draw_resize_hover_overlay(ctx, options, height);
             draw_move_ghost_overlay(ctx, options, height);
             draw_ruler_overlay(ctx, options, height);
@@ -294,7 +293,7 @@ namespace le
         /// Same `to_pixel` mapping/pixel-space reasoning as
         /// `draw_drag_rect_overlay` above (`ctx` has no ambient transform
         /// here), and the same shared `stroke_piece_outline` helper
-        /// (`draw_helpers.hpp`) `draw_hover_overlay`/`draw_move_ghost_overlay`
+        /// (`draw_helpers.hpp`) `draw_move_ghost_overlay`
         /// will reuse too, once those land.
         static void draw_selection_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
         {
@@ -367,31 +366,6 @@ namespace le
             ctx.stroke_path(path);
         }
 
-        /// @brief Draws a yellow outline (UPDATES.md 7.1) around the
-        /// currently-hovered piece's own geometry
-        /// (`ViewRenderOptions::hover_outline_dbu`, already resolved by
-        /// the caller - api.cpp's own `le_set_mouse_position`) - a no-op
-        /// when nothing is hovered, including whenever hover isn't a
-        /// meaningful affordance at all (Ruler/Edit mode, or no mouse
-        /// position set) - `hover_outline_dbu` is nullopt in every such
-        /// case, so this function itself doesn't need to know about mode.
-        static void draw_hover_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
-        {
-            if (!options.hover_outline_dbu.has_value())
-                return;
-
-            const auto to_pixel = [&](Point p)
-            {
-                return BLPoint(
-                    static_cast<double>(p.x - options.viewport.ll.x) * options.scale,
-                    static_cast<double>(pixel_height) - static_cast<double>(p.y - options.viewport.ll.y) * options.scale);
-            };
-
-            ctx.set_stroke_style(to_bl_color(kHoverOutlineColor));
-            ctx.set_stroke_width(kHoverOutlineStrokeWidth);
-            stroke_piece_outline(ctx, *options.hover_outline_dbu, to_pixel);
-        }
-
         /// @brief Draws the live Move gesture's own dashed, translucent
         /// ghost preview (UPDATES.md item 21) -
         /// `ViewRenderOptions::move_ghost_pieces_dbu`, each translated by
@@ -431,7 +405,7 @@ namespace le
         /// on the grid-snapped mouse position
         /// (`ViewRenderOptions::cursor_snapped_position_dbu`) - a no-op if
         /// no mouse position has been set. Shown regardless of mode
-        /// (unlike `draw_hover_overlay` above) - the cursor marker is
+        /// - the cursor marker is
         /// meant to be visible at all times a position is known, matching
         /// the pre-restart `draw_cursor`'s own doc comment.
         static void draw_cursor_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)

@@ -877,10 +877,28 @@ namespace le
         /// BENCHMARKS.md for the before/after numbers.
         static std::optional<HitPiece> find_hit_piece(const Shape &shape, const Point &point)
         {
+            std::vector<HitPiece> hits = find_hit_pieces(shape, point, /*first_only=*/true);
+            if (hits.empty())
+                return std::nullopt;
+            return std::move(hits.front());
+        }
+
+        /// @brief Every rect/polygon/path piece of `shape` containing
+        /// `point`, in rects/polygons/paths order (find_hit_piece's own
+        /// priority) - for click-cycling through overlapping pieces
+        /// (le_mouse_up). `first_only` stops at the first, which is what
+        /// find_hit_piece returns.
+        static std::vector<HitPiece> find_hit_pieces(const Shape &shape, const Point &point, bool first_only = false)
+        {
+            std::vector<HitPiece> hits;
             for (size_t i = 0; i < shape.rects.size(); ++i)
             {
                 if (point_in_rect(point, shape.rects[i]))
-                    return HitPiece{.kind = PieceKind::RECT, .index = i, .outline = Shape{.layer = shape.layer, .rects = {shape.rects[i]}}};
+                {
+                    hits.push_back(HitPiece{.kind = PieceKind::RECT, .index = i, .outline = Shape{.layer = shape.layer, .rects = {shape.rects[i]}}});
+                    if (first_only)
+                        return hits;
+                }
             }
 
             for (size_t i = 0; i < shape.polygons.size(); ++i)
@@ -889,7 +907,11 @@ namespace le
                     continue;
 
                 if (bg::within(point, to_boost_polygon(shape.polygons[i])))
-                    return HitPiece{.kind = PieceKind::POLYGON, .index = i, .outline = Shape{.layer = shape.layer, .polygons = {shape.polygons[i]}}};
+                {
+                    hits.push_back(HitPiece{.kind = PieceKind::POLYGON, .index = i, .outline = Shape{.layer = shape.layer, .polygons = {shape.polygons[i]}}});
+                    if (first_only)
+                        return hits;
+                }
             }
 
             for (size_t i = 0; i < shape.paths.size(); ++i)
@@ -900,11 +922,16 @@ namespace le
                 for (const auto &part : path_to_polygons(shape.paths[i]))
                 {
                     if (bg::within(point, to_boost_polygon(part)))
-                        return HitPiece{.kind = PieceKind::PATH, .index = i, .outline = Shape{.layer = shape.layer, .paths = {shape.paths[i]}}};
+                    {
+                        hits.push_back(HitPiece{.kind = PieceKind::PATH, .index = i, .outline = Shape{.layer = shape.layer, .paths = {shape.paths[i]}}});
+                        if (first_only)
+                            return hits;
+                        break; // one hit per path, whichever of its parts contains the point
+                    }
                 }
             }
 
-            return std::nullopt;
+            return hits;
         }
 
         /// @brief True if `point` falls within `shape`'s actual drawn

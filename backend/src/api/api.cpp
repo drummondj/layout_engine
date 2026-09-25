@@ -240,13 +240,12 @@ namespace
         return layer && handle->is_view_layer_visible(layer->name, purpose) && handle->is_view_layer_selectable(layer->name, purpose);
     }
 
-    // The selectable via whose hit box contains dbu `p` - the smallest, if
-    // several overlap (a via stacked inside a bigger one).
-    std::optional<LeHandle::ShapePiece> hit_test_via_point(const LeHandle *handle, le::Point p)
+    // Every selectable via whose hit box contains dbu `p`, smallest first
+    // (a via stacked inside a bigger one comes before it).
+    std::vector<LeHandle::ShapePiece> hit_test_via_point_all(const LeHandle *handle, le::Point p)
     {
         ViaHitBoxes boxes(handle->root, handle->current_layout());
-        std::optional<LeHandle::ShapePiece> best;
-        double best_area = 0.0;
+        std::vector<std::pair<double, LeHandle::ShapePiece>> hits;
         for_each_via_owner_shape(handle, [&](le::ShapeId shape_id, le::ViewLayerPurpose purpose)
                                  {
             const le::ShapeData *shape = handle->root.get_shape(shape_id);
@@ -258,13 +257,15 @@ namespace
                 if (!box || p.x < box->ll.x || p.x > box->ur.x || p.y < box->ll.y || p.y > box->ur.y)
                     continue;
                 const double area = static_cast<double>(box->ur.x - box->ll.x) * static_cast<double>(box->ur.y - box->ll.y);
-                if (!best || area < best_area)
-                {
-                    best = LeHandle::ShapePiece{.shape_id = shape_id, .piece_kind = le::PieceKind::VIA, .piece_index = i};
-                    best_area = area;
-                }
+                hits.emplace_back(area, LeHandle::ShapePiece{.shape_id = shape_id, .piece_kind = le::PieceKind::VIA, .piece_index = i});
             } });
-        return best;
+        std::ranges::stable_sort(hits, {}, [](const auto &h)
+                                 { return h.first; });
+        std::vector<LeHandle::ShapePiece> out;
+        out.reserve(hits.size());
+        for (const auto &[area, piece] : hits)
+            out.push_back(piece);
+        return out;
     }
 
     // Every selectable via whose hit box lies entirely inside `rect` - the
@@ -349,31 +350,6 @@ namespace
         if (!technology || technology->database_units_microns <= 0.0)
             return 0.0;
         return technology->database_units_microns;
-    }
-
-    // The SelectionRef a hover hit's own shape_id belongs to (LeHandle::
-    // HoverTarget::origin) - a Terminal-port Shape resolves to its owning
-    // Terminal (not the TerminalPortId itself - SelectionRef's own
-    // variant only has TerminalId, matching hover/selection always
-    // operating at Terminal granularity even though a Terminal can have
-    // several ports), an Obstruction Shape resolves directly (Shape.
-    // obstruction already is one). nullopt for anything else (a Shape
-    // hit-testing itself already only ever returns must be one of these
-    // two in an Abstract view, but this stays defensive rather than
-    // assuming).
-    std::optional<LeHandle::SelectionRef> shape_selection_ref(const le::Root &root, le::ShapeId shape_id)
-    {
-        const le::ShapeData *shape = root.get_shape(shape_id);
-        if (!shape)
-            return std::nullopt;
-        if (shape->terminal_port.valid())
-        {
-            if (const le::TerminalPortData *port = root.get_terminal_port(shape->terminal_port))
-                return LeHandle::SelectionRef{port->terminal};
-        }
-        if (shape->obstruction.valid())
-            return LeHandle::SelectionRef{shape->obstruction};
-        return std::nullopt;
     }
 
     // Where each of `placements` (LeHandle::moving_placements()) would land
@@ -694,8 +670,6 @@ namespace
 
         options.mouse_version = handle->mouse_version();
         options.cursor_snapped_position_dbu = handle->snapped_mouse_position();
-        if (handle->hover().has_value())
-            options.hover_outline_dbu = handle->hover()->outline;
 
         if (handle->resize().hover)
             options.resize_hover_segment_dbu = std::array<le::Point, 2>{handle->resize().hover->a, handle->resize().hover->b};
@@ -3415,67 +3389,6 @@ extern "C"
 
         handle->set_mouse_position(x, y);
         update_resize_hover_unlocked(handle); // NEW_FEATURES_SEPT_2026.md item 3
-
-        // Hover is a Select-mode-only affordance (LeHandle::set_mode's
-        // own comment - it signals "this is a selection candidate",
-        // meaningless while placing ruler points or editing) and, for
-        // now, an Abstract-view-only one - Layout-view own-shape
-        // hit-testing (Row/Region/Blockage/Route/PhysicalPort) is a
-        // separate, not-yet-built gap (whole-placement hover has no
-        // HoverTarget path at all - a Placement never enters
-        // SelectionRef, see its own comment). Reuses the exact same
-        // hit_test_abstract_point select_in_abstract_view_unlocked's own
-        // click path already calls - hover is just a point hit-test with
-        // no click/selection side effect.
-        if (handle->mode() != LeHandle::Mode::SELECT || handle->current_layout().valid())
-        {
-            handle->clear_hover();
-            return;
-        }
-
-        const le::AbstractId abstract_id = handle->current_abstract();
-        const le::Point dbu_point = handle->pixel_to_dbu(x, y);
-        // Both axes, not selectability alone - select_all_unlocked's own
-        // three-condition check (above) already establishes this as the
-        // real convention: a hidden ViewLayer (visibility off) must not
-        // be click/drag/hover-selectable even when it's still marked
-        // selectable=true (the default for most purposes) - selectable
-        // means "eligible to be selected when visible", not "selectable
-        // regardless of visibility". is_view_layer_visible already ANDs
-        // its own two axes (layer-name/purpose) the same way
-        // is_view_layer_selectable does.
-        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
-        { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
-
-        // A via under the mouse wins, as it does for a click
-        // (NEW_FEATURES_SEPT_2026.md item 6) - hover outlines its expanded
-        // geometry.
-        if (const auto via = hit_test_via_point(handle, dbu_point))
-        {
-            const le::ShapeData *shape = handle->root.get_shape(via->shape_id);
-            const auto origin = shape_selection_ref(handle->root, via->shape_id);
-            if (shape && origin)
-            {
-                handle->set_hover(LeHandle::HoverTarget{
-                    .origin = *origin,
-                    .outline = drawable_piece(handle->root, *shape, le::PieceKind::VIA, via->piece_index, handle->current_layout()),
-                    .shape_id = via->shape_id,
-                });
-                return;
-            }
-        }
-
-        const auto hit = le::hit_test_abstract_point(handle->root, handle->view_layers, abstract_id, dbu_point, handle->scale(), is_selectable);
-        if (!hit)
-        {
-            handle->clear_hover();
-            return;
-        }
-
-        if (const auto origin = shape_selection_ref(handle->root, hit->shape_id))
-            handle->set_hover(LeHandle::HoverTarget{.origin = *origin, .outline = hit->outline, .shape_id = hit->shape_id});
-        else
-            handle->clear_hover();
     }
 
     void le_clear_mouse_position(LeHandle *handle)
@@ -3484,7 +3397,6 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         handle->clear_mouse_position();
-        handle->clear_hover();
     }
 
     LeSnappedMousePosition le_snapped_mouse_position(LeHandle *handle)
@@ -3718,6 +3630,70 @@ extern "C"
         handle->begin_drag(x, y, LeHandle::DragKind::ZOOM);
     }
 
+    // Every selectable object under dbu `p`, in click priority order: vias
+    // first (a via sits on top of the wires it joins - NEW_FEATURES_SEPT_2026.md
+    // item 6), smallest first; then shape pieces, topmost layer first; then
+    // (Layout view) placements, topmost first.
+    std::vector<LeHandle::SelectedObject> objects_under_point_unlocked(const LeHandle *handle, le::Point p)
+    {
+        std::vector<LeHandle::SelectedObject> objects;
+        for (const LeHandle::ShapePiece &via : hit_test_via_point_all(handle, p))
+            objects.emplace_back(via);
+
+        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
+        { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
+        const auto add_pieces = [&](const std::vector<le::AbstractHitPiece> &hits)
+        {
+            for (const le::AbstractHitPiece &hit : hits)
+                objects.emplace_back(LeHandle::ShapePiece{.shape_id = hit.shape_id, .piece_kind = hit.piece_kind, .piece_index = hit.piece_index});
+        };
+
+        if (const le::LayoutId layout_id = handle->current_layout(); layout_id.valid())
+        {
+            add_pieces(le::hit_test_layout_point_all(handle->root, handle->view_layers, layout_id, p, handle->scale(), is_selectable));
+            const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
+            for (const le::PlacementId placement_id : le::hit_test_placements_point_all(handle->root, layout_id, remaining_depth, p))
+                objects.emplace_back(placement_id);
+        }
+        else
+            add_pieces(le::hit_test_abstract_point_all(handle->root, handle->view_layers, handle->current_abstract(), p, handle->scale(), is_selectable));
+        return objects;
+    }
+
+    // le_mouse_up's Select-mode click. A plain click cycles through
+    // everything under the mouse: if the one object selected before the
+    // click is among them, the next one (wrapping round) is selected
+    // instead, so repeated clicks at one spot step through overlapping
+    // objects; otherwise the first. A shift-click adds the first object
+    // under the mouse that isn't selected yet, so repeated shift-clicks at
+    // one spot add the stacked objects one by one (and do nothing once
+    // they're all selected).
+    void click_select_unlocked(LeHandle *handle, le::Point p, const std::vector<LeHandle::SelectedObject> &previous, bool shift)
+    {
+        const std::vector<LeHandle::SelectedObject> candidates = objects_under_point_unlocked(handle, p);
+        if (candidates.empty())
+            return;
+
+        if (shift)
+        {
+            // The selection wasn't cleared for a shift-click, so it's the
+            // same as `previous` here.
+            for (const LeHandle::SelectedObject &candidate : candidates)
+                if (std::ranges::find(previous, candidate) == previous.end())
+                {
+                    handle->select_any(candidate);
+                    return;
+                }
+            return;
+        }
+
+        size_t next = 0;
+        if (previous.size() == 1)
+            if (const auto it = std::ranges::find(candidates, previous.front()); it != candidates.end())
+                next = (static_cast<size_t>(it - candidates.begin()) + 1) % candidates.size();
+        handle->select_any(candidates[next]);
+    }
+
     // le_mouse_up's Select-mode, Abstract-view branch - exactly the
     // click/drag hit-testing logic that lived directly in le_mouse_up
     // before E1 (BUGS_AND_ENHANCEMENTS.md) split it out to make room for
@@ -3738,7 +3714,7 @@ extern "C"
     // rendered-output cache the way the old module did, and doesn't need
     // one just for this - a click/drag is a rare, one-off query, not a
     // per-frame cost).
-    void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
+    void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y)
     {
         const le::AbstractId abstract_id = handle->current_abstract();
         // Both visible AND selectable - see le_set_mouse_position's own
@@ -3746,17 +3722,6 @@ extern "C"
         const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
         { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
 
-        if (is_click)
-        {
-            const le::Point dbu_point = handle->pixel_to_dbu(x, y);
-            // A via sits on top of the wires it joins - it wins the click
-            // (NEW_FEATURES_SEPT_2026.md item 6).
-            if (const auto via = hit_test_via_point(handle, dbu_point))
-                handle->select(via->shape_id, via->piece_kind, via->piece_index);
-            else if (const auto hit = le::hit_test_abstract_point(handle->root, handle->view_layers, abstract_id, dbu_point, handle->scale(), is_selectable))
-                handle->select(hit->shape_id, hit->piece_kind, hit->piece_index);
-        }
-        else
         {
             const le::Point start = handle->pixel_to_dbu(handle->drag_start_x_px(), handle->drag_start_y_px());
             const le::Point end = handle->pixel_to_dbu(x, y);
@@ -3827,7 +3792,7 @@ extern "C"
     // hit_test_placements_rect and hit_test_layout_rect's own results
     // independently rather than picking one topmost target, so the same
     // set of ids ends up selected regardless of which is checked first.
-    void select_in_layout_view_unlocked(LeHandle *handle, int32_t x, int32_t y, bool is_click)
+    void select_in_layout_view_unlocked(LeHandle *handle, int32_t x, int32_t y)
     {
         const le::LayoutId layout_id = handle->current_layout();
         const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
@@ -3836,17 +3801,6 @@ extern "C"
         const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
         { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
 
-        if (is_click)
-        {
-            const le::Point dbu_point = handle->pixel_to_dbu(x, y);
-            if (const auto via = hit_test_via_point(handle, dbu_point)) // see select_in_abstract_view_unlocked
-                handle->select(via->shape_id, via->piece_kind, via->piece_index);
-            else if (const auto hit = le::hit_test_layout_point(handle->root, handle->view_layers, layout_id, dbu_point, handle->scale(), is_selectable))
-                handle->select(hit->shape_id, hit->piece_kind, hit->piece_index);
-            else if (const auto placement_id = le::hit_test_placements_point(handle->root, layout_id, remaining_depth, dbu_point))
-                handle->select(*placement_id);
-        }
-        else
         {
             const le::Point start = handle->pixel_to_dbu(handle->drag_start_x_px(), handle->drag_start_y_px());
             const le::Point end = handle->pixel_to_dbu(x, y);
@@ -3904,18 +3858,26 @@ extern "C"
         if (handle->mode() == LeHandle::Mode::SELECT)
         {
             const bool shift = handle->is_key_held(LE_KEY_SHIFT);
+            const std::vector<LeHandle::SelectedObject> previous = handle->selection();
 
             if (!shift)
                 handle->clear_selection();
+
+            if (is_click)
+            {
+                click_select_unlocked(handle, handle->pixel_to_dbu(x, y), previous, shift);
+                handle->end_drag();
+                return;
+            }
 
             // E1 (BUGS_AND_ENHANCEMENTS.md) - this used to unconditionally
             // hit-test the Abstract path even in Layout view (a real bug:
             // clicking in Layout view hit whatever stale/irrelevant
             // Abstract content happened to exist, never the Layout's own).
             if (handle->current_layout().valid())
-                select_in_layout_view_unlocked(handle, x, y, is_click);
+                select_in_layout_view_unlocked(handle, x, y);
             else
-                select_in_abstract_view_unlocked(handle, x, y, is_click);
+                select_in_abstract_view_unlocked(handle, x, y);
         }
         else if (handle->mode() == LeHandle::Mode::RULER)
         {

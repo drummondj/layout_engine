@@ -43,7 +43,7 @@ none of these are duplicated here.
   own Layers-panel toggle), a `ShapePurpose::DEBUG` one (`-layer debug`)
   on the light-blue, always-on-top `DEBUG` pseudo-row, and skips any other
   layer-less one; an Abstract's free shapes show in every placement of
-  it. Not yet hoverable/selectable (the hit-tests only walk terminals/
+  it. Not yet selectable (the hit-tests only walk terminals/
   obstructions/routes/etc.). `shape_change_layer` sets `layer`/`purpose` directly
   (`shape_ops::set_layer_or_purpose`) with its own exact undo: the
   generated `update_shape`/`apply_shape_snapshot` can set an optional
@@ -507,7 +507,7 @@ none of these are duplicated here.
   (how many further `Placement → Design` levels a Layout view recurses
   into before falling back to a placed instance's own Abstract — see
   `src/pipelines/`'s own `HierarchyResolver` bullet), pan/scale/viewport-
-  size transform, per-`ViewLayer` visibility, selection, hover, rulers,
+  size transform, per-`ViewLayer` visibility, selection, rulers,
   Move-drag state, and interaction mode. A Move with Placements selected
   (`moving_placements()`) is planned per frame against Root by api.cpp's
   `plan_moving_placements_unlocked` — shared by the ghost and the commit —
@@ -520,9 +520,16 @@ none of these are duplicated here.
   kinds need it rather than generalizing early. A via instance
   (`Shape.vias`) is a `ShapePiece` of `PieceKind::VIA`
   (NEW_FEATURES_SEPT_2026.md item 6): api.cpp hit-tests vias itself
-  (`hit_test_via_point`/`_rect` - its geometry comes from
-  `pipelines/via_shapes.hpp`, which `core` can't depend on), a via wins a
-  click over the wire under it, and Move moves its origin. The generated
+  (`hit_test_via_point_all`/`hit_test_via_rect` - its geometry comes from
+  `pipelines/via_shapes.hpp`, which `core` can't depend on), a via comes
+  first under a click, and Move moves its origin. A plain Select-mode
+  click cycles through everything under the mouse
+  (`objects_under_point_unlocked`: vias, then shape pieces topmost layer
+  first, then placements): with the one previously-selected object among
+  them, the next is selected; shift-click adds the first one not yet
+  selected (so repeated shift-clicks add a stack one object at a time). There is no
+  hover highlight (removed on request) - only the Resize tool's own
+  edge indicator. The generated
   `update_shape`/`apply_shape_snapshot` don't carry `vias`, so Shape edits
   record `apply_shape_snapshot_with_vias` for undo. Via arrays
   (`via_iterates`) aren't pieces. `LeHandle::Mode`

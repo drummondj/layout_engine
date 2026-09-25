@@ -176,26 +176,12 @@ namespace le
         /// sits over (`LeHandle::snapped_mouse_position()`) - nullopt when
         /// no mouse position has been set. Shown regardless of mode/
         /// selectability (the cursor marker is meant to be visible at all
-        /// times a position is known, not just in Select mode - unlike
-        /// `hover_outline_dbu` below).
+        /// times a position is known, not just in Select mode).
         std::optional<Point> cursor_snapped_position_dbu;
 
-        /// @brief The hovered piece's own dbu-space outline geometry, if
-        /// any (`LeHandle::hover()`, already resolved by the caller -
-        /// api.cpp's own `le_set_mouse_position`, the same
-        /// `hit_test_abstract_point` used for a Select-mode click).
-        /// nullopt whenever nothing is hovered - including deliberately
-        /// whenever not in Select mode (the hover outline is a
-        /// Select-mode-only affordance, `LeHandle::set_mode`'s own
-        /// comment), which `le_set_mouse_position` enforces by never
-        /// setting a hover outside Select mode in the first place, not by
-        /// this struct filtering on mode itself.
-        std::optional<Shape> hover_outline_dbu;
-
         /// @brief `LeHandle::mouse_version()` at the time this snapshot
-        /// was taken - covers both `cursor_snapped_position_dbu` and
-        /// `hover_outline_dbu` (both driven by the same mouse-move/mode
-        /// events, `LeHandle::mouse_version()`'s own doc comment) for
+        /// was taken - covers `cursor_snapped_position_dbu` and the
+        /// other mouse-driven overlays (the same mouse-move/mode events, `LeHandle::mouse_version()`'s own doc comment) for
         /// `ComposeStage::options_did_change`, the same cheap-version-
         /// instead-of-deep-compare reasoning `selection_version` above
         /// uses.

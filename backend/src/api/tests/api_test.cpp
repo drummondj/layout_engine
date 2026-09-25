@@ -2413,7 +2413,9 @@ TEST_F(ApiFixture, RenderPixelBufferDrawsThePinRectAtItsExpectedLocation)
     EXPECT_EQ(outside[3], 0);
 }
 
-TEST_F(ApiFixture, MouseMoveOverASelectableShapeShowsAYellowHoverOutline)
+// The Abstract view's hover outline was removed on request - moving the
+// mouse over a selectable shape draws nothing but the cursor box.
+TEST_F(ApiFixture, MouseMoveOverASelectableShapeDrawsNoHoverOutline)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
@@ -2427,109 +2429,7 @@ TEST_F(ApiFixture, MouseMoveOverASelectableShapeShowsAYellowHoverOutline)
 
     LePixelBuffer buffer = le_render_pixel_buffer(handle);
     ASSERT_NE(buffer.data, nullptr);
-    EXPECT_TRUE(region_has_yellow_hover_pixel(buffer, 18, 48, 22, 52)); // left edge of the hovered pin's outline
-}
-
-TEST_F(ApiFixture, MouseMoveOverAShapeInRulerModeDoesNotShowAHoverOutline)
-{
-    // Regression: the hover outline is a Select-mode-only affordance -
-    // it was left on unconditionally, so it kept highlighting shapes
-    // under the cursor while placing ruler points too.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
-
-    le_set_viewport_size(handle, 100, 100);
-    le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
-
-    le_set_mode(handle, LE_MODE_RULER);
-    le_set_mouse_position(handle, 50, 50); // well inside PIN A's rect
-
-    LePixelBuffer buffer = le_render_pixel_buffer(handle);
-    ASSERT_NE(buffer.data, nullptr);
-    EXPECT_FALSE(region_has_yellow_hover_pixel(buffer, 18, 48, 22, 52));
-}
-
-TEST_F(ApiFixture, SwitchingToRulerModeClearsAnAlreadyShownHoverOutline)
-{
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
-
-    le_set_viewport_size(handle, 100, 100);
-    le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
-
-    le_set_mouse_position(handle, 50, 50); // over the pin, in Select mode
-    ASSERT_TRUE(region_has_yellow_hover_pixel(le_render_pixel_buffer(handle), 18, 48, 22, 52));
-
-    le_set_mode(handle, LE_MODE_RULER); // no further mouse movement
-    EXPECT_FALSE(region_has_yellow_hover_pixel(le_render_pixel_buffer(handle), 18, 48, 22, 52));
-}
-
-TEST_F(ApiFixture, MouseMoveAwayFromAnyShapeClearsTheHoverOutline)
-{
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
-
-    le_set_viewport_size(handle, 100, 100);
-    le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
-
-    le_set_mouse_position(handle, 50, 50); // over the pin
-    le_set_mouse_position(handle, 95, 95); // now off every shape
-
-    LePixelBuffer buffer = le_render_pixel_buffer(handle);
-    ASSERT_NE(buffer.data, nullptr);
-    EXPECT_FALSE(region_has_yellow_hover_pixel(buffer, 18, 48, 22, 52));
-}
-
-TEST_F(ApiFixture, ClearMousePositionAlsoClearsTheHoverOutline)
-{
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
-
-    le_set_viewport_size(handle, 100, 100);
-    le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
-
-    le_set_mouse_position(handle, 50, 50);
-    le_clear_mouse_position(handle);
-
-    LePixelBuffer buffer = le_render_pixel_buffer(handle);
-    ASSERT_NE(buffer.data, nullptr);
-    EXPECT_FALSE(region_has_yellow_hover_pixel(buffer, 18, 48, 22, 52));
-}
-
-TEST_F(ApiFixture, MouseMoveOverAnUnselectableLayerNeverShowsAHoverOutline)
-{
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
-
-    le_set_viewport_size(handle, 100, 100);
-    le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
-    le_set_layer_name_selectable(handle, "M1", 0);
-
-    le_set_mouse_position(handle, 50, 50); // over the pin, but M1 is unselectable
-
-    LePixelBuffer buffer = le_render_pixel_buffer(handle);
-    ASSERT_NE(buffer.data, nullptr);
-    EXPECT_FALSE(region_has_yellow_hover_pixel(buffer, 18, 48, 22, 52));
-}
-
-// A hidden ViewLayer (visibility off) must not be hover-highlightable
-// either, even though it's still marked selectable=true (the default) -
-// same gap as the click-select fix above, sharing the exact same
-// is_selectable predicate (le_set_mouse_position, api.cpp).
-TEST_F(ApiFixture, MouseMoveOverAHiddenLayerNeverShowsAHoverOutline)
-{
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
-
-    le_set_viewport_size(handle, 100, 100);
-    le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
-    le_set_layer_name_visible(handle, "M1", false);
-
-    le_set_mouse_position(handle, 50, 50); // over the pin, but M1 is hidden
-
-    LePixelBuffer buffer = le_render_pixel_buffer(handle);
-    ASSERT_NE(buffer.data, nullptr);
-    EXPECT_FALSE(region_has_yellow_hover_pixel(buffer, 18, 48, 22, 52));
+    EXPECT_FALSE(region_has_yellow_hover_pixel(buffer, 18, 48, 22, 52)); // no outline along the pin's left edge
 }
 
 TEST_F(ApiFixture, KeyDownThenIsKeyHeldReturnsTrue)
@@ -5981,17 +5881,11 @@ TEST_F(ApiFixture, ClickingAViaSelectsItAndOutlinesIt)
 {
     open_via_cell(handle, fixture_path("via_cell.lef"));
 
-    // Hovering it outlines it in yellow (left edge at pixel 130).
-    le_set_mouse_position(handle, 140, 60);
-    const LePixelBuffer hover_buffer = le_render_pixel_buffer(handle);
-    ASSERT_NE(hover_buffer.data, nullptr);
-    EXPECT_TRUE(region_has_yellow_hover_pixel(hover_buffer, 128, 55, 132, 65));
 
     le_mouse_down(handle, 140, 60);
     le_mouse_up(handle, 140, 60);
     ASSERT_EQ(le_selection_count(handle), 1);
     EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_SHAPE);
-    le_set_mouse_position(handle, 5, 195); // off the via, so its yellow hover outline doesn't cover the white selection one
 
     // The white outline runs along the via's 1um square: its left edge at
     // x = 6.5um = pixel 130.
@@ -6096,4 +5990,112 @@ TEST_F(ApiFixture, ARoutesViaIsSelectableAndMovableInTheLayoutView)
     le_set_mouse_position(handle, 5, 195);
     buffer = le_render_pixel_buffer(handle);
     EXPECT_TRUE(region_has_white_selection_pixel(buffer, 128, 95, 132, 105));
+}
+
+// --- Click cycling: a plain click steps through everything under the mouse ---
+
+namespace
+{
+    void click(LeHandle *handle, int32_t x, int32_t y)
+    {
+        le_mouse_down(handle, x, y);
+        le_mouse_up(handle, x, y);
+    }
+
+    uint32_t selected_index(LeHandle *handle)
+    {
+        return le_selection_count(handle) == 1 ? le_selected_object_ref(handle, 0).index : UINT32_MAX;
+    }
+}
+
+// PIN A's rect (2,2)-(8,8)um with an M1 obstruction (4,4)-(6,6)um on top
+// of it: repeated clicks at (5,5)um alternate between the two, one at a
+// time; shift-clicks add them to the selection one by one instead.
+TEST_F(ApiFixture, RepeatedClicksCycleThroughOverlappingShapes)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+    const double obstruction_um[4] = {4.0, 4.0, 6.0, 6.0};
+    create_obstruction_with_rect(handle, testcell_abstract_id(handle), "M1", obstruction_um);
+    le_set_viewport_size(handle, 100, 100);
+    le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100); // 100 dbu/px: (5,5)um = pixel (50,50)
+
+    click(handle, 50, 50);
+    const uint32_t first = selected_index(handle);
+    ASSERT_NE(first, UINT32_MAX);
+    click(handle, 50, 50);
+    const uint32_t second = selected_index(handle);
+    ASSERT_NE(second, UINT32_MAX);
+    EXPECT_NE(second, first); // the other overlapping shape
+    click(handle, 50, 50);
+    EXPECT_EQ(selected_index(handle), first); // wrapped round
+
+    // Shift-click adds the first object under the mouse not already
+    // selected: with just the pin selected, the obstruction; after that
+    // both objects at (5,5) are selected, so another shift-click adds
+    // nothing.
+    click(handle, 30, 70); // (3,3)um - only the pin
+    const uint32_t pin = selected_index(handle);
+    ASSERT_NE(pin, UINT32_MAX);
+    le_key_down(handle, LE_KEY_SHIFT);
+    click(handle, 50, 50);
+    EXPECT_EQ(le_selection_count(handle), 2);
+    EXPECT_NE(le_selected_object_ref(handle, 1).index, pin); // the obstruction was added
+    click(handle, 50, 50);
+    EXPECT_EQ(le_selection_count(handle), 2);
+    le_key_up(handle, LE_KEY_SHIFT);
+
+    // A click on nothing clears the selection; from there two shift-clicks
+    // at (5,5) add both stacked objects, one each.
+    click(handle, 95, 5);
+    EXPECT_EQ(le_selection_count(handle), 0);
+    le_key_down(handle, LE_KEY_SHIFT);
+    click(handle, 50, 50);
+    EXPECT_EQ(le_selection_count(handle), 1);
+    click(handle, 50, 50);
+    EXPECT_EQ(le_selection_count(handle), 2);
+    le_key_up(handle, LE_KEY_SHIFT);
+}
+
+// Layout view: at N1's via (7,7)um, the via comes first, then the wires
+// meeting it, each once, then back to the via.
+TEST_F(ApiFixture, ClickCyclingInTheLayoutViewStartsWithTheViaAndVisitsEachObjectOnce)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("via_cell.lef").c_str(), "via_cell"), 0);
+    ASSERT_EQ(le_read_def(handle, fixture_path("via_route.def").c_str(), "top"), 0);
+    LeDesignId top_design{.index = UINT32_MAX, .generation = 0};
+    for (int32_t l = 0; l < le_library_count(handle); ++l)
+        for (int32_t d = 0; d < le_library_design_count(handle, l); ++d)
+            if (std::string(le_library_design_at(handle, l, d).name) == "VIATOP")
+                top_design = le_library_design_at(handle, l, d).id;
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_viewport_size(handle, 200, 200);
+    le_zoom(handle, 0.02 - 1.0, 0, 200); // (7,7)um = pixel (140,60)
+
+    // The via is told apart by its V1 cut's outline (6.8-7.2um square,
+    // left edge at pixel 136) - the only outline no wire shares; its 1um
+    // metal squares coincide with the 1um-wide wires' own edges.
+    const auto via_selected = [&]
+    {
+        const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+        return buffer.data && region_has_white_selection_pixel(buffer, 135, 57, 137, 63);
+    };
+
+    click(handle, 140, 60);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    EXPECT_TRUE(via_selected()); // the via first
+
+    // Then the M1 wire and the M2 wire meeting it (separate Shapes), one
+    // at a time, then back to the via.
+    click(handle, 140, 60);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    EXPECT_FALSE(via_selected());
+    const uint32_t wire_a = le_selected_object_ref(handle, 0).index;
+    click(handle, 140, 60);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    EXPECT_FALSE(via_selected());
+    EXPECT_NE(le_selected_object_ref(handle, 0).index, wire_a);
+    click(handle, 140, 60);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    EXPECT_TRUE(via_selected());
 }
