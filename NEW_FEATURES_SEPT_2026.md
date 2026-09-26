@@ -117,7 +117,7 @@ Please a the set_max_concurrency setting, label it as "CPUs"
 
 If I start a rectange or zoom select but then switch windows to another program, the selection tool gets stuck because it still thinks my mouse is down. Can you add esc to cancel the rectangle?
 
-23. Status bar needs padding on the bottom, to match the padding on the top
+23. Status bar needs padding on the bottom, to match the padding on the top - DONE
 
 24. TCL_COMMANDS.md documentation update
 

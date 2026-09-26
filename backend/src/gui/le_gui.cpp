@@ -519,12 +519,19 @@ namespace le::gui
         // (components/status_bar.hpp) - the ImGui port of
         // frontend/lib/components/status_bar.dart, which sits directly
         // below the design view the same way in home.dart's own layout.
-        // A fixed constant, not measured, since this prototype's status
-        // bar is one fixed-height row (Separator + one line of text) -
-        // ImGui itself only reports an item's actual size *after*
-        // drawing it, so getting this exactly without a fixed guess
-        // would need drawing the whole frame twice.
-        constexpr float kStatusBarHeight = 36.0f;
+        // Computed from the style rather than measured (ImGui only
+        // reports an item's size after drawing it): the ItemSpacing gap
+        // after the design image, the 1px Separator, the ItemSpacing gap
+        // after it, the one-line table row (text plus CellPadding top and
+        // bottom), and then one more ItemSpacing so the space under the
+        // text matches the space above it (NEW_FEATURES_SEPT_2026.md item
+        // 23 - the old fixed 36px left the text ~1px off the bottom edge,
+        // against ~13px above it). Call inside a frame.
+        float status_bar_height()
+        {
+            const ImGuiStyle &style = ImGui::GetStyle();
+            return 3.0f * style.ItemSpacing.y + 1.0f + ImGui::GetTextLineHeight() + 2.0f * style.CellPadding.y;
+        }
 
         // The one slot a background render thread publishes into and the
         // main/GUI thread reads from - decouples le_render_pixel_buffer()
@@ -1271,8 +1278,9 @@ namespace le::gui
                 const ImVec2 panel_avail = ImGui::GetContentRegionAvail();
                 const float panel_width = panel_avail.x > 1.0f ? panel_avail.x : 1.0f;
                 const float panel_height = panel_avail.y > 1.0f ? panel_avail.y : 1.0f;
+                const float status_bar_space = status_bar_height();
                 const float image_win_height =
-                    (panel_height - kStatusBarHeight) > 1.0f ? panel_height - kStatusBarHeight : 1.0f;
+                    (panel_height - status_bar_space) > 1.0f ? panel_height - status_bar_space : 1.0f;
                 const int viewport_width =
                     static_cast<int>(panel_width * scale_x + 0.5f) > 0
                         ? static_cast<int>(panel_width * scale_x + 0.5f)
