@@ -58,7 +58,7 @@ In a previous bug, the layer selection list contained layers that only have purp
 
 8. Objects that not selectable should not have a selectable checkbox. - DONE
 
-9. Settings window
+9. Settings window - DONE
 
 Please add a setting window in the right side bar to change the following parameters:
 

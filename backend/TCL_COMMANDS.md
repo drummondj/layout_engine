@@ -1685,6 +1685,17 @@ A global-routing gcell grid line (DEF GCELLGRID)
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_grid_spacing
+
+`get_grid_spacing [-major] [-help]`
+
+Returns the minor grid spacing in microns, or the major one with -major; -1 if it isn't known yet (no technology read and none set).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-major` | `flag` | no | Return the major grid spacing instead |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_hierarchy_depth
 
 `get_hierarchy_depth [-help]`
@@ -1718,6 +1729,16 @@ An instance of another design, or a placeholder for source code that could not b
 | `<name-expr>` | `str` | no | Glob-matched against name (Tcl string match syntax) - may be given more than once, OR'd |
 | `-of` | `token...` | no | Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py |
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_label_size
+
+`get_label_size [-help]`
+
+Returns the largest label font size in pixels - see set_label_size.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## get_layer_density_entries
@@ -2141,6 +2162,16 @@ A placement row (DEF ROW)
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_ruler_label_size
+
+`get_ruler_label_size [-help]`
+
+Returns the ruler label font size in pixels.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_schematics
 
 `get_schematics [-of <token>...] [-filter <expr>] [-help]`
@@ -2348,6 +2379,17 @@ Alias for command_history: Tcl's own built-in history command is never populated
 
 Re-resolves Instance.reference_design for every Instance in this session with an unresolved reference, matching its reference_name against Design.name - e.g. after a later read_lef supplies a leaf cell a prior read_verilog call left unresolved. Called automatically at the end of every read_verilog too. Returns the number of Instances newly resolved.
 
+## load_settings
+
+`load_settings [<path>] [-help]`
+
+Loads settings written by save_settings from <path>, or ~/.layout_engine/settings.json if omitted. A setting missing from the file keeps its current value; an invalid one is skipped with a warning.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<path>` | `file` | no | JSON file to read - ~/.layout_engine/settings.json if omitted |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## open_design
 
 `open_design <name> [-view abstract|layout] [-help]`
@@ -2472,6 +2514,17 @@ Rotates every selected placement 90 degrees counterclockwise about its own cente
 | --- | --- | --- | --- |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## save_settings
+
+`save_settings [<path>] [-help]`
+
+Saves the settings - grid spacing, ruler and label font sizes, hierarchy depth, flightline fanout limit and snap modes - as JSON to <path>, or to ~/.layout_engine/settings.json (loaded automatically when le_shell starts) if omitted.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<path>` | `file` | no | JSON file to write - ~/.layout_engine/settings.json if omitted |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## select
 
 `select <tokens> [-help]`
@@ -2515,6 +2568,18 @@ Sets the flightline fanout limit - a net connecting more than <max_fanout> pins 
 | `<max_fanout>` | `int` | yes | The fanout limit, 0 for none |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## set_grid_spacing
+
+`set_grid_spacing [-minor <um>] [-major <um>] [-help]`
+
+Sets the background grid spacing in microns - the minor grid is also what drawing, Move and Resize snap to. An omitted flag leaves that spacing unchanged. Before any technology is read the value is held and applied once one is.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-minor` | `double` | no | Minor grid spacing, in microns |
+| `-major` | `double` | no | Major grid spacing, in microns |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## set_hierarchy_depth
 
 `set_hierarchy_depth <depth> [-help]`
@@ -2524,6 +2589,17 @@ Set the visible hierarchy depth
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<depth>` | `int` | yes | The hierarchy depth, 1 or larger |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## set_label_size
+
+`set_label_size <px> [-help]`
+
+Sets the largest on-screen font size (pixels) of pin, route and placement name labels - they still shrink with their shapes, down to 12 pixels (or this size, if smaller). 24 by default; values <= 0 are ignored.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<px>` | `double` | yes | Font size in pixels |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## set_layer_selectable
@@ -2605,6 +2681,17 @@ Sets whether one purpose column (e.g. every Layer's own obstruction shapes) is v
 | --- | --- | --- | --- |
 | `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline |
 | `<visible>` | `bool` | yes | 0/1 or true/false - hide/show |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## set_ruler_label_size
+
+`set_ruler_label_size <px> [-help]`
+
+Sets the on-screen font size (pixels) of ruler labels. 11 by default; values <= 0 are ignored.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<px>` | `double` | yes | Font size in pixels |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## set_shape_snap_mode

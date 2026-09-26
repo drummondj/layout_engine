@@ -183,6 +183,15 @@ int get_hierarchy_depth_command();
 void set_hierarchy_depth_command(int depth);
 int get_flightline_max_fanout_command();
 void set_flightline_max_fanout_command(int max_fanout);
+double get_grid_spacing_um_command(int major);
+void set_grid_spacing_um_command(double minor_um, double major_um);
+double get_ruler_label_size_command();
+void set_ruler_label_size_command(double px);
+double get_label_size_command();
+void set_label_size_command(double px);
+int save_settings_command(const char *path);
+int load_settings_command(const char *path);
+const char *default_settings_path_command();
 
 int get_max_concurrency_command();
 void set_max_concurrency_command(int max_concurrency);

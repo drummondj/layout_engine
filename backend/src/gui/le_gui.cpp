@@ -9,6 +9,7 @@
 #include "components/mode_selector.hpp"
 #include "components/mode_toolbar.hpp"
 #include "components/secondary_toolbar.hpp"
+#include "components/settings_panel.hpp"
 #include "components/icon_font.hpp"
 
 // Apple deprecated the whole OpenGL framework in favor of Metal (10.14+)
@@ -596,6 +597,7 @@ namespace le::gui
         constexpr const char *kBrowserWindowTitle = "Browser";
         constexpr const char *kPropertiesWindowTitle = "Properties";
         constexpr const char *kLayersWindowTitle = "Layers";
+        constexpr const char *kSettingsWindowTitle = "Settings";
         constexpr const char *kLayoutWindowTitle = "Layout";
 
         // Draws the always-present, fullscreen invisible host window +
@@ -672,6 +674,7 @@ namespace le::gui
                 // fixed in-panel tab strip).
                 ImGui::DockBuilderDockWindow(kPropertiesWindowTitle, right_id);
                 ImGui::DockBuilderDockWindow(kLayersWindowTitle, right_id);
+                ImGui::DockBuilderDockWindow(kSettingsWindowTitle, right_id);
                 ImGui::DockBuilderDockWindow(kLayoutWindowTitle, center_id);
                 ImGui::DockBuilderFinish(dockspace_id);
             }
@@ -1017,6 +1020,12 @@ namespace le::gui
 
                 ImGui::Begin(kLayersWindowTitle);
                 draw_layer_manager(provider);
+                ImGui::End();
+
+                // NEW_FEATURES_SEPT_2026.md item 9 - a third tab in the
+                // same right-hand dock node.
+                ImGui::Begin(kSettingsWindowTitle);
+                draw_settings_panel(provider);
                 ImGui::End();
 
                 // Zero window padding - the design view/status bar sizing

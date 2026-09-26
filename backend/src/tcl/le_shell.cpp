@@ -57,6 +57,7 @@
 // window now, so a degraded build without either isn't a shape this
 // binary supports; see CMakeLists.txt's own `le_shell` target comment.
 
+#include <filesystem>
 #include <tcl.h>
 
 #include "api.hpp"
@@ -559,6 +560,17 @@ int main(int argc, char **argv)
     g_procs_path = resolve_path(procs_arg, "LE_TCL_PROCS_PATH", procs_default, "the le_tcl_procs.tcl path (-procs)");
 
     g_injected_handle = le_create();
+
+    // The user's saved settings (NEW_FEATURES_SEPT_2026.md item 9) - in
+    // interactive mode only: a batch script (including every ctest run of
+    // le_shell) stays reproducible regardless of what a developer has
+    // saved, and can call load_settings itself if it wants them.
+    if (remaining.size() == 1)
+    {
+        std::error_code ec;
+        if (const char *settings_path = le_default_settings_path(); settings_path[0] && std::filesystem::exists(settings_path, ec))
+            le_load_settings(g_injected_handle, settings_path);
+    }
 
     // run_shell() "never returns" (calls std::exit() itself once the
     // script (batch mode) or the interactive loop (EOF/`exit`) ends) -

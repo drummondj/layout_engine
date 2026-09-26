@@ -244,6 +244,13 @@ namespace le
         /// (`le_ruler_label_size`/`le_set_ruler_label_size`).
         double ruler_label_size_px = 11.0;
 
+        /// @brief Largest on-screen size (px) a shape/placement label grows
+        /// to - `LeHandle::label_size_px()`, the Settings panel's label font
+        /// size (NEW_FEATURES_SEPT_2026.md item 9); draw_helpers.hpp's
+        /// kMaxLabelPixelSize is the default. Compared in
+        /// RasterizeBlend2DStage::options_did_change.
+        double label_max_size_px = 24.0;
+
         /// @brief `LeHandle::ruler_version()` at the time this snapshot
         /// was taken - covers `ruler_polylines_dbu` (bumped only on a
         /// real ruler change: a point added, a ruler finished, rulers

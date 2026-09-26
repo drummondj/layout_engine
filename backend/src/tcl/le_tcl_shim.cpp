@@ -1271,6 +1271,51 @@ void set_flightline_max_fanout_command(int max_fanout)
     le_set_flightline_max_fanout(session(), max_fanout);
 }
 
+double get_grid_spacing_um_command(int major)
+{
+    return le_grid_spacing_um(session(), major);
+}
+
+void set_grid_spacing_um_command(double minor_um, double major_um)
+{
+    le_set_grid_spacing_um(session(), minor_um, major_um);
+}
+
+double get_ruler_label_size_command()
+{
+    return le_ruler_label_size(session());
+}
+
+void set_ruler_label_size_command(double px)
+{
+    le_set_ruler_label_size(session(), px);
+}
+
+double get_label_size_command()
+{
+    return le_label_size(session());
+}
+
+void set_label_size_command(double px)
+{
+    le_set_label_size(session(), px);
+}
+
+int save_settings_command(const char *path)
+{
+    return le_save_settings(session(), path);
+}
+
+int load_settings_command(const char *path)
+{
+    return le_load_settings(session(), path);
+}
+
+const char *default_settings_path_command()
+{
+    return le_default_settings_path();
+}
+
 int get_max_concurrency_command()
 {
     return le_max_concurrency(session());

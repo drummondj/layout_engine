@@ -1,5 +1,7 @@
 #include "gui_provider.hpp"
 
+#include <cstdio>
+
 namespace le::gui
 {
     namespace
@@ -51,8 +53,12 @@ namespace le::gui
         state_.status_bar.snapped_mouse_position = le_snapped_mouse_position(handle_);
         state_.status_bar.selection_count = le_selection_count(handle_);
 
-        state_.layer_manager.hierarchy_depth = le_hierarchy_depth(handle_);
-        state_.layer_manager.flightline_max_fanout = le_flightline_max_fanout(handle_);
+        state_.settings.hierarchy_depth = le_hierarchy_depth(handle_);
+        state_.settings.flightline_max_fanout = le_flightline_max_fanout(handle_);
+        state_.settings.minor_grid_um = le_grid_spacing_um(handle_, 0);
+        state_.settings.major_grid_um = le_grid_spacing_um(handle_, 1);
+        state_.settings.ruler_label_size_px = le_ruler_label_size(handle_);
+        state_.settings.label_size_px = le_label_size(handle_);
 
         state_.placement_move.selected_count = state_.mode == LE_MODE_EDIT ? le_selected_placement_count(handle_) : 0;
         if (state_.placement_move.selected_count > 0)
@@ -391,6 +397,49 @@ namespace le::gui
     {
         run_tcl_command("set_flightline_max_fanout " + std::to_string(max_fanout));
     }
+
+    namespace
+    {
+        // A Tcl word for `text` - double-quoted, with every character Tcl
+        // would substitute inside quotes escaped (a file path can hold any
+        // of them).
+        std::string tcl_quote(const std::string &text)
+        {
+            std::string out = "\"";
+            for (const char c : text)
+            {
+                if (c == '\\' || c == '"' || c == '$' || c == '[' || c == ']')
+                    out += '\\';
+                out += c;
+            }
+            return out + "\"";
+        }
+
+        // Enough digits for any spacing a user types, without float noise
+        // (0.1 stays "0.1", not "0.10000000000000001").
+        std::string tcl_number(double value)
+        {
+            char buffer[32];
+            std::snprintf(buffer, sizeof(buffer), "%.10g", value);
+            return buffer;
+        }
+    }
+
+    void GuiProvider::set_grid_spacing_um(double minor_um, double major_um)
+    {
+        std::string command = "set_grid_spacing";
+        if (minor_um > 0.0)
+            command += " -minor " + tcl_number(minor_um);
+        if (major_um > 0.0)
+            command += " -major " + tcl_number(major_um);
+        if (minor_um > 0.0 || major_um > 0.0)
+            run_tcl_command(command);
+    }
+
+    void GuiProvider::set_ruler_label_size(double px) { run_tcl_command("set_ruler_label_size " + tcl_number(px)); }
+    void GuiProvider::set_label_size(double px) { run_tcl_command("set_label_size " + tcl_number(px)); }
+    void GuiProvider::save_settings(const std::string &path) { run_tcl_command(path.empty() ? "save_settings" : "save_settings " + tcl_quote(path)); }
+    void GuiProvider::load_settings(const std::string &path) { run_tcl_command(path.empty() ? "load_settings" : "load_settings " + tcl_quote(path)); }
 
     void GuiProvider::set_layer_visible(const std::string &layer_name, bool value)
     {

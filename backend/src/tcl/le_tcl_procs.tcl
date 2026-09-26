@@ -2488,6 +2488,147 @@ register_command_help get_flightline_max_fanout \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+# --- Settings (NEW_FEATURES_SEPT_2026.md item 9 - the Settings panel's own
+# values, and the JSON file they save to/load from) ---
+
+proc set_grid_spacing {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "set_grid_spacing \[-minor <um>\] \[-major <um>\] \[-help\] - Sets the minor/major grid spacing in microns"
+    }
+    array set opts {-minor 0 -major 0}
+    foreach {flag value} $args {
+        if {![info exists opts($flag)]} {
+            error "set_grid_spacing: unknown flag $flag"
+        }
+        if {![string is double -strict $value] || $value <= 0} {
+            error "set_grid_spacing: $flag expects a positive number of microns, got \"$value\""
+        }
+        set opts($flag) $value
+    }
+    set_grid_spacing_um_command $opts(-minor) $opts(-major)
+    return ""
+}
+register_command_help set_grid_spacing \
+    "set_grid_spacing \[-minor <um>\] \[-major <um>\] \[-help\]" \
+    "Sets the background grid spacing in microns - the minor grid is also what drawing, Move and Resize snap to. An omitted flag leaves that spacing unchanged. Before any technology is read the value is held and applied once one is." \
+    {
+        {-minor {type double required 0 description {Minor grid spacing, in microns}}}
+        {-major {type double required 0 description {Major grid spacing, in microns}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_grid_spacing {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_grid_spacing \[-major\] \[-help\] - Returns the minor (or major) grid spacing in microns"
+    }
+    return [get_grid_spacing_um_command [expr {[lsearch -exact $args "-major"] >= 0}]]
+}
+register_command_help get_grid_spacing \
+    "get_grid_spacing \[-major\] \[-help\]" \
+    "Returns the minor grid spacing in microns, or the major one with -major; -1 if it isn't known yet (no technology read and none set)." \
+    {
+        {-major {type flag required 0 description {Return the major grid spacing instead}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_ruler_label_size {px} {
+    if {$px eq "-help"} {
+        return "set_ruler_label_size <px> \[-help\] - Sets the ruler label font size"
+    }
+    set_ruler_label_size_command $px
+    return ""
+}
+register_command_help set_ruler_label_size \
+    "set_ruler_label_size <px> \[-help\]" \
+    "Sets the on-screen font size (pixels) of ruler labels. 11 by default; values <= 0 are ignored." \
+    {
+        {<px> {type double required 1 description {Font size in pixels}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_ruler_label_size {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_ruler_label_size \[-help\] - Returns the ruler label font size"
+    }
+    return [get_ruler_label_size_command]
+}
+register_command_help get_ruler_label_size \
+    "get_ruler_label_size \[-help\]" \
+    "Returns the ruler label font size in pixels." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_label_size {px} {
+    if {$px eq "-help"} {
+        return "set_label_size <px> \[-help\] - Sets the largest font size of shape and placement labels"
+    }
+    set_label_size_command $px
+    return ""
+}
+register_command_help set_label_size \
+    "set_label_size <px> \[-help\]" \
+    "Sets the largest on-screen font size (pixels) of pin, route and placement name labels - they still shrink with their shapes, down to 12 pixels (or this size, if smaller). 24 by default; values <= 0 are ignored." \
+    {
+        {<px> {type double required 1 description {Font size in pixels}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_label_size {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_label_size \[-help\] - Returns the largest font size of shape and placement labels"
+    }
+    return [get_label_size_command]
+}
+register_command_help get_label_size \
+    "get_label_size \[-help\]" \
+    "Returns the largest label font size in pixels - see set_label_size." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc save_settings {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "save_settings \[<path>\] \[-help\] - Saves the settings as JSON"
+    }
+    if {[llength $args] > 1} {
+        error "save_settings: expected at most one <path>, got \"$args\""
+    }
+    set path [lindex $args 0]
+    if {[save_settings_command $path] != 0} {
+        error "save_settings: couldn't write [expr {$path eq "" ? [default_settings_path_command] : $path}] - see the terminal log"
+    }
+    return ""
+}
+register_command_help save_settings \
+    "save_settings \[<path>\] \[-help\]" \
+    "Saves the settings - grid spacing, ruler and label font sizes, hierarchy depth, flightline fanout limit and snap modes - as JSON to <path>, or to ~/.layout_engine/settings.json (loaded automatically when le_shell starts) if omitted." \
+    {
+        {<path> {type file required 0 description {JSON file to write - ~/.layout_engine/settings.json if omitted}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc load_settings {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "load_settings \[<path>\] \[-help\] - Loads settings saved by save_settings"
+    }
+    if {[llength $args] > 1} {
+        error "load_settings: expected at most one <path>, got \"$args\""
+    }
+    set path [lindex $args 0]
+    if {[load_settings_command $path] != 0} {
+        error "load_settings: couldn't read [expr {$path eq "" ? [default_settings_path_command] : $path}] - see the terminal log"
+    }
+    return ""
+}
+register_command_help load_settings \
+    "load_settings \[<path>\] \[-help\]" \
+    "Loads settings written by save_settings from <path>, or ~/.layout_engine/settings.json if omitted. A setting missing from the file keeps its current value; an invalid one is skipped with a warning." \
+    {
+        {<path> {type file required 0 description {JSON file to read - ~/.layout_engine/settings.json if omitted}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 proc get_hierarchy_depth {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "get_hierarchy_depth \[-help\] - Returns the visible hierarchy depth"

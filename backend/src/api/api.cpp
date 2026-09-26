@@ -27,6 +27,7 @@
 // directly - regenerate via the regen-tcl skill.
 #include "generated_tcl/snapshot_appliers.hpp"
 #include <fmt/format.h>
+#include <json.hpp>
 #include <spdlog/spdlog.h>
 #include <oneapi/tbb/global_control.h>
 #include <algorithm>
@@ -397,6 +398,152 @@ namespace
         if (!technology || technology->database_units_microns <= 0.0)
             return 0.0;
         return technology->database_units_microns;
+    }
+
+    // --- Settings (NEW_FEATURES_SEPT_2026.md item 9) ---
+
+    // Sets grid spacing given in um (a value <= 0 leaves that one alone).
+    // With no Technology yet there's no dbu scale to convert through, so
+    // the um value waits on the handle until apply_pending_grid_um_unlocked
+    // (le_read_lef/le_read_def) can.
+    void set_grid_spacing_um_unlocked(LeHandle *handle, double minor_um, double major_um)
+    {
+        const double dbu_per_um = technology_dbu_per_um(handle->root);
+        const auto apply = [&](double um, std::optional<double> &pending, auto set_dbu)
+        {
+            if (um <= 0.0)
+                return;
+            if (dbu_per_um <= 0.0)
+            {
+                pending = um;
+                return;
+            }
+            pending.reset();
+            set_dbu(std::max<int64_t>(1, std::llround(um * dbu_per_um)));
+        };
+        apply(minor_um, handle->pending_minor_grid_um, [&](int64_t dbu)
+              { handle->set_minor_grid_spacing(dbu); });
+        apply(major_um, handle->pending_major_grid_um, [&](int64_t dbu)
+              { handle->set_major_grid_spacing(dbu); });
+    }
+
+    void apply_pending_grid_um_unlocked(LeHandle *handle)
+    {
+        if (handle->pending_minor_grid_um || handle->pending_major_grid_um)
+            set_grid_spacing_um_unlocked(handle, handle->pending_minor_grid_um.value_or(0.0), handle->pending_major_grid_um.value_or(0.0));
+    }
+
+    // Grid spacing in um - the pending value if there's no Technology to
+    // convert through yet, else the dbu value converted; -1 if neither.
+    double grid_spacing_um_unlocked(const LeHandle *handle, bool major)
+    {
+        const std::optional<double> &pending = major ? handle->pending_major_grid_um : handle->pending_minor_grid_um;
+        if (pending)
+            return *pending;
+        const double dbu_per_um = technology_dbu_per_um(handle->root);
+        if (dbu_per_um <= 0.0)
+            return -1.0;
+        return static_cast<double>(major ? handle->major_grid_spacing() : handle->minor_grid_spacing()) / dbu_per_um;
+    }
+
+    constexpr const char *kPlacementSnapNames[] = {"none", "site", "fin", "manufacturing"}; // le::PlacementSnapMode order
+    constexpr const char *kShapeSnapNames[] = {"none", "user", "manufacturing", "fin", "tracks"}; // le::ShapeSnapMode order
+    constexpr std::pair<const char *, le::PieceKind> kShapeSnapKinds[] = {
+        {"rect", le::PieceKind::RECT}, {"polygon", le::PieceKind::POLYGON}, {"path", le::PieceKind::PATH}, {"via", le::PieceKind::VIA}};
+
+    // The settings file's JSON - everything the Settings panel edits, plus
+    // the snap modes the secondary toolbar sets. Grid spacing is stored in
+    // um (portable across technologies with different dbu scales) and left
+    // out if it can't be expressed in um yet (no Technology, nothing pending).
+    nlohmann::json settings_to_json(const LeHandle *handle)
+    {
+        nlohmann::json j;
+        j["version"] = 1;
+        nlohmann::json grid = nlohmann::json::object();
+        if (const double minor = grid_spacing_um_unlocked(handle, false); minor > 0.0)
+            grid["minor_um"] = minor;
+        if (const double major = grid_spacing_um_unlocked(handle, true); major > 0.0)
+            grid["major_um"] = major;
+        j["grid"] = grid;
+        j["ruler_label_size_px"] = handle->ruler_label_size_px();
+        j["label_size_px"] = handle->label_size_px();
+        j["hierarchy_depth"] = handle->hierarchy_depth();
+        j["flightline_max_fanout"] = handle->flightline_max_fanout();
+        j["placement_snap_mode"] = kPlacementSnapNames[static_cast<size_t>(handle->placement_snap_mode())];
+        nlohmann::json shape_snap = nlohmann::json::object();
+        for (const auto &[name, kind] : kShapeSnapKinds)
+            shape_snap[name] = kShapeSnapNames[static_cast<size_t>(handle->shape_snap_mode(kind))];
+        j["shape_snap_modes"] = shape_snap;
+        return j;
+    }
+
+    // Applies whatever `j` holds - a missing key keeps its current value,
+    // and a key of the wrong type or with an unknown/invalid value is
+    // skipped with a warning rather than failing the whole load, so an
+    // older or hand-edited file still loads what it can.
+    void apply_settings_json(LeHandle *handle, const nlohmann::json &j, const std::string &source)
+    {
+        const auto warn = [&](const char *key)
+        { spdlog::warn("load_settings: {}: ignoring invalid \"{}\"", source, key); };
+        const auto number = [&](const nlohmann::json &parent, const char *key) -> std::optional<double>
+        {
+            if (!parent.is_object() || !parent.contains(key))
+                return std::nullopt;
+            if (!parent[key].is_number())
+            {
+                warn(key);
+                return std::nullopt;
+            }
+            return parent[key].get<double>();
+        };
+        const auto index_of = [](const auto &names, const std::string &value) -> std::optional<size_t>
+        {
+            for (size_t i = 0; i < std::size(names); ++i)
+                if (value == names[i])
+                    return i;
+            return std::nullopt;
+        };
+
+        if (j.contains("grid"))
+            set_grid_spacing_um_unlocked(handle, number(j["grid"], "minor_um").value_or(0.0), number(j["grid"], "major_um").value_or(0.0));
+        if (const auto v = number(j, "ruler_label_size_px"))
+            handle->set_ruler_label_size_px(*v);
+        if (const auto v = number(j, "label_size_px"))
+            handle->set_label_size_px(*v);
+        if (const auto v = number(j, "hierarchy_depth"); v && *v >= 0)
+            handle->set_hierarchy_depth(static_cast<int>(*v));
+        if (const auto v = number(j, "flightline_max_fanout"); v && *v >= 0)
+            handle->set_flightline_max_fanout(static_cast<int>(*v));
+
+        if (j.contains("placement_snap_mode"))
+        {
+            const auto mode = j["placement_snap_mode"].is_string() ? index_of(kPlacementSnapNames, j["placement_snap_mode"].get<std::string>()) : std::nullopt;
+            if (mode)
+                handle->set_placement_snap_mode(static_cast<le::PlacementSnapMode>(*mode));
+            else
+                warn("placement_snap_mode");
+        }
+        if (j.contains("shape_snap_modes") && j["shape_snap_modes"].is_object())
+            for (const auto &[name, kind] : kShapeSnapKinds)
+            {
+                if (!j["shape_snap_modes"].contains(name))
+                    continue;
+                const nlohmann::json &value = j["shape_snap_modes"][name];
+                const auto mode = value.is_string() ? index_of(kShapeSnapNames, value.get<std::string>()) : std::nullopt;
+                if (mode && le::shape_snap_mode_applies(kind, static_cast<le::ShapeSnapMode>(*mode)))
+                    handle->set_shape_snap_mode(kind, static_cast<le::ShapeSnapMode>(*mode));
+                else
+                    warn(name);
+            }
+    }
+
+    // $HOME/.layout_engine/settings.json - "" if HOME isn't set.
+    std::string default_settings_path()
+    {
+        const char *home = std::getenv("HOME");
+        if (!home || !home[0])
+            return {};
+        return (std::filesystem::path(home) / ".layout_engine" / "settings.json").string();
     }
 
     // Where each of `placements` (LeHandle::moving_placements()) would land
@@ -824,6 +971,7 @@ namespace
         options.ruler_version = handle->ruler_version();
         options.ruler_dbu_per_um = technology_dbu_per_um(handle->root);
         options.ruler_label_size_px = handle->ruler_label_size_px();
+        options.label_max_size_px = handle->label_size_px();
         options.ruler_polylines_dbu.reserve(handle->rulers().size());
         for (const LeHandle::Ruler &ruler : handle->rulers())
             options.ruler_polylines_dbu.push_back(ruler.points);
@@ -2017,6 +2165,7 @@ extern "C"
             }
 
             rebuild_view_layers(handle, technology_ids.front());
+            apply_pending_grid_um_unlocked(handle); // a settings file read before any Technology existed
 
             // Also selects the singleton Technology as the current one for
             // the generated TCL current-instance mechanism (see
@@ -2070,6 +2219,7 @@ extern "C"
         const auto technology_ids = handle->root.get_technology_ids();
         if (!technology_ids.empty())
             handle->current_technology_id = technology_ids.front();
+        apply_pending_grid_um_unlocked(handle); // a settings file read before any Technology existed
 
         return 0;
     }
@@ -3516,6 +3666,95 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         handle->set_ruler_label_size_px(px);
+    }
+
+    double le_label_size(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->label_size_px();
+    }
+
+    void le_set_label_size(LeHandle *handle, double px)
+    {
+        if (!handle)
+            return;
+        HandleWriteLock lock(handle);
+        handle->set_label_size_px(px);
+    }
+
+    double le_grid_spacing_um(LeHandle *handle, int32_t major)
+    {
+        if (!handle)
+            return -1.0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return grid_spacing_um_unlocked(handle, major != 0);
+    }
+
+    void le_set_grid_spacing_um(LeHandle *handle, double minor_um, double major_um)
+    {
+        if (!handle)
+            return;
+        HandleWriteLock lock(handle);
+        set_grid_spacing_um_unlocked(handle, minor_um, major_um);
+    }
+
+    const char *le_default_settings_path(void)
+    {
+        static const std::string path = default_settings_path();
+        return path.c_str();
+    }
+
+    int32_t le_save_settings(LeHandle *handle, const char *path)
+    {
+        if (!handle)
+            return 1;
+        const std::string target = path && path[0] ? std::string(path) : default_settings_path();
+        if (target.empty())
+        {
+            spdlog::error("save_settings: no path given and HOME isn't set");
+            return 1;
+        }
+        std::string text;
+        {
+            std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+            text = settings_to_json(handle).dump(2) + "\n";
+        }
+        std::error_code ec;
+        if (const std::filesystem::path parent = std::filesystem::path(target).parent_path(); !parent.empty())
+            std::filesystem::create_directories(parent, ec);
+        std::ofstream out(target, std::ios::trunc);
+        if (!out || !(out << text) || !out.flush())
+        {
+            spdlog::error("save_settings: couldn't write '{}'", target);
+            return 1;
+        }
+        spdlog::info("save_settings: wrote '{}'", target);
+        return 0;
+    }
+
+    int32_t le_load_settings(LeHandle *handle, const char *path)
+    {
+        if (!handle)
+            return 1;
+        const std::string source = path && path[0] ? std::string(path) : default_settings_path();
+        std::ifstream in(source);
+        if (!in)
+        {
+            spdlog::error("load_settings: couldn't open '{}'", source);
+            return 1;
+        }
+        const nlohmann::json j = nlohmann::json::parse(in, nullptr, /*allow_exceptions=*/false);
+        if (j.is_discarded() || !j.is_object())
+        {
+            spdlog::error("load_settings: '{}' isn't a JSON object", source);
+            return 1;
+        }
+        HandleWriteLock lock(handle);
+        apply_settings_json(handle, j, source);
+        spdlog::info("load_settings: read '{}'", source);
+        return 0;
     }
 
     void le_set_mouse_position(LeHandle *handle, int32_t x, int32_t y)

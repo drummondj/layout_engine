@@ -177,6 +177,37 @@ if {[catch {set_flightline_max_fanout -1} err]} {
     exit 1
 }
 
+# NEW_FEATURES_SEPT_2026.md item 9 - settings commands.
+set_ruler_label_size 15
+check "set_ruler_label_size round-trips" 15.0 [get_ruler_label_size]
+set_label_size 20
+check "set_label_size round-trips" 20.0 [get_label_size]
+set_grid_spacing -minor 0.25 -major 2.5
+check "set_grid_spacing -minor round-trips in microns" 0.25 [get_grid_spacing]
+check "set_grid_spacing -major round-trips in microns" 2.5 [get_grid_spacing -major]
+if {[catch {set_grid_spacing -minor -1} err]} {
+    puts "ok: set_grid_spacing rejects a non-positive spacing ($err)"
+} else {
+    puts stderr "FAIL: set_grid_spacing accepted a negative spacing"
+    exit 1
+}
+if {[info exists ::env(TMPDIR)]} {
+    set settings_file [file join $::env(TMPDIR) le_smoke_settings.json]
+} else {
+    set settings_file /tmp/le_smoke_settings.json
+}
+save_settings $settings_file
+set_label_size 30
+load_settings $settings_file
+check "load_settings restores what save_settings wrote" 20.0 [get_label_size]
+file delete $settings_file
+if {[catch {load_settings $settings_file} err]} {
+    puts "ok: load_settings fails on a missing file ($err)"
+} else {
+    puts stderr "FAIL: load_settings accepted a missing file"
+    exit 1
+}
+
 clear_rulers
 puts "ok: clear_rulers"
 select_all

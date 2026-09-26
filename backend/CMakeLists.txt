@@ -446,6 +446,30 @@ FetchContent_MakeAvailable(imgui)
 # still point at). DOWNLOAD_NO_EXTRACT - both are a single loose file,
 # not an archive with a build system inside like every other
 # FetchContent dependency above.
+# nlohmann/json - the settings file (NEW_FEATURES_SEPT_2026.md item 9,
+# api.cpp's le_save_settings/le_load_settings). The release's own
+# single-header amalgamation, pinned by version, same loose-file
+# DOWNLOAD_NO_EXTRACT treatment as the icon header below.
+FetchContent_Declare(
+    nlohmann_json_header
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp
+    URL_HASH SHA256=9bea4c8066ef4a1c206b2be5a36302f8926f7fdc6087af5d20b417d0cf103ea6
+    DOWNLOAD_NO_EXTRACT TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json_header)
+
+# portable-file-dialogs - le_gui's Settings panel's Save As/Load dialogs
+# (item 9). Header-only; at runtime it drives the platform's own dialog
+# (zenity/kdialog on Linux, osascript on macOS, the Win32 API on Windows)
+# - no build-time GTK/Qt dependency. Pinned to a commit.
+FetchContent_Declare(
+    portable_file_dialogs_header
+    URL https://raw.githubusercontent.com/samhocevar/portable-file-dialogs/7f852d88a480020d7f91957cbcefe514fc95000c/portable-file-dialogs.h
+    URL_HASH SHA256=5cb1e6e63af588a274c676519be4cd763ce77904632c58a5b1393b438d1c7c6a
+    DOWNLOAD_NO_EXTRACT TRUE
+)
+FetchContent_MakeAvailable(portable_file_dialogs_header)
+
 FetchContent_Declare(
     icon_font_header
     URL https://raw.githubusercontent.com/juliettef/IconFontCppHeaders/780f04406084230c1b034c2c34c0c0b8b9b1829b/IconsLucide.h
@@ -607,6 +631,7 @@ le_enable_coverage_instrumentation(sv)
 add_library(api STATIC src/api/api.cpp)
 target_include_directories(api PUBLIC src/api)
 target_link_libraries(api PRIVATE database geometry editing view_style pipelines io sv)
+target_include_directories(api PRIVATE ${nlohmann_json_header_SOURCE_DIR})
 le_enable_coverage_instrumentation(api)
 
 # --- gui: Dear ImGui prototype - le_shell's own `show_gui` window,
@@ -648,9 +673,10 @@ add_library(gui STATIC
     src/gui/components/mode_selector.cpp
     src/gui/components/mode_toolbar.cpp
     src/gui/components/secondary_toolbar.cpp
+    src/gui/components/settings_panel.cpp
 )
 target_include_directories(gui PUBLIC src/gui)
-target_include_directories(gui PRIVATE ${icon_font_header_SOURCE_DIR})
+target_include_directories(gui PRIVATE ${icon_font_header_SOURCE_DIR} ${portable_file_dialogs_header_SOURCE_DIR})
 # le_gui.cpp's own font-setup code loads this from disk at runtime
 # (ImGui merges icon glyphs into the text font atlas by loading a real
 # .ttf file, not compiling one in) - a build-tree path is fine for this

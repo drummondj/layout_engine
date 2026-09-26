@@ -1027,6 +1027,47 @@ extern "C"
     /// A no-op if handle is null.
     void le_set_ruler_label_size(LeHandle *handle, double px);
 
+    /// @brief Largest on-screen size (px) a shape or placement label grows
+    /// to - the Settings panel's label font size (NEW_FEATURES_SEPT_2026.md
+    /// item 9). Labels still shrink with their geometry, down to 12px (or
+    /// this size, if smaller). Defaults to 24. 0 if handle is null.
+    double le_label_size(LeHandle *handle);
+
+    /// @brief Sets le_label_size - values <= 0 are ignored. A no-op if
+    /// handle is null.
+    void le_set_label_size(LeHandle *handle, double px);
+
+    /// @brief The minor (`major` 0) or major (`major` nonzero) grid spacing
+    /// in um - converted from le_minor_grid_spacing/le_major_grid_spacing
+    /// through the Technology's dbu scale, or a value set/loaded before any
+    /// Technology existed. -1 if neither is known yet, or handle is null.
+    double le_grid_spacing_um(LeHandle *handle, int32_t major);
+
+    /// @brief Sets the grid spacing in um (a value <= 0 leaves that one
+    /// unchanged). Converted to dbu (at least 1) through the Technology's
+    /// scale; with no Technology yet, held and applied by the first
+    /// le_read_lef/le_read_def that establishes one. A no-op if handle is
+    /// null.
+    void le_set_grid_spacing_um(LeHandle *handle, double minor_um, double major_um);
+
+    /// @brief Where settings are saved/loaded when no path is given:
+    /// $HOME/.layout_engine/settings.json ("" if HOME isn't set). Never null.
+    const char *le_default_settings_path(void);
+
+    /// @brief Writes the current settings (item 9) as JSON to `path` (null
+    /// or "" - le_default_settings_path), creating its directory if needed:
+    /// grid spacing (um), ruler and label font sizes (px), hierarchy depth,
+    /// flightline fanout limit, and the placement/shape snap modes. Returns
+    /// 0 on success, nonzero (logged) on failure or a null handle.
+    int32_t le_save_settings(LeHandle *handle, const char *path);
+
+    /// @brief Reads settings written by le_save_settings from `path` (null
+    /// or "" - le_default_settings_path) and applies them. A missing key
+    /// keeps its current value; an invalid one is skipped with a warning.
+    /// Returns 0 on success, nonzero (logged) if the file can't be read or
+    /// isn't a JSON object, or handle is null.
+    int32_t le_load_settings(LeHandle *handle, const char *path);
+
     /// @brief Set the current mouse position, in the same pixel space as
     /// le_render_pixel_buffer()'s output image (top-left origin, y
     /// increasing downward) and le_zoom()'s x/y - meant to be fed straight

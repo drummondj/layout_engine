@@ -1285,6 +1285,26 @@ struct LeHandle
         }
         double ruler_label_size_px() const { return ruler_label_size_px_; }
 
+        // Largest on-screen size (px) a shape/placement label grows to -
+        // the Settings panel's label font size (NEW_FEATURES_SEPT_2026.md
+        // item 9). Same visibility_version_ signal and non-positive guard
+        // as set_ruler_label_size_px.
+        void set_label_size_px(double px)
+        {
+            if (px > 0.0)
+            {
+                label_size_px_ = px;
+                ++visibility_version_;
+            }
+        }
+        double label_size_px() const { return label_size_px_; }
+
+        // Grid spacing (um) from a settings file read before any
+        // Technology existed to convert it to dbu - applied by api.cpp once
+        // one does (NEW_FEATURES_SEPT_2026.md item 9).
+        std::optional<double> pending_minor_grid_um;
+        std::optional<double> pending_major_grid_um;
+
         // --- Held keys (UPDATES.md 7) ---
         // A generic set of currently-held key codes, set by the frontend
         // via press_key/release_key (see le_key_down/le_key_up) on every
@@ -1567,6 +1587,7 @@ struct LeHandle
         std::array<le::ShapeSnapMode, 4> shape_snap_modes_{le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID}; // RECT, POLYGON, PATH, VIA (+ VIA_ITERATE)
         le::PlacementSnapMode placement_snap_mode_ = le::PlacementSnapMode::SITE;
         double ruler_label_size_px_ = 11.0;
+        double label_size_px_ = 24.0; // draw_helpers.hpp's kMaxLabelPixelSize
         // Minimum on-screen distance (px, converted via the current
         // scale) a new ruler's first point must be from the most
         // recently finished ruler's last point - see add_ruler_point.

@@ -519,8 +519,15 @@ namespace le
         const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
         std::unordered_map<const Path *, std::vector<Polygon>> &path_outline_cache,
         std::unordered_map<int, MonospaceFontEntry> &monospace_font_cache,
-        std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> &glyph_bitmap_cache)
+        std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> &glyph_bitmap_cache,
+        double max_label_px = kMaxLabelPixelSize)
     {
+        // `max_label_px` - the Settings panel's label font size
+        // (NEW_FEATURES_SEPT_2026.md item 9, ViewRenderOptions::
+        // label_max_size_px) - caps every label; kMinLabelPixelSize still
+        // floors it, unless the cap itself is smaller.
+        const double min_label_px = std::min(kMinLabelPixelSize, max_label_px);
+
         // `monospace_font_cache` and `glyph_bitmap_cache` are owned by the
         // CALLER (RasterizeBlend2DStage - its own `monospace_font_cache_`/
         // `glyph_bitmap_cache_` members) and passed in by reference here,
@@ -842,7 +849,7 @@ namespace le
                     for (std::size_t i = 0; i < shape.texts.size(); ++i)
                     {
                         const Text &text = shape.texts[i];
-                        const double pixel_size = std::clamp(text.size * scale, kMinLabelPixelSize, kMaxLabelPixelSize);
+                        const double pixel_size = std::clamp(text.size * scale, min_label_px, max_label_px);
                         if (i >= shape.rects.size())
                             continue;
                         const double width_px = static_cast<double>(shape.rects[i].ur.x - shape.rects[i].ll.x) * scale;
@@ -884,7 +891,7 @@ namespace le
                     // distinct sizes monospace_font_cache/glyph_bitmap_cache
                     // ever need to hold regardless of how far a user zooms
                     // in (GlyphBitmapCacheKey's own doc comment).
-                    const double pixel_size = std::clamp(text.size * scale * kLabelWidthRatio, kMinLabelPixelSize, kMaxLabelPixelSize);
+                    const double pixel_size = std::clamp(text.size * scale * kLabelWidthRatio, min_label_px, max_label_px);
                     const int font_key = std::max(1, static_cast<int>(std::lround(pixel_size)));
                     const MonospaceFontEntry &font_entry = get_or_build_monospace_font(font_key);
 
@@ -1001,7 +1008,7 @@ namespace le
                 draw_view_shapes_blend2d(
                     ctx, data.shapes ? *data.shapes : kEmptyShapes, data.shapes_index, local_bbox, view_layers, options.scale,
                     options.layer_name_visible, options.purpose_visible, node_outline_cache.outlines,
-                    monospace_font_cache_, glyph_bitmap_cache_);
+                    monospace_font_cache_, glyph_bitmap_cache_, options.label_max_size_px);
 
                 ctx.end();
 
@@ -1029,7 +1036,8 @@ namespace le
                 last.layer_name_visible != current.layer_name_visible ||
                 last.purpose_visible != current.purpose_visible ||
                 last.minor_grid_spacing_dbu != current.minor_grid_spacing_dbu ||
-                last.major_grid_spacing_dbu != current.major_grid_spacing_dbu)
+                last.major_grid_spacing_dbu != current.major_grid_spacing_dbu ||
+                last.label_max_size_px != current.label_max_size_px)
                 return true;
 
             // Point has no operator== in this codebase - field-by-field,

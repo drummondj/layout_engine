@@ -85,11 +85,21 @@ namespace le::gui
 
             struct LayerManager
             {
-                int32_t hierarchy_depth = 0;
-                int32_t flightline_max_fanout = 0;
                 std::vector<LayerRow> layers;
                 std::vector<PurposeRow> purposes;
             } layer_manager;
+
+            // settings_panel.cpp (NEW_FEATURES_SEPT_2026.md item 9). Grid
+            // spacing is in um, -1 while unknown (no Technology yet).
+            struct Settings
+            {
+                double minor_grid_um = -1.0;
+                double major_grid_um = -1.0;
+                double ruler_label_size_px = 0.0;
+                double label_size_px = 0.0;
+                int32_t hierarchy_depth = 0;
+                int32_t flightline_max_fanout = 0;
+            } settings;
 
             // secondary_toolbar.cpp's placement toolbar
             // (NEW_FEATURES_SEPT_2026.md item 2) - shown in Edit mode
@@ -192,6 +202,13 @@ namespace le::gui
         void clear_rulers();
         void set_hierarchy_depth(int32_t depth);
         void set_flightline_max_fanout(int32_t max_fanout);
+        // Settings panel (item 9) - a spacing <= 0 is left unchanged; a
+        // null/empty path means the default settings file.
+        void set_grid_spacing_um(double minor_um, double major_um);
+        void set_ruler_label_size(double px);
+        void set_label_size(double px);
+        void save_settings(const std::string &path);
+        void load_settings(const std::string &path);
         void set_layer_visible(const std::string &layer_name, bool value);
         void set_layer_selectable(const std::string &layer_name, bool value);
         void set_purpose_visible(const std::string &purpose_name, bool value);

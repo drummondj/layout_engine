@@ -1,6 +1,5 @@
 #include "layer_manager.hpp"
 
-#include "compact_button.hpp"
 #include "gui_provider.hpp"
 #include "imgui.h"
 
@@ -145,103 +144,11 @@ namespace le::gui
             ImGui::TableSetColumnIndex(0);
             ImGui::Spacing();
         }
-
-        // A non-negative integer setting as a "commit on Enter" field
-        // (ImGuiInputTextFlags_EnterReturnsTrue) with "-"/"+" step buttons
-        // and a label - the Hierarchy Depth row, shared by the flightline
-        // fanout limit. Submitting a valid (non-negative) value shows
-        // *only* that value - ignoring `backend_value`'s own still-stale
-        // value - until the backend actually catches up to it (same
-        // "optimistic until confirmed" reasoning as
-        // draw_optimistic_checkbox above, and the same flicker it avoids:
-        // pressing Enter defocuses the field immediately, so without this,
-        // the very next frame's own re-sync would snap the field back to
-        // the old value for the ~100ms the queued command takes to land,
-        // then snap forward again once it does - a real, reported bug).
-        // Still re-synced whenever nothing is pending and the field isn't
-        // focused, so an external change (e.g. from the Tcl console,
-        // running concurrently with this GUI) shows up here too.
-        struct CommittedIntField
-        {
-            int buf = 0;
-            bool was_active = false;
-            bool has_pending = false;
-            int pending_value = 0;
-        };
-
-        template <typename Apply>
-        void draw_committed_int_field(const char *id, const char *label, int32_t backend_value, CommittedIntField &field, Apply apply)
-        {
-            if (field.has_pending && backend_value == field.pending_value)
-                field.has_pending = false;
-            if (!field.was_active && !field.has_pending)
-                field.buf = backend_value;
-
-            // Shared by Enter and the "-"/"+" buttons. Clamped to 0 for a
-            // button press (a "-" at 0 should visibly settle at 0), unlike
-            // a typed negative value, which resets to the backend's value.
-            const auto submit = [&](int new_value)
-            {
-                if (new_value < 0)
-                    new_value = 0;
-                field.buf = new_value;
-                apply(new_value);
-                field.has_pending = true;
-                field.pending_value = new_value;
-            };
-
-            // 3 characters wide - these fields only ever hold a small
-            // integer.
-            ImGui::SetNextItemWidth(ImGui::CalcTextSize("000").x + ImGui::GetStyle().FramePadding.x * 2.0f);
-            if (ImGui::InputInt(id, &field.buf, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue))
-            {
-                if (field.buf >= 0)
-                    submit(field.buf);
-                else
-                {
-                    // The backend rejects a negative value (left
-                    // unchanged) - reset the field to the real value.
-                    field.buf = backend_value;
-                    field.has_pending = false;
-                }
-            }
-            field.was_active = ImGui::IsItemActive();
-
-            constexpr float kStepButtonWidth = 24.0f;
-            // compact_button (compact_button.hpp), not a plain
-            // ImGui::Button - see its own doc comment for the centering
-            // bug a button this narrow would otherwise hit.
-            ImGui::PushID(id);
-            ImGui::SameLine();
-            if (compact_button("-", kStepButtonWidth))
-                submit(field.buf - 1);
-            ImGui::SameLine();
-            if (compact_button("+", kStepButtonWidth))
-                submit(field.buf + 1);
-            ImGui::PopID();
-            ImGui::SameLine();
-            ImGui::TextUnformatted(label);
-        }
     }
 
     void draw_layer_manager(GuiProvider &provider)
     {
         const GuiProvider::State &state = provider.state();
-
-        // Hierarchy depth, and under it the flightline fanout limit
-        // (NEW_FEATURES_SEPT_2026.md item 5) - see draw_committed_int_field.
-        static CommittedIntField depth_field;
-        draw_committed_int_field("##hierarchy_depth", "Hierarchy Depth", state.layer_manager.hierarchy_depth, depth_field,
-                                 [&](int value)
-                                 { provider.set_hierarchy_depth(value); });
-        static CommittedIntField fanout_field;
-        draw_committed_int_field("##flightline_max_fanout", "Flightline Max Fanout", state.layer_manager.flightline_max_fanout, fanout_field,
-                                 [&](int value)
-                                 { provider.set_flightline_max_fanout(value); });
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Nets connecting more pins than this (besides the selected one) draw no flightlines - 0 for no limit");
-
-        ImGui::Separator();
 
         // Pseudo-rows with no physical Technology Layer of their own
         // (ROW/BOUNDARY/GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/

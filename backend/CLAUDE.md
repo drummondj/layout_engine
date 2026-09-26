@@ -637,9 +637,25 @@ none of these are duplicated here.
   rather than silently degrading (e.g. the Rocky Linux 8 bootstrap
   effort, see Open gaps below, needs to provision both, not route around
   them). `components/secondary_toolbar.cpp` is the tool-options row
-  under ModeToolbar (currently only the placement toolbar: Move snap mode
-  plus immediately-committed rotate/flip, disabled once a Move's first click has anchored it); le_gui.cpp overlays it on the design view's top edge rather
-  than inserting a row, so showing it never resizes the viewport. No
+  under ModeToolbar (the placement toolbar: Move snap mode plus
+  immediately-committed rotate/flip, disabled once a Move's first click
+  has anchored it; Resize's per-kind snap groups; Move's path/via snap
+  groups, item 13 - a group that won't fit wraps onto another line);
+  le_gui.cpp overlays it on the design view's top edge rather than
+  inserting a row, so showing it never resizes the viewport (its height
+  auto-sizes to the wrapped lines). `components/settings_panel.cpp` is
+  the right sidebar's Settings tab (item 9): grid spacing (um), ruler and
+  label font sizes, hierarchy depth and flightline fanout limit (via
+  `committed_field.hpp`'s commit-on-Enter fields), plus Save/Save As/Load
+  of the JSON settings file - api.cpp's `le_save_settings`/
+  `le_load_settings` (nlohmann/json, fetched as a pinned single header),
+  default `~/.layout_engine/settings.json`, which `le_shell` loads at
+  startup in interactive mode only (batch scripts stay reproducible).
+  Grid spacing is stored in um; loaded before any Technology exists it
+  waits on `LeHandle::pending_*_grid_um` until le_read_lef/le_read_def
+  can convert it. The file dialogs are portable-file-dialogs (pinned
+  header) - zenity/kdialog on Linux at runtime, no build dependency -
+  falling back to an in-app path prompt when neither is installed. No
   automated test coverage of the render/input loop itself
   (inherently interactive/visual) — verified manually only, on macOS, as
   of this writing; Linux packaging is done for the two Docker paths

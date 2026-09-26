@@ -1,6 +1,7 @@
 #include "../api.hpp"
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -6374,4 +6375,122 @@ TEST_F(ApiFixture, ClickCyclingInTheLayoutViewStartsWithTheViaAndVisitsEachObjec
     click(handle, 140, 60);
     ASSERT_EQ(le_selection_count(handle), 1);
     EXPECT_TRUE(via_selected());
+}
+
+// --- NEW_FEATURES_SEPT_2026.md item 9: settings ---
+
+namespace
+{
+    std::string read_file(const std::string &path)
+    {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+
+    void write_file(const std::string &path, const std::string &text)
+    {
+        std::ofstream(path, std::ios::trunc) << text;
+    }
+}
+
+// Every setting survives a save to JSON and a load into a fresh handle.
+TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsEverySetting)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0); // 1000 dbu/um
+    le_set_grid_spacing_um(handle, 0.2, 2.0);
+    le_set_ruler_label_size(handle, 14.0);
+    le_set_label_size(handle, 18.0);
+    le_set_hierarchy_depth(handle, 3);
+    le_set_flightline_max_fanout(handle, 7);
+    le_set_placement_snap_mode(handle, LE_PLACEMENT_SNAP_MANUFACTURING_GRID);
+    le_set_shape_snap_mode(handle, LE_PIECE_KIND_PATH, LE_SHAPE_SNAP_TRACKS);
+    le_set_shape_snap_mode(handle, LE_PIECE_KIND_VIA, LE_SHAPE_SNAP_MANUFACTURING_GRID);
+    EXPECT_EQ(le_minor_grid_spacing(handle), 200);
+    EXPECT_EQ(le_major_grid_spacing(handle), 2000);
+
+    const std::string path = scratch_path("le_settings_round_trip/settings.json");
+    std::filesystem::remove_all(std::filesystem::path(path).parent_path());
+    ASSERT_EQ(le_save_settings(handle, path.c_str()), 0); // creates the directory
+    const std::string text = read_file(path);
+    EXPECT_NE(text.find("\"minor_um\": 0.2"), std::string::npos) << text;
+    EXPECT_NE(text.find("\"placement_snap_mode\": \"manufacturing\""), std::string::npos) << text;
+
+    LeHandle *other = le_create();
+    ASSERT_EQ(le_read_lef(other, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_load_settings(other, path.c_str()), 0);
+    EXPECT_EQ(le_minor_grid_spacing(other), 200);
+    EXPECT_EQ(le_major_grid_spacing(other), 2000);
+    EXPECT_DOUBLE_EQ(le_ruler_label_size(other), 14.0);
+    EXPECT_DOUBLE_EQ(le_label_size(other), 18.0);
+    EXPECT_EQ(le_hierarchy_depth(other), 3);
+    EXPECT_EQ(le_flightline_max_fanout(other), 7);
+    EXPECT_EQ(le_get_placement_snap_mode(other), LE_PLACEMENT_SNAP_MANUFACTURING_GRID);
+    EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_PATH), LE_SHAPE_SNAP_TRACKS);
+    EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_VIA), LE_SHAPE_SNAP_MANUFACTURING_GRID);
+    EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_RECT), LE_SHAPE_SNAP_USER_GRID);
+    le_destroy(other);
+}
+
+// Loaded before any LEF (le_shell loads the default file at startup), the
+// um grid spacing waits for a Technology to convert it to dbu.
+TEST_F(ApiFixture, SettingsLoadedBeforeAnyTechnologyApplyTheGridOnceOneIsRead)
+{
+    const std::string path = scratch_path("le_settings_pending.json");
+    write_file(path, R"({"grid": {"minor_um": 0.2, "major_um": 2.0}})");
+    ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
+    EXPECT_DOUBLE_EQ(le_grid_spacing_um(handle, 0), 0.2);
+    EXPECT_EQ(le_minor_grid_spacing(handle), 5); // unchanged - no dbu scale yet
+
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    EXPECT_EQ(le_minor_grid_spacing(handle), 200);
+    EXPECT_EQ(le_major_grid_spacing(handle), 2000);
+    EXPECT_DOUBLE_EQ(le_grid_spacing_um(handle, 1), 2.0);
+}
+
+// A key with the wrong type or an unknown value is skipped, the rest still
+// load; a file that isn't a JSON object fails the load and changes nothing.
+TEST_F(ApiFixture, SettingsLoadSkipsInvalidKeysAndRejectsMalformedFiles)
+{
+    const std::string path = scratch_path("le_settings_partial.json");
+    write_file(path, R"({"label_size_px": "big", "hierarchy_depth": 2, "placement_snap_mode": "nowhere",
+                          "shape_snap_modes": {"rect": "tracks", "path": "none"}})");
+    ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
+    EXPECT_DOUBLE_EQ(le_label_size(handle), 24.0);
+    EXPECT_EQ(le_hierarchy_depth(handle), 2);
+    EXPECT_EQ(le_get_placement_snap_mode(handle), LE_PLACEMENT_SNAP_SITE);
+    EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_RECT), LE_SHAPE_SNAP_USER_GRID); // rects can't snap to tracks
+    EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_PATH), LE_SHAPE_SNAP_NONE);
+
+    write_file(path, "not json");
+    EXPECT_NE(le_load_settings(handle, path.c_str()), 0);
+    EXPECT_EQ(le_hierarchy_depth(handle), 2);
+    EXPECT_NE(le_load_settings(handle, scratch_path("le_settings_missing.json").c_str()), 0);
+}
+
+// The label font size caps how large a label renders: zoomed in on
+// TESTCELL's pin (its own label wants more than the 24px default cap), a
+// 12px cap draws a visibly different (smaller) label.
+TEST_F(ApiFixture, LabelSizeCapsTheRenderedLabelSize)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+    le_set_viewport_size(handle, 200, 200);
+    le_fit_rect(handle, 2.0, 2.0, 8.0, 8.0, 0);
+
+    const auto render = [&]
+    {
+        const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+        return std::vector<uint8_t>(buffer.data, buffer.data + static_cast<size_t>(buffer.height) * static_cast<size_t>(buffer.row_bytes));
+    };
+    const std::vector<uint8_t> large = render();
+    le_set_label_size(handle, 12.0);
+    const std::vector<uint8_t> small = render();
+    ASSERT_EQ(large.size(), small.size());
+    size_t differing = 0;
+    for (size_t i = 0; i < large.size(); i += 4)
+        differing += std::memcmp(&large[i], &small[i], 4) != 0 ? 1 : 0;
+    EXPECT_GT(differing, 50u);
+
+    le_set_label_size(handle, 24.0); // back to the default - identical to the first render
+    EXPECT_EQ(render(), large);
 }
