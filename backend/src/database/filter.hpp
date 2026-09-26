@@ -18,8 +18,12 @@
 //
 // A literal's type isn't decided at parse time - it's kept as raw text
 // and compared against whatever PropertyValue::Type the matched field
-// actually has at evaluation time (STRING/INT/DOUBLE), so `.width == 100`
-// works without the parser having to guess that `width` is numeric.
+// actually has at evaluation time (STRING/INT/DOUBLE), so `.width == 0.1`
+// works without the parser having to guess that `width` is numeric. A
+// length/area field (get_field() tags it PropertyValue::Unit::DBU/DBU2) is
+// compared in microns/square microns - every TCL value is
+// (NEW_FEATURES_SEPT_2026.md item 27) - using the dbu-per-micron scale
+// evaluate_filter() is given.
 // Explicit hops only (`.shapes.layer_name`, never an implicit/magic
 // `.layer_name`) - see TCL_EXPLORATION.md's "cmg codegen design" section
 // for why: one general N-hop resolver, no per-class special-casing.
@@ -515,8 +519,10 @@ namespace le
             return false;
         }
 
-        inline bool compare_property_value(const PropertyValue &actual, FilterOp op, const std::string &literal)
+        inline bool compare_property_value(const PropertyValue &actual, FilterOp op, const std::string &literal, double dbu_per_um)
         {
+            if (actual.unit != PropertyValue::Unit::NONE && dbu_per_um > 0.0)
+                return compare_number<double>(property_value_in_um(actual, dbu_per_um), op, literal);
             switch (actual.type)
             {
             case PropertyValue::Type::STRING:
@@ -531,10 +537,10 @@ namespace le
 
         // Leaf evaluation - shared by both walk() overloads below.
         template <typename DataT>
-        bool walk_leaf(const DataT &data, const std::vector<std::string> &path, size_t index, FilterOp op, const std::string &literal)
+        bool walk_leaf(const DataT &data, const std::vector<std::string> &path, size_t index, FilterOp op, const std::string &literal, double dbu_per_um)
         {
             auto value = get_field(data, path[index]);
-            return value.has_value() && compare_property_value(*value, op, literal);
+            return value.has_value() && compare_property_value(*value, op, literal, dbu_per_um);
         }
 
         // Path resolution once a hop has landed on data with no known id
@@ -542,24 +548,24 @@ namespace le
         // there's no id concept to propagate further, and none is needed:
         // a non-pooled class's own match_hop() overload never asks for one).
         template <typename RootT, typename DataT>
-        bool walk(const RootT &root, const DataT &data, const std::vector<std::string> &path, size_t index, FilterOp op, const std::string &literal)
+        bool walk(const RootT &root, const DataT &data, const std::vector<std::string> &path, size_t index, FilterOp op, const std::string &literal, double dbu_per_um)
         {
             if (index + 1 == path.size())
-                return walk_leaf(data, path, index, op, literal);
+                return walk_leaf(data, path, index, op, literal, dbu_per_um);
             return match_hop(data, path[index], [&](auto &&...target) -> bool
-                              { return walk(root, target..., path, index + 1, op, literal); });
+                              { return walk(root, target..., path, index + 1, op, literal, dbu_per_um); });
         }
 
         // Path resolution when the current object is pooled - its own id
         // is required so a *further* hop landing on another pooled class
         // can keep going (match_hop()'s pooled overload always needs one).
         template <typename RootT, typename IdT, typename DataT>
-        bool walk(const RootT &root, IdT id, const DataT &data, const std::vector<std::string> &path, size_t index, FilterOp op, const std::string &literal)
+        bool walk(const RootT &root, IdT id, const DataT &data, const std::vector<std::string> &path, size_t index, FilterOp op, const std::string &literal, double dbu_per_um)
         {
             if (index + 1 == path.size())
-                return walk_leaf(data, path, index, op, literal);
+                return walk_leaf(data, path, index, op, literal, dbu_per_um);
             return match_hop(root, id, data, path[index], [&](auto &&...target) -> bool
-                              { return walk(root, target..., path, index + 1, op, literal); });
+                              { return walk(root, target..., path, index + 1, op, literal, dbu_per_um); });
         }
 
         // UPDATES.md item 19.2 (chained get_properties paths, e.g.
@@ -648,26 +654,28 @@ namespace le
     /// data)` callback already supplies them. Walks `expr.path` through
     /// `match_hop()` for every segment but the last (see struct_hpp_j2.py's
     /// own comment for the two-call-shape contract this relies on),
-    /// then compares the leaf field via `get_field()`.
+    /// then compares the leaf field via `get_field()`. `dbu_per_um` is the
+    /// Technology's scale, for comparing a length/area field in microns;
+    /// 0 (no Technology) compares its raw value.
     template <typename RootT, typename IdT, typename DataT>
-    bool evaluate_filter(const FilterExpr &expr, const RootT &root, IdT id, const DataT &data)
+    bool evaluate_filter(const FilterExpr &expr, const RootT &root, IdT id, const DataT &data, double dbu_per_um = 0.0)
     {
         switch (expr.kind)
         {
         case FilterExpr::Kind::And:
             for (const auto &child : expr.children)
-                if (!evaluate_filter(child, root, id, data))
+                if (!evaluate_filter(child, root, id, data, dbu_per_um))
                     return false;
             return true;
         case FilterExpr::Kind::Or:
             for (const auto &child : expr.children)
-                if (evaluate_filter(child, root, id, data))
+                if (evaluate_filter(child, root, id, data, dbu_per_um))
                     return true;
             return false;
         case FilterExpr::Kind::Comparison:
             if (expr.path.empty())
                 return false;
-            return filter_detail::walk(root, id, data, expr.path, 0, expr.op, expr.literal);
+            return filter_detail::walk(root, id, data, expr.path, 0, expr.op, expr.literal, dbu_per_um);
         }
         return false;
     }

@@ -1335,6 +1335,13 @@ namespace
         return static_cast<int64_t>(std::llround(value_um * dbu_per_um));
     }
 
+    // to_dbu() for an area: square microns to database units squared (a
+    // `dbu2` field - NEW_FEATURES_SEPT_2026.md item 27).
+    int64_t to_dbu2(double value_um2, double dbu_per_um)
+    {
+        return static_cast<int64_t>(std::llround(value_um2 * dbu_per_um * dbu_per_um));
+    }
+
     // A `dbu` field's own dbu-per-micron ratio, for property tables built
     // before any Technology has been loaded (or with an invalid scale) -
     // falls back to 1.0 (no scaling, same raw magnitude the field would
@@ -1354,6 +1361,17 @@ namespace
     // scalar leaf fields, not list-of-object fields like rects/polygons/
     // paths, so a bare `.rects` used to fail with "unknown field" even
     // though `get_properties $token` (no name) happily showed it.
+    // A chained property path's resolved value (resolve_property_path), as
+    // get_properties shows it: a length/area arrives as raw, unit-tagged
+    // dbu (get_field()), so it's converted to the same micron string a
+    // property table shows (NEW_FEATURES_SEPT_2026.md item 27).
+    le::PropertyValue display_path_value(const le::Root &root, le::PropertyValue value)
+    {
+        if (value.unit == le::PropertyValue::Unit::NONE)
+            return value;
+        return le::PropertyValue::make_string(value.name, le::format_coordinate_um(le::property_value_in_um(value, display_dbu_per_um(root))));
+    }
+
     std::optional<le::PropertyValue> find_property_by_name(const std::vector<le::PropertyValue> &properties, std::string_view name)
     {
         for (const le::PropertyValue &property : properties)

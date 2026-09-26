@@ -1026,7 +1026,7 @@ namespace le
                     }
                     else if (rule.area)
                     {
-                        status = lefwLayerCutSpacingArea(to_microns(*rule.area, dbu_per_micron));
+                        status = lefwLayerCutSpacingArea(to_microns_squared(*rule.area, dbu_per_micron));
                         if (status)
                             return status;
                     }

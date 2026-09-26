@@ -563,7 +563,7 @@ namespace le
                     rule.adjacent_except_same_pg_net = true;
             }
             if (lef_layer->hasSpacingArea(i))
-                rule.area = reader->microns_to_dbu(lef_layer->spacingArea(i));
+                rule.area = reader->microns_squared_to_dbu(lef_layer->spacingArea(i)); // an area (square microns) - item 27
             // Read-only (see write_technology_layers's own comment on the
             // vendored writer bug - these are never written back out).
             if (lef_layer->hasSpacingNotchLength(i))

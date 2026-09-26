@@ -49,7 +49,45 @@ TYPEMAP = {
     # can tell "this needs micron conversion for display" from a plain
     # count/int without guessing from the C++ type name.
     "dbu": ("int64_t", int),
+    # An area in database units squared (LEF AREA, MINENCLOSEDAREA) - stored
+    # like "dbu", but converted with the *square* of the dbu-per-micron scale
+    # (NEW_FEATURES_SEPT_2026.md item 27: a linear conversion showed an AREA
+    # 0.000666um^2 as 0.666).
+    "dbu2": ("int64_t", int),
 }
+
+# The schema types stored as raw database units - every one crosses the
+# TCL/API layer in microns (dbu) or square microns (dbu2), converted by
+# to_dbu/to_um or to_dbu2/to_um2.
+DBU_TYPES = ("dbu", "dbu2")
+
+
+def _to_dbu_fn(type_name: str) -> str:
+    return "to_dbu2" if type_name == "dbu2" else "to_dbu"
+
+
+def _to_um_fn(type_name: str) -> str:
+    return "to_um2" if type_name == "dbu2" else "to_um"
+
+
+def tcl_help_description(field: "Field") -> str:
+    """
+    `field`'s description as the TCL help shows it. The schema describes
+    storage ("in database units"), but every dbu/dbu2 value crosses the TCL
+    layer in microns/square microns (NEW_FEATURES_SEPT_2026.md item 27), so
+    for a field that converts (cmd_uses_dbu()) the units are restated.
+    """
+    text = field.description
+    if not field.cmd_uses_dbu():
+        return text
+    for old, new in (
+        ("in database units squared", "in square microns"),
+        ("In database units squared", "In square microns"),
+        ("in database units", "in microns"),
+        ("In database units", "In microns"),
+    ):
+        text = text.replace(old, new)
+    return text
 
 
 def _leaf_c_type(leaf: "Field") -> str:
@@ -60,7 +98,7 @@ def _leaf_c_type(leaf: "Field") -> str:
     already rejects str/enum/reference leaves), so this is a narrow
     subset of Field.create_c_type()'s own mapping, not a duplicate of it.
     """
-    if leaf.type == "dbu":
+    if leaf.type in DBU_TYPES:
         return "double"
     if leaf.type in ("int", "bool"):
         return "int32_t"
@@ -78,7 +116,7 @@ def _leaf_param_name(field_name: str, flat: str, leaf: "Field") -> str:
     boundary convention every dbu-crossing parameter in this generated
     surface follows, e.g. le_create_shape's own rects_flat_um).
     """
-    return f"{field_name}_{flat}_um" if leaf.type == "dbu" else f"{field_name}_{flat}"
+    return f"{field_name}_{flat}_um" if leaf.type in DBU_TYPES else f"{field_name}_{flat}"
 
 
 def _leaf_value_expr(leaf: "Field", param: str) -> str:
@@ -89,8 +127,8 @@ def _leaf_value_expr(leaf: "Field", param: str) -> str:
     assumption Field.create_struct_init_expr()'s own dbu branch makes),
     a != 0 bool coercion, or identity.
     """
-    if leaf.type == "dbu":
-        return f"to_dbu({param}, *dbu_per_um)"
+    if leaf.type in DBU_TYPES:
+        return f"{_to_dbu_fn(leaf.type)}({param}, *dbu_per_um)"
     if leaf.type == "bool":
         return f"{param} != 0"
     return param
@@ -559,7 +597,7 @@ class Klass:
         if not leaves:
             raise ValueError(f"compound_leaf_kind: {self.name} has no flattenable leaves")
         types = {leaf.type for _, leaf in leaves}
-        if types <= {"dbu", "int", "double"}:
+        if types <= {"dbu", "dbu2", "int", "double"}:
             return "numeric"
         if types == {"bool"}:
             return "flags"
@@ -1287,7 +1325,7 @@ class Klass:
             required = 1 if f.create_required() else 0
             parts.append(
                 f"{{-{f.name} {{type {f.tcl_help_type_label()} required {required} "
-                f"description {{{tcl_brace_escape(f.description)}}}}}}}"
+                f"description {{{tcl_brace_escape(tcl_help_description(f))}}}}}}}"
             )
         return " ".join(parts)
 
@@ -1335,7 +1373,7 @@ class Klass:
         for f in self.get_create_fields():
             parts.append(
                 f"{{-{f.name} {{type {f.tcl_help_type_label()} required 0 "
-                f"description {{{tcl_brace_escape(f.description)}}}}}}}"
+                f"description {{{tcl_brace_escape(tcl_help_description(f))}}}}}}}"
             )
         return " ".join(parts)
 
@@ -2555,7 +2593,10 @@ class Field:
         list_compound_kind() field (e.g. Shape.rects -> "Rect...") since
         its flag actually takes a Tcl list of several such records.
         """
-        return f"{self.type}..." if self.is_list else self.type
+        # dbu/dbu2 values cross the TCL layer in microns / square microns
+        # (NEW_FEATURES_SEPT_2026.md item 27).
+        label = {"dbu": "um", "dbu2": "um2"}.get(self.type, self.type)
+        return f"{label}..." if self.is_list else label
 
     def compound_klass(self) -> Optional[Klass]:
         """
@@ -2628,7 +2669,7 @@ class Field:
         if tk is None or tk.is_enum or tk.has_pool:
             return None
         leaves = tk.embedded_scalar_leaves()
-        if leaves is not None and all(leaf.type in ("dbu", "int", "double", "bool") for _, leaf in leaves):
+        if leaves is not None and all(leaf.type in ("dbu", "dbu2", "int", "double", "bool") for _, leaf in leaves):
             # Excludes a str-leaved flattenable struct (e.g. Text - label
             # is a str leaf embedded_scalar_leaves() itself doesn't
             # reject, since it only checks structural well-formedness,
@@ -2973,8 +3014,8 @@ class Field:
         if self.is_compound_create_field() or self.list_compound_kind() is not None:
             return True
         if mode == "update":
-            return self.type in ("int", "double", "dbu", "bool")
-        return self.create_required() is False and self.type in ("int", "double", "dbu")
+            return self.type in ("int", "double", "dbu", "dbu2", "bool")
+        return self.create_required() is False and self.type in ("int", "double", "dbu", "dbu2")
 
     def create_c_param_name(self) -> str:
         """
@@ -2985,7 +3026,7 @@ class Field:
         parameter in this generated surface follows), the bare field
         name for everything else.
         """
-        return f"{self.name}_um" if self.type == "dbu" else self.name
+        return f"{self.name}_um" if self.type in DBU_TYPES else self.name
 
     def create_c_type(self) -> str:
         """
@@ -3000,7 +3041,7 @@ class Field:
         """
         if self.type == "str" or self.is_enum_type():
             return "const char *"
-        if self.type == "dbu":
+        if self.type in DBU_TYPES:
             return "double"
         if self.type == "bool":
             return "int32_t"
@@ -3094,14 +3135,14 @@ class Field:
         with at least one dbu leaf (Point/Rect/DensityCheckWindow all
         qualify; Symmetry, all-bool, does not).
         """
-        if self.type == "dbu":
+        if self.type in DBU_TYPES:
             return True
         if self.list_compound_kind() is not None:
             return True
         ck = self.compound_klass()
         if ck is None:
             return False
-        return any(leaf.type == "dbu" for _, leaf in ck.embedded_scalar_leaves())
+        return any(leaf.type in DBU_TYPES for _, leaf in ck.embedded_scalar_leaves())
 
     def cmd_value_expr(self) -> str:
         """
@@ -3123,8 +3164,8 @@ class Field:
         name = self.create_c_param_name()
         if self.is_enum_type():
             return f"*parsed_{self.name}"
-        if self.type == "dbu":
-            return f"to_dbu({name}, *dbu_per_um)"
+        if self.type in DBU_TYPES:
+            return f"{_to_dbu_fn(self.type)}({name}, *dbu_per_um)"
         if self.type == "bool":
             return f"{name} != 0"
         return name
@@ -3176,8 +3217,8 @@ class Field:
             return f"{name} ? std::optional<std::string>({name}) : std::nullopt"
         if self.type == "bool":
             return f"{name} != 0"
-        if self.type == "dbu":
-            expr = f"to_dbu({name}, *dbu_per_um)"
+        if self.type in DBU_TYPES:
+            expr = f"{_to_dbu_fn(self.type)}({name}, *dbu_per_um)"
             return expr if self.create_required() else f"has_{self.name} ? std::optional<int64_t>({expr}) : std::nullopt"
         if self.type in ("int", "double"):
             cpp_type = "int" if self.type == "int" else "double"
@@ -3483,7 +3524,7 @@ class Field:
             return f"le::{self.type}" if qualified else self.type
         if self.type == "str":
             return "std::string"
-        if self.type == "dbu":
+        if self.type in DBU_TYPES:
             return "int64_t"
         if self.type == "bool":
             return "bool"
@@ -3717,8 +3758,8 @@ class Field:
         if self.type == "str":
             return code
 
-        if self.type == "dbu":
-            return f"{namespace}::format_coordinate_um({namespace}::to_um({code}, {dbu_var}))"
+        if self.type in DBU_TYPES:
+            return f"{namespace}::format_coordinate_um({namespace}::{_to_um_fn(self.type)}({code}, {dbu_var}))"
 
         return f"std::to_string({code})"
 
@@ -3787,7 +3828,13 @@ class Field:
             return f'{namespace}::PropertyValue::make_string("{name}", {value})'
         if self.type in ("float", "double", "long double"):
             return f'{namespace}::PropertyValue::make_double("{name}", static_cast<double>({value}))'
-        return f'{namespace}::PropertyValue::make_int("{name}", static_cast<int64_t>({value}))'  # int/dbu/bool/etc.
+        if self.type in DBU_TYPES:
+            # Still the raw value, but tagged so -filter and chained
+            # property paths can work in microns (NEW_FEATURES_SEPT_2026.md
+            # item 27) - see filter.hpp.
+            unit = "DBU2" if self.type == "dbu2" else "DBU"
+            return f'{namespace}::PropertyValue::make_int("{name}", static_cast<int64_t>({value}), {namespace}::PropertyValue::Unit::{unit})'
+        return f'{namespace}::PropertyValue::make_int("{name}", static_cast<int64_t>({value}))'  # int/bool/etc.
 
     def wrap_with_to_display_property(self, code, namespace, dbu_var="dbu_per_um") -> str:
         """
@@ -3828,8 +3875,8 @@ class Field:
             return f'{namespace}::PropertyValue::make_string("{name}", "{{" + {namespace}::to_property_string({value}, {dbu_var}) + "}}")'
         if self.type == "str":
             return f'{namespace}::PropertyValue::make_string("{name}", {value})'
-        if self.type == "dbu":
-            return f'{namespace}::PropertyValue::make_string("{name}", {namespace}::format_coordinate_um({namespace}::to_um({value}, {dbu_var})))'
+        if self.type in DBU_TYPES:
+            return f'{namespace}::PropertyValue::make_string("{name}", {namespace}::format_coordinate_um({namespace}::{_to_um_fn(self.type)}({value}, {dbu_var})))'
         if self.type in ("float", "double", "long double"):
             return f'{namespace}::PropertyValue::make_double("{name}", static_cast<double>({value}))'
         return f'{namespace}::PropertyValue::make_int("{name}", static_cast<int64_t>({value}))'  # int/bool/etc.

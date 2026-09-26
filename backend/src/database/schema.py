@@ -58,7 +58,7 @@ schema = Schema(
                 ),
                 Field(
                     name="database_units_microns",
-                    description="Database units in microns",
+                    description="Database units per micron (LEF UNITS DATABASE MICRONS)",
                     type="double",
                     example=2000.0,
                 ),
@@ -147,7 +147,7 @@ schema = Schema(
                 ),
                 Field(
                     name="manufacturing_grid",
-                    description="LEF MANUFACTURINGGRID, in microns (declared in the file's own units, like database_units_microns - not itself a dbu value) - unset if never read",
+                    description="LEF MANUFACTURINGGRID, in microns - unset if never read",
                     type="double",
                     example=3.5,
                     is_optional=True,
@@ -293,7 +293,7 @@ schema = Schema(
                 Field(
                     name="area",
                     description="The minimum area, in database units squared (LEF AREA)",
-                    type="dbu",
+                    type="dbu2",
                     example=1000000,
                     is_optional=True,
                 ),
@@ -508,7 +508,7 @@ schema = Schema(
                     type="dbu",
                     is_optional=True,
                 ),
-                Field(name="minimum_density", description="LEF MINIMUMDENSITY, a percentage (0-100) - not a length, no dbu conversion", type="double", example=4.0, is_optional=True),
+                Field(name="minimum_density", description="LEF MINIMUMDENSITY, a percentage (0-100)", type="double", example=4.0, is_optional=True),
                 Field(name="maximum_density", description="LEF MAXIMUMDENSITY, a percentage (0-100)", type="double", example=10.0, is_optional=True),
                 Field(name="density_check_step", description="LEF DENSITYCHECKSTEP, in database units", type="dbu", is_optional=True),
                 Field(
@@ -582,7 +582,7 @@ schema = Schema(
             description="One LEF MINENCLOSEDAREA entry - a layer can have several",
             has_pool=False,
             fields=[
-                Field(name="area", description="In database units squared", type="dbu", example=400000),
+                Field(name="area", description="In database units squared", type="dbu2", example=400000),
                 Field(name="width", description="Optional MINENCLOSEDAREAWIDTH, in database units", type="dbu", is_optional=True),
             ],
         ),
@@ -663,10 +663,10 @@ schema = Schema(
                 Field(name="ac_layer", description="Owning Layer, if this entry belongs to its ac_current_density list (unset/invalid otherwise)", type="Layer", parent="ac_current_density"),
                 Field(name="dc_layer", description="Owning Layer, if this entry belongs to its dc_current_density list (unset/invalid otherwise)", type="Layer", parent="dc_current_density"),
                 Field(name="type", description="PEAK, AVERAGE, or RMS", type="str", example="AVERAGE"),
-                Field(name="one_entry", description="Plain-scalar form value, declared units - no dbu conversion", type="double", example=5.5, is_optional=True),
+                Field(name="one_entry", description="Plain-scalar form value, in the LEF file's declared units", type="double", example=5.5, is_optional=True),
                 Field(name="frequency", description="AC-only FREQUENCY row, in Hz - no dbu conversion", type="double", example=1000000.0, is_list=True),
                 Field(name="width", description="WIDTH row (ROUTING layers), in database units", type="dbu", is_list=True),
-                Field(name="cutarea", description="CUTAREA row (CUT layers), in database units squared", type="dbu", is_list=True),
+                Field(name="cutarea", description="CUTAREA row (CUT layers), in database units squared", type="dbu2", is_list=True),
                 Field(name="table_entries", description="Flat TABLEENTRIES row - interpreted against the frequency/width/cutarea counts", type="double", example=0.0000005, is_list=True),
             ],
         ),
@@ -858,7 +858,7 @@ schema = Schema(
                 Field(name="adjacent_cuts", description="ADJACENTCUTS count", type="int", example=3, is_optional=True),
                 Field(name="adjacent_within", description="ADJACENTCUTS ... WITHIN distance, in database units", type="dbu", example=250, is_optional=True),
                 Field(name="adjacent_except_same_pg_net", description="ADJACENTCUTS ... EXCEPTSAMEPGNET was specified", type="bool", example=False),
-                Field(name="area", description="SPACING ... AREA value, in database units (LEF 5.7, CUT layers only)", type="dbu", example=200000, is_optional=True),
+                Field(name="area", description="SPACING ... AREA value, in database units squared (LEF 5.7, CUT layers only)", type="dbu2", example=200000, is_optional=True),
             ],
         ),
         Klass(

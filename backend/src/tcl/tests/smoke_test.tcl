@@ -255,4 +255,25 @@ if {[catch {select "not_a_real_token"} err]} {
 arm_move
 puts "ok: arm_move"
 
+# NEW_FEATURES_SEPT_2026.md item 27 - every length reads and writes in
+# microns and every area in square microns, including -filter and chained
+# property paths (the DB stores database units: 1000/um here).
+if {[info exists ::env(TMPDIR)]} {
+    set units_lef [file join $::env(TMPDIR) le_smoke_units.lef]
+} else {
+    set units_lef /tmp/le_smoke_units.lef
+}
+set fh [open $units_lef w]
+puts $fh "VERSION 5.8 ;\nUNITS\n   DATABASE MICRONS 1000 ;\nEND UNITS\nLAYER UNITS_M2\n   TYPE ROUTING ;\n   WIDTH 0.05 ;\n   PITCH 0.1 ;\n   AREA 0.000666 ;\n   DIRECTION VERTICAL ;\nEND UNITS_M2\nEND LIBRARY"
+close $fh
+check "read_lef of the units LEF" 0 [read_lef -library units $units_lef]
+file delete $units_lef
+check "a length reads in microns" "0.050" [get_properties layer:UNITS_M2 .width]
+check "an area reads in square microns" "0.000666" [get_properties layer:UNITS_M2 .area]
+check "-filter compares lengths in microns" "layer:UNITS_M2" [get_layers -filter {.width < 0.1}]
+update_layer layer:UNITS_M2 -area 0.002
+check "update_layer -area takes square microns" "0.002" [get_properties layer:UNITS_M2 .area]
+open_design TESTCELL
+check "a chained property path ends in microns" "1" [get_properties [lindex [get_shapes] 0] .layer.width]
+
 puts "le_tcl smoke test passed"

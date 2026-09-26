@@ -2,7 +2,7 @@
 
 # TCL Command Reference
 
-Every Tcl command le_shell provides. Objects are named by tokens such as `layer:M1`, `terminal:A` or `shape:12` - what the `get_` commands return and every other command accepts. Every command also takes `-help`, which returns its usage; `help <pattern>` lists matching commands and `man <command>` shows one in full.
+Every Tcl command le_shell provides. Objects are named by tokens such as `layer:M1`, `terminal:A` or `shape:12` - what the `get_` commands return and every other command accepts. Every command also takes `-help`, which returns its usage; `help <pattern>` lists matching commands and `man <command>` shows one in full. All lengths and coordinates - including points `{x y}`, rectangles and `-filter` comparisons - are in microns (`um`), and areas in square microns (`um2`).
 
 ## arm_move
 
@@ -80,7 +80,7 @@ Creates a AntennaModel and returns its token. AntennaModel: One LEF ANTENNAMODEL
 
 ## create_array_spacing
 
-`create_array_spacing -layer <token> [-long_array <bool>] [-via_width <dbu>] -cut_spacing <dbu> [-help]`
+`create_array_spacing -layer <token> [-long_array <bool>] [-via_width <um>] -cut_spacing <um> [-help]`
 
 Creates a ArraySpacing and returns its token. ArraySpacing: LEF ARRAYSPACING (CUT layers, at most one per layer)
 
@@ -88,12 +88,12 @@ Creates a ArraySpacing and returns its token. ArraySpacing: LEF ARRAYSPACING (CU
 | --- | --- | --- | --- |
 | `-layer` | `token` | yes | Parent Layer token |
 | `-long_array` | `bool` | no | Whether LONGARRAY was specified |
-| `-via_width` | `dbu` | no | Optional WIDTH, in database units |
-| `-cut_spacing` | `dbu` | yes | CUTSPACING, in database units |
+| `-via_width` | `um` | no | Optional WIDTH, in microns |
+| `-cut_spacing` | `um` | yes | CUTSPACING, in microns |
 
 ## create_blockage
 
-`create_blockage -layout <token> -placement <token> -kind <BlockageKind> [-layer_name <str>] [-spacing <dbu>] [-design_rule_width <dbu>] [-is_soft <bool>] [-placement_max_density <double>] [-help]`
+`create_blockage -layout <token> -placement <token> -kind <BlockageKind> [-layer_name <str>] [-spacing <um>] [-design_rule_width <um>] [-is_soft <bool>] [-placement_max_density <double>] [-help]`
 
 Creates a Blockage and returns its token. Blockage: A routing or placement blockage (DEF BLOCKAGES)
 
@@ -103,8 +103,8 @@ Creates a Blockage and returns its token. Blockage: A routing or placement block
 | `-placement` | `token` | yes | Scope this blockage to underneath one placed instance - invalid id if unscoped |
 | `-kind` | `BlockageKind` | yes | Whether this is a routing-layer or placement blockage |
 | `-layer_name` | `str` | no | The name of the blocked routing layer, as read - set only for a ROUTING blockage |
-| `-spacing` | `dbu` | no | Minimum spacing override, in database units (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width |
-| `-design_rule_width` | `dbu` | no | Effective width for design rule checks, in database units (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing |
+| `-spacing` | `um` | no | Minimum spacing override, in microns (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width |
+| `-design_rule_width` | `um` | no | Effective width for design rule checks, in microns (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing |
 | `-is_soft` | `bool` | no | PLACEMENT ... SOFT - PLACEMENT only |
 | `-placement_max_density` | `double` | no | PLACEMENT ... PARTIAL maxDensity (0-100) - unset if not PARTIAL |
 
@@ -121,7 +121,7 @@ Creates a Design and returns its token. Design: A library cell or logical module
 
 ## create_enclosure_entry
 
-`create_enclosure_entry -layer <token> [-location <str>] -overhang1 <dbu> -overhang2 <dbu> [-width <dbu>] [-except_extra_cut <dbu>] [-min_length <dbu>] [-help]`
+`create_enclosure_entry -layer <token> [-location <str>] -overhang1 <um> -overhang2 <um> [-width <um>] [-except_extra_cut <um>] [-min_length <um>] [-help]`
 
 Creates a EnclosureEntry and returns its token. EnclosureEntry: One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several.
 
@@ -129,11 +129,11 @@ Creates a EnclosureEntry and returns its token. EnclosureEntry: One LEF ENCLOSUR
 | --- | --- | --- | --- |
 | `-layer` | `token` | yes | Parent Layer token |
 | `-location` | `str` | no | ABOVE, BELOW, or unset |
-| `-overhang1` | `dbu` | yes | In database units |
-| `-overhang2` | `dbu` | yes | In database units |
-| `-width` | `dbu` | no | Optional WIDTH, in database units |
-| `-except_extra_cut` | `dbu` | no | Optional WIDTH ... EXCEPTEXTRACUT (5.7), in database units - only meaningful alongside width |
-| `-min_length` | `dbu` | no | Optional LENGTH (5.7), in database units - mutually exclusive with width |
+| `-overhang1` | `um` | yes | In microns |
+| `-overhang2` | `um` | yes | In microns |
+| `-width` | `um` | no | Optional WIDTH, in microns |
+| `-except_extra_cut` | `um` | no | Optional WIDTH ... EXCEPTEXTRACUT (5.7), in microns - only meaningful alongside width |
+| `-min_length` | `um` | no | Optional LENGTH (5.7), in microns - mutually exclusive with width |
 
 ## create_foreign
 
@@ -153,7 +153,7 @@ Creates a Foreign and returns its token. Foreign: A design abstract view foreign
 
 ## create_g_cell_grid
 
-`create_g_cell_grid -layout <token> [-is_x <bool>] -start <dbu> -count <int> -step <dbu> [-help]`
+`create_g_cell_grid -layout <token> [-is_x <bool>] -start <um> -count <int> -step <um> [-help]`
 
 Creates a GCellGrid and returns its token. GCellGrid: A global-routing gcell grid line (DEF GCELLGRID)
 
@@ -161,22 +161,22 @@ Creates a GCellGrid and returns its token. GCellGrid: A global-routing gcell gri
 | --- | --- | --- | --- |
 | `-layout` | `token` | yes | Parent Layout token |
 | `-is_x` | `bool` | no | True for an X-direction grid line, false for Y (DEF GCELLGRID X/Y) |
-| `-start` | `dbu` | yes | Starting coordinate, in database units (DEF GCELLGRID DO start) |
+| `-start` | `um` | yes | Starting coordinate, in microns (DEF GCELLGRID DO start) |
 | `-count` | `int` | yes | Number of grid lines (DEF GCELLGRID DO ... n) |
-| `-step` | `dbu` | yes | Spacing between grid lines, in database units (DEF GCELLGRID STEP) |
+| `-step` | `um` | yes | Spacing between grid lines, in microns (DEF GCELLGRID STEP) |
 
 ## create_influence_spacing_entry
 
-`create_influence_spacing_entry -layer <token> -width <dbu> -distance <dbu> -spacing <dbu> [-help]`
+`create_influence_spacing_entry -layer <token> -width <um> -distance <um> -spacing <um> [-help]`
 
 Creates a InfluenceSpacingEntry and returns its token. InfluenceSpacingEntry: One row of a LEF SPACINGTABLE INFLUENCE table (ROUTING layers)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layer` | `token` | yes | Parent Layer token |
-| `-width` | `dbu` | yes | The width this row applies above, in database units |
-| `-distance` | `dbu` | yes | The influence distance, in database units |
-| `-spacing` | `dbu` | yes | The resulting spacing, in database units |
+| `-width` | `um` | yes | The width this row applies above, in microns |
+| `-distance` | `um` | yes | The influence distance, in microns |
+| `-spacing` | `um` | yes | The resulting spacing, in microns |
 
 ## create_instance
 
@@ -197,7 +197,7 @@ Creates a Instance and returns its token. Instance: An instance of another desig
 
 ## create_layer
 
-`create_layer -technology <token> -name <str> -type <str> -direction <RoutingDirection> [-width <dbu>] [-pitch <dbu>] [-offset <dbu>] [-area <dbu>] [-resistance <double>] [-capacitance <double>] [-height <dbu>] [-thickness <dbu>] [-wire_extension <dbu>] [-shrinkage <dbu>] [-cap_multiplier <double>] [-edge_cap <double>] [-antenna_length <dbu>] [-default_mask <int>] [-pitch_xy <Point>] [-offset_xy <Point>] [-diag_pitch <dbu>] [-diag_pitch_xy <Point>] [-diag_spacing <dbu>] [-diag_width <dbu>] [-diag_min_edge_length <dbu>] [-max_width <dbu>] [-min_width <dbu>] [-protrusion_width1 <dbu>] [-protrusion_length <dbu>] [-protrusion_width2 <dbu>] [-split_wire_width <dbu>] [-minimum_density <double>] [-maximum_density <double>] [-density_check_step <dbu>] [-density_check_window <DensityCheckWindow>] [-fill_active_spacing <dbu>] [-help]`
+`create_layer -technology <token> -name <str> -type <str> -direction <RoutingDirection> [-width <um>] [-pitch <um>] [-offset <um>] [-area <um2>] [-resistance <double>] [-capacitance <double>] [-height <um>] [-thickness <um>] [-wire_extension <um>] [-shrinkage <um>] [-cap_multiplier <double>] [-edge_cap <double>] [-antenna_length <um>] [-default_mask <int>] [-pitch_xy <Point>] [-offset_xy <Point>] [-diag_pitch <um>] [-diag_pitch_xy <Point>] [-diag_spacing <um>] [-diag_width <um>] [-diag_min_edge_length <um>] [-max_width <um>] [-min_width <um>] [-protrusion_width1 <um>] [-protrusion_length <um>] [-protrusion_width2 <um>] [-split_wire_width <um>] [-minimum_density <double>] [-maximum_density <double>] [-density_check_step <um>] [-density_check_window <DensityCheckWindow>] [-fill_active_spacing <um>] [-help]`
 
 Creates a Layer and returns its token. Layer: A routing layer
 
@@ -207,38 +207,38 @@ Creates a Layer and returns its token. Layer: A routing layer
 | `-name` | `str` | yes | The name of the layer |
 | `-type` | `str` | yes | The type of the layer: ROUTING, CUT, IMPLANT, MASTERSLICE etc |
 | `-direction` | `RoutingDirection` | yes | The layer routing direction |
-| `-width` | `dbu` | no | The default routing width, in database units (LEF WIDTH) |
-| `-pitch` | `dbu` | no | The routing pitch, in database units (LEF PITCH, single-value form only) |
-| `-offset` | `dbu` | no | The routing offset, in database units (LEF OFFSET, single-value form only) |
-| `-area` | `dbu` | no | The minimum area, in database units squared (LEF AREA) |
+| `-width` | `um` | no | The default routing width, in microns (LEF WIDTH) |
+| `-pitch` | `um` | no | The routing pitch, in microns (LEF PITCH, single-value form only) |
+| `-offset` | `um` | no | The routing offset, in microns (LEF OFFSET, single-value form only) |
+| `-area` | `um2` | no | The minimum area, in square microns (LEF AREA) |
 | `-resistance` | `double` | no | Resistance per square (ROUTING) or per cut (CUT), in the LEF file's own declared units (LEF RESISTANCE) |
 | `-capacitance` | `double` | no | Capacitance per square, in the LEF file's own declared units (LEF CAPACITANCE) |
-| `-height` | `dbu` | no | Layer height, in database units (LEF HEIGHT) |
-| `-thickness` | `dbu` | no | Layer thickness, in database units (LEF THICKNESS) |
-| `-wire_extension` | `dbu` | no | Default wire extension beyond a pin, in database units (LEF WIREEXTENSION) |
-| `-shrinkage` | `dbu` | no | Shrinkage, in database units (LEF SHRINKAGE) |
+| `-height` | `um` | no | Layer height, in microns (LEF HEIGHT) |
+| `-thickness` | `um` | no | Layer thickness, in microns (LEF THICKNESS) |
+| `-wire_extension` | `um` | no | Default wire extension beyond a pin, in microns (LEF WIREEXTENSION) |
+| `-shrinkage` | `um` | no | Shrinkage, in microns (LEF SHRINKAGE) |
 | `-cap_multiplier` | `double` | no | Capacitance multiplier (LEF CAPMULTIPLIER) |
 | `-edge_cap` | `double` | no | Edge capacitance, in the LEF file's own declared units (LEF EDGECAPACITANCE) |
-| `-antenna_length` | `dbu` | no | Antenna length, in database units (LEF ANTENNALENGTHFACTOR - deprecated 5.3 syntax, but still parsed) |
+| `-antenna_length` | `um` | no | Antenna length, in microns (LEF ANTENNALENGTHFACTOR - deprecated 5.3 syntax, but still parsed) |
 | `-default_mask` | `int` | no | LEF MASK (layer-level default, LEF 5.8) - not to be confused with per-shape RECT/POLYGON/PATH MASK on Shape |
-| `-pitch_xy` | `Point` | no | Two-value PITCH form (LEF PITCH x y), in database units - mutually exclusive with pitch (single-value form) |
-| `-offset_xy` | `Point` | no | Two-value OFFSET form (LEF OFFSET x y), in database units - mutually exclusive with offset |
-| `-diag_pitch` | `dbu` | no | Single-value DIAGPITCH, in database units - mutually exclusive with diag_pitch_xy |
-| `-diag_pitch_xy` | `Point` | no | Two-value DIAGPITCH (diag45/diag135 distances), in database units |
-| `-diag_spacing` | `dbu` | no | LEF DIAGSPACING, in database units |
-| `-diag_width` | `dbu` | no | LEF DIAGWIDTH, in database units |
-| `-diag_min_edge_length` | `dbu` | no | LEF DIAGMINEDGELENGTH, in database units |
-| `-max_width` | `dbu` | no | LEF MAXWIDTH, in database units |
-| `-min_width` | `dbu` | no | LEF MINWIDTH, in database units |
-| `-protrusion_width1` | `dbu` | no | LEF PROTRUSIONWIDTH's first width, in database units - all three protrusion_* fields are set together or not at all |
-| `-protrusion_length` | `dbu` | no | LEF PROTRUSIONWIDTH's LENGTH, in database units |
-| `-protrusion_width2` | `dbu` | no | LEF PROTRUSIONWIDTH's second WIDTH, in database units |
-| `-split_wire_width` | `dbu` | no | LEF SPLITWIREWIDTH, in database units - read-only, not written back by write_lef |
-| `-minimum_density` | `double` | no | LEF MINIMUMDENSITY, a percentage (0-100) - not a length, no dbu conversion |
+| `-pitch_xy` | `Point` | no | Two-value PITCH form (LEF PITCH x y), in microns - mutually exclusive with pitch (single-value form) |
+| `-offset_xy` | `Point` | no | Two-value OFFSET form (LEF OFFSET x y), in microns - mutually exclusive with offset |
+| `-diag_pitch` | `um` | no | Single-value DIAGPITCH, in microns - mutually exclusive with diag_pitch_xy |
+| `-diag_pitch_xy` | `Point` | no | Two-value DIAGPITCH (diag45/diag135 distances), in microns |
+| `-diag_spacing` | `um` | no | LEF DIAGSPACING, in microns |
+| `-diag_width` | `um` | no | LEF DIAGWIDTH, in microns |
+| `-diag_min_edge_length` | `um` | no | LEF DIAGMINEDGELENGTH, in microns |
+| `-max_width` | `um` | no | LEF MAXWIDTH, in microns |
+| `-min_width` | `um` | no | LEF MINWIDTH, in microns |
+| `-protrusion_width1` | `um` | no | LEF PROTRUSIONWIDTH's first width, in microns - all three protrusion_* fields are set together or not at all |
+| `-protrusion_length` | `um` | no | LEF PROTRUSIONWIDTH's LENGTH, in microns |
+| `-protrusion_width2` | `um` | no | LEF PROTRUSIONWIDTH's second WIDTH, in microns |
+| `-split_wire_width` | `um` | no | LEF SPLITWIREWIDTH, in microns - read-only, not written back by write_lef |
+| `-minimum_density` | `double` | no | LEF MINIMUMDENSITY, a percentage (0-100) |
 | `-maximum_density` | `double` | no | LEF MAXIMUMDENSITY, a percentage (0-100) |
-| `-density_check_step` | `dbu` | no | LEF DENSITYCHECKSTEP, in database units |
-| `-density_check_window` | `DensityCheckWindow` | no | LEF DENSITYCHECKWINDOW (length, width), in database units |
-| `-fill_active_spacing` | `dbu` | no | LEF FILLACTIVESPACING, in database units |
+| `-density_check_step` | `um` | no | LEF DENSITYCHECKSTEP, in microns |
+| `-density_check_window` | `DensityCheckWindow` | no | LEF DENSITYCHECKWINDOW (length, width), in microns |
+| `-fill_active_spacing` | `um` | no | LEF FILLACTIVESPACING, in microns |
 
 ## create_layer_density_entry
 
@@ -251,7 +251,7 @@ Creates a LayerDensityEntry and returns its token. LayerDensityEntry: One LEF AC
 | `-ac_layer` | `token` | no | Parent Layer token - give exactly one of the parent flags |
 | `-dc_layer` | `token` | no | Parent Layer token - give exactly one of the parent flags |
 | `-type` | `str` | yes | PEAK, AVERAGE, or RMS |
-| `-one_entry` | `double` | no | Plain-scalar form value, declared units - no dbu conversion |
+| `-one_entry` | `double` | no | Plain-scalar form value, in the LEF file's declared units |
 
 ## create_layout
 
@@ -297,7 +297,7 @@ Creates a MacroDensityLayer and returns its token. MacroDensityLayer: One layer'
 
 ## create_macro_site_placement
 
-`create_macro_site_placement -abstract <token> -site_name <str> [-origin <Point>] -orient <Orientation> [-num_x <int>] [-num_y <int>] [-step_x <dbu>] [-step_y <dbu>] [-help]`
+`create_macro_site_placement -abstract <token> -site_name <str> [-origin <Point>] -orient <Orientation> [-num_x <int>] [-num_y <int>] [-step_x <um>] [-step_y <um>] [-help]`
 
 Creates a MacroSitePlacement and returns its token. MacroSitePlacement: One LEF MACRO SITE array placement (Abstract.site_placements) - a macro can have several
 
@@ -305,30 +305,30 @@ Creates a MacroSitePlacement and returns its token. MacroSitePlacement: One LEF 
 | --- | --- | --- | --- |
 | `-abstract` | `token` | yes | Parent Abstract token |
 | `-site_name` | `str` | yes | The name of the site |
-| `-origin` | `Point` | no | In database units |
+| `-origin` | `Point` | no | In microns |
 | `-orient` | `Orientation` | yes | The orientation of this placement |
 | `-num_x` | `int` | no | Optional LEF DO n |
 | `-num_y` | `int` | no | Optional LEF BY m |
-| `-step_x` | `dbu` | no | Optional LEF STEP x, in database units |
-| `-step_y` | `dbu` | no | Optional LEF STEP y, in database units |
+| `-step_x` | `um` | no | Optional LEF STEP x, in microns |
+| `-step_y` | `um` | no | Optional LEF STEP y, in microns |
 
 ## create_min_step
 
-`create_min_step -layer <token> -distance <dbu> [-min_step_type <str>] [-lengthsum <dbu>] [-max_edges <int>] [-help]`
+`create_min_step -layer <token> -distance <um> [-min_step_type <str>] [-lengthsum <um>] [-max_edges <int>] [-help]`
 
 Creates a MinStep and returns its token. MinStep: One LEF MINSTEP rule (ROUTING layers)
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layer` | `token` | yes | Parent Layer token |
-| `-distance` | `dbu` | yes | The minimum step distance, in database units (LEF MINSTEP) |
+| `-distance` | `um` | yes | The minimum step distance, in microns (LEF MINSTEP) |
 | `-min_step_type` | `str` | no | INSIDECORNER, OUTSIDECORNER, or STEP - unset otherwise |
-| `-lengthsum` | `dbu` | no | MINSTEP ... LENGTHSUM value, in database units |
+| `-lengthsum` | `um` | no | MINSTEP ... LENGTHSUM value, in microns |
 | `-max_edges` | `int` | no | MINSTEP ... MAXEDGES value (5.7) |
 
 ## create_minimum_cut
 
-`create_minimum_cut -layer <token> -cuts <int> -width <dbu> [-within <dbu>] [-connection <str>] [-length <dbu>] [-distance <dbu>] [-help]`
+`create_minimum_cut -layer <token> -cuts <int> -width <um> [-within <um>] [-connection <str>] [-length <um>] [-distance <um>] [-help]`
 
 Creates a MinimumCut and returns its token. MinimumCut: One LEF MINIMUMCUT rule (CUT layers)
 
@@ -336,11 +336,11 @@ Creates a MinimumCut and returns its token. MinimumCut: One LEF MINIMUMCUT rule 
 | --- | --- | --- | --- |
 | `-layer` | `token` | yes | Parent Layer token |
 | `-cuts` | `int` | yes | Number of cuts required (LEF MINIMUMCUT) |
-| `-width` | `dbu` | yes | Width above which the rule applies, in database units |
-| `-within` | `dbu` | no | MINIMUMCUT ... WITHIN distance, in database units (5.7) |
+| `-width` | `um` | yes | Width above which the rule applies, in microns |
+| `-within` | `um` | no | MINIMUMCUT ... WITHIN distance, in microns (5.7) |
 | `-connection` | `str` | no | FROMABOVE or FROMBELOW, unset otherwise |
-| `-length` | `dbu` | no | MINIMUMCUT ... LENGTH value, in database units |
-| `-distance` | `dbu` | no | MINIMUMCUT ... LENGTH ... WITHIN distance, in database units |
+| `-length` | `um` | no | MINIMUMCUT ... LENGTH value, in microns |
+| `-distance` | `um` | no | MINIMUMCUT ... LENGTH ... WITHIN distance, in microns |
 
 ## create_net
 
@@ -382,7 +382,7 @@ Creates a NonDefaultRule and returns its token. NonDefaultRule: An alternate per
 
 ## create_non_default_rule_layer
 
-`create_non_default_rule_layer -non_default_rule <token> -layer_name <str> [-width <dbu>] [-spacing <dbu>] [-wire_extension <dbu>] [-resistance <double>] [-capacitance <double>] [-edge_cap <double>] [-diag_width <dbu>] [-help]`
+`create_non_default_rule_layer -non_default_rule <token> -layer_name <str> [-width <um>] [-spacing <um>] [-wire_extension <um>] [-resistance <double>] [-capacitance <double>] [-edge_cap <double>] [-diag_width <um>] [-help]`
 
 Creates a NonDefaultRuleLayer and returns its token. NonDefaultRuleLayer: One LAYER override within a NONDEFAULTRULE
 
@@ -390,13 +390,13 @@ Creates a NonDefaultRuleLayer and returns its token. NonDefaultRuleLayer: One LA
 | --- | --- | --- | --- |
 | `-non_default_rule` | `token` | yes | Parent NonDefaultRule token |
 | `-layer_name` | `str` | yes | The name of the layer being overridden |
-| `-width` | `dbu` | no | Overridden width, in database units |
-| `-spacing` | `dbu` | no | Overridden minimum spacing, in database units |
-| `-wire_extension` | `dbu` | no | Overridden wire extension, in database units |
+| `-width` | `um` | no | Overridden width, in microns |
+| `-spacing` | `um` | no | Overridden minimum spacing, in microns |
+| `-wire_extension` | `um` | no | Overridden wire extension, in microns |
 | `-resistance` | `double` | no | Overridden resistance per square, in the LEF file's own declared units (obsolete since LEF 5.6, but still readable) |
 | `-capacitance` | `double` | no | Overridden capacitance per square, in the LEF file's own declared units (obsolete since LEF 5.6, but still readable) |
 | `-edge_cap` | `double` | no | Overridden edge capacitance, in the LEF file's own declared units (obsolete since LEF 5.6, but still readable) |
-| `-diag_width` | `dbu` | no | Overridden diagonal width, in database units (LEF 5.6) - read-only, not written back by write_lef |
+| `-diag_width` | `um` | no | Overridden diagonal width, in microns (LEF 5.6) - read-only, not written back by write_lef |
 
 ## create_non_default_rule_via
 
@@ -436,7 +436,7 @@ Creates a PhysicalPort and returns its token. PhysicalPort: A chip-boundary I/O 
 | `-direction` | `SignalDirection` | no | The direction of the pin - unset if omitted |
 | `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF PINS USE) |
 | `-placement_status` | `PlacementStatus` | no | Placement status - unset if never placed |
-| `-location` | `Point` | no | The pin's location, in database units - unset if unplaced |
+| `-location` | `Point` | no | The pin's location, in microns - unset if unplaced |
 | `-orientation` | `Orientation` | no | Placement orientation - unset if unplaced |
 
 ## create_physical_port_segment
@@ -449,7 +449,7 @@ Creates a PhysicalPortSegment and returns its token. PhysicalPortSegment: One ph
 | --- | --- | --- | --- |
 | `-physical_port` | `token` | yes | Parent PhysicalPort token |
 | `-placement_status` | `PlacementStatus` | no | This segment's own placement status - unset for the synthetic segment of a simple (non-multi-port) pin, whose placement lives on the parent PhysicalPort instead |
-| `-location` | `Point` | no | This segment's own location, in database units - unset if unplaced |
+| `-location` | `Point` | no | This segment's own location, in microns - unset if unplaced |
 | `-orientation` | `Orientation` | no | This segment's own orientation - unset if unplaced |
 
 ## create_pin
@@ -491,7 +491,7 @@ Creates a Placement and returns its token. Placement: A placed physical instance
 | `-name` | `str` | yes | The name of the instance - unique within its layout |
 | `-physical_only` | `bool` | no | Set by `link` when no Instance in the sibling Schematic matches this Placement's name (e.g. a filler/decap cell with no logical counterpart) - not a DEF-native concept, always False until `link` runs |
 | `-placement_status` | `PlacementStatus` | yes | Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED) |
-| `-location` | `Point` | no | The location of the lower-left corner of this instance, in database units - unset if UNPLACED |
+| `-location` | `Point` | no | The location of the lower-left corner of this instance, in microns - unset if UNPLACED |
 | `-orientation` | `Orientation` | no | Placement orientation - unset if UNPLACED |
 | `-weight` | `double` | no | DEF COMPONENTS WEIGHT - unset if omitted |
 | `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) - unset if omitted |
@@ -526,7 +526,7 @@ Creates a PortBus and returns its token. PortBus: A multi-bit bus grouping of a 
 
 ## create_prefer_enclosure_entry
 
-`create_prefer_enclosure_entry -layer <token> [-location <str>] -overhang1 <dbu> -overhang2 <dbu> [-min_width <dbu>] [-help]`
+`create_prefer_enclosure_entry -layer <token> [-location <str>] -overhang1 <um> -overhang2 <um> [-min_width <um>] [-help]`
 
 Creates a PreferEnclosureEntry and returns its token. PreferEnclosureEntry: One LEF PREFERENCLOSURE entry (CUT layers) - a layer can have several
 
@@ -534,9 +534,9 @@ Creates a PreferEnclosureEntry and returns its token. PreferEnclosureEntry: One 
 | --- | --- | --- | --- |
 | `-layer` | `token` | yes | Parent Layer token |
 | `-location` | `str` | no | ABOVE, BELOW, or unset |
-| `-overhang1` | `dbu` | yes | In database units |
-| `-overhang2` | `dbu` | yes | In database units |
-| `-min_width` | `dbu` | no | Optional WIDTH, in database units |
+| `-overhang1` | `um` | yes | In microns |
+| `-overhang2` | `um` | yes | In microns |
+| `-min_width` | `um` | no | Optional WIDTH, in microns |
 
 ## create_property_definition
 
@@ -570,7 +570,7 @@ Creates a Region and returns its token. Region: A placement region (DEF REGIONS)
 
 ## create_route
 
-`create_route -layout <token> [-net <token>] -name <str> [-is_special <bool>] [-width <dbu>] [-voltage <double>] [-use <str>] [-help]`
+`create_route -layout <token> [-net <token>] -name <str> [-is_special <bool>] [-width <um>] [-voltage <double>] [-use <str>] [-help]`
 
 Creates a Route and returns its token. Route: The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
 
@@ -580,13 +580,13 @@ Creates a Route and returns its token. Route: The routing geometry of a regular 
 | `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` - unset until linked |
 | `-name` | `str` | yes | The name of the net this routes, as read - unique within its layout. See net for the resolved link |
 | `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
-| `-width` | `dbu` | no | Routing width override, in database units (DEF SPECIALNETS WIDTH) - SPECIALNETS only, unset if omitted |
+| `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only, unset if omitted |
 | `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only, unset if omitted |
 | `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF NETS/SPECIALNETS USE) |
 
 ## create_row
 
-`create_row -layout <token> -name <str> -site_name <str> [-origin <Point>] -orientation <Orientation> [-num_x <int>] [-num_y <int>] [-step_x <dbu>] [-step_y <dbu>] [-help]`
+`create_row -layout <token> -name <str> -site_name <str> [-origin <Point>] -orientation <Orientation> [-num_x <int>] [-num_y <int>] [-step_x <um>] [-step_y <um>] [-help]`
 
 Creates a Row and returns its token. Row: A placement row (DEF ROW)
 
@@ -595,12 +595,12 @@ Creates a Row and returns its token. Row: A placement row (DEF ROW)
 | `-layout` | `token` | yes | Parent Layout token |
 | `-name` | `str` | yes | The name of the row |
 | `-site_name` | `str` | yes | The name of the site this row is built from, as read (DEF ROW macro name) - a plain name reference, same convention as Abstract.site, not resolved to a SiteId |
-| `-origin` | `Point` | no | The row's origin, in database units |
+| `-origin` | `Point` | no | The row's origin, in microns |
 | `-orientation` | `Orientation` | yes | The row's orientation |
 | `-num_x` | `int` | no | Number of site repeats in X (DEF ROW DO n) |
 | `-num_y` | `int` | no | Number of site repeats in Y (DEF ROW BY m) |
-| `-step_x` | `dbu` | no | Step in X between repeats, in database units (DEF ROW STEP) |
-| `-step_y` | `dbu` | no | Step in Y between repeats, in database units (DEF ROW STEP) |
+| `-step_x` | `um` | no | Step in X between repeats, in microns (DEF ROW STEP) |
+| `-step_y` | `um` | no | Step in Y between repeats, in microns (DEF ROW STEP) |
 
 ## create_schematic
 
@@ -614,7 +614,7 @@ Creates a Schematic and returns its token. Schematic: A logical connectivity vie
 
 ## create_shape
 
-`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-in_abstract <token>] [-in_layout <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <dbu>] [-design_rule_width <dbu>] [-except_pg_net <bool>] [-help]`
+`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-in_abstract <token>] [-in_layout <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-help]`
 
 Creates a Shape and returns its token. Shape: A shape on a layer.
 
@@ -634,8 +634,8 @@ Creates a Shape and returns its token. Shape: A shape on a layer.
 | `-paths` | `Path...` | no | A list of paths |
 | `-polygons` | `Polygon...` | no | A list of polygons |
 | `-rects` | `Rect...` | no | A list of rects |
-| `-spacing` | `dbu` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in database units - unset means the layer's own rules apply; 0 is a real value. Mutually exclusive with design_rule_width. |
-| `-design_rule_width` | `dbu` | no | LEF LAYER ... DESIGNRULEWIDTH, in database units - unset means none; 0 is a real value. Mutually exclusive with spacing. |
+| `-spacing` | `um` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in microns - unset means the layer's own rules apply; 0 is a real value. Mutually exclusive with design_rule_width. |
+| `-design_rule_width` | `um` | no | LEF LAYER ... DESIGNRULEWIDTH, in microns - unset means none; 0 is a real value. Mutually exclusive with spacing. |
 | `-except_pg_net` | `bool` | no | LEF LAYER ... EXCEPTPGNET (5.7) - write_lef writes it for OBS only |
 
 ## create_site
@@ -649,59 +649,59 @@ Creates a Site and returns its token. Site: A site definition (LEF SITE) - the p
 | `-technology` | `token` | yes | Parent Technology token |
 | `-name` | `str` | yes | The name of the site |
 | `-site_class` | `str` | no | PAD, CORE, VIRTUAL, or unset (LEF CLASS) |
-| `-size` | `Point` | no | The site size, in database units (LEF SIZE) |
+| `-size` | `Point` | no | The site size, in microns (LEF SIZE) |
 | `-symmetry` | `Symmetry` | no | Which flips/rotations this site allows (LEF SYMMETRY) |
 
 ## create_spacing_rule
 
-`create_spacing_rule -layer <token> -distance <dbu> [-range_min <dbu>] [-range_max <dbu>] [-range_use_length_threshold <bool>] [-range_influence <dbu>] [-range_influence_range_min <dbu>] [-range_influence_range_max <dbu>] [-range_range_min <dbu>] [-range_range_max <dbu>] [-length_threshold <dbu>] [-length_threshold_range_min <dbu>] [-length_threshold_range_max <dbu>] [-center_to_center <bool>] [-same_net <bool>] [-same_net_pg_only <bool>] [-parallel_overlap <bool>] [-end_of_line_width <dbu>] [-end_of_line_within <dbu>] [-parallel_edge_space <dbu>] [-parallel_edge_within <dbu>] [-two_edges <bool>] [-notch_length <dbu>] [-end_of_notch_width <dbu>] [-end_of_notch_spacing <dbu>] [-end_of_notch_length <dbu>] [-second_layer_name <str>] [-second_layer_stack <bool>] [-adjacent_cuts <int>] [-adjacent_within <dbu>] [-adjacent_except_same_pg_net <bool>] [-area <dbu>] [-help]`
+`create_spacing_rule -layer <token> -distance <um> [-range_min <um>] [-range_max <um>] [-range_use_length_threshold <bool>] [-range_influence <um>] [-range_influence_range_min <um>] [-range_influence_range_max <um>] [-range_range_min <um>] [-range_range_max <um>] [-length_threshold <um>] [-length_threshold_range_min <um>] [-length_threshold_range_max <um>] [-center_to_center <bool>] [-same_net <bool>] [-same_net_pg_only <bool>] [-parallel_overlap <bool>] [-end_of_line_width <um>] [-end_of_line_within <um>] [-parallel_edge_space <um>] [-parallel_edge_within <um>] [-two_edges <bool>] [-notch_length <um>] [-end_of_notch_width <um>] [-end_of_notch_spacing <um>] [-end_of_notch_length <um>] [-second_layer_name <str>] [-second_layer_stack <bool>] [-adjacent_cuts <int>] [-adjacent_within <um>] [-adjacent_except_same_pg_net <bool>] [-area <um2>] [-help]`
 
 Creates a SpacingRule and returns its token. SpacingRule: One LEF SPACING statement for a layer - ROUTING and CUT layers use disjoint sets of modifiers.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layer` | `token` | yes | Parent Layer token |
-| `-distance` | `dbu` | yes | The spacing distance, in database units (LEF SPACING) |
-| `-range_min` | `dbu` | no | SPACING ... RANGE min, in database units |
-| `-range_max` | `dbu` | no | SPACING ... RANGE max, in database units |
+| `-distance` | `um` | yes | The spacing distance, in microns (LEF SPACING) |
+| `-range_min` | `um` | no | SPACING ... RANGE min, in microns |
+| `-range_max` | `um` | no | SPACING ... RANGE max, in microns |
 | `-range_use_length_threshold` | `bool` | no | RANGE ... USELENGTHTHRESHOLD was specified |
-| `-range_influence` | `dbu` | no | RANGE ... INFLUENCE value, in database units |
-| `-range_influence_range_min` | `dbu` | no | RANGE ... INFLUENCE ... RANGE min, in database units |
-| `-range_influence_range_max` | `dbu` | no | RANGE ... INFLUENCE ... RANGE max, in database units |
-| `-range_range_min` | `dbu` | no | SPACING ... RANGE a b RANGE min (the second, non-INFLUENCE RANGE), in database units |
-| `-range_range_max` | `dbu` | no | The second RANGE's max, in database units |
-| `-length_threshold` | `dbu` | no | SPACING ... LENGTHTHRESHOLD value, in database units |
-| `-length_threshold_range_min` | `dbu` | no | SPACING ... LENGTHTHRESHOLD value RANGE min, in database units - separate from range_min |
-| `-length_threshold_range_max` | `dbu` | no | SPACING ... LENGTHTHRESHOLD value RANGE max - see length_threshold_range_min, in database units |
+| `-range_influence` | `um` | no | RANGE ... INFLUENCE value, in microns |
+| `-range_influence_range_min` | `um` | no | RANGE ... INFLUENCE ... RANGE min, in microns |
+| `-range_influence_range_max` | `um` | no | RANGE ... INFLUENCE ... RANGE max, in microns |
+| `-range_range_min` | `um` | no | SPACING ... RANGE a b RANGE min (the second, non-INFLUENCE RANGE), in microns |
+| `-range_range_max` | `um` | no | The second RANGE's max, in microns |
+| `-length_threshold` | `um` | no | SPACING ... LENGTHTHRESHOLD value, in microns |
+| `-length_threshold_range_min` | `um` | no | SPACING ... LENGTHTHRESHOLD value RANGE min, in microns - separate from range_min |
+| `-length_threshold_range_max` | `um` | no | SPACING ... LENGTHTHRESHOLD value RANGE max - see length_threshold_range_min, in microns |
 | `-center_to_center` | `bool` | no | CENTERTOCENTER was specified |
 | `-same_net` | `bool` | no | SAMENET was specified |
 | `-same_net_pg_only` | `bool` | no | SAMENET PGONLY was specified |
 | `-parallel_overlap` | `bool` | no | PARALLELOVERLAP was specified |
-| `-end_of_line_width` | `dbu` | no | ENDOFLINE width, in database units |
-| `-end_of_line_within` | `dbu` | no | ENDOFLINE ... WITHIN distance, in database units |
-| `-parallel_edge_space` | `dbu` | no | ENDOFLINE ... PARALLELEDGE space, in database units |
-| `-parallel_edge_within` | `dbu` | no | PARALLELEDGE ... WITHIN distance, in database units |
+| `-end_of_line_width` | `um` | no | ENDOFLINE width, in microns |
+| `-end_of_line_within` | `um` | no | ENDOFLINE ... WITHIN distance, in microns |
+| `-parallel_edge_space` | `um` | no | ENDOFLINE ... PARALLELEDGE space, in microns |
+| `-parallel_edge_within` | `um` | no | PARALLELEDGE ... WITHIN distance, in microns |
 | `-two_edges` | `bool` | no | PARALLELEDGE ... TWOEDGES was specified |
-| `-notch_length` | `dbu` | no | SPACING ... NOTCHLENGTH, in database units - read-only, not written back by write_lef |
-| `-end_of_notch_width` | `dbu` | no | SPACING ... ENDOFNOTCHWIDTH, in database units - read-only, not written back by write_lef |
-| `-end_of_notch_spacing` | `dbu` | no | ENDOFNOTCHWIDTH ... NOTCHSPACING, in database units |
-| `-end_of_notch_length` | `dbu` | no | ENDOFNOTCHWIDTH ... NOTCHLENGTH, in database units |
+| `-notch_length` | `um` | no | SPACING ... NOTCHLENGTH, in microns - read-only, not written back by write_lef |
+| `-end_of_notch_width` | `um` | no | SPACING ... ENDOFNOTCHWIDTH, in microns - read-only, not written back by write_lef |
+| `-end_of_notch_spacing` | `um` | no | ENDOFNOTCHWIDTH ... NOTCHSPACING, in microns |
+| `-end_of_notch_length` | `um` | no | ENDOFNOTCHWIDTH ... NOTCHLENGTH, in microns |
 | `-second_layer_name` | `str` | no | SPACING ... LAYER name (CUT inter-layer spacing) - unset otherwise |
 | `-second_layer_stack` | `bool` | no | LAYER ... STACK was specified |
 | `-adjacent_cuts` | `int` | no | ADJACENTCUTS count |
-| `-adjacent_within` | `dbu` | no | ADJACENTCUTS ... WITHIN distance, in database units |
+| `-adjacent_within` | `um` | no | ADJACENTCUTS ... WITHIN distance, in microns |
 | `-adjacent_except_same_pg_net` | `bool` | no | ADJACENTCUTS ... EXCEPTSAMEPGNET was specified |
-| `-area` | `dbu` | no | SPACING ... AREA value, in database units (LEF 5.7, CUT layers only) |
+| `-area` | `um2` | no | SPACING ... AREA value, in square microns (LEF 5.7, CUT layers only) |
 
 ## create_technology
 
-`create_technology -database_units_microns <double> [-capacitance_units_pf <double>] [-resistance_units_ohms <double>] [-power_units_mw <double>] [-current_units_ma <double>] [-voltage_units_v <double>] [-frequency_units_mhz <double>] [-bus_bit_chars <str>] [-divider_char <str>] [-fixed_mask <bool>] [-use_min_spacing_obs <bool>] [-use_min_spacing_pin <bool>] [-clearance_measure <str>] [-manufacturing_grid <double>] [-fin_pitch <dbu>] [-fin_offset <dbu>] [-fin_direction <RoutingDirection>] [-max_via_stack <int>] [-max_via_stack_bottom_layer <str>] [-max_via_stack_top_layer <str>] [-antenna_input_gate_area <double>] [-antenna_inout_diff_area <double>] [-antenna_output_diff_area <double>] [-help]`
+`create_technology -database_units_microns <double> [-capacitance_units_pf <double>] [-resistance_units_ohms <double>] [-power_units_mw <double>] [-current_units_ma <double>] [-voltage_units_v <double>] [-frequency_units_mhz <double>] [-bus_bit_chars <str>] [-divider_char <str>] [-fixed_mask <bool>] [-use_min_spacing_obs <bool>] [-use_min_spacing_pin <bool>] [-clearance_measure <str>] [-manufacturing_grid <double>] [-fin_pitch <um>] [-fin_offset <um>] [-fin_direction <RoutingDirection>] [-max_via_stack <int>] [-max_via_stack_bottom_layer <str>] [-max_via_stack_top_layer <str>] [-antenna_input_gate_area <double>] [-antenna_inout_diff_area <double>] [-antenna_output_diff_area <double>] [-help]`
 
 Creates a Technology and returns its token. Technology: Technology information such as layers and site definitions
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `-database_units_microns` | `double` | yes | Database units in microns |
+| `-database_units_microns` | `double` | yes | Database units per micron (LEF UNITS DATABASE MICRONS) |
 | `-capacitance_units_pf` | `double` | no | LEF UNITS CAPACITANCE PICOFARADS <value> - unset if the LEF file never declared it |
 | `-resistance_units_ohms` | `double` | no | LEF UNITS RESISTANCE OHMS <value> - unset if the LEF file never declared it |
 | `-power_units_mw` | `double` | no | LEF UNITS POWER MILLIWATTS <value> - unset if the LEF file never declared it |
@@ -714,9 +714,9 @@ Creates a Technology and returns its token. Technology: Technology information s
 | `-use_min_spacing_obs` | `bool` | no | LEF USEMINSPACING OBS ON|OFF - unset if the LEF file never declared it |
 | `-use_min_spacing_pin` | `bool` | no | LEF USEMINSPACING PIN ON|OFF - unset if the LEF file never declared it |
 | `-clearance_measure` | `str` | no | LEF CLEARANCEMEASURE (EUCLIDEAN or MAXXY) - unset if never read |
-| `-manufacturing_grid` | `double` | no | LEF MANUFACTURINGGRID, in microns (declared in the file's own units, like database_units_microns - not itself a dbu value) - unset if never read |
-| `-fin_pitch` | `dbu` | no | FinFET grid pitch, in database units - overrides the pitch of a LIBRARY LEF58_FINFET property; unset means use that property's |
-| `-fin_offset` | `dbu` | no | FinFET grid offset, in database units - overrides LEF58_FINFET's OFFSET, unset means use that property's (0 if it has none) |
+| `-manufacturing_grid` | `double` | no | LEF MANUFACTURINGGRID, in microns - unset if never read |
+| `-fin_pitch` | `um` | no | FinFET grid pitch, in microns - overrides the pitch of a LIBRARY LEF58_FINFET property; unset means use that property's |
+| `-fin_offset` | `um` | no | FinFET grid offset, in microns - overrides LEF58_FINFET's OFFSET, unset means use that property's (0 if it has none) |
 | `-fin_direction` | `RoutingDirection` | no | FinFET direction (H: horizontal fins, the grid snaps Y; V: vertical fins, snaps X) - overrides LEF58_FINFET's HORIZONTAL/VERTICAL, unset means use that property's (HORIZONTAL if it has none) |
 | `-max_via_stack` | `int` | no | LEF MAXVIASTACK value - unset if never read |
 | `-max_via_stack_bottom_layer` | `str` | no | LEF MAXVIASTACK ... RANGE bottomLayer - unset if the RANGE clause was omitted |
@@ -762,7 +762,7 @@ Creates a TerminalPort and returns its token. TerminalPort: Physical connection 
 
 ## create_track
 
-`create_track -layout <token> [-is_x <bool>] -start <dbu> -count <int> -step <dbu> [-mask <int>] [-same_mask <bool>] [-help]`
+`create_track -layout <token> [-is_x <bool>] -start <um> -count <int> -step <um> [-mask <int>] [-same_mask <bool>] [-help]`
 
 Creates a Track and returns its token. Track: A routing track pattern (DEF TRACKS)
 
@@ -770,23 +770,23 @@ Creates a Track and returns its token. Track: A routing track pattern (DEF TRACK
 | --- | --- | --- | --- |
 | `-layout` | `token` | yes | Parent Layout token |
 | `-is_x` | `bool` | no | True for an X-direction track pattern, false for Y (DEF TRACKS X/Y) |
-| `-start` | `dbu` | yes | Starting coordinate, in database units (DEF TRACKS DO start) |
+| `-start` | `um` | yes | Starting coordinate, in microns (DEF TRACKS DO start) |
 | `-count` | `int` | yes | Number of tracks (DEF TRACKS DO ... n) |
-| `-step` | `dbu` | yes | Spacing between tracks, in database units (DEF TRACKS STEP) |
+| `-step` | `um` | yes | Spacing between tracks, in microns (DEF TRACKS STEP) |
 | `-mask` | `int` | no | MASK color (DEF 5.8) - unset if omitted |
 | `-same_mask` | `bool` | no | Whether SAMEMASK was specified (DEF 5.8) |
 
 ## create_two_widths_spacing_entry
 
-`create_two_widths_spacing_entry -layer <token> -width <dbu> [-prl <dbu>] [-help]`
+`create_two_widths_spacing_entry -layer <token> -width <um> [-prl <um>] [-help]`
 
 Creates a TwoWidthsSpacingEntry and returns its token. TwoWidthsSpacingEntry: One WIDTH row of a LEF SPACINGTABLE TWOWIDTHS block (5.7) - Layer.spacing_table_two_widths holds every row
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layer` | `token` | yes | Parent Layer token |
-| `-width` | `dbu` | yes | In database units |
-| `-prl` | `dbu` | no | Optional PRL (parallel run length), in database units |
+| `-width` | `um` | yes | In microns |
+| `-prl` | `um` | no | Optional PRL (parallel run length), in microns |
 
 ## create_via
 
@@ -829,7 +829,7 @@ Creates a ViaRule and returns its token. ViaRule: A via generation rule (LEF VIA
 
 ## create_via_rule_layer
 
-`create_via_rule_layer -via_rule <token> -layer_name <str> -direction <RoutingDirection> [-width_min <dbu>] [-width_max <dbu>] [-overhang <dbu>] [-metal_overhang <dbu>] [-enclosure_overhang1 <dbu>] [-enclosure_overhang2 <dbu>] [-spacing_step_x <dbu>] [-spacing_step_y <dbu>] [-rect <Rect>] [-resistance <double>] [-help]`
+`create_via_rule_layer -via_rule <token> -layer_name <str> -direction <RoutingDirection> [-width_min <um>] [-width_max <um>] [-overhang <um>] [-metal_overhang <um>] [-enclosure_overhang1 <um>] [-enclosure_overhang2 <um>] [-spacing_step_x <um>] [-spacing_step_y <um>] [-rect <Rect>] [-resistance <double>] [-help]`
 
 Creates a ViaRuleLayer and returns its token. ViaRuleLayer: One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd being the cut layer) per ViaRule
 
@@ -838,15 +838,15 @@ Creates a ViaRuleLayer and returns its token. ViaRuleLayer: One layer's rule wit
 | `-via_rule` | `token` | yes | Parent ViaRule token |
 | `-layer_name` | `str` | yes | The name of the layer |
 | `-direction` | `RoutingDirection` | yes | The layer direction (LEF DIRECTION) |
-| `-width_min` | `dbu` | no | Minimum width, in database units (LEF WIDTH min) |
-| `-width_max` | `dbu` | no | Maximum width, in database units (LEF WIDTH max) |
-| `-overhang` | `dbu` | no | Overhang, in database units (LEF OVERHANG) |
-| `-metal_overhang` | `dbu` | no | Metal overhang, in database units (LEF METALOVERHANG) |
-| `-enclosure_overhang1` | `dbu` | no | First enclosure overhang, in database units (LEF ENCLOSURE overhang1 - 5.5 alternative to OVERHANG) |
-| `-enclosure_overhang2` | `dbu` | no | Second enclosure overhang, in database units (LEF ENCLOSURE overhang2 - 5.5 alternative to OVERHANG) |
-| `-spacing_step_x` | `dbu` | no | Spacing step in x, in database units (LEF SPACING x) |
-| `-spacing_step_y` | `dbu` | no | Spacing step in y, in database units (LEF SPACING y) |
-| `-rect` | `Rect` | no | The cut rect, in database units (LEF RECT - GENERATE's cut layer only) |
+| `-width_min` | `um` | no | Minimum width, in microns (LEF WIDTH min) |
+| `-width_max` | `um` | no | Maximum width, in microns (LEF WIDTH max) |
+| `-overhang` | `um` | no | Overhang, in microns (LEF OVERHANG) |
+| `-metal_overhang` | `um` | no | Metal overhang, in microns (LEF METALOVERHANG) |
+| `-enclosure_overhang1` | `um` | no | First enclosure overhang, in microns (LEF ENCLOSURE overhang1 - 5.5 alternative to OVERHANG) |
+| `-enclosure_overhang2` | `um` | no | Second enclosure overhang, in microns (LEF ENCLOSURE overhang2 - 5.5 alternative to OVERHANG) |
+| `-spacing_step_x` | `um` | no | Spacing step in x, in microns (LEF SPACING x) |
+| `-spacing_step_y` | `um` | no | Spacing step in y, in microns (LEF SPACING y) |
+| `-rect` | `Rect` | no | The cut rect, in microns (LEF RECT - GENERATE's cut layer only) |
 | `-resistance` | `double` | no | Resistance, in the LEF file's own declared units (LEF RESISTANCE) |
 
 ## create_via_rule_reference
@@ -860,17 +860,17 @@ Creates a ViaRuleReference and returns its token. ViaRuleReference: A VIA's own 
 | `-via` | `token` | no | Parent Via token - give exactly one of the parent flags |
 | `-layout_via` | `token` | no | Parent LayoutVia token - give exactly one of the parent flags |
 | `-via_rule_name` | `str` | yes | The name of the referenced VIARULE |
-| `-cut_size` | `Point` | no | The cut size, in database units (LEF CUTSIZE) |
+| `-cut_size` | `Point` | no | The cut size, in microns (LEF CUTSIZE) |
 | `-bot_layer_name` | `str` | yes | The bottom metal layer name (LEF LAYERS botLayer cutLayer topLayer) |
 | `-cut_layer_name` | `str` | yes | The cut layer name (LEF LAYERS botLayer cutLayer topLayer) |
 | `-top_layer_name` | `str` | yes | The top metal layer name (LEF LAYERS botLayer cutLayer topLayer) |
-| `-cut_spacing` | `Point` | no | The cut spacing, in database units (LEF CUTSPACING) |
-| `-bot_enclosure` | `Point` | no | The bottom layer enclosure, in database units (LEF ENCLOSURE, bottom pair) |
-| `-top_enclosure` | `Point` | no | The top layer enclosure, in database units (LEF ENCLOSURE, top pair) |
+| `-cut_spacing` | `Point` | no | The cut spacing, in microns (LEF CUTSPACING) |
+| `-bot_enclosure` | `Point` | no | The bottom layer enclosure, in microns (LEF ENCLOSURE, bottom pair) |
+| `-top_enclosure` | `Point` | no | The top layer enclosure, in microns (LEF ENCLOSURE, top pair) |
 | `-num_cut_rows` | `int` | no | Number of cut rows (LEF ROWCOL) - unset means a single cut |
 | `-num_cut_cols` | `int` | no | Number of cut columns (LEF ROWCOL) - unset means a single cut |
-| `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in database units (LEF VIARULE-inside-VIA ORIGIN) - unset means the array is centered exactly on the placement point (this schema's own prior default, still correct when ORIGIN is omitted) |
-| `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in database units (LEF VIARULE-inside-VIA OFFSET, bottom pair) - unset means no offset (the enclosure rect stays centered on the cut array, this schema's own prior default) |
+| `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in microns (LEF VIARULE-inside-VIA ORIGIN) - unset means the array is centered exactly on the placement point (this schema's own prior default, still correct when ORIGIN is omitted) |
+| `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in microns (LEF VIARULE-inside-VIA OFFSET, bottom pair) - unset means no offset (the enclosure rect stays centered on the cut array, this schema's own prior default) |
 | `-top_offset` | `Point` | no | Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair) |
 
 ## current_abstract
@@ -2596,7 +2596,7 @@ Creates one new path-only Shape per input shape: a closed path of -width microns
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<shapes>` | `token...` | yes | Shape tokens, or lists of them |
-| `-width` | `dbu` | yes | Path width, in microns |
+| `-width` | `um` | yes | Path width, in microns |
 | `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
 | `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
 
@@ -2639,9 +2639,9 @@ Creates one new Shape per input shape: its merged area grown (positive) or shrun
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<shapes>` | `token...` | yes | Shape tokens, or lists of them |
-| `-by` | `dbu` | no | Grow (positive) or shrink (negative) by this in both X and Y, in microns |
-| `-x` | `dbu` | no | Grow/shrink in X, in microns - overrides -by |
-| `-y` | `dbu` | no | Grow/shrink in Y, in microns - overrides -by |
+| `-by` | `um` | no | Grow (positive) or shrink (negative) by this in both X and Y, in microns |
+| `-x` | `um` | no | Grow/shrink in X, in microns - overrides -by |
+| `-y` | `um` | no | Grow/shrink in Y, in microns - overrides -by |
 | `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
 | `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
 
@@ -2755,7 +2755,7 @@ Changes the given fields of a AntennaModel; omitted flags leave a field unchange
 
 ## update_array_spacing
 
-`update_array_spacing <id> [-layer <token>] [-long_array <bool>] [-via_width <dbu>] [-cut_spacing <dbu>] [-help]`
+`update_array_spacing <id> [-layer <token>] [-long_array <bool>] [-via_width <um>] [-cut_spacing <um>] [-help]`
 
 Changes the given fields of a ArraySpacing; omitted flags leave a field unchanged.
 
@@ -2763,12 +2763,12 @@ Changes the given fields of a ArraySpacing; omitted flags leave a field unchange
 | --- | --- | --- | --- |
 | `-layer` | `token` | no | Move it to this Layer (token) |
 | `-long_array` | `bool` | no | Whether LONGARRAY was specified |
-| `-via_width` | `dbu` | no | Optional WIDTH, in database units |
-| `-cut_spacing` | `dbu` | no | CUTSPACING, in database units |
+| `-via_width` | `um` | no | Optional WIDTH, in microns |
+| `-cut_spacing` | `um` | no | CUTSPACING, in microns |
 
 ## update_blockage
 
-`update_blockage <id> [-layout <token>] [-placement <token>] [-kind <BlockageKind>] [-layer_name <str>] [-spacing <dbu>] [-design_rule_width <dbu>] [-is_soft <bool>] [-placement_max_density <double>] [-help]`
+`update_blockage <id> [-layout <token>] [-placement <token>] [-kind <BlockageKind>] [-layer_name <str>] [-spacing <um>] [-design_rule_width <um>] [-is_soft <bool>] [-placement_max_density <double>] [-help]`
 
 Changes the given fields of a Blockage; omitted flags leave a field unchanged.
 
@@ -2778,8 +2778,8 @@ Changes the given fields of a Blockage; omitted flags leave a field unchanged.
 | `-placement` | `token` | no | Scope this blockage to underneath one placed instance - invalid id if unscoped |
 | `-kind` | `BlockageKind` | no | Whether this is a routing-layer or placement blockage |
 | `-layer_name` | `str` | no | The name of the blocked routing layer, as read - set only for a ROUTING blockage |
-| `-spacing` | `dbu` | no | Minimum spacing override, in database units (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width |
-| `-design_rule_width` | `dbu` | no | Effective width for design rule checks, in database units (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing |
+| `-spacing` | `um` | no | Minimum spacing override, in microns (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width |
+| `-design_rule_width` | `um` | no | Effective width for design rule checks, in microns (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing |
 | `-is_soft` | `bool` | no | PLACEMENT ... SOFT - PLACEMENT only |
 | `-placement_max_density` | `double` | no | PLACEMENT ... PARTIAL maxDensity (0-100) - unset if not PARTIAL |
 
@@ -2796,7 +2796,7 @@ Changes the given fields of a Design; omitted flags leave a field unchanged.
 
 ## update_enclosure_entry
 
-`update_enclosure_entry <id> [-layer <token>] [-location <str>] [-overhang1 <dbu>] [-overhang2 <dbu>] [-width <dbu>] [-except_extra_cut <dbu>] [-min_length <dbu>] [-help]`
+`update_enclosure_entry <id> [-layer <token>] [-location <str>] [-overhang1 <um>] [-overhang2 <um>] [-width <um>] [-except_extra_cut <um>] [-min_length <um>] [-help]`
 
 Changes the given fields of a EnclosureEntry; omitted flags leave a field unchanged.
 
@@ -2804,11 +2804,11 @@ Changes the given fields of a EnclosureEntry; omitted flags leave a field unchan
 | --- | --- | --- | --- |
 | `-layer` | `token` | no | Move it to this Layer (token) |
 | `-location` | `str` | no | ABOVE, BELOW, or unset |
-| `-overhang1` | `dbu` | no | In database units |
-| `-overhang2` | `dbu` | no | In database units |
-| `-width` | `dbu` | no | Optional WIDTH, in database units |
-| `-except_extra_cut` | `dbu` | no | Optional WIDTH ... EXCEPTEXTRACUT (5.7), in database units - only meaningful alongside width |
-| `-min_length` | `dbu` | no | Optional LENGTH (5.7), in database units - mutually exclusive with width |
+| `-overhang1` | `um` | no | In microns |
+| `-overhang2` | `um` | no | In microns |
+| `-width` | `um` | no | Optional WIDTH, in microns |
+| `-except_extra_cut` | `um` | no | Optional WIDTH ... EXCEPTEXTRACUT (5.7), in microns - only meaningful alongside width |
+| `-min_length` | `um` | no | Optional LENGTH (5.7), in microns - mutually exclusive with width |
 
 ## update_foreign
 
@@ -2824,7 +2824,7 @@ Changes the given fields of a Foreign; omitted flags leave a field unchanged.
 
 ## update_g_cell_grid
 
-`update_g_cell_grid <id> [-layout <token>] [-is_x <bool>] [-start <dbu>] [-count <int>] [-step <dbu>] [-help]`
+`update_g_cell_grid <id> [-layout <token>] [-is_x <bool>] [-start <um>] [-count <int>] [-step <um>] [-help]`
 
 Changes the given fields of a GCellGrid; omitted flags leave a field unchanged.
 
@@ -2832,22 +2832,22 @@ Changes the given fields of a GCellGrid; omitted flags leave a field unchanged.
 | --- | --- | --- | --- |
 | `-layout` | `token` | no | Move it to this Layout (token) |
 | `-is_x` | `bool` | no | True for an X-direction grid line, false for Y (DEF GCELLGRID X/Y) |
-| `-start` | `dbu` | no | Starting coordinate, in database units (DEF GCELLGRID DO start) |
+| `-start` | `um` | no | Starting coordinate, in microns (DEF GCELLGRID DO start) |
 | `-count` | `int` | no | Number of grid lines (DEF GCELLGRID DO ... n) |
-| `-step` | `dbu` | no | Spacing between grid lines, in database units (DEF GCELLGRID STEP) |
+| `-step` | `um` | no | Spacing between grid lines, in microns (DEF GCELLGRID STEP) |
 
 ## update_influence_spacing_entry
 
-`update_influence_spacing_entry <id> [-layer <token>] [-width <dbu>] [-distance <dbu>] [-spacing <dbu>] [-help]`
+`update_influence_spacing_entry <id> [-layer <token>] [-width <um>] [-distance <um>] [-spacing <um>] [-help]`
 
 Changes the given fields of a InfluenceSpacingEntry; omitted flags leave a field unchanged.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layer` | `token` | no | Move it to this Layer (token) |
-| `-width` | `dbu` | no | The width this row applies above, in database units |
-| `-distance` | `dbu` | no | The influence distance, in database units |
-| `-spacing` | `dbu` | no | The resulting spacing, in database units |
+| `-width` | `um` | no | The width this row applies above, in microns |
+| `-distance` | `um` | no | The influence distance, in microns |
+| `-spacing` | `um` | no | The resulting spacing, in microns |
 
 ## update_instance
 
@@ -2868,7 +2868,7 @@ Changes the given fields of an instance; omitted flags leave a field unchanged.
 
 ## update_layer
 
-`update_layer <id> [-technology <token>] [-name <str>] [-type <str>] [-direction <RoutingDirection>] [-width <dbu>] [-pitch <dbu>] [-offset <dbu>] [-area <dbu>] [-resistance <double>] [-capacitance <double>] [-height <dbu>] [-thickness <dbu>] [-wire_extension <dbu>] [-shrinkage <dbu>] [-cap_multiplier <double>] [-edge_cap <double>] [-antenna_length <dbu>] [-default_mask <int>] [-pitch_xy <Point>] [-offset_xy <Point>] [-diag_pitch <dbu>] [-diag_pitch_xy <Point>] [-diag_spacing <dbu>] [-diag_width <dbu>] [-diag_min_edge_length <dbu>] [-max_width <dbu>] [-min_width <dbu>] [-protrusion_width1 <dbu>] [-protrusion_length <dbu>] [-protrusion_width2 <dbu>] [-split_wire_width <dbu>] [-minimum_density <double>] [-maximum_density <double>] [-density_check_step <dbu>] [-density_check_window <DensityCheckWindow>] [-fill_active_spacing <dbu>] [-help]`
+`update_layer <id> [-technology <token>] [-name <str>] [-type <str>] [-direction <RoutingDirection>] [-width <um>] [-pitch <um>] [-offset <um>] [-area <um2>] [-resistance <double>] [-capacitance <double>] [-height <um>] [-thickness <um>] [-wire_extension <um>] [-shrinkage <um>] [-cap_multiplier <double>] [-edge_cap <double>] [-antenna_length <um>] [-default_mask <int>] [-pitch_xy <Point>] [-offset_xy <Point>] [-diag_pitch <um>] [-diag_pitch_xy <Point>] [-diag_spacing <um>] [-diag_width <um>] [-diag_min_edge_length <um>] [-max_width <um>] [-min_width <um>] [-protrusion_width1 <um>] [-protrusion_length <um>] [-protrusion_width2 <um>] [-split_wire_width <um>] [-minimum_density <double>] [-maximum_density <double>] [-density_check_step <um>] [-density_check_window <DensityCheckWindow>] [-fill_active_spacing <um>] [-help]`
 
 Changes the given fields of a Layer; omitted flags leave a field unchanged.
 
@@ -2878,38 +2878,38 @@ Changes the given fields of a Layer; omitted flags leave a field unchanged.
 | `-name` | `str` | no | The name of the layer |
 | `-type` | `str` | no | The type of the layer: ROUTING, CUT, IMPLANT, MASTERSLICE etc |
 | `-direction` | `RoutingDirection` | no | The layer routing direction |
-| `-width` | `dbu` | no | The default routing width, in database units (LEF WIDTH) |
-| `-pitch` | `dbu` | no | The routing pitch, in database units (LEF PITCH, single-value form only) |
-| `-offset` | `dbu` | no | The routing offset, in database units (LEF OFFSET, single-value form only) |
-| `-area` | `dbu` | no | The minimum area, in database units squared (LEF AREA) |
+| `-width` | `um` | no | The default routing width, in microns (LEF WIDTH) |
+| `-pitch` | `um` | no | The routing pitch, in microns (LEF PITCH, single-value form only) |
+| `-offset` | `um` | no | The routing offset, in microns (LEF OFFSET, single-value form only) |
+| `-area` | `um2` | no | The minimum area, in square microns (LEF AREA) |
 | `-resistance` | `double` | no | Resistance per square (ROUTING) or per cut (CUT), in the LEF file's own declared units (LEF RESISTANCE) |
 | `-capacitance` | `double` | no | Capacitance per square, in the LEF file's own declared units (LEF CAPACITANCE) |
-| `-height` | `dbu` | no | Layer height, in database units (LEF HEIGHT) |
-| `-thickness` | `dbu` | no | Layer thickness, in database units (LEF THICKNESS) |
-| `-wire_extension` | `dbu` | no | Default wire extension beyond a pin, in database units (LEF WIREEXTENSION) |
-| `-shrinkage` | `dbu` | no | Shrinkage, in database units (LEF SHRINKAGE) |
+| `-height` | `um` | no | Layer height, in microns (LEF HEIGHT) |
+| `-thickness` | `um` | no | Layer thickness, in microns (LEF THICKNESS) |
+| `-wire_extension` | `um` | no | Default wire extension beyond a pin, in microns (LEF WIREEXTENSION) |
+| `-shrinkage` | `um` | no | Shrinkage, in microns (LEF SHRINKAGE) |
 | `-cap_multiplier` | `double` | no | Capacitance multiplier (LEF CAPMULTIPLIER) |
 | `-edge_cap` | `double` | no | Edge capacitance, in the LEF file's own declared units (LEF EDGECAPACITANCE) |
-| `-antenna_length` | `dbu` | no | Antenna length, in database units (LEF ANTENNALENGTHFACTOR - deprecated 5.3 syntax, but still parsed) |
+| `-antenna_length` | `um` | no | Antenna length, in microns (LEF ANTENNALENGTHFACTOR - deprecated 5.3 syntax, but still parsed) |
 | `-default_mask` | `int` | no | LEF MASK (layer-level default, LEF 5.8) - not to be confused with per-shape RECT/POLYGON/PATH MASK on Shape |
-| `-pitch_xy` | `Point` | no | Two-value PITCH form (LEF PITCH x y), in database units - mutually exclusive with pitch (single-value form) |
-| `-offset_xy` | `Point` | no | Two-value OFFSET form (LEF OFFSET x y), in database units - mutually exclusive with offset |
-| `-diag_pitch` | `dbu` | no | Single-value DIAGPITCH, in database units - mutually exclusive with diag_pitch_xy |
-| `-diag_pitch_xy` | `Point` | no | Two-value DIAGPITCH (diag45/diag135 distances), in database units |
-| `-diag_spacing` | `dbu` | no | LEF DIAGSPACING, in database units |
-| `-diag_width` | `dbu` | no | LEF DIAGWIDTH, in database units |
-| `-diag_min_edge_length` | `dbu` | no | LEF DIAGMINEDGELENGTH, in database units |
-| `-max_width` | `dbu` | no | LEF MAXWIDTH, in database units |
-| `-min_width` | `dbu` | no | LEF MINWIDTH, in database units |
-| `-protrusion_width1` | `dbu` | no | LEF PROTRUSIONWIDTH's first width, in database units - all three protrusion_* fields are set together or not at all |
-| `-protrusion_length` | `dbu` | no | LEF PROTRUSIONWIDTH's LENGTH, in database units |
-| `-protrusion_width2` | `dbu` | no | LEF PROTRUSIONWIDTH's second WIDTH, in database units |
-| `-split_wire_width` | `dbu` | no | LEF SPLITWIREWIDTH, in database units - read-only, not written back by write_lef |
-| `-minimum_density` | `double` | no | LEF MINIMUMDENSITY, a percentage (0-100) - not a length, no dbu conversion |
+| `-pitch_xy` | `Point` | no | Two-value PITCH form (LEF PITCH x y), in microns - mutually exclusive with pitch (single-value form) |
+| `-offset_xy` | `Point` | no | Two-value OFFSET form (LEF OFFSET x y), in microns - mutually exclusive with offset |
+| `-diag_pitch` | `um` | no | Single-value DIAGPITCH, in microns - mutually exclusive with diag_pitch_xy |
+| `-diag_pitch_xy` | `Point` | no | Two-value DIAGPITCH (diag45/diag135 distances), in microns |
+| `-diag_spacing` | `um` | no | LEF DIAGSPACING, in microns |
+| `-diag_width` | `um` | no | LEF DIAGWIDTH, in microns |
+| `-diag_min_edge_length` | `um` | no | LEF DIAGMINEDGELENGTH, in microns |
+| `-max_width` | `um` | no | LEF MAXWIDTH, in microns |
+| `-min_width` | `um` | no | LEF MINWIDTH, in microns |
+| `-protrusion_width1` | `um` | no | LEF PROTRUSIONWIDTH's first width, in microns - all three protrusion_* fields are set together or not at all |
+| `-protrusion_length` | `um` | no | LEF PROTRUSIONWIDTH's LENGTH, in microns |
+| `-protrusion_width2` | `um` | no | LEF PROTRUSIONWIDTH's second WIDTH, in microns |
+| `-split_wire_width` | `um` | no | LEF SPLITWIREWIDTH, in microns - read-only, not written back by write_lef |
+| `-minimum_density` | `double` | no | LEF MINIMUMDENSITY, a percentage (0-100) |
 | `-maximum_density` | `double` | no | LEF MAXIMUMDENSITY, a percentage (0-100) |
-| `-density_check_step` | `dbu` | no | LEF DENSITYCHECKSTEP, in database units |
-| `-density_check_window` | `DensityCheckWindow` | no | LEF DENSITYCHECKWINDOW (length, width), in database units |
-| `-fill_active_spacing` | `dbu` | no | LEF FILLACTIVESPACING, in database units |
+| `-density_check_step` | `um` | no | LEF DENSITYCHECKSTEP, in microns |
+| `-density_check_window` | `DensityCheckWindow` | no | LEF DENSITYCHECKWINDOW (length, width), in microns |
+| `-fill_active_spacing` | `um` | no | LEF FILLACTIVESPACING, in microns |
 
 ## update_layer_density_entry
 
@@ -2920,7 +2920,7 @@ Changes the given fields of a LayerDensityEntry; omitted flags leave a field unc
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-type` | `str` | no | PEAK, AVERAGE, or RMS |
-| `-one_entry` | `double` | no | Plain-scalar form value, declared units - no dbu conversion |
+| `-one_entry` | `double` | no | Plain-scalar form value, in the LEF file's declared units |
 
 ## update_layout
 
@@ -2966,7 +2966,7 @@ Changes the given fields of a MacroDensityLayer; omitted flags leave a field unc
 
 ## update_macro_site_placement
 
-`update_macro_site_placement <id> [-abstract <token>] [-site_name <str>] [-origin <Point>] [-orient <Orientation>] [-num_x <int>] [-num_y <int>] [-step_x <dbu>] [-step_y <dbu>] [-help]`
+`update_macro_site_placement <id> [-abstract <token>] [-site_name <str>] [-origin <Point>] [-orient <Orientation>] [-num_x <int>] [-num_y <int>] [-step_x <um>] [-step_y <um>] [-help]`
 
 Changes the given fields of a MacroSitePlacement; omitted flags leave a field unchanged.
 
@@ -2974,30 +2974,30 @@ Changes the given fields of a MacroSitePlacement; omitted flags leave a field un
 | --- | --- | --- | --- |
 | `-abstract` | `token` | no | Move it to this Abstract (token) |
 | `-site_name` | `str` | no | The name of the site |
-| `-origin` | `Point` | no | In database units |
+| `-origin` | `Point` | no | In microns |
 | `-orient` | `Orientation` | no | The orientation of this placement |
 | `-num_x` | `int` | no | Optional LEF DO n |
 | `-num_y` | `int` | no | Optional LEF BY m |
-| `-step_x` | `dbu` | no | Optional LEF STEP x, in database units |
-| `-step_y` | `dbu` | no | Optional LEF STEP y, in database units |
+| `-step_x` | `um` | no | Optional LEF STEP x, in microns |
+| `-step_y` | `um` | no | Optional LEF STEP y, in microns |
 
 ## update_min_step
 
-`update_min_step <id> [-layer <token>] [-distance <dbu>] [-min_step_type <str>] [-lengthsum <dbu>] [-max_edges <int>] [-help]`
+`update_min_step <id> [-layer <token>] [-distance <um>] [-min_step_type <str>] [-lengthsum <um>] [-max_edges <int>] [-help]`
 
 Changes the given fields of a MinStep; omitted flags leave a field unchanged.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layer` | `token` | no | Move it to this Layer (token) |
-| `-distance` | `dbu` | no | The minimum step distance, in database units (LEF MINSTEP) |
+| `-distance` | `um` | no | The minimum step distance, in microns (LEF MINSTEP) |
 | `-min_step_type` | `str` | no | INSIDECORNER, OUTSIDECORNER, or STEP - unset otherwise |
-| `-lengthsum` | `dbu` | no | MINSTEP ... LENGTHSUM value, in database units |
+| `-lengthsum` | `um` | no | MINSTEP ... LENGTHSUM value, in microns |
 | `-max_edges` | `int` | no | MINSTEP ... MAXEDGES value (5.7) |
 
 ## update_minimum_cut
 
-`update_minimum_cut <id> [-layer <token>] [-cuts <int>] [-width <dbu>] [-within <dbu>] [-connection <str>] [-length <dbu>] [-distance <dbu>] [-help]`
+`update_minimum_cut <id> [-layer <token>] [-cuts <int>] [-width <um>] [-within <um>] [-connection <str>] [-length <um>] [-distance <um>] [-help]`
 
 Changes the given fields of a MinimumCut; omitted flags leave a field unchanged.
 
@@ -3005,11 +3005,11 @@ Changes the given fields of a MinimumCut; omitted flags leave a field unchanged.
 | --- | --- | --- | --- |
 | `-layer` | `token` | no | Move it to this Layer (token) |
 | `-cuts` | `int` | no | Number of cuts required (LEF MINIMUMCUT) |
-| `-width` | `dbu` | no | Width above which the rule applies, in database units |
-| `-within` | `dbu` | no | MINIMUMCUT ... WITHIN distance, in database units (5.7) |
+| `-width` | `um` | no | Width above which the rule applies, in microns |
+| `-within` | `um` | no | MINIMUMCUT ... WITHIN distance, in microns (5.7) |
 | `-connection` | `str` | no | FROMABOVE or FROMBELOW, unset otherwise |
-| `-length` | `dbu` | no | MINIMUMCUT ... LENGTH value, in database units |
-| `-distance` | `dbu` | no | MINIMUMCUT ... LENGTH ... WITHIN distance, in database units |
+| `-length` | `um` | no | MINIMUMCUT ... LENGTH value, in microns |
+| `-distance` | `um` | no | MINIMUMCUT ... LENGTH ... WITHIN distance, in microns |
 
 ## update_net
 
@@ -3051,7 +3051,7 @@ Changes the given fields of a NonDefaultRule; omitted flags leave a field unchan
 
 ## update_non_default_rule_layer
 
-`update_non_default_rule_layer <id> [-non_default_rule <token>] [-layer_name <str>] [-width <dbu>] [-spacing <dbu>] [-wire_extension <dbu>] [-resistance <double>] [-capacitance <double>] [-edge_cap <double>] [-diag_width <dbu>] [-help]`
+`update_non_default_rule_layer <id> [-non_default_rule <token>] [-layer_name <str>] [-width <um>] [-spacing <um>] [-wire_extension <um>] [-resistance <double>] [-capacitance <double>] [-edge_cap <double>] [-diag_width <um>] [-help]`
 
 Changes the given fields of a NonDefaultRuleLayer; omitted flags leave a field unchanged.
 
@@ -3059,13 +3059,13 @@ Changes the given fields of a NonDefaultRuleLayer; omitted flags leave a field u
 | --- | --- | --- | --- |
 | `-non_default_rule` | `token` | no | Move it to this NonDefaultRule (token) |
 | `-layer_name` | `str` | no | The name of the layer being overridden |
-| `-width` | `dbu` | no | Overridden width, in database units |
-| `-spacing` | `dbu` | no | Overridden minimum spacing, in database units |
-| `-wire_extension` | `dbu` | no | Overridden wire extension, in database units |
+| `-width` | `um` | no | Overridden width, in microns |
+| `-spacing` | `um` | no | Overridden minimum spacing, in microns |
+| `-wire_extension` | `um` | no | Overridden wire extension, in microns |
 | `-resistance` | `double` | no | Overridden resistance per square, in the LEF file's own declared units (obsolete since LEF 5.6, but still readable) |
 | `-capacitance` | `double` | no | Overridden capacitance per square, in the LEF file's own declared units (obsolete since LEF 5.6, but still readable) |
 | `-edge_cap` | `double` | no | Overridden edge capacitance, in the LEF file's own declared units (obsolete since LEF 5.6, but still readable) |
-| `-diag_width` | `dbu` | no | Overridden diagonal width, in database units (LEF 5.6) - read-only, not written back by write_lef |
+| `-diag_width` | `um` | no | Overridden diagonal width, in microns (LEF 5.6) - read-only, not written back by write_lef |
 
 ## update_non_default_rule_via
 
@@ -3105,7 +3105,7 @@ Changes the given fields of a PhysicalPort; omitted flags leave a field unchange
 | `-direction` | `SignalDirection` | no | The direction of the pin - unset if omitted |
 | `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF PINS USE) |
 | `-placement_status` | `PlacementStatus` | no | Placement status - unset if never placed |
-| `-location` | `Point` | no | The pin's location, in database units - unset if unplaced |
+| `-location` | `Point` | no | The pin's location, in microns - unset if unplaced |
 | `-orientation` | `Orientation` | no | Placement orientation - unset if unplaced |
 
 ## update_physical_port_segment
@@ -3118,7 +3118,7 @@ Changes the given fields of a PhysicalPortSegment; omitted flags leave a field u
 | --- | --- | --- | --- |
 | `-physical_port` | `token` | no | Move it to this PhysicalPort (token) |
 | `-placement_status` | `PlacementStatus` | no | This segment's own placement status - unset for the synthetic segment of a simple (non-multi-port) pin, whose placement lives on the parent PhysicalPort instead |
-| `-location` | `Point` | no | This segment's own location, in database units - unset if unplaced |
+| `-location` | `Point` | no | This segment's own location, in microns - unset if unplaced |
 | `-orientation` | `Orientation` | no | This segment's own orientation - unset if unplaced |
 
 ## update_pin
@@ -3160,7 +3160,7 @@ Changes the given fields of a Placement; omitted flags leave a field unchanged.
 | `-name` | `str` | no | The name of the instance - unique within its layout |
 | `-physical_only` | `bool` | no | Set by `link` when no Instance in the sibling Schematic matches this Placement's name (e.g. a filler/decap cell with no logical counterpart) - not a DEF-native concept, always False until `link` runs |
 | `-placement_status` | `PlacementStatus` | no | Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED) |
-| `-location` | `Point` | no | The location of the lower-left corner of this instance, in database units - unset if UNPLACED |
+| `-location` | `Point` | no | The location of the lower-left corner of this instance, in microns - unset if UNPLACED |
 | `-orientation` | `Orientation` | no | Placement orientation - unset if UNPLACED |
 | `-weight` | `double` | no | DEF COMPONENTS WEIGHT - unset if omitted |
 | `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) - unset if omitted |
@@ -3195,7 +3195,7 @@ Changes the given fields of a PortBus; omitted flags leave a field unchanged.
 
 ## update_prefer_enclosure_entry
 
-`update_prefer_enclosure_entry <id> [-layer <token>] [-location <str>] [-overhang1 <dbu>] [-overhang2 <dbu>] [-min_width <dbu>] [-help]`
+`update_prefer_enclosure_entry <id> [-layer <token>] [-location <str>] [-overhang1 <um>] [-overhang2 <um>] [-min_width <um>] [-help]`
 
 Changes the given fields of a PreferEnclosureEntry; omitted flags leave a field unchanged.
 
@@ -3203,9 +3203,9 @@ Changes the given fields of a PreferEnclosureEntry; omitted flags leave a field 
 | --- | --- | --- | --- |
 | `-layer` | `token` | no | Move it to this Layer (token) |
 | `-location` | `str` | no | ABOVE, BELOW, or unset |
-| `-overhang1` | `dbu` | no | In database units |
-| `-overhang2` | `dbu` | no | In database units |
-| `-min_width` | `dbu` | no | Optional WIDTH, in database units |
+| `-overhang1` | `um` | no | In microns |
+| `-overhang2` | `um` | no | In microns |
+| `-min_width` | `um` | no | Optional WIDTH, in microns |
 
 ## update_property_definition
 
@@ -3239,7 +3239,7 @@ Changes the given fields of a Region; omitted flags leave a field unchanged.
 
 ## update_route
 
-`update_route <id> [-layout <token>] [-net <token>] [-name <str>] [-is_special <bool>] [-width <dbu>] [-voltage <double>] [-use <str>] [-help]`
+`update_route <id> [-layout <token>] [-net <token>] [-name <str>] [-is_special <bool>] [-width <um>] [-voltage <double>] [-use <str>] [-help]`
 
 Changes the given fields of a Route; omitted flags leave a field unchanged.
 
@@ -3249,13 +3249,13 @@ Changes the given fields of a Route; omitted flags leave a field unchanged.
 | `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` - unset until linked |
 | `-name` | `str` | no | The name of the net this routes, as read - unique within its layout. See net for the resolved link |
 | `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
-| `-width` | `dbu` | no | Routing width override, in database units (DEF SPECIALNETS WIDTH) - SPECIALNETS only, unset if omitted |
+| `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only, unset if omitted |
 | `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only, unset if omitted |
 | `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF NETS/SPECIALNETS USE) |
 
 ## update_row
 
-`update_row <id> [-layout <token>] [-name <str>] [-site_name <str>] [-origin <Point>] [-orientation <Orientation>] [-num_x <int>] [-num_y <int>] [-step_x <dbu>] [-step_y <dbu>] [-help]`
+`update_row <id> [-layout <token>] [-name <str>] [-site_name <str>] [-origin <Point>] [-orientation <Orientation>] [-num_x <int>] [-num_y <int>] [-step_x <um>] [-step_y <um>] [-help]`
 
 Changes the given fields of a Row; omitted flags leave a field unchanged.
 
@@ -3264,12 +3264,12 @@ Changes the given fields of a Row; omitted flags leave a field unchanged.
 | `-layout` | `token` | no | Move it to this Layout (token) |
 | `-name` | `str` | no | The name of the row |
 | `-site_name` | `str` | no | The name of the site this row is built from, as read (DEF ROW macro name) - a plain name reference, same convention as Abstract.site, not resolved to a SiteId |
-| `-origin` | `Point` | no | The row's origin, in database units |
+| `-origin` | `Point` | no | The row's origin, in microns |
 | `-orientation` | `Orientation` | no | The row's orientation |
 | `-num_x` | `int` | no | Number of site repeats in X (DEF ROW DO n) |
 | `-num_y` | `int` | no | Number of site repeats in Y (DEF ROW BY m) |
-| `-step_x` | `dbu` | no | Step in X between repeats, in database units (DEF ROW STEP) |
-| `-step_y` | `dbu` | no | Step in Y between repeats, in database units (DEF ROW STEP) |
+| `-step_x` | `um` | no | Step in X between repeats, in microns (DEF ROW STEP) |
+| `-step_y` | `um` | no | Step in Y between repeats, in microns (DEF ROW STEP) |
 
 ## update_schematic
 
@@ -3283,7 +3283,7 @@ Changes the given fields of a Schematic; omitted flags leave a field unchanged.
 
 ## update_shape
 
-`update_shape <id> [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <dbu>] [-design_rule_width <dbu>] [-except_pg_net <bool>] [-help]`
+`update_shape <id> [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-help]`
 
 Changes the given fields of a Shape; omitted flags leave a field unchanged.
 
@@ -3294,8 +3294,8 @@ Changes the given fields of a Shape; omitted flags leave a field unchanged.
 | `-paths` | `Path...` | no | A list of paths |
 | `-polygons` | `Polygon...` | no | A list of polygons |
 | `-rects` | `Rect...` | no | A list of rects |
-| `-spacing` | `dbu` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in database units - unset means the layer's own rules apply; 0 is a real value. Mutually exclusive with design_rule_width. |
-| `-design_rule_width` | `dbu` | no | LEF LAYER ... DESIGNRULEWIDTH, in database units - unset means none; 0 is a real value. Mutually exclusive with spacing. |
+| `-spacing` | `um` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in microns - unset means the layer's own rules apply; 0 is a real value. Mutually exclusive with design_rule_width. |
+| `-design_rule_width` | `um` | no | LEF LAYER ... DESIGNRULEWIDTH, in microns - unset means none; 0 is a real value. Mutually exclusive with spacing. |
 | `-except_pg_net` | `bool` | no | LEF LAYER ... EXCEPTPGNET (5.7) - write_lef writes it for OBS only |
 
 ## update_site
@@ -3309,59 +3309,59 @@ Changes the given fields of a Site; omitted flags leave a field unchanged.
 | `-technology` | `token` | no | Move it to this Technology (token) |
 | `-name` | `str` | no | The name of the site |
 | `-site_class` | `str` | no | PAD, CORE, VIRTUAL, or unset (LEF CLASS) |
-| `-size` | `Point` | no | The site size, in database units (LEF SIZE) |
+| `-size` | `Point` | no | The site size, in microns (LEF SIZE) |
 | `-symmetry` | `Symmetry` | no | Which flips/rotations this site allows (LEF SYMMETRY) |
 
 ## update_spacing_rule
 
-`update_spacing_rule <id> [-layer <token>] [-distance <dbu>] [-range_min <dbu>] [-range_max <dbu>] [-range_use_length_threshold <bool>] [-range_influence <dbu>] [-range_influence_range_min <dbu>] [-range_influence_range_max <dbu>] [-range_range_min <dbu>] [-range_range_max <dbu>] [-length_threshold <dbu>] [-length_threshold_range_min <dbu>] [-length_threshold_range_max <dbu>] [-center_to_center <bool>] [-same_net <bool>] [-same_net_pg_only <bool>] [-parallel_overlap <bool>] [-end_of_line_width <dbu>] [-end_of_line_within <dbu>] [-parallel_edge_space <dbu>] [-parallel_edge_within <dbu>] [-two_edges <bool>] [-notch_length <dbu>] [-end_of_notch_width <dbu>] [-end_of_notch_spacing <dbu>] [-end_of_notch_length <dbu>] [-second_layer_name <str>] [-second_layer_stack <bool>] [-adjacent_cuts <int>] [-adjacent_within <dbu>] [-adjacent_except_same_pg_net <bool>] [-area <dbu>] [-help]`
+`update_spacing_rule <id> [-layer <token>] [-distance <um>] [-range_min <um>] [-range_max <um>] [-range_use_length_threshold <bool>] [-range_influence <um>] [-range_influence_range_min <um>] [-range_influence_range_max <um>] [-range_range_min <um>] [-range_range_max <um>] [-length_threshold <um>] [-length_threshold_range_min <um>] [-length_threshold_range_max <um>] [-center_to_center <bool>] [-same_net <bool>] [-same_net_pg_only <bool>] [-parallel_overlap <bool>] [-end_of_line_width <um>] [-end_of_line_within <um>] [-parallel_edge_space <um>] [-parallel_edge_within <um>] [-two_edges <bool>] [-notch_length <um>] [-end_of_notch_width <um>] [-end_of_notch_spacing <um>] [-end_of_notch_length <um>] [-second_layer_name <str>] [-second_layer_stack <bool>] [-adjacent_cuts <int>] [-adjacent_within <um>] [-adjacent_except_same_pg_net <bool>] [-area <um2>] [-help]`
 
 Changes the given fields of a SpacingRule; omitted flags leave a field unchanged.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layer` | `token` | no | Move it to this Layer (token) |
-| `-distance` | `dbu` | no | The spacing distance, in database units (LEF SPACING) |
-| `-range_min` | `dbu` | no | SPACING ... RANGE min, in database units |
-| `-range_max` | `dbu` | no | SPACING ... RANGE max, in database units |
+| `-distance` | `um` | no | The spacing distance, in microns (LEF SPACING) |
+| `-range_min` | `um` | no | SPACING ... RANGE min, in microns |
+| `-range_max` | `um` | no | SPACING ... RANGE max, in microns |
 | `-range_use_length_threshold` | `bool` | no | RANGE ... USELENGTHTHRESHOLD was specified |
-| `-range_influence` | `dbu` | no | RANGE ... INFLUENCE value, in database units |
-| `-range_influence_range_min` | `dbu` | no | RANGE ... INFLUENCE ... RANGE min, in database units |
-| `-range_influence_range_max` | `dbu` | no | RANGE ... INFLUENCE ... RANGE max, in database units |
-| `-range_range_min` | `dbu` | no | SPACING ... RANGE a b RANGE min (the second, non-INFLUENCE RANGE), in database units |
-| `-range_range_max` | `dbu` | no | The second RANGE's max, in database units |
-| `-length_threshold` | `dbu` | no | SPACING ... LENGTHTHRESHOLD value, in database units |
-| `-length_threshold_range_min` | `dbu` | no | SPACING ... LENGTHTHRESHOLD value RANGE min, in database units - separate from range_min |
-| `-length_threshold_range_max` | `dbu` | no | SPACING ... LENGTHTHRESHOLD value RANGE max - see length_threshold_range_min, in database units |
+| `-range_influence` | `um` | no | RANGE ... INFLUENCE value, in microns |
+| `-range_influence_range_min` | `um` | no | RANGE ... INFLUENCE ... RANGE min, in microns |
+| `-range_influence_range_max` | `um` | no | RANGE ... INFLUENCE ... RANGE max, in microns |
+| `-range_range_min` | `um` | no | SPACING ... RANGE a b RANGE min (the second, non-INFLUENCE RANGE), in microns |
+| `-range_range_max` | `um` | no | The second RANGE's max, in microns |
+| `-length_threshold` | `um` | no | SPACING ... LENGTHTHRESHOLD value, in microns |
+| `-length_threshold_range_min` | `um` | no | SPACING ... LENGTHTHRESHOLD value RANGE min, in microns - separate from range_min |
+| `-length_threshold_range_max` | `um` | no | SPACING ... LENGTHTHRESHOLD value RANGE max - see length_threshold_range_min, in microns |
 | `-center_to_center` | `bool` | no | CENTERTOCENTER was specified |
 | `-same_net` | `bool` | no | SAMENET was specified |
 | `-same_net_pg_only` | `bool` | no | SAMENET PGONLY was specified |
 | `-parallel_overlap` | `bool` | no | PARALLELOVERLAP was specified |
-| `-end_of_line_width` | `dbu` | no | ENDOFLINE width, in database units |
-| `-end_of_line_within` | `dbu` | no | ENDOFLINE ... WITHIN distance, in database units |
-| `-parallel_edge_space` | `dbu` | no | ENDOFLINE ... PARALLELEDGE space, in database units |
-| `-parallel_edge_within` | `dbu` | no | PARALLELEDGE ... WITHIN distance, in database units |
+| `-end_of_line_width` | `um` | no | ENDOFLINE width, in microns |
+| `-end_of_line_within` | `um` | no | ENDOFLINE ... WITHIN distance, in microns |
+| `-parallel_edge_space` | `um` | no | ENDOFLINE ... PARALLELEDGE space, in microns |
+| `-parallel_edge_within` | `um` | no | PARALLELEDGE ... WITHIN distance, in microns |
 | `-two_edges` | `bool` | no | PARALLELEDGE ... TWOEDGES was specified |
-| `-notch_length` | `dbu` | no | SPACING ... NOTCHLENGTH, in database units - read-only, not written back by write_lef |
-| `-end_of_notch_width` | `dbu` | no | SPACING ... ENDOFNOTCHWIDTH, in database units - read-only, not written back by write_lef |
-| `-end_of_notch_spacing` | `dbu` | no | ENDOFNOTCHWIDTH ... NOTCHSPACING, in database units |
-| `-end_of_notch_length` | `dbu` | no | ENDOFNOTCHWIDTH ... NOTCHLENGTH, in database units |
+| `-notch_length` | `um` | no | SPACING ... NOTCHLENGTH, in microns - read-only, not written back by write_lef |
+| `-end_of_notch_width` | `um` | no | SPACING ... ENDOFNOTCHWIDTH, in microns - read-only, not written back by write_lef |
+| `-end_of_notch_spacing` | `um` | no | ENDOFNOTCHWIDTH ... NOTCHSPACING, in microns |
+| `-end_of_notch_length` | `um` | no | ENDOFNOTCHWIDTH ... NOTCHLENGTH, in microns |
 | `-second_layer_name` | `str` | no | SPACING ... LAYER name (CUT inter-layer spacing) - unset otherwise |
 | `-second_layer_stack` | `bool` | no | LAYER ... STACK was specified |
 | `-adjacent_cuts` | `int` | no | ADJACENTCUTS count |
-| `-adjacent_within` | `dbu` | no | ADJACENTCUTS ... WITHIN distance, in database units |
+| `-adjacent_within` | `um` | no | ADJACENTCUTS ... WITHIN distance, in microns |
 | `-adjacent_except_same_pg_net` | `bool` | no | ADJACENTCUTS ... EXCEPTSAMEPGNET was specified |
-| `-area` | `dbu` | no | SPACING ... AREA value, in database units (LEF 5.7, CUT layers only) |
+| `-area` | `um2` | no | SPACING ... AREA value, in square microns (LEF 5.7, CUT layers only) |
 
 ## update_technology
 
-`update_technology <id> [-database_units_microns <double>] [-capacitance_units_pf <double>] [-resistance_units_ohms <double>] [-power_units_mw <double>] [-current_units_ma <double>] [-voltage_units_v <double>] [-frequency_units_mhz <double>] [-bus_bit_chars <str>] [-divider_char <str>] [-fixed_mask <bool>] [-use_min_spacing_obs <bool>] [-use_min_spacing_pin <bool>] [-clearance_measure <str>] [-manufacturing_grid <double>] [-fin_pitch <dbu>] [-fin_offset <dbu>] [-fin_direction <RoutingDirection>] [-max_via_stack <int>] [-max_via_stack_bottom_layer <str>] [-max_via_stack_top_layer <str>] [-antenna_input_gate_area <double>] [-antenna_inout_diff_area <double>] [-antenna_output_diff_area <double>] [-help]`
+`update_technology <id> [-database_units_microns <double>] [-capacitance_units_pf <double>] [-resistance_units_ohms <double>] [-power_units_mw <double>] [-current_units_ma <double>] [-voltage_units_v <double>] [-frequency_units_mhz <double>] [-bus_bit_chars <str>] [-divider_char <str>] [-fixed_mask <bool>] [-use_min_spacing_obs <bool>] [-use_min_spacing_pin <bool>] [-clearance_measure <str>] [-manufacturing_grid <double>] [-fin_pitch <um>] [-fin_offset <um>] [-fin_direction <RoutingDirection>] [-max_via_stack <int>] [-max_via_stack_bottom_layer <str>] [-max_via_stack_top_layer <str>] [-antenna_input_gate_area <double>] [-antenna_inout_diff_area <double>] [-antenna_output_diff_area <double>] [-help]`
 
 Changes the given fields of a Technology; omitted flags leave a field unchanged.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `-database_units_microns` | `double` | no | Database units in microns |
+| `-database_units_microns` | `double` | no | Database units per micron (LEF UNITS DATABASE MICRONS) |
 | `-capacitance_units_pf` | `double` | no | LEF UNITS CAPACITANCE PICOFARADS <value> - unset if the LEF file never declared it |
 | `-resistance_units_ohms` | `double` | no | LEF UNITS RESISTANCE OHMS <value> - unset if the LEF file never declared it |
 | `-power_units_mw` | `double` | no | LEF UNITS POWER MILLIWATTS <value> - unset if the LEF file never declared it |
@@ -3374,9 +3374,9 @@ Changes the given fields of a Technology; omitted flags leave a field unchanged.
 | `-use_min_spacing_obs` | `bool` | no | LEF USEMINSPACING OBS ON|OFF - unset if the LEF file never declared it |
 | `-use_min_spacing_pin` | `bool` | no | LEF USEMINSPACING PIN ON|OFF - unset if the LEF file never declared it |
 | `-clearance_measure` | `str` | no | LEF CLEARANCEMEASURE (EUCLIDEAN or MAXXY) - unset if never read |
-| `-manufacturing_grid` | `double` | no | LEF MANUFACTURINGGRID, in microns (declared in the file's own units, like database_units_microns - not itself a dbu value) - unset if never read |
-| `-fin_pitch` | `dbu` | no | FinFET grid pitch, in database units - overrides the pitch of a LIBRARY LEF58_FINFET property; unset means use that property's |
-| `-fin_offset` | `dbu` | no | FinFET grid offset, in database units - overrides LEF58_FINFET's OFFSET, unset means use that property's (0 if it has none) |
+| `-manufacturing_grid` | `double` | no | LEF MANUFACTURINGGRID, in microns - unset if never read |
+| `-fin_pitch` | `um` | no | FinFET grid pitch, in microns - overrides the pitch of a LIBRARY LEF58_FINFET property; unset means use that property's |
+| `-fin_offset` | `um` | no | FinFET grid offset, in microns - overrides LEF58_FINFET's OFFSET, unset means use that property's (0 if it has none) |
 | `-fin_direction` | `RoutingDirection` | no | FinFET direction (H: horizontal fins, the grid snaps Y; V: vertical fins, snaps X) - overrides LEF58_FINFET's HORIZONTAL/VERTICAL, unset means use that property's (HORIZONTAL if it has none) |
 | `-max_via_stack` | `int` | no | LEF MAXVIASTACK value - unset if never read |
 | `-max_via_stack_bottom_layer` | `str` | no | LEF MAXVIASTACK ... RANGE bottomLayer - unset if the RANGE clause was omitted |
@@ -3422,7 +3422,7 @@ Changes the given fields of a TerminalPort; omitted flags leave a field unchange
 
 ## update_track
 
-`update_track <id> [-layout <token>] [-is_x <bool>] [-start <dbu>] [-count <int>] [-step <dbu>] [-mask <int>] [-same_mask <bool>] [-help]`
+`update_track <id> [-layout <token>] [-is_x <bool>] [-start <um>] [-count <int>] [-step <um>] [-mask <int>] [-same_mask <bool>] [-help]`
 
 Changes the given fields of a Track; omitted flags leave a field unchanged.
 
@@ -3430,23 +3430,23 @@ Changes the given fields of a Track; omitted flags leave a field unchanged.
 | --- | --- | --- | --- |
 | `-layout` | `token` | no | Move it to this Layout (token) |
 | `-is_x` | `bool` | no | True for an X-direction track pattern, false for Y (DEF TRACKS X/Y) |
-| `-start` | `dbu` | no | Starting coordinate, in database units (DEF TRACKS DO start) |
+| `-start` | `um` | no | Starting coordinate, in microns (DEF TRACKS DO start) |
 | `-count` | `int` | no | Number of tracks (DEF TRACKS DO ... n) |
-| `-step` | `dbu` | no | Spacing between tracks, in database units (DEF TRACKS STEP) |
+| `-step` | `um` | no | Spacing between tracks, in microns (DEF TRACKS STEP) |
 | `-mask` | `int` | no | MASK color (DEF 5.8) - unset if omitted |
 | `-same_mask` | `bool` | no | Whether SAMEMASK was specified (DEF 5.8) |
 
 ## update_two_widths_spacing_entry
 
-`update_two_widths_spacing_entry <id> [-layer <token>] [-width <dbu>] [-prl <dbu>] [-help]`
+`update_two_widths_spacing_entry <id> [-layer <token>] [-width <um>] [-prl <um>] [-help]`
 
 Changes the given fields of a TwoWidthsSpacingEntry; omitted flags leave a field unchanged.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layer` | `token` | no | Move it to this Layer (token) |
-| `-width` | `dbu` | no | In database units |
-| `-prl` | `dbu` | no | Optional PRL (parallel run length), in database units |
+| `-width` | `um` | no | In microns |
+| `-prl` | `um` | no | Optional PRL (parallel run length), in microns |
 
 ## update_via
 
@@ -3486,7 +3486,7 @@ Changes the given fields of a ViaRule; omitted flags leave a field unchanged.
 
 ## update_via_rule_layer
 
-`update_via_rule_layer <id> [-via_rule <token>] [-layer_name <str>] [-direction <RoutingDirection>] [-width_min <dbu>] [-width_max <dbu>] [-overhang <dbu>] [-metal_overhang <dbu>] [-enclosure_overhang1 <dbu>] [-enclosure_overhang2 <dbu>] [-spacing_step_x <dbu>] [-spacing_step_y <dbu>] [-rect <Rect>] [-resistance <double>] [-help]`
+`update_via_rule_layer <id> [-via_rule <token>] [-layer_name <str>] [-direction <RoutingDirection>] [-width_min <um>] [-width_max <um>] [-overhang <um>] [-metal_overhang <um>] [-enclosure_overhang1 <um>] [-enclosure_overhang2 <um>] [-spacing_step_x <um>] [-spacing_step_y <um>] [-rect <Rect>] [-resistance <double>] [-help]`
 
 Changes the given fields of a ViaRuleLayer; omitted flags leave a field unchanged.
 
@@ -3495,15 +3495,15 @@ Changes the given fields of a ViaRuleLayer; omitted flags leave a field unchange
 | `-via_rule` | `token` | no | Move it to this ViaRule (token) |
 | `-layer_name` | `str` | no | The name of the layer |
 | `-direction` | `RoutingDirection` | no | The layer direction (LEF DIRECTION) |
-| `-width_min` | `dbu` | no | Minimum width, in database units (LEF WIDTH min) |
-| `-width_max` | `dbu` | no | Maximum width, in database units (LEF WIDTH max) |
-| `-overhang` | `dbu` | no | Overhang, in database units (LEF OVERHANG) |
-| `-metal_overhang` | `dbu` | no | Metal overhang, in database units (LEF METALOVERHANG) |
-| `-enclosure_overhang1` | `dbu` | no | First enclosure overhang, in database units (LEF ENCLOSURE overhang1 - 5.5 alternative to OVERHANG) |
-| `-enclosure_overhang2` | `dbu` | no | Second enclosure overhang, in database units (LEF ENCLOSURE overhang2 - 5.5 alternative to OVERHANG) |
-| `-spacing_step_x` | `dbu` | no | Spacing step in x, in database units (LEF SPACING x) |
-| `-spacing_step_y` | `dbu` | no | Spacing step in y, in database units (LEF SPACING y) |
-| `-rect` | `Rect` | no | The cut rect, in database units (LEF RECT - GENERATE's cut layer only) |
+| `-width_min` | `um` | no | Minimum width, in microns (LEF WIDTH min) |
+| `-width_max` | `um` | no | Maximum width, in microns (LEF WIDTH max) |
+| `-overhang` | `um` | no | Overhang, in microns (LEF OVERHANG) |
+| `-metal_overhang` | `um` | no | Metal overhang, in microns (LEF METALOVERHANG) |
+| `-enclosure_overhang1` | `um` | no | First enclosure overhang, in microns (LEF ENCLOSURE overhang1 - 5.5 alternative to OVERHANG) |
+| `-enclosure_overhang2` | `um` | no | Second enclosure overhang, in microns (LEF ENCLOSURE overhang2 - 5.5 alternative to OVERHANG) |
+| `-spacing_step_x` | `um` | no | Spacing step in x, in microns (LEF SPACING x) |
+| `-spacing_step_y` | `um` | no | Spacing step in y, in microns (LEF SPACING y) |
+| `-rect` | `Rect` | no | The cut rect, in microns (LEF RECT - GENERATE's cut layer only) |
 | `-resistance` | `double` | no | Resistance, in the LEF file's own declared units (LEF RESISTANCE) |
 
 ## update_via_rule_reference
@@ -3515,17 +3515,17 @@ Changes the given fields of a ViaRuleReference; omitted flags leave a field unch
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-via_rule_name` | `str` | no | The name of the referenced VIARULE |
-| `-cut_size` | `Point` | no | The cut size, in database units (LEF CUTSIZE) |
+| `-cut_size` | `Point` | no | The cut size, in microns (LEF CUTSIZE) |
 | `-bot_layer_name` | `str` | no | The bottom metal layer name (LEF LAYERS botLayer cutLayer topLayer) |
 | `-cut_layer_name` | `str` | no | The cut layer name (LEF LAYERS botLayer cutLayer topLayer) |
 | `-top_layer_name` | `str` | no | The top metal layer name (LEF LAYERS botLayer cutLayer topLayer) |
-| `-cut_spacing` | `Point` | no | The cut spacing, in database units (LEF CUTSPACING) |
-| `-bot_enclosure` | `Point` | no | The bottom layer enclosure, in database units (LEF ENCLOSURE, bottom pair) |
-| `-top_enclosure` | `Point` | no | The top layer enclosure, in database units (LEF ENCLOSURE, top pair) |
+| `-cut_spacing` | `Point` | no | The cut spacing, in microns (LEF CUTSPACING) |
+| `-bot_enclosure` | `Point` | no | The bottom layer enclosure, in microns (LEF ENCLOSURE, bottom pair) |
+| `-top_enclosure` | `Point` | no | The top layer enclosure, in microns (LEF ENCLOSURE, top pair) |
 | `-num_cut_rows` | `int` | no | Number of cut rows (LEF ROWCOL) - unset means a single cut |
 | `-num_cut_cols` | `int` | no | Number of cut columns (LEF ROWCOL) - unset means a single cut |
-| `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in database units (LEF VIARULE-inside-VIA ORIGIN) - unset means the array is centered exactly on the placement point (this schema's own prior default, still correct when ORIGIN is omitted) |
-| `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in database units (LEF VIARULE-inside-VIA OFFSET, bottom pair) - unset means no offset (the enclosure rect stays centered on the cut array, this schema's own prior default) |
+| `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in microns (LEF VIARULE-inside-VIA ORIGIN) - unset means the array is centered exactly on the placement point (this schema's own prior default, still correct when ORIGIN is omitted) |
+| `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in microns (LEF VIARULE-inside-VIA OFFSET, bottom pair) - unset means no offset (the enclosure rect stays centered on the cut array, this schema's own prior default) |
 | `-top_offset` | `Point` | no | Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair) |
 
 ## write_def

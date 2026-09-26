@@ -33,6 +33,8 @@ int32_t le_get_{{klass.tcl_plural_snake_case()}}(LeHandle *handle{% for op in sc
     {{ render_of_check_cpp(scope) | indent(4) }}
 
     handle->{{klass.to_snake_case()}}_search_results.clear();
+    // -filter compares lengths/areas in microns (NEW_FEATURES_SEPT_2026.md item 27).
+    const double filter_dbu_per_um = display_dbu_per_um(handle->root);
     for (const le::{{klass.name}}Id id : candidates)
     {
         const le::{{klass.name}}Data *data = handle->root.get_{{klass.to_snake_case()}}(id);
@@ -42,7 +44,7 @@ int32_t le_get_{{klass.tcl_plural_snake_case()}}(LeHandle *handle{% for op in sc
         if (name_expression && name_expression[0] != '\\0' && !le::filter_detail::glob_match(name_expression, data->{{id_field.name}}))
             continue;
         {%- endif %}
-        if (expr && !le::evaluate_filter(*expr, handle->root, id, *data))
+        if (expr && !le::evaluate_filter(*expr, handle->root, id, *data, filter_dbu_per_um))
             continue;
         handle->{{klass.to_snake_case()}}_search_results.push_back(id);
     }

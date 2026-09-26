@@ -605,7 +605,7 @@ proc generate_command_docs {{path {}}} {
     lappend lines ""
     lappend lines "# TCL Command Reference"
     lappend lines ""
-    lappend lines "Every Tcl command le_shell provides. Objects are named by tokens such as `layer:M1`, `terminal:A` or `shape:12` - what the `get_` commands return and every other command accepts. Every command also takes `-help`, which returns its usage; `help <pattern>` lists matching commands and `man <command>` shows one in full."
+    lappend lines "Every Tcl command le_shell provides. Objects are named by tokens such as `layer:M1`, `terminal:A` or `shape:12` - what the `get_` commands return and every other command accepts. Every command also takes `-help`, which returns its usage; `help <pattern>` lists matching commands and `man <command>` shows one in full. All lengths and coordinates - including points `{x y}`, rectangles and `-filter` comparisons - are in microns (`um`), and areas in square microns (`um2`)."
     lappend lines ""
     foreach name [lsort [dict keys $::command_help]] {
         set info [dict get $::command_help $name]
@@ -2372,9 +2372,9 @@ register_command_help shape_size \
     "Creates one new Shape per input shape: its merged area grown (positive) or shrunk (negative) by -x microns in X and -y in Y (-by sets both; an explicit -x/-y overrides it). Exact for axis-aligned geometry with any X/Y amounts; other geometry only supports equal X and Y. A shape shrunk away entirely creates nothing. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
     {
         {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
-        {-by {type dbu required 0 description {Grow (positive) or shrink (negative) by this in both X and Y, in microns}}}
-        {-x {type dbu required 0 description {Grow/shrink in X, in microns - overrides -by}}}
-        {-y {type dbu required 0 description {Grow/shrink in Y, in microns - overrides -by}}}
+        {-by {type um required 0 description {Grow (positive) or shrink (negative) by this in both X and Y, in microns}}}
+        {-x {type um required 0 description {Grow/shrink in X, in microns - overrides -by}}}
+        {-y {type um required 0 description {Grow/shrink in Y, in microns - overrides -by}}}
         {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
         {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
@@ -2398,7 +2398,7 @@ register_command_help shape_path \
     "Creates one new path-only Shape per input shape: a closed path of -width microns along the outline of its merged rects/polygons (and around any holes), plus each of its own paths' centerlines re-stroked at -width. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
     {
         {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
-        {-width {type dbu required 1 description {Path width, in microns}}}
+        {-width {type um required 1 description {Path width, in microns}}}
         {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
         {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}

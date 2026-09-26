@@ -19,20 +19,33 @@ namespace {{schema.namespace}}
             DOUBLE,
         };
 
+        // What an INT value measures - DBU (a length in database units) or
+        // DBU2 (an area in database units squared) marks a raw dbu value
+        // from get_field(), so a consumer working in microns (-filter,
+        // chained property paths) can convert it (NEW_FEATURES_SEPT_2026.md
+        // item 27). NONE for everything else.
+        enum class Unit
+        {
+            NONE,
+            DBU,
+            DBU2,
+        };
+
         std::string name;
         Type type;
         std::string string_value;
         int64_t int_value = 0;
         double double_value = 0.0;
+        Unit unit = Unit::NONE;
 
         static PropertyValue make_string(std::string name, std::string value)
         {
             return PropertyValue{.name = std::move(name), .type = Type::STRING, .string_value = std::move(value)};
         }
 
-        static PropertyValue make_int(std::string name, int64_t value)
+        static PropertyValue make_int(std::string name, int64_t value, Unit unit = Unit::NONE)
         {
-            return PropertyValue{.name = std::move(name), .type = Type::INT, .int_value = value};
+            return PropertyValue{.name = std::move(name), .type = Type::INT, .int_value = value, .unit = unit};
         }
 
         static PropertyValue make_double(std::string name, double value)
@@ -52,6 +65,28 @@ namespace {{schema.namespace}}
     inline double to_um(int64_t value_dbu, double dbu_per_um)
     {
         return static_cast<double>(value_dbu) / dbu_per_um;
+    }
+
+    /**
+        @brief to_um() for a `dbu2` value - an area in database units
+        squared, converted to square microns.
+    */
+    inline double to_um2(int64_t value_dbu2, double dbu_per_um)
+    {
+        return static_cast<double>(value_dbu2) / (dbu_per_um * dbu_per_um);
+    }
+
+    /**
+        @brief A PropertyValue's number in microns (DBU) or square microns
+        (DBU2) - its raw number for any other unit.
+    */
+    inline double property_value_in_um(const PropertyValue &value, double dbu_per_um)
+    {
+        if (value.unit == PropertyValue::Unit::DBU)
+            return to_um(value.int_value, dbu_per_um);
+        if (value.unit == PropertyValue::Unit::DBU2)
+            return to_um2(value.int_value, dbu_per_um);
+        return value.type == PropertyValue::Type::DOUBLE ? value.double_value : static_cast<double>(value.int_value);
     }
 
     /**

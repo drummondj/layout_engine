@@ -867,7 +867,13 @@ this codebase's hand-written `-flag` parsing already used before this
 generator existed), a numeric or compound field gets a companion
 `has_<field>` int32. `dbu` fields (plain or nested inside a compound one)
 cross the C boundary in microns (`<field>_um`, converted via
-`database_units_microns()`/`to_dbu()`), and an enum field crosses as its
+`database_units_microns()`/`to_dbu()`) - and `dbu2` fields (areas, stored
+in database units squared) in square microns via `to_dbu2()`/`to_um2()`;
+every TCL value is in microns (NEW_FEATURES_SEPT_2026.md item 27), help
+labels them `um`/`um2`, and `get_field()` tags the raw value
+`PropertyValue::Unit::DBU`/`DBU2` so `-filter` (filter.hpp, given the
+scale by the generated search) and chained `get_properties` paths
+(`display_path_value`) convert too - and an enum field crosses as its
 `to_string()`/`from_string()` spelling (e.g. `"INPUT"`, parsed via the
 matching generated `<enum>_from_string()` — see `enum_hpp_j2.py` — not a raw
 numeric code). A single-struct compound field explodes into one C slot

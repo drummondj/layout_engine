@@ -137,7 +137,7 @@ LeProperty le_{{klass.to_snake_case()}}_property_path(LeHandle *handle, Le{{klas
     auto value = le::resolve_property_path(handle->root, typed_id, *data, *parsed);
     if (!value)
         return invalid;
-    handle->cached_property_path_value = std::move(*value);
+    handle->cached_property_path_value = display_path_value(handle->root, std::move(*value));
     return to_c(handle->cached_property_path_value);
 }
 {% endfor %}
