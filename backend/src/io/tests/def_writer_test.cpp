@@ -51,7 +51,12 @@ namespace le
             const LayoutId layout_id = original_root.get_design_layout(design_id);
             ASSERT_TRUE(layout_id.valid());
 
-            const std::string written_path = scratch_output_path("le_def_writer_roundtrip.def");
+            // One file per test - ctest runs this fixture's tests as
+            // separate processes in parallel, and a shared name let one
+            // test re-read another's half-written file (an intermittent
+            // failure of a random RoundTrips* test under ctest -j).
+            const std::string written_path =
+                scratch_output_path(std::string("le_def_writer_roundtrip_") + ::testing::UnitTest::GetInstance()->current_test_info()->name() + ".def");
             DEFWriter writer;
             ASSERT_EQ(writer.write_def(written_path, original_root, layout_id), 0) << [&]
             {
