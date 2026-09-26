@@ -162,3 +162,57 @@ editing its Browser node to 450px and the window to 1100x700 and reopening
 showed exactly that (window geometry 1100x700, Browser ~450px). The Reset
 button wasn't clicked live (synthetic input doesn't reach the window under
 WSLg). Full suite: 869/869.
+
+## Item 24 — User-facing TCL_COMMANDS.md
+
+**What was wrong:** `TCL_COMMANDS.md` is generated from each command's
+`register_command_help` entry, and those were written as developer notes:
+backlog item numbers (`UPDATES.md item 21`, `BUGS_AND_ENHANCEMENTS.md E5`),
+C API and source references (`le_render_pixel_buffer`, `le_gui.hpp`,
+`codegen/codegen/tcl_scope.py`, `filter.hpp`), internal class names
+(`ViewLayer`, `Scene`, `Root`), and history ("behaves exactly as before",
+"previously a {width_um ...} dict"). The ~200 generated `get_`/`create_`/
+`update_`/`delete_` entries just repeated their class description, never
+saying what the command did.
+
+**Fix** - at the sources, since the file is generated:
+- `le_tcl_procs.tcl`: 64 hand-written descriptions rewritten, plus the
+  option texts that needed it - what the command does, its defaults and
+  return value, nothing about the implementation. Entries that were
+  already user-facing (grid spacing, label sizes, layer colors, the
+  `shape_*` operations, ...) are unchanged.
+- Codegen template (`le_tcl_procs_generated_tcl_j2.py`): each generated
+  command now leads with what it does - "Returns the Via objects matching
+  the given names and filters, as tokens. Via: ..." / "Creates a Via and
+  returns its token." / "Changes the given fields of a Via; omitted flags
+  leave a field unchanged." / "Deletes a Via and everything it owns."; the
+  `-of`, `-filter` and name-pattern options and `current_<type>` reworded.
+  `codegen/codegen/schema.py`: the generated parent/delete option texts.
+- `src/database/schema.py`: the 48 of 673 field/class descriptions that
+  referenced internals (vendored-writer notes, `is_optional` rationale,
+  `unique_per_parent`, `LEFDEF_BUGS.md`, ...) rewritten, keeping what a user
+  needs (e.g. "read-only, not written back by write_lef").
+- `generate_command_docs`: a short intro (tokens, `-help`, `help`, `man`),
+  the "generated" note as an HTML comment, and no `-help` row repeated in
+  every command's table. 3936 -> 3588 lines; zero remaining matches for
+  backlog/source/API references.
+
+**Judgment calls:**
+- Rewrote the schema descriptions themselves rather than adding a separate
+  user-facing field: `description` is what the property tables and help
+  already show users, and the developer notes it carried are all also in the
+  code comments at the places they describe.
+- No schema version bump - descriptions only, no field/class change.
+
+**Worth knowing:** the regen skills' `poetry run cmg` doesn't exist on this
+machine, and the `cmg` on PATH imports a *stale* non-editable `codegen` in
+`~/.local/lib/python3.12/site-packages` (it failed on `tcl_create_aliases`).
+I regenerated with `PYTHONPATH=codegen python3 -m codegen.cli`, snapshotting
+`generated/` first: the database headers changed only in doc comments and
+the Tcl surface only in help strings. Your new item 26 (rename cmg) is
+exactly this problem.
+
+**Tests:** `le_tcl_help` checks the generated docs' heading and entries (the
+heading text is kept for it). Full suite: 869/869. This commit also carries
+your new NEW_FEATURES_SEPT_2026.md items 26-27 (added while I worked), since
+the file is marked here too - they're outside tonight's 20-25.

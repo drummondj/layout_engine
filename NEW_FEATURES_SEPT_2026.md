@@ -119,11 +119,19 @@ If I start a rectange or zoom select but then switch windows to another program,
 
 23. Status bar needs padding on the bottom, to match the padding on the top - DONE
 
-24. TCL_COMMANDS.md documentation update
+24. TCL_COMMANDS.md documentation update - DONE
 
 The current TCL_COMMANDS.md contains lot's of information about the internals and references to development docs. This documentation should be user facing and concise, explaining what the commands and options do and nothing more.
 
 25. Saving window state - DONE
 
 Can the ImGUI docking state be saved as part of the settings.json, or as a separate file in ~/.layout_editor?
+
+26. Rename cmg to codegen
+
+To stop conflicts with the installed cmg package, please rename the package in codegen from cmg to codegen and update all your skills and docs.
+
+27. TCL command dbu values
+
+Please make sure that all TCL commands take values in um (and not dbu) and that TCL_COMMANDS.md also says um.
 

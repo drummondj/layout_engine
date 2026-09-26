@@ -91,7 +91,7 @@ proc current_{{snake}} {args} {
 set current_{{snake}}_options {}
 lappend current_{{snake}}_options {<id> {type token required 0 description {A friendly-id token to select as current - omit to just read the current value}}}
 lappend current_{{snake}}_options {-help {type flag required 0 description {Show this usage message and return immediately}}}
-register_command_help current_{{snake}} "current_{{snake}} \\[<id>\\] \\[-help\\] - Returns the current {{klass.name}}, selecting it first if <id> is given" "Returns the current {{klass.name}} (empty string if none is set yet); with <id> given, selects it first (this is also every other readable class's own get_<type> default -of-omitted scope anchor), then returns it." $current_{{snake}}_options
+register_command_help current_{{snake}} "current_{{snake}} \\[<id>\\] \\[-help\\] - Returns the current {{klass.name}}, selecting it first if <id> is given" "Returns the current {{klass.name}} (empty if none is set); with <id>, selects it first. get_ commands without -of search within it." $current_{{snake}}_options
 {% endfor %}
 
 # --- get_<type> search ---
@@ -144,14 +144,14 @@ proc get_{{plural}} {args} {
 }
 set get_{{plural}}_options {}
 {%- if id_field %}
-lappend get_{{plural}}_options {<name-expr> {type str required 0 description {Glob-matched against {{id_field.name}} (Tcl string match syntax) - may be given more than once, OR'd}}}
+lappend get_{{plural}}_options {<name-expr> {type str required 0 description {Pattern (Tcl glob) matched against {{id_field.name}} - several match any of them}}}
 {%- endif %}
 {%- if scope.of_params %}
-lappend get_{{plural}}_options {-of {type token... required 0 description {Parent token(s) to scope the search to (OR'd across each -of value's own list) - defaults to the current view when omitted, see codegen/codegen/tcl_scope.py}}}
+lappend get_{{plural}}_options {-of {type token... required 0 description {Search only within these objects (tokens) - the current view if omitted}}}
 {%- endif %}
-lappend get_{{plural}}_options {-filter {type expr required 0 description {A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist}}}
+lappend get_{{plural}}_options {-filter {type expr required 0 description {Keep only objects matching this expression over their properties}}}
 lappend get_{{plural}}_options {-help {type flag required 0 description {Show this usage message and return immediately}}}
-register_command_help get_{{plural}} "{{usage_line}}" "{{klass.tcl_description_escaped()}}" $get_{{plural}}_options
+register_command_help get_{{plural}} "{{usage_line}}" "Returns the {{klass.name}} objects matching the given names and filters, as tokens. {{klass.name}}: {{klass.tcl_description_escaped()}}" $get_{{plural}}_options
 {% endfor %}
 
 # --- create_<type> - `create_<type> [-flag value...]`, one flag per
@@ -214,7 +214,7 @@ proc create_{{snake}} {args} {
     }
     return $new_id
 }
-register_command_help create_{{snake}} "{{klass.create_tcl_usage()}}" "{{klass.tcl_description_escaped()}}" {{'{'}}{{klass.create_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}
+register_command_help create_{{snake}} "{{klass.create_tcl_usage()}}" "Creates a {{klass.name}} and returns its token. {{klass.name}}: {{klass.tcl_description_escaped()}}" {{'{'}}{{klass.create_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}
 {% endfor %}
 
 # --- update_<type> - `update_<type> <id> -flag value...` - mutates an
@@ -266,7 +266,7 @@ proc update_{{snake}} {id args} {
     }
     return $new_id
 }
-register_command_help update_{{snake}} "{{klass.update_tcl_usage()}}" "{{klass.tcl_description_escaped()}}" {{'{'}}{{klass.update_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}
+register_command_help update_{{snake}} "{{klass.update_tcl_usage()}}" "Changes the given fields of a {{klass.name}}; omitted flags leave a field unchanged." {{'{'}}{{klass.update_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}
 {% endfor %}
 
 # --- delete_<type> - `delete_<type> <id> [-help]` - deletes an existing
@@ -301,6 +301,6 @@ proc delete_{{snake}} {args} {
     }
     return 0
 }
-register_command_help delete_{{snake}} "{{klass.delete_tcl_usage()}}" "{{klass.tcl_description_escaped()}}" {{'{'}}{{klass.delete_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}
+register_command_help delete_{{snake}} "{{klass.delete_tcl_usage()}}" "Deletes a {{klass.name}} and everything it owns." {{'{'}}{{klass.delete_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}
 {% endfor %}
 """

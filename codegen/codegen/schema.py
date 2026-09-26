@@ -1274,7 +1274,7 @@ class Klass:
             if single_parent:
                 desc = f"Parent {pf.type} token"
             else:
-                desc = f"Parent {pf.type} token - exactly one of this class's parent flags is required"
+                desc = f"Parent {pf.type} token - give exactly one of the parent flags"
             parts.append(
                 f"{{-{pf.name} {{type token required {required} description {{{tcl_brace_escape(desc)}}}}}}}"
             )
@@ -1326,7 +1326,7 @@ class Klass:
         parts = []
         if len(parent_fields) == 1:
             pf = parent_fields[0]
-            desc = f"Reassign this object's parent {pf.type} (token)"
+            desc = f"Move it to this {pf.type} (token)"
             parts.append(f"{{-{pf.name} {{type token required 0 description {{{tcl_brace_escape(desc)}}}}}}}")
         for rf in self.get_reference_create_fields():
             parts.append(
@@ -1372,7 +1372,7 @@ class Klass:
         usual `-help` entry itself, same as every other family's own
         registration call).
         """
-        desc = f"Friendly id of the {self.name} to delete"
+        desc = f"Token of the {self.name} to delete"
         return f"{{<id> {{type token required 1 description {{{tcl_brace_escape(desc)}}}}}}}"
 
     def tcl_property_scalars(self) -> str:
