@@ -185,6 +185,15 @@ namespace le::gui
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Nets connecting more pins than this (besides the selected one) draw no flightlines - 0 for no limit");
 
+        // NEW_FEATURES_SEPT_2026.md item 21 - set_max_concurrency.
+        section("Performance");
+        static CommittedField<int32_t> cpus_field;
+        draw_committed_int_field("##max_concurrency", "CPUs", settings.max_concurrency, cpus_field,
+                                 [&](int32_t value)
+                                 { provider.set_max_concurrency(value); });
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Most threads rendering may use at once - at least 2");
+
         section("Settings file");
         static FileRequest request;
         static std::string status;

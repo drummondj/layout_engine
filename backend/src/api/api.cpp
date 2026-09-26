@@ -406,6 +406,23 @@ namespace
 
     // --- Settings (NEW_FEATURES_SEPT_2026.md item 9) ---
 
+    // le_set_max_concurrency's body - also applied by a loaded settings
+    // file (NEW_FEATURES_SEPT_2026.md item 21). Clamped to at least 2.
+    void set_max_concurrency_unlocked(LeHandle *handle, int32_t max_concurrency)
+    {
+        const int32_t clamped = std::max(2, max_concurrency);
+        if (clamped == handle->max_concurrency_)
+            return;
+        handle->max_concurrency_ = clamped;
+        // No setter on global_control itself - destroy the old limit
+        // before constructing the new one (a live global_control's own
+        // limit is the min across every currently-constructed instance,
+        // so leaving the old one alive while constructing a new one could
+        // never raise the effective limit, only lower it).
+        handle->concurrency_control_.reset();
+        handle->concurrency_control_.emplace(oneapi::tbb::global_control::max_allowed_parallelism, static_cast<size_t>(clamped));
+    }
+
     // Sets grid spacing given in um (a value <= 0 leaves that one alone).
     // With no Technology yet there's no dbu scale to convert through, so
     // the um value waits on the handle until apply_pending_grid_um_unlocked
@@ -497,6 +514,7 @@ namespace
         j["label_max_size_px"] = handle->label_max_size_px();
         j["hierarchy_depth"] = handle->hierarchy_depth();
         j["flightline_max_fanout"] = handle->flightline_max_fanout();
+        j["max_concurrency"] = handle->max_concurrency_; // NEW_FEATURES_SEPT_2026.md item 21
         j["placement_snap_mode"] = kPlacementSnapNames[static_cast<size_t>(handle->placement_snap_mode())];
         nlohmann::json shape_snap = nlohmann::json::object();
         for (const auto &[name, kind] : kShapeSnapKinds)
@@ -550,6 +568,8 @@ namespace
             handle->set_hierarchy_depth(static_cast<int>(*v));
         if (const auto v = number(j, "flightline_max_fanout"); v && *v >= 0)
             handle->set_flightline_max_fanout(static_cast<int>(*v));
+        if (const auto v = number(j, "max_concurrency"))
+            set_max_concurrency_unlocked(handle, static_cast<int32_t>(*v));
 
         if (j.contains("placement_snap_mode"))
         {
@@ -3254,17 +3274,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        const int32_t clamped = std::max(2, max_concurrency);
-        if (clamped == handle->max_concurrency_)
-            return;
-        handle->max_concurrency_ = clamped;
-        // No setter on global_control itself - destroy the old limit
-        // before constructing the new one (a live global_control's own
-        // limit is the min across every currently-constructed instance,
-        // so leaving the old one alive while constructing a new one could
-        // never raise the effective limit, only lower it).
-        handle->concurrency_control_.reset();
-        handle->concurrency_control_.emplace(oneapi::tbb::global_control::max_allowed_parallelism, static_cast<size_t>(clamped));
+        set_max_concurrency_unlocked(handle, max_concurrency);
     }
 
     int32_t le_is_purpose_visible(LeHandle *handle, int32_t purpose)

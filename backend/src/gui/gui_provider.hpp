@@ -101,6 +101,7 @@ namespace le::gui
                 double label_max_size_px = 0.0;
                 int32_t hierarchy_depth = 0;
                 int32_t flightline_max_fanout = 0;
+                int32_t max_concurrency = 0; // NEW_FEATURES_SEPT_2026.md item 21 - "CPUs"
             } settings;
 
             // secondary_toolbar.cpp's placement toolbar
@@ -208,6 +209,7 @@ namespace le::gui
         // null/empty path means the default settings file.
         void set_grid_spacing_um(double minor_um, double major_um);
         void set_ruler_label_size(double px);
+        void set_max_concurrency(int32_t threads);
         void set_label_min_size(double px);
         void set_label_max_size(double px);
         void save_settings(const std::string &path);

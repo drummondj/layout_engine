@@ -109,7 +109,7 @@ Not sure if this is my eyes or a real problem. The minor grid points are hardly 
 
 ![Minor grid color](image.png)
 
-21. Extra settings
+21. Extra settings - DONE
 
 Please a the set_max_concurrency setting, label it as "CPUs"
 

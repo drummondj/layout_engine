@@ -100,3 +100,25 @@ selects nothing; the same drag uncancelled selects both pins. Fails with
 the Escape change reverted. The focus-loss path is GUI-only and wasn't
 exercised live (synthetic input doesn't reach the window under WSLg).
 Full suite: 869/869.
+
+## Item 21 — "CPUs" setting
+
+**Fix:**
+- Settings panel (`settings_panel.cpp`): a new **Performance** section
+  with a "CPUs" field - the same commit-when-done `-`/`+` integer field as
+  Hierarchy Depth - driving `set_max_concurrency` through a Tcl command
+  (`GuiProvider::set_max_concurrency`), like the panel's other settings.
+- Saved in `settings.json` as `max_concurrency` and applied on load
+  (`le_set_max_concurrency`'s body moved into `set_max_concurrency_unlocked`,
+  `api.cpp`, so `apply_settings_json` shares it - same clamp to >= 2). Being
+  in the settings JSON, it also counts toward item 18's unsaved-settings
+  check.
+
+**Judgment call:** also persisted in the settings file (the request only
+asks for the panel entry) - every other Settings-panel value is saved, and
+a thread cap is exactly the kind of per-machine preference worth keeping.
+
+**Tests:** `ApiFixture.SettingsSaveThenLoadRoundTripsEverySetting` now
+covers `max_concurrency`. The panel field itself wasn't clicked live
+(synthetic input doesn't reach the window under WSLg). Full suite:
+869/869.

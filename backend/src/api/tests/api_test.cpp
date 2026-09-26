@@ -6484,6 +6484,7 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsEverySetting)
     le_set_label_max_size(handle, 18.0);
     le_set_hierarchy_depth(handle, 3);
     le_set_flightline_max_fanout(handle, 7);
+    le_set_max_concurrency(handle, 5); // item 21 - the Settings panel's "CPUs"
     le_set_placement_snap_mode(handle, LE_PLACEMENT_SNAP_MANUFACTURING_GRID);
     le_set_shape_snap_mode(handle, LE_PIECE_KIND_POLYGON, LE_SHAPE_SNAP_NONE);
     le_set_shape_snap_mode(handle, LE_PIECE_KIND_PATH, LE_SHAPE_SNAP_TRACKS);
@@ -6507,6 +6508,7 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsEverySetting)
     EXPECT_DOUBLE_EQ(le_label_max_size(other), 18.0);
     EXPECT_EQ(le_hierarchy_depth(other), 3);
     EXPECT_EQ(le_flightline_max_fanout(other), 7);
+    EXPECT_EQ(le_max_concurrency(other), 5);
     EXPECT_EQ(le_get_placement_snap_mode(other), LE_PLACEMENT_SNAP_MANUFACTURING_GRID);
     EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_POLYGON), LE_SHAPE_SNAP_NONE);
     EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_PATH), LE_SHAPE_SNAP_TRACKS);
