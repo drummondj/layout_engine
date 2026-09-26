@@ -103,7 +103,7 @@ If there are unsaved database mutations (i.e. write_def has not been ran), then 
 
 If I run show_gui before loading the design, I don't see any shapes in the Layout viewer or Abstract viewer.
 
-20. minor grid color problem
+20. minor grid color problem - DONE
 
 Not sure if this is my eyes or a real problem. The minor grid points are hardly visible on the black background, but when I draw a selection box (or zoom box) they change color:
 

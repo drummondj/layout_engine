@@ -592,6 +592,20 @@ namespace le::gui
                     std::lock_guard<std::mutex> lock(mailbox.mutex);
                     mailbox.pixels.resize(byte_count);
                     std::memcpy(mailbox.pixels.data(), buffer.data, byte_count);
+                    // NEW_FEATURES_SEPT_2026.md item 20 - the frame is
+                    // premultiplied RGBA that's still translucent wherever
+                    // only translucent content (grid dots, shape fills) was
+                    // drawn (ComposeStage starts from transparent black, so
+                    // dump_png keeps a transparent background). ImGui draws
+                    // textures with straight-alpha blending, which darkened
+                    // those pixels a second time - the minor grid showed at
+                    // ~1/4 of its intended brightness, except under the drag
+                    // rectangle, whose fill raised the alpha. The design view
+                    // is always on black, and premultiplied color over black
+                    // is the color itself, so making every pixel opaque is
+                    // the exact composite.
+                    for (size_t i = 3; i < byte_count; i += 4)
+                        mailbox.pixels[i] = 255;
                     mailbox.width = buffer.width;
                     mailbox.height = buffer.height;
                     mailbox.row_bytes = buffer.row_bytes;
