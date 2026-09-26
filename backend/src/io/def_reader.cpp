@@ -738,21 +738,9 @@ namespace le
             // underlying field regardless of blockage kind (confirmed
             // against defiBlockage.cpp: both grammar rules - LAYER's own
             // "+ COMPONENT" and PLACEMENT's own - call the same
-            // setComponent()) - no Root-level get_placement_by_name
-            // exists (Placement.name is unique_per_parent, same as
-            // Terminal/Component/... elsewhere in this codebase), so this
-            // is the same linear-scan-over-the-current-Layout pattern
-            // api.cpp's own le_placement_by_name uses.
-            const std::string component_name = blockage->layerComponentName();
-            for (const PlacementId placement_id : reader->root_->get_layout_placements(reader->layout_id_))
-            {
-                const PlacementData *placement = reader->root_->get_placement(placement_id);
-                if (placement && placement->name == component_name)
-                {
-                    data.placement = placement_id;
-                    break;
-                }
-            }
+            // setComponent()). Placement.name is unique_per_parent, so
+            // this is the per-Layout index lookup, not a scan.
+            data.placement = reader->root_->get_placement_by_name(reader->layout_id_, blockage->layerComponentName());
         }
         if (blockage->hasSpacing())
             data.spacing = scale_dbu(blockage->minSpacing(), reader->unit_scale_);
