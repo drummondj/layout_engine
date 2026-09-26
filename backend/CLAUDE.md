@@ -664,7 +664,11 @@ none of these are duplicated here.
   prompt), "Exit le_shell", or Cancel, listing anything unsaved first -
   `le_has_unsaved_database_changes` (Root's mutation version vs
   `LeHandle::saved_mutation_version`, set by a successful write_def/
-  write_lef and by a read that started clean - reading isn't an edit)
+  write_lef and by a read that started clean - reading isn't an edit;
+  every le_read_*/le_link_unresolved_instances bumps the version itself,
+  since the readers create through Root directly, which doesn't - item
+  19: the render graph's LayerGenerationStage otherwise kept an empty
+  layer set from a frame rendered before the first read_lef)
   and `le_has_unsaved_settings` (`settings_to_json` vs the snapshot taken
   at creation/save/load/clean read). "Exit" calls `le::gui::set_exit_handler`'s
   handler: interactively le_shell's Tcl thread exits from readline's idle

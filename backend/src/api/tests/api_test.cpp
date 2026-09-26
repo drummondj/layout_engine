@@ -6657,6 +6657,8 @@ TEST_F(ApiFixture, UnsavedChangesTrackEditsWritesAndSettings)
 {
     EXPECT_EQ(le_has_unsaved_database_changes(handle), 0);
     EXPECT_EQ(le_has_unsaved_settings(handle), 0);
+    EXPECT_NE(le_read_lef(handle, scratch_path("no_such_file.lef").c_str(), "missing"), 0);
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0); // a failed read isn't an edit either
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_EQ(le_has_unsaved_database_changes(handle), 0); // a read isn't an edit
     EXPECT_EQ(le_has_unsaved_settings(handle), 0);         // nor does its grid spacing in um count
@@ -6697,6 +6699,28 @@ TEST_F(ApiFixture, CloseGuiRequestIsTakenOnce)
     EXPECT_EQ(le_take_close_gui_request(handle), 0);
     le_request_close_gui(nullptr); // no-op
     EXPECT_EQ(le_take_close_gui_request(nullptr), 0);
+}
+
+// NEW_FEATURES_SEPT_2026.md item 19: a render with nothing loaded yet (the
+// GUI opened by show_gui before any read_lef) must not leave the view
+// blank once a design is loaded and opened.
+TEST_F(ApiFixture, RenderingBeforeAnythingIsLoadedDoesNotBlankLaterRenders)
+{
+    const auto load_and_render = [&](LeHandle *h, bool render_empty_first)
+    {
+        le_set_viewport_size(h, 200, 200);
+        if (render_empty_first)
+            le_render_pixel_buffer(h); // the GUI's first frame, before any LEF
+        EXPECT_EQ(le_read_lef(h, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+        EXPECT_EQ(le_set_current_design_abstract(h, 0), 0);
+        le_fit_scene(h, 10);
+        const LePixelBuffer buffer = le_render_pixel_buffer(h);
+        return std::vector<uint8_t>(buffer.data, buffer.data + static_cast<size_t>(buffer.height) * static_cast<size_t>(buffer.row_bytes));
+    };
+    LeHandle *fresh = le_create();
+    const std::vector<uint8_t> expected = load_and_render(fresh, false);
+    le_destroy(fresh);
+    EXPECT_EQ(load_and_render(handle, true), expected);
 }
 
 // Settings files saved before the min/max split carry one "label_size_px" -

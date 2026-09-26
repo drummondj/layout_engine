@@ -2234,8 +2234,18 @@ extern "C"
         const std::filesystem::path lef_path(path);
         le::LEFReader reader;
         const int result = reader.read_lef(lef_path.string(), handle->root, library_name);
+        // The readers create through Root directly, which never bumps the
+        // version itself - without this, anything keyed on it (the render
+        // graph's LayerGenerationStage, ensure_view_layers_current) kept
+        // whatever it computed before the read - a GUI opened before any
+        // LEF stayed blank (NEW_FEATURES_SEPT_2026.md item 19). Also on
+        // failure: a read that fails partway may still have added content.
+        handle->root.bump_mutation_version();
         if (result != 0)
+        {
+            clean.commit(handle);
             return result;
+        }
 
         // Rebuilt after every successful read, not just the first, so a
         // later LEF file's own new physical layers (e.g. a second macro
@@ -2302,8 +2312,12 @@ extern "C"
         const std::filesystem::path def_path(path);
         le::DEFReader reader;
         const int result = reader.read_def(def_path.string(), handle->root, library_name);
+        handle->root.bump_mutation_version(); // item 19 - see le_read_lef
         if (result != 0)
+        {
+            clean.commit(handle);
             return result;
+        }
 
         // NONDEFAULTRULES may have resolved/created the shared Technology
         // (DEFReader::technology_id_, same reuse-or-create pattern
@@ -2390,6 +2404,7 @@ extern "C"
         const int result = is_netlist
             ? reader.read_netlist(filename_strings, handle->root, library_name)
             : reader.read_rtl(filename_strings, handle->root, library_name);
+        handle->root.bump_mutation_version(); // item 19 - see le_read_lef
 
         if (!stub_path.empty())
         {
@@ -2397,8 +2412,7 @@ extern "C"
             std::filesystem::remove(stub_path, ec);
         }
 
-        if (result == 0)
-            clean.commit(handle);
+        clean.commit(handle);
         return result;
     }
 
@@ -2448,6 +2462,10 @@ extern "C"
         if (!handle)
             return 0;
         HandleWriteLock lock(handle);
+        // Linking derives connectivity from what the reads loaded - like a
+        // read, it isn't an unsaved edit, but it does change content
+        // (item 19 - see le_read_lef's own bump).
+        const CleanAcrossRead clean(handle);
         const size_t resolved = le::SVReader::link_unresolved_instances(handle->root);
 
         // Physical-side linking (Placement/Route/PhysicalPort <-> sibling
@@ -2463,6 +2481,8 @@ extern "C"
         // directly, same as LEFReader/DEFReader.
         le::link_physical(handle->root);
 
+        handle->root.bump_mutation_version();
+        clean.commit(handle);
         return static_cast<int32_t>(resolved);
     }
 

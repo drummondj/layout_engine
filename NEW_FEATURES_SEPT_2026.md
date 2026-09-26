@@ -99,7 +99,7 @@ Also, when the user clicks on the color swatch, I would like a color picker to a
 
 If there are unsaved database mutations (i.e. write_def has not been ran), then when the user tries to exit the tool I would like to see a dialog box appear asking for confirmation. Same for settings. So if either settings or the database is mutated, show a confirmation explaining what needs saving.
 
-19. Bug when opening gui before loading design
+19. Bug when opening gui before loading design - DONE
 
 If I run show_gui before loading the design, I don't see any shapes in the Layout viewer or Abstract viewer.
 
@@ -118,4 +118,12 @@ Please a the set_max_concurrency setting, label it as "CPUs"
 If I start a rectange or zoom select but then switch windows to another program, the selection tool gets stuck because it still thinks my mouse is down. Can you add esc to cancel the rectangle?
 
 23. Status bar needs padding on the bottom, to match the padding on the top
+
+24. TCL_COMMANDS.md documentation update
+
+The current TCL_COMMANDS.md contains lot's of information about the internals and references to development docs. This documentation should be user facing and concise, explaining what the commands and options do and nothing more.
+
+25. Saving window state
+
+Can the ImGUI docking state be saved as part of the settings.json, or as a separate file in ~/.layout_editor?
 
