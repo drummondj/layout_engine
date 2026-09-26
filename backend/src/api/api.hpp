@@ -1476,6 +1476,14 @@ extern "C"
     /// rectangle this also stops showing.
     void le_mouse_up(LeHandle *handle, int32_t x, int32_t y);
 
+    /// @brief Ends an in-progress le_mouse_down/le_zoom_drag_down gesture
+    /// without acting on it - no selection, no zoom
+    /// (NEW_FEATURES_SEPT_2026.md item 22: the GUI calls this on Escape, or
+    /// when the button's release went to another window). Escape
+    /// (LE_KEY_FINISH_RULER) does the same while a drag is in progress. A
+    /// no-op with no drag in progress, or a null handle.
+    void le_cancel_drag(LeHandle *handle);
+
     /// @brief Instructional text describing which mouse gestures and
     /// keyboard modifiers are currently available, for display in the
     /// GUI's status bar below the texture (UPDATES.md item 7.3) - e.g.

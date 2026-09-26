@@ -257,6 +257,7 @@ namespace le::gui
         void clear_mouse_position();
         void mouse_down(int32_t x, int32_t y);
         void mouse_up(int32_t x, int32_t y);
+        void cancel_drag(); // NEW_FEATURES_SEPT_2026.md item 22
         void zoom(double factor, int32_t x, int32_t y);
         void zoom_drag_down(int32_t x, int32_t y);
         void key_down(int32_t key_code);

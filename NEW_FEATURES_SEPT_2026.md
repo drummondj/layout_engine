@@ -113,7 +113,7 @@ Not sure if this is my eyes or a real problem. The minor grid points are hardly 
 
 Please a the set_max_concurrency setting, label it as "CPUs"
 
-22. Rectangle select/zoom bug
+22. Rectangle select/zoom bug - DONE
 
 If I start a rectange or zoom select but then switch windows to another program, the selection tool gets stuck because it still thinks my mouse is down. Can you add esc to cancel the rectangle?
 

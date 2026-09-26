@@ -66,3 +66,37 @@ Full suite: 868/868, three consecutive parallel runs.
 wrote and re-read one shared scratch file, so under `ctest -j` a random
 `RoundTrips*` test failed now and then (it had tripped three of tonight's
 and yesterday's runs). Each test now writes its own file.
+
+## Item 22 — Rectangle select/zoom stuck after switching windows; Esc to cancel
+
+**What was wrong:** switching to another app mid-drag makes ImGui (1.93)
+clear its mouse-button state on focus loss (`ImGuiIO::ClearInputMouse`)
+*without* reporting a release. `forward_mouse_input` (`le_gui.cpp`) only
+ended a gesture on `IsMouseReleased`, so its `gesture` stayed active and the
+backend stayed `is_dragging()`: the next press was ignored (a gesture was
+"already in progress") and that press's release committed a rectangle from
+the long-gone start point. Escape did nothing to a drag either.
+
+**Fix:**
+- `le_cancel_drag` (new, `api.cpp`/`api.hpp`) ends a drag with no selection
+  or zoom.
+- Escape (`LE_KEY_FINISH_RULER`) now cancels a drag in progress first, and
+  only that - one gesture per press (so Tcl/other frontends get it too).
+- `forward_mouse_input`: while a gesture is active, Escape (hovered or not)
+  cancels it via `le_cancel_drag`; so does finding its button no longer down
+  with no release seen - the release went to another window. Escape spent
+  that way isn't also forwarded as `LE_KEY_FINISH_RULER` that frame
+  (`forward_keyboard_input`'s new `skip_escape`), so it doesn't also finish
+  a ruler or cancel an armed Move.
+
+**Judgment call:** a drag whose release went to another window is
+*cancelled* (the moment focus loss clears the button), not committed at
+wherever the mouse was last seen - the user left mid-gesture, and a
+selection/zoom they didn't finish would be the surprise.
+
+**Tests:** `ApiFixture.CancellingADragSelectsNothing` - cancel via
+`le_cancel_drag`, then via Escape, each followed by a stray release,
+selects nothing; the same drag uncancelled selects both pins. Fails with
+the Escape change reverted. The focus-loss path is GUI-only and wasn't
+exercised live (synthetic input doesn't reach the window under WSLg).
+Full suite: 869/869.

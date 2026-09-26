@@ -2922,6 +2922,37 @@ TEST_F(ApiFixture, DragSelectEnclosesEverySelectableShapeInTheRectangle)
     EXPECT_EQ(le_selection_count(handle), 2);
 }
 
+// NEW_FEATURES_SEPT_2026.md item 22: a drag that's cancelled - le_cancel_drag
+// (the GUI, on Escape or when the release went to another window) or the
+// Escape key itself - selects nothing, and a stray release afterwards is a
+// no-op rather than committing the stale rectangle.
+TEST_F(ApiFixture, CancellingADragSelectsNothing)
+{
+    load_two_shapes_at_known_scale(handle);
+
+    le_mouse_down(handle, 0, 200);
+    le_set_mouse_position(handle, 200, 0);
+    le_cancel_drag(handle);
+    le_mouse_up(handle, 200, 0);
+    EXPECT_EQ(le_selection_count(handle), 0);
+
+    le_mouse_down(handle, 0, 200);
+    le_set_mouse_position(handle, 200, 0);
+    le_key_down(handle, LE_KEY_FINISH_RULER); // Escape
+    le_key_up(handle, LE_KEY_FINISH_RULER);
+    le_mouse_up(handle, 200, 0);
+    EXPECT_EQ(le_selection_count(handle), 0);
+
+    // The same drag, not cancelled, selects both pins.
+    le_mouse_down(handle, 0, 200);
+    le_mouse_up(handle, 200, 0);
+    EXPECT_EQ(le_selection_count(handle), 2);
+
+    le_cancel_drag(handle); // no drag in progress - a no-op
+    le_cancel_drag(nullptr);
+    EXPECT_EQ(le_selection_count(handle), 2);
+}
+
 TEST_F(ApiFixture, DragSelectExcludesAShapeThatIsOnlyPartiallyEnclosed)
 {
     load_two_shapes_at_known_scale(handle);

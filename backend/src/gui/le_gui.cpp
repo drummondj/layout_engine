@@ -359,7 +359,10 @@ namespace le::gui
         // still reach this function once forwarding stops, so without
         // this a modifier could stay "held" from the backend's own point
         // of view indefinitely (le_clear_all_keys's own doc comment).
-        void forward_keyboard_input(GuiProvider &provider, bool active)
+        // `skip_escape` - forward_mouse_input already spent this frame's
+        // Escape cancelling a drag (NEW_FEATURES_SEPT_2026.md item 22), so
+        // it mustn't also finish a ruler/cancel a Move here.
+        void forward_keyboard_input(GuiProvider &provider, bool active, bool skip_escape)
         {
             static bool was_active = false;
             static bool ctrl_was_held = false;
@@ -398,6 +401,8 @@ namespace le::gui
 
             for (const KeyMapping &mapping : kKeyMappings)
             {
+                if (skip_escape && mapping.imgui_key == ImGuiKey_Escape)
+                    continue;
                 if (ImGui::IsKeyPressed(mapping.imgui_key))
                     provider.key_down(mapping.le_key_code);
                 if (ImGui::IsKeyReleased(mapping.imgui_key))
@@ -428,7 +433,7 @@ namespace le::gui
         // display, where the framebuffer has more real pixels than
         // logical points. Returns `hovered` - the caller also gates
         // forward_keyboard_input on it (BUGS_AND_ENHANCEMENTS.md B7).
-        bool forward_mouse_input(GuiProvider &provider, ActiveGesture &gesture, float scale_x, float scale_y)
+        bool forward_mouse_input(GuiProvider &provider, ActiveGesture &gesture, float scale_x, float scale_y, bool &escape_consumed)
         {
             const bool hovered = ImGui::IsItemHovered();
             const ImVec2 origin = ImGui::GetItemRectMin();
@@ -460,15 +465,27 @@ namespace le::gui
                     gesture = ActiveGesture::kZoomDrag;
                 }
             }
-            else if (gesture == ActiveGesture::kSelect && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+            else if (gesture != ActiveGesture::kNone)
             {
-                provider.mouse_up(px, py);
-                gesture = ActiveGesture::kNone;
-            }
-            else if (gesture == ActiveGesture::kZoomDrag && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
-            {
-                provider.mouse_up(px, py);
-                gesture = ActiveGesture::kNone;
+                // NEW_FEATURES_SEPT_2026.md item 22. Escape cancels the
+                // gesture (hovered or not). And if the button is no longer
+                // down but no release reached us, the release went to
+                // another window - switching away clears ImGui's mouse
+                // state without a release event (ImGuiIO::ClearInputMouse
+                // on focus loss) - so cancel then too, rather than waiting
+                // for the next click's release to commit a stale rectangle.
+                const ImGuiMouseButton button = gesture == ActiveGesture::kSelect ? ImGuiMouseButton_Left : ImGuiMouseButton_Right;
+                if (ImGui::IsMouseReleased(button))
+                {
+                    provider.mouse_up(px, py);
+                    gesture = ActiveGesture::kNone;
+                }
+                else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || !ImGui::IsMouseDown(button))
+                {
+                    escape_consumed = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+                    provider.cancel_drag();
+                    gesture = ActiveGesture::kNone;
+                }
             }
 
             // A signed fractional step per wheel tick, matching le_zoom's
@@ -1123,6 +1140,7 @@ namespace le::gui
                 // forward_keyboard_input is called unconditionally after
                 // that, once per frame, using whatever this ends up as.
                 bool layout_view_hovered = false;
+                bool escape_consumed = false; // item 22 - see forward_keyboard_input
 
                 const bool dock_layout_just_built = draw_dockspace_and_default_layout(dockspace_built);
 
@@ -1436,7 +1454,7 @@ namespace le::gui
                     }
                     else
                     {
-                        layout_view_hovered = forward_mouse_input(provider, gesture, scale_x, scale_y);
+                        layout_view_hovered = forward_mouse_input(provider, gesture, scale_x, scale_y, escape_consumed);
                         over_layout_content = layout_view_hovered;
 
                         // NEW_FEATURES_SEPT_2026.md item 3 - with Resize
@@ -1570,7 +1588,7 @@ namespace le::gui
                 // io.WantTextInput, not io.WantCaptureKeyboard, is the
                 // right flag here.
                 if (!is_rendering)
-                    forward_keyboard_input(provider, layout_view_hovered && !ImGui::GetIO().WantTextInput);
+                    forward_keyboard_input(provider, layout_view_hovered && !ImGui::GetIO().WantTextInput, escape_consumed);
 
                 // Called unconditionally - draw_status_bar's own
                 // le_get_mode/le_tooltip_message/le_snapped_mouse_position/

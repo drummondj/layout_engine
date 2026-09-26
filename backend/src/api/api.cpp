@@ -4156,6 +4156,13 @@ extern "C"
             // (free-form) still physically held right up to the Escape
             // press - suppressing it here would make "finish the ruler"
             // unreliable in exactly the workflow that uses Shift most.
+            // A rubber-band drag in progress is cancelled first, on its own
+            // (NEW_FEATURES_SEPT_2026.md item 22) - one gesture per press.
+            if (handle->is_dragging())
+            {
+                handle->end_drag();
+                break;
+            }
             handle->finish_active_ruler();
             handle->end_move(); // UPDATES.md item 21 - Escape also cancels an in-progress move
             // NEW_FEATURES_SEPT_2026.md item 3 - Escape cancels a Resize in
@@ -4202,6 +4209,15 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         handle->begin_drag(x, y);
+    }
+
+    void le_cancel_drag(LeHandle *handle)
+    {
+        if (!handle)
+            return;
+        HandleWriteLock lock(handle);
+        if (handle->is_dragging())
+            handle->end_drag();
     }
 
     void le_zoom_drag_down(LeHandle *handle, int32_t x, int32_t y)

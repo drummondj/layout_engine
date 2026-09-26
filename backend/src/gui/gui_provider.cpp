@@ -489,6 +489,7 @@ namespace le::gui
     void GuiProvider::clear_mouse_position() { le_clear_mouse_position(handle_); }
     void GuiProvider::mouse_down(int32_t x, int32_t y) { le_mouse_down(handle_, x, y); }
     void GuiProvider::mouse_up(int32_t x, int32_t y) { le_mouse_up(handle_, x, y); }
+    void GuiProvider::cancel_drag() { le_cancel_drag(handle_); }
     void GuiProvider::zoom(double factor, int32_t x, int32_t y) { le_zoom(handle_, factor, x, y); }
     void GuiProvider::zoom_drag_down(int32_t x, int32_t y) { le_zoom_drag_down(handle_, x, y); }
     void GuiProvider::key_down(int32_t key_code) { le_key_down(handle_, key_code); }
