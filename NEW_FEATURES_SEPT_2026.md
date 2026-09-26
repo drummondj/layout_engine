@@ -85,7 +85,7 @@ There should be an option to save the settings into your home dir or a file of t
 
 Please add an info window to the bottom of the right sidebar. This will replace the "tooltip" column in the status_bar.
 
-16. Toolbar cleanup
+16. Toolbar cleanup - DONE
 
 Please add a dark gray border to the right of the mode selector and the bottom of the mode toolbar and secondary toolbar. Also reduce the icon sizes in the secondary toolbar to match the height of the buttons.
 

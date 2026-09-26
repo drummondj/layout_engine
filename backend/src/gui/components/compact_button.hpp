@@ -44,9 +44,9 @@ namespace le::gui
     // from any other button using the same icon glyph elsewhere (goes
     // after "##", so it's never actually rendered - see mode_toolbar.cpp's
     // own draw_button for the established convention this replaces).
-    inline bool icon_button(const char *icon, const std::string &id, float size)
+    inline bool icon_button(const char *icon, const std::string &id, float size, ImFont *font = large_icon_font())
     {
-        ImGui::PushFont(large_icon_font());
+        ImGui::PushFont(font);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
         const std::string label = std::string(icon) + "##" + id;
         const bool clicked = ImGui::Button(label.c_str(), ImVec2(size, size));

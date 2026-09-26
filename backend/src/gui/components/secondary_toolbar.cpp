@@ -147,7 +147,7 @@ namespace le::gui
         {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
             ImGui::BeginDisabled(disabled_reason != nullptr);
-            const bool clicked = icon_button(icon, id, kButtonSize);
+            const bool clicked = icon_button(icon, id, kButtonSize, small_icon_font()); // item 16 - text-button scale
             ImGui::EndDisabled();
             ImGui::PopStyleColor();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))

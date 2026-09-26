@@ -602,6 +602,27 @@ namespace le::gui
         constexpr const char *kInfoWindowTitle = "Info";
         constexpr const char *kLayoutWindowTitle = "Layout";
 
+        // NEW_FEATURES_SEPT_2026.md item 16 - the dark gray line separating
+        // the mode selector (right edge) and the mode/secondary toolbars
+        // (bottom edge) from the design view. Call from inside the child,
+        // before EndChild: drawn on the child's own draw list, since the
+        // parent's would be painted over by the child's opaque background.
+        // The child's default clip rect stops short of its own edges (by
+        // half its WindowPadding), so the whole window rect is pushed first.
+        void draw_child_edge(ImGuiDir side)
+        {
+            constexpr ImU32 kEdgeColor = IM_COL32(80, 80, 80, 255);
+            ImDrawList *draw_list = ImGui::GetWindowDrawList();
+            const ImVec2 min = ImGui::GetWindowPos();
+            const ImVec2 max(min.x + ImGui::GetWindowSize().x, min.y + ImGui::GetWindowSize().y);
+            draw_list->PushClipRect(min, max, false);
+            if (side == ImGuiDir_Right)
+                draw_list->AddLine(ImVec2(max.x - 0.5f, min.y), ImVec2(max.x - 0.5f, max.y), kEdgeColor);
+            else
+                draw_list->AddLine(ImVec2(min.x, max.y - 0.5f), ImVec2(max.x, max.y - 0.5f), kEdgeColor);
+            draw_list->PopClipRect();
+        }
+
         // Draws the always-present, fullscreen invisible host window +
         // dockspace every frame (cheap - ImGui's own recommended
         // "DockSpace over main viewport" pattern, see imgui_demo.cpp's
@@ -810,6 +831,9 @@ namespace le::gui
                 // away sub-pixel centering accuracy and is a likely
                 // source of the reported ~1px residual right-bias).
                 large_icon_font() = io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 32.0f, nullptr, icon_ranges);
+                // components/icon_font.hpp's small_icon_font() - the
+                // secondary toolbar's icons (NEW_FEATURES_SEPT_2026.md item 16).
+                small_icon_font() = io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 20.0f, nullptr, icon_ranges);
             }
 
             ImGui_ImplGlfw_InitForOpenGL(window, true);
@@ -1104,6 +1128,7 @@ namespace le::gui
                 // le_get_mode call is std::shared_lock now (kBrowserWindowTitle's
                 // own comment further up).
                 draw_mode_selector(provider);
+                draw_child_edge(ImGuiDir_Right);
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
 
@@ -1135,6 +1160,7 @@ namespace le::gui
                 // le_get_mode/le_is_move_armed calls are std::shared_lock
                 // now (kBrowserWindowTitle's own comment further up).
                 draw_mode_toolbar(provider);
+                draw_child_edge(ImGuiDir_Down);
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
 
@@ -1381,6 +1407,7 @@ namespace le::gui
                     ImGui::BeginChild("secondary_toolbar_row", ImVec2(panel_width, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_AutoResizeY,
                                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
                     draw_secondary_toolbar(provider);
+                    draw_child_edge(ImGuiDir_Down);
                     ImGui::EndChild();
                     ImGui::PopStyleVar(2);
                     ImGui::PopStyleColor();

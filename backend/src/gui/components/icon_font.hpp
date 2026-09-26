@@ -22,4 +22,14 @@ namespace le::gui
         static ImFont *font = nullptr;
         return font;
     }
+
+    // The same icon font at 20px - secondary_toolbar.cpp's rotate/flip
+    // buttons (NEW_FEATURES_SEPT_2026.md item 16), sized to sit at the
+    // same visual scale as the text snap buttons beside them rather than
+    // filling their 36px frame. Same null-is-safe contract as above.
+    inline ImFont *&small_icon_font()
+    {
+        static ImFont *font = nullptr;
+        return font;
+    }
 }
