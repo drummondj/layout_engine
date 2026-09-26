@@ -444,6 +444,10 @@ namespace le::gui
     void GuiProvider::save_settings(const std::string &path) { run_tcl_command(path.empty() ? "save_settings" : "save_settings " + tcl_quote(path)); }
     void GuiProvider::load_settings(const std::string &path) { run_tcl_command(path.empty() ? "load_settings" : "load_settings " + tcl_quote(path)); }
 
+    bool GuiProvider::has_unsaved_design() const { return le_has_unsaved_database_changes(handle_) != 0; }
+    bool GuiProvider::has_unsaved_settings() const { return le_has_unsaved_settings(handle_) != 0; }
+    bool GuiProvider::save_settings_now() { return le_save_settings(handle_, "") == 0; }
+
     void GuiProvider::set_layer_color(const std::string &layer_name, uint8_t r, uint8_t g, uint8_t b)
     {
         char color[8];

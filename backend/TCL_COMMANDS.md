@@ -32,6 +32,16 @@ Removes every ruler, finished or not.
 | --- | --- | --- | --- |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## close_gui
+
+`close_gui [-help]`
+
+Closes the window show_gui opened (a no-op if none is open) without asking anything - nothing is lost, and show_gui reopens it. Closing the window with its own close button asks whether to close just the window or exit le_shell.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## command_history
 
 `command_history [-help]`
@@ -2976,6 +2986,16 @@ Evaluates the contents of a Tcl script file, in the same scope source itself was
 `undo [-help]`
 
 Undoes the most recently recorded transaction (a typed command or a GUI edit like Move), if any. Returns 1 if something was undone, 0 otherwise.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## unsaved_changes
+
+`unsaved_changes [-help]`
+
+Returns a list holding "design" if the design has changed since it was last written out with write_def/write_lef (reading files isn't a change), and "settings" if any setting save_settings saves differs from what was last saved or loaded. Empty if nothing is unsaved. le_shell asks before exiting when this isn't empty.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |

@@ -211,6 +211,12 @@ namespace le::gui
         void set_label_min_size(double px);
         void set_label_max_size(double px);
         void save_settings(const std::string &path);
+        // NEW_FEATURES_SEPT_2026.md item 18 - the close dialog. Direct calls,
+        // not queued Tcl commands: the dialog needs the answer this frame,
+        // and a batch-mode le_shell never drains that queue.
+        bool has_unsaved_design() const;
+        bool has_unsaved_settings() const;
+        bool save_settings_now();
         void load_settings(const std::string &path);
         void set_layer_visible(const std::string &layer_name, bool value);
         void set_layer_selectable(const std::string &layer_name, bool value);

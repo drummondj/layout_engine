@@ -590,6 +590,33 @@ namespace
         }
     }
 
+    // NEW_FEATURES_SEPT_2026.md item 18 - see LeHandle::saved_mutation_version.
+    std::string settings_snapshot(const LeHandle *handle) { return settings_to_json(handle).dump(); }
+    bool has_unsaved_database_unlocked(const LeHandle *handle) { return handle->root.mutation_version() != handle->saved_mutation_version; }
+    bool has_unsaved_settings_unlocked(const LeHandle *handle) { return settings_snapshot(handle) != handle->saved_settings_json; }
+
+    // A read (LEF/DEF/Verilog) isn't an edit: whatever was clean before it
+    // stays clean after it - construct before the read, commit() after a
+    // successful one. Edits made before the read keep the design unsaved.
+    class CleanAcrossRead
+    {
+    public:
+        explicit CleanAcrossRead(const LeHandle *handle)
+            : database_clean_(!has_unsaved_database_unlocked(handle)), settings_clean_(!has_unsaved_settings_unlocked(handle)) {}
+
+        void commit(LeHandle *handle) const
+        {
+            if (database_clean_)
+                handle->saved_mutation_version = handle->root.mutation_version();
+            if (settings_clean_)
+                handle->saved_settings_json = settings_snapshot(handle);
+        }
+
+    private:
+        bool database_clean_;
+        bool settings_clean_;
+    };
+
     // $HOME/.layout_engine/settings.json - "" if HOME isn't set.
     std::string default_settings_path()
     {
@@ -2158,7 +2185,10 @@ extern "C"
 
     LeHandle *le_create(void)
     {
-        return new LeHandle();
+        LeHandle *handle = new LeHandle();
+        handle->saved_mutation_version = handle->root.mutation_version();
+        handle->saved_settings_json = settings_snapshot(handle);
+        return handle;
     }
 
     void le_destroy(LeHandle *handle)
@@ -2200,6 +2230,7 @@ extern "C"
                 old_layer_count = handle->root.get_technology_layers(existing_technology_ids.front()).size();
         }
 
+        const CleanAcrossRead clean(handle); // item 18
         const std::filesystem::path lef_path(path);
         le::LEFReader reader;
         const int result = reader.read_lef(lef_path.string(), handle->root, library_name);
@@ -2246,6 +2277,7 @@ extern "C"
             handle->current_technology_id = technology_ids.front();
         }
 
+        clean.commit(handle);
         return 0;
     }
 
@@ -2266,6 +2298,7 @@ extern "C"
             return 1;
         }
 
+        const CleanAcrossRead clean(handle); // item 18
         const std::filesystem::path def_path(path);
         le::DEFReader reader;
         const int result = reader.read_def(def_path.string(), handle->root, library_name);
@@ -2286,6 +2319,7 @@ extern "C"
             handle->current_technology_id = technology_ids.front();
         apply_pending_grid_um_unlocked(handle); // a settings file read before any Technology existed
 
+        clean.commit(handle);
         return 0;
     }
 
@@ -2351,6 +2385,7 @@ extern "C"
             }
         }
 
+        const CleanAcrossRead clean(handle); // item 18
         le::SVReader reader;
         const int result = is_netlist
             ? reader.read_netlist(filename_strings, handle->root, library_name)
@@ -2362,6 +2397,8 @@ extern "C"
             std::filesystem::remove(stub_path, ec);
         }
 
+        if (result == 0)
+            clean.commit(handle);
         return result;
     }
 
@@ -2792,7 +2829,10 @@ extern "C"
         }
 
         le::LEFWriter writer;
-        return writer.write_lef(path, handle->root, abstract_ids, mode);
+        const int result = writer.write_lef(path, handle->root, abstract_ids, mode);
+        if (result == 0)
+            handle->saved_mutation_version = handle->root.mutation_version(); // item 18
+        return result;
     }
 
     int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id_c)
@@ -2823,7 +2863,10 @@ extern "C"
         }
 
         le::DEFWriter writer;
-        return writer.write_def(path, handle->root, layout_id);
+        const int result = writer.write_def(path, handle->root, layout_id);
+        if (result == 0)
+            handle->saved_mutation_version = handle->root.mutation_version(); // item 18
+        return result;
     }
 
     int32_t le_design_count(LeHandle *handle)
@@ -3843,11 +3886,9 @@ extern "C"
             spdlog::error("save_settings: no path given and HOME isn't set");
             return 1;
         }
-        std::string text;
-        {
-            std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-            text = settings_to_json(handle).dump(2) + "\n";
-        }
+        HandleWriteLock lock(handle); // updates saved_settings_json below
+        const nlohmann::json j = settings_to_json(handle);
+        const std::string text = j.dump(2) + "\n";
         std::error_code ec;
         if (const std::filesystem::path parent = std::filesystem::path(target).parent_path(); !parent.empty())
             std::filesystem::create_directories(parent, ec);
@@ -3857,8 +3898,25 @@ extern "C"
             spdlog::error("save_settings: couldn't write '{}'", target);
             return 1;
         }
+        handle->saved_settings_json = j.dump(); // item 18
         spdlog::info("save_settings: wrote '{}'", target);
         return 0;
+    }
+
+    int32_t le_has_unsaved_database_changes(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return has_unsaved_database_unlocked(handle) ? 1 : 0;
+    }
+
+    int32_t le_has_unsaved_settings(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return has_unsaved_settings_unlocked(handle) ? 1 : 0;
     }
 
     int32_t le_load_settings(LeHandle *handle, const char *path)
@@ -3880,6 +3938,7 @@ extern "C"
         }
         HandleWriteLock lock(handle);
         apply_settings_json(handle, j, source);
+        handle->saved_settings_json = settings_snapshot(handle); // item 18
         spdlog::info("load_settings: read '{}'", source);
         return 0;
     }
@@ -5659,6 +5718,20 @@ extern "C"
         if (!handle)
             return 0;
         return handle->gui_show_requested_.exchange(false, std::memory_order_relaxed) ? 1 : 0;
+    }
+
+    void le_request_close_gui(LeHandle *handle)
+    {
+        if (!handle)
+            return;
+        handle->gui_close_requested_.store(true, std::memory_order_relaxed);
+    }
+
+    int32_t le_take_close_gui_request(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        return handle->gui_close_requested_.exchange(false, std::memory_order_relaxed) ? 1 : 0;
     }
 
     void le_enqueue_tcl_command(LeHandle *handle, const char *command)

@@ -1105,6 +1105,20 @@ extern "C"
     /// isn't a JSON object, or handle is null.
     int32_t le_load_settings(LeHandle *handle, const char *path);
 
+    /// @brief 1 if the design has changed since it was last written out
+    /// (write_def/write_lef) - the exit confirmation's "unsaved design"
+    /// (NEW_FEATURES_SEPT_2026.md item 18). Reading a LEF/DEF/Verilog
+    /// isn't a change. Any successful write_def/write_lef counts as saving,
+    /// whichever Layout/Abstracts it wrote. 0 otherwise, or if handle is
+    /// null.
+    int32_t le_has_unsaved_database_changes(LeHandle *handle);
+
+    /// @brief 1 if any setting le_save_settings saves differs from what was
+    /// last saved or loaded (or from the defaults, if neither has
+    /// happened) - the exit confirmation's "unsaved settings". 0 otherwise,
+    /// or if handle is null.
+    int32_t le_has_unsaved_settings(LeHandle *handle);
+
     /// @brief Set the current mouse position, in the same pixel space as
     /// le_render_pixel_buffer()'s output image (top-left origin, y
     /// increasing downward) and le_zoom()'s x/y - meant to be fed straight
@@ -1755,6 +1769,19 @@ extern "C"
     /// Meant to be polled from the one thread that owns opening/showing
     /// the GUI window. Returns 0 if handle is null.
     int32_t le_take_show_gui_request(LeHandle *handle);
+
+    /// @brief Asks the GUI window (if one is open) to close, leaving
+    /// le_shell running - the `close_gui` Tcl command
+    /// (NEW_FEATURES_SEPT_2026.md item 18). No confirmation: closing the
+    /// window loses nothing, show_gui reopens it. Lock-free, same shape as
+    /// le_request_show_gui. A no-op if handle is null.
+    void le_request_close_gui(LeHandle *handle);
+
+    /// @brief Test-and-clear of le_request_close_gui's request - polled by
+    /// the GUI thread each frame (and cleared when a window opens, so a
+    /// request made with no window open doesn't close the next one). 0 if
+    /// handle is null.
+    int32_t le_take_close_gui_request(LeHandle *handle);
 
     /// @brief Queues `command` (a plain Tcl command string, e.g.
     /// "set_layer_visible {M1} 1") to be evaluated by whichever caller

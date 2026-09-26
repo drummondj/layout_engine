@@ -377,6 +377,9 @@ bool is_shape_snap_mode_available_cmd(int kind, int mode);
 /// full threading story (Tcl_Main's own blocking event loop can't share
 /// a thread with a native GUI's own event loop).
 void request_show_gui_cmd();
+void request_close_gui_cmd();
+int has_unsaved_database_changes_cmd();
+int has_unsaved_settings_cmd();
 
 /// @brief Backing for the `set_antialiasing_enabled <enabled>` Tcl
 /// command - mirrors le_set_antialiasing_enabled directly.

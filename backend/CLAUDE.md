@@ -659,6 +659,18 @@ none of these are duplicated here.
   current mode's instructions (`le_tooltip_message`), wrapped - they used
   to be the status bar's middle column, which clipped long text; the
   status bar now shows only the mode and the coordinates/selection count.
+  Closing the window (item 18) opens a dialog instead of closing:
+  "Close window" (le_shell keeps running; `close_gui` does this with no
+  prompt), "Exit le_shell", or Cancel, listing anything unsaved first -
+  `le_has_unsaved_database_changes` (Root's mutation version vs
+  `LeHandle::saved_mutation_version`, set by a successful write_def/
+  write_lef and by a read that started clean - reading isn't an edit)
+  and `le_has_unsaved_settings` (`settings_to_json` vs the snapshot taken
+  at creation/save/load/clean read). "Exit" calls `le::gui::set_exit_handler`'s
+  handler: interactively le_shell's Tcl thread exits from readline's idle
+  hook (restoring the terminal); a batch script exits at once.
+  Interactively, `exit` and Ctrl-D ask y/N first when something is
+  unsaved (the real exit is `::le_shell_builtin_exit`).
   `components/settings_panel.cpp` is
   the right sidebar's Settings tab (item 9): grid spacing (um, with a
   button setting minor to the manufacturing grid and major to 10x it),

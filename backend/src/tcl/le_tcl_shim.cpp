@@ -922,6 +922,21 @@ void request_show_gui_cmd()
     le_request_show_gui(session());
 }
 
+void request_close_gui_cmd()
+{
+    le_request_close_gui(session());
+}
+
+int has_unsaved_database_changes_cmd()
+{
+    return le_has_unsaved_database_changes(session());
+}
+
+int has_unsaved_settings_cmd()
+{
+    return le_has_unsaved_settings(session());
+}
+
 void set_antialiasing_enabled_cmd(bool enabled)
 {
     le_set_antialiasing_enabled(session(), enabled);

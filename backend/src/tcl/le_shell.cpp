@@ -67,6 +67,7 @@
 #include <readline/history.h>
 #include <readline/readline.h>
 
+#include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -88,6 +89,40 @@ namespace
     std::string g_procs_path;
 
     LeHandle *g_injected_handle = nullptr;
+
+    // NEW_FEATURES_SEPT_2026.md item 18 - set (from the GUI thread) when the
+    // window's close dialog chose "Exit": drain_pending_gui_commands, on
+    // this Tcl thread, then exits the way a typed `exit` would, after
+    // letting readline restore the terminal.
+    std::atomic<bool> g_gui_exit_requested{false};
+
+    // Before an interactive `exit`/Ctrl-D: with nothing unsaved, true at
+    // once; otherwise says what's unsaved and asks. The GUI's own exit
+    // doesn't come through here - its close dialog already asked.
+    bool confirm_exit_if_unsaved()
+    {
+        const bool design = le_has_unsaved_database_changes(g_injected_handle) != 0;
+        const bool settings = le_has_unsaved_settings(g_injected_handle) != 0;
+        if (!design && !settings)
+            return true;
+        std::printf("Unsaved changes:\n");
+        if (design)
+            std::printf("  - the design has edits that haven't been written out (write_def / write_lef)\n");
+        if (settings)
+            std::printf("  - settings have changed since they were last saved (save_settings)\n");
+        char *answer = readline("Exit anyway? [y/N] ");
+        const bool yes = answer && (answer[0] == 'y' || answer[0] == 'Y');
+        std::free(answer);
+        return yes;
+    }
+
+    // `le_shell_confirm_exit` - the interactive `exit` wrapper's check (see
+    // run_interactive).
+    int confirm_exit_cmd(ClientData, Tcl_Interp *interp, int, Tcl_Obj *const[])
+    {
+        Tcl_SetObjResult(interp, Tcl_NewBooleanObj(confirm_exit_if_unsaved()));
+        return TCL_OK;
+    }
 
     // Same two-step fallback as le_gui.cpp's own resolve_lucide_font_path()
     // (for the exact same reason): `default_value` is this build tree's
@@ -340,6 +375,12 @@ namespace
     // actually typed is.
     int drain_pending_gui_commands()
     {
+        if (g_gui_exit_requested.load(std::memory_order_relaxed))
+        {
+            rl_deprep_terminal();
+            std::fputc('\n', stdout);
+            std::exit(0);
+        }
         for (;;)
         {
             const char *command = le_take_next_pending_tcl_command(g_injected_handle);
@@ -419,6 +460,13 @@ namespace
         rl_completer_word_break_characters = const_cast<char *>(" \t\n");
         rl_event_hook = drain_pending_gui_commands;
 
+        // NEW_FEATURES_SEPT_2026.md item 18 - `exit` asks first when
+        // something is unsaved (confirm_exit_if_unsaved); the real one
+        // stays reachable as ::le_shell_builtin_exit.
+        Tcl_CreateObjCommand(interp, "le_shell_confirm_exit", confirm_exit_cmd, nullptr, nullptr);
+        Tcl_Eval(interp, "rename exit ::le_shell_builtin_exit\n"
+                         "proc exit {{code 0}} {if {[le_shell_confirm_exit]} {::le_shell_builtin_exit $code}}");
+
         std::string buffer;
         for (;;)
         {
@@ -429,6 +477,8 @@ namespace
             if (raw == nullptr)
             {
                 std::fputc('\n', stdout);
+                if (!confirm_exit_if_unsaved()) // item 18 - Ctrl-D asks too
+                    continue;
                 return;
             }
             std::string line = raw;
@@ -599,6 +649,12 @@ int main(int argc, char **argv)
                             { run_shell(remaining); });
     tcl_thread.detach();
 
+    // NEW_FEATURES_SEPT_2026.md item 18 - interactively, the close dialog's
+    // "Exit" hands off to the Tcl thread (so readline restores the
+    // terminal); a batch script keeps le_gui's default immediate exit.
+    if (remaining.size() == 1)
+        le::gui::set_exit_handler([]
+                                  { g_gui_exit_requested.store(true, std::memory_order_relaxed); });
     le::gui::run_main_thread_loop(g_injected_handle);
     return 0;
 }

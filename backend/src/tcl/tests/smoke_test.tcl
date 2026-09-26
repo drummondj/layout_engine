@@ -184,6 +184,13 @@ set_label_min_size 10
 check "set_label_min_size round-trips" 10.0 [get_label_min_size]
 set_label_max_size 20
 check "set_label_max_size round-trips" 20.0 [get_label_max_size]
+# NEW_FEATURES_SEPT_2026.md item 18 - unsaved changes and close_gui.
+check "close_gui with no window open is a no-op" "" [close_gui]
+set before_unsaved [unsaved_changes]
+if {[lsearch -exact $before_unsaved design] >= 0} {
+    puts stderr "FAIL: unsaved_changes reported design edits after only reading a LEF: $before_unsaved"
+    exit 1
+}
 # NEW_FEATURES_SEPT_2026.md item 17 - layer colors.
 set_layer_color M1 #1234ab
 check "set_layer_color round-trips" "#1234ab" [get_layer_color M1]

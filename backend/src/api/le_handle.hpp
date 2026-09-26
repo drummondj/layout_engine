@@ -285,6 +285,9 @@ struct LeHandle
     // observes it first (there's only ever one GUI-thread reader) should
     // consume it, not leave it for a second poll to see stale.
     std::atomic<bool> gui_show_requested_{false};
+    // `close_gui`'s request (NEW_FEATURES_SEPT_2026.md item 18) - same
+    // one-shot, test-and-cleared shape as gui_show_requested_ above.
+    std::atomic<bool> gui_close_requested_{false};
 
     // GUI components (src/gui/components/) mutate state two different
     // ways: a direct le_* call (mouse pan/zoom/select/move - the same
@@ -1622,6 +1625,20 @@ struct LeHandle
         double label_min_size_px_ = 12.0; // draw_helpers.hpp's kMinLabelPixelSize
         double label_max_size_px_ = 24.0; // draw_helpers.hpp's kMaxLabelPixelSize
         std::map<std::string, le::Color> layer_color_overrides_;
+
+    public:
+        // NEW_FEATURES_SEPT_2026.md item 18 - what "saved" means for the exit
+        // confirmation. The design is unsaved once root's mutation version
+        // moves past saved_mutation_version (set by a successful write_def/
+        // write_lef, and by a read that starts from a clean state - reading
+        // a design isn't an edit). Settings are unsaved once
+        // settings_to_json no longer matches saved_settings_json (set at
+        // creation, by save_settings/load_settings, and by a clean read,
+        // which can fill in grid spacing in um). Maintained by api.cpp.
+        uint64_t saved_mutation_version = 0;
+        std::string saved_settings_json;
+
+    private:
         // Minimum on-screen distance (px, converted via the current
         // scale) a new ruler's first point must be from the most
         // recently finished ruler's last point - see add_ruler_point.

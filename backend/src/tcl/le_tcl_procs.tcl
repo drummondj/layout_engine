@@ -2419,6 +2419,40 @@ register_command_help show_gui \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+proc close_gui {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "close_gui \[-help\] - Closes the GUI window, leaving le_shell running"
+    }
+    request_close_gui_cmd
+    return ""
+}
+register_command_help close_gui \
+    "close_gui \[-help\] - Closes the GUI window, leaving le_shell running" \
+    "Closes the window show_gui opened (a no-op if none is open) without asking anything - nothing is lost, and show_gui reopens it. Closing the window with its own close button asks whether to close just the window or exit le_shell." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc unsaved_changes {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "unsaved_changes \[-help\] - Lists what has changed since it was last saved: design and/or settings"
+    }
+    set result {}
+    if {[has_unsaved_database_changes_cmd]} {
+        lappend result design
+    }
+    if {[has_unsaved_settings_cmd]} {
+        lappend result settings
+    }
+    return $result
+}
+register_command_help unsaved_changes \
+    "unsaved_changes \[-help\] - Lists what has changed since it was last saved: design and/or settings" \
+    "Returns a list holding \"design\" if the design has changed since it was last written out with write_def/write_lef (reading files isn't a change), and \"settings\" if any setting save_settings saves differs from what was last saved or loaded. Empty if nothing is unsaved. le_shell asks before exiting when this isn't empty." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 proc shape_paths {id} {
     if {$id eq "-help"} {
         return "shape_paths <id> \[-help\] - Every path on Shape <id>, as a list of {width {{x y} ...}} (microns)"

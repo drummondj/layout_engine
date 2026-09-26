@@ -35,4 +35,15 @@ namespace le::gui
     /// process immediately (Tcl_Exit() calls the platform exit()), with
     /// no coordinated shutdown needed here.
     void run_main_thread_loop(LeHandle *handle);
+
+    /// @brief What "Exit le_shell" in the window's close dialog does
+    /// (NEW_FEATURES_SEPT_2026.md item 18: closing the window asks whether
+    /// to close just the window or exit the tool) - called on the GUI
+    /// thread once the window is torn down. The default flushes stdio and
+    /// ends the process at once (std::_Exit - no static destructors racing
+    /// the Tcl thread), right for a batch script; le_shell's interactive
+    /// mode instead asks its Tcl thread to exit, so readline can restore
+    /// the terminal first. Set before run_main_thread_loop.
+    using ExitHandler = void (*)();
+    void set_exit_handler(ExitHandler handler);
 }

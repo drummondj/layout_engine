@@ -95,7 +95,7 @@ Please update the default layer/via colors to use brighter colors, the higher me
 
 Also, when the user clicks on the color swatch, I would like a color picker to appear, which can be saved in the settings.json.
 
-18. Exit dialog
+18. Exit dialog - DONE
 
 If there are unsaved database mutations (i.e. write_def has not been ran), then when the user tries to exit the tool I would like to see a dialog box appear asking for confirmation. Same for settings. So if either settings or the database is mutated, show a confirmation explaining what needs saving.
 

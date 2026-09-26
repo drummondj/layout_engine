@@ -6650,6 +6650,55 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsLayerColors)
     le_destroy(other);
 }
 
+// NEW_FEATURES_SEPT_2026.md item 18: what the exit confirmation counts as
+// unsaved. Reading files isn't a change; an edit is until write_def/write_lef;
+// a setting is until save_settings/load_settings.
+TEST_F(ApiFixture, UnsavedChangesTrackEditsWritesAndSettings)
+{
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0);
+    EXPECT_EQ(le_has_unsaved_settings(handle), 0);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0); // a read isn't an edit
+    EXPECT_EQ(le_has_unsaved_settings(handle), 0);         // nor does its grid spacing in um count
+
+    const LeDesignId top_design = le_create_design(handle, le_create_library(handle, "TOPLIB"), "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 1);
+    const std::string def_path = scratch_path("le_unsaved_changes.def");
+    ASSERT_EQ(le_write_def(handle, def_path.c_str(), top_layout), 0);
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0);
+
+    le_create_library(handle, "OTHERLIB"); // an edit...
+    const std::string extra_lef = scratch_path("le_unsaved_extra.lef");
+    write_file(extra_lef, "VERSION 5.8 ;\nMACRO EXTRA\n  SIZE 1 BY 1 ;\nEND EXTRA\nEND LIBRARY\n");
+    ASSERT_EQ(le_read_lef(handle, extra_lef.c_str(), "extra"), 0);
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 1); // ...stays unsaved across a read
+
+    le_set_label_max_size(handle, 30.0);
+    EXPECT_EQ(le_has_unsaved_settings(handle), 1);
+    const std::string settings_path = scratch_path("le_unsaved_settings.json");
+    ASSERT_EQ(le_save_settings(handle, settings_path.c_str()), 0);
+    EXPECT_EQ(le_has_unsaved_settings(handle), 0);
+    le_set_layer_color(handle, "M1", 1, 2, 3);
+    EXPECT_EQ(le_has_unsaved_settings(handle), 1);
+    ASSERT_EQ(le_load_settings(handle, settings_path.c_str()), 0);
+    EXPECT_EQ(le_has_unsaved_settings(handle), 0);
+
+    EXPECT_EQ(le_has_unsaved_database_changes(nullptr), 0);
+    EXPECT_EQ(le_has_unsaved_settings(nullptr), 0);
+}
+
+// close_gui's request is one-shot, like show_gui's.
+TEST_F(ApiFixture, CloseGuiRequestIsTakenOnce)
+{
+    EXPECT_EQ(le_take_close_gui_request(handle), 0);
+    le_request_close_gui(handle);
+    EXPECT_EQ(le_take_close_gui_request(handle), 1);
+    EXPECT_EQ(le_take_close_gui_request(handle), 0);
+    le_request_close_gui(nullptr); // no-op
+    EXPECT_EQ(le_take_close_gui_request(nullptr), 0);
+}
+
 // Settings files saved before the min/max split carry one "label_size_px" -
 // the max.
 TEST_F(ApiFixture, SettingsLoadReadsTheOldSingleLabelSizeAsTheMax)

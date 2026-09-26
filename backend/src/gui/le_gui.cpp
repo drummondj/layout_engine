@@ -50,6 +50,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <mutex>
@@ -609,6 +610,81 @@ namespace le::gui
         // parent's would be painted over by the child's opaque background.
         // The child's default clip rect stops short of its own edges (by
         // half its WindowPadding), so the whole window rect is pushed first.
+        // NEW_FEATURES_SEPT_2026.md item 18 - how the window is closing.
+        enum class CloseChoice
+        {
+            NONE,
+            CLOSE_WINDOW, // le_shell keeps running; show_gui reopens it
+            EXIT,         // exit le_shell
+        };
+
+        ExitHandler &exit_handler()
+        {
+            static ExitHandler handler = []
+            {
+                std::fflush(nullptr);
+                std::_Exit(0);
+            };
+            return handler;
+        }
+
+        // The window's close button opens this instead of closing: close
+        // just the window, exit le_shell, or cancel - listing anything
+        // unsaved (the design since its last write_def/write_lef, the
+        // settings since their last save/load) first, with a shortcut to
+        // save the settings.
+        void draw_close_dialog(GuiProvider &provider, bool &open_requested, CloseChoice &choice)
+        {
+            constexpr const char *kTitle = "Close Layout Engine###close_dialog";
+            if (open_requested)
+            {
+                ImGui::OpenPopup(kTitle);
+                open_requested = false;
+            }
+            const ImGuiViewport *viewport = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+                return;
+
+            const bool design = provider.has_unsaved_design();
+            const bool settings = provider.has_unsaved_settings();
+            if (design || settings)
+            {
+                ImGui::TextUnformatted("Unsaved changes:");
+                if (design)
+                    ImGui::BulletText("The design has edits that haven't been written out -\nsave them with write_def / write_lef in the console.");
+                if (settings)
+                    ImGui::BulletText("Settings have changed since they were last saved.");
+                ImGui::Spacing();
+            }
+            ImGui::TextUnformatted("Close just the window (le_shell keeps running in the\nterminal, show_gui reopens it), or exit le_shell?");
+            ImGui::Spacing();
+
+            if (settings)
+            {
+                if (ImGui::Button("Save settings"))
+                    provider.save_settings_now();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Save to %s", le_default_settings_path());
+                ImGui::SameLine();
+            }
+            if (ImGui::Button("Close window"))
+            {
+                choice = CloseChoice::CLOSE_WINDOW;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(design || settings ? "Exit without saving" : "Exit le_shell"))
+            {
+                choice = CloseChoice::EXIT;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+
         void draw_child_edge(ImGuiDir side)
         {
             constexpr ImU32 kEdgeColor = IM_COL32(80, 80, 80, 255);
@@ -716,7 +792,9 @@ namespace le::gui
         // (glfwInit, called once by run_main_thread_loop) stays alive
         // across repeated open/close cycles, only this window's own
         // GLFWwindow/GL context/ImGui context/texture are per-cycle.
-        void open_and_run_window(LeHandle *handle)
+        // Returns true if the user chose to exit le_shell (the close dialog's
+        // "Exit" - see draw_close_dialog), false if just the window closed.
+        bool open_and_run_window(LeHandle *handle)
         {
             // The single point of contact between this whole module and
             // the API/LeHandle for the rest of this window's own session -
@@ -734,7 +812,7 @@ namespace le::gui
             if (!window)
             {
                 std::fprintf(stderr, "gui: glfwCreateWindow failed\n");
-                return;
+                return false;
             }
             glfwMakeContextCurrent(window);
             glfwSwapInterval(1);
@@ -894,8 +972,25 @@ namespace le::gui
             uint64_t displayed_generation = 0;
             bool have_content = false;
 
-            while (!glfwWindowShouldClose(window))
+            // NEW_FEATURES_SEPT_2026.md item 18 - the close button asks
+            // (draw_close_dialog) rather than closing; close_gui closes
+            // without asking. A close_gui made while no window was open is
+            // dropped here, not left to close this one.
+            bool close_dialog_requested = false;
+            CloseChoice close_choice = CloseChoice::NONE;
+            le_take_close_gui_request(handle);
+            for (;;)
             {
+                if (le_take_close_gui_request(handle))
+                    close_choice = CloseChoice::CLOSE_WINDOW;
+                if (close_choice != CloseChoice::NONE)
+                    break;
+                if (glfwWindowShouldClose(window))
+                {
+                    glfwSetWindowShouldClose(window, GLFW_FALSE);
+                    close_dialog_requested = true;
+                }
+
                 // glfwWaitEventsTimeout, not glfwPollEvents (see
                 // kMainLoopIdleWaitSeconds's own doc comment) - blocks
                 // until a real input event wakes it (same responsiveness
@@ -1467,6 +1562,8 @@ namespace le::gui
                 ImGui::PopStyleColor(2); // ChildBg, WindowBg
                 ImGui::PopStyleVar();
 
+                draw_close_dialog(provider, close_dialog_requested, close_choice);
+
                 ImGui::Render();
                 glViewport(0, 0, fb_width, fb_height);
                 glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
@@ -1520,7 +1617,13 @@ namespace le::gui
             {
                 render_thread.join();
             }
+            return close_choice == CloseChoice::EXIT;
         }
+    }
+
+    void set_exit_handler(ExitHandler handler)
+    {
+        exit_handler() = handler;
     }
 
     // Never returns, deliberately, in every case - le_shell.cpp's own
@@ -1553,7 +1656,8 @@ namespace le::gui
             {
                 std::this_thread::sleep_for(kIdlePollInterval);
             }
-            open_and_run_window(handle);
+            if (open_and_run_window(handle))
+                exit_handler()();
         }
     }
 }
