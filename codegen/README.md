@@ -1,7 +1,9 @@
-C++ Model Generation (CMG)
-==========================
+codegen
+=======
 
-This package provides a command-line utility `cmg` and Python dataclasses to describe a schema, then use that schema to generate a model in C++.
+This package provides a command-line utility `codegen` and Python dataclasses to describe a schema, then use that schema to generate a model in C++ (and, for layout_engine, its TCL command surface).
+
+It's layout_engine's own fork of [cmg](https://github.com/johndru-astrophysics/cmg) (C++ Model Generation), renamed so it can't be confused with an installed upstream `cmg`. The upstream tool stays generic; this fork carries layout_engine's own conventions.
 
 You can use this for applications that require complex modeling and high performance.
 
@@ -9,26 +11,24 @@ The resulting code uses C++11 smart pointers for easier memory management.
 
 ## Installation
 
-Using pip:
+From this checkout, as an editable install (so the `codegen` command always runs this source, not a stale copy):
 
 ```
-pip install cmg
+pip install --user -e .
 ```
 
-Using poetry:
-
-```
-poetry add cmg
-```
+or, with poetry, `poetry install` and then `poetry run codegen ...`.
 
 ## Command-line
 
-Use the `cmg` command to convert a schema into a set of C++ files:
+Use the `codegen` command to convert a schema into a set of C++ files:
 
 For example:
 ```
-cmg --schema examples/solar_system.py --output solar_system
+codegen --schema examples/solar_system.py --output solar_system
 ```
+
+`--target tcl` generates layout_engine's TCL/SWIG surface instead (see `codegen --help`).
 
 This will create a directory called `solar_system` containing the following files:
 
@@ -48,7 +48,7 @@ solar_system/
 
 You can use the `CMakeLists.txt` file as a starting point for your own build.
 
-> NOTE: the whole output directory will be removed and re-created every time you run `cmg`.
+> NOTE: the whole output directory will be removed and re-created every time you run `codegen`.
 
 ## Schema Structure
 
@@ -71,7 +71,7 @@ Please see the example schemas in the `examples` directory.
 
 ## API Documentation
 
-[Full API documentation is available here](https://johndru-astrophysics.github.io/cmg).
+The upstream cmg API documentation is [here](https://johndru-astrophysics.github.io/cmg); this fork's classes and fields are documented in `codegen/schema.py`.
 
 ## C++ model usage
 

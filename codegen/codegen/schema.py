@@ -377,7 +377,7 @@ class Klass:
     # field with index=True if one exists (see tcl_friendly_id_field()) -
     # only needed when a class's real uniqueness isn't captured by
     # index=True (e.g. Terminal, whose name uniqueness is enforced
-    # per-Abstract by hand, not a global cmg index).
+    # per-Abstract by hand, not a global codegen index).
     tcl_id_field: Optional[str] = None
 
     # Whether this class has a generated "current instance" concept
@@ -473,7 +473,7 @@ class Klass:
         to_snake_case() for those). Simple English pluralization (+s, or
         -y -> -ies after a consonant) - covers every class name in this
         schema; extend here if a future class name needs an irregular
-        plural cmg/codegen doesn't already know how to form.
+        plural codegen doesn't already know how to form.
         """
         snake = self.to_snake_case()
         if len(snake) >= 2 and snake[-1] == "y" and snake[-2] not in "aeiou":

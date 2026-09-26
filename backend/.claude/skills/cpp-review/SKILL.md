@@ -57,7 +57,7 @@ assertion on its actual output, not just "was this line executed."
   value (or by non-const reference when never mutated) where `const&`
   would do and the callee doesn't need its own copy. Check free functions
   and generated code too, not just member functions: a real bug here was
-  `cmg`-generated `to_string`/`to_properties`/`operator<<` (one per
+  `codegen`-generated `to_string`/`to_properties`/`operator<<` (one per
   schema class) all taking their whole struct *by value* — invisible for
   small classes, but a 29ms-per-call deep copy for `ObstructionData`,
   whose `shapes` field can hold hundreds of thousands of entries embedded

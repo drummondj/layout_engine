@@ -210,7 +210,7 @@ TEST(Database, UpdateTerminalOnNonExistentIdReturnsFalse)
                                        std::nullopt, std::nullopt));
 }
 
-// get_field()/match_hop() (cmg's generic filter-expression metadata,
+// get_field()/match_hop() (codegen's generic filter-expression metadata,
 // TCL_EXPLORATION.md Phase 1) are Jinja-templated C++ function templates,
 // overloaded once per generated class so a generic caller can invoke
 // get_field(data, name)/match_hop(root, id, data, hop, matcher) without

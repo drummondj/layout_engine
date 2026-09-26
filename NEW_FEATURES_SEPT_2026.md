@@ -127,11 +127,18 @@ The current TCL_COMMANDS.md contains lot's of information about the internals an
 
 Can the ImGUI docking state be saved as part of the settings.json, or as a separate file in ~/.layout_editor?
 
-26. Rename cmg to codegen
+26. Rename cmg to codegen - DONE
 
 To stop conflicts with the installed cmg package, please rename the package in codegen from cmg to codegen and update all your skills and docs.
 
 27. TCL command dbu values
 
 Please make sure that all TCL commands take values in um (and not dbu) and that TCL_COMMANDS.md also says um.
+
+28. PhysicalPorts are not rendered
+
+Please render PhysicalPorts and their labels using their shapes. (Use gcd_nangate45 testcase)
+
+Also, on a separate purpose called "portMarker", which should be filled light gray, add a triangle for each PhysicalPort, pointing towards the center of the block for inputs and away from the center of the block for outputs. But still orthogonal. For inout ports draw two arrows pointing to each other and overlapping.
+
 

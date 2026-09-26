@@ -98,11 +98,11 @@ run both generation targets by hand:
 cd codegen
 poetry install 2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-poetry-install.log"
 
-poetry run cmg --schema ../backend/src/database/schema.py \
+poetry run codegen --schema ../backend/src/database/schema.py \
                 --output ../backend/src/database/generated \
     2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-database.log"
 
-poetry run cmg --schema ../backend/src/database/schema.py \
+poetry run codegen --schema ../backend/src/database/schema.py \
                 --output ../backend/src \
                 --target tcl \
     2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-tcl.log"
@@ -189,7 +189,7 @@ Steps 1-2 are one-time (until you want to rebuild the toolchain itself).
 After editing backend C++ source, re-run step 4's `cmake --build`/`ctest`
 lines (no need to reconfigure unless `CMakeLists.txt` itself changed).
 After editing `backend/src/database/schema.py`, re-run step 3 (both
-`cmg` targets) before step 4 — see the `regen-database`/`regen-tcl`
+`codegen` targets) before step 4 — see the `regen-database`/`regen-tcl`
 skills for the fuller regeneration workflow. If a build ever looks
 inexplicably wrong after switching between this path and something else
 (e.g. macOS, or Docker) on the *same* checkout, suspect stale

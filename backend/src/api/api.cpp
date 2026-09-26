@@ -1202,7 +1202,7 @@ namespace
     // below) - a hand-maintained allowlist of each class's filterable leaf
     // fields and hops, cross-checked directly against each class's own
     // generated get_field()/match_hop() (src/database/generated/*.hpp).
-    // Hand-duplicated from schema.py rather than adding a cmg-generated
+    // Hand-duplicated from schema.py rather than adding a codegen-generated
     // runtime enumeration - a short static list not worth a cross-repo
     // codegen change for. Deliberately narrower than what get_field/
     // match_hop actually dispatch: excludes hops into non-pooled

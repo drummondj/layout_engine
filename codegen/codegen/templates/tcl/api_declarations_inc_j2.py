@@ -19,7 +19,7 @@ TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl s
 {%- set id_field = klass.tcl_indexed_id_field() %}
 {%- if id_field %}
 /// @brief The {{klass.name}}Id whose {{id_field.name}} matches `{{id_field.name}}`
-/// (Root::get_{{klass.to_snake_case()}}_by_{{id_field.name}}, a real global cmg
+/// (Root::get_{{klass.to_snake_case()}}_by_{{id_field.name}}, a real global codegen
 /// index=True lookup). Returns an invalid id (index == UINT32_MAX) if
 /// handle/{{id_field.name}} is null or nothing matches.
 Le{{klass.name}}Id le_{{klass.to_snake_case()}}_by_{{id_field.name}}(LeHandle *handle, const char *{{id_field.name}});

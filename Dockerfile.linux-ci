@@ -96,7 +96,7 @@ WORKDIR /workspace/backend
 # just deleted, so without this the build step is silently skipped and
 # io/pipelines fail on a missing src/lefdef/{lef,def}/include/*.hpp instead.
 #
-# codegen step (pip install + cmg, both targets): src/database/generated/,
+# codegen step (pip install + codegen, both targets): src/database/generated/,
 # src/api/generated_tcl/, and src/tcl/generated/ are all .gitignore'd
 # build artifacts (see the regen-database/regen-tcl skills) - this
 # Dockerfile's own header comment used to assume "an already-bootstrapped
@@ -120,8 +120,8 @@ CMD ["bash", "-c", "\
     rm -rf build-linux/lef_lib-prefix build_release-linux/lef_lib-prefix && \
     rm -rf build-linux/def_lib-prefix build_release-linux/def_lib-prefix && \
     python3 -m pip install --no-cache-dir --break-system-packages ../codegen && \
-    cmg --schema src/database/schema.py --output src/database/generated && \
-    cmg --schema src/database/schema.py --output src --target tcl && \
+    codegen --schema src/database/schema.py --output src/database/generated && \
+    codegen --schema src/database/schema.py --output src --target tcl && \
     cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug && \
     cmake --build build-linux -j ${BACKEND_BUILD_JOBS} && \
     ctest --test-dir build-linux --output-on-failure && \

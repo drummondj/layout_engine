@@ -49,12 +49,23 @@ the delete cascade plan).
 
 ## Steps
 
-1. **Ensure the local `codegen` fork is installed**:
+1. **Ensure the local `codegen` fork is installed, editable** (paths
+   below are relative to the repo root - the directory holding `codegen/`
+   and `backend/`):
 
    ```
-   cd /Volumes/Docking/Projects/synthosilicon/layout_engine/codegen
-   poetry install
+   pip install --user -e codegen      # or: cd codegen && poetry install
+   python3 -c "import codegen; print(codegen.__file__)"
    ```
+
+   The second line must print this checkout's `codegen/codegen/__init__.py`.
+   A non-editable install (`pip install codegen` without `-e`) is a frozen
+   copy that silently goes stale as `codegen/` changes - it once failed on a
+   `Field` argument the schema had long since started using. The command is
+   `codegen` (it was `cmg` until NEW_FEATURES_SEPT_2026.md item 26 renamed it,
+   so it can't collide with an installed upstream `cmg`). If pip refuses with
+   "externally-managed-environment", add `--break-system-packages` (a
+   `--user` install doesn't touch the system packages) or use poetry.
 
 2. **Run the generator with `--target tcl`**, pointing `--output` at the
    backend's `src/` directory (not `src/database/generated` - this
@@ -62,10 +73,11 @@ the delete cascade plan).
    `api/generated_tcl/` and `tcl/generated/`):
 
    ```
-   poetry run cmg --schema /Volumes/Docking/Projects/synthosilicon/layout_engine/backend/src/database/schema.py \
-                   --output /Volumes/Docking/Projects/synthosilicon/layout_engine/backend/src \
-                   --target tcl
+   codegen --schema backend/src/database/schema.py --output backend/src --target tcl
    ```
+
+   (`poetry run codegen ...` from inside `codegen/` if you installed with
+   poetry - adjust the relative paths to `../backend/...`.)
 
 3. **Diff the output.** Both output directories are `.gitignore`d, so
    `git diff`/`git status` won't show anything - copy them aside before

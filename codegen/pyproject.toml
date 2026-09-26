@@ -5,8 +5,7 @@ description = "Code generation for C++23 and TCL"
 authors = ["John Dru <john@muopia.com>"]
 readme = "README.md"
 license = "MIT"
-repository = "https://github.com/johndru-astrophysics/cmg"
-documentation = "https://johndru-astrophysics.github.io/cmg"
+repository = "https://github.com/drummondj/layout_engine"
 packages = [
     { include = "codegen" },
 ]
@@ -26,4 +25,4 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-cmg = "codegen.cli:cli"
+codegen = "codegen.cli:cli"

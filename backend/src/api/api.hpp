@@ -1856,7 +1856,7 @@ extern "C"
     /// a script that builds an Abstract from scratch and calls
     /// le_set_current_abstract directly, with no Design to select, needs
     /// this to still work). A linear scan over
-    /// Root::get_abstract_terminals, not a cmg index=True lookup - Terminal
+    /// Root::get_abstract_terminals, not a codegen index=True lookup - Terminal
     /// name uniqueness is per-Abstract (unique_per_parent, see
     /// backend/src/database/schema.py's own Terminal.name comment), not
     /// global, so a flat index=True lookup would be the wrong shape here.
@@ -1946,7 +1946,7 @@ extern "C"
     /// name/value table shape (LeProperty) le_object_property_count/_at
     /// use for LE_OBJECT_KIND_TERMINAL, but addressed directly by id, for
     /// a TCL `get_terminal`-style caller that isn't working off the
-    /// current GUI selection. Rows: every plain Terminal field from cmg's
+    /// current GUI selection. Rows: every plain Terminal field from codegen's
     /// generated to_properties() ("name", "direction", ...), plus
     /// "port_count" (int, from Root's own port index - "ports" itself
     /// isn't a stored field). No "rects"/"polygons"/"paths"/"layer_name"
@@ -1988,12 +1988,12 @@ extern "C"
     // le_terminal_property_count/_at above, one pair per type. Unlike
     // Terminal's own "port_count" (or TerminalPort/Obstruction's
     // "shapes_count", further below), none of these four add a derived
-    // child-pool "_count" row - just cmg's generated to_properties() as-is
+    // child-pool "_count" row - just codegen's generated to_properties() as-is
     // for each type; see le_get_designs/le_get_terminals/
     // le_get_obstructions if you need those counts instead. ---
 
     /// @brief Number of property rows for the Library at `id`. Rows:
-    /// every plain Library field from cmg's generated to_properties()
+    /// every plain Library field from codegen's generated to_properties()
     /// ("name"). Returns 0 if handle is null or id doesn't name a Library
     /// on this handle.
     int32_t le_library_property_count(LeHandle *handle, LeLibraryId id);
@@ -2012,7 +2012,7 @@ extern "C"
     LeProperty le_library_property_path(LeHandle *handle, LeLibraryId id, const char *path);
 
     /// @brief Number of property rows for the Design at `id`. Rows: every
-    /// plain Design field from cmg's generated to_properties() ("name").
+    /// plain Design field from codegen's generated to_properties() ("name").
     /// Returns 0 if handle is null or id doesn't name a Design on this
     /// handle.
     int32_t le_design_property_count(LeHandle *handle, LeDesignId id);
@@ -2031,7 +2031,7 @@ extern "C"
     LeProperty le_design_property_path(LeHandle *handle, LeDesignId id, const char *path);
 
     /// @brief Number of property rows for the Abstract at `id`. Rows:
-    /// every plain Abstract field from cmg's generated to_properties()
+    /// every plain Abstract field from codegen's generated to_properties()
     /// ("type", "size", "origin", ..., plus its own list-field "_count"
     /// rows like "boundary_count"). Returns 0 if handle is null or id
     /// doesn't name an Abstract on this handle.
@@ -2112,7 +2112,7 @@ extern "C"
 
     /// @brief Number of property rows for the TerminalPort at `id` - same
     /// by-id (not selection-scoped) shape as le_terminal_property_count.
-    /// Rows: "shapes_count" (int), "port_class" (string) - cmg's
+    /// Rows: "shapes_count" (int), "port_class" (string) - codegen's
     /// generated to_properties() output for TerminalPortData, unchanged.
     /// Returns 0 if handle is null or id doesn't name a TerminalPort on
     /// this handle.
@@ -2157,7 +2157,7 @@ extern "C"
 
     /// @brief Number of property rows for the Obstruction at `id` - same
     /// by-id shape as le_terminal_property_count. Rows: "shapes_count"
-    /// (int) - cmg's generated to_properties() output for
+    /// (int) - codegen's generated to_properties() output for
     /// ObstructionData, unchanged. Returns 0 if handle is null or id
     /// doesn't name an Obstruction on this handle.
     int32_t le_obstruction_property_count(LeHandle *handle, LeObstructionId id);
@@ -2253,7 +2253,7 @@ extern "C"
     /// @brief Number of property rows for the Shape at `id` (UPDATES.md
     /// item 19.2 - same by-id shape as le_terminal_property_count/_at and
     /// its Library/Design/Abstract siblings above). Rows: every plain
-    /// Shape field from cmg's generated to_properties() ("layer_name",
+    /// Shape field from codegen's generated to_properties() ("layer_name",
     /// "spacing", ..., plus its own list-field "_count" rows like
     /// "rects_count"). Shape has no children (the leaf of the
     /// Library->Design->Abstract->{Terminal->TerminalPort,Obstruction}->

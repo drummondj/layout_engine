@@ -500,7 +500,7 @@ file(COPY "${lucide_font_SOURCE_DIR}/lucide.ttf" DESTINATION "${CMAKE_BINARY_DIR
 enable_testing()
 include(GoogleTest)
 
-# --- database: header-only, generated from src/database/schema.py via cmg ---
+# --- database: header-only, generated from src/database/schema.py via codegen ---
 add_library(database INTERFACE)
 target_include_directories(database INTERFACE src/database src/database/generated)
 
@@ -532,7 +532,7 @@ target_include_directories(geometry INTERFACE src ${Boost_INCLUDE_DIRS})
 target_link_libraries(geometry INTERFACE database)
 
 # --- view_style: header-only ViewLayer/purpose/color config, distinct from
-# the LEF-mirroring database - see CLAUDE.md for why these aren't schema/cmg-generated ---
+# the LEF-mirroring database - see CLAUDE.md for why these aren't schema/codegen-generated ---
 add_library(view_style INTERFACE)
 target_include_directories(view_style INTERFACE src)
 target_link_libraries(view_style INTERFACE database)
@@ -1286,7 +1286,7 @@ le_enable_coverage_instrumentation(lef_roundtrip_diff)
 # --- coverage: `cmake --build build --target coverage` (requires -DENABLE_COVERAGE=ON at configure time) ---
 if(ENABLE_COVERAGE)
     set(COVERAGE_DIR ${CMAKE_BINARY_DIR}/coverage)
-    # database/generated is cmg output (mostly boilerplate getters/to_string);
+    # database/generated is codegen output (mostly boilerplate getters/to_string);
     # excluded for now rather than chasing coverage on generated code.
     set(COVERAGE_IGNORE_REGEX "${CMAKE_BINARY_DIR}/_deps|${CMAKE_SOURCE_DIR}/src/lefdef|${CMAKE_SOURCE_DIR}/src/database/generated")
 

@@ -2053,7 +2053,7 @@ schema = Schema(
             description="Top-level pin name of an abstract",
             # Name uniqueness is enforced per-Abstract by the generated
             # unique_per_parent index (create_terminal returns an invalid
-            # id on collision) rather than a global cmg index=True - see
+            # id on collision) rather than a global codegen index=True - see
             # Field.unique_per_parent's own docstring and le_tcl_shim.hpp's
             # own "IDs" comment. tcl_id_field is still needed even though
             # `name` is now index=True: tcl_indexed_id_field() deliberately

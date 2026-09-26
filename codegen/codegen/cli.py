@@ -6,12 +6,12 @@ import logging
 from codegen import generator, tcl_generator
 
 """
-CLI for the cmg package.
+CLI for the codegen package (the `codegen` command).
 
 Example usage:
 
-cmg --schema <path to schema file> --output <path to output directory>
-cmg --schema <path to schema file> --output <backend src dir> --target tcl
+codegen --schema <path to schema file> --output <path to output directory>
+codegen --schema <path to schema file> --output <backend src dir> --target tcl
 """
 
 
@@ -35,7 +35,7 @@ def cli(schema: str, output: str, target: str):
         level=logging.INFO,
         format="%(levelname)s: %(message)s",
     )
-    logger: logging.Logger = logging.getLogger("cmg")
+    logger: logging.Logger = logging.getLogger("codegen")
     logger.info(f"Generating {target} code from schema {schema} to output directory {output}")
     if target == "tcl":
         exit_code = tcl_generator.generate(generator.schema_loader(schema), output, logger)

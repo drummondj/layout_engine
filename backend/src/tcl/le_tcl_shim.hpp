@@ -53,7 +53,7 @@
 // `"library:<name>"`/`"design:<name>"` (each has a real, uniquely-
 // indexed-or-uniqueness-enforced .name field - Terminal's uniqueness is
 // enforced per-Abstract via the generated unique_per_parent index, not
-// hand-written in api.hpp anymore; Library/Design's is a real global cmg
+// hand-written in api.hpp anymore; Library/Design's is a real global codegen
 // index=True) and `"obstruction:<n>"`/`"terminal_port:<n>"`/`"shape:<n>"`/
 // `"abstract:<n>"`/... (no name field on these - `<n>` is a packed
 // integer, type-prefixed for self-description, resolved with

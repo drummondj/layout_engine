@@ -191,9 +191,9 @@ COPY . .
 FROM source AS codegen
 WORKDIR /workspace/codegen
 RUN python3.12 -m pip install --no-cache-dir .
-RUN cmg --schema /workspace/backend/src/database/schema.py \
+RUN codegen --schema /workspace/backend/src/database/schema.py \
         --output /workspace/backend/src/database/generated \
- && cmg --schema /workspace/backend/src/database/schema.py \
+ && codegen --schema /workspace/backend/src/database/schema.py \
         --output /workspace/backend/src \
         --target tcl
 
