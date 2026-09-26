@@ -1731,11 +1731,21 @@ An instance of another design, or a placeholder for source code that could not b
 | `-filter` | `expr` | no | A -filter expression (backend/src/database/filter.hpp) - field/hop names validated against this class's own allowlist |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
-## get_label_size
+## get_label_max_size
 
-`get_label_size [-help]`
+`get_label_max_size [-help]`
 
-Returns the largest label font size in pixels - see set_label_size.
+Returns the largest label font size in pixels - see set_label_max_size.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## get_label_min_size
+
+`get_label_min_size [-help]`
+
+Returns the smallest label font size in pixels - see set_label_min_size.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2591,11 +2601,22 @@ Set the visible hierarchy depth
 | `<depth>` | `int` | yes | The hierarchy depth, 1 or larger |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
-## set_label_size
+## set_label_max_size
 
-`set_label_size <px> [-help]`
+`set_label_max_size <px> [-help]`
 
-Sets the largest on-screen font size (pixels) of pin, route and placement name labels - they still shrink with their shapes, down to 12 pixels (or this size, if smaller). 24 by default; values <= 0 are ignored.
+Sets the largest on-screen font size (pixels) of pin, route and placement name labels - they scale with their shapes between set_label_min_size's size and this, so they don't grow without bound when zoomed in. 24 by default; values <= 0 are ignored.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<px>` | `double` | yes | Font size in pixels |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## set_label_min_size
+
+`set_label_min_size <px> [-help]`
+
+Sets the smallest on-screen font size (pixels) of pin, route and placement name labels - they scale with their shapes between this and set_label_max_size's size, so they stay legible when zoomed out. 12 by default; a min above the max yields to the max; values <= 0 are ignored.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2698,7 +2719,7 @@ Sets the on-screen font size (pixels) of ruler labels. 11 by default; values <= 
 
 `set_shape_snap_mode <kind> <mode> [-help]`
 
-Sets what Resize snaps a <kind> (rect, polygon or path) to, and what Move snaps a path or via to. Rects and polygons (Resize only): user (the user grid - the default), manufacturing (MANUFACTURINGGRID), fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths: user, manufacturing (the path's edges land on the grid), tracks (its centerline lands on a routing track of its layer - the Layout's TRACKS, else the layer's LEF PITCH/OFFSET) or none. Vias and via arrays (Move only): user, manufacturing, tracks (the origin lands on a track intersection of its shape's layer) or none. Persists.
+Sets what Resize snaps a <kind> (rect, polygon or path) to, and what Move snaps a path or via to. Rects and polygons (Resize only): user (the user grid - the default), manufacturing (MANUFACTURINGGRID), fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths: user, manufacturing (the path's edges land on the grid), tracks (its centerline lands on a routing track of its layer - the Layout's TRACKS, else the layer's LEF PITCH/OFFSET) or none. Vias and via arrays (Move only) snap to their origin - on tracks, a track intersection of their shape's layer. Paths, vias and via arrays share one mode, so a Move of wires and vias snaps them all the same way: setting path or via sets both. Persists.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |

@@ -9,14 +9,17 @@
 
 namespace le::gui
 {
-    // A number setting as a "commit on Enter" field
-    // (ImGuiInputTextFlags_EnterReturnsTrue) with a label - the Settings
-    // panel's rows (settings_panel.cpp; moved here from layer_manager.cpp
-    // with Hierarchy Depth and the flightline fanout limit, NEW_FEATURES_SEPT_2026.md
-    // item 9). Submitting a valid value shows *only* that value - ignoring
+    // A number setting as a "commit when done editing" field with a label -
+    // the Settings panel's rows (settings_panel.cpp; moved here from
+    // layer_manager.cpp with Hierarchy Depth and the flightline fanout
+    // limit, NEW_FEATURES_SEPT_2026.md item 9). An edit is committed when
+    // the field loses focus by any route - Enter, Tab or clicking elsewhere
+    // (ImGui::IsItemDeactivatedAfterEdit) - not just Enter; Escape reverts
+    // it (the value is then unchanged, so nothing is sent). Submitting a
+    // valid value shows *only* that value - ignoring
     // `backend_value`'s own still-stale value - until the backend actually
     // catches up to it: every setting is applied through a queued Tcl
-    // command, and pressing Enter defocuses the field immediately, so
+    // command, and committing defocuses the field immediately, so
     // without this the very next frame's re-sync would snap the field back
     // to the old value for the ~100ms the command takes to land, then
     // forward again once it does (a real, reported flicker). Still
@@ -70,18 +73,18 @@ namespace le::gui
         // 3 characters wide - these fields only ever hold a small integer.
         ImGui::SetNextItemWidth(ImGui::CalcTextSize("000").x + ImGui::GetStyle().FramePadding.x * 2.0f);
         int value = field.buf;
-        if (ImGui::InputInt(id, &value, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue))
+        ImGui::InputInt(id, &value, 0, 0);
+        field.buf = value;
+        if (ImGui::IsItemDeactivatedAfterEdit())
         {
-            if (value >= 0)
-                submit(value);
-            else
+            if (value < 0)
             {
                 field.buf = backend_value; // the backend rejects a negative value
                 field.has_pending = false;
             }
+            else if (value != backend_value)
+                submit(value);
         }
-        else
-            field.buf = value;
         field.was_active = ImGui::IsItemActive();
 
         constexpr float kStepButtonWidth = 24.0f;
@@ -129,19 +132,20 @@ namespace le::gui
             field.buf = backend_value;
 
         ImGui::SetNextItemWidth(width);
-        if (ImGui::InputDouble(id, &field.buf, 0.0, 0.0, format, ImGuiInputTextFlags_EnterReturnsTrue))
+        ImGui::InputDouble(id, &field.buf, 0.0, 0.0, format);
+        if (ImGui::IsItemDeactivatedAfterEdit())
         {
-            if (field.buf > 0.0)
+            if (field.buf <= 0.0)
+            {
+                field.buf = backend_value;
+                field.has_pending = false;
+            }
+            else if (!committed_field_detail::matches(field.buf, backend_value))
             {
                 apply(field.buf);
                 field.has_pending = true;
                 field.pending_value = field.buf;
                 field.backend_at_submit = backend_value;
-            }
-            else
-            {
-                field.buf = backend_value;
-                field.has_pending = false;
             }
         }
         field.was_active = ImGui::IsItemActive();

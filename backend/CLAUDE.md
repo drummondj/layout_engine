@@ -126,11 +126,14 @@ none of these are duplicated here.
   commits one undoable "resize" on the second; Escape cancels a grab. The
   ghost reuses the Move ghost overlay. Move (item 13) snaps each selected
   path, via or via array on its own - `snap_moved_piece_delta` lands a
-  path's first centerline point or a via's origin on its kind's snap
-  target (paths share Resize's setting; vias/via arrays have their own,
-  `shape_snap_slot`), from the raw mouse offset - via api.cpp's
+  path's first centerline point or a via's origin on the snap target
+  (paths, vias and via arrays share one routing setting, also Resize's
+  path setting - `shape_snap_slot` - shown as one "Routing:" group while
+  moving), from the raw mouse offset - via api.cpp's
   `moving_piece_deltas_unlocked`, shared by ghost and commit; rects and
-  polygons still move by the user-grid-snapped offset.
+  polygons still move by the user-grid-snapped offset. Move refuses a
+  selection mixing Placements with anything else (`arm_move_unlocked`;
+  the Move button is disabled to match), like Resize with any Placement.
   `RenderedShape`/
   `TinyShapeDot`/`VersionedStage`/`ShapeGenerationStage` (the pre-restart
   `pipeline` module's own shape-generation output/render-input types and
@@ -644,9 +647,12 @@ none of these are duplicated here.
   le_gui.cpp overlays it on the design view's top edge rather than
   inserting a row, so showing it never resizes the viewport (its height
   auto-sizes to the wrapped lines). `components/settings_panel.cpp` is
-  the right sidebar's Settings tab (item 9): grid spacing (um), ruler and
-  label font sizes, hierarchy depth and flightline fanout limit (via
-  `committed_field.hpp`'s commit-on-Enter fields), plus Save/Save As/Load
+  the right sidebar's Settings tab (item 9): grid spacing (um, with a
+  button setting minor to the manufacturing grid and major to 10x it),
+  ruler font size, min/max label font sizes (labels scale with their
+  shapes between the two), hierarchy depth and flightline fanout limit
+  (via `committed_field.hpp`'s fields, committed on Enter, Tab or
+  clicking away), plus Save/Save As/Load
   of the JSON settings file - api.cpp's `le_save_settings`/
   `le_load_settings` (nlohmann/json, fetched as a pinned single header),
   default `~/.layout_engine/settings.json`, which `le_shell` loads at

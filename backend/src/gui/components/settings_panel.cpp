@@ -7,6 +7,7 @@
 #include "portable-file-dialogs.h"
 
 #include <array>
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <vector>
@@ -138,17 +139,39 @@ namespace le::gui
                                     [&](double um)
                                     { provider.set_grid_spacing_um(0.0, um); }, kNoTechnology);
 
+        // Minor spacing to the manufacturing grid, major to 10x that.
+        const double mfg_um = settings.manufacturing_grid_um;
+        char mfg_label[64];
+        if (mfg_um > 0.0)
+            std::snprintf(mfg_label, sizeof(mfg_label), "Use manufacturing grid (%g um)###use_mfg_grid", mfg_um);
+        else
+            std::snprintf(mfg_label, sizeof(mfg_label), "Use manufacturing grid###use_mfg_grid");
+        ImGui::BeginDisabled(mfg_um <= 0.0);
+        if (ImGui::Button(mfg_label))
+            provider.set_grid_spacing_um(mfg_um, mfg_um * 10.0);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", mfg_um > 0.0 ? "Sets the minor spacing to the manufacturing grid and the major spacing to 10x that"
+                                                 : "The technology has no MANUFACTURINGGRID");
+
         section("Text");
         static CommittedField<double> ruler_field;
         draw_committed_double_field("##ruler_label_size", "Ruler font size (px)", "%.3g", settings.ruler_label_size_px, ruler_field,
                                     [&](double px)
                                     { provider.set_ruler_label_size(px); });
-        static CommittedField<double> label_field;
-        draw_committed_double_field("##label_size", "Label font size (px)", "%.3g", settings.label_size_px, label_field,
+        // Labels scale with their shapes between the two (item 9).
+        static CommittedField<double> label_min_field;
+        draw_committed_double_field("##label_min_size", "Min label font size (px)", "%.3g", settings.label_min_size_px, label_min_field,
                                     [&](double px)
-                                    { provider.set_label_size(px); });
+                                    { provider.set_label_min_size(px); });
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Largest size of pin, route and placement name labels - they still shrink with their shapes");
+            ImGui::SetTooltip("Smallest size of pin, route and placement name labels - keeps them legible when zoomed out");
+        static CommittedField<double> label_max_field;
+        draw_committed_double_field("##label_max_size", "Max label font size (px)", "%.3g", settings.label_max_size_px, label_max_field,
+                                    [&](double px)
+                                    { provider.set_label_max_size(px); });
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Largest size of pin, route and placement name labels - stops them growing without bound when zoomed in");
 
         section("Hierarchy");
         static CommittedField<int32_t> depth_field;

@@ -520,13 +520,13 @@ namespace le
         std::unordered_map<const Path *, std::vector<Polygon>> &path_outline_cache,
         std::unordered_map<int, MonospaceFontEntry> &monospace_font_cache,
         std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> &glyph_bitmap_cache,
-        double max_label_px = kMaxLabelPixelSize)
+        double requested_min_label_px = kMinLabelPixelSize, double max_label_px = kMaxLabelPixelSize)
     {
-        // `max_label_px` - the Settings panel's label font size
-        // (NEW_FEATURES_SEPT_2026.md item 9, ViewRenderOptions::
-        // label_max_size_px) - caps every label; kMinLabelPixelSize still
-        // floors it, unless the cap itself is smaller.
-        const double min_label_px = std::min(kMinLabelPixelSize, max_label_px);
+        // The Settings panel's min/max label font sizes (NEW_FEATURES_SEPT_2026.md
+        // item 9, ViewRenderOptions::label_min_size_px/label_max_size_px):
+        // every label is clamped to [min, max]; a min set above the max
+        // yields to it.
+        const double min_label_px = std::min(requested_min_label_px, max_label_px);
 
         // `monospace_font_cache` and `glyph_bitmap_cache` are owned by the
         // CALLER (RasterizeBlend2DStage - its own `monospace_font_cache_`/
@@ -1008,7 +1008,7 @@ namespace le
                 draw_view_shapes_blend2d(
                     ctx, data.shapes ? *data.shapes : kEmptyShapes, data.shapes_index, local_bbox, view_layers, options.scale,
                     options.layer_name_visible, options.purpose_visible, node_outline_cache.outlines,
-                    monospace_font_cache_, glyph_bitmap_cache_, options.label_max_size_px);
+                    monospace_font_cache_, glyph_bitmap_cache_, options.label_min_size_px, options.label_max_size_px);
 
                 ctx.end();
 
@@ -1037,6 +1037,7 @@ namespace le
                 last.purpose_visible != current.purpose_visible ||
                 last.minor_grid_spacing_dbu != current.minor_grid_spacing_dbu ||
                 last.major_grid_spacing_dbu != current.major_grid_spacing_dbu ||
+                last.label_min_size_px != current.label_min_size_px ||
                 last.label_max_size_px != current.label_max_size_px)
                 return true;
 

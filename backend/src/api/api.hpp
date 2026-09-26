@@ -719,7 +719,8 @@ extern "C"
     /// le_mouse_up's own doc comment. Calling this again while already
     /// armed (including the re-arm a successful commit itself performs -
     /// see le_mouse_up) is harmless - it just re-snapshots the ghost
-    /// preview from the current selection/geometry.
+    /// preview from the current selection/geometry. Refused (a no-op) when
+    /// the selection mixes Placements with any other kind of object.
     void le_arm_move(LeHandle *handle);
 
     /// @brief Cancels an in-progress move (armed or anchored, not yet
@@ -818,8 +819,8 @@ extern "C"
         LE_PIECE_KIND_RECT = 0,
         LE_PIECE_KIND_POLYGON = 1,
         LE_PIECE_KIND_PATH = 2,
-        LE_PIECE_KIND_VIA = 3,         // a via instance (NEW_FEATURES_SEPT_2026.md item 6)
-        LE_PIECE_KIND_VIA_ITERATE = 4, // a via array (item 12) - shares LE_PIECE_KIND_VIA's snap mode
+        LE_PIECE_KIND_VIA = 3,         // a via instance (NEW_FEATURES_SEPT_2026.md item 6) - shares LE_PIECE_KIND_PATH's snap mode
+        LE_PIECE_KIND_VIA_ITERATE = 4, // a via array (item 12) - shares LE_PIECE_KIND_PATH's snap mode
     } LePieceKind;
 
     /// @brief What a resized edge/segment snaps to (NEW_FEATURES_SEPT_2026.md
@@ -873,8 +874,9 @@ extern "C"
     int32_t le_resize_hover_axis(LeHandle *handle);
 
     /// @brief Sets `kind`'s (LePieceKind) resize snap mode (LeShapeSnapMode)
-    /// - persists, USER_GRID by default. Ignores a mode `kind` doesn't
-    /// offer, an out-of-range value, or a null handle.
+    /// - persists, USER_GRID by default. Paths, vias and via arrays share
+    /// one mode, so setting any of them sets all three. Ignores a mode
+    /// `kind` doesn't offer, an out-of-range value, or a null handle.
     void le_set_shape_snap_mode(LeHandle *handle, int32_t kind, int32_t mode);
 
     /// @brief `kind`'s resize snap mode. LE_SHAPE_SNAP_USER_GRID if handle
@@ -895,9 +897,9 @@ extern "C"
 
     /// @brief Which LePieceKinds in the current selection Move snaps one by
     /// one (NEW_FEATURES_SEPT_2026.md item 13), as a bitmask: 1 <<
-    /// LE_PIECE_KIND_PATH and/or 1 << LE_PIECE_KIND_VIA (a via array sets
-    /// the VIA bit) - the Move toolbar shows one snap group per kind
-    /// present. 0 if handle is null.
+    /// LE_PIECE_KIND_PATH when any path, via or via array is selected -
+    /// they share one routing snap mode, so the Move toolbar shows a
+    /// single group for them. 0 if handle is null.
     int32_t le_selected_move_snap_piece_kinds(LeHandle *handle);
 
     /// @brief Current selectability of every ViewLayer whose LeLayerRow::name
@@ -1027,15 +1029,25 @@ extern "C"
     /// A no-op if handle is null.
     void le_set_ruler_label_size(LeHandle *handle, double px);
 
-    /// @brief Largest on-screen size (px) a shape or placement label grows
-    /// to - the Settings panel's label font size (NEW_FEATURES_SEPT_2026.md
-    /// item 9). Labels still shrink with their geometry, down to 12px (or
-    /// this size, if smaller). Defaults to 24. 0 if handle is null.
-    double le_label_size(LeHandle *handle);
+    /// @brief Smallest on-screen size (px) a shape or placement label is
+    /// drawn at - the Settings panel's min label font size
+    /// (NEW_FEATURES_SEPT_2026.md item 9). Labels scale with their geometry
+    /// between this and le_label_max_size; a min above the max yields to
+    /// the max. Defaults to 12. 0 if handle is null.
+    double le_label_min_size(LeHandle *handle);
 
-    /// @brief Sets le_label_size - values <= 0 are ignored. A no-op if
+    /// @brief Sets le_label_min_size - values <= 0 are ignored. A no-op if
     /// handle is null.
-    void le_set_label_size(LeHandle *handle, double px);
+    void le_set_label_min_size(LeHandle *handle, double px);
+
+    /// @brief Largest on-screen size (px) a shape or placement label grows
+    /// to - the Settings panel's max label font size. Defaults to 24. 0 if
+    /// handle is null.
+    double le_label_max_size(LeHandle *handle);
+
+    /// @brief Sets le_label_max_size - values <= 0 are ignored. A no-op if
+    /// handle is null.
+    void le_set_label_max_size(LeHandle *handle, double px);
 
     /// @brief The minor (`major` 0) or major (`major` nonzero) grid spacing
     /// in um - converted from le_minor_grid_spacing/le_major_grid_spacing
@@ -1049,6 +1061,12 @@ extern "C"
     /// le_read_lef/le_read_def that establishes one. A no-op if handle is
     /// null.
     void le_set_grid_spacing_um(LeHandle *handle, double minor_um, double major_um);
+
+    /// @brief The Technology's MANUFACTURINGGRID in um, as the LEF gives it
+    /// - what the Settings panel's "set the grid to the manufacturing grid"
+    /// button uses. 0 if there's no Technology, it has none, or handle is
+    /// null.
+    double le_manufacturing_grid_um(LeHandle *handle);
 
     /// @brief Where settings are saved/loaded when no path is given:
     /// $HOME/.layout_engine/settings.json ("" if HOME isn't set). Never null.

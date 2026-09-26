@@ -180,8 +180,10 @@ if {[catch {set_flightline_max_fanout -1} err]} {
 # NEW_FEATURES_SEPT_2026.md item 9 - settings commands.
 set_ruler_label_size 15
 check "set_ruler_label_size round-trips" 15.0 [get_ruler_label_size]
-set_label_size 20
-check "set_label_size round-trips" 20.0 [get_label_size]
+set_label_min_size 10
+check "set_label_min_size round-trips" 10.0 [get_label_min_size]
+set_label_max_size 20
+check "set_label_max_size round-trips" 20.0 [get_label_max_size]
 set_grid_spacing -minor 0.25 -major 2.5
 check "set_grid_spacing -minor round-trips in microns" 0.25 [get_grid_spacing]
 check "set_grid_spacing -major round-trips in microns" 2.5 [get_grid_spacing -major]
@@ -197,9 +199,9 @@ if {[info exists ::env(TMPDIR)]} {
     set settings_file /tmp/le_smoke_settings.json
 }
 save_settings $settings_file
-set_label_size 30
+set_label_max_size 30
 load_settings $settings_file
-check "load_settings restores what save_settings wrote" 20.0 [get_label_size]
+check "load_settings restores what save_settings wrote" 20.0 [get_label_max_size]
 file delete $settings_file
 if {[catch {load_settings $settings_file} err]} {
     puts "ok: load_settings fails on a missing file ($err)"

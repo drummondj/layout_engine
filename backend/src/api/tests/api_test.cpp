@@ -5961,6 +5961,56 @@ TEST_F(ApiFixture, ResizeDoesNotArmWhileAPlacementIsSelected)
     EXPECT_NE(le_is_resize_armed(handle), 0);
 }
 
+// OVERNIGHT_REVIEW.md item 13 follow-up: placements snap to sites/rows and
+// shapes to their own grids, so Move refuses the two selected together -
+// but still arms for either on its own.
+TEST_F(ApiFixture, MoveDoesNotArmWithPlacementsAndOtherObjectsSelectedTogether)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+    const LePlacementId placement_id = le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+    ASSERT_NE(placement_id.index, UINT32_MAX);
+    const LeRouteId route_id = le_create_route(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", /*is_special=*/0, /*has_width=*/0, 0.0, /*has_voltage=*/0, 0.0, nullptr);
+    const double route_rect_um[4] = {20.0, 20.0, 26.0, 26.0};
+    const LeShapeId route_shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, route_id, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, le_layer_by_name(handle, "M1"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(route_shape_id.index, UINT32_MAX);
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_mode(handle, LE_MODE_EDIT);
+    const LeObjectRef shape_ref{.kind = LE_OBJECT_KIND_SHAPE, .index = route_shape_id.index, .generation = route_shape_id.generation};
+    const LeObjectRef placement_ref{.kind = LE_OBJECT_KIND_PLACEMENT, .index = placement_id.index, .generation = placement_id.generation};
+
+    ASSERT_EQ(le_select_object_ref(handle, shape_ref), 0);
+    ASSERT_EQ(le_select_object_ref(handle, placement_ref), 0);
+    le_arm_move(handle);
+    EXPECT_EQ(le_is_move_armed(handle), 0);
+
+    le_deselect_all(handle);
+    ASSERT_EQ(le_select_object_ref(handle, placement_ref), 0);
+    le_arm_move(handle);
+    EXPECT_NE(le_is_move_armed(handle), 0);
+    le_cancel_move(handle);
+
+    le_deselect_all(handle);
+    ASSERT_EQ(le_select_object_ref(handle, shape_ref), 0);
+    le_arm_move(handle);
+    EXPECT_NE(le_is_move_armed(handle), 0);
+}
+
+// Paths, vias and via arrays share one snap mode, so a Move of wires and
+// vias together snaps them all the same way.
+TEST_F(ApiFixture, PathsViasAndViaArraysShareOneSnapMode)
+{
+    le_set_shape_snap_mode(handle, LE_PIECE_KIND_VIA, LE_SHAPE_SNAP_MANUFACTURING_GRID);
+    EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_PATH), LE_SHAPE_SNAP_MANUFACTURING_GRID);
+    EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_VIA_ITERATE), LE_SHAPE_SNAP_MANUFACTURING_GRID);
+    le_set_shape_snap_mode(handle, LE_PIECE_KIND_PATH, LE_SHAPE_SNAP_NONE);
+    EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_VIA), LE_SHAPE_SNAP_NONE);
+    EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_RECT), LE_SHAPE_SNAP_USER_GRID); // rects stay separate
+}
+
 TEST_F(ApiFixture, FlightlineMaxFanoutDefaultsToTenAndRejectsNegativeValues)
 {
     EXPECT_EQ(le_flightline_max_fanout(handle), 10);
@@ -6222,7 +6272,7 @@ TEST_F(ApiFixture, MovingAViaSnapsItsOriginToTracksWhenAsked)
     le_mouse_down(handle, 140, 60);
     le_mouse_up(handle, 140, 60);
     ASSERT_EQ(le_selection_count(handle), 1);
-    EXPECT_EQ(le_selected_move_snap_piece_kinds(handle), 1 << LE_PIECE_KIND_VIA);
+    EXPECT_EQ(le_selected_move_snap_piece_kinds(handle), 1 << LE_PIECE_KIND_PATH); // vias share the routing (path) group
 
     ASSERT_NE(le_is_shape_snap_mode_available(handle, LE_PIECE_KIND_VIA, LE_SHAPE_SNAP_TRACKS), 0);
     le_set_shape_snap_mode(handle, LE_PIECE_KIND_VIA, LE_SHAPE_SNAP_TRACKS);
@@ -6399,12 +6449,13 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsEverySetting)
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0); // 1000 dbu/um
     le_set_grid_spacing_um(handle, 0.2, 2.0);
     le_set_ruler_label_size(handle, 14.0);
-    le_set_label_size(handle, 18.0);
+    le_set_label_min_size(handle, 10.0);
+    le_set_label_max_size(handle, 18.0);
     le_set_hierarchy_depth(handle, 3);
     le_set_flightline_max_fanout(handle, 7);
     le_set_placement_snap_mode(handle, LE_PLACEMENT_SNAP_MANUFACTURING_GRID);
+    le_set_shape_snap_mode(handle, LE_PIECE_KIND_POLYGON, LE_SHAPE_SNAP_NONE);
     le_set_shape_snap_mode(handle, LE_PIECE_KIND_PATH, LE_SHAPE_SNAP_TRACKS);
-    le_set_shape_snap_mode(handle, LE_PIECE_KIND_VIA, LE_SHAPE_SNAP_MANUFACTURING_GRID);
     EXPECT_EQ(le_minor_grid_spacing(handle), 200);
     EXPECT_EQ(le_major_grid_spacing(handle), 2000);
 
@@ -6421,12 +6472,14 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsEverySetting)
     EXPECT_EQ(le_minor_grid_spacing(other), 200);
     EXPECT_EQ(le_major_grid_spacing(other), 2000);
     EXPECT_DOUBLE_EQ(le_ruler_label_size(other), 14.0);
-    EXPECT_DOUBLE_EQ(le_label_size(other), 18.0);
+    EXPECT_DOUBLE_EQ(le_label_min_size(other), 10.0);
+    EXPECT_DOUBLE_EQ(le_label_max_size(other), 18.0);
     EXPECT_EQ(le_hierarchy_depth(other), 3);
     EXPECT_EQ(le_flightline_max_fanout(other), 7);
     EXPECT_EQ(le_get_placement_snap_mode(other), LE_PLACEMENT_SNAP_MANUFACTURING_GRID);
+    EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_POLYGON), LE_SHAPE_SNAP_NONE);
     EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_PATH), LE_SHAPE_SNAP_TRACKS);
-    EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_VIA), LE_SHAPE_SNAP_MANUFACTURING_GRID);
+    EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_VIA), LE_SHAPE_SNAP_TRACKS); // shares the path mode
     EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_RECT), LE_SHAPE_SNAP_USER_GRID);
     le_destroy(other);
 }
@@ -6452,10 +6505,10 @@ TEST_F(ApiFixture, SettingsLoadedBeforeAnyTechnologyApplyTheGridOnceOneIsRead)
 TEST_F(ApiFixture, SettingsLoadSkipsInvalidKeysAndRejectsMalformedFiles)
 {
     const std::string path = scratch_path("le_settings_partial.json");
-    write_file(path, R"({"label_size_px": "big", "hierarchy_depth": 2, "placement_snap_mode": "nowhere",
+    write_file(path, R"({"label_max_size_px": "big", "hierarchy_depth": 2, "placement_snap_mode": "nowhere",
                           "shape_snap_modes": {"rect": "tracks", "path": "none"}})");
     ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
-    EXPECT_DOUBLE_EQ(le_label_size(handle), 24.0);
+    EXPECT_DOUBLE_EQ(le_label_max_size(handle), 24.0);
     EXPECT_EQ(le_hierarchy_depth(handle), 2);
     EXPECT_EQ(le_get_placement_snap_mode(handle), LE_PLACEMENT_SNAP_SITE);
     EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_RECT), LE_SHAPE_SNAP_USER_GRID); // rects can't snap to tracks
@@ -6483,7 +6536,7 @@ TEST_F(ApiFixture, LabelSizeCapsTheRenderedLabelSize)
         return std::vector<uint8_t>(buffer.data, buffer.data + static_cast<size_t>(buffer.height) * static_cast<size_t>(buffer.row_bytes));
     };
     const std::vector<uint8_t> large = render();
-    le_set_label_size(handle, 12.0);
+    le_set_label_max_size(handle, 12.0);
     const std::vector<uint8_t> small = render();
     ASSERT_EQ(large.size(), small.size());
     size_t differing = 0;
@@ -6491,6 +6544,63 @@ TEST_F(ApiFixture, LabelSizeCapsTheRenderedLabelSize)
         differing += std::memcmp(&large[i], &small[i], 4) != 0 ? 1 : 0;
     EXPECT_GT(differing, 50u);
 
-    le_set_label_size(handle, 24.0); // back to the default - identical to the first render
+    le_set_label_max_size(handle, 24.0); // back to the default - identical to the first render
     EXPECT_EQ(render(), large);
+}
+
+// The min label font size floors how small a label renders: zoomed out
+// (~1.8 px/um) TESTCELL's 6um pin label wants ~6.5px, so it's drawn at the
+// 12px default floor - a 20px floor draws a visibly larger one.
+TEST_F(ApiFixture, LabelMinSizeFloorsTheRenderedLabelSize)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+    le_set_viewport_size(handle, 200, 200);
+    le_fit_rect(handle, -50.0, -50.0, 60.0, 60.0, 0);
+
+    const auto render = [&]
+    {
+        const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+        return std::vector<uint8_t>(buffer.data, buffer.data + static_cast<size_t>(buffer.height) * static_cast<size_t>(buffer.row_bytes));
+    };
+    const std::vector<uint8_t> floored = render();
+    le_set_label_min_size(handle, 20.0);
+    const std::vector<uint8_t> larger = render();
+    ASSERT_EQ(floored.size(), larger.size());
+    size_t differing = 0;
+    for (size_t i = 0; i < floored.size(); i += 4)
+        differing += std::memcmp(&floored[i], &larger[i], 4) != 0 ? 1 : 0;
+    EXPECT_GT(differing, 20u);
+
+    le_set_label_min_size(handle, 12.0); // back to the default - identical to the first render
+    EXPECT_EQ(render(), floored);
+}
+
+// The Settings panel's "use manufacturing grid" button reads the LEF's own
+// MANUFACTURINGGRID in um - 0 before any Technology, or when it has none.
+TEST_F(ApiFixture, ManufacturingGridUmIsTheLefValueOrZero)
+{
+    EXPECT_EQ(le_manufacturing_grid_um(handle), 0.0);
+    EXPECT_EQ(le_manufacturing_grid_um(nullptr), 0.0);
+
+    LeHandle *no_grid = le_create();
+    ASSERT_EQ(le_read_lef(no_grid, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    EXPECT_EQ(le_manufacturing_grid_um(no_grid), 0.0);
+    le_destroy(no_grid);
+
+    const std::string path = scratch_path("le_mfg_grid.lef");
+    write_file(path, "VERSION 5.8 ;\nUNITS\n  DATABASE MICRONS 2000 ;\nEND UNITS\nMANUFACTURINGGRID 0.005 ;\nEND LIBRARY\n");
+    ASSERT_EQ(le_read_lef(handle, path.c_str(), "tech"), 0);
+    EXPECT_DOUBLE_EQ(le_manufacturing_grid_um(handle), 0.005);
+}
+
+// Settings files saved before the min/max split carry one "label_size_px" -
+// the max.
+TEST_F(ApiFixture, SettingsLoadReadsTheOldSingleLabelSizeAsTheMax)
+{
+    const std::string path = scratch_path("le_settings_old_label_size.json");
+    write_file(path, R"({"label_size_px": 30})");
+    ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
+    EXPECT_DOUBLE_EQ(le_label_max_size(handle), 30.0);
+    EXPECT_DOUBLE_EQ(le_label_min_size(handle), 12.0);
 }

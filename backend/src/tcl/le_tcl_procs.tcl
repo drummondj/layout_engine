@@ -1287,7 +1287,7 @@ proc set_shape_snap_mode {kind args} {
 }
 register_command_help set_shape_snap_mode \
     "set_shape_snap_mode <kind> <mode> \[-help\] - Sets what a resized or moved shape of one kind snaps to" \
-    "Sets what Resize snaps a <kind> (rect, polygon or path) to, and what Move snaps a path or via to. Rects and polygons (Resize only): user (the user grid - the default), manufacturing (MANUFACTURINGGRID), fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths: user, manufacturing (the path's edges land on the grid), tracks (its centerline lands on a routing track of its layer - the Layout's TRACKS, else the layer's LEF PITCH/OFFSET) or none. Vias and via arrays (Move only): user, manufacturing, tracks (the origin lands on a track intersection of its shape's layer) or none. Persists." \
+    "Sets what Resize snaps a <kind> (rect, polygon or path) to, and what Move snaps a path or via to. Rects and polygons (Resize only): user (the user grid - the default), manufacturing (MANUFACTURINGGRID), fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths: user, manufacturing (the path's edges land on the grid), tracks (its centerline lands on a routing track of its layer - the Layout's TRACKS, else the layer's LEF PITCH/OFFSET) or none. Vias and via arrays (Move only) snap to their origin - on tracks, a track intersection of their shape's layer. Paths, vias and via arrays share one mode, so a Move of wires and vias snaps them all the same way: setting path or via sets both. Persists." \
     {
         {<kind> {type str required 1 description {rect, polygon, path or via}}}
         {<mode> {type str required 1 description {none, user, manufacturing, fin (rect/polygon) or tracks (path/via)}}}
@@ -2559,30 +2559,58 @@ register_command_help get_ruler_label_size \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-proc set_label_size {px} {
+proc set_label_min_size {px} {
     if {$px eq "-help"} {
-        return "set_label_size <px> \[-help\] - Sets the largest font size of shape and placement labels"
+        return "set_label_min_size <px> \[-help\] - Sets the smallest font size of shape and placement labels"
     }
-    set_label_size_command $px
+    set_label_min_size_command $px
     return ""
 }
-register_command_help set_label_size \
-    "set_label_size <px> \[-help\]" \
-    "Sets the largest on-screen font size (pixels) of pin, route and placement name labels - they still shrink with their shapes, down to 12 pixels (or this size, if smaller). 24 by default; values <= 0 are ignored." \
+register_command_help set_label_min_size \
+    "set_label_min_size <px> \[-help\]" \
+    "Sets the smallest on-screen font size (pixels) of pin, route and placement name labels - they scale with their shapes between this and set_label_max_size's size, so they stay legible when zoomed out. 12 by default; a min above the max yields to the max; values <= 0 are ignored." \
     {
         {<px> {type double required 1 description {Font size in pixels}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-proc get_label_size {args} {
+proc get_label_min_size {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
-        return "get_label_size \[-help\] - Returns the largest font size of shape and placement labels"
+        return "get_label_min_size \[-help\] - Returns the smallest font size of shape and placement labels"
     }
-    return [get_label_size_command]
+    return [get_label_min_size_command]
 }
-register_command_help get_label_size \
-    "get_label_size \[-help\]" \
-    "Returns the largest label font size in pixels - see set_label_size." \
+register_command_help get_label_min_size \
+    "get_label_min_size \[-help\]" \
+    "Returns the smallest label font size in pixels - see set_label_min_size." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_label_max_size {px} {
+    if {$px eq "-help"} {
+        return "set_label_max_size <px> \[-help\] - Sets the largest font size of shape and placement labels"
+    }
+    set_label_max_size_command $px
+    return ""
+}
+register_command_help set_label_max_size \
+    "set_label_max_size <px> \[-help\]" \
+    "Sets the largest on-screen font size (pixels) of pin, route and placement name labels - they scale with their shapes between set_label_min_size's size and this, so they don't grow without bound when zoomed in. 24 by default; values <= 0 are ignored." \
+    {
+        {<px> {type double required 1 description {Font size in pixels}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_label_max_size {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_label_max_size \[-help\] - Returns the largest font size of shape and placement labels"
+    }
+    return [get_label_max_size_command]
+}
+register_command_help get_label_max_size \
+    "get_label_max_size \[-help\]" \
+    "Returns the largest label font size in pixels - see set_label_max_size." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }

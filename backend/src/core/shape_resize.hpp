@@ -27,11 +27,13 @@ namespace le
         TRACKS = 4,
     };
 
-    /// @brief Vias and via arrays share one snap setting (the VIA slot) -
-    /// they're both placed by an origin (NEW_FEATURES_SEPT_2026.md item 13).
+    /// @brief Routing pieces - paths, vias and via arrays - share one snap
+    /// setting (the PATH slot), so a Move of wires and vias together snaps
+    /// them all the same way (OVERNIGHT_REVIEW.md item 13 follow-up). The
+    /// VIA slot itself is unused.
     inline PieceKind shape_snap_slot(PieceKind kind)
     {
-        return kind == PieceKind::VIA_ITERATE ? PieceKind::VIA : kind;
+        return kind == PieceKind::VIA || kind == PieceKind::VIA_ITERATE ? PieceKind::PATH : kind;
     }
 
     /// @brief Rects/polygons: NONE/USER_GRID/MANUFACTURING_GRID/FIN_GRID.

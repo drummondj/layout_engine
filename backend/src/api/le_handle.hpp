@@ -1047,8 +1047,8 @@ struct LeHandle
         // edge/segment snaps to - persists across grabs, USER_GRID by
         // default (always available). Bumps mouse_version_ on a real
         // change so a live ghost re-snaps immediately.
-        // A via array shares its via's slot (le::shape_snap_slot) - vias
-        // snap only when moved (NEW_FEATURES_SEPT_2026.md item 13).
+        // Vias and via arrays share the path slot (le::shape_snap_slot) -
+        // they snap only when moved (NEW_FEATURES_SEPT_2026.md item 13).
         void set_shape_snap_mode(le::PieceKind kind, le::ShapeSnapMode mode)
         {
             le::ShapeSnapMode &slot = shape_snap_modes_[static_cast<size_t>(le::shape_snap_slot(kind))];
@@ -1285,19 +1285,31 @@ struct LeHandle
         }
         double ruler_label_size_px() const { return ruler_label_size_px_; }
 
-        // Largest on-screen size (px) a shape/placement label grows to -
-        // the Settings panel's label font size (NEW_FEATURES_SEPT_2026.md
-        // item 9). Same visibility_version_ signal and non-positive guard
-        // as set_ruler_label_size_px.
-        void set_label_size_px(double px)
+        // Smallest / largest on-screen size (px) a shape or placement label
+        // is drawn at - labels scale with their geometry between the two
+        // (the Settings panel's min/max label font sizes,
+        // NEW_FEATURES_SEPT_2026.md item 9). Same visibility_version_
+        // signal and non-positive guard as set_ruler_label_size_px. Not
+        // cross-checked against each other (setting them in either order
+        // must work) - a min above the max yields to it at draw time.
+        void set_label_min_size_px(double px)
         {
             if (px > 0.0)
             {
-                label_size_px_ = px;
+                label_min_size_px_ = px;
                 ++visibility_version_;
             }
         }
-        double label_size_px() const { return label_size_px_; }
+        double label_min_size_px() const { return label_min_size_px_; }
+        void set_label_max_size_px(double px)
+        {
+            if (px > 0.0)
+            {
+                label_max_size_px_ = px;
+                ++visibility_version_;
+            }
+        }
+        double label_max_size_px() const { return label_max_size_px_; }
 
         // Grid spacing (um) from a settings file read before any
         // Technology existed to convert it to dbu - applied by api.cpp once
@@ -1584,10 +1596,11 @@ struct LeHandle
         MoveState move_;
         ResizeState resize_;
         int flightline_max_fanout_ = 10;
-        std::array<le::ShapeSnapMode, 4> shape_snap_modes_{le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID}; // RECT, POLYGON, PATH, VIA (+ VIA_ITERATE)
+        std::array<le::ShapeSnapMode, 4> shape_snap_modes_{le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID}; // RECT, POLYGON, PATH (+ VIA, VIA_ITERATE), unused VIA slot
         le::PlacementSnapMode placement_snap_mode_ = le::PlacementSnapMode::SITE;
         double ruler_label_size_px_ = 11.0;
-        double label_size_px_ = 24.0; // draw_helpers.hpp's kMaxLabelPixelSize
+        double label_min_size_px_ = 12.0; // draw_helpers.hpp's kMinLabelPixelSize
+        double label_max_size_px_ = 24.0; // draw_helpers.hpp's kMaxLabelPixelSize
         // Minimum on-screen distance (px, converted via the current
         // scale) a new ruler's first point must be from the most
         // recently finished ruler's last point - see add_ruler_point.

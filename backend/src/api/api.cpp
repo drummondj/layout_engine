@@ -448,8 +448,10 @@ namespace
 
     constexpr const char *kPlacementSnapNames[] = {"none", "site", "fin", "manufacturing"}; // le::PlacementSnapMode order
     constexpr const char *kShapeSnapNames[] = {"none", "user", "manufacturing", "fin", "tracks"}; // le::ShapeSnapMode order
+    // "path" covers vias and via arrays too (le::shape_snap_slot) - they
+    // share one mode, so there's no separate "via" entry to disagree with it.
     constexpr std::pair<const char *, le::PieceKind> kShapeSnapKinds[] = {
-        {"rect", le::PieceKind::RECT}, {"polygon", le::PieceKind::POLYGON}, {"path", le::PieceKind::PATH}, {"via", le::PieceKind::VIA}};
+        {"rect", le::PieceKind::RECT}, {"polygon", le::PieceKind::POLYGON}, {"path", le::PieceKind::PATH}};
 
     // The settings file's JSON - everything the Settings panel edits, plus
     // the snap modes the secondary toolbar sets. Grid spacing is stored in
@@ -466,7 +468,8 @@ namespace
             grid["major_um"] = major;
         j["grid"] = grid;
         j["ruler_label_size_px"] = handle->ruler_label_size_px();
-        j["label_size_px"] = handle->label_size_px();
+        j["label_min_size_px"] = handle->label_min_size_px();
+        j["label_max_size_px"] = handle->label_max_size_px();
         j["hierarchy_depth"] = handle->hierarchy_depth();
         j["flightline_max_fanout"] = handle->flightline_max_fanout();
         j["placement_snap_mode"] = kPlacementSnapNames[static_cast<size_t>(handle->placement_snap_mode())];
@@ -508,8 +511,12 @@ namespace
             set_grid_spacing_um_unlocked(handle, number(j["grid"], "minor_um").value_or(0.0), number(j["grid"], "major_um").value_or(0.0));
         if (const auto v = number(j, "ruler_label_size_px"))
             handle->set_ruler_label_size_px(*v);
-        if (const auto v = number(j, "label_size_px"))
-            handle->set_label_size_px(*v);
+        if (const auto v = number(j, "label_min_size_px"))
+            handle->set_label_min_size_px(*v);
+        // "label_size_px" - the single max size files saved before the
+        // min/max split used.
+        if (const auto v = number(j, j.contains("label_max_size_px") ? "label_max_size_px" : "label_size_px"))
+            handle->set_label_max_size_px(*v);
         if (const auto v = number(j, "hierarchy_depth"); v && *v >= 0)
             handle->set_hierarchy_depth(static_cast<int>(*v));
         if (const auto v = number(j, "flightline_max_fanout"); v && *v >= 0)
@@ -592,7 +599,8 @@ namespace
     // The delta each of move().moving_pieces moves by right now (parallel
     // to it) - shared by the ghost and the commit so they always agree.
     // A path/via/via array snaps on its own (le::snap_moved_piece_delta,
-    // under its kind's snap mode, from the raw mouse offset); every other
+    // under the one routing snap mode they share, from the raw mouse
+    // offset); every other
     // piece moves by the shared user-grid delta (a Placement's entry is
     // unused - plan_moving_placements_unlocked places those). nullopt until
     // anchored.
@@ -971,7 +979,8 @@ namespace
         options.ruler_version = handle->ruler_version();
         options.ruler_dbu_per_um = technology_dbu_per_um(handle->root);
         options.ruler_label_size_px = handle->ruler_label_size_px();
-        options.label_max_size_px = handle->label_size_px();
+        options.label_min_size_px = handle->label_min_size_px();
+        options.label_max_size_px = handle->label_max_size_px();
         options.ruler_polylines_dbu.reserve(handle->rulers().size());
         for (const LeHandle::Ruler &ruler : handle->rulers())
             options.ruler_polylines_dbu.push_back(ruler.points);
@@ -1451,6 +1460,15 @@ namespace
     void arm_move_unlocked(LeHandle *handle)
     {
         if (handle->mode() != LeHandle::Mode::EDIT)
+            return;
+        // Placements snap to sites/rows and shapes to their own grids, so a
+        // Move of both at once has no one right answer - refused, and the
+        // GUI's Move button is disabled to match (OVERNIGHT_REVIEW.md item
+        // 13 follow-up, the same rule item 14 gave Resize).
+        const auto &selection = handle->selection();
+        const auto is_placement = [](const LeHandle::SelectedObject &s)
+        { return std::holds_alternative<le::PlacementId>(s); };
+        if (std::ranges::any_of(selection, is_placement) && !std::ranges::all_of(selection, is_placement))
             return;
 
         std::vector<le::Shape> geometry;
@@ -3668,20 +3686,36 @@ extern "C"
         handle->set_ruler_label_size_px(px);
     }
 
-    double le_label_size(LeHandle *handle)
+    double le_label_min_size(LeHandle *handle)
     {
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->label_size_px();
+        return handle->label_min_size_px();
     }
 
-    void le_set_label_size(LeHandle *handle, double px)
+    void le_set_label_min_size(LeHandle *handle, double px)
     {
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->set_label_size_px(px);
+        handle->set_label_min_size_px(px);
+    }
+
+    double le_label_max_size(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->label_max_size_px();
+    }
+
+    void le_set_label_max_size(LeHandle *handle, double px)
+    {
+        if (!handle)
+            return;
+        HandleWriteLock lock(handle);
+        handle->set_label_max_size_px(px);
     }
 
     double le_grid_spacing_um(LeHandle *handle, int32_t major)
@@ -3698,6 +3732,19 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         set_grid_spacing_um_unlocked(handle, minor_um, major_um);
+    }
+
+    double le_manufacturing_grid_um(LeHandle *handle)
+    {
+        if (!handle)
+            return 0.0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        // technology_manufacturing_grid's own validity checks (a positive
+        // grid, a known dbu scale), then the LEF's own micron value.
+        if (!le::technology_manufacturing_grid(handle->root))
+            return 0.0;
+        const le::TechnologyData *technology = handle->root.get_technology(handle->root.get_technology_ids().front());
+        return *technology->manufacturing_grid;
     }
 
     const char *le_default_settings_path(void)

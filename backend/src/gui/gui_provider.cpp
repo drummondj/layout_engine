@@ -57,8 +57,10 @@ namespace le::gui
         state_.settings.flightline_max_fanout = le_flightline_max_fanout(handle_);
         state_.settings.minor_grid_um = le_grid_spacing_um(handle_, 0);
         state_.settings.major_grid_um = le_grid_spacing_um(handle_, 1);
+        state_.settings.manufacturing_grid_um = le_manufacturing_grid_um(handle_);
         state_.settings.ruler_label_size_px = le_ruler_label_size(handle_);
-        state_.settings.label_size_px = le_label_size(handle_);
+        state_.settings.label_min_size_px = le_label_min_size(handle_);
+        state_.settings.label_max_size_px = le_label_max_size(handle_);
 
         state_.placement_move.selected_count = state_.mode == LE_MODE_EDIT ? le_selected_placement_count(handle_) : 0;
         if (state_.placement_move.selected_count > 0)
@@ -437,7 +439,8 @@ namespace le::gui
     }
 
     void GuiProvider::set_ruler_label_size(double px) { run_tcl_command("set_ruler_label_size " + tcl_number(px)); }
-    void GuiProvider::set_label_size(double px) { run_tcl_command("set_label_size " + tcl_number(px)); }
+    void GuiProvider::set_label_min_size(double px) { run_tcl_command("set_label_min_size " + tcl_number(px)); }
+    void GuiProvider::set_label_max_size(double px) { run_tcl_command("set_label_max_size " + tcl_number(px)); }
     void GuiProvider::save_settings(const std::string &path) { run_tcl_command(path.empty() ? "save_settings" : "save_settings " + tcl_quote(path)); }
     void GuiProvider::load_settings(const std::string &path) { run_tcl_command(path.empty() ? "load_settings" : "load_settings " + tcl_quote(path)); }
 

@@ -1291,14 +1291,24 @@ void set_ruler_label_size_command(double px)
     le_set_ruler_label_size(session(), px);
 }
 
-double get_label_size_command()
+double get_label_min_size_command()
 {
-    return le_label_size(session());
+    return le_label_min_size(session());
 }
 
-void set_label_size_command(double px)
+void set_label_min_size_command(double px)
 {
-    le_set_label_size(session(), px);
+    le_set_label_min_size(session(), px);
+}
+
+double get_label_max_size_command()
+{
+    return le_label_max_size(session());
+}
+
+void set_label_max_size_command(double px)
+{
+    le_set_label_max_size(session(), px);
 }
 
 int save_settings_command(const char *path)

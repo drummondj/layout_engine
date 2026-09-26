@@ -244,11 +244,13 @@ namespace le
         /// (`le_ruler_label_size`/`le_set_ruler_label_size`).
         double ruler_label_size_px = 11.0;
 
-        /// @brief Largest on-screen size (px) a shape/placement label grows
-        /// to - `LeHandle::label_size_px()`, the Settings panel's label font
-        /// size (NEW_FEATURES_SEPT_2026.md item 9); draw_helpers.hpp's
-        /// kMaxLabelPixelSize is the default. Compared in
-        /// RasterizeBlend2DStage::options_did_change.
+        /// @brief Smallest / largest on-screen size (px) a shape or placement
+        /// label is drawn at - `LeHandle::label_min_size_px()`/
+        /// `label_max_size_px()`, the Settings panel's min/max label font
+        /// sizes (NEW_FEATURES_SEPT_2026.md item 9); draw_helpers.hpp's
+        /// kMinLabelPixelSize/kMaxLabelPixelSize are the defaults. Compared
+        /// in RasterizeBlend2DStage::options_did_change.
+        double label_min_size_px = 12.0;
         double label_max_size_px = 24.0;
 
         /// @brief `LeHandle::ruler_version()` at the time this snapshot

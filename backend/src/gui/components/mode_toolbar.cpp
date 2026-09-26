@@ -107,9 +107,15 @@ namespace le::gui
         case LE_MODE_EDIT:
         {
             static ToolButtonState move_state;
+            // le_arm_move refuses placements selected alongside anything
+            // else - they snap differently (OVERNIGHT_REVIEW.md item 13
+            // follow-up).
+            const int32_t placement_count = provider.state().placement_move.selected_count;
+            const bool mixed_selection = placement_count > 0 && provider.state().status_bar.selection_count > placement_count;
             draw_tool_button(ICON_LC_MOVE, "move", "Move (ctrl-m)", provider.state().is_move_armed, move_state,
                              [&]
-                             { provider.arm_move(); });
+                             { provider.arm_move(); },
+                             mixed_selection ? "Move - not available with placements and other objects selected together" : nullptr);
             ImGui::SameLine();
             // NEW_FEATURES_SEPT_2026.md item 3 - drag a selected shape's
             // edges/segments; its snap options appear in the secondary

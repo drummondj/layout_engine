@@ -44,11 +44,12 @@ namespace le::gui
             {LE_SHAPE_SNAP_USER_GRID, "User grid", "Snap the segment's centerline to the user grid"},
             {LE_SHAPE_SNAP_NONE, "None", "No snapping"},
         };
-        // Item 13 - a moved via's (or via array's) origin.
-        constexpr SnapChoice kViaSnapChoices[] = {
-            {LE_SHAPE_SNAP_TRACKS, "Tracks", "Snap the via's origin to a routing track intersection of its layer"},
-            {LE_SHAPE_SNAP_MANUFACTURING_GRID, "Mfg grid", "Snap the via's origin to the manufacturing grid"},
-            {LE_SHAPE_SNAP_USER_GRID, "User grid", "Snap the via's origin to the user grid"},
+        // Move's single group for every routing piece (item 13) - paths,
+        // vias and via arrays share one mode (le::shape_snap_slot).
+        constexpr SnapChoice kRoutingSnapChoices[] = {
+            {LE_SHAPE_SNAP_TRACKS, "Tracks", "Snap wire centerlines and via origins to routing tracks of their layer"},
+            {LE_SHAPE_SNAP_MANUFACTURING_GRID, "Mfg grid", "Snap wire edges and via origins to the manufacturing grid"},
+            {LE_SHAPE_SNAP_USER_GRID, "User grid", "Snap wire centerlines and via origins to the user grid"},
             {LE_SHAPE_SNAP_NONE, "None", "No snapping"},
         };
 
@@ -196,10 +197,11 @@ namespace le::gui
         }
 
         // One snap group per kind of shape piece in `kinds` (a 1 <<
-        // LePieceKind mask) - Resize's rects/polygons/paths (item 3), or
-        // Move's paths/vias (item 13). Paths share one setting between the
-        // two tools, so one pending state per kind serves both.
-        void draw_shape_snap_toolbar(GuiProvider &provider, int32_t kinds)
+        // LePieceKind mask) - Resize's rects/polygons/paths (item 3), or,
+        // `for_move`, Move's single routing group (item 13: paths, vias and
+        // via arrays share the PATH setting, which Resize's paths use too,
+        // so one pending state per kind serves both tools).
+        void draw_shape_snap_toolbar(GuiProvider &provider, int32_t kinds, bool for_move)
         {
             const GuiProvider::State::Resize &state = provider.state().resize;
             Row row;
@@ -214,9 +216,11 @@ namespace le::gui
                 {LE_PIECE_KIND_RECT, "Rects:", kRectPolygonSnapChoices},
                 {LE_PIECE_KIND_POLYGON, "Polygons:", kRectPolygonSnapChoices},
                 {LE_PIECE_KIND_PATH, "Paths:", kPathSnapChoices},
-                {LE_PIECE_KIND_VIA, "Vias:", kViaSnapChoices},
             };
-            static PendingChoice pending[4] = {{.pending = LE_SHAPE_SNAP_USER_GRID}, {.pending = LE_SHAPE_SNAP_USER_GRID}, {.pending = LE_SHAPE_SNAP_USER_GRID}, {.pending = LE_SHAPE_SNAP_USER_GRID}};
+            static const Group move_groups[] = {
+                {LE_PIECE_KIND_PATH, "Routing:", kRoutingSnapChoices},
+            };
+            static PendingChoice pending[3] = {{.pending = LE_SHAPE_SNAP_USER_GRID}, {.pending = LE_SHAPE_SNAP_USER_GRID}, {.pending = LE_SHAPE_SNAP_USER_GRID}};
 
             // A group that won't fit on the current line starts a new one
             // (the row's child window grows to fit - le_gui.cpp).
@@ -232,7 +236,7 @@ namespace le::gui
             float used = 0.0f;
 
             bool first_group = true;
-            for (const Group &group : groups)
+            for (const Group &group : for_move ? std::span<const Group>(move_groups) : std::span<const Group>(groups))
             {
                 if (!(kinds & (1 << group.kind)))
                     continue;
@@ -267,13 +271,13 @@ namespace le::gui
     void draw_secondary_toolbar(GuiProvider &provider)
     {
         // Resize, while armed, owns the row; otherwise placements' options;
-        // otherwise, while Move is armed, its path/via snapping (item 13).
+        // otherwise, while Move is armed, its routing snapping (item 13).
         const GuiProvider::State &state = provider.state();
         if (state.is_resize_armed && state.resize.selected_piece_kinds != 0)
-            draw_shape_snap_toolbar(provider, state.resize.selected_piece_kinds);
+            draw_shape_snap_toolbar(provider, state.resize.selected_piece_kinds, /*for_move=*/false);
         else if (state.placement_move.selected_count > 0)
             draw_placement_toolbar(provider);
         else if (state.is_move_armed && state.resize.move_snap_piece_kinds != 0)
-            draw_shape_snap_toolbar(provider, state.resize.move_snap_piece_kinds);
+            draw_shape_snap_toolbar(provider, state.resize.move_snap_piece_kinds, /*for_move=*/true);
     }
 }
