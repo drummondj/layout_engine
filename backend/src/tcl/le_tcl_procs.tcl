@@ -2615,6 +2615,57 @@ register_command_help get_label_max_size \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+proc set_layer_color {layer color} {
+    if {$layer eq "-help"} {
+        return "set_layer_color <layer> <#rrggbb> \[-help\] - Sets a layer's color"
+    }
+    if {[set_layer_color_command $layer $color] != 0} {
+        error "set_layer_color: \"$color\" isn't a #rrggbb color"
+    }
+    return ""
+}
+register_command_help set_layer_color \
+    "set_layer_color <layer> <#rrggbb> \[-help\]" \
+    "Sets the color of every purpose of <layer> (a technology layer, or a row like BOUNDARY), replacing its default palette color - the same as picking one from its swatch in the Layers panel. Saved by save_settings. A layer that doesn't exist yet takes the color once it's read. See reset_layer_color." \
+    {
+        {<layer> {type str required 1 description {Layer (or row) name}}}
+        {<color> {type str required 1 description {Color as #rrggbb}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc reset_layer_color {layer} {
+    if {$layer eq "-help"} {
+        return "reset_layer_color <layer> \[-help\] - Returns a layer to its default color"
+    }
+    reset_layer_color_command $layer
+    return ""
+}
+register_command_help reset_layer_color \
+    "reset_layer_color <layer> \[-help\]" \
+    "Drops set_layer_color's color for <layer>, returning it to its default palette color." \
+    {
+        {<layer> {type str required 1 description {Layer (or row) name}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_layer_color {layer} {
+    if {$layer eq "-help"} {
+        return "get_layer_color <layer> \[-help\] - Returns a layer's color as #rrggbb"
+    }
+    set color [get_layer_color_command $layer]
+    if {$color eq ""} {
+        error "get_layer_color: no layer or row named \"$layer\""
+    }
+    return $color
+}
+register_command_help get_layer_color \
+    "get_layer_color <layer> \[-help\]" \
+    "Returns the current color of <layer> (a technology layer, or a row like BOUNDARY) as #rrggbb - set_layer_color's if set, else its default." \
+    {
+        {<layer> {type str required 1 description {Layer (or row) name}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 proc save_settings {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "save_settings \[<path>\] \[-help\] - Saves the settings as JSON"

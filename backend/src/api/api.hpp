@@ -1049,6 +1049,25 @@ extern "C"
     /// handle is null.
     void le_set_label_max_size(LeHandle *handle, double px);
 
+    /// @brief Sets the color (0-255 each) of every purpose of the Layers
+    /// panel row `layer_name` - a Layer's name, or a pseudo-row's like
+    /// BOUNDARY - replacing its default palette color
+    /// (NEW_FEATURES_SEPT_2026.md item 17). Saved by le_save_settings. A
+    /// name with no row yet is kept and applies once one exists (e.g. a
+    /// settings file loaded before the LEF). Returns 0, or 1 (and changes
+    /// nothing) for a null handle/name or a component outside 0-255.
+    int32_t le_set_layer_color(LeHandle *handle, const char *layer_name, int32_t r, int32_t g, int32_t b);
+
+    /// @brief Drops le_set_layer_color's color for `layer_name`, so the row
+    /// goes back to its default palette color. A no-op if it had none, or
+    /// handle/name is null.
+    void le_reset_layer_color(LeHandle *handle, const char *layer_name);
+
+    /// @brief The current color of the Layers panel row `layer_name`, as
+    /// 0xRRGGBB - le_set_layer_color's if set, else the default. -1 if
+    /// there's no such row, or handle/name is null.
+    int32_t le_layer_color_rgb(LeHandle *handle, const char *layer_name);
+
     /// @brief The minor (`major` 0) or major (`major` nonzero) grid spacing
     /// in um - converted from le_minor_grid_spacing/le_major_grid_spacing
     /// through the Technology's dbu scale, or a value set/loaded before any

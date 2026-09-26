@@ -444,6 +444,18 @@ namespace le::gui
     void GuiProvider::save_settings(const std::string &path) { run_tcl_command(path.empty() ? "save_settings" : "save_settings " + tcl_quote(path)); }
     void GuiProvider::load_settings(const std::string &path) { run_tcl_command(path.empty() ? "load_settings" : "load_settings " + tcl_quote(path)); }
 
+    void GuiProvider::set_layer_color(const std::string &layer_name, uint8_t r, uint8_t g, uint8_t b)
+    {
+        char color[8];
+        std::snprintf(color, sizeof(color), "#%02x%02x%02x", r, g, b);
+        run_tcl_command("set_layer_color {" + layer_name + "} " + color);
+    }
+
+    void GuiProvider::reset_layer_color(const std::string &layer_name)
+    {
+        run_tcl_command("reset_layer_color {" + layer_name + "}");
+    }
+
     void GuiProvider::set_layer_visible(const std::string &layer_name, bool value)
     {
         run_tcl_command("set_layer_visible {" + layer_name + "} " + (value ? "1" : "0"));

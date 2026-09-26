@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <deque>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -1311,6 +1312,25 @@ struct LeHandle
         }
         double label_max_size_px() const { return label_max_size_px_; }
 
+        // Colors picked in the Layers panel (NEW_FEATURES_SEPT_2026.md item
+        // 17), by row name (a Layer's name, or a pseudo-row's) - applied
+        // on top of the default palette by every view_layers rebuild
+        // (api.cpp's rebuild_view_layers) and by the render graph's own
+        // LayerGenerationStage (ViewRenderOptions::layer_color_overrides).
+        // A name with no row yet (a settings file read before the LEF) is
+        // kept and applies once the row exists. Opaque - alpha is ignored.
+        void set_layer_color(const std::string &row_name, le::Color color)
+        {
+            color.a = 255;
+            layer_color_overrides_[row_name] = color;
+            view_layers.set_row_color(row_name, color);
+        }
+        // True if `row_name` had a color to drop - the caller then rebuilds
+        // view_layers so the row goes back to its default.
+        bool reset_layer_color(const std::string &row_name) { return layer_color_overrides_.erase(row_name) > 0; }
+        const std::map<std::string, le::Color> &layer_color_overrides() const { return layer_color_overrides_; }
+        void set_layer_color_overrides(std::map<std::string, le::Color> overrides) { layer_color_overrides_ = std::move(overrides); }
+
         // Grid spacing (um) from a settings file read before any
         // Technology existed to convert it to dbu - applied by api.cpp once
         // one does (NEW_FEATURES_SEPT_2026.md item 9).
@@ -1601,6 +1621,7 @@ struct LeHandle
         double ruler_label_size_px_ = 11.0;
         double label_min_size_px_ = 12.0; // draw_helpers.hpp's kMinLabelPixelSize
         double label_max_size_px_ = 24.0; // draw_helpers.hpp's kMaxLabelPixelSize
+        std::map<std::string, le::Color> layer_color_overrides_;
         // Minimum on-screen distance (px, converted via the current
         // scale) a new ruler's first point must be from the most
         // recently finished ruler's last point - see add_ruler_point.

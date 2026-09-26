@@ -184,6 +184,26 @@ set_label_min_size 10
 check "set_label_min_size round-trips" 10.0 [get_label_min_size]
 set_label_max_size 20
 check "set_label_max_size round-trips" 20.0 [get_label_max_size]
+# NEW_FEATURES_SEPT_2026.md item 17 - layer colors.
+set_layer_color M1 #1234ab
+check "set_layer_color round-trips" "#1234ab" [get_layer_color M1]
+reset_layer_color M1
+if {[get_layer_color M1] eq "#1234ab"} {
+    puts stderr "FAIL: reset_layer_color left M1's picked color"
+    exit 1
+}
+if {[catch {set_layer_color M1 notacolor} err]} {
+    puts "ok: set_layer_color rejects a non-#rrggbb color ($err)"
+} else {
+    puts stderr "FAIL: set_layer_color accepted \"notacolor\""
+    exit 1
+}
+if {[catch {get_layer_color NO_SUCH_LAYER} err]} {
+    puts "ok: get_layer_color rejects an unknown layer ($err)"
+} else {
+    puts stderr "FAIL: get_layer_color accepted an unknown layer"
+    exit 1
+}
 set_grid_spacing -minor 0.25 -major 2.5
 check "set_grid_spacing -minor round-trips in microns" 0.25 [get_grid_spacing]
 check "set_grid_spacing -major round-trips in microns" 2.5 [get_grid_spacing -major]

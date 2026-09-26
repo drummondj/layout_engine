@@ -80,7 +80,15 @@ none of these are duplicated here.
   `OBSTRUCTION`, `DOTS` for `ROUTING_BLOCKAGE`/`PLACEMENT_BLOCKAGE`, plain
   outline for `TRACK`/`ROW`/`GCELLGRID`) is what actually distinguishes
   same-color `ViewLayer`s from each other; see the class's own doc
-  comments for the palette/wraparound details. `TRACK`/`ROUTING_BLOCKAGE`/
+  comments for the palette/wraparound details (18 bright ROUTING/CUT
+  colors - primaries, then secondaries, tertiaries and tints - a via
+  sharing the metal below it - NEW_FEATURES_SEPT_2026.md
+  item 17). A user-picked color (`set_layer_color`, the Layers panel's
+  swatch picker) is `LeHandle::layer_color_overrides`, applied with
+  `ViewLayerSet::set_row_color` both by api.cpp's `rebuild_view_layers`
+  and by the render graph's `LayerGenerationStage`
+  (`ViewRenderOptions::layer_color_overrides`), and saved in the settings
+  file's `layer_colors`. `TRACK`/`ROUTING_BLOCKAGE`/
   `ROW`/`GCELLGRID`/`PLACEMENT_BLOCKAGE` (Migration Step 2) plus `ROUTE`/
   `REGION` (Step 3 Phase A) are the purposes `LayoutGeometryStage`
   (`src/pipelines/stages/`) walks a `Layout`'s own direct content onto —

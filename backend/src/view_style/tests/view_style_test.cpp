@@ -1,6 +1,8 @@
 #include "../view_style.hpp"
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 using namespace le;
 
 namespace
@@ -453,14 +455,14 @@ TEST(ViewStylePalette, DifferentOtherTypeLayersGetDifferentMutedColors)
 
 TEST(ViewStylePalette, ColorCyclesWithMoreLayersThanPaletteEntries)
 {
-    // 31 layers - one more than the 30-color palette - should wrap back to
+    // 19 layers - one more than the 18-color palette - should wrap back to
     // the first color rather than reading out of bounds (the ported-from
     // sibling code this replaces has that exact off-by-one bug - see
     // layer_color's comment).
     Root root;
     TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
     std::vector<LayerId> layers;
-    for (int i = 0; i < 31; ++i)
+    for (int i = 0; i < 19; ++i)
         layers.push_back(root.create_layer(LayerData{.technology = technology_id, .name = "L" + std::to_string(i), .type = "ROUTING"}));
 
     ViewLayerSet view_layers = ViewLayerSet::build_for_technology(root, technology_id);
@@ -473,4 +475,64 @@ TEST(ViewStylePalette, ColorCyclesWithMoreLayersThanPaletteEntries)
     EXPECT_EQ(first->style.outline_color.r, wrapped->style.outline_color.r);
     EXPECT_EQ(first->style.outline_color.g, wrapped->style.outline_color.g);
     EXPECT_EQ(first->style.outline_color.b, wrapped->style.outline_color.b);
+}
+
+// NEW_FEATURES_SEPT_2026.md item 17: the 18 routing/cut colors are all
+// distinct and bright enough to read on the black canvas - the old palette's
+// dark slots (maroon, navy, ...) landed on M7 and up - and run primaries
+// (M1-M3), then secondaries (M4-M6), then tertiaries.
+TEST(ViewStylePalette, EighteenRoutingLayersGetDistinctBrightColorsPrimariesFirst)
+{
+    Root root;
+    TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+    std::vector<LayerId> layers;
+    for (int i = 0; i < 18; ++i)
+        layers.push_back(root.create_layer(LayerData{.technology = technology_id, .name = "M" + std::to_string(i + 1), .type = "ROUTING"}));
+    ViewLayerSet view_layers = ViewLayerSet::build_for_technology(root, technology_id);
+
+    std::vector<Color> seen;
+    for (LayerId layer : layers)
+    {
+        const Color color = view_layers.get(view_layers.find(layer, ViewLayerPurpose::TERMINAL))->style.outline_color;
+        EXPECT_GE(std::max({color.r, color.g, color.b}), 200) << "layer " << root.get_layer(layer)->name << " is too dark";
+        EXPECT_EQ(std::count(seen.begin(), seen.end(), color), 0) << "layer " << root.get_layer(layer)->name << " repeats a color";
+        seen.push_back(color);
+    }
+    // Primaries: one channel only. Secondaries: two channels at full.
+    for (size_t i = 0; i < 3; ++i)
+        EXPECT_EQ((seen[i].r >= 200) + (seen[i].g >= 200) + (seen[i].b >= 200), 1) << "M" << i + 1 << " isn't a primary";
+    for (size_t i = 3; i < 6; ++i)
+        EXPECT_EQ((seen[i].r == 255) + (seen[i].g == 255) + (seen[i].b == 255), 2) << "M" << i + 1 << " isn't a secondary";
+}
+
+// Item 17's color picker: recoloring a row changes every one of its purposes'
+// RGB but keeps each one's own alpha and fill pattern, and leaves other rows
+// alone.
+TEST_F(ViewStyleFixture, SetRowColorRecolorsEveryPurposeKeepingAlphaAndPattern)
+{
+    const ViewLayerData before_terminal = *view_layers.get(view_layers.find(m1, ViewLayerPurpose::TERMINAL));
+    const Color m2_before = view_layers.get(view_layers.find(m2, ViewLayerPurpose::TERMINAL))->style.outline_color;
+
+    ASSERT_TRUE(view_layers.set_row_color("M1", Color{10, 20, 30, 7}));
+
+    for (const ViewLayerRow &row : view_layers.rows())
+    {
+        if (row.name != "M1")
+            continue;
+        for (const ViewLayerColumn &column : row.columns)
+        {
+            const ViewLayerStyle &style = view_layers.get(column.id)->style;
+            EXPECT_EQ(style.outline_color.r, 10);
+            EXPECT_EQ(style.outline_color.g, 20);
+            EXPECT_EQ(style.outline_color.b, 30);
+            EXPECT_EQ(style.fill_color.r, 10);
+        }
+    }
+    const ViewLayerStyle &terminal = view_layers.get(view_layers.find(m1, ViewLayerPurpose::TERMINAL))->style;
+    EXPECT_EQ(terminal.outline_color.a, before_terminal.style.outline_color.a);
+    EXPECT_EQ(terminal.fill_color.a, before_terminal.style.fill_color.a);
+    EXPECT_EQ(terminal.fill_pattern, before_terminal.style.fill_pattern);
+    EXPECT_EQ(view_layers.get(view_layers.find(m2, ViewLayerPurpose::TERMINAL))->style.outline_color, m2_before);
+
+    EXPECT_FALSE(view_layers.set_row_color("NO_SUCH_LAYER", Color{1, 2, 3, 255}));
 }

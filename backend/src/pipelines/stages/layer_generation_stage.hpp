@@ -26,8 +26,10 @@ namespace le
     /// "degrade gracefully rather than crash" convention as api.cpp's own
     /// null-handle checks).
     ///
-    /// Recompute trigger: `ViewRenderOptions::root_mutation_version`
-    /// alone (via options_did_change() below), not `data_version` - the
+    /// Recompute trigger: `ViewRenderOptions::root_mutation_version`,
+    /// or a change to `layer_color_overrides` (the user's picked layer
+    /// colors, applied on top of the default palette - NEW_FEATURES_SEPT_2026.md
+    /// item 17), via options_did_change() below, not `data_version` - the
     /// input `Root*` itself never changes across calls within one handle's
     /// lifetime, so there is nothing meaningful to bump a data_version on;
     /// every database mutation already bumps root_mutation_version
@@ -58,12 +60,16 @@ namespace le
             // MVP (see api.cpp's own le_read_lef, ViewLayerSet's own
             // caller) - front() is every existing call site's convention,
             // not a new assumption introduced here.
-            return ViewLayerSet::build_for_technology(*root, technology_ids.front());
+            ViewLayerSet view_layers = ViewLayerSet::build_for_technology(*root, technology_ids.front());
+            // NEW_FEATURES_SEPT_2026.md item 17 - the user's picked colors.
+            view_layers.apply_color_overrides(options.layer_color_overrides);
+            return view_layers;
         }
 
         bool options_did_change(const ViewRenderOptions &last, const ViewRenderOptions &current) const override
         {
-            return last.root_mutation_version != current.root_mutation_version;
+            return last.root_mutation_version != current.root_mutation_version ||
+                   last.layer_color_overrides != current.layer_color_overrides;
         }
 
         // pipeline_stage_benchmark cache-stat hooks (tbb_core.hpp) - a

@@ -1751,6 +1751,17 @@ Returns the smallest label font size in pixels - see set_label_min_size.
 | --- | --- | --- | --- |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
+## get_layer_color
+
+`get_layer_color <layer> [-help]`
+
+Returns the current color of <layer> (a technology layer, or a row like BOUNDARY) as #rrggbb - set_layer_color's if set, else its default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<layer>` | `str` | yes | Layer (or row) name |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## get_layer_density_entries
 
 `get_layer_density_entries [-of <token>...] [-filter <expr>] [-help]`
@@ -2514,6 +2525,17 @@ Pretty-prints every property of every given friendly-id token to stdout, one ali
 | --- | --- | --- | --- |
 | `<tokens>` | `token...` | yes | One friendly-id token, or a list of them |
 
+## reset_layer_color
+
+`reset_layer_color <layer> [-help]`
+
+Drops set_layer_color's color for <layer>, returning it to its default palette color.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<layer>` | `str` | yes | Layer (or row) name |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
 ## rotate_placement
 
 `rotate_placement [-help]`
@@ -2621,6 +2643,18 @@ Sets the smallest on-screen font size (pixels) of pin, route and placement name 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<px>` | `double` | yes | Font size in pixels |
+| `-help` | `flag` | no | Show this usage message and return immediately |
+
+## set_layer_color
+
+`set_layer_color <layer> <#rrggbb> [-help]`
+
+Sets the color of every purpose of <layer> (a technology layer, or a row like BOUNDARY), replacing its default palette color - the same as picking one from its swatch in the Layers panel. Saved by save_settings. A layer that doesn't exist yet takes the color once it's read. See reset_layer_color.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<layer>` | `str` | yes | Layer (or row) name |
+| `<color>` | `str` | yes | Color as #rrggbb |
 | `-help` | `flag` | no | Show this usage message and return immediately |
 
 ## set_layer_selectable

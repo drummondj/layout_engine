@@ -6594,6 +6594,62 @@ TEST_F(ApiFixture, ManufacturingGridUmIsTheLefValueOrZero)
     EXPECT_DOUBLE_EQ(le_manufacturing_grid_um(handle), 0.005);
 }
 
+// NEW_FEATURES_SEPT_2026.md item 17: a layer's picked color replaces its
+// default everywhere - the Layers panel row and the rendered image - and
+// reset_layer_color brings the default back. One picked before the LEF is
+// read applies once it is.
+TEST_F(ApiFixture, LayerColorAppliesToTheRowAndTheRenderAndResets)
+{
+    ASSERT_EQ(le_set_layer_color(handle, "M1", 1, 2, 3), 0); // no Technology yet - kept for later
+    EXPECT_EQ(le_layer_color_rgb(handle, "M1"), -1);
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    EXPECT_EQ(le_layer_color_rgb(handle, "M1"), 0x010203);
+
+    le_reset_layer_color(handle, "M1");
+    const int32_t default_rgb = le_layer_color_rgb(handle, "M1");
+    EXPECT_NE(default_rgb, 0x010203);
+    EXPECT_EQ(default_rgb, 0xff0000); // the palette's first slot
+
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+    le_set_viewport_size(handle, 200, 200);
+    le_fit_rect(handle, 0.0, 0.0, 10.0, 10.0, 0);
+    const auto render = [&]
+    {
+        const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+        return std::vector<uint8_t>(buffer.data, buffer.data + static_cast<size_t>(buffer.height) * static_cast<size_t>(buffer.row_bytes));
+    };
+    const std::vector<uint8_t> red = render();
+    ASSERT_EQ(le_set_layer_color(handle, "M1", 0, 0, 255), 0);
+    EXPECT_EQ(le_layer_color_rgb(handle, "M1"), 0x0000ff);
+    EXPECT_NE(render(), red);
+    le_reset_layer_color(handle, "M1");
+    EXPECT_EQ(render(), red);
+
+    EXPECT_EQ(le_set_layer_color(handle, "M1", 256, 0, 0), 1);
+    EXPECT_EQ(le_set_layer_color(handle, nullptr, 0, 0, 0), 1);
+    EXPECT_EQ(le_set_layer_color(nullptr, "M1", 0, 0, 0), 1);
+    EXPECT_EQ(le_layer_color_rgb(handle, "NO_SUCH_LAYER"), -1);
+}
+
+// Picked layer colors are saved as "#rrggbb" and loaded back; a loaded file's
+// colors replace the current ones.
+TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsLayerColors)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_set_layer_color(handle, "M1", 0x12, 0x34, 0xab), 0);
+    const std::string path = scratch_path("le_settings_layer_colors.json");
+    ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
+    EXPECT_NE(read_file(path).find("\"M1\": \"#1234ab\""), std::string::npos) << read_file(path);
+
+    LeHandle *other = le_create();
+    ASSERT_EQ(le_read_lef(other, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_set_layer_color(other, "BOUNDARY", 9, 9, 9), 0); // replaced by the load
+    ASSERT_EQ(le_load_settings(other, path.c_str()), 0);
+    EXPECT_EQ(le_layer_color_rgb(other, "M1"), 0x1234ab);
+    EXPECT_NE(le_layer_color_rgb(other, "BOUNDARY"), 0x090909);
+    le_destroy(other);
+}
+
 // Settings files saved before the min/max split carry one "label_size_px" -
 // the max.
 TEST_F(ApiFixture, SettingsLoadReadsTheOldSingleLabelSizeAsTheMax)

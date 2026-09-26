@@ -3,6 +3,8 @@
 #include "gui_provider.hpp"
 #include "imgui.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -101,6 +103,40 @@ namespace le::gui
                 storage->SetBool(pending_value_id, display_value);
             }
             ImGui::PopID();
+        }
+
+        // The swatch's color picker popup (NEW_FEATURES_SEPT_2026.md item
+        // 17), opened by a click on it - call right after the swatch, in
+        // its row's ID scope. The picked color is applied when a drag or
+        // the hex field is finished (applying every frame of a drag would
+        // queue a Tcl command per frame); "Default" drops it again.
+        void draw_layer_color_picker(GuiProvider &provider, const LeLayerRow &row)
+        {
+            if (!ImGui::BeginPopup("##color_picker"))
+                return;
+            static float edit[3] = {0.0f, 0.0f, 0.0f};
+            if (ImGui::IsWindowAppearing())
+            {
+                edit[0] = static_cast<float>(row.color_r) / 255.0f;
+                edit[1] = static_cast<float>(row.color_g) / 255.0f;
+                edit[2] = static_cast<float>(row.color_b) / 255.0f;
+            }
+            ImGui::TextUnformatted(row.name);
+            ImGui::ColorPicker3("##picker", edit, ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_DisplayHex);
+            if (ImGui::IsItemDeactivatedAfterEdit())
+            {
+                const auto channel = [](float v)
+                { return static_cast<uint8_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f)); };
+                provider.set_layer_color(row.name, channel(edit[0]), channel(edit[1]), channel(edit[2]));
+            }
+            if (ImGui::Button("Default"))
+            {
+                provider.reset_layer_color(row.name);
+                ImGui::CloseCurrentPopup();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Go back to the default palette color");
+            ImGui::EndPopup();
         }
 
         // One "name | V | S" row - draws two checkboxes (each acting
@@ -319,10 +355,17 @@ namespace le::gui
                     const ImVec4 color(
                         static_cast<float>(layer.row.color_r) / 255.0f, static_cast<float>(layer.row.color_g) / 255.0f,
                         static_cast<float>(layer.row.color_b) / 255.0f, 1.0f);
-                    ImGui::ColorButton(
-                        "##swatch", color,
-                        ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder | ImGuiColorEditFlags_NoAlpha,
-                        ImVec2(16.0f, 16.0f));
+                    // NEW_FEATURES_SEPT_2026.md item 17 - clicking the
+                    // swatch opens a color picker; the choice is saved
+                    // with the settings file.
+                    if (ImGui::ColorButton(
+                            "##swatch", color,
+                            ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder | ImGuiColorEditFlags_NoAlpha,
+                            ImVec2(16.0f, 16.0f)))
+                        ImGui::OpenPopup("##color_picker");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Click to change %s's color", layer.row.name);
+                    draw_layer_color_picker(provider, layer.row);
                     ImGui::SameLine();
                     ImGui::TextUnformatted(layer.row.name);
                 },

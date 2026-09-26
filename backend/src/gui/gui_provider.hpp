@@ -214,6 +214,9 @@ namespace le::gui
         void load_settings(const std::string &path);
         void set_layer_visible(const std::string &layer_name, bool value);
         void set_layer_selectable(const std::string &layer_name, bool value);
+        // NEW_FEATURES_SEPT_2026.md item 17 - the Layers panel's color picker.
+        void set_layer_color(const std::string &layer_name, uint8_t r, uint8_t g, uint8_t b);
+        void reset_layer_color(const std::string &layer_name);
         void set_purpose_visible(const std::string &purpose_name, bool value);
         void set_purpose_selectable(const std::string &purpose_name, bool value);
 

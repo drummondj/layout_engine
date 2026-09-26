@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -111,6 +112,13 @@ namespace le
         /// in here directly (api.cpp's own view_render_options_for).
         std::unordered_map<std::string, bool> layer_name_visible;
         std::unordered_map<ViewLayerPurpose, bool> purpose_visible;
+
+        /// @brief The user's per-layer colors (LeHandle::layer_color_overrides,
+        /// the Layers panel's color picker - NEW_FEATURES_SEPT_2026.md
+        /// item 17), applied by LayerGenerationStage on top of the default
+        /// palette. Compared by content in its options_did_change, like the
+        /// visibility maps above - small, one entry per recolored layer.
+        std::map<std::string, Color> layer_color_overrides;
 
         /// @brief The user's own in-progress rubber-band drag rectangle
         /// (select or zoom), already resolved to a normalized dbu-space

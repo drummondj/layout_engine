@@ -4,9 +4,11 @@
 
 #include <blend2d/blend2d.h>
 
+#include <algorithm>
 #include <cctype>
 #include <charconv>
 #include <cstdint>
+#include <cstdio>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -1309,6 +1311,37 @@ double get_label_max_size_command()
 void set_label_max_size_command(double px)
 {
     le_set_label_max_size(session(), px);
+}
+
+// NEW_FEATURES_SEPT_2026.md item 17 - layer colors as "#rrggbb" (the "#" is
+// optional). 1 if `color` isn't one.
+int set_layer_color_command(const char *layer, const char *color)
+{
+    std::string_view text = color ? color : "";
+    if (!text.empty() && text.front() == '#')
+        text.remove_prefix(1);
+    if (text.size() != 6 || !std::all_of(text.begin(), text.end(), [](char c)
+                                         { return std::isxdigit(static_cast<unsigned char>(c)) != 0; }))
+        return 1;
+    const unsigned long value = std::stoul(std::string(text), nullptr, 16);
+    return le_set_layer_color(session(), layer, static_cast<int32_t>((value >> 16) & 0xff), static_cast<int32_t>((value >> 8) & 0xff),
+                              static_cast<int32_t>(value & 0xff));
+}
+
+void reset_layer_color_command(const char *layer)
+{
+    le_reset_layer_color(session(), layer);
+}
+
+// "#rrggbb", or "" for a layer with no row.
+const char *get_layer_color_command(const char *layer)
+{
+    const int32_t rgb = le_layer_color_rgb(session(), layer);
+    if (rgb < 0)
+        return return_string("");
+    char text[8];
+    std::snprintf(text, sizeof(text), "#%06x", static_cast<unsigned>(rgb));
+    return return_string(text);
 }
 
 int save_settings_command(const char *path)

@@ -89,9 +89,9 @@ Please add an info window to the bottom of the right sidebar. This will replace 
 
 Please add a dark gray border to the right of the mode selector and the bottom of the mode toolbar and secondary toolbar. Also reduce the icon sizes in the secondary toolbar to match the height of the buttons.
 
-17. Default layer colors and customization
+17. Default layer colors and customization - DONE
 
-Please update the default layer/via colors to use 20 bright colors, the higher metal layers are too dark. Start with primary colors, then cycle through secondary colors, then tertiary colors etc
+Please update the default layer/via colors to use brighter colors, the higher metal layers are too dark. Start with primary colors for the lower layers, then cycle through secondary colors, then tertiary colors etc
 
 Also, when the user clicks on the color swatch, I would like a color picker to appear, which can be saved in the settings.json.
 

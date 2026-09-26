@@ -2,6 +2,8 @@
 #include "../database/database.hpp"
 #include <algorithm>
 #include <array>
+#include <map>
+#include <string_view>
 #include <atomic>
 #include <optional>
 #include <string>
@@ -102,6 +104,8 @@ namespace le
         uint8_t g = 0;
         uint8_t b = 0;
         uint8_t a = 255;
+
+        bool operator==(const Color &) const = default;
     };
 
     /// @brief The fill treatment Renderer::draw_group draws a ViewLayer's
@@ -409,6 +413,38 @@ namespace le
         /// placement outlines and labels) follows the same rule.
         const std::vector<ViewLayerRow> &rows() const { return rows_; }
 
+        /// @brief Recolors every ViewLayer of the row named `row_name` (a
+        /// physical Layer's name, or a pseudo-row's like BOUNDARY) - the
+        /// Layers panel's color picker (NEW_FEATURES_SEPT_2026.md item 17).
+        /// Only the RGB changes: each outline/fill keeps its own alpha
+        /// (so a TERMINAL's translucent fill stays translucent, a no-fill
+        /// row stays unfilled) and its FillPattern/dashing. False (and no
+        /// change) if there's no such row.
+        bool set_row_color(std::string_view row_name, Color color)
+        {
+            for (const ViewLayerRow &row : rows_)
+            {
+                if (row.name != row_name)
+                    continue;
+                for (const ViewLayerColumn &column : row.columns)
+                    if (ViewLayerData *data = pool_.get(column.id))
+                    {
+                        data->style.outline_color = Color{color.r, color.g, color.b, data->style.outline_color.a};
+                        data->style.fill_color = Color{color.r, color.g, color.b, data->style.fill_color.a};
+                    }
+                return true;
+            }
+            return false;
+        }
+
+        /// @brief set_row_color for every entry - a name with no row yet
+        /// (e.g. a settings file read before the LEF) is skipped.
+        void apply_color_overrides(const std::map<std::string, Color> &overrides)
+        {
+            for (const auto &[row_name, color] : overrides)
+                set_row_color(row_name, color);
+        }
+
         /// @brief Every distinct ViewLayerPurpose present across every row,
         /// in first-encountered order (rows() order - ROW/BOUNDARY/
         /// PLACEMENT, then LEF declaration order, then GCELLGRID/
@@ -468,40 +504,38 @@ namespace le
 
         // Bright, high-contrast palette for ROUTING/CUT layers - the
         // layers users actually route/edit on, so they need to stand out.
-        // Ported from the sibling project's `layer_generator_node.hpp`
-        // (../../layout_engine/backend/pipeline/nodes/layer_generator_node.hpp),
-        // which cycles through the same 30 colors one per physical Layer.
-        static constexpr std::array<Color, 30> kRoutingCutColors = {{
+        // Ordered primaries -> secondaries -> tertiaries -> tints, so the
+        // lowest layers get the plainest colors (NEW_FEATURES_SEPT_2026.md
+        // item 17 - the old 30-color list's maroon/navy/olive/... slots
+        // 7-12 landed exactly on M7 and up, which then barely showed on
+        // the black canvas). Every entry is bright; "blue" is lifted to
+        // 100,100,255 since pure blue is too dark to read on black. The
+        // first six keep their old order, so M1-M6 look the same. All
+        // stay clear of the fixed debug/flightline light blues and the
+        // region green below.
+        static constexpr std::array<Color, 18> kRoutingCutColors = {{
+            // primaries
             {255, 0, 0, 255},     // red
             {0, 255, 0, 255},     // green
-            {100, 100, 255, 255}, // light blue
-            {255, 255, 0, 255},   // yellow
-            {255, 0, 255, 255},   // magenta
-            {0, 255, 255, 255},   // cyan
-            {128, 0, 0, 255},     // maroon
-            {0, 128, 0, 255},     // dark green
-            {0, 0, 128, 255},     // navy
-            {128, 128, 0, 255},   // olive
-            {128, 0, 128, 255},   // purple
-            {0, 128, 128, 255},   // teal
-            {192, 192, 192, 255}, // silver
-            {128, 128, 128, 255}, // gray
-            {255, 165, 0, 255},   // orange
-            {210, 105, 30, 255},  // chocolate
-            {139, 69, 19, 255},   // saddle brown
-            {255, 20, 147, 255},  // deep pink
-            {50, 205, 50, 255},   // lime green
-            {72, 209, 204, 255},  // medium turquoise
-            {123, 104, 238, 255}, // medium slate blue
-            {255, 215, 0, 255},   // gold
-            {160, 82, 45, 255},   // sienna
-            {32, 178, 170, 255},  // light sea green
-            {218, 112, 214, 255}, // orchid
-            {95, 158, 160, 255},  // cadet blue
-            {255, 99, 71, 255},   // tomato
-            {60, 179, 113, 255},  // medium sea green
-            {106, 90, 205, 255},  // slate blue
-            {238, 130, 238, 255}, // violet
+            {100, 100, 255, 255}, // blue
+            // secondaries
+            {255, 255, 0, 255}, // yellow
+            {255, 0, 255, 255}, // magenta
+            {0, 255, 255, 255}, // cyan
+            // tertiaries, around the color wheel
+            {255, 128, 0, 255},  // orange
+            {128, 255, 0, 255},  // chartreuse
+            {0, 255, 128, 255},  // spring green
+            {40, 140, 255, 255}, // azure
+            {160, 80, 255, 255}, // violet
+            {255, 0, 128, 255},  // rose
+            // light tints of the primaries and secondaries
+            {255, 140, 140, 255}, // light red
+            {150, 255, 150, 255}, // light green
+            {170, 170, 255, 255}, // light blue
+            {255, 255, 160, 255}, // light yellow
+            {255, 160, 255, 255}, // light magenta
+            {170, 255, 255, 255}, // light cyan
         }};
 
         // Muted palette for every other layer type (MASTERSLICE, IMPLANT,

@@ -32,7 +32,9 @@
 #include <oneapi/tbb/global_control.h>
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -42,6 +44,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <variant>
 #include <unordered_set>
@@ -68,6 +71,7 @@ namespace
     void rebuild_view_layers(LeHandle *handle, le::TechnologyId technology_id)
     {
         handle->view_layers = le::ViewLayerSet::build_for_technology(handle->root, technology_id);
+        handle->view_layers.apply_color_overrides(handle->layer_color_overrides()); // NEW_FEATURES_SEPT_2026.md item 17
         handle->view_layers_built_at_version = handle->root.mutation_version();
     }
 
@@ -457,6 +461,27 @@ namespace
     // the snap modes the secondary toolbar sets. Grid spacing is stored in
     // um (portable across technologies with different dbu scales) and left
     // out if it can't be expressed in um yet (no Technology, nothing pending).
+    // "#rrggbb" <-> Color, for the settings file's layer_colors
+    // (NEW_FEATURES_SEPT_2026.md item 17). parse accepts either case, with
+    // or without the "#".
+    std::string hex_color(le::Color color)
+    {
+        char text[8];
+        std::snprintf(text, sizeof(text), "#%02x%02x%02x", color.r, color.g, color.b);
+        return text;
+    }
+
+    std::optional<le::Color> parse_hex_color(std::string_view text)
+    {
+        if (!text.empty() && text.front() == '#')
+            text.remove_prefix(1);
+        if (text.size() != 6 || !std::ranges::all_of(text, [](char c)
+                                                     { return std::isxdigit(static_cast<unsigned char>(c)) != 0; }))
+            return std::nullopt;
+        const unsigned long value = std::stoul(std::string(text), nullptr, 16);
+        return le::Color{static_cast<uint8_t>(value >> 16), static_cast<uint8_t>(value >> 8), static_cast<uint8_t>(value), 255};
+    }
+
     nlohmann::json settings_to_json(const LeHandle *handle)
     {
         nlohmann::json j;
@@ -477,6 +502,10 @@ namespace
         for (const auto &[name, kind] : kShapeSnapKinds)
             shape_snap[name] = kShapeSnapNames[static_cast<size_t>(handle->shape_snap_mode(kind))];
         j["shape_snap_modes"] = shape_snap;
+        nlohmann::json layer_colors = nlohmann::json::object();
+        for (const auto &[row_name, color] : handle->layer_color_overrides())
+            layer_colors[row_name] = hex_color(color);
+        j["layer_colors"] = layer_colors;
         return j;
     }
 
@@ -542,6 +571,23 @@ namespace
                 else
                     warn(name);
             }
+        // The file's colors replace every current one - it's the whole
+        // saved state (NEW_FEATURES_SEPT_2026.md item 17).
+        if (j.contains("layer_colors") && j["layer_colors"].is_object())
+        {
+            std::map<std::string, le::Color> overrides;
+            for (const auto &[row_name, value] : j["layer_colors"].items())
+            {
+                const auto color = value.is_string() ? parse_hex_color(value.get<std::string>()) : std::nullopt;
+                if (color)
+                    overrides[row_name] = *color;
+                else
+                    warn(("layer_colors." + row_name).c_str());
+            }
+            handle->set_layer_color_overrides(std::move(overrides));
+            if (handle->current_technology_id.valid())
+                rebuild_view_layers(handle, handle->current_technology_id);
+        }
     }
 
     // $HOME/.layout_engine/settings.json - "" if HOME isn't set.
@@ -894,6 +940,7 @@ namespace
         options.antialiasing_enabled = handle->antialiasing_enabled();
         options.layer_name_visible = handle->layer_name_visibility();
         options.purpose_visible = handle->purpose_visibility();
+        options.layer_color_overrides = handle->layer_color_overrides();
 
         options.selection_version = handle->selection_version();
         std::tie(options.flightlines_dbu, options.flightline_version) = flightlines_for(handle);
@@ -3684,6 +3731,39 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         handle->set_ruler_label_size_px(px);
+    }
+
+    int32_t le_set_layer_color(LeHandle *handle, const char *layer_name, int32_t r, int32_t g, int32_t b)
+    {
+        const auto in_range = [](int32_t c)
+        { return c >= 0 && c <= 255; };
+        if (!handle || !layer_name || !in_range(r) || !in_range(g) || !in_range(b))
+            return 1;
+        HandleWriteLock lock(handle);
+        handle->set_layer_color(layer_name, le::Color{static_cast<uint8_t>(r), static_cast<uint8_t>(g), static_cast<uint8_t>(b), 255});
+        return 0;
+    }
+
+    void le_reset_layer_color(LeHandle *handle, const char *layer_name)
+    {
+        if (!handle || !layer_name)
+            return;
+        HandleWriteLock lock(handle);
+        if (handle->reset_layer_color(layer_name) && handle->current_technology_id.valid())
+            rebuild_view_layers(handle, handle->current_technology_id);
+    }
+
+    int32_t le_layer_color_rgb(LeHandle *handle, const char *layer_name)
+    {
+        if (!handle || !layer_name)
+            return -1;
+        HandleWriteLock lock(handle); // ensure_view_layers_current may rebuild
+        ensure_view_layers_current(handle);
+        for (const le::ViewLayerRow &row : handle->view_layers.rows())
+            if (row.name == layer_name && !row.columns.empty())
+                if (const le::ViewLayerData *data = handle->view_layers.get(row.columns.front().id))
+                    return (data->style.outline_color.r << 16) | (data->style.outline_color.g << 8) | data->style.outline_color.b;
+        return -1;
     }
 
     double le_label_min_size(LeHandle *handle)
