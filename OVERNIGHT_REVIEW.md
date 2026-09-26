@@ -122,3 +122,43 @@ a thread cap is exactly the kind of per-machine preference worth keeping.
 covers `max_concurrency`. The panel field itself wasn't clicked live
 (synthetic input doesn't reach the window under WSLg). Full suite:
 869/869.
+
+## Item 25 — Saving the window (docking) state
+
+**What was needed:** `le_gui.cpp` set `io.IniFilename = nullptr` and rebuilt
+the default left/center/right dock split every time a window opened, so
+any rearranging was lost.
+
+**Fix:**
+- The layout is ImGui's own ini file at
+  `~/.layout_engine/window_layout.ini` (`window_layout_path()`, beside
+  `settings.json`; the directory is created if needed). ImGui loads it on
+  the first frame and saves it itself - a few seconds after a change, and
+  when the window closes.
+- The default split is built only when that file has no `DockSpace` line
+  (`has_saved_dock_layout`); a restored layout's first frame still gets the
+  same one-frame viewport-size distrust as a freshly built one.
+- The GLFW window's size is saved too - ImGui doesn't, and the dock layout's
+  node sizes are in pixels, so they only fit the window they came from - as
+  a `[LayoutEngine][Window]` section in the same file
+  (`add_window_size_settings_handler`, an `ImGuiSettingsHandler`).
+- Settings panel -> Settings file: **Reset window layout** rebuilds the
+  default split (a GUI-only request through `GuiProvider`).
+
+**Judgment calls:**
+- A separate file, not part of `settings.json` (the item offered either):
+  settings are saved explicitly (item 9) and count toward item 18's
+  "unsaved settings" prompt, while a panel layout should just be remembered
+  - it would otherwise make the exit dialog nag after every panel drag, or
+  need its own exception there.
+- `~/.layout_engine`, not the item's `~/.layout_editor` - read as a typo for
+  the directory the settings file already uses.
+- Window *position* isn't saved, only size - a saved position can land
+  off-screen when the monitor setup changes.
+
+**Tests:** GUI-only. Verified live with a scratch `HOME` (so nothing touched
+the real `~/.layout_engine`): the first run wrote the file on close;
+editing its Browser node to 450px and the window to 1100x700 and reopening
+showed exactly that (window geometry 1100x700, Browser ~450px). The Reset
+button wasn't clicked live (synthetic input doesn't reach the window under
+WSLg). Full suite: 869/869.

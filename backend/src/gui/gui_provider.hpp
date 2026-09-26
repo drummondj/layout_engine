@@ -3,6 +3,7 @@
 #include "api.hpp"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace le::gui
@@ -219,6 +220,11 @@ namespace le::gui
         bool has_unsaved_design() const;
         bool has_unsaved_settings() const;
         bool save_settings_now();
+        // NEW_FEATURES_SEPT_2026.md item 25 - the Settings panel's "Reset
+        // window layout" asks le_gui.cpp (a GUI-only concern, no backend
+        // state) to rebuild the default dock layout next frame.
+        void request_window_layout_reset() { window_layout_reset_requested_ = true; }
+        bool take_window_layout_reset_request() { return std::exchange(window_layout_reset_requested_, false); }
         void load_settings(const std::string &path);
         void set_layer_visible(const std::string &layer_name, bool value);
         void set_layer_selectable(const std::string &layer_name, bool value);
@@ -274,6 +280,7 @@ namespace le::gui
         bool property_cache_current(LeObjectRef ref) const;
 
         LeHandle *handle_;
+        bool window_layout_reset_requested_ = false;
         State state_;
     };
 }

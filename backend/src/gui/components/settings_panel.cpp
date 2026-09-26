@@ -217,6 +217,11 @@ namespace le::gui
         if (ImGui::Button("Load..."))
             start_file_request(request, false);
         ImGui::EndDisabled();
+        // NEW_FEATURES_SEPT_2026.md item 25.
+        if (ImGui::Button("Reset window layout"))
+            provider.request_window_layout_reset();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Put the panels back where they start - the layout (and window size) is saved automatically to window_layout.ini beside the settings file");
         // Settings from the Tcl console, the grid/snap toolbars and the
         // rest are saved too - this panel just shows the most common ones.
         ImGui::TextWrapped("Also saves the snap modes chosen in the toolbars. Details of a failed save or load are in the terminal.");

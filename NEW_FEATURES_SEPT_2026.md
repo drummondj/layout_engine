@@ -123,7 +123,7 @@ If I start a rectange or zoom select but then switch windows to another program,
 
 The current TCL_COMMANDS.md contains lot's of information about the internals and references to development docs. This documentation should be user facing and concise, explaining what the commands and options do and nothing more.
 
-25. Saving window state
+25. Saving window state - DONE
 
 Can the ImGUI docking state be saved as part of the settings.json, or as a separate file in ~/.layout_editor?
 

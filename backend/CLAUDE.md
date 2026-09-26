@@ -675,6 +675,12 @@ none of these are duplicated here.
   hook (restoring the terminal); a batch script exits at once.
   Interactively, `exit` and Ctrl-D ask y/N first when something is
   unsaved (the real exit is `::le_shell_builtin_exit`).
+  The dock layout and the window's size persist in
+  `~/.layout_engine/window_layout.ini` (item 25) - ImGui's own ini file
+  (`io.IniFilename`, saved automatically, not by save_settings) plus a
+  `[LayoutEngine][Window]` section from `add_window_size_settings_handler`;
+  the default split is built only when that file has no `DockSpace`, or
+  on the Settings panel's "Reset window layout".
   `components/settings_panel.cpp` is
   the right sidebar's Settings tab (item 9): grid spacing (um, with a
   button setting minor to the manufacturing grid and major to 10x it),

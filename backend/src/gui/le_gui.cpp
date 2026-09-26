@@ -54,6 +54,8 @@
 #include <cstring>
 #include <functional>
 #include <mutex>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <sys/stat.h>
 #include <thread>
@@ -648,6 +650,64 @@ namespace le::gui
         // parent's would be painted over by the child's opaque background.
         // The child's default clip rect stops short of its own edges (by
         // half its WindowPadding), so the whole window rect is pushed first.
+        // NEW_FEATURES_SEPT_2026.md item 25 - the window layout (panel
+        // arrangement plus the window's own size) lives in ImGui's ini
+        // file, next to the settings file: ~/.layout_engine/window_layout.ini.
+        // Saved automatically (ImGui writes it a few seconds after a change,
+        // and on close), not with save_settings - rearranging panels
+        // shouldn't count as an unsaved setting. "" if HOME isn't set.
+        std::string window_layout_path()
+        {
+            const std::string settings_path = le_default_settings_path();
+            if (settings_path.empty())
+                return {};
+            return (std::filesystem::path(settings_path).parent_path() / "window_layout.ini").string();
+        }
+
+        // Whether `path` holds a saved dock layout to restore - the default
+        // split is built only when it doesn't.
+        bool has_saved_dock_layout(const std::string &path)
+        {
+            if (path.empty())
+                return false;
+            std::ifstream in(path);
+            std::string line;
+            while (std::getline(in, line))
+                if (line.rfind("DockSpace", 0) == 0)
+                    return true;
+            return false;
+        }
+
+        // A "[LayoutEngine][Window]" section in that ini file - the GLFW
+        // window's size, which ImGui itself doesn't save (the dock layout's
+        // node sizes are in pixels, so they only fit the window they were
+        // saved from). Read when ImGui loads the file (its first NewFrame),
+        // written whenever ImGui saves it.
+        void add_window_size_settings_handler(GLFWwindow *window)
+        {
+            ImGuiSettingsHandler handler;
+            handler.TypeName = "LayoutEngine";
+            handler.TypeHash = ImHashStr("LayoutEngine");
+            handler.UserData = window;
+            handler.ReadOpenFn = [](ImGuiContext *, ImGuiSettingsHandler *, const char *name) -> void *
+            { return std::strcmp(name, "Window") == 0 ? reinterpret_cast<void *>(1) : nullptr; };
+            handler.ReadLineFn = [](ImGuiContext *, ImGuiSettingsHandler *h, void *, const char *line)
+            {
+                int width = 0;
+                int height = 0;
+                if (std::sscanf(line, "Size=%d,%d", &width, &height) == 2 && width >= 400 && height >= 300)
+                    glfwSetWindowSize(static_cast<GLFWwindow *>(h->UserData), width, height);
+            };
+            handler.WriteAllFn = [](ImGuiContext *, ImGuiSettingsHandler *h, ImGuiTextBuffer *out)
+            {
+                int width = 0;
+                int height = 0;
+                glfwGetWindowSize(static_cast<GLFWwindow *>(h->UserData), &width, &height);
+                out->appendf("[LayoutEngine][Window]\nSize=%d,%d\n\n", width, height);
+            };
+            ImGui::AddSettingsHandler(&handler);
+        }
+
         // NEW_FEATURES_SEPT_2026.md item 18 - how the window is closing.
         enum class CloseChoice
         {
@@ -740,9 +800,9 @@ namespace le::gui
         // Draws the always-present, fullscreen invisible host window +
         // dockspace every frame (cheap - ImGui's own recommended
         // "DockSpace over main viewport" pattern, see imgui_demo.cpp's
-        // ShowExampleAppDockSpace), and - the first time only, since
-        // there's no persisted layout to restore (io.IniFilename is null,
-        // see its own comment above) - programmatically splits it into a
+        // ShowExampleAppDockSpace), and - only when there's no saved
+        // layout to restore (window_layout.ini, NEW_FEATURES_SEPT_2026.md
+        // item 25), or on "Reset window layout" - programmatically splits it into a
         // left/center/right layout mirroring the Flutter frontend's own
         // default docking layout (home.dart's _buildDefaultLayout:
         // browser/file on the left, layout+console in the center,
@@ -884,7 +944,22 @@ namespace le::gui
             // run from by default. Worth revisiting once real panel
             // content (not placeholders) makes a stable layout worth
             // keeping across window close/reopen.
-            io.IniFilename = nullptr;
+            // NEW_FEATURES_SEPT_2026.md item 25 - persisted to
+            // ~/.layout_engine/window_layout.ini (window_layout_path) rather
+            // than ImGui's default "imgui.ini" in whatever directory
+            // le_shell was run from. `ini_path` outlives the ImGui context
+            // (both end with this function). With no HOME, nothing is saved
+            // and every window opens with the default layout, as before.
+            const std::string ini_path = window_layout_path();
+            if (!ini_path.empty())
+            {
+                std::error_code ec;
+                std::filesystem::create_directories(std::filesystem::path(ini_path).parent_path(), ec);
+                io.IniFilename = ini_path.c_str();
+                add_window_size_settings_handler(window);
+            }
+            else
+                io.IniFilename = nullptr;
 
             // Icon font (components/mode_selector.cpp, mode_toolbar.cpp,
             // and any later toolbar button) - Dear ImGui draws an icon as
@@ -1001,7 +1076,10 @@ namespace le::gui
             int pending_viewport_width = 0;
             int pending_viewport_height = 0;
             double pending_viewport_change_time = 0.0;
-            bool dockspace_built = false;
+            // A saved layout (item 25) is restored by ImGui itself on the
+            // first NewFrame - don't build the default split over it.
+            bool dockspace_built = has_saved_dock_layout(ini_path);
+            bool first_frame = true;
             ActiveGesture gesture = ActiveGesture::kNone;
 
             RenderMailbox mailbox;
@@ -1142,7 +1220,15 @@ namespace le::gui
                 bool layout_view_hovered = false;
                 bool escape_consumed = false; // item 22 - see forward_keyboard_input
 
-                const bool dock_layout_just_built = draw_dockspace_and_default_layout(dockspace_built);
+                // The Settings panel's "Reset window layout" (item 25) -
+                // rebuild the default split this frame.
+                if (provider.take_window_layout_reset_request())
+                    dockspace_built = false;
+                // The first frame of a restored layout gets the same
+                // one-frame distrust as a freshly built one (see
+                // draw_dockspace_and_default_layout's own comment).
+                const bool dock_layout_just_built = draw_dockspace_and_default_layout(dockspace_built) || first_frame;
+                first_frame = false;
 
                 // Left sidebar - components/library_browser.hpp, the
                 // ImGui port of frontend/lib/components/library_browser.dart.
