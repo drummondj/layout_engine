@@ -216,3 +216,37 @@ exactly this problem.
 heading text is kept for it). Full suite: 869/869. This commit also carries
 your new NEW_FEATURES_SEPT_2026.md items 26-27 (added while I worked), since
 the file is marked here too - they're outside tonight's 20-25.
+
+## Closing summary
+
+All six items done, committed and pushed, one commit each: 23 (status bar
+padding), 20 (grid brightness), 22 (Esc/focus-loss cancels a drag), 21 (CPUs
+setting), 25 (dock layout and window size saved), 24 (user-facing
+TCL_COMMANDS.md). Plus one small unrelated fix, committed on its own: the
+DEF writer round-trip tests' shared scratch file, which made a random one
+fail under parallel `ctest`. Full suite 869/869 at the end, in three
+consecutive parallel runs.
+
+**Needs sign-off:** none held back - every item was a contained GUI or
+documentation change.
+
+**Judgment calls most worth a look:** item 20 also brightens every
+translucent shape fill in the GUI to what its style specifies (they were
+double-darkened too); item 25 saves the layout in its own file rather than
+`settings.json`, and not the window position; item 24 rewrote 48 schema
+descriptions in place.
+
+**Not verified by clicking:** under WSLg, synthetic mouse and window events
+don't reach the GLFW window, so the Reset window layout button (25), the
+CPUs field (21) and the focus-loss drag cancel (22) were checked by code
+path, tests and screenshots, not by clicking.
+
+**Follow-ups worth adding:**
+- Your items 26-27 (in NEW_FEATURES_SEPT_2026.md, outside tonight's scope).
+  26 would fix what item 24 hit: the regen skills say `poetry run cmg`, which
+  isn't installed here, and the `cmg` on PATH runs a stale site-packages copy
+  of `codegen` that can't read the current schema. Until then, regenerate
+  with `PYTHONPATH=<repo>/codegen python3 -m codegen.cli ...`.
+- The GUI has no automated tests; a headless ImGui test harness (or at
+  least a way to inject input under WSLg, e.g. Xvfb + real X events) would
+  let the dialog/button paths be verified end to end.
