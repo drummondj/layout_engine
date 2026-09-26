@@ -104,6 +104,36 @@ namespace
         rebuild_view_layers(handle, handle->current_technology_id);
     }
 
+    bool view_layers_already_current(const LeHandle *handle);
+
+    // The GUI's per-frame layer-list reads (le_layer_count/_at,
+    // le_purpose_count/_at): current view_layers under a shared_lock when
+    // they're up to date; otherwise rebuild them under the write lock - but
+    // only if it's free right now. A render in progress holds a shared_lock
+    // for its whole (possibly multi-second) run, and waiting for the write
+    // lock behind it froze the GUI thread for all of it - no frames, so no
+    // progress spinner, whenever a render followed any database change
+    // (e.g. the first render after read_def). Then the current, slightly
+    // stale layer list is read instead, and a later frame rebuilds it. No
+    // notify_render_needed(): the render graph builds its own layer set.
+    template <typename Read>
+    auto read_view_layers(LeHandle *handle, Read read)
+    {
+        {
+            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
+            if (view_layers_already_current(handle))
+                return read(handle->view_layers);
+        }
+        std::unique_lock<std::shared_mutex> write_lock(handle->mutex_, std::try_to_lock);
+        if (write_lock.owns_lock())
+        {
+            ensure_view_layers_current(handle);
+            return read(handle->view_layers);
+        }
+        std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
+        return read(handle->view_layers);
+    }
+
     // The read-only half of ensure_view_layers_current's own staleness
     // check, split out so le_layer_count/_at/le_purpose_count/_at (below)
     // can use a double-checked locking pattern: check this under a
@@ -3141,15 +3171,8 @@ extern "C"
     {
         if (!handle)
             return 0;
-        // Double-checked - see view_layers_already_current's own comment.
-        {
-            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
-            if (view_layers_already_current(handle))
-                return static_cast<int32_t>(handle->view_layers.rows().size());
-        }
-        HandleWriteLock write_lock(handle);
-        ensure_view_layers_current(handle);
-        return static_cast<int32_t>(handle->view_layers.rows().size());
+        return read_view_layers(handle, [](const le::ViewLayerSet &view_layers)
+                                { return static_cast<int32_t>(view_layers.rows().size()); });
     }
 
     LeLayerRow le_layer_at(LeHandle *handle, int32_t row_index)
@@ -3180,29 +3203,15 @@ extern "C"
             };
         };
 
-        {
-            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
-            if (view_layers_already_current(handle))
-                return row_at(handle->view_layers);
-        }
-        HandleWriteLock write_lock(handle);
-        ensure_view_layers_current(handle);
-        return row_at(handle->view_layers);
+        return read_view_layers(handle, row_at);
     }
 
     int32_t le_purpose_count(LeHandle *handle)
     {
         if (!handle)
             return 0;
-        // Double-checked - see view_layers_already_current's own comment.
-        {
-            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
-            if (view_layers_already_current(handle))
-                return static_cast<int32_t>(handle->view_layers.purposes().size());
-        }
-        HandleWriteLock write_lock(handle);
-        ensure_view_layers_current(handle);
-        return static_cast<int32_t>(handle->view_layers.purposes().size());
+        return read_view_layers(handle, [](const le::ViewLayerSet &view_layers)
+                                { return static_cast<int32_t>(view_layers.purposes().size()); });
     }
 
     int32_t le_purpose_at(LeHandle *handle, int32_t index)
@@ -3219,14 +3228,7 @@ extern "C"
             return static_cast<int32_t>(purposes[static_cast<size_t>(index)]);
         };
 
-        {
-            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
-            if (view_layers_already_current(handle))
-                return purpose_at(handle->view_layers);
-        }
-        HandleWriteLock write_lock(handle);
-        ensure_view_layers_current(handle);
-        return purpose_at(handle->view_layers);
+        return read_view_layers(handle, purpose_at);
     }
 
     bool le_is_layer_name_visible(LeHandle *handle, const char *layer_name)
@@ -3265,7 +3267,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_); // a read - polled every GUI frame
         return handle->max_concurrency_;
     }
 
@@ -3794,7 +3796,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_); // a read - polled every GUI frame
         return handle->ruler_label_size_px();
     }
 

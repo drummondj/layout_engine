@@ -2,10 +2,14 @@
 // backend_tests - it only talks to the C API, so no ImGui/GLFW is needed.
 
 #include "gui/gui_provider.hpp"
+#include "api/le_handle.hpp"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
+#include <future>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -91,4 +95,24 @@ TEST_F(GuiProviderFixture, EveryTechnologyLayerIsListedInDeclarationOrder)
         }
     }
     EXPECT_EQ(layers.size(), static_cast<size_t>(physical_rows));
+}
+
+// Regression test: the GUI thread's per-frame refresh must never wait on the
+// handle's write lock while a render holds its shared lock - it froze the
+// window for the whole render, so the progress spinner never showed. A
+// database change first (here, creating a library) makes the layer list
+// stale, the case that used to need the write lock.
+TEST_F(GuiProviderFixture, RefreshDoesNotBlockWhileARenderHoldsTheHandle)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    le_create_library(handle, "EDITED");
+
+    std::shared_lock<std::shared_mutex> render(handle->mutex_); // what le_render_pixel_buffer holds
+    le::gui::GuiProvider provider(handle);
+    std::future<void> refreshed = std::async(std::launch::async, [&]
+                                             { provider.refresh(); });
+    EXPECT_EQ(refreshed.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    render.unlock();
+    refreshed.wait();
+    EXPECT_EQ(provider.state().layer_manager.layers.size(), 1u);
 }
