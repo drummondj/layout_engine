@@ -2738,12 +2738,17 @@ schema = Schema(
         # carries its own placement_status/location/orientation - DEF lets
         # each PORT of a multi-port pin be placed independently
         # (setPortPlacement, distinct from the pin's own top-level
-        # setPlacement), and its own LAYER/POLYGON coordinates are
+        # setPlacement), and in DEF its LAYER/POLYGON coordinates are
         # relative to that placement, not the parent PhysicalPort's -
         # confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3
         # different placements). Unset for the synthetic single segment a
         # pre-5.7 simple (no-PORT-wrapper) pin gets - that case's
-        # placement lives on the parent PhysicalPort instead.
+        # placement lives on the parent PhysicalPort instead. The Shapes
+        # themselves are stored in design coordinates (DEFReader runs
+        # them through Geometry::pin_transform of the governing
+        # placement; DEFWriter inverts it) - NEW_FEATURES_SEPT_2026.md
+        # item 28 - so drawing, hit-testing, selection and Move need no
+        # pin transform.
         Klass(
             name="PhysicalPortSegment",
             description="One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins).",

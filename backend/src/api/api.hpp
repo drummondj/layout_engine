@@ -477,7 +477,8 @@ extern "C"
     /// 1 = OBSTRUCTION, 2 = BOUNDARY, 3 = TRACK_PREFERRED,
     /// 4 = TRACK_NON_PREFERRED, 5 = ROUTING_BLOCKAGE, 6 = ROW,
     /// 7 = GCELLGRID, 8 = PLACEMENT_BLOCKAGE, 9 = ROUTE, 10 = REGION,
-    /// 11 = PLACEMENT, 12 = CUSTOM_SHAPE, 13 = DEBUG, 14 = FLIGHTLINE.
+    /// 11 = PLACEMENT, 12 = CUSTOM_SHAPE, 13 = DEBUG, 14 = FLIGHTLINE,
+    /// 15 = PORT_MARKER.
     /// `index` itself walks ViewLayerSet::purposes()'s own
     /// first-encountered order instead (ROW, then BOUNDARY, then
     /// PLACEMENT, then TERMINAL/OBSTRUCTION/TRACK_PREFERRED/

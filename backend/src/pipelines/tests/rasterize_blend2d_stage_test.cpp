@@ -206,3 +206,33 @@ TEST_F(RasterizeBlend2DStageFixture, NullInputProducesEmptyOutput)
     EXPECT_TRUE(output.images.empty());
     EXPECT_EQ(output.culled, nullptr);
 }
+
+// NEW_FEATURES_SEPT_2026.md item 28 - a PhysicalPort's direction marker
+// draws under everything, so a port label running over its own marker (a
+// port on the right edge, label drawn left to right) stays readable.
+TEST_F(RasterizeBlend2DStageFixture, PortLabelDrawsOverItsOwnMarker)
+{
+    const LibraryId library_id = root.create_library(LibraryData{.name = "TOPLIB"});
+    const DesignId top_design = root.create_design(DesignData{.library = library_id, .name = "TOP"});
+    const LayoutId top_layout = root.create_layout(LayoutData{.design = top_design});
+    root.create_shape(ShapeData{.layout = top_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{1000, 0}, Point{1000, 1000}, Point{0, 1000}}}}});
+    const PhysicalPortId port = root.create_physical_port(PhysicalPortData{.layout = top_layout, .name = "PORT_WITH_A_LONG_NAME", .direction = SignalDirection::INPUT});
+    const PhysicalPortSegmentId segment = root.create_physical_port_segment(PhysicalPortSegmentData{.physical_port = port});
+    root.create_shape(ShapeData{.physical_port_segment = segment, .layer = m1, .rects = {Rect{.ll = Point{960, 480}, .ur = Point{1000, 520}}}});
+
+    // 2 px/dbu over (800,400)-(1100,600): 600x400 px. The marker points in
+    // from (1040, 480..520) to its apex at (1000, 500).
+    const Rect viewport{.ll = Point{800, 400}, .ur = Point{1100, 600}};
+    HierarchyResolverRunner resolver{"HierarchyResolver"};
+    resolver.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 0, viewport, 2.0));
+    const RasterizeOutput &output = rasterize_runner.run(resolver.last_handle(), 0, options_for(HierarchyId{top_layout}, 0, viewport, 2.0));
+    const BLImage &image = output.images.at(HierarchyId{top_layout}).image;
+    ASSERT_EQ(image.width(), 600);
+
+    // Inside the marker, x 1020..1038 / y 490..510 dbu: the label's ink
+    // (the M1 outline color) shows through the solid gray.
+    const Color label_color = view_layers.get(view_layers.find(m1, ViewLayerPurpose::TERMINAL))->style.outline_color;
+    EXPECT_TRUE(region_contains_color_near(image, 440, 180, 476, 220, label_color, 30));
+    // And the marker itself is still drawn there.
+    EXPECT_TRUE(region_contains_color_near(image, 440, 180, 476, 220, Color{200, 200, 200, 255}, 10));
+}

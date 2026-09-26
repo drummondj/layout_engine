@@ -390,3 +390,75 @@ TEST_F(HierarchyResolverStageFixture, AnAbstractsFreeShapesAppearInEveryPlacemen
                             { return placement.id == HierarchyId{leaf_abstract}; }),
               2);
 }
+
+// NEW_FEATURES_SEPT_2026.md item 28 - a Layout's PhysicalPorts draw their
+// shapes on TERMINAL with the port's name as a label, plus one direction
+// marker per port on the PORT_MARKER row, beside its outer edge.
+TEST_F(HierarchyResolverStageFixture, PhysicalPortsDrawShapesLabelsAndDirectionMarkers)
+{
+    // TOP's die is (0,0)-(5000,5000); IN sits on its left edge, OUT on its top.
+    const PhysicalPortId in_port = root.create_physical_port(PhysicalPortData{.layout = top_layout, .name = "IN", .direction = SignalDirection::INPUT});
+    const PhysicalPortSegmentId in_segment = root.create_physical_port_segment(PhysicalPortSegmentData{.physical_port = in_port});
+    root.create_shape(ShapeData{.physical_port_segment = in_segment, .layer = m1, .rects = {Rect{.ll = Point{0, 2000}, .ur = Point{100, 2040}}}});
+    const PhysicalPortId out_port = root.create_physical_port(PhysicalPortData{.layout = top_layout, .name = "OUT", .direction = SignalDirection::OUTPUT});
+    const PhysicalPortSegmentId out_segment = root.create_physical_port_segment(PhysicalPortSegmentData{.physical_port = out_port});
+    root.create_shape(ShapeData{.physical_port_segment = out_segment, .layer = m1, .rects = {Rect{.ll = Point{3000, 4900}, .ur = Point{3040, 5000}}}});
+
+    const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 0));
+    const ViewData &top = output.view_data.at(HierarchyId{top_layout});
+
+    const ViewLayerId terminal = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
+    ASSERT_EQ(shapes_on(top, terminal), 2u);
+    std::vector<std::string> labels;
+    for (const RenderShape &shape : top.shapes->at(terminal))
+        for (const Text &text : shape.texts)
+            labels.push_back(text.label);
+    std::ranges::sort(labels);
+    EXPECT_EQ(labels, (std::vector<std::string>{"IN", "OUT"}));
+
+    // One RenderShape per port (so each can be enlarged about its own
+    // anchor), one triangle each, both outside the die beyond the port's
+    // outer edge.
+    ASSERT_EQ(shapes_on(top, view_layers.port_marker_view_layer()), 2u);
+    for (const RenderShape &marker : top.shapes->at(view_layers.port_marker_view_layer()))
+    {
+        ASSERT_EQ(marker.polygons.size(), 1u);
+        for (const Point &p : marker.polygons[0].points)
+            EXPECT_TRUE(p.x <= 0 || p.y >= 5000) << p.x << "," << p.y;
+    }
+}
+
+// ViewData::extent / ViewPlacementData::extent cover everything a node
+// draws, not just its declared boundary.
+TEST_F(HierarchyResolverStageFixture, ExtentsGrowToCoverContentOutsideTheBoundary)
+{
+    // LEAF's boundary is (0,0)-(10,10); this obstruction overhangs it.
+    const ObstructionId overhang = root.create_obstruction(ObstructionData{.abstract = leaf_abstract});
+    root.create_shape(ShapeData{.obstruction = overhang, .layer = m1, .rects = {Rect{.ll = Point{8, -5}, .ur = Point{15, 12}}}});
+
+    const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
+
+    const Rect leaf = output.view_data.at(HierarchyId{leaf_abstract}).extent;
+    EXPECT_EQ(leaf.ll.x, 0);
+    EXPECT_EQ(leaf.ll.y, -5);
+    EXPECT_EQ(leaf.ur.x, 15);
+    EXPECT_EQ(leaf.ur.y, 12);
+
+    // leaf1 sits at (500,500) in BLOCK: its declared bbox is unchanged,
+    // its extent carries the overhang.
+    const ViewData &block = output.view_data.at(HierarchyId{block_layout});
+    const auto leaf1 = std::ranges::find_if(block.placement_data, [](const ViewPlacementData &p)
+                                            { return p.location.x == 500; });
+    ASSERT_NE(leaf1, block.placement_data.end());
+    EXPECT_EQ(leaf1->bbox.ur.x, 510);
+    EXPECT_EQ(leaf1->extent.ll.y, 495);
+    EXPECT_EQ(leaf1->extent.ur.x, 515);
+    EXPECT_EQ(leaf1->extent.ur.y, 512);
+
+    // BLOCK's own extent is its (0,0)-(1000,1000) diearea - both leaves
+    // fit inside it - and TOP's covers its (0,0)-(5000,5000) diearea.
+    const Rect block_extent = block.extent;
+    EXPECT_EQ(block_extent.ll.x, 0);
+    EXPECT_EQ(block_extent.ur.x, 1000);
+    EXPECT_EQ(output.view_data.at(HierarchyId{top_layout}).extent.ur.x, 5000);
+}

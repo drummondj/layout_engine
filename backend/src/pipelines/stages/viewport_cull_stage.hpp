@@ -162,6 +162,7 @@ namespace le
                 ViewData data;
                 data.shapes = source_data.shapes;
                 data.shapes_index = source_data.shapes_index;
+                data.extent = source_data.extent;
 
                 // One Rect transform per node, not one per placement -
                 // see the class's own doc comment.
@@ -179,7 +180,7 @@ namespace le
                     // whose own bbox is sub-pixel at options.scale is
                     // skipped entirely, the same way a sub-pixel Rect/
                     // Polygon already is inside Rasterize.
-                    if (bbox_is_sub_pixel(placement.bbox.ur.x - placement.bbox.ll.x, placement.bbox.ur.y - placement.bbox.ll.y, options.scale))
+                    if (bbox_is_sub_pixel(placement.extent.ur.x - placement.extent.ll.x, placement.extent.ur.y - placement.extent.ll.y, options.scale))
                         continue;
                     data.placement_data.push_back(placement);
                     worklist.push_back(WorkItem{placement.id, Geometry::compose(item.accumulated_transform, placement.transform)});
@@ -253,7 +254,7 @@ namespace le
             std::vector<IndexEntry> entries;
             entries.reserve(data.placement_data.size());
             for (std::size_t i = 0; i < data.placement_data.size(); ++i)
-                entries.emplace_back(data.placement_data[i].bbox, i);
+                entries.emplace_back(data.placement_data[i].extent, i); // everything it draws, overhang included
 
             return spatial_indices_.emplace(id, SpatialIndex(entries)).first->second;
         }

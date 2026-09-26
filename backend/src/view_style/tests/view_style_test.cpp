@@ -25,13 +25,13 @@ namespace
     };
 }
 
-TEST_F(ViewStyleFixture, CreatesSevenPurposesPerLayerPlusEightPseudoLayers)
+TEST_F(ViewStyleFixture, CreatesSevenPurposesPerLayerPlusNinePseudoLayers)
 {
     // 2 layers x 7 purposes (TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
-    // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/CUSTOM_SHAPE) + 8
+    // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/CUSTOM_SHAPE) + 9
     // pseudo-ViewLayers with no physical Layer (BOUNDARY/ROW/PLACEMENT/
-    // GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/FLIGHTLINE) = 22.
-    EXPECT_EQ(view_layers.all().size(), 22u);
+    // GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/FLIGHTLINE/PORT_MARKER) = 23.
+    EXPECT_EQ(view_layers.all().size(), 23u);
 }
 
 TEST_F(ViewStyleFixture, FindResolvesDistinctViewLayersPerLayerAndPurpose)
@@ -128,12 +128,12 @@ TEST_F(ViewStyleFixture, BoundaryColorIsUnaffectedByThePerLayerPaletteAndLighter
 TEST_F(ViewStyleFixture, RowsHasRowThenBoundaryThenPlacementThenOneRowPerPhysicalLayerThenThreePseudoRows)
 {
     // ROW + BOUNDARY + PLACEMENT + 2 physical Layers (M1, M2) + GCELLGRID +
-    // PLACEMENT_BLOCKAGE + REGION + DEBUG + FLIGHTLINE = 10 rows - ROW then
+    // PLACEMENT_BLOCKAGE + REGION + DEBUG + FLIGHTLINE + PORT_MARKER = 11 rows - ROW then
     // BOUNDARY then PLACEMENT first (BUGS_AND_ENHANCEMENTS.md E8/E13 - this
     // declaration order is also the real draw z-order, see rows()'s own
     // doc comment), everything else unchanged.
     const auto &rows = view_layers.rows();
-    ASSERT_EQ(rows.size(), 10u);
+    ASSERT_EQ(rows.size(), 11u);
     EXPECT_EQ(rows[0].name, "ROW");
     EXPECT_EQ(rows[1].name, "BOUNDARY");
     EXPECT_EQ(rows[2].name, "PLACEMENT");
@@ -144,6 +144,7 @@ TEST_F(ViewStyleFixture, RowsHasRowThenBoundaryThenPlacementThenOneRowPerPhysica
     EXPECT_EQ(rows[7].name, "REGION");
     EXPECT_EQ(rows[8].name, "DEBUG");      // last rasterized row, so debug output draws on top of everything
     EXPECT_EQ(rows[9].name, "FLIGHTLINE"); // an overlay (ComposeStage), not rasterized
+    EXPECT_EQ(rows[10].name, "PORT_MARKER"); // appended last so its purpose ordinal stays stable (item 28)
 }
 
 TEST_F(ViewStyleFixture, PhysicalLayerRowHasTerminalObstructionTrackRoutingBlockageAndRouteColumns)
@@ -358,10 +359,10 @@ TEST_F(ViewStyleFixture, PurposesListsEachDistinctPurposeOnceInFirstEncounteredO
     // E8/E13); M1's row then contributes TERMINAL/OBSTRUCTION/
     // TRACK_PREFERRED/TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/
     // CUSTOM_SHAPE; M2's row repeats all seven (deduplicated, not appended
-    // again); GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/FLIGHTLINE each
+    // again); GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/FLIGHTLINE/PORT_MARKER each
     // contribute their own single new purpose last.
     const auto purposes = view_layers.purposes();
-    ASSERT_EQ(purposes.size(), 15u);
+    ASSERT_EQ(purposes.size(), 16u);
     EXPECT_EQ(purposes[0], ViewLayerPurpose::ROW);
     EXPECT_EQ(purposes[1], ViewLayerPurpose::BOUNDARY);
     EXPECT_EQ(purposes[2], ViewLayerPurpose::PLACEMENT);
@@ -377,6 +378,7 @@ TEST_F(ViewStyleFixture, PurposesListsEachDistinctPurposeOnceInFirstEncounteredO
     EXPECT_EQ(purposes[12], ViewLayerPurpose::REGION);
     EXPECT_EQ(purposes[13], ViewLayerPurpose::DEBUG);
     EXPECT_EQ(purposes[14], ViewLayerPurpose::FLIGHTLINE);
+    EXPECT_EQ(purposes[15], ViewLayerPurpose::PORT_MARKER);
 }
 
 TEST(ViewStylePalette, CutLayerAboveARoutingLayerSharesItsColor)

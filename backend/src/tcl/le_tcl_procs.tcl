@@ -961,6 +961,7 @@ array set ::purpose_names {
     customShape 12
     debug 13
     flightline 14
+    portMarker 15
 }
 
 proc _resolve_purpose_name {command purpose} {
@@ -982,9 +983,9 @@ proc set_purpose_visible { purpose args } {
 }
 register_command_help set_purpose_visible \
     "set_purpose_visible <purpose> <visible> \[-help\]" \
-    "Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placement placementBlockage region route routingBlockage row terminal trackNonPreferred trackPreferred. Everything is visible by default except row, trackPreferred, trackNonPreferred, gcellgrid and flightline." \
+    "Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placement placementBlockage portMarker region route routingBlockage row terminal trackNonPreferred trackPreferred. Everything is visible by default except row, trackPreferred, trackNonPreferred, gcellgrid and flightline." \
     {
-        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline}}}
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker}}}
         {<visible> {type bool required 1 description {0/1 or true/false - hide/show}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
@@ -999,7 +1000,7 @@ register_command_help get_purpose_visible \
     "get_purpose_visible <purpose> \[-help\]" \
     "Returns 1 if the purpose <purpose> is visible, 0 if it's hidden - see set_purpose_visible." \
     {
-        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline}}}
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
@@ -1017,7 +1018,7 @@ register_command_help set_purpose_selectable \
     "set_purpose_selectable <purpose> <selectable> \[-help\]" \
     "Sets whether shapes of one purpose - e.g. obstructions - can be selected, across every layer. See set_purpose_visible for the purposes." \
     {
-        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline}}}
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker}}}
         {<selectable> {type bool required 1 description {0/1 or true/false}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
@@ -1032,7 +1033,7 @@ register_command_help get_purpose_selectable \
     "get_purpose_selectable <purpose> \[-help\]" \
     "Returns 1 if shapes of the purpose <purpose> can be selected, 0 otherwise." \
     {
-        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline}}}
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 

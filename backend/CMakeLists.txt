@@ -1177,6 +1177,7 @@ add_executable(pipelines_tests
     src/pipelines/tests/layer_generation_stage_test.cpp
     src/pipelines/tests/hierarchy_resolver_stage_test.cpp
     src/pipelines/tests/via_shapes_test.cpp
+    src/pipelines/tests/port_markers_test.cpp
     src/pipelines/tests/view_render_pipeline_test.cpp
     src/pipelines/tests/viewport_cull_stage_test.cpp
     src/pipelines/tests/rasterize_blend2d_stage_test.cpp

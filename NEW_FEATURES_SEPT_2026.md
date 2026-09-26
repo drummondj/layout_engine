@@ -135,11 +135,11 @@ To stop conflicts with the installed cmg package, please rename the package in c
 
 Please make sure that all TCL commands take values in um (and not dbu) and that TCL_COMMANDS.md also says um.
 
-28. PhysicalPorts are not rendered
+28. PhysicalPorts are not rendered - DONE
 
 Please render PhysicalPorts and their labels using their shapes. (Use gcd_nangate45 testcase)
 
-Also, on a separate purpose called "portMarker", which should be filled light gray, add a triangle for each PhysicalPort, pointing towards the center of the block for inputs and away from the center of the block for outputs. But still orthogonal. For inout ports draw two arrows pointing to each other and overlapping. The markers should be drawn on the edge of the PhysicalPort, so they don't overlap.
+Also, on a separate purpose called "portMarker", which should be filled light gray, add a triangle for each PhysicalPort, pointing towards the center of the block for inputs and away from the center of the block for outputs. But still orthogonal. For inout ports draw two arrows pointing to each other and overlapping. The markers should be drawn on the edge of the PhysicalPort opposite the block center, so they don't overlap.
 
 
 

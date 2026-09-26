@@ -298,10 +298,12 @@ namespace le
         ASSERT_NE(segment0_shape, nullptr);
         EXPECT_EQ(root.get_layer(segment0_shape->layer)->name, "M2");
         ASSERT_EQ(segment0_shape->rects.size(), 1u);
-        EXPECT_EQ(segment0_shape->rects[0].ll.x, 0);
-        EXPECT_EQ(segment0_shape->rects[0].ll.y, 0);
-        EXPECT_EQ(segment0_shape->rects[0].ur.x, 30);
-        EXPECT_EQ(segment0_shape->rects[0].ur.y, 135);
+        // DEF's ( 0 0 ) ( 30 135 ), relative to the PORT's FIXED ( 45 -2160 ) N,
+        // stored in design coordinates (NEW_FEATURES_SEPT_2026.md item 28).
+        EXPECT_EQ(segment0_shape->rects[0].ll.x, 45);
+        EXPECT_EQ(segment0_shape->rects[0].ll.y, -2160);
+        EXPECT_EQ(segment0_shape->rects[0].ur.x, 75);
+        EXPECT_EQ(segment0_shape->rects[0].ur.y, -2025);
 
         const PhysicalPortSegmentData *segment1 = root.get_physical_port_segment(p0_segments[1]);
         ASSERT_NE(segment1, nullptr);

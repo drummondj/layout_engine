@@ -118,3 +118,35 @@ TEST_F(ViewRenderPipelineFixture, RunNullRootProducesEmptyFrame)
     ASSERT_NE(output.frame, nullptr);
     EXPECT_TRUE(output.frame->empty);
 }
+
+// A placed cell's shapes outside its own boundary (e.g. a pin overhanging
+// the cell) are still drawn one level up - not clipped to the boundary.
+TEST_F(ViewRenderPipelineFixture, PlacedCellContentOutsideItsBoundaryStillDraws)
+{
+    // LEAF's boundary is (0,0)-(10,10), placed at (100,100): this pin sits
+    // at (140..160, 140..160) in TOP, well outside that.
+    const TerminalId terminal = root.create_terminal(TerminalData{.abstract = leaf_abstract, .name = "A"});
+    const TerminalPortId port = root.create_terminal_port(TerminalPortData{.terminal = terminal});
+    root.create_shape(ShapeData{.terminal_port = port, .layer = m1, .rects = {Rect{.ll = Point{40, 40}, .ur = Point{60, 60}}}});
+    root.bump_mutation_version();
+
+    ViewRenderOptions options = options_for(1);
+    options.viewport = Rect{.ll = Point{0, 0}, .ur = Point{250, 250}};
+    options.scale = 1.0;
+    const ViewRenderPipeline::WarmOutput output = pipeline.run(&root, options);
+    ASSERT_NE(output.frame, nullptr);
+    ASSERT_FALSE(output.frame->empty);
+    const PixelBuffer &buffer = output.frame->buffer;
+    ASSERT_EQ(buffer.width, 250);
+
+    // M1 is the first routing layer - red. Its TERMINAL stripes show
+    // somewhere in the pin's area: x 140..160, y 250-160..250-140 px.
+    bool found_red = false;
+    for (int y = 92; y < 108 && !found_red; ++y)
+        for (int x = 142; x < 158 && !found_red; ++x)
+        {
+            const uint8_t *px = buffer.data + static_cast<std::size_t>(y) * buffer.row_bytes + static_cast<std::size_t>(x) * 4;
+            found_red = px[0] > 200 && px[1] < 80 && px[2] < 80;
+        }
+    EXPECT_TRUE(found_red);
+}

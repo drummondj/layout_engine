@@ -1941,7 +1941,7 @@ Returns 1 if shapes of the purpose <purpose> can be selected, 0 otherwise.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
 
 ## get_purpose_visible
 
@@ -1951,7 +1951,7 @@ Returns 1 if the purpose <purpose> is visible, 0 if it's hidden - see set_purpos
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
 
 ## get_regions
 
@@ -2469,18 +2469,18 @@ Sets whether shapes of one purpose - e.g. obstructions - can be selected, across
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
 | `<selectable>` | `bool` | yes | 0/1 or true/false |
 
 ## set_purpose_visible
 
 `set_purpose_visible <purpose> <visible> [-help]`
 
-Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placement placementBlockage region route routingBlockage row terminal trackNonPreferred trackPreferred. Everything is visible by default except row, trackPreferred, trackNonPreferred, gcellgrid and flightline.
+Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placement placementBlockage portMarker region route routingBlockage row terminal trackNonPreferred trackPreferred. Everything is visible by default except row, trackPreferred, trackNonPreferred, gcellgrid and flightline.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
 | `<visible>` | `bool` | yes | 0/1 or true/false - hide/show |
 
 ## set_ruler_label_size

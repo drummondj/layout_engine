@@ -1515,12 +1515,12 @@ TEST_F(ApiFixture, LayerAtListsRowThenBoundaryThenEveryPhysicalLayer)
     // testcell.lef declares one physical Layer (M1) - the API doesn't
     // special-case BOUNDARY, it's just another row, so the count is
     // M1 + ROW + GCELLGRID + PLACEMENT_BLOCKAGE + REGION + BOUNDARY +
-    // PLACEMENT + DEBUG + FLIGHTLINE = 9 (Migration Step 2/3 plus
+    // PLACEMENT + DEBUG + FLIGHTLINE + PORT_MARKER = 10 (Migration Step 2/3 plus
     // BUGS_AND_ENHANCEMENTS.md E13 - see ViewLayerSet::build_for_technology).
     // ROW then BOUNDARY then PLACEMENT come first (BUGS_AND_ENHANCEMENTS.md
     // E8/E13 - this declaration order is also the real draw z-order, see
     // ViewLayerSet::rows()'s own doc comment).
-    ASSERT_EQ(le_layer_count(handle), 9);
+    ASSERT_EQ(le_layer_count(handle), 10);
 
     const LeLayerRow boundary_row = le_layer_at(handle, 1);
     ASSERT_NE(boundary_row.name, nullptr);
@@ -1554,7 +1554,7 @@ TEST_F(ApiFixture, PurposeAtOutOfRangeReturnsInvalid)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
-    EXPECT_EQ(le_purpose_at(handle, 15), -1);
+    EXPECT_EQ(le_purpose_at(handle, 16), -1);
     EXPECT_EQ(le_purpose_at(handle, -1), -1);
 }
 
@@ -1577,7 +1577,7 @@ TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
     // CUSTOM_SHAPE and later shifted down by one). The raw ordinal values
     // below are le::ViewLayerPurpose's own declaration order, unrelated to
     // this traversal order.
-    ASSERT_EQ(le_purpose_count(handle), 15);
+    ASSERT_EQ(le_purpose_count(handle), 16);
     EXPECT_EQ(le_purpose_at(handle, 0), 6);   // ROW
     EXPECT_EQ(le_purpose_at(handle, 1), 2);   // BOUNDARY
     EXPECT_EQ(le_purpose_at(handle, 2), 11);  // PLACEMENT
@@ -1593,6 +1593,7 @@ TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
     EXPECT_EQ(le_purpose_at(handle, 12), 10); // REGION
     EXPECT_EQ(le_purpose_at(handle, 13), 13); // DEBUG
     EXPECT_EQ(le_purpose_at(handle, 14), 14); // FLIGHTLINE (NEW_FEATURES_SEPT_2026.md item 5)
+    EXPECT_EQ(le_purpose_at(handle, 15), 15); // PORT_MARKER (NEW_FEATURES_SEPT_2026.md item 28)
 }
 
 TEST_F(ApiFixture, LayerNameVisibilityDefaultsTrueAndRoundTrips)

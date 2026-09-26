@@ -697,9 +697,15 @@ namespace le
                 segment_data.placement_status = placement_status_from_pin_like(port);
                 if (!fill_pin_like_placement(port, pin->pinName(), reader->unit_scale_, segment_data.location, segment_data.orientation))
                     return 0;
+                // DEF gives a PORT's geometry relative to its own placement;
+                // stored in design coordinates (NEW_FEATURES_SEPT_2026.md item
+                // 28), so everything that draws, hit-tests, selects or moves it
+                // needs no pin transform - DEFWriter converts back.
+                const Geometry::InstanceTransform to_design = Geometry::pin_transform(segment_data.location, segment_data.orientation);
                 const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(std::move(segment_data));
                 for (Shape &shape : shapes_from_pin_like(*reader->root_, port, reader->unit_scale_))
                 {
+                    shape = Geometry::transform(shape, to_design);
                     shape.physical_port_segment = segment_id;
                     reader->root_->create_shape(std::move(shape));
                 }
@@ -707,9 +713,14 @@ namespace le
         }
         else
         {
+            // Same design-coordinate storage as the PORT case above, through
+            // the pin's own placement.
+            const PhysicalPortData *port = reader->root_->get_physical_port(physical_port_id);
+            const Geometry::InstanceTransform to_design = Geometry::pin_transform(port->location, port->orientation);
             const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(PhysicalPortSegmentData{.physical_port = physical_port_id});
             for (Shape &shape : shapes_from_pin_like(*reader->root_, pin, reader->unit_scale_))
             {
+                shape = Geometry::transform(shape, to_design);
                 shape.physical_port_segment = segment_id;
                 reader->root_->create_shape(std::move(shape));
             }

@@ -74,6 +74,10 @@ namespace le
                              // (NEW_FEATURES_SEPT_2026.md item 5, core/flightlines.hpp) - own
                              // pseudo-row, no Layer, hidden by default (LeHandle pre-seeds it
                              // invisible); drawn by ComposeStage as an overlay, not rasterized.
+        PORT_MARKER,        // A direction triangle beside each PhysicalPort (DEF PIN) -
+                             // pointing in for inputs, out for outputs, both ways for
+                             // inouts (NEW_FEATURES_SEPT_2026.md item 28,
+                             // pipelines/port_markers.hpp) - own pseudo-row, no Layer.
     };
 
     /// @brief Whether anything drawn on `purpose` can ever be selected -
@@ -358,6 +362,14 @@ namespace le
                 .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::FLIGHTLINE, .id = flightline_id}},
             });
 
+            // Last, so purposes() index == ordinal stays true, and so the
+            // markers draw above everything they sit beside.
+            set.port_marker_id_ = set.add("PORT_MARKER", "PORT_MARKER", ViewLayerPurpose::PORT_MARKER, LayerId{}, port_marker_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "PORT_MARKER",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PORT_MARKER, .id = set.port_marker_id_}},
+            });
+
             return set;
         }
 
@@ -374,6 +386,7 @@ namespace le
 
         ViewLayerId boundary_view_layer() const { return boundary_id_; }
         ViewLayerId placement_view_layer() const { return placement_id_; }
+        ViewLayerId port_marker_view_layer() const { return port_marker_id_; }
 
         /// @brief Identifies *which* built ViewLayerSet this is - distinct
         /// from every other one build_for_technology() has ever produced,
@@ -673,6 +686,13 @@ namespace le
             return ViewLayerStyle{.outline_color = {120, 220, 255, 255}, .fill_color = {120, 220, 255, 100}};
         }
 
+        // Solid light gray - the PhysicalPort direction markers
+        // (NEW_FEATURES_SEPT_2026.md item 28).
+        static ViewLayerStyle port_marker_style()
+        {
+            return ViewLayerStyle{.outline_color = {200, 200, 200, 255}, .fill_color = {200, 200, 200, 255}};
+        }
+
     public:
         /// @brief Flightlines' light blue (NEW_FEATURES_SEPT_2026.md item 5) -
         /// public so ComposeStage's overlay and the Layers panel swatch share it.
@@ -687,6 +707,7 @@ namespace le
         std::vector<LookupEntry> lookup_;
         ViewLayerId boundary_id_;
         ViewLayerId placement_id_;
+        ViewLayerId port_marker_id_;
         std::vector<ViewLayerRow> rows_;
         uint64_t generation_ = 0;
     };

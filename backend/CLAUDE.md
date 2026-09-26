@@ -316,7 +316,11 @@ none of these are duplicated here.
   own comment has the exact fixture shape) mirrors the old modules'
   benchmark coverage; see `BENCHMARKS.md` for numbers and history.
   Single-threaded internally — see README's Threading open design
-  question. No external, machine-specific checkout to provision — Blend2D
+  question. A nested node's image covers its `ViewData::extent` (declared
+  diearea/boundary grown to everything it draws, placements included —
+  `HierarchyResolverStage::assign_extents`), not just its boundary, so a
+  cell's overhanging pins/obstructions still draw one level up;
+  `ViewportCullStage` culls placements by `ViewPlacementData::extent` too. No external, machine-specific checkout to provision — Blend2D
   is fetched and statically built via CMake `FetchContent` (see the Open
   Gaps entry below for the Skia checkout this once required).
 - `src/io/` — format readers/writers. `lef_reader.{hpp,cpp}`/
@@ -338,6 +342,17 @@ none of these are duplicated here.
   PINS/BLOCKAGES/VIAS/REGIONS/NETS/SPECIALNETS/NONDEFAULTRULES). NETS/
   SPECIALNETS cover routing *geometry* only, not connectivity — see
   `Route`'s own `schema.py` comment.
+  PINS geometry is stored in design coordinates (NEW_FEATURES_SEPT_2026.md
+  item 28): DEF gives it relative to the pin's (or 5.7+ PORT's) PLACED
+  point and orientation, so `DEFReader` applies `Geometry::pin_transform`
+  and `DEFWriter` inverts it on write. Hit-testing, selection and
+  `HierarchyResolverStage::append_physical_port_shapes` (shapes on
+  TERMINAL, the port name as a label, and a light-gray direction triangle
+  on the `PORT_MARKER` pseudo-row — `pipelines/port_markers.hpp`; the
+  rasterizer grows each port's marker to at least 3x3 px about the port's
+  outer-edge midpoint, `enlarged_port_marker`) all use the stored shapes
+  directly. Via geometry in a rotated pin is placed but
+  not rotated.
   `def_writer.{hpp,cpp}` mirrors `LEFWriter`'s own shape for the direct
   (non-callback) `defwWriter.hpp` API, covering the mirror image of
   `DEFReader`'s scope. Unlike LEF, DEF coordinates need no

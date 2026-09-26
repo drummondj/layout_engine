@@ -34,6 +34,59 @@ namespace le
         }
     }
 
+    // NEW_FEATURES_SEPT_2026.md item 28: a pin's geometry is stored in design
+    // coordinates - DEF's relative rect run through the PIN's rotated
+    // placement - and written back relative to it, unchanged.
+    TEST(DEFWriterPinPlacement, RotatedPinGeometryReadsIntoDesignCoordinatesAndWritesBackRelative)
+    {
+        const std::string def_path = scratch_output_path("le_def_rotated_pin.def");
+        {
+            std::ofstream out(def_path);
+            out << "VERSION 5.8 ;\nDIVIDERCHAR \"/\" ;\nBUSBITCHARS \"[]\" ;\nDESIGN pins ;\nUNITS DISTANCE MICRONS 1000 ;\n"
+                   "DIEAREA ( 0 0 ) ( 5000 5000 ) ;\n"
+                   // DEFWriter can't write PINS without a COMPONENTS section before it
+                   "COMPONENTS 1 ;\n- u1 A + PLACED ( 0 0 ) N ;\nEND COMPONENTS\n"
+                   "PINS 1 ;\n- A + NET A + DIRECTION INPUT + USE SIGNAL\n  + LAYER M2 ( 0 0 ) ( 30 135 )\n  + PLACED ( 1000 2000 ) E ;\nEND PINS\n"
+                   "END DESIGN\n";
+        }
+        Root root;
+        populate_technology_and_designs(root);
+        ASSERT_EQ(DEFReader().read_def(def_path, root, "test_lib"), 0);
+        const LayoutId layout_id = root.get_design_layout(root.get_design_by_name("pins"));
+        ASSERT_TRUE(layout_id.valid());
+        const auto &ports = root.get_layout_physical_ports(layout_id);
+        ASSERT_EQ(ports.size(), 1u);
+        const ShapeData *shape = root.get_shape(root.get_physical_port_segment_shapes(root.get_physical_port_segments(ports[0])[0])[0]);
+        ASSERT_NE(shape, nullptr);
+        ASSERT_EQ(shape->rects.size(), 1u);
+        // E maps (x, y) to (y, -x): (0,0)-(30,135) becomes (0,-30)-(135,0),
+        // then moves to the PLACED point.
+        EXPECT_EQ(shape->rects[0].ll.x, 1000);
+        EXPECT_EQ(shape->rects[0].ll.y, 1970);
+        EXPECT_EQ(shape->rects[0].ur.x, 1135);
+        EXPECT_EQ(shape->rects[0].ur.y, 2000);
+
+        const std::string written_path = scratch_output_path("le_def_rotated_pin_written.def");
+        ASSERT_EQ(DEFWriter().write_def(written_path, root, layout_id), 0);
+        std::ifstream in(written_path);
+        const std::string written((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        EXPECT_NE(written.find("( 0 0 ) ( 30 135 )"), std::string::npos) << written;
+
+        Root reread;
+        populate_technology_and_designs(reread);
+        ASSERT_EQ(DEFReader().read_def(written_path, reread, "test_lib"), 0);
+        const LayoutId reread_layout = reread.get_design_layout(reread.get_design_by_name("pins"));
+        const auto &reread_ports = reread.get_layout_physical_ports(reread_layout);
+        ASSERT_EQ(reread_ports.size(), 1u);
+        const ShapeData *reread_shape = reread.get_shape(reread.get_physical_port_segment_shapes(reread.get_physical_port_segments(reread_ports[0])[0])[0]);
+        ASSERT_NE(reread_shape, nullptr);
+        ASSERT_EQ(reread_shape->rects.size(), 1u);
+        EXPECT_EQ(reread_shape->rects[0].ll.x, 1000);
+        EXPECT_EQ(reread_shape->rects[0].ll.y, 1970);
+        EXPECT_EQ(reread_shape->rects[0].ur.x, 1135);
+        EXPECT_EQ(reread_shape->rects[0].ur.y, 2000);
+    }
+
     // Reads complete.5.8.def, writes it back out via DEFWriter, then
     // re-reads the written file into a second Root - same shape as
     // LEFWriterRoundtripFixture (lef_writer_test.cpp).

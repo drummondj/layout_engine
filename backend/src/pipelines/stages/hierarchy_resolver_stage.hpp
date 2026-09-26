@@ -9,6 +9,7 @@
 #include "../pipeline_options.hpp"
 #include "../render_shape.hpp"
 #include "../tbb_core.hpp"
+#include "../port_markers.hpp"
 #include "../via_shapes.hpp"
 
 #include <boost/geometry/index/rtree.hpp>
@@ -21,6 +22,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -91,6 +93,12 @@ namespace le
         Rect bbox;
         Geometry::InstanceTransform transform;
         Orientation orientation = Orientation::N;
+        /// @brief Everything this placement draws, in the parent's space:
+        /// `bbox` grown by the placed node's own `ViewData::extent` -
+        /// content past the cell's boundary (an Abstract's pins or
+        /// obstructions overhanging its SIZE, say) included. Set by
+        /// HierarchyResolverStage::assign_extents.
+        Rect extent;
     };
 
     /// @brief One node's own direct shapes, grouped by the ViewLayer they
@@ -180,6 +188,11 @@ namespace le
         ViewShapesHandle shapes;
         ViewShapesIndexHandle shapes_index;
         std::vector<ViewPlacementData> placement_data;
+        /// @brief The node's declared bbox (diearea/boundary) grown to
+        /// cover everything it draws - its own shapes and its placements'
+        /// `extent`s. RasterizeBlend2DStage sizes a nested node's image to
+        /// this, so nothing outside a cell's boundary is clipped.
+        Rect extent;
     };
 
     /// @brief HierarchyResolverStage's own InputData - LayerGenerationStage's
@@ -565,6 +578,7 @@ namespace le
                 }
             }
 
+            assign_extents(root, result);
             return result;
         }
 
@@ -609,6 +623,70 @@ namespace le
         // such a shape either way (its per-geometry-kind loops simply
         // don't execute). Geometry::bbox is a template (geometry.hpp) so
         // this resolves against RenderShape without any change here.
+        /// @brief Fills every node's `ViewData::extent` and every
+        /// placement's `ViewPlacementData::extent`, children first (a
+        /// placement's extent needs its placed node's). Cheap: a node's
+        /// own shapes contribute via their per-layer rtree's cached
+        /// bounds, not a walk over every shape.
+        static void assign_extents(const Root &root, HierarchyResolverOutput &output)
+        {
+            auto grow = [](std::optional<Rect> &extent, const Rect &r)
+            {
+                if (!extent)
+                {
+                    extent = r;
+                    return;
+                }
+                extent->ll.x = std::min(extent->ll.x, r.ll.x);
+                extent->ll.y = std::min(extent->ll.y, r.ll.y);
+                extent->ur.x = std::max(extent->ur.x, r.ur.x);
+                extent->ur.y = std::max(extent->ur.y, r.ur.y);
+            };
+
+            std::unordered_set<HierarchyId, HierarchyIdHash> done;
+            std::unordered_set<HierarchyId, HierarchyIdHash> in_progress;
+            auto visit = [&](auto &self, const HierarchyId &id) -> std::optional<Rect>
+            {
+                const auto it = output.view_data.find(id);
+                if (it == output.view_data.end())
+                    return std::nullopt;
+                ViewData &data = it->second;
+                if (done.contains(id))
+                    return data.extent;
+                if (!in_progress.insert(id).second)
+                    return std::nullopt; // a placement cycle - leave the rest to the declared bboxes
+
+                std::optional<Rect> extent;
+                const Rect declared = std::holds_alternative<LayoutId>(id) ? layout_declared_bbox(root, std::get<LayoutId>(id))
+                                                                           : abstract_declared_bbox(root, std::get<AbstractId>(id));
+                if (declared.ur.x > declared.ll.x || declared.ur.y > declared.ll.y)
+                    grow(extent, declared);
+                if (data.shapes_index)
+                    for (const auto &[view_layer, index] : *data.shapes_index)
+                        if (!index.empty())
+                        {
+                            const auto bounds = index.bounds();
+                            grow(extent, Rect{.ll = Point{bg::get<bg::min_corner, 0>(bounds), bg::get<bg::min_corner, 1>(bounds)},
+                                              .ur = Point{bg::get<bg::max_corner, 0>(bounds), bg::get<bg::max_corner, 1>(bounds)}});
+                        }
+                for (ViewPlacementData &placement : data.placement_data)
+                {
+                    std::optional<Rect> placement_extent = placement.bbox;
+                    if (const std::optional<Rect> child = self(self, placement.id))
+                        grow(placement_extent, Geometry::transform_bbox(placement.transform, *child));
+                    placement.extent = *placement_extent;
+                    grow(extent, placement.extent);
+                }
+
+                data.extent = extent.value_or(Rect{});
+                in_progress.erase(id);
+                done.insert(id);
+                return data.extent;
+            };
+            for (const auto &[id, data] : output.view_data)
+                visit(visit, id);
+        }
+
         static ViewShapesIndexHandle build_shape_index(const ViewLayerShapes &shapes_by_layer)
         {
             ViewLayerShapeIndex index_by_layer;
@@ -909,6 +987,81 @@ namespace le
                 shapes_by_layer[gcellgrid_view_layer].push_back(std::move(lines));
         }
 
+        // NEW_FEATURES_SEPT_2026.md item 28 - a Layout's PhysicalPorts (DEF
+        // PINS): their shapes on each layer's TERMINAL column (stored in
+        // design coordinates - DEFReader places them), the port's name as a
+        // label per layer - placed like an Abstract terminal's (see
+        // collect_abstract_content) - and a direction marker on
+        // PORT_MARKER beside the port's outer edge (port_marker_polygons) -
+        // one RenderShape per port, so the rasterizer can enlarge each
+        // about its own anchor (enlarged_port_marker).
+        static void append_physical_port_shapes(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, ViewLayerShapes &shapes_by_layer)
+        {
+            const std::optional<Rect> die = layout_die_area_bbox(root, layout_id);
+            const ViewLayerId marker_view_layer = view_layers.port_marker_view_layer();
+
+            for (PhysicalPortId port_id : root.get_layout_physical_ports(layout_id))
+            {
+                const PhysicalPortData *port = root.get_physical_port(port_id);
+                if (!port)
+                    continue;
+
+                struct LabelAccumulator
+                {
+                    RenderShape combined;
+                    ViewLayerId view_layer;
+                    std::size_t first_shape_index = 0;
+                };
+                std::unordered_map<LayerId, LabelAccumulator> by_layer;
+                RenderShape whole_port;
+
+                for (PhysicalPortSegmentId segment_id : root.get_physical_port_segments(port_id))
+                    for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
+                    {
+                        const Shape *shape = root.get_shape(shape_id);
+                        if (!shape)
+                            continue;
+                        append_via_shapes(root, *shape, ViewLayerPurpose::TERMINAL, view_layers, layout_id, shapes_by_layer);
+                        const ViewLayerId view_layer = resolve_view_layer(view_layers, *shape, ViewLayerPurpose::TERMINAL);
+                        std::vector<RenderShape> &layer_shapes = shapes_by_layer[view_layer];
+
+                        auto [it, inserted] = by_layer.try_emplace(shape->layer);
+                        if (inserted)
+                        {
+                            it->second.view_layer = view_layer;
+                            it->second.first_shape_index = layer_shapes.size();
+                        }
+                        for (RenderShape *acc : {&it->second.combined, &whole_port})
+                        {
+                            acc->rects.insert(acc->rects.end(), shape->rects.begin(), shape->rects.end());
+                            acc->polygons.insert(acc->polygons.end(), shape->polygons.begin(), shape->polygons.end());
+                            acc->paths.insert(acc->paths.end(), shape->paths.begin(), shape->paths.end());
+                        }
+                        layer_shapes.push_back(to_render_shape(*shape));
+                    }
+
+                for (const auto &[layer_id, acc] : by_layer)
+                {
+                    if (acc.combined.rects.empty() && acc.combined.polygons.empty() && acc.combined.paths.empty())
+                        continue;
+                    const Point location = Geometry::get_label_location(acc.combined);
+                    shapes_by_layer[acc.view_layer][acc.first_shape_index].texts.push_back(Text{
+                        .label = port->name,
+                        .location = location,
+                        .size = Geometry::local_width_at(acc.combined, location),
+                    });
+                }
+
+                if (die)
+                    if (const std::optional<Rect> port_bbox = Geometry::bbox(whole_port))
+                    {
+                        RenderShape marker{.polygons = port_marker_polygons(*port_bbox, *die, port->direction)};
+                        if (!marker.polygons.empty())
+                            shapes_by_layer[marker_view_layer].push_back(std::move(marker));
+                    }
+            }
+        }
+
         static void append_region_shapes(const Root &root, LayoutId layout_id, const ViewLayerSet &view_layers, ViewLayerShapes &shapes_by_layer)
         {
             const ViewLayerId region_view_layer = view_layers.find(LayerId{}, ViewLayerPurpose::REGION);
@@ -955,10 +1108,7 @@ namespace le
                 for (ShapeId shape_id : root.get_route_shapes(route_id))
                     push_shape_id(shape_id, ViewLayerPurpose::ROUTE);
 
-            for (PhysicalPortId port_id : root.get_layout_physical_ports(layout_id))
-                for (PhysicalPortSegmentId segment_id : root.get_physical_port_segments(port_id))
-                    for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
-                        push_shape_id(shape_id, ViewLayerPurpose::TERMINAL);
+            append_physical_port_shapes(root, view_layers, layout_id, shapes_by_layer);
 
             append_free_shapes(root, view_layers, root.get_layout_free_shapes(layout_id), layout_id, shapes_by_layer);
 

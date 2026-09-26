@@ -538,6 +538,50 @@ namespace le
             };
         }
 
+        /// @brief A DEF PIN's (or 5.7+ PORT's) placement as a transform
+        /// (NEW_FEATURES_SEPT_2026.md item 28): DEF gives pin geometry
+        /// relative to its PLACED point, rotated/mirrored by its
+        /// orientation about that point - not realigned to a bbox the way
+        /// instance_transform places a cell. Identity for an unplaced pin.
+        static InstanceTransform pin_transform(const std::optional<Point> &location, const std::optional<Orientation> &orientation)
+        {
+            if (!location)
+                return identity_transform();
+            return InstanceTransform{.linear = orientation_linear(orientation.value_or(Orientation::N)), .translation = *location};
+        }
+
+        static Point apply(const InstanceTransform &t, Point p)
+        {
+            const Point rotated = apply_linear(t.linear, p);
+            return Point{.x = rotated.x + t.translation.x, .y = rotated.y + t.translation.y};
+        }
+
+        /// @brief Every rect, polygon and path point and via origin of
+        /// `data` through `t` - rects re-normalized (a rotation can swap
+        /// their corners); widths, masks and every other field copied.
+        /// Via geometry itself isn't rotated, only placed.
+        static ShapeData transform(const ShapeData &data, const InstanceTransform &t)
+        {
+            ShapeData out = data;
+            for (Rect &r : out.rects)
+            {
+                const Point a = apply(t, r.ll);
+                const Point b = apply(t, r.ur);
+                r = Rect{.ll = Point{.x = std::min(a.x, b.x), .y = std::min(a.y, b.y)}, .ur = Point{.x = std::max(a.x, b.x), .y = std::max(a.y, b.y)}};
+            }
+            for (Polygon &polygon : out.polygons)
+                for (Point &p : polygon.points)
+                    p = apply(t, p);
+            for (Path &path : out.paths)
+                for (Point &p : path.polygon.points)
+                    p = apply(t, p);
+            for (auto &via : out.vias)
+                via.origin = apply(t, via.origin);
+            for (auto &via : out.via_iterates)
+                via.origin = apply(t, via.origin);
+            return out;
+        }
+
         static Polygon rect_to_polygon(const Rect &rect)
         {
             std::vector<Point> points;

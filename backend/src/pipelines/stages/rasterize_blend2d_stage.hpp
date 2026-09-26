@@ -7,6 +7,7 @@
 #include "../blend2d_font.hpp"
 #include "../draw_helpers.hpp"
 #include "../pipeline_options.hpp"
+#include "../port_markers.hpp"
 #include "../rasterize_output.hpp"
 #include "../render_shape.hpp"
 #include "../tbb_core.hpp"
@@ -548,6 +549,7 @@ namespace le
         // (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md).
         const BLFontFace &font_face = default_blend2d_font_face();
         const ViewLayerId placement_layer_id = view_layers.placement_view_layer();
+        const ViewLayerId port_marker_layer_id = view_layers.port_marker_view_layer();
 
         // Shared by both the generic per-shape text loop and the
         // placement-name branch below (draw_one_shape) - looks up
@@ -576,7 +578,14 @@ namespace le
             return it->second;
         };
 
-        for (const ViewLayerId &view_layer_id : view_layers.all())
+        // PORT_MARKER draws first, under everything else - otherwise a
+        // port's marker would cover its own label, drawn with the port's
+        // layer (NEW_FEATURES_SEPT_2026.md item 28). Markers sit outside
+        // their ports, so nothing else they overlap hides a real shape.
+        std::vector<ViewLayerId> draw_order = view_layers.all();
+        std::ranges::stable_partition(draw_order, [&](ViewLayerId id)
+                                      { return id == port_marker_layer_id; });
+        for (const ViewLayerId &view_layer_id : draw_order)
         {
             const auto group_it = shapes_by_layer.find(view_layer_id);
             if (group_it == shapes_by_layer.end() || group_it->second.empty())
@@ -616,6 +625,7 @@ namespace le
 
             const bool is_cross = style.fill_pattern == FillPattern::CROSS;
             const bool is_placement_layer = view_layer_id == placement_layer_id;
+            const bool is_port_marker_layer = view_layer_id == port_marker_layer_id;
 
             const BLRgba32 fill_color = to_bl_color(style.fill_color);
             const BLRgba32 stroke_color = to_bl_color(style.outline_color);
@@ -763,7 +773,13 @@ namespace le
                     ctx.stroke_rect(rect);
                 }
 
-                for (const Polygon &poly : shape.polygons)
+                // A port marker never shrinks below kMinPortMarkerPixelSize
+                // (NEW_FEATURES_SEPT_2026.md item 28) - grown about the
+                // port's edge, so it's never sub-pixel either.
+                std::optional<std::vector<Polygon>> enlarged_marker;
+                if (is_port_marker_layer)
+                    enlarged_marker = enlarged_port_marker(shape.polygons, scale);
+                for (const Polygon &poly : enlarged_marker ? *enlarged_marker : shape.polygons)
                 {
                     if (polygon_is_sub_pixel(poly, scale))
                         continue;
@@ -967,7 +983,10 @@ namespace le
 
             for (const auto &[id, data] : culled->view_data)
             {
-                const Rect local_bbox = (id == options.top_level) ? options.viewport : node_local_bbox(*options.root, id);
+                // A nested node covers everything it draws (ViewData::extent),
+                // not just its declared boundary - content outside a cell's
+                // boundary still shows one level up.
+                const Rect local_bbox = (id == options.top_level) ? options.viewport : data.extent;
 
                 const double width_dbu = static_cast<double>(local_bbox.ur.x - local_bbox.ll.x);
                 const double height_dbu = static_cast<double>(local_bbox.ur.y - local_bbox.ll.y);
@@ -1108,12 +1127,5 @@ namespace le
         std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> glyph_bitmap_cache_;
 
         uint32_t thread_count_ = 8;
-
-        static Rect node_local_bbox(const Root &root, const HierarchyId &id)
-        {
-            if (const LayoutId *layout_id = std::get_if<LayoutId>(&id))
-                return layout_declared_bbox(root, *layout_id);
-            return abstract_declared_bbox(root, std::get<AbstractId>(id));
-        }
     };
 }

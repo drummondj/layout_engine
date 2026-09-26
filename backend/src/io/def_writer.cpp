@@ -1,5 +1,6 @@
 #include "def_writer.hpp"
 #include "../lefdef/def/include/defwWriter.hpp"
+#include "../geometry/geometry.hpp"
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <memory>
@@ -531,11 +532,20 @@ namespace le
                 // unlike some other sections (confirmed the hard way: the
                 // reverse order re-parses with a syntax error at the next
                 // LAYER token).
+                // Pin shapes are stored in design coordinates
+                // (NEW_FEATURES_SEPT_2026.md item 28 - DEFReader converts on
+                // read); DEF wants them relative to the PORT's placement, or
+                // the PIN's for a simple pin - the inverse of DEFReader's.
+                const Geometry::InstanceTransform to_pin = Geometry::invert(
+                    has_port_wrapper ? Geometry::pin_transform(segment->location, segment->orientation)
+                                     : Geometry::pin_transform(port->location, port->orientation));
                 for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
                 {
-                    const ShapeData *shape = root.get_shape(shape_id);
-                    if (!shape)
+                    const ShapeData *stored = root.get_shape(shape_id);
+                    if (!stored)
                         continue;
+                    const ShapeData local = Geometry::transform(*stored, to_pin);
+                    const ShapeData *shape = &local;
                     const LayerData *layer = root.get_layer(shape->layer);
                     const std::string layer_name = layer ? layer->name : std::string{};
 
