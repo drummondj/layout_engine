@@ -81,6 +81,41 @@ There should be an option to save the settings into your home dir or a file of t
 
 14. Resize tool button should be disabled when placements are selected - DONE
 
+15. Info window - DONE
 
+Please add an info window to the bottom of the right sidebar. This will replace the "tooltip" column in the status_bar.
 
+16. Toolbar cleanup
+
+Please add a dark gray border to the right of the mode selector and the bottom of the mode toolbar and secondary toolbar. Also reduce the icon sizes in the secondary toolbar to match the height of the buttons.
+
+17. Default layer colors and customization
+
+Please update the default layer/via colors to use 20 bright colors, the higher metal layers are too dark. Start with primary colors, then cycle through secondary colors, then tertiary colors etc
+
+Also, when the user clicks on the color swatch, I would like a color picker to appear, which can be saved in the settings.json.
+
+18. Exit dialog
+
+If there are unsaved database mutations (i.e. write_def has not been ran), then when the user tries to exit the tool I would like to see a dialog box appear asking for confirmation. Same for settings. So if either settings or the database is mutated, show a confirmation explaining what needs saving.
+
+19. Bug when opening gui before loading design
+
+If I run show_gui before loading the design, I don't see any shapes in the Layout viewer or Abstract viewer.
+
+20. minor grid color problem
+
+Not sure if this is my eyes or a real problem. The minor grid points are hardly visible on the black background, but when I draw a selection box (or zoom box) they change color:
+
+![Minor grid color](image.png)
+
+21. Extra settings
+
+Please a the set_max_concurrency setting, label it as "CPUs"
+
+22. Rectangle select/zoom bug
+
+If I start a rectange or zoom select but then switch windows to another program, the selection tool gets stuck because it still thinks my mouse is down. Can you add esc to cancel the rectangle?
+
+23. Status bar needs padding on the bottom, to match the padding on the top
 

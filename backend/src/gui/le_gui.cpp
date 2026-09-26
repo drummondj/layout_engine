@@ -10,6 +10,7 @@
 #include "components/mode_toolbar.hpp"
 #include "components/secondary_toolbar.hpp"
 #include "components/settings_panel.hpp"
+#include "components/info_panel.hpp"
 #include "components/icon_font.hpp"
 
 // Apple deprecated the whole OpenGL framework in favor of Metal (10.14+)
@@ -598,6 +599,7 @@ namespace le::gui
         constexpr const char *kPropertiesWindowTitle = "Properties";
         constexpr const char *kLayersWindowTitle = "Layers";
         constexpr const char *kSettingsWindowTitle = "Settings";
+        constexpr const char *kInfoWindowTitle = "Info";
         constexpr const char *kLayoutWindowTitle = "Layout";
 
         // Draws the always-present, fullscreen invisible host window +
@@ -660,7 +662,11 @@ namespace le::gui
 
                 ImGuiID center_id = dockspace_id;
                 const ImGuiID left_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Left, 0.22f, nullptr, &center_id);
-                const ImGuiID right_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Right, 0.28f, nullptr, &center_id);
+                ImGuiID right_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Right, 0.28f, nullptr, &center_id);
+                // NEW_FEATURES_SEPT_2026.md item 15 - the Info panel gets
+                // its own strip along the bottom of the right sidebar,
+                // below the Properties/Layers/Settings tabs.
+                const ImGuiID info_id = ImGui::DockBuilderSplitNode(right_id, ImGuiDir_Down, 0.15f, nullptr, &right_id);
 
                 ImGui::DockBuilderDockWindow(kBrowserWindowTitle, left_id);
                 // Docked into the same node as Properties, not a
@@ -675,6 +681,7 @@ namespace le::gui
                 ImGui::DockBuilderDockWindow(kPropertiesWindowTitle, right_id);
                 ImGui::DockBuilderDockWindow(kLayersWindowTitle, right_id);
                 ImGui::DockBuilderDockWindow(kSettingsWindowTitle, right_id);
+                ImGui::DockBuilderDockWindow(kInfoWindowTitle, info_id);
                 ImGui::DockBuilderDockWindow(kLayoutWindowTitle, center_id);
                 ImGui::DockBuilderFinish(dockspace_id);
             }
@@ -1026,6 +1033,13 @@ namespace le::gui
                 // same right-hand dock node.
                 ImGui::Begin(kSettingsWindowTitle);
                 draw_settings_panel(provider);
+                ImGui::End();
+
+                // NEW_FEATURES_SEPT_2026.md item 15 - the current mode's
+                // instructions, below the tabs above (it replaced the
+                // status bar's middle column).
+                ImGui::Begin(kInfoWindowTitle);
+                draw_info_panel(provider);
                 ImGui::End();
 
                 // Zero window padding - the design view/status bar sizing

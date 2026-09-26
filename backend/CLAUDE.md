@@ -646,7 +646,12 @@ none of these are duplicated here.
   groups, item 13 - a group that won't fit wraps onto another line);
   le_gui.cpp overlays it on the design view's top edge rather than
   inserting a row, so showing it never resizes the viewport (its height
-  auto-sizes to the wrapped lines). `components/settings_panel.cpp` is
+  auto-sizes to the wrapped lines). `components/info_panel.cpp` (item 15)
+  is the Info window docked along the bottom of the right sidebar: the
+  current mode's instructions (`le_tooltip_message`), wrapped - they used
+  to be the status bar's middle column, which clipped long text; the
+  status bar now shows only the mode and the coordinates/selection count.
+  `components/settings_panel.cpp` is
   the right sidebar's Settings tab (item 9): grid spacing (um, with a
   button setting minor to the manufacturing grid and major to 10x it),
   ruler font size, min/max label font sizes (labels scale with their

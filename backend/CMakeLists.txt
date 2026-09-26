@@ -674,6 +674,7 @@ add_library(gui STATIC
     src/gui/components/mode_toolbar.cpp
     src/gui/components/secondary_toolbar.cpp
     src/gui/components/settings_panel.cpp
+    src/gui/components/info_panel.cpp
 )
 target_include_directories(gui PUBLIC src/gui)
 target_include_directories(gui PRIVATE ${icon_font_header_SOURCE_DIR} ${portable_file_dialogs_header_SOURCE_DIR})

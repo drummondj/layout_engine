@@ -25,14 +25,13 @@ namespace le::gui
         }
     }
 
-    // A 3-column table (mode+spinner | tooltip | coordinates+selection),
-    // rather than status_bar.dart's own width-cutoff Row/Column switch -
-    // ImGui tables clip an oversized middle cell automatically instead of
-    // wrapping/eliding it, so there's no equivalent narrow-width fallback
-    // layout needed here; the fixed-width outer columns naturally push
-    // the last one flush against the table's own right edge (`width`,
-    // matching the outer table size passed below) the same way
-    // status_bar.dart's own trailing Row items sit at its right edge.
+    // A 2-column table (mode | coordinates+selection) - the stretching
+    // first column pushes the fixed-width second one flush against the
+    // table's own right edge (`width`, matching the outer table size
+    // passed below), the same way status_bar.dart's own trailing Row items
+    // sit at its right edge. The mode's instructions that used to sit
+    // between the two are in the Info panel now (info_panel.hpp,
+    // NEW_FEATURES_SEPT_2026.md item 15) - a long one was clipped here.
     void draw_status_bar(GuiProvider &provider, float width)
     {
         const GuiProvider::State &state = provider.state();
@@ -47,14 +46,13 @@ namespace le::gui
         const float table_width = width - (2.0f * kHorizontalInset);
 
         if (!ImGui::BeginTable(
-                "status_bar_row", 3,
+                "status_bar_row", 2,
                 ImGuiTableFlags_SizingFixedFit,
                 ImVec2(table_width, 0.0f)))
         {
             return;
         }
-        ImGui::TableSetupColumn("mode", ImGuiTableColumnFlags_WidthFixed);
-        ImGui::TableSetupColumn("tooltip", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("mode", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("coords", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableNextRow();
 
@@ -69,12 +67,6 @@ namespace le::gui
         // covers the same signal.
 
         ImGui::TableSetColumnIndex(1);
-        if (!state.status_bar.tooltip_message.empty())
-        {
-            ImGui::TextUnformatted(state.status_bar.tooltip_message.c_str());
-        }
-
-        ImGui::TableSetColumnIndex(2);
         const LeSnappedMousePosition &pos = state.status_bar.snapped_mouse_position;
         char coords_text[64];
         if (pos.has_position)
