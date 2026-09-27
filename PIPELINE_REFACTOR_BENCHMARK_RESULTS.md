@@ -626,3 +626,41 @@ Findings:
 - **The first frame after a route shape edit** pays about the old routes chunk's free (3.72 s - 0.28 s = 3.4 s at 8x8, matching "free previous output"). The chunk's last reference is the previous culled output held by ViewportCull/Rasterize, so it dies inside that frame, alongside refilling the new chunk's outline cache. The second frame is back to warm. Step 2 shrinks both costs to one tile. Freeing replaced chunks on a background thread (a custom deleter on each chunk) would take the free off the frame entirely.
 - **Loading is unchanged within noise.** The change log costs one ring write per generated mutation: 1x1 load took 870 ms before, and 895-912 ms across four runs after.
 - **Peak RSS is 20.4 GB at 8x8, vs 14.6 GB in the step 0 run.** A route edit briefly holds the old and new ROUTES chunks together. The app already did this on every recompute, since MemoizingStage keeps the old output until the new one is ready; the step 0 profile freed the old output first. A first version of the per-chunk outline cache held its chunk strongly and kept a replaced routes chunk alive until the next frame (25.7 GB peak at 8x8). It now holds a weak reference.
+
+**Spatial tiles for routes and placements (plan step 2)**, on top of 8ccaa98:
+- **Tiles:** each Layout's routes and placements are split into grid tiles of about 2000 each (`HierarchyResolverStage::LayoutTiling`). A route is assigned by its first shape's center, a placement by its location.
+- **Tile contents:** each route tile and each placement tile is its own chunk. A placement tile also carries its own shared `ViewPlacementTile` (placements, extent, distinct children).
+- **Edits:** an edit moves the changed routes/placements between their old and new tiles and rebuilds only those.
+- **Culling:** `ViewportCullStage` indexes each placement tile separately and skips tiles whose extent is off-screen.
+
+Same `resolver_profile` method and edits as the previous entry.
+
+| Metric | 1x1 | 2x1 | 2x2 | 3x2 | 3x3 | 4x4 | 5x5 | 6x6 | 7x7 | 8x8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| placement move: resolve (step 1b -> tiles) | 5.5 -> **0.66 ms** | 10 -> **0.65 ms** | 21 -> **1.0 ms** | 33 -> **1.1 ms** | 52 -> **1.4 ms** | 88 -> **1.9 ms** | 136 -> **2.5 ms** | 313 -> **3.4 ms** | 272 -> **4.5 ms** | 479 -> **5.4 ms** |
+| placement move: first cull | 3.9 -> 0.27 ms | 8.0 -> 0.25 ms | 18 -> 0.47 ms | 29 -> 0.56 ms | 52 -> 0.58 ms | 89 -> 0.94 ms | 139 -> 1.1 ms | 221 -> 1.9 ms | 307 -> 2.3 ms | 400 -> 2.5 ms |
+| route shape edit: resolve | 131 -> **11 ms** | 275 -> **8.0 ms** | 572 -> **9.2 ms** | 865 -> **10 ms** | 1334 -> **17 ms** | 2392 -> **11 ms** | 4154 -> **18 ms** | 6079 -> **14 ms** | 8317 -> **21 ms** | 11054 -> **19 ms** |
+| route shape edit: first / second frame | 36 / 26 ms | 58 / 29 ms | 93 / 51 ms | 100 / 65 ms | 220 / 146 ms | 50 / 46 ms | 123 / 100 ms | 119 / 115 ms | 180 / 160 ms | 71 / 66 ms |
+| cold resolve (step 1b -> tiles) | 146 -> 148 ms | 297 -> 300 ms | 593 -> 586 ms | 863 -> 880 ms | 1.35 -> 1.33 s | 2.53 -> 2.34 s | 4.29 -> 3.68 s | 6.53 -> 5.38 s | 8.44 -> 7.32 s | 11.1 -> 9.59 s |
+| free previous output | 41 -> 20 ms | 90 -> 42 ms | 185 -> 83 ms | 293 -> 122 ms | 446 -> 183 ms | 772 -> 308 ms | 1.32 -> 0.50 s | 1.93 -> 0.72 s | 2.63 -> 0.98 s | 3.47 -> 1.28 s |
+| zoomed-in cull, cold | 3.9 -> 0.29 ms | 7.7 -> 0.26 ms | 17 -> 0.73 ms | 25 -> 0.80 ms | 41 -> 0.85 ms | 73 -> 1.7 ms | 121 -> 1.8 ms | 187 -> 3.2 ms | 247 -> 3.5 ms | 331 -> 4.7 ms |
+| zoomed-in rasterize, warm | 33 -> 26 ms | 36 -> 29 ms | 65 -> 47 ms | 85 -> 62 ms | 173 -> 138 ms | 100 -> 45 ms | 188 -> 98 ms | 236 -> 111 ms | 324 -> 160 ms | 282 -> 66 ms |
+| zoom-fit cull, warm | 1.9 -> 3.5 ms | 7.1 -> 11 ms | 14 -> 15 ms | 21 -> 22 ms | 29 -> 36 ms | 54 -> 87 ms | 104 -> 94 ms | 124 -> 175 ms | 158 -> 291 ms | 222 -> 319 ms |
+| RSS after resolve | 250 -> 241 MB | 472 -> 464 MB | 843 -> 899 MB | 1.26 -> 1.33 GB | 1.88 -> 1.98 GB | 3.16 -> 3.36 GB | 5.27 -> 5.42 GB | 7.53 -> 7.81 GB | 10.2 -> 10.6 GB | 12.9 -> 13.9 GB |
+| peak RSS (whole run) | 439 -> 289 MB | 751 -> 548 MB | 1.46 -> 1.00 GB | 2.01 -> 1.46 GB | 2.95 -> 2.18 GB | 5.06 -> 3.70 GB | 8.24 -> 5.85 GB | 11.9 -> 8.49 GB | 16.2 -> 11.4 GB | 20.4 -> 15.1 GB |
+
+Findings:
+
+- **Edits no longer scale with design size in any meaningful way.** A placement move resolves in 0.66-5.4 ms and a route edit in 8-21 ms, from 1x1 to 8x8. At 8x8 that is 2000x (move) and 570x (route) faster than the full resolve every edit used to pay.
+- **The first cull after a move is near-free.** Only the moved placement's tile index is rebuilt: 2.5 ms vs 400 ms at 8x8.
+- **The first frame after a route edit is now close to a warm one.** Only one small route tile's outline cache refills and one small chunk is freed.
+- **The cold resolve and its free both got cheaper:** 9.6 s vs 11.1 s, and 1.3 s vs 3.5 s at 8x8. Building and freeing about 1900 small chunks and rtrees is cheaper than one huge one of each.
+- **Zoomed-in culling and rasterizing are faster.** Off-screen tiles are skipped by their bounds (cold zoomed-in cull 4.7 ms vs 331 ms at 8x8; warm zoomed-in rasterize 66 ms vs 282 ms).
+- **Zoom-fit culling is the one regression.** It now queries every tile's index rather than one rtree: 319 ms vs 222 ms warm at 8x8. It is dwarfed by the 2.0 s zoom-fit rasterize, which itself improved from 2.5 s.
+- **Tiles cost about 7% more resident memory after a resolve** (13.9 GB vs 12.9 GB at 8x8, about 33 B per rendered shape). That is more than the plan's roughly 12 B/object estimate: per-tile per-layer maps and rtrees add overhead beyond the membership lists. **Peak RSS drops by a quarter**, because an edit no longer holds two copies of the routes, and is back to the step 0 level (15.1 GB vs 14.6 GB at 8x8).
+
+Rejected along the way: **freeing replaced chunks on a background thread** (a custom shared_ptr deleter feeding one releaser thread). Measured on 4x4 before tiles:
+- **It helped the frame after a route edit:** 869 ms -> 120 ms.
+- **It slowed whatever overlapped the free:** the next resolve 2.39 s -> 3.32 s, the following frame 104 -> 258 ms, and cold resolves overlapping the previous output's free 2.53 -> 3.78 s. That is more than the free itself cost inline, consistent with glibc `free()` from another thread contending on the allocating thread's arena lock.
+
+Reverted. Tiles make an edit's free tiny anyway; a full resolve still frees the previous output inline (1.3 s at 8x8).

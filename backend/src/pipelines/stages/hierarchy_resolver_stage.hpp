@@ -21,6 +21,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <cmath>
+#include <set>
 #include <memory>
 #include <optional>
 #include <string>
@@ -247,40 +249,45 @@ namespace le
         ViewShapesIndexHandle shapes_index;
     };
 
-    /// @brief A Layout node's chunks, in ViewData::chunks order - one per
-    /// kind of content, so an edit to one kind (a placement move, a route
-    /// edit) leaves the others' chunks untouched. ROUTES is nearly all of
-    /// a real design's shapes (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md,
-    /// the aes_scaling phase profile). An Abstract node has one chunk.
+    /// @brief A Layout node's fixed chunks, first in ViewData::chunks -
+    /// one per kind of small content, so an edit to one kind leaves the
+    /// others untouched. After them come the Layout's route tiles, then
+    /// its placement tiles (HierarchyResolverStage's LayoutTiling): routes
+    /// and placements are nearly all of a real design
+    /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md, the aes_scaling phase
+    /// profile), so they're split spatially and an edit rebuilds only the
+    /// tiles it touched. An Abstract node has one chunk.
     enum class LayoutChunk : std::uint8_t
     {
         DIEAREA_BLOCKAGES,
-        ROUTES,
         PORTS_FREE_SHAPES,
         ROWS_TRACKS_GCELLS_REGIONS,
-        PLACEMENTS,
     };
-    inline constexpr std::size_t kLayoutChunkCount = 5;
+    inline constexpr std::size_t kFixedLayoutChunkCount = 3;
 
-    using ViewPlacements = std::shared_ptr<const std::vector<ViewPlacementData>>;
-
-    /// @brief An empty, shared ViewPlacements - ViewData::placement_data
-    /// is never null.
-    inline const ViewPlacements &no_placements()
+    /// @brief One placement tile's resolved child placements - immutable
+    /// and shared between outputs like a chunk, so ViewportCullStage keys
+    /// its per-tile index on it. `extent` is the union of the placements'
+    /// extents (meaningless when empty); `children` the distinct nodes
+    /// they place.
+    struct ViewPlacementTile
     {
-        static const ViewPlacements empty = std::make_shared<const std::vector<ViewPlacementData>>();
-        return empty;
-    }
+        std::vector<ViewPlacementData> placements;
+        Rect extent;
+        std::vector<HierarchyId> children;
+    };
+    using ViewPlacements = std::shared_ptr<const ViewPlacementTile>;
 
     struct ViewData
     {
-        /// @brief The node's direct shapes: kLayoutChunkCount chunks
-        /// (LayoutChunk order) for a Layout, one for an Abstract.
+        /// @brief The node's direct shapes: for a Layout its fixed chunks
+        /// (LayoutChunk order), route tiles and placement tiles; for an
+        /// Abstract one chunk.
         std::vector<ViewShapeChunk> chunks;
-        /// @brief Resolved child placements - immutable and shared like
-        /// the chunks; a new vector only when they (or their extents)
-        /// change, so ViewportCullStage keys its per-node index on it.
-        ViewPlacements placement_data = no_placements();
+        /// @brief Resolved child placements, per placement tile (never
+        /// null). ViewportCullStage's output holds at most one tile per
+        /// node - the culled placements.
+        std::vector<ViewPlacements> placement_tiles;
         /// @brief The node's declared bbox (diearea/boundary) grown to
         /// cover everything it draws - its own shapes and its placements'
         /// `extent`s. RasterizeBlend2DStage sizes a nested node's image to
@@ -290,6 +297,23 @@ namespace le
         /// (HierarchyResolverStage re-resolves its placements with it).
         int remaining_depth = 0;
     };
+
+    /// @brief Calls `fn(const ViewPlacementData &)` for every placement of `data`.
+    template <typename Fn>
+    void for_each_placement(const ViewData &data, Fn &&fn)
+    {
+        for (const ViewPlacements &tile : data.placement_tiles)
+            for (const ViewPlacementData &placement : tile->placements)
+                fn(placement);
+    }
+
+    inline std::size_t placement_count(const ViewData &data)
+    {
+        std::size_t count = 0;
+        for (const ViewPlacements &tile : data.placement_tiles)
+            count += tile->placements.size();
+        return count;
+    }
 
     /// @brief Every shape `data` draws on `view_layer`, across its chunks.
     inline std::vector<const RenderShape *> view_data_shapes(const ViewData &data, ViewLayerId view_layer)
@@ -439,9 +463,10 @@ namespace le
         HierarchyResolverOutputStats stats;
         for (const auto &[id, data] : output.view_data)
         {
-            stats.placement_count += data.placement_data->size();
+            stats.placement_count += placement_count(data);
             stats.own_overhead_bytes += sizeof(ViewData);
-            stats.own_overhead_bytes += data.placement_data->capacity() * sizeof(ViewPlacementData);
+            for (const ViewPlacements &tile : data.placement_tiles)
+                stats.own_overhead_bytes += tile->placements.capacity() * sizeof(ViewPlacementData);
             for (const ViewShapeChunk &chunk : data.chunks)
             {
                 if (!chunk.shapes)
@@ -527,10 +552,12 @@ namespace le
     /// Incremental updates: a recompute after an edit (same Root,
     /// top_level and hierarchy_depth; a ViewLayerSet with the same ids -
     /// a rebuilt or recolored one qualifies) reads the Root change log
-    /// since the previous compute() and rebuilds only the touched chunks
-    /// (LayoutChunk - a placement move rebuilds its Layout's PLACEMENTS,
-    /// a route edit its ROUTES, a cell edit that Abstract), sharing every
-    /// other chunk and placement vector with the previous output. Anything
+    /// since the previous compute() and rebuilds only the touched chunks -
+    /// a Layout's routes and placements are split into spatial tiles
+    /// (about kRoutesPerTile/kPlacementsPerTile each, LayoutTiling), so a
+    /// route edit or placement move rebuilds its old and new tile, a fixed
+    /// LayoutChunk edit that chunk, a cell edit that Abstract - sharing
+    /// every other chunk and placement tile with the previous output. Anything
     /// it can't place precisely (technology/library/design edits, a
     /// created or deleted Abstract/Layout, a saturated or wrapped log)
     /// falls back to the full resolve. last_compute_was_incremental() says
@@ -623,9 +650,9 @@ namespace le
         // (one worklist entry per discovered {id, remaining_depth},
         // deduplicated by id - see the class comment) and builds every
         // node's chunks. An incremental one (after an edit) starts from the
-        // previous output and rebuilds only the chunks the Root change log
-        // says were touched; every other chunk and placement vector is
-        // shared with the previous output, not copied or freed.
+        // previous output and rebuilds only the chunks and tiles the Root
+        // change log says were touched; every other chunk and placement
+        // tile is shared with the previous output, not copied or freed.
 
         struct ResolveState
         {
@@ -641,9 +668,106 @@ namespace le
             int remaining_depth;
         };
 
-        // Placement vectors built this compute() and not yet published -
-        // assign_extents fills their extents in place before they're wrapped.
-        using FreshPlacements = std::unordered_map<HierarchyId, std::vector<ViewPlacementData>, HierarchyIdHash>;
+        // About this many routes/placements per tile: an edit rebuilds a
+        // tile or two, so this bounds its cost; more tiles cost a little
+        // per frame (one per-layer lookup each) and per resolve.
+        static constexpr std::size_t kRoutesPerTile = 2000;
+        static constexpr std::size_t kPlacementsPerTile = 2000;
+        static constexpr std::size_t kMaxTilesPerSide = 64;
+
+        // An n x n grid over `bounds`; points outside land in edge tiles.
+        struct TileGrid
+        {
+            Rect bounds;
+            std::size_t n = 1;
+
+            std::size_t count() const { return n * n; }
+
+            std::size_t tile_of(Point p) const
+            {
+                if (n == 1)
+                    return 0;
+                auto cell = [&](int64_t v, int64_t lo, int64_t hi)
+                {
+                    const int64_t span = std::max<int64_t>(hi - lo, 1);
+                    const int64_t c = (v - lo) * static_cast<int64_t>(n) / span;
+                    return static_cast<std::size_t>(std::clamp<int64_t>(c, 0, static_cast<int64_t>(n) - 1));
+                };
+                return cell(p.y, bounds.ll.y, bounds.ur.y) * n + cell(p.x, bounds.ll.x, bounds.ur.x);
+            }
+
+            static TileGrid make(const Rect &bounds, std::size_t items, std::size_t per_tile)
+            {
+                const std::size_t tiles = std::max<std::size_t>(1, (items + per_tile - 1) / per_tile);
+                const auto side = static_cast<std::size_t>(std::ceil(std::sqrt(static_cast<double>(tiles))));
+                return TileGrid{.bounds = bounds, .n = std::clamp<std::size_t>(side, 1, kMaxTilesPerSide)};
+            }
+        };
+
+        // Which tile each object of one kind is in, and each tile's
+        // members (in assignment order).
+        template <typename IdT>
+        struct TileMembership
+        {
+            TileGrid grid;
+            std::vector<std::vector<IdT>> members;
+            std::vector<std::pair<std::uint32_t, std::uint32_t>> by_index; // id.index -> {generation + 1, tile}; 0 = none
+
+            std::optional<std::size_t> tile_of_id(IdT id) const
+            {
+                if (id.index >= by_index.size() || by_index[id.index].first != id.generation + 1)
+                    return std::nullopt;
+                return by_index[id.index].second;
+            }
+
+            void assign(IdT id, std::size_t tile)
+            {
+                members[tile].push_back(id);
+                if (id.index >= by_index.size())
+                    by_index.resize(static_cast<std::size_t>(id.index) + 1, {0, 0});
+                by_index[id.index] = {id.generation + 1, static_cast<std::uint32_t>(tile)};
+            }
+
+            // Removes `id` from its tile, returning that tile.
+            std::optional<std::size_t> remove(IdT id)
+            {
+                const std::optional<std::size_t> tile = tile_of_id(id);
+                if (!tile)
+                    return std::nullopt;
+                std::erase(members[*tile], id);
+                by_index[id.index] = {0, 0};
+                return tile;
+            }
+        };
+
+        struct LayoutTiling
+        {
+            TileMembership<RouteId> routes;
+            TileMembership<PlacementId> placements;
+
+            std::size_t route_chunk(std::size_t tile) const { return kFixedLayoutChunkCount + tile; }
+            std::size_t placement_chunk(std::size_t tile) const { return kFixedLayoutChunkCount + routes.grid.count() + tile; }
+        };
+
+        // A route's tile anchor: the center of its first shape with geometry.
+        static std::optional<Point> route_anchor(const Root &root, RouteId route)
+        {
+            for (const ShapeId shape_id : root.get_route_shapes(route))
+                if (const Shape *shape = root.get_shape(shape_id))
+                    if (const std::optional<Rect> box = Geometry::bbox(*shape))
+                        return Point{.x = box->ll.x + (box->ur.x - box->ll.x) / 2, .y = box->ll.y + (box->ur.y - box->ll.y) / 2};
+            return std::nullopt;
+        }
+
+        static std::optional<Point> placement_anchor(const Root &root, PlacementId placement)
+        {
+            const PlacementData *data = root.get_placement(placement);
+            return data ? data->location : std::nullopt;
+        }
+
+        // Placement tiles built this compute() and not yet published, per
+        // node and tile - assign_extents fills their extents, then wraps them.
+        using FreshPlacements = std::unordered_map<HierarchyId, std::unordered_map<std::size_t, std::vector<ViewPlacementData>>, HierarchyIdHash>;
 
         static ViewShapeChunk make_chunk(ViewLayerShapes shapes, const char *index_phase)
         {
@@ -654,17 +778,39 @@ namespace le
             return chunk;
         }
 
-        // A Layout's placements: one PLACEMENT rect + name label each,
+        // One route tile's shapes - its member routes still in `layout_id`.
+        static ViewLayerShapes collect_route_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const std::vector<RouteId> &routes)
+        {
+            const ResolverPhaseTimer timer("layout.routes");
+            ViewLayerShapes shapes_by_layer;
+            for (const RouteId route_id : routes)
+            {
+                const RouteData *route = root.get_route(route_id);
+                if (!route || route->layout != layout_id)
+                    continue;
+                for (const ShapeId shape_id : root.get_route_shapes(route_id))
+                {
+                    const Shape *shape = root.get_shape(shape_id);
+                    if (!shape)
+                        continue;
+                    append_via_shapes(root, *shape, ViewLayerPurpose::ROUTE, view_layers, layout_id, shapes_by_layer);
+                    shapes_by_layer[resolve_view_layer(view_layers, *shape, ViewLayerPurpose::ROUTE)].push_back(to_render_shape(*shape));
+                }
+            }
+            return shapes_by_layer;
+        }
+
+        // One placement tile: a PLACEMENT rect + name label per placement,
         // batched into a single RenderShape (one-per-placement construction
         // measured ~126 of ~149ms on aes_scaling_3x3), plus - while depth
         // remains - the resolved ViewPlacementData and the child to visit.
         // resolve_design_target runs regardless of depth: the placeholder
         // rect needs the resolved size even at remaining_depth 0.
-        static ViewLayerShapes collect_placements(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, int remaining_depth,
-                                                  std::vector<ViewPlacementData> &placement_data, std::vector<WorkItem> &children)
+        static ViewLayerShapes collect_placement_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, int remaining_depth,
+                                                      const std::vector<PlacementId> &placements,
+                                                      std::vector<ViewPlacementData> &placement_data, std::vector<WorkItem> &children)
         {
             const ResolverPhaseTimer timer("layout.placements");
-            const auto &placements = root.get_layout_placements(layout_id);
             if (remaining_depth > 0)
                 placement_data.reserve(placements.size()); // upper bound - not every placement resolves
 
@@ -672,10 +818,10 @@ namespace le
             placement_shape.rects.reserve(placements.size());
             placement_shape.texts.reserve(placements.size());
 
-            for (PlacementId placement_id : placements)
+            for (const PlacementId placement_id : placements)
             {
                 const PlacementData *placement = root.get_placement(placement_id);
-                if (!placement || !placement->location || !placement->reference_design.valid())
+                if (!placement || placement->layout != layout_id || !placement->location || !placement->reference_design.valid())
                     continue;
 
                 const DesignTarget target = resolve_design_target(root, placement->reference_design, remaining_depth);
@@ -726,32 +872,86 @@ namespace le
             return shapes;
         }
 
-        // Builds one Layout chunk into `data`; for PLACEMENTS also the
-        // node's fresh placement vector and the children to visit.
-        static void build_layout_chunk(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, LayoutChunk chunk,
-                                       ViewData &data, FreshPlacements &fresh, std::vector<WorkItem> &children)
+        static void rebuild_route_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const LayoutTiling &tiling,
+                                       std::size_t tile, ViewData &data)
         {
-            if (chunk == LayoutChunk::PLACEMENTS)
-            {
-                std::vector<ViewPlacementData> &placement_data = fresh[HierarchyId{layout_id}];
-                placement_data.clear();
-                data.chunks[static_cast<std::size_t>(chunk)] =
-                    make_chunk(collect_placements(root, view_layers, layout_id, data.remaining_depth, placement_data, children), "layout.shape_index");
-                return;
-            }
-            data.chunks[static_cast<std::size_t>(chunk)] = make_chunk(collect_layout_chunk(root, view_layers, layout_id, chunk), "layout.shape_index");
+            data.chunks[tiling.route_chunk(tile)] = make_chunk(collect_route_tile(root, view_layers, layout_id, tiling.routes.members[tile]), "layout.shape_index");
         }
 
-        static ViewData build_node(const Root &root, const ViewLayerSet &view_layers, const WorkItem &item, FreshPlacements &fresh,
-                                   std::vector<WorkItem> &children)
+        static void rebuild_placement_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const LayoutTiling &tiling,
+                                           std::size_t tile, ViewData &data, FreshPlacements &fresh, std::vector<WorkItem> &children)
+        {
+            std::vector<ViewPlacementData> &placement_data = fresh[HierarchyId{layout_id}][tile];
+            placement_data.clear();
+            data.chunks[tiling.placement_chunk(tile)] =
+                make_chunk(collect_placement_tile(root, view_layers, layout_id, data.remaining_depth, tiling.placements.members[tile], placement_data, children),
+                           "layout.shape_index");
+        }
+
+        // Lays out `layout_id`'s route and placement tiles from scratch.
+        static LayoutTiling make_tiling(const Root &root, LayoutId layout_id)
+        {
+            LayoutTiling tiling;
+            const Rect die = layout_declared_bbox(root, layout_id);
+            const bool die_valid = die.ur.x > die.ll.x && die.ur.y > die.ll.y;
+
+            auto lay_out = [&](auto &membership, const auto &ids, auto anchor_of, std::size_t per_tile)
+            {
+                using IdT = typename std::decay_t<decltype(ids)>::value_type;
+                std::vector<std::pair<IdT, std::optional<Point>>> anchored;
+                anchored.reserve(ids.size());
+                std::optional<Rect> bounds;
+                if (die_valid)
+                    bounds = die;
+                for (const IdT id : ids)
+                {
+                    const std::optional<Point> anchor = anchor_of(id);
+                    if (anchor && !die_valid)
+                        bounds = bounds ? Rect{.ll = Point{std::min(bounds->ll.x, anchor->x), std::min(bounds->ll.y, anchor->y)},
+                                               .ur = Point{std::max(bounds->ur.x, anchor->x), std::max(bounds->ur.y, anchor->y)}}
+                                        : Rect{.ll = *anchor, .ur = *anchor};
+                    anchored.emplace_back(id, anchor);
+                }
+                membership.grid = TileGrid::make(bounds.value_or(Rect{}), ids.size(), per_tile);
+                membership.members.assign(membership.grid.count(), {});
+                for (const auto &[id, anchor] : anchored)
+                    membership.assign(id, anchor ? membership.grid.tile_of(*anchor) : 0);
+            };
+            lay_out(tiling.routes, root.get_layout_routes(layout_id), [&](RouteId id)
+                    { return route_anchor(root, id); }, kRoutesPerTile);
+            lay_out(tiling.placements, root.get_layout_placements(layout_id), [&](PlacementId id)
+                    { return placement_anchor(root, id); }, kPlacementsPerTile);
+            return tiling;
+        }
+
+        // Builds every chunk and tile of a new Layout node into `data`.
+        void build_layout_node(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, ViewData &data, FreshPlacements &fresh,
+                               std::vector<WorkItem> &children)
+        {
+            LayoutTiling &tiling = tilings_[layout_id] = make_tiling(root, layout_id);
+            data.chunks.assign(kFixedLayoutChunkCount + tiling.routes.grid.count() + tiling.placements.grid.count(), ViewShapeChunk{});
+            for (std::size_t c = 0; c < kFixedLayoutChunkCount; ++c)
+                data.chunks[c] = make_chunk(collect_layout_chunk(root, view_layers, layout_id, static_cast<LayoutChunk>(c)), "layout.shape_index");
+            for (std::size_t t = 0; t < tiling.routes.grid.count(); ++t)
+                rebuild_route_tile(root, view_layers, layout_id, tiling, t, data);
+            data.placement_tiles.assign(tiling.placements.grid.count(), empty_placement_tile());
+            for (std::size_t t = 0; t < tiling.placements.grid.count(); ++t)
+                rebuild_placement_tile(root, view_layers, layout_id, tiling, t, data, fresh, children);
+        }
+
+        static const ViewPlacements &empty_placement_tile()
+        {
+            static const ViewPlacements empty = std::make_shared<const ViewPlacementTile>();
+            return empty;
+        }
+
+        ViewData build_node(const Root &root, const ViewLayerSet &view_layers, const WorkItem &item, FreshPlacements &fresh, std::vector<WorkItem> &children)
         {
             ViewData data;
             data.remaining_depth = item.remaining_depth;
             if (const LayoutId *layout_id = std::get_if<LayoutId>(&item.id))
             {
-                data.chunks.resize(kLayoutChunkCount);
-                for (std::size_t c = 0; c < kLayoutChunkCount; ++c)
-                    build_layout_chunk(root, view_layers, *layout_id, static_cast<LayoutChunk>(c), data, fresh, children);
+                build_layout_node(root, view_layers, *layout_id, data, fresh, children);
             }
             else
             {
@@ -763,8 +963,8 @@ namespace le
 
         // Breadth-first from `worklist`, adding every node not already in
         // `output` (shallowest depth first - see the class comment).
-        static void resolve_new_nodes(const Root &root, const ViewLayerSet &view_layers, std::deque<WorkItem> worklist,
-                                      HierarchyResolverOutput &output, FreshPlacements &fresh)
+        void resolve_new_nodes(const Root &root, const ViewLayerSet &view_layers, std::deque<WorkItem> worklist, HierarchyResolverOutput &output,
+                               FreshPlacements &fresh)
         {
             std::vector<WorkItem> children;
             while (!worklist.empty())
@@ -779,9 +979,10 @@ namespace le
             }
         }
 
-        static HierarchyResolverOutput resolve_everything(const Root &root, const ViewLayerSetHandle &view_layers_handle,
-                                                          const ViewLayerSet &view_layers, const ViewRenderOptions &options)
+        HierarchyResolverOutput resolve_everything(const Root &root, const ViewLayerSetHandle &view_layers_handle, const ViewLayerSet &view_layers,
+                                                   const ViewRenderOptions &options)
         {
+            tilings_.clear();
             HierarchyResolverOutput output{.view_layers = view_layers_handle};
             FreshPlacements fresh;
             resolve_new_nodes(root, view_layers, std::deque<WorkItem>{WorkItem{options.top_level, options.hierarchy_depth}}, output, fresh);
@@ -816,10 +1017,18 @@ namespace le
                    same_view_layer_ids(*previous->view_layers, view_layers);
         }
 
-        // What the change log says an edit touched.
+        // What the change log says an edit touched, per Layout.
+        struct LayoutDirty
+        {
+            std::array<bool, kFixedLayoutChunkCount> fixed{};
+            std::unordered_set<RouteId> routes;
+            std::unordered_set<PlacementId> placements;
+            bool all_routes = false;
+            bool all_placements = false;
+        };
         struct Dirty
         {
-            std::unordered_map<LayoutId, std::array<bool, kLayoutChunkCount>> layout_chunks;
+            std::unordered_map<LayoutId, LayoutDirty> layouts;
             std::unordered_set<AbstractId> abstracts;
             bool declared_bbox_changed = false; // an Abstract's or Layout's boundary - placement rects everywhere
             bool everything = false;
@@ -840,9 +1049,9 @@ namespace le
             }
         };
 
-        // Maps each change-log entry since the last compute() to the node
-        // chunks it touched. Anything it can't place precisely marks
-        // everything - the full resolve is always a correct fallback.
+        // Maps each change-log entry since the last compute() to what it
+        // touched. Anything it can't place precisely marks everything -
+        // the full resolve is always a correct fallback.
         static Dirty collect_dirty(const Root &root, std::uint64_t since)
         {
             Dirty dirty;
@@ -854,8 +1063,8 @@ namespace le
                 if (entry.op == ChangeOp::DELETE)
                     deleted_parents[ChangeKey{entry.klass, entry.index, entry.generation}] = entry.parent; });
 
-            // Climbs from an entry's recorded owner to the nearest ancestor
-            // of class `target`.
+            // Climbs from `parent` to the nearest ancestor of class `target`
+            // (`parent` itself if it is one).
             auto ancestor = [&](ChangeParent parent, ChangeKlass target) -> std::optional<ChangeParent>
             {
                 for (int hops = 0; hops < 8 && parent.klass != ChangeKlass::None; ++hops)
@@ -872,13 +1081,20 @@ namespace le
             };
             auto self = [](const ChangeLogEntry &entry)
             { return ChangeParent{.klass = entry.klass, .index = entry.index, .generation = entry.generation}; };
-            auto mark_layout = [&](std::optional<ChangeParent> layout, std::initializer_list<LayoutChunk> chunks)
+            auto layout_dirty = [&](std::optional<ChangeParent> layout) -> LayoutDirty *
             {
-                if (!layout)
-                    return;
-                auto &flags = dirty.layout_chunks[LayoutId{layout->index, layout->generation}];
-                for (const LayoutChunk chunk : chunks)
-                    flags[static_cast<std::size_t>(chunk)] = true;
+                return layout ? &dirty.layouts[LayoutId{layout->index, layout->generation}] : nullptr;
+            };
+            auto mark_fixed = [&](std::optional<ChangeParent> layout, std::initializer_list<LayoutChunk> chunks)
+            {
+                if (LayoutDirty *d = layout_dirty(layout))
+                    for (const LayoutChunk chunk : chunks)
+                        d->fixed[static_cast<std::size_t>(chunk)] = true;
+            };
+            auto mark_route = [&](std::optional<ChangeParent> route, std::optional<ChangeParent> layout)
+            {
+                if (LayoutDirty *d = layout_dirty(layout); d && route)
+                    d->routes.insert(RouteId{route->index, route->generation});
             };
             auto mark_abstract = [&](std::optional<ChangeParent> abstract)
             {
@@ -897,15 +1113,16 @@ namespace le
                     if (entry.parent.klass == ChangeKlass::None)
                         return; // an orphan shape draws nowhere
                     const std::string_view field = Root::change_parent_field_name(ChangeKlass::Shape, entry.parent.slot);
+                    const std::optional<ChangeParent> layout = ancestor(entry.parent, ChangeKlass::Layout);
                     if (field == "route")
-                        mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::ROUTES});
+                        mark_route(entry.parent, layout);
                     else if (field == "blockage")
-                        mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::DIEAREA_BLOCKAGES});
+                        mark_fixed(layout, {LayoutChunk::DIEAREA_BLOCKAGES});
                     else if (field == "physical_port_segment" || field == "in_layout")
-                        mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::PORTS_FREE_SHAPES});
+                        mark_fixed(layout, {LayoutChunk::PORTS_FREE_SHAPES});
                     else if (field == "layout") // the diearea: port markers face its sides
                     {
-                        mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::DIEAREA_BLOCKAGES, LayoutChunk::PORTS_FREE_SHAPES});
+                        mark_fixed(layout, {LayoutChunk::DIEAREA_BLOCKAGES, LayoutChunk::PORTS_FREE_SHAPES});
                         dirty.declared_bbox_changed = true;
                     }
                     else if (field == "terminal_port" || field == "obstruction" || field == "in_abstract")
@@ -920,23 +1137,24 @@ namespace le
                     return;
                 }
                 case ChangeKlass::Route:
-                    mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::ROUTES});
+                    mark_route(self(entry), ancestor(entry.parent, ChangeKlass::Layout));
+                    return;
+                case ChangeKlass::Placement:
+                    if (LayoutDirty *d = layout_dirty(ancestor(entry.parent, ChangeKlass::Layout)))
+                        d->placements.insert(PlacementId{entry.index, entry.generation});
                     return;
                 case ChangeKlass::Blockage:
-                    mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::DIEAREA_BLOCKAGES});
+                    mark_fixed(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::DIEAREA_BLOCKAGES});
                     return;
                 case ChangeKlass::PhysicalPort:
                 case ChangeKlass::PhysicalPortSegment:
-                    mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::PORTS_FREE_SHAPES});
+                    mark_fixed(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::PORTS_FREE_SHAPES});
                     return;
                 case ChangeKlass::Row:
                 case ChangeKlass::Track:
                 case ChangeKlass::GCellGrid:
                 case ChangeKlass::Region:
-                    mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::ROWS_TRACKS_GCELLS_REGIONS});
-                    return;
-                case ChangeKlass::Placement:
-                    mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::PLACEMENTS});
+                    mark_fixed(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::ROWS_TRACKS_GCELLS_REGIONS});
                     return;
                 case ChangeKlass::Terminal:
                 case ChangeKlass::TerminalPort:
@@ -954,9 +1172,12 @@ namespace le
                     }
                     if (entry.klass == ChangeKlass::Abstract)
                         mark_abstract(self(entry));
-                    else
-                        mark_layout(self(entry), {LayoutChunk::DIEAREA_BLOCKAGES, LayoutChunk::ROUTES, LayoutChunk::PORTS_FREE_SHAPES,
-                                                  LayoutChunk::ROWS_TRACKS_GCELLS_REGIONS, LayoutChunk::PLACEMENTS});
+                    else if (LayoutDirty *d = layout_dirty(self(entry)))
+                    {
+                        d->fixed.fill(true);
+                        d->all_routes = true;
+                        d->all_placements = true;
+                    }
                     dirty.declared_bbox_changed = true; // Abstract.size, say
                     return;
                 // Logical connectivity and property metadata: nothing drawn.
@@ -976,15 +1197,35 @@ namespace le
             return dirty;
         }
 
+        // Moves each of `changed` from its old tile to the one its anchor is
+        // in now (none if it's gone or left the Layout), adding both tiles
+        // to `tiles`.
+        template <typename IdT, typename AnchorFn>
+        static void retile(TileMembership<IdT> &membership, const std::unordered_set<IdT> &changed, AnchorFn &&anchor_in_layout,
+                           std::set<std::size_t> &tiles)
+        {
+            for (const IdT id : changed)
+            {
+                if (const std::optional<std::size_t> old_tile = membership.remove(id))
+                    tiles.insert(*old_tile);
+                if (const std::optional<std::optional<Point>> anchor = anchor_in_layout(id))
+                {
+                    const std::size_t tile = *anchor ? membership.grid.tile_of(**anchor) : 0;
+                    membership.assign(id, tile);
+                    tiles.insert(tile);
+                }
+            }
+        }
+
         std::optional<HierarchyResolverOutput> update_incrementally(const Root &root, const ViewLayerSetHandle &view_layers_handle,
-                                                                    const ViewLayerSet &view_layers, const ViewRenderOptions &options) const
+                                                                    const ViewLayerSet &view_layers, const ViewRenderOptions &options)
         {
             const ResolverPhaseTimer timer("incremental");
             Dirty dirty = collect_dirty(root, state_->log_end);
             if (dirty.everything)
                 return std::nullopt;
 
-            HierarchyResolverOutput output = *previous_result(); // chunks/placements shared, not copied
+            HierarchyResolverOutput output = *previous_result(); // chunks/tiles shared, not copied
             output.view_layers = view_layers_handle;
 
             // A boundary change moves placement rects wherever the cell is
@@ -992,22 +1233,77 @@ namespace le
             if (dirty.declared_bbox_changed)
                 for (const auto &[id, data] : output.view_data)
                     if (const LayoutId *layout_id = std::get_if<LayoutId>(&id))
-                        dirty.layout_chunks[*layout_id][static_cast<std::size_t>(LayoutChunk::PLACEMENTS)] = true;
+                        dirty.layouts[*layout_id].all_placements = true;
 
             FreshPlacements fresh;
             std::deque<WorkItem> new_children;
             bool placements_rebuilt = false;
-            for (const auto &[layout_id, flags] : dirty.layout_chunks)
+            for (const auto &[layout_id, layout_dirty] : dirty.layouts)
             {
                 const auto it = output.view_data.find(HierarchyId{layout_id});
                 if (it == output.view_data.end())
                     continue; // not visible from top_level
+                const auto tiling_it = tilings_.find(layout_id);
+                if (tiling_it == tilings_.end())
+                    return std::nullopt; // out of step - resolve everything
+                LayoutTiling &tiling = tiling_it->second;
+                ViewData &data = it->second;
+
+                for (std::size_t c = 0; c < kFixedLayoutChunkCount; ++c)
+                    if (layout_dirty.fixed[c])
+                        data.chunks[c] = make_chunk(collect_layout_chunk(root, view_layers, layout_id, static_cast<LayoutChunk>(c)), "layout.shape_index");
+
+                std::set<std::size_t> route_tiles;
+                if (layout_dirty.all_routes)
+                {
+                    // Membership may have changed arbitrarily - lay routes
+                    // out again on the same grid (chunk indices stay put).
+                    TileMembership<RouteId> fresh_routes{.grid = tiling.routes.grid};
+                    fresh_routes.members.assign(tiling.routes.grid.count(), {});
+                    for (const RouteId route : root.get_layout_routes(layout_id))
+                    {
+                        const std::optional<Point> anchor = route_anchor(root, route);
+                        fresh_routes.assign(route, anchor ? fresh_routes.grid.tile_of(*anchor) : 0);
+                    }
+                    tiling.routes = std::move(fresh_routes);
+                    for (std::size_t t = 0; t < tiling.routes.grid.count(); ++t)
+                        route_tiles.insert(t);
+                }
+                else
+                    retile(tiling.routes, layout_dirty.routes, [&](RouteId id) -> std::optional<std::optional<Point>>
+                           {
+                        const RouteData *route = root.get_route(id);
+                        if (!route || route->layout != layout_id)
+                            return std::nullopt;
+                        return route_anchor(root, id); }, route_tiles);
+                for (const std::size_t t : route_tiles)
+                    rebuild_route_tile(root, view_layers, layout_id, tiling, t, data);
+
+                std::set<std::size_t> placement_tiles;
+                if (layout_dirty.all_placements)
+                {
+                    TileMembership<PlacementId> fresh_placements{.grid = tiling.placements.grid};
+                    fresh_placements.members.assign(tiling.placements.grid.count(), {});
+                    for (const PlacementId placement : root.get_layout_placements(layout_id))
+                    {
+                        const std::optional<Point> anchor = placement_anchor(root, placement);
+                        fresh_placements.assign(placement, anchor ? fresh_placements.grid.tile_of(*anchor) : 0);
+                    }
+                    tiling.placements = std::move(fresh_placements);
+                    for (std::size_t t = 0; t < tiling.placements.grid.count(); ++t)
+                        placement_tiles.insert(t);
+                }
+                else
+                    retile(tiling.placements, layout_dirty.placements, [&](PlacementId id) -> std::optional<std::optional<Point>>
+                           {
+                        const PlacementData *placement = root.get_placement(id);
+                        if (!placement || placement->layout != layout_id)
+                            return std::nullopt;
+                        return placement->location; }, placement_tiles);
                 std::vector<WorkItem> children;
-                for (std::size_t c = 0; c < kLayoutChunkCount; ++c)
-                    if (flags[c])
-                        build_layout_chunk(root, view_layers, layout_id, static_cast<LayoutChunk>(c), it->second, fresh, children);
-                if (flags[static_cast<std::size_t>(LayoutChunk::PLACEMENTS)])
-                    placements_rebuilt = true;
+                for (const std::size_t t : placement_tiles)
+                    rebuild_placement_tile(root, view_layers, layout_id, tiling, t, data, fresh, children);
+                placements_rebuilt = placements_rebuilt || !placement_tiles.empty();
                 new_children.insert(new_children.end(), children.begin(), children.end());
             }
             for (const AbstractId abstract_id : dirty.abstracts)
@@ -1032,36 +1328,49 @@ namespace le
             return output;
         }
 
-        static void prune_unreachable(HierarchyResolverOutput &output, const FreshPlacements &fresh, const HierarchyId &top_level)
+        void prune_unreachable(HierarchyResolverOutput &output, const FreshPlacements &fresh, const HierarchyId &top_level)
         {
             std::unordered_set<HierarchyId, HierarchyIdHash> reachable{top_level};
             std::deque<HierarchyId> queue{top_level};
+            auto reach = [&](const HierarchyId &child)
+            {
+                if (reachable.insert(child).second)
+                    queue.push_back(child);
+            };
             while (!queue.empty())
             {
                 const HierarchyId id = queue.front();
                 queue.pop_front();
-                const auto fresh_it = fresh.find(id);
-                const std::vector<ViewPlacementData> *placements = fresh_it != fresh.end() ? &fresh_it->second : nullptr;
-                if (!placements)
-                    if (const auto it = output.view_data.find(id); it != output.view_data.end())
-                        placements = it->second.placement_data.get();
-                if (!placements)
+                const auto it = output.view_data.find(id);
+                if (it == output.view_data.end())
                     continue;
-                for (const ViewPlacementData &placement : *placements)
-                    if (reachable.insert(placement.id).second)
-                        queue.push_back(placement.id);
+                const auto fresh_it = fresh.find(id);
+                for (std::size_t t = 0; t < it->second.placement_tiles.size(); ++t)
+                {
+                    if (fresh_it != fresh.end())
+                        if (const auto tile_it = fresh_it->second.find(t); tile_it != fresh_it->second.end())
+                        {
+                            for (const ViewPlacementData &placement : tile_it->second)
+                                reach(placement.id);
+                            continue;
+                        }
+                    for (const HierarchyId &child : it->second.placement_tiles[t]->children)
+                        reach(child);
+                }
             }
             std::erase_if(output.view_data, [&](const auto &entry)
                           { return !reachable.contains(entry.first); });
+            std::erase_if(tilings_, [&](const auto &entry)
+                          { return !reachable.contains(HierarchyId{entry.first}); });
         }
 
         /// @brief Fills every node's `ViewData::extent` and every
         /// placement's `ViewPlacementData::extent`, children first (a
         /// placement's extent needs its placed node's). A node's own shapes
         /// contribute via their per-layer rtrees' cached bounds, not a walk
-        /// over every shape. Placement vectors built this compute() (in
-        /// `fresh`) are filled in place and then published; a published
-        /// one is replaced only if one of its extents actually changed.
+        /// over every shape. Placement tiles built this compute() (in
+        /// `fresh`) are filled in and published; a published one is
+        /// replaced only if one of the nodes it places changed extent.
         static void assign_extents(const Root &root, HierarchyResolverOutput &output, FreshPlacements &fresh)
         {
             auto grow = [](std::optional<Rect> &extent, const Rect &r)
@@ -1081,6 +1390,7 @@ namespace le
 
             std::unordered_set<HierarchyId, HierarchyIdHash> done;
             std::unordered_set<HierarchyId, HierarchyIdHash> in_progress;
+            std::unordered_set<HierarchyId, HierarchyIdHash> changed; // nodes whose extent differs from the previous output's
             auto visit = [&](auto &self, const HierarchyId &id) -> std::optional<Rect>
             {
                 const auto it = output.view_data.find(id);
@@ -1114,41 +1424,62 @@ namespace le
                         grow(placement_extent, Geometry::transform_bbox(placement.transform, *child));
                     return *placement_extent;
                 };
-                if (const auto fresh_it = fresh.find(id); fresh_it != fresh.end())
+                // Fills `tile`'s placement extents, its extent and children.
+                auto finish_tile = [&](ViewPlacementTile &tile)
                 {
-                    for (ViewPlacementData &placement : fresh_it->second)
+                    std::optional<Rect> tile_extent;
+                    std::unordered_set<HierarchyId, HierarchyIdHash> children;
+                    for (ViewPlacementData &placement : tile.placements)
                     {
                         placement.extent = placement_extent(placement);
-                        grow(extent, placement.extent);
+                        grow(tile_extent, placement.extent);
+                        children.insert(placement.id);
                     }
-                    data.placement_data = fresh_it->second.empty() ? no_placements()
-                                                                   : std::make_shared<const std::vector<ViewPlacementData>>(std::move(fresh_it->second));
-                    fresh.erase(fresh_it);
-                }
-                else
+                    tile.extent = tile_extent.value_or(Rect{});
+                    tile.children.assign(children.begin(), children.end());
+                };
+
+                const auto fresh_it = fresh.find(id);
+                for (std::size_t t = 0; t < data.placement_tiles.size(); ++t)
                 {
-                    std::optional<std::vector<ViewPlacementData>> changed;
-                    const std::vector<ViewPlacementData> &placements = *data.placement_data;
-                    for (std::size_t i = 0; i < placements.size(); ++i)
+                    if (fresh_it != fresh.end())
+                        if (const auto tile_it = fresh_it->second.find(t); tile_it != fresh_it->second.end())
+                        {
+                            ViewPlacementTile tile{.placements = std::move(tile_it->second)};
+                            finish_tile(tile);
+                            data.placement_tiles[t] = tile.placements.empty() ? empty_placement_tile() : std::make_shared<const ViewPlacementTile>(std::move(tile));
+                            if (!data.placement_tiles[t]->placements.empty())
+                                grow(extent, data.placement_tiles[t]->extent);
+                            continue;
+                        }
+                    const ViewPlacements &tile = data.placement_tiles[t];
+                    bool stale = false;
+                    for (const HierarchyId &child : tile->children)
                     {
-                        const Rect e = placement_extent(placements[i]);
-                        grow(extent, e);
-                        if (!changed && !same(e, placements[i].extent))
-                            changed.emplace(placements);
-                        if (changed)
-                            (*changed)[i].extent = e;
+                        self(self, child);
+                        stale = stale || changed.contains(child);
                     }
-                    if (changed)
-                        data.placement_data = std::make_shared<const std::vector<ViewPlacementData>>(std::move(*changed));
+                    if (stale)
+                    {
+                        ViewPlacementTile updated = *tile;
+                        finish_tile(updated);
+                        data.placement_tiles[t] = std::make_shared<const ViewPlacementTile>(std::move(updated));
+                    }
+                    if (!data.placement_tiles[t]->placements.empty())
+                        grow(extent, data.placement_tiles[t]->extent);
                 }
 
-                data.extent = extent.value_or(Rect{});
+                const Rect new_extent = extent.value_or(Rect{});
+                if (!same(new_extent, data.extent))
+                    changed.insert(id);
+                data.extent = new_extent;
                 in_progress.erase(id);
                 done.insert(id);
                 return data.extent;
             };
             for (const auto &[id, data] : output.view_data)
                 visit(visit, id);
+            fresh.clear();
         }
 
         static ViewShapesIndexHandle build_shape_index(const ViewLayerShapes &shapes_by_layer)
@@ -1548,7 +1879,7 @@ namespace le
         // once (see that type's own comment) - collect_layout_content
         // itself can't do that wrap, since there's more to append after
         // it returns.
-        // One LayoutChunk's shapes (PLACEMENTS is collect_placements).
+        // One fixed LayoutChunk's shapes.
         static ViewLayerShapes collect_layout_chunk(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, LayoutChunk chunk)
         {
             ViewLayerShapes shapes_by_layer;
@@ -1573,14 +1904,6 @@ namespace le
                         push_shape_id(shape_id, ViewLayerPurpose::ROUTING_BLOCKAGE);
             }
 
-            if (chunk == LayoutChunk::ROUTES)
-            {
-                const ResolverPhaseTimer timer("layout.routes");
-                for (RouteId route_id : root.get_layout_routes(layout_id))
-                    for (ShapeId shape_id : root.get_route_shapes(route_id))
-                        push_shape_id(shape_id, ViewLayerPurpose::ROUTE);
-            }
-
             if (chunk == LayoutChunk::PORTS_FREE_SHAPES)
             {
                 const ResolverPhaseTimer timer("layout.ports_free_shapes");
@@ -1596,13 +1919,16 @@ namespace le
                 append_gcell_grid_shapes(root, layout_id, view_layers, shapes_by_layer);
                 append_region_shapes(root, layout_id, view_layers, shapes_by_layer);
             }
-            // PLACEMENTS is collect_placements - it also produces the
-            // node's ViewPlacementData and children to visit.
+            // Routes and placements are tiled: collect_route_tile,
+            // collect_placement_tile.
 
             return shapes_by_layer;
         }
 
         std::optional<ResolveState> state_;
+        // Route/placement tile membership of every Layout in the previous
+        // output (kept in step with it).
+        std::unordered_map<LayoutId, LayoutTiling> tilings_;
         bool last_compute_was_incremental_ = false;
     };
 }

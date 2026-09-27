@@ -8,6 +8,14 @@ using namespace le;
 
 namespace
 {
+    std::vector<ViewPlacementData> placements_of(const ViewData &data)
+    {
+        std::vector<ViewPlacementData> placements;
+        for_each_placement(data, [&](const ViewPlacementData &placement)
+                           { placements.push_back(placement); });
+        return placements;
+    }
+
     using HierarchyResolverRunner = SynchronousStageRunner<HierarchyResolverStage, ViewLayerSetHandle, HierarchyResolverOutput, ViewRenderOptions>;
     using ViewportCullRunner = SynchronousStageRunner<ViewportCullStage, HierarchyResolverStage::OutputHandle, HierarchyResolverOutput, ViewRenderOptions>;
 
@@ -78,8 +86,8 @@ TEST_F(ViewportCullStageFixture, ViewportCoveringEverythingCullsNothing)
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{top_layout}));
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{block_layout}));
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{leaf_abstract}));
-    EXPECT_EQ(culled.view_data.at(HierarchyId{top_layout}).placement_data->size(), 1u);
-    EXPECT_EQ(culled.view_data.at(HierarchyId{block_layout}).placement_data->size(), 2u);
+    EXPECT_EQ(placement_count(culled.view_data.at(HierarchyId{top_layout})), 1u);
+    EXPECT_EQ(placement_count(culled.view_data.at(HierarchyId{block_layout})), 2u);
 }
 
 TEST_F(ViewportCullStageFixture, ViewportCoveringNothingLeavesOnlyTopLevel)
@@ -89,7 +97,7 @@ TEST_F(ViewportCullStageFixture, ViewportCoveringNothingLeavesOnlyTopLevel)
 
     ASSERT_EQ(culled.view_data.size(), 1u);
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{top_layout}));
-    EXPECT_TRUE(culled.view_data.at(HierarchyId{top_layout}).placement_data->empty());
+    EXPECT_TRUE((placement_count(culled.view_data.at(HierarchyId{top_layout})) == 0));
 
     // shapes are carried through unchanged regardless of culling - not
     // just equal in content, but the exact same ViewShapesHandle (a
@@ -113,13 +121,13 @@ TEST_F(ViewportCullStageFixture, CullingComposesAncestorTransformsNotJustLocalBb
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{leaf_abstract})); // leaf1 survived, so LEAF is still reachable
 
     const ViewData &top_data = culled.view_data.at(HierarchyId{top_layout});
-    ASSERT_EQ(top_data.placement_data->size(), 1u);
-    EXPECT_EQ((*top_data.placement_data)[0].id, HierarchyId{block_layout});
+    ASSERT_EQ(placement_count(top_data), 1u);
+    EXPECT_EQ(placements_of(top_data)[0].id, HierarchyId{block_layout});
 
     const ViewData &block_data = culled.view_data.at(HierarchyId{block_layout});
-    ASSERT_EQ(block_data.placement_data->size(), 1u); // leaf0 culled, leaf1 survives
-    EXPECT_EQ((*block_data.placement_data)[0].location.x, 500);
-    EXPECT_EQ((*block_data.placement_data)[0].location.y, 500);
+    ASSERT_EQ(placement_count(block_data), 1u); // leaf0 culled, leaf1 survives
+    EXPECT_EQ(placements_of(block_data)[0].location.x, 500);
+    EXPECT_EQ(placements_of(block_data)[0].location.y, 500);
 }
 
 TEST_F(ViewportCullStageFixture, ReusingCachedIndexAcrossViewportOnlyChangesStaysCorrect)
@@ -134,15 +142,15 @@ TEST_F(ViewportCullStageFixture, ReusingCachedIndexAcrossViewportOnlyChangesStay
     // the first viewport instead of its own.
     const ViewRenderOptions everything = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
     const HierarchyResolverOutput &full = cull_runner.run(cold_output, 0, everything);
-    EXPECT_EQ(full.view_data.at(HierarchyId{block_layout}).placement_data->size(), 2u);
+    EXPECT_EQ(placement_count(full.view_data.at(HierarchyId{block_layout})), 2u);
 
     const ViewRenderOptions narrow = options_with_viewport(Rect{.ll = Point{550, 550}, .ur = Point{650, 650}});
     const HierarchyResolverOutput &narrowed = cull_runner.run(cold_output, 0, narrow);
-    ASSERT_EQ(narrowed.view_data.at(HierarchyId{block_layout}).placement_data->size(), 1u);
-    EXPECT_EQ((*narrowed.view_data.at(HierarchyId{block_layout}).placement_data)[0].location.x, 500);
+    ASSERT_EQ(placement_count(narrowed.view_data.at(HierarchyId{block_layout})), 1u);
+    EXPECT_EQ(placements_of(narrowed.view_data.at(HierarchyId{block_layout}))[0].location.x, 500);
 
     const HierarchyResolverOutput &full_again = cull_runner.run(cold_output, 0, everything);
-    EXPECT_EQ(full_again.view_data.at(HierarchyId{block_layout}).placement_data->size(), 2u);
+    EXPECT_EQ(placement_count(full_again.view_data.at(HierarchyId{block_layout})), 2u);
 }
 
 TEST_F(ViewportCullStageFixture, SubPixelPlacementIsCulledEvenWhenItOverlapsTheViewport)
@@ -167,7 +175,7 @@ TEST_F(ViewportCullStageFixture, SubPixelPlacementIsCulledEvenWhenItOverlapsTheV
     // viewport-overlap culling now applies to sub-pixel culling too.
     EXPECT_FALSE(culled.view_data.contains(HierarchyId{leaf_abstract}));
 
-    EXPECT_TRUE(culled.view_data.at(HierarchyId{block_layout}).placement_data->empty());
+    EXPECT_TRUE((placement_count(culled.view_data.at(HierarchyId{block_layout})) == 0));
 }
 
 TEST_F(ViewportCullStageFixture, NonSubPixelPlacementSurvivesTheSameSubPixelCheck)
@@ -182,8 +190,8 @@ TEST_F(ViewportCullStageFixture, NonSubPixelPlacementSurvivesTheSameSubPixelChec
     const HierarchyResolverOutput &culled = cull_runner.run(cold_output, 0, options);
 
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{top_layout}));
-    ASSERT_EQ(culled.view_data.at(HierarchyId{top_layout}).placement_data->size(), 1u);
-    EXPECT_EQ((*culled.view_data.at(HierarchyId{top_layout}).placement_data)[0].id, HierarchyId{block_layout});
+    ASSERT_EQ(placement_count(culled.view_data.at(HierarchyId{top_layout})), 1u);
+    EXPECT_EQ(placements_of(culled.view_data.at(HierarchyId{top_layout}))[0].id, HierarchyId{block_layout});
 }
 
 TEST_F(ViewportCullStageFixture, NullInputProducesEmptyOutput)

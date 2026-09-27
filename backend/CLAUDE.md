@@ -319,13 +319,15 @@ none of these are duplicated here.
   question. After an edit, `HierarchyResolverStage` updates its previous
   output incrementally from the Root change log (see Database codegen): a
   node's shapes are split into immutable, shared `ViewShapeChunk`s (a
-  Layout's per `LayoutChunk` - diearea/blockages, routes, ports/free
-  shapes, rows/tracks/gcells/regions, placements; an Abstract's one), and
-  only the touched ones are rebuilt; anything it can't place precisely
-  falls back to the full resolve (`last_compute_was_incremental()`).
-  `ViewData::placement_data` is a shared immutable vector too, so
-  `ViewportCullStage`'s per-node index and `RasterizeBlend2DStage`'s
-  per-chunk route-outline cache survive edits that don't touch them.
+  Layout's three fixed `LayoutChunk`s - diearea/blockages, ports/free
+  shapes, rows/tracks/gcells/regions - then its route tiles and placement
+  tiles, a grid of about 2000 routes/placements each; an Abstract's one),
+  and only the touched ones are rebuilt; anything it can't place
+  precisely falls back to the full resolve
+  (`last_compute_was_incremental()`). `ViewData::placement_tiles` are
+  shared immutable `ViewPlacementTile`s too, so `ViewportCullStage`'s
+  per-tile index and `RasterizeBlend2DStage`'s per-chunk route-outline
+  cache survive edits that don't touch them.
   A nested node's image covers its `ViewData::extent` (declared
   diearea/boundary grown to everything it draws, placements included —
   `HierarchyResolverStage::assign_extents`), not just its boundary, so a

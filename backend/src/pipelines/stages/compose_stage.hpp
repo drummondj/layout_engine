@@ -644,38 +644,41 @@ namespace le
             if (view_data_it == culled.view_data.end())
                 return;
 
-            for (const ViewPlacementData &placement : *view_data_it->second.placement_data)
+            for (const ViewPlacements &tile : view_data_it->second.placement_tiles)
             {
-                const BLImage child_image = compose_node(placement.id, culled, rasterized, composed_cache, scale);
-                if (child_image.is_empty())
-                    continue; // degrade - child wasn't rasterized (e.g. RasterizeBlend2DStage's own pixel-dimension clamp)
+                for (const ViewPlacementData &placement : tile->placements)
+                {
+                    const BLImage child_image = compose_node(placement.id, culled, rasterized, composed_cache, scale);
+                    if (child_image.is_empty())
+                        continue; // degrade - child wasn't rasterized (e.g. RasterizeBlend2DStage's own pixel-dimension clamp)
 
-                const auto child_raw_it = rasterized.find(placement.id);
-                if (child_raw_it == rasterized.end())
-                    continue;
+                    const auto child_raw_it = rasterized.find(placement.id);
+                    if (child_raw_it == rasterized.end())
+                        continue;
 
-                // ctx's own image is a plain, untransformed pixel canvas
-                // (own.image was just drawn onto it at raw pixel (0,0),
-                // not through any dbu transform) - so
-                // child_image_to_parent_dbu_matrix alone isn't enough
-                // here, unlike RasterizeBlend2DStage's own context (which
-                // has a persistent dbu-to-pixel transform already active
-                // before any shape is drawn). One further step,
-                // dbu_to_pixel_matrix (own's own local_origin, the
-                // PARENT's own dbu origin - not the child's), converts
-                // the child matrix's own parent-dbu output into this
-                // context's own actual pixel space, composed once via
-                // combine_outer_after_inner rather than two separate
-                // ctx.set_transform() calls.
-                const BLMatrix2D child_to_parent_dbu = child_image_to_parent_dbu_matrix(
-                    placement.transform, child_raw_it->second.local_origin, child_image.height(), scale);
-                const BLMatrix2D parent_dbu_to_pixel = dbu_to_pixel_matrix(own.local_origin, own.image.height(), scale);
-                const BLMatrix2D combined = combine_outer_after_inner(parent_dbu_to_pixel, child_to_parent_dbu);
+                    // ctx's own image is a plain, untransformed pixel canvas
+                    // (own.image was just drawn onto it at raw pixel (0,0),
+                    // not through any dbu transform) - so
+                    // child_image_to_parent_dbu_matrix alone isn't enough
+                    // here, unlike RasterizeBlend2DStage's own context (which
+                    // has a persistent dbu-to-pixel transform already active
+                    // before any shape is drawn). One further step,
+                    // dbu_to_pixel_matrix (own's own local_origin, the
+                    // PARENT's own dbu origin - not the child's), converts
+                    // the child matrix's own parent-dbu output into this
+                    // context's own actual pixel space, composed once via
+                    // combine_outer_after_inner rather than two separate
+                    // ctx.set_transform() calls.
+                    const BLMatrix2D child_to_parent_dbu = child_image_to_parent_dbu_matrix(
+                        placement.transform, child_raw_it->second.local_origin, child_image.height(), scale);
+                    const BLMatrix2D parent_dbu_to_pixel = dbu_to_pixel_matrix(own.local_origin, own.image.height(), scale);
+                    const BLMatrix2D combined = combine_outer_after_inner(parent_dbu_to_pixel, child_to_parent_dbu);
 
-                ctx.save();
-                ctx.set_transform(combined);
-                ctx.blit_image(BLPoint(0, 0), child_image);
-                ctx.restore();
+                    ctx.save();
+                    ctx.set_transform(combined);
+                    ctx.blit_image(BLPoint(0, 0), child_image);
+                    ctx.restore();
+                }
             }
         }
 
@@ -701,7 +704,7 @@ namespace le
 
             const RasterizedImage &own = rasterized_it->second;
             const auto view_data_it = culled.view_data.find(id);
-            const bool has_placements = view_data_it != culled.view_data.end() && !view_data_it->second.placement_data->empty();
+            const bool has_placements = view_data_it != culled.view_data.end() && placement_count(view_data_it->second) > 0;
             if (!has_placements)
             {
                 // No children to draw on top - this node's own already-

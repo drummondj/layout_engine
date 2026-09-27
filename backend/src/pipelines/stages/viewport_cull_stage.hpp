@@ -132,10 +132,9 @@ namespace le
                 return result;
             result.view_layers = input->view_layers;
 
-            // Drop indices whose node is gone; the rest are checked
-            // against their node's current placement vector below.
-            std::erase_if(spatial_indices_, [&](const auto &entry)
-                          { return !input->view_data.contains(entry.first); });
+            // Drop indices whose placement tile is gone.
+            std::erase_if(spatial_indices_, [](const auto &entry)
+                          { return entry.second.tile.expired(); });
 
             struct WorkItem
             {
@@ -166,27 +165,30 @@ namespace le
                 // see the class's own doc comment.
                 const Rect local_viewport = Geometry::transform_bbox(Geometry::invert(item.accumulated_transform), options.viewport);
 
-                const SpatialIndex &index = spatial_index_for(item.id, source_data);
+                ViewPlacementTile culled;
                 std::vector<IndexEntry> candidates;
-                index.query(bgi::intersects(local_viewport), std::back_inserter(candidates));
-
-                std::vector<ViewPlacementData> culled;
-                culled.reserve(candidates.size());
-                for (const IndexEntry &entry : candidates)
+                for (const ViewPlacements &tile : source_data.placement_tiles)
                 {
-                    const ViewPlacementData &placement = (*source_data.placement_data)[entry.second];
-                    // See this class's own doc comment - a placement
-                    // whose own bbox is sub-pixel at options.scale is
-                    // skipped entirely, the same way a sub-pixel Rect/
-                    // Polygon already is inside Rasterize.
-                    if (bbox_is_sub_pixel(placement.extent.ur.x - placement.extent.ll.x, placement.extent.ur.y - placement.extent.ll.y, options.scale))
-                        continue;
-                    culled.push_back(placement);
-                    worklist.push_back(WorkItem{placement.id, Geometry::compose(item.accumulated_transform, placement.transform)});
+                    if (tile->placements.empty() || !bg::intersects(tile->extent, local_viewport))
+                        continue; // the whole tile is off-screen - don't even build its index
+                    candidates.clear();
+                    spatial_index_for(tile).query(bgi::intersects(local_viewport), std::back_inserter(candidates));
+                    for (const IndexEntry &entry : candidates)
+                    {
+                        const ViewPlacementData &placement = tile->placements[entry.second];
+                        // See this class's own doc comment - a placement
+                        // whose own bbox is sub-pixel at options.scale is
+                        // skipped entirely, the same way a sub-pixel Rect/
+                        // Polygon already is inside Rasterize.
+                        if (bbox_is_sub_pixel(placement.extent.ur.x - placement.extent.ll.x, placement.extent.ur.y - placement.extent.ll.y, options.scale))
+                            continue;
+                        culled.placements.push_back(placement);
+                        worklist.push_back(WorkItem{placement.id, Geometry::compose(item.accumulated_transform, placement.transform)});
+                    }
                 }
 
-                if (!culled.empty())
-                    data.placement_data = std::make_shared<const std::vector<ViewPlacementData>>(std::move(culled));
+                if (!culled.placements.empty())
+                    data.placement_tiles.push_back(std::make_shared<const ViewPlacementTile>(std::move(culled)));
                 result.view_data.emplace(item.id, std::move(data));
             }
 
@@ -241,43 +243,43 @@ namespace le
         using IndexEntry = std::pair<Rect, std::size_t>;
         using SpatialIndex = bgi::rtree<IndexEntry, bgi::rstar<16>>;
 
-        /// @brief This node's own spatial index over `data.placement_data`'s
-        /// local (untransformed) extents - built once per distinct
-        /// placement vector and reused across every later call that still
-        /// shares it (every viewport-only "zoom tick", and every edit that
-        /// leaves this node's placements alone).
-        const SpatialIndex &spatial_index_for(const HierarchyId &id, const ViewData &data)
+        /// @brief A placement tile's spatial index over its placements'
+        /// local (untransformed) extents - built on first use and reused
+        /// across every later call that still shares the tile (every
+        /// viewport-only "zoom tick", and every edit that leaves the tile
+        /// alone - HierarchyResolverStage shares unchanged tiles between
+        /// outputs).
+        const SpatialIndex &spatial_index_for(const ViewPlacements &tile)
         {
-            CachedIndex &cached = spatial_indices_[id];
-            if (cached.placements == data.placement_data)
+            CachedIndex &cached = spatial_indices_[tile.get()];
+            if (cached.tile.lock() == tile)
                 return cached.index;
 
             std::vector<IndexEntry> entries;
-            entries.reserve(data.placement_data->size());
-            for (std::size_t i = 0; i < data.placement_data->size(); ++i)
-                entries.emplace_back((*data.placement_data)[i].extent, i); // everything it draws, overhang included
-            cached = CachedIndex{.placements = data.placement_data, .index = SpatialIndex(entries)};
+            entries.reserve(tile->placements.size());
+            for (std::size_t i = 0; i < tile->placements.size(); ++i)
+                entries.emplace_back(tile->placements[i].extent, i); // everything it draws, overhang included
+            cached = CachedIndex{.tile = tile, .index = SpatialIndex(entries)};
             ++index_builds_;
             return cached.index;
         }
 
     public:
-        /// @brief How many per-node placement indices this stage has built
-        /// (for tests: an edit that leaves a node's placements alone reuses its index).
+        /// @brief How many placement-tile indices this stage has built (for
+        /// tests: an edit reuses every untouched tile's index).
         std::size_t index_builds() const { return index_builds_; }
 
     private:
         std::size_t index_builds_ = 0;
 
-        // A node's index, and the placement vector it was built from - held,
-        // so no other allocation can reuse its address while cached.
-        // HierarchyResolverStage shares an unchanged vector between outputs,
-        // so an edit that doesn't touch a node's placements keeps its index.
+        // A tile's index; `tile` is weak so the cache never keeps a
+        // replaced tile alive, and is checked before use in case a dead
+        // tile's address was reused.
         struct CachedIndex
         {
-            ViewPlacements placements;
+            std::weak_ptr<const ViewPlacementTile> tile;
             SpatialIndex index;
         };
-        std::unordered_map<HierarchyId, CachedIndex, HierarchyIdHash> spatial_indices_;
+        std::unordered_map<const ViewPlacementTile *, CachedIndex> spatial_indices_;
     };
 }
