@@ -316,7 +316,17 @@ none of these are duplicated here.
   own comment has the exact fixture shape) mirrors the old modules'
   benchmark coverage; see `BENCHMARKS.md` for numbers and history.
   Single-threaded internally — see README's Threading open design
-  question. A nested node's image covers its `ViewData::extent` (declared
+  question. After an edit, `HierarchyResolverStage` updates its previous
+  output incrementally from the Root change log (see Database codegen): a
+  node's shapes are split into immutable, shared `ViewShapeChunk`s (a
+  Layout's per `LayoutChunk` - diearea/blockages, routes, ports/free
+  shapes, rows/tracks/gcells/regions, placements; an Abstract's one), and
+  only the touched ones are rebuilt; anything it can't place precisely
+  falls back to the full resolve (`last_compute_was_incremental()`).
+  `ViewData::placement_data` is a shared immutable vector too, so
+  `ViewportCullStage`'s per-node index and `RasterizeBlend2DStage`'s
+  per-chunk route-outline cache survive edits that don't touch them.
+  A nested node's image covers its `ViewData::extent` (declared
   diearea/boundary grown to everything it draws, placements included —
   `HierarchyResolverStage::assign_extents`), not just its boundary, so a
   cell's overhanging pins/obstructions still draw one level up;
@@ -802,6 +812,16 @@ A class pair may have more than one parent/`is_child` relationship
 Matching by type alone used to silently mis-pair `Layer.dc_current_density`
 with `ac_layer` (wrong delete-undo restore) and drop
 `get_layer_density_entries`'s `-of` flags.
+
+`Root` also keeps a change log (`change_log()`, a fixed-capacity ring of
+`ChangeLogEntry`s addressed by sequence number): every generated create_/
+update_/delete_/set_ records the object and its owner at the time (an
+update that reparents records both owners), so a consumer can update
+incrementally instead of recomputing. An edit made through a mutable
+`get_<klass>()` pointer is invisible to it - call `note_<klass>_changed(id)`
+after one. A bulk operation (every LEF/DEF/Verilog read and link, via
+`SaturateChangeLogOnExit`) or a wrapped ring saturates it, which tells
+consumers to treat everything as changed.
 
 To change the schema: edit `src/database/schema.py`, bump `Schema.version`
 (only needed for a real field/class shape change, not a pure codegen-side

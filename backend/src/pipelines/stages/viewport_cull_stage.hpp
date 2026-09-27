@@ -115,7 +115,7 @@ namespace le
     ///     fresh viewport every call, but Cold's own output (and
     ///     therefore what to index) only changes on a real database edit
     ///     or hierarchy_depth change. Indexed by the node's own id, keyed
-    ///     off `input`'s own identity (a shared_ptr, held here to
+    ///     off that node's placement vector (a shared_ptr, held here to
     ///     guarantee no other allocation can reuse its address while this
     ///     cache still names it) - see spatial_index_for()'s own comment.
     class ViewportCullStage : public MemoizingStage<HierarchyResolverStage::OutputHandle, HierarchyResolverOutput, ViewRenderOptions>
@@ -132,11 +132,10 @@ namespace le
                 return result;
             result.view_layers = input->view_layers;
 
-            if (input.get() != cached_input_.get())
-            {
-                cached_input_ = input;
-                spatial_indices_.clear();
-            }
+            // Drop indices whose node is gone; the rest are checked
+            // against their node's current placement vector below.
+            std::erase_if(spatial_indices_, [&](const auto &entry)
+                          { return !input->view_data.contains(entry.first); });
 
             struct WorkItem
             {
@@ -160,8 +159,7 @@ namespace le
 
                 const ViewData &source_data = source_it->second;
                 ViewData data;
-                data.shapes = source_data.shapes;
-                data.shapes_index = source_data.shapes_index;
+                data.chunks = source_data.chunks;
                 data.extent = source_data.extent;
 
                 // One Rect transform per node, not one per placement -
@@ -172,20 +170,23 @@ namespace le
                 std::vector<IndexEntry> candidates;
                 index.query(bgi::intersects(local_viewport), std::back_inserter(candidates));
 
-                data.placement_data.reserve(candidates.size());
+                std::vector<ViewPlacementData> culled;
+                culled.reserve(candidates.size());
                 for (const IndexEntry &entry : candidates)
                 {
-                    const ViewPlacementData &placement = source_data.placement_data[entry.second];
+                    const ViewPlacementData &placement = (*source_data.placement_data)[entry.second];
                     // See this class's own doc comment - a placement
                     // whose own bbox is sub-pixel at options.scale is
                     // skipped entirely, the same way a sub-pixel Rect/
                     // Polygon already is inside Rasterize.
                     if (bbox_is_sub_pixel(placement.extent.ur.x - placement.extent.ll.x, placement.extent.ur.y - placement.extent.ll.y, options.scale))
                         continue;
-                    data.placement_data.push_back(placement);
+                    culled.push_back(placement);
                     worklist.push_back(WorkItem{placement.id, Geometry::compose(item.accumulated_transform, placement.transform)});
                 }
 
+                if (!culled.empty())
+                    data.placement_data = std::make_shared<const std::vector<ViewPlacementData>>(std::move(culled));
                 result.view_data.emplace(item.id, std::move(data));
             }
 
@@ -241,28 +242,42 @@ namespace le
         using SpatialIndex = bgi::rtree<IndexEntry, bgi::rstar<16>>;
 
         /// @brief This node's own spatial index over `data.placement_data`'s
-        /// local (untransformed) bboxes - built once per distinct Cold
-        /// input (see compute()'s own cached_input_ check) and reused
-        /// across every later call that still shares it, rather than
-        /// rebuilt on every viewport-only "zoom tick".
+        /// local (untransformed) extents - built once per distinct
+        /// placement vector and reused across every later call that still
+        /// shares it (every viewport-only "zoom tick", and every edit that
+        /// leaves this node's placements alone).
         const SpatialIndex &spatial_index_for(const HierarchyId &id, const ViewData &data)
         {
-            const auto it = spatial_indices_.find(id);
-            if (it != spatial_indices_.end())
-                return it->second;
+            CachedIndex &cached = spatial_indices_[id];
+            if (cached.placements == data.placement_data)
+                return cached.index;
 
             std::vector<IndexEntry> entries;
-            entries.reserve(data.placement_data.size());
-            for (std::size_t i = 0; i < data.placement_data.size(); ++i)
-                entries.emplace_back(data.placement_data[i].extent, i); // everything it draws, overhang included
-
-            return spatial_indices_.emplace(id, SpatialIndex(entries)).first->second;
+            entries.reserve(data.placement_data->size());
+            for (std::size_t i = 0; i < data.placement_data->size(); ++i)
+                entries.emplace_back((*data.placement_data)[i].extent, i); // everything it draws, overhang included
+            cached = CachedIndex{.placements = data.placement_data, .index = SpatialIndex(entries)};
+            ++index_builds_;
+            return cached.index;
         }
 
-        // Held (not just a raw pointer) so the underlying HierarchyResolverOutput
-        // can't be freed - and its address reused by an unrelated allocation -
-        // while spatial_indices_ still names it by identity.
-        HierarchyResolverStage::OutputHandle cached_input_;
-        std::unordered_map<HierarchyId, SpatialIndex, HierarchyIdHash> spatial_indices_;
+    public:
+        /// @brief How many per-node placement indices this stage has built
+        /// (for tests: an edit that leaves a node's placements alone reuses its index).
+        std::size_t index_builds() const { return index_builds_; }
+
+    private:
+        std::size_t index_builds_ = 0;
+
+        // A node's index, and the placement vector it was built from - held,
+        // so no other allocation can reuse its address while cached.
+        // HierarchyResolverStage shares an unchanged vector between outputs,
+        // so an edit that doesn't touch a node's placements keeps its index.
+        struct CachedIndex
+        {
+            ViewPlacements placements;
+            SpatialIndex index;
+        };
+        std::unordered_map<HierarchyId, CachedIndex, HierarchyIdHash> spatial_indices_;
     };
 }

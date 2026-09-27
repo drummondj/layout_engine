@@ -272,6 +272,7 @@ namespace le::shape_ops
             ShapeData &shape = *root.get_shape(id);
             LayerChange entry{.id = id, .before = LayerOrPurpose{.layer = shape.layer, .purpose = shape.purpose}};
             set_layer_or_purpose(shape, target);
+            root.note_shape_changed(id);
             entry.after = LayerOrPurpose{.layer = shape.layer, .purpose = shape.purpose};
             changed.push_back(entry);
         }

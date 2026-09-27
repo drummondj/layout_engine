@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -11,6 +12,18 @@ using namespace le;
 
 namespace
 {
+    // Every chunk's shapes of `data` merged into one map (a copy) - the
+    // tests below check what a node draws, not which chunk holds it.
+    ViewLayerShapes merged_shapes(const ViewData &data)
+    {
+        ViewLayerShapes merged;
+        for (const ViewShapeChunk &chunk : data.chunks)
+            if (chunk.shapes)
+                for (const auto &[layer, shapes] : *chunk.shapes)
+                    merged[layer].insert(merged[layer].end(), shapes.begin(), shapes.end());
+        return merged;
+    }
+
     using HierarchyResolverRunner = SynchronousStageRunner<HierarchyResolverStage, ViewLayerSetHandle, HierarchyResolverOutput, ViewRenderOptions>;
 
     // Fixture hierarchy:
@@ -102,14 +115,15 @@ TEST_F(HierarchyResolverStageFixture, DepthZeroShowsOnlyTopLevelContent)
     EXPECT_FALSE(output.view_data.contains(HierarchyId{leaf_abstract}));
 
     const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
-    EXPECT_TRUE(top_data.placement_data.empty());
+    EXPECT_TRUE(top_data.placement_data->empty());
 
     // Still shows a PLACEMENT placeholder (outline + name) for block0 -
     // its own footprint (sized via resolve_design_target for bbox
     // purposes only) is real *data* about this Layout's own direct
     // content, unaffected by whether anything past it ever gets resolved.
-    const auto placement_group_it = top_data.shapes->find(view_layers.placement_view_layer());
-    ASSERT_NE(placement_group_it, top_data.shapes->end());
+    const ViewLayerShapes top_data_shapes = merged_shapes(top_data);
+    const auto placement_group_it = top_data_shapes.find(view_layers.placement_view_layer());
+    ASSERT_NE(placement_group_it, top_data_shapes.end());
     ASSERT_EQ(placement_group_it->second.size(), 1u);
     ASSERT_EQ(placement_group_it->second[0].rects.size(), 1u);
     ASSERT_EQ(placement_group_it->second[0].texts.size(), 1u);
@@ -130,11 +144,11 @@ TEST_F(HierarchyResolverStageFixture, DepthOneResolvesTopLevelPlacementsButNotTh
     EXPECT_FALSE(output.view_data.contains(HierarchyId{leaf_abstract}));
 
     const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
-    ASSERT_EQ(top_data.placement_data.size(), 1u);
-    EXPECT_EQ(top_data.placement_data[0].id, HierarchyId{block_layout});
+    ASSERT_EQ(top_data.placement_data->size(), 1u);
+    EXPECT_EQ((*top_data.placement_data)[0].id, HierarchyId{block_layout});
 
     const ViewData &block_data = output.view_data.at(HierarchyId{block_layout});
-    EXPECT_TRUE(block_data.placement_data.empty());
+    EXPECT_TRUE(block_data.placement_data->empty());
 }
 
 TEST_F(HierarchyResolverStageFixture, PlacementDataBboxMatchesPlacementBoundaryShapeRect)
@@ -143,14 +157,14 @@ TEST_F(HierarchyResolverStageFixture, PlacementDataBboxMatchesPlacementBoundaryS
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options);
 
     const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
-    ASSERT_EQ(top_data.placement_data.size(), 1u);
+    ASSERT_EQ(top_data.placement_data->size(), 1u);
 
     // BLOCK's Layout declares a 1000x1000 diearea at depth 1 (BLOCK
     // resolves to its Layout, not its Abstract - see
     // DepthOneResolvesTopLevelPlacementsButNotTheirOwn), placed at
     // (100, 100) with orientation N (identity transform) - the world
     // bbox is that diearea translated by the placement's own location.
-    const Rect &bbox = top_data.placement_data[0].bbox;
+    const Rect &bbox = (*top_data.placement_data)[0].bbox;
     EXPECT_EQ(bbox.ll.x, 100);
     EXPECT_EQ(bbox.ll.y, 100);
     EXPECT_EQ(bbox.ur.x, 1100);
@@ -160,8 +174,9 @@ TEST_F(HierarchyResolverStageFixture, PlacementDataBboxMatchesPlacementBoundaryS
     // reused for the PLACEMENT placeholder shape's own rect
     // (the whole point of folding this computation into one pass - see
     // the main compute() loop's own comment).
-    const auto boundary_group_it = top_data.shapes->find(view_layers.placement_view_layer());
-    ASSERT_NE(boundary_group_it, top_data.shapes->end());
+    const ViewLayerShapes top_data_shapes = merged_shapes(top_data);
+    const auto boundary_group_it = top_data_shapes.find(view_layers.placement_view_layer());
+    ASSERT_NE(boundary_group_it, top_data_shapes.end());
     ASSERT_EQ(boundary_group_it->second.size(), 1u);
     const RenderShape &top_boundary_shape = boundary_group_it->second[0];
     ASSERT_EQ(top_boundary_shape.rects.size(), 1u);
@@ -186,17 +201,18 @@ TEST_F(HierarchyResolverStageFixture, DepthTwoRecursesIntoLayoutAndDedupesRepeat
     ASSERT_TRUE(output.view_data.contains(HierarchyId{leaf_abstract}));
 
     const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
-    ASSERT_EQ(top_data.placement_data.size(), 1u);
-    EXPECT_EQ(top_data.placement_data[0].id, HierarchyId{block_layout}); // Layout this time, not Abstract
+    ASSERT_EQ(top_data.placement_data->size(), 1u);
+    EXPECT_EQ((*top_data.placement_data)[0].id, HierarchyId{block_layout}); // Layout this time, not Abstract
 
     const ViewData &block_data = output.view_data.at(HierarchyId{block_layout});
-    ASSERT_EQ(block_data.placement_data.size(), 2u);
-    EXPECT_EQ(block_data.placement_data[0].id, HierarchyId{leaf_abstract});
-    EXPECT_EQ(block_data.placement_data[1].id, HierarchyId{leaf_abstract});
+    ASSERT_EQ(block_data.placement_data->size(), 2u);
+    EXPECT_EQ((*block_data.placement_data)[0].id, HierarchyId{leaf_abstract});
+    EXPECT_EQ((*block_data.placement_data)[1].id, HierarchyId{leaf_abstract});
 
     const ViewData &leaf_data = output.view_data.at(HierarchyId{leaf_abstract});
-    EXPECT_EQ(leaf_data.shapes->size(), 3u); // 3 distinct ViewLayer groups: terminal, obstruction, boundary - one shape each
-    EXPECT_TRUE(leaf_data.placement_data.empty());
+    const ViewLayerShapes leaf_data_shapes = merged_shapes(leaf_data);
+    EXPECT_EQ(leaf_data_shapes.size(), 3u); // 3 distinct ViewLayer groups: terminal, obstruction, boundary - one shape each
+    EXPECT_TRUE(leaf_data.placement_data->empty());
 }
 
 TEST_F(HierarchyResolverStageFixture, ShapesResolveExpectedViewLayers)
@@ -208,13 +224,14 @@ TEST_F(HierarchyResolverStageFixture, ShapesResolveExpectedViewLayers)
     const ViewLayerId expected_terminal_layer = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
     const ViewLayerId expected_obstruction_layer = view_layers.find(m1, ViewLayerPurpose::OBSTRUCTION);
 
-    const auto terminal_it = leaf_data.shapes->find(expected_terminal_layer);
-    ASSERT_NE(terminal_it, leaf_data.shapes->end());
+    const ViewLayerShapes leaf_data_shapes = merged_shapes(leaf_data);
+    const auto terminal_it = leaf_data_shapes.find(expected_terminal_layer);
+    ASSERT_NE(terminal_it, leaf_data_shapes.end());
     EXPECT_FALSE(terminal_it->second.empty());
     EXPECT_FALSE(terminal_it->second.front().rects.empty());
 
-    EXPECT_TRUE(leaf_data.shapes->contains(expected_obstruction_layer));
-    EXPECT_TRUE(leaf_data.shapes->contains(view_layers.boundary_view_layer()));
+    EXPECT_TRUE(leaf_data_shapes.contains(expected_obstruction_layer));
+    EXPECT_TRUE(leaf_data_shapes.contains(view_layers.boundary_view_layer()));
 }
 
 TEST_F(HierarchyResolverStageFixture, AddsPlacementShapesWithOutlinesAndNameLabels)
@@ -234,8 +251,9 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementShapesWithOutlinesAndNameLabe
     // bbox (BLOCK's own declared 1000x1000 size, translated by its
     // location), its Text is labeled "block0".
     const ViewData &top_data = output.view_data.at(HierarchyId{top_layout});
-    const auto top_it = top_data.shapes->find(placement_layer);
-    ASSERT_NE(top_it, top_data.shapes->end());
+    const ViewLayerShapes top_data_shapes = merged_shapes(top_data);
+    const auto top_it = top_data_shapes.find(placement_layer);
+    ASSERT_NE(top_it, top_data_shapes.end());
     ASSERT_EQ(top_it->second.size(), 1u);
     const RenderShape &top_shape = top_it->second[0];
     ASSERT_EQ(top_shape.rects.size(), 1u);
@@ -247,8 +265,9 @@ TEST_F(HierarchyResolverStageFixture, AddsPlacementShapesWithOutlinesAndNameLabe
     // BLOCK's own Layout has two placements (leaf0/leaf1) - one shared
     // PLACEMENT shape with 2 rects/labels, not two shapes.
     const ViewData &block_data = output.view_data.at(HierarchyId{block_layout});
-    const auto block_name_it = block_data.shapes->find(placement_layer);
-    ASSERT_NE(block_name_it, block_data.shapes->end());
+    const ViewLayerShapes block_data_shapes = merged_shapes(block_data);
+    const auto block_name_it = block_data_shapes.find(placement_layer);
+    ASSERT_NE(block_name_it, block_data_shapes.end());
     ASSERT_EQ(block_name_it->second.size(), 1u);
     const RenderShape &block_name_shape = block_name_it->second[0];
     ASSERT_EQ(block_name_shape.rects.size(), 2u);
@@ -295,11 +314,12 @@ TEST_F(HierarchyResolverStageFixture, ShapesIndexQueryFindsOnlyOverlappingShapes
     // clipping might otherwise paper over.
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{leaf_abstract}, 0));
     const ViewData &leaf_data = output.view_data.at(HierarchyId{leaf_abstract});
-    ASSERT_NE(leaf_data.shapes_index, nullptr);
+    ASSERT_EQ(leaf_data.chunks.size(), 1u); // an Abstract is one chunk
+    ASSERT_NE(leaf_data.chunks[0].shapes_index, nullptr);
 
     const ViewLayerId terminal_layer = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
-    const auto index_it = leaf_data.shapes_index->find(terminal_layer);
-    ASSERT_NE(index_it, leaf_data.shapes_index->end());
+    const auto index_it = leaf_data.chunks[0].shapes_index->find(terminal_layer);
+    ASSERT_NE(index_it, leaf_data.chunks[0].shapes_index->end());
 
     auto query = [&](Rect rect)
     {
@@ -321,12 +341,12 @@ TEST_F(HierarchyResolverStageFixture, ShapesIndexQueryFindsOnlyOverlappingShapes
     // TERMINAL layer's own index must not find it even though its own
     // bbox is close by.
     const ViewLayerId obstruction_layer = view_layers.find(m1, ViewLayerPurpose::OBSTRUCTION);
-    const auto obstruction_index_it = leaf_data.shapes_index->find(obstruction_layer);
-    ASSERT_NE(obstruction_index_it, leaf_data.shapes_index->end());
+    const auto obstruction_index_it = leaf_data.chunks[0].shapes_index->find(obstruction_layer);
+    ASSERT_NE(obstruction_index_it, leaf_data.chunks[0].shapes_index->end());
     std::vector<ShapeIndexEntry> obstruction_hits;
     obstruction_index_it->second.query(boost::geometry::index::intersects(Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}), std::back_inserter(obstruction_hits));
     ASSERT_EQ(obstruction_hits.size(), 1u);
-    const std::optional<Rect> obstruction_bbox = Geometry::bbox(leaf_data.shapes->at(obstruction_layer)[obstruction_hits.front().second]);
+    const std::optional<Rect> obstruction_bbox = Geometry::bbox(leaf_data.chunks[0].shapes->at(obstruction_layer)[obstruction_hits.front().second]);
     ASSERT_TRUE(obstruction_bbox.has_value());
     EXPECT_EQ(obstruction_hits.front().first.ll.x, obstruction_bbox->ll.x);
     EXPECT_EQ(obstruction_hits.front().first.ll.y, obstruction_bbox->ll.y);
@@ -340,8 +360,7 @@ namespace
 {
     size_t shapes_on(const ViewData &data, ViewLayerId view_layer)
     {
-        const auto it = data.shapes->find(view_layer);
-        return it == data.shapes->end() ? 0 : it->second.size();
+        return view_data_shapes(data, view_layer).size();
     }
 }
 
@@ -358,7 +377,8 @@ TEST_F(HierarchyResolverStageFixture, FreeShapesDrawOnTheirLayersCustomShapeColu
 
     const ViewLayerId custom = view_layers.find(m1, ViewLayerPurpose::CUSTOM_SHAPE);
     ASSERT_EQ(shapes_on(leaf, custom), 1u);
-    EXPECT_EQ(leaf.shapes->at(custom)[0].rects[0].ll.x, 5);
+    const ViewLayerShapes leaf_shapes = merged_shapes(leaf);
+    EXPECT_EQ(leaf_shapes.at(custom)[0].rects[0].ll.x, 5);
     EXPECT_EQ(shapes_on(leaf, view_layers.find(LayerId{}, ViewLayerPurpose::DEBUG)), 1u);
     EXPECT_EQ(shapes_on(leaf, view_layers.boundary_view_layer()), 1u); // only LEAF's real boundary
     // The terminal/obstruction shapes on M1 stay on their own columns.
@@ -386,7 +406,7 @@ TEST_F(HierarchyResolverStageFixture, AnAbstractsFreeShapesAppearInEveryPlacemen
     ASSERT_TRUE(output.view_data.contains(HierarchyId{leaf_abstract}));
     EXPECT_EQ(shapes_on(output.view_data.at(HierarchyId{leaf_abstract}), view_layers.find(m1, ViewLayerPurpose::CUSTOM_SHAPE)), 1u);
     const ViewData &block = output.view_data.at(HierarchyId{block_layout});
-    EXPECT_EQ(std::count_if(block.placement_data.begin(), block.placement_data.end(), [&](const auto &placement)
+    EXPECT_EQ(std::count_if(block.placement_data->begin(), block.placement_data->end(), [&](const auto &placement)
                             { return placement.id == HierarchyId{leaf_abstract}; }),
               2);
 }
@@ -410,7 +430,8 @@ TEST_F(HierarchyResolverStageFixture, PhysicalPortsDrawShapesLabelsAndDirectionM
     const ViewLayerId terminal = view_layers.find(m1, ViewLayerPurpose::TERMINAL);
     ASSERT_EQ(shapes_on(top, terminal), 2u);
     std::vector<std::string> labels;
-    for (const RenderShape &shape : top.shapes->at(terminal))
+    const ViewLayerShapes top_shapes = merged_shapes(top);
+    for (const RenderShape &shape : top_shapes.at(terminal))
         for (const Text &text : shape.texts)
             labels.push_back(text.label);
     std::ranges::sort(labels);
@@ -420,7 +441,7 @@ TEST_F(HierarchyResolverStageFixture, PhysicalPortsDrawShapesLabelsAndDirectionM
     // anchor), one triangle each, both outside the die beyond the port's
     // outer edge.
     ASSERT_EQ(shapes_on(top, view_layers.port_marker_view_layer()), 2u);
-    for (const RenderShape &marker : top.shapes->at(view_layers.port_marker_view_layer()))
+    for (const RenderShape &marker : top_shapes.at(view_layers.port_marker_view_layer()))
     {
         ASSERT_EQ(marker.polygons.size(), 1u);
         for (const Point &p : marker.polygons[0].points)
@@ -447,9 +468,9 @@ TEST_F(HierarchyResolverStageFixture, ExtentsGrowToCoverContentOutsideTheBoundar
     // leaf1 sits at (500,500) in BLOCK: its declared bbox is unchanged,
     // its extent carries the overhang.
     const ViewData &block = output.view_data.at(HierarchyId{block_layout});
-    const auto leaf1 = std::ranges::find_if(block.placement_data, [](const ViewPlacementData &p)
+    const auto leaf1 = std::ranges::find_if(*block.placement_data, [](const ViewPlacementData &p)
                                             { return p.location.x == 500; });
-    ASSERT_NE(leaf1, block.placement_data.end());
+    ASSERT_NE(leaf1, block.placement_data->end());
     EXPECT_EQ(leaf1->bbox.ur.x, 510);
     EXPECT_EQ(leaf1->extent.ll.y, 495);
     EXPECT_EQ(leaf1->extent.ur.x, 515);
@@ -461,4 +482,213 @@ TEST_F(HierarchyResolverStageFixture, ExtentsGrowToCoverContentOutsideTheBoundar
     EXPECT_EQ(block_extent.ll.x, 0);
     EXPECT_EQ(block_extent.ur.x, 1000);
     EXPECT_EQ(output.view_data.at(HierarchyId{top_layout}).extent.ur.x, 5000);
+}
+
+// --- Incremental updates after an edit (Root change log) ---
+//
+// After each kind of edit, the stage must update its previous output from
+// the change log - rebuilding only the touched chunks and sharing the rest
+// - and the result must match a fresh full resolve exactly.
+
+namespace
+{
+    std::string describe(const RenderShape &shape)
+    {
+        std::string out;
+        for (const Rect &r : shape.rects)
+            out += to_string(r) + ";";
+        for (const Polygon &p : shape.polygons)
+            out += to_string(p) + ";";
+        for (const Path &p : shape.paths)
+            out += to_string(p) + ";";
+        for (const Text &t : shape.texts)
+            out += to_string(t) + ";";
+        return out;
+    }
+
+    // Everything a node draws and places, as comparable text.
+    std::string describe(const ViewData &data)
+    {
+        std::string out;
+        std::map<std::uint32_t, std::vector<std::string>> by_layer; // ordered for a stable description
+        for (const ViewShapeChunk &chunk : data.chunks)
+            if (chunk.shapes)
+                for (const auto &[layer, shapes] : *chunk.shapes)
+                    for (const RenderShape &shape : shapes)
+                        by_layer[layer.index].push_back(describe(shape));
+        for (const auto &[layer, shapes] : by_layer)
+        {
+            out += "layer " + std::to_string(layer) + ":";
+            for (const std::string &shape : shapes)
+                out += " [" + shape + "]";
+            out += "\n";
+        }
+        for (const ViewPlacementData &placement : *data.placement_data)
+            out += "placement " + to_string(placement.location) + " " + to_string(placement.bbox) + " " + to_string(placement.extent) + "\n";
+        out += "extent " + to_string(data.extent) + " depth " + std::to_string(data.remaining_depth) + "\n";
+        return out;
+    }
+
+    void expect_same_output(const HierarchyResolverOutput &actual, const HierarchyResolverOutput &expected)
+    {
+        ASSERT_EQ(actual.view_data.size(), expected.view_data.size());
+        for (const auto &[id, data] : expected.view_data)
+        {
+            ASSERT_TRUE(actual.view_data.contains(id));
+            EXPECT_EQ(describe(actual.view_data.at(id)), describe(data));
+        }
+    }
+
+    const ViewShapeChunk &chunk_of(const HierarchyResolverOutput &output, HierarchyId id, LayoutChunk chunk)
+    {
+        return output.view_data.at(id).chunks.at(static_cast<std::size_t>(chunk));
+    }
+
+    struct IncrementalFixture : public HierarchyResolverStageFixture
+    {
+        // Runs the stage (it keeps its previous output), then a fresh one,
+        // and checks they agree.
+        const HierarchyResolverOutput &rerun_and_compare(int depth = 2)
+        {
+            root.bump_mutation_version();
+            const HierarchyResolverOutput &updated = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, depth));
+            HierarchyResolverRunner fresh{"fresh"};
+            expect_same_output(updated, fresh.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, depth)));
+            return updated;
+        }
+
+        PlacementId placement_named(LayoutId layout, const std::string &name)
+        {
+            for (const PlacementId id : root.get_layout_placements(layout))
+                if (root.get_placement(id)->name == name)
+                    return id;
+            return PlacementId{};
+        }
+    };
+}
+
+TEST_F(IncrementalFixture, MovingAPlacementRebuildsOnlyItsLayoutsPlacements)
+{
+    const RouteId route = root.create_route(RouteData{.layout = block_layout});
+    root.create_shape(ShapeData{.route = route, .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
+    const HierarchyResolverOutput before = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
+
+    const PlacementId leaf1 = placement_named(block_layout, "leaf1");
+    ASSERT_TRUE(root.update_placement(leaf1, block_layout, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, Point{600, 700}, std::nullopt, std::nullopt, std::nullopt));
+    const HierarchyResolverOutput &after = rerun_and_compare();
+
+    EXPECT_TRUE(runner.stage().last_compute_was_incremental());
+    EXPECT_NE(chunk_of(after, HierarchyId{block_layout}, LayoutChunk::PLACEMENTS).shapes, chunk_of(before, HierarchyId{block_layout}, LayoutChunk::PLACEMENTS).shapes);
+    // Everything else is shared, not rebuilt.
+    EXPECT_EQ(chunk_of(after, HierarchyId{block_layout}, LayoutChunk::ROUTES).shapes, chunk_of(before, HierarchyId{block_layout}, LayoutChunk::ROUTES).shapes);
+    EXPECT_EQ(after.view_data.at(HierarchyId{leaf_abstract}).chunks[0].shapes, before.view_data.at(HierarchyId{leaf_abstract}).chunks[0].shapes);
+    EXPECT_EQ(chunk_of(after, HierarchyId{top_layout}, LayoutChunk::PLACEMENTS).shapes, chunk_of(before, HierarchyId{top_layout}, LayoutChunk::PLACEMENTS).shapes);
+    EXPECT_EQ(after.view_data.at(HierarchyId{top_layout}).placement_data, before.view_data.at(HierarchyId{top_layout}).placement_data);
+}
+
+TEST_F(IncrementalFixture, EditingAndDeletingARouteRebuildsOnlyTheRoutesChunk)
+{
+    const RouteId route = root.create_route(RouteData{.layout = top_layout});
+    const ShapeId shape = root.create_shape(ShapeData{.route = route, .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
+    const HierarchyResolverOutput before = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
+
+    ASSERT_TRUE(root.update_shape(shape, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{0, 0}, .ur = Point{80, 5}}}, std::nullopt, std::nullopt, std::nullopt));
+    const HierarchyResolverOutput edited = rerun_and_compare();
+    EXPECT_TRUE(runner.stage().last_compute_was_incremental());
+    EXPECT_NE(chunk_of(edited, HierarchyId{top_layout}, LayoutChunk::ROUTES).shapes, chunk_of(before, HierarchyId{top_layout}, LayoutChunk::ROUTES).shapes);
+    EXPECT_EQ(chunk_of(edited, HierarchyId{top_layout}, LayoutChunk::PLACEMENTS).shapes, chunk_of(before, HierarchyId{top_layout}, LayoutChunk::PLACEMENTS).shapes);
+    EXPECT_EQ(edited.view_data.at(HierarchyId{top_layout}).placement_data, before.view_data.at(HierarchyId{top_layout}).placement_data);
+
+    // Deleted shape then route: found through the deleted route's logged owner.
+    ASSERT_TRUE(root.delete_shape(shape));
+    ASSERT_TRUE(root.delete_route(route));
+    rerun_and_compare();
+    EXPECT_TRUE(runner.stage().last_compute_was_incremental());
+}
+
+TEST_F(IncrementalFixture, EditingACellsTerminalRebuildsOnlyThatCell)
+{
+    const HierarchyResolverOutput before = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
+
+    ShapeId terminal_shape;
+    root.for_each_shape_id([&](ShapeId id)
+                           { if (root.get_shape(id)->terminal_port.valid()) terminal_shape = id; });
+    ASSERT_TRUE(root.update_shape(terminal_shape, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{1, 1}, .ur = Point{3, 3}}}, std::nullopt, std::nullopt, std::nullopt));
+    const HierarchyResolverOutput &after = rerun_and_compare();
+
+    EXPECT_TRUE(runner.stage().last_compute_was_incremental());
+    EXPECT_NE(after.view_data.at(HierarchyId{leaf_abstract}).chunks[0].shapes, before.view_data.at(HierarchyId{leaf_abstract}).chunks[0].shapes);
+    EXPECT_EQ(chunk_of(after, HierarchyId{block_layout}, LayoutChunk::PLACEMENTS).shapes, chunk_of(before, HierarchyId{block_layout}, LayoutChunk::PLACEMENTS).shapes);
+}
+
+TEST_F(IncrementalFixture, ChangingACellsBoundaryRebuildsThePlacementsOfIt)
+{
+    runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
+
+    ShapeId boundary;
+    root.for_each_shape_id([&](ShapeId id)
+                           { if (root.get_shape(id)->abstract == leaf_abstract) boundary = id; });
+    ASSERT_TRUE(root.update_shape(boundary, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{0, 0}, .ur = Point{20, 30}}}, std::nullopt, std::nullopt, std::nullopt));
+    rerun_and_compare();
+    EXPECT_TRUE(runner.stage().last_compute_was_incremental());
+}
+
+TEST_F(IncrementalFixture, RepointingAPlacementResolvesTheNewCellAndDropsUnreachableOnes)
+{
+    // A second cell, created before the first run (creating an Abstract
+    // resolves everything - what a design resolves to changes).
+    const LibraryId library_id = root.get_design(root.get_abstract(leaf_abstract)->design)->library;
+    const DesignId other_design = root.create_design(DesignData{.library = library_id, .name = "OTHER"});
+    const AbstractId other_abstract = root.create_abstract(AbstractData{.design = other_design});
+    root.create_shape(ShapeData{.abstract = other_abstract, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{40, 40}}}});
+    runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
+
+    for (const char *name : {"leaf0", "leaf1"})
+        ASSERT_TRUE(root.update_placement(placement_named(block_layout, name), block_layout, other_design, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
+    const HierarchyResolverOutput &after = rerun_and_compare();
+
+    EXPECT_TRUE(runner.stage().last_compute_was_incremental());
+    EXPECT_TRUE(after.view_data.contains(HierarchyId{other_abstract}));
+    EXPECT_FALSE(after.view_data.contains(HierarchyId{leaf_abstract}));
+}
+
+TEST_F(IncrementalFixture, ALogicalEditSharesEveryChunk)
+{
+    const HierarchyResolverOutput before = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
+    const DesignId top_design = root.get_layout(top_layout)->design;
+    const SchematicId schematic = root.create_schematic(SchematicData{.design = top_design});
+    root.create_net(NetData{.schematic = schematic, .name = "n1"});
+    const HierarchyResolverOutput &after = rerun_and_compare();
+
+    EXPECT_TRUE(runner.stage().last_compute_was_incremental());
+    for (const auto &[id, data] : before.view_data)
+        for (std::size_t c = 0; c < data.chunks.size(); ++c)
+            EXPECT_EQ(after.view_data.at(id).chunks[c].shapes, data.chunks[c].shapes);
+}
+
+TEST_F(IncrementalFixture, TechnologyEditsAndASaturatedLogResolveEverything)
+{
+    runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
+    root.create_layer(LayerData{.technology = technology_id, .name = "M9", .type = "ROUTING"});
+    rerun_and_compare();
+    EXPECT_FALSE(runner.stage().last_compute_was_incremental());
+
+    root.saturate_change_log();
+    rerun_and_compare();
+    EXPECT_FALSE(runner.stage().last_compute_was_incremental());
+}
+
+TEST_F(IncrementalFixture, ARebuiltViewLayerSetWithTheSameIdsStaysIncremental)
+{
+    const HierarchyResolverOutput before = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
+
+    // A layer color change: a new ViewLayerSet, same ids.
+    ViewLayerSet recolored = ViewLayerSet::build_for_technology(root, technology_id);
+    recolored.apply_color_overrides({{"M1", Color{1, 2, 3, 255}}});
+    const ViewLayerSetHandle recolored_handle = std::make_shared<const ViewLayerSet>(recolored);
+    const HierarchyResolverOutput &after = runner.run(recolored_handle, 1, options_for(HierarchyId{top_layout}, 2));
+
+    EXPECT_TRUE(runner.stage().last_compute_was_incremental());
+    EXPECT_EQ(after.view_layers, recolored_handle);
+    EXPECT_EQ(after.view_data.at(HierarchyId{leaf_abstract}).chunks[0].shapes, before.view_data.at(HierarchyId{leaf_abstract}).chunks[0].shapes);
 }

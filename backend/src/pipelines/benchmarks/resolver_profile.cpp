@@ -15,7 +15,10 @@
 //   - per viewport (zoom-fit and zoomed-in): ViewportCull cold (its per-node
 //     placement index rebuilt, as after every resolve) vs warm, and the
 //     first Rasterize after a resolve (route-outline cache empty) vs a warm
-//     one.
+//     one;
+//   - per edit (a placement move, a route shape edit, near the die center):
+//     the resolve after it (incremental when the Root change log allows),
+//     and the first zoomed-in ViewportCull/Rasterize after it.
 // Not run by ctest.
 
 #include "../../core/placement_geometry.hpp"
@@ -167,7 +170,7 @@ int main(int argc, char **argv)
 
     std::printf("design aes_scaling_%s\n", label.c_str());
     auto start = std::chrono::steady_clock::now();
-    const AesScalingFixture fixture = load_aes_scaling_fixture(TileConfig{0, 0, label.c_str()});
+    AesScalingFixture fixture = load_aes_scaling_fixture(TileConfig{0, 0, label.c_str()});
     report("load_ms", elapsed_ms(start));
     report("rss_after_load_mb", peak_rss_mb());
     report("placements", static_cast<double>(fixture.root.get_layout_placements(fixture.layout_id).size()));
@@ -222,7 +225,7 @@ int main(int argc, char **argv)
     report("rss_after_resolve_mb", peak_rss_mb());
 
     // Output size.
-    const HierarchyResolverStage::OutputHandle resolved = runner->last_handle();
+    HierarchyResolverStage::OutputHandle resolved = runner->last_handle();
     const HierarchyResolverOutputStats stats = estimate_hierarchy_resolver_output_stats(*resolved);
     report("output.render_shapes", static_cast<double>(stats.shape_count));
     report("output.shape_bytes_mb", static_cast<double>(stats.shape_bytes) / (1024.0 * 1024.0));
@@ -231,13 +234,16 @@ int main(int argc, char **argv)
     std::map<std::string, std::size_t> shapes_by_purpose;
     for (const auto &[id, data] : resolved->view_data)
     {
-        if (data.shapes_index)
-            for (const auto &[layer, index] : *data.shapes_index)
-                index_entries += index.size();
-        if (data.shapes)
-            for (const auto &[layer, shapes] : *data.shapes)
-                if (const ViewLayerData *view_layer = view_layers.get(layer))
-                    shapes_by_purpose[purpose_name(view_layer->purpose)] += shapes.size();
+        for (const ViewShapeChunk &chunk : data.chunks)
+        {
+            if (chunk.shapes_index)
+                for (const auto &[layer, index] : *chunk.shapes_index)
+                    index_entries += index.size();
+            if (chunk.shapes)
+                for (const auto &[layer, shapes] : *chunk.shapes)
+                    if (const ViewLayerData *view_layer = view_layers.get(layer))
+                        shapes_by_purpose[purpose_name(view_layer->purpose)] += shapes.size();
+        }
     }
     report("output.index_entries", static_cast<double>(index_entries));
     for (const auto &[purpose, count] : shapes_by_purpose)
@@ -252,6 +258,96 @@ int main(int argc, char **argv)
     const Point center{die.ll.x + width / 2, die.ll.y + height / 2};
     const Rect zoomed{.ll = Point{center.x - width / 20, center.y - height / 20}, .ur = Point{center.x + width / 20, center.y + height / 20}};
     profile_viewport("zoom", resolved, cold, zoomed, repeats);
+    resolved.reset(); // edits below replace the output; don't keep the original alive
+
+    // Edits near the die center (inside the zoomed-in window), each
+    // followed by the resolve (incremental when the change log allows),
+    // and the first ViewportCull/Rasterize of the zoomed-in window after
+    // it - both warm on that window beforehand, as in an editing session.
+    Root &root = fixture.root;
+    auto distance = [&](const Rect &r)
+    { return std::abs((r.ll.x + r.ur.x) / 2 - center.x) + std::abs((r.ll.y + r.ur.y) / 2 - center.y); };
+
+    PlacementId placement;
+    int64_t best = INT64_MAX;
+    for (const PlacementId id : root.get_layout_placements(fixture.layout_id))
+        if (const PlacementData *p = root.get_placement(id); p && p->location)
+            if (const int64_t d = distance(Rect{.ll = *p->location, .ur = *p->location}); d < best)
+            {
+                best = d;
+                placement = id;
+            }
+    ShapeId route_shape;
+    best = INT64_MAX;
+    for (const RouteId route : root.get_layout_routes(fixture.layout_id))
+        for (const ShapeId id : root.get_route_shapes(route))
+            if (const std::optional<Rect> box = Geometry::bbox(*root.get_shape(id)))
+                if (const int64_t d = distance(*box); d < best)
+                {
+                    best = d;
+                    route_shape = id;
+                }
+
+    auto profile_edit = [&](const std::string &name, auto &&apply_edit)
+    {
+        ViewRenderOptions zoom_options = view_options(cold, zoomed);
+        ViewportCullRunner cull{"profile_edit_cull"};
+        RasterizeRunner raster{"profile_edit_rasterize"};
+        raster.stage().set_thread_count(4);
+        std::uint64_t data_version = 1;
+        cull.run(runner->last_handle(), data_version, zoom_options);
+        raster.run(cull.last_handle(), data_version, zoom_options);
+
+        std::vector<double> resolve, cull_first, raster_first, raster_second;
+        bool incremental = true;
+        for (int r = 0; r < repeats; ++r)
+        {
+            apply_edit(r);
+            root.bump_mutation_version();
+            ViewRenderOptions options = cold;
+            options.root_mutation_version = root.mutation_version();
+
+            auto t = std::chrono::steady_clock::now();
+            runner->run(view_layers_handle, 0, options);
+            resolve.push_back(elapsed_ms(t));
+            incremental = incremental && runner->stage().last_compute_was_incremental();
+
+            ++data_version;
+            t = std::chrono::steady_clock::now();
+            cull.run(runner->last_handle(), data_version, zoom_options);
+            cull_first.push_back(elapsed_ms(t));
+            t = std::chrono::steady_clock::now();
+            raster.run(cull.last_handle(), data_version, zoom_options);
+            raster_first.push_back(elapsed_ms(t));
+            // The same frame again (forced): what's left once per-chunk caches refill.
+            ++data_version;
+            t = std::chrono::steady_clock::now();
+            raster.run(cull.last_handle(), data_version, zoom_options);
+            raster_second.push_back(elapsed_ms(t));
+        }
+        report("edit." + name + ".resolve_ms", median(resolve));
+        report("edit." + name + ".incremental", incremental ? 1.0 : 0.0);
+        report("edit." + name + ".zoom_cull_first_ms", median(cull_first));
+        report("edit." + name + ".zoom_rasterize_first_ms", median(raster_first));
+        report("edit." + name + ".zoom_rasterize_second_ms", median(raster_second));
+    };
+
+    // Move a placement by 2 um and back.
+    const double dbu_per_um = root.get_technology(technology_ids.front())->database_units_microns;
+    const Point home = *root.get_placement(placement)->location;
+    profile_edit("placement_move", [&](int r)
+                 {
+        const Point to{home.x + ((r % 2 == 0) ? static_cast<int64_t>(2 * dbu_per_um) : 0), home.y};
+        root.update_placement(placement, fixture.layout_id, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, to,
+                              std::nullopt, std::nullopt, std::nullopt); });
+
+    // Rewrite one route shape's geometry (unchanged values - the resolver
+    // can't tell, so the cost is that of a real edit).
+    profile_edit("route_shape", [&](int)
+                 {
+        const ShapeData current = *root.get_shape(route_shape);
+        root.update_shape(route_shape, std::nullopt, std::nullopt, current.paths, current.polygons, current.rects, std::nullopt,
+                          std::nullopt, std::nullopt); });
 
     report("rss_peak_mb", peak_rss_mb());
     return 0;

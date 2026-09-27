@@ -644,7 +644,7 @@ namespace le
             if (view_data_it == culled.view_data.end())
                 return;
 
-            for (const ViewPlacementData &placement : view_data_it->second.placement_data)
+            for (const ViewPlacementData &placement : *view_data_it->second.placement_data)
             {
                 const BLImage child_image = compose_node(placement.id, culled, rasterized, composed_cache, scale);
                 if (child_image.is_empty())
@@ -701,7 +701,7 @@ namespace le
 
             const RasterizedImage &own = rasterized_it->second;
             const auto view_data_it = culled.view_data.find(id);
-            const bool has_placements = view_data_it != culled.view_data.end() && !view_data_it->second.placement_data.empty();
+            const bool has_placements = view_data_it != culled.view_data.end() && !view_data_it->second.placement_data->empty();
             if (!has_placements)
             {
                 // No children to draw on top - this node's own already-

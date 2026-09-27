@@ -78,8 +78,8 @@ TEST_F(ViewportCullStageFixture, ViewportCoveringEverythingCullsNothing)
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{top_layout}));
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{block_layout}));
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{leaf_abstract}));
-    EXPECT_EQ(culled.view_data.at(HierarchyId{top_layout}).placement_data.size(), 1u);
-    EXPECT_EQ(culled.view_data.at(HierarchyId{block_layout}).placement_data.size(), 2u);
+    EXPECT_EQ(culled.view_data.at(HierarchyId{top_layout}).placement_data->size(), 1u);
+    EXPECT_EQ(culled.view_data.at(HierarchyId{block_layout}).placement_data->size(), 2u);
 }
 
 TEST_F(ViewportCullStageFixture, ViewportCoveringNothingLeavesOnlyTopLevel)
@@ -89,13 +89,13 @@ TEST_F(ViewportCullStageFixture, ViewportCoveringNothingLeavesOnlyTopLevel)
 
     ASSERT_EQ(culled.view_data.size(), 1u);
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{top_layout}));
-    EXPECT_TRUE(culled.view_data.at(HierarchyId{top_layout}).placement_data.empty());
+    EXPECT_TRUE(culled.view_data.at(HierarchyId{top_layout}).placement_data->empty());
 
     // shapes are carried through unchanged regardless of culling - not
     // just equal in content, but the exact same ViewShapesHandle (a
     // shared_ptr copy, not a fresh vector) - this stage prunes
     // placements, not a node's own direct content.
-    EXPECT_EQ(culled.view_data.at(HierarchyId{top_layout}).shapes.get(), cold_output->view_data.at(HierarchyId{top_layout}).shapes.get());
+    EXPECT_EQ(culled.view_data.at(HierarchyId{top_layout}).chunks[0].shapes.get(), cold_output->view_data.at(HierarchyId{top_layout}).chunks[0].shapes.get());
 }
 
 TEST_F(ViewportCullStageFixture, CullingComposesAncestorTransformsNotJustLocalBbox)
@@ -113,13 +113,13 @@ TEST_F(ViewportCullStageFixture, CullingComposesAncestorTransformsNotJustLocalBb
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{leaf_abstract})); // leaf1 survived, so LEAF is still reachable
 
     const ViewData &top_data = culled.view_data.at(HierarchyId{top_layout});
-    ASSERT_EQ(top_data.placement_data.size(), 1u);
-    EXPECT_EQ(top_data.placement_data[0].id, HierarchyId{block_layout});
+    ASSERT_EQ(top_data.placement_data->size(), 1u);
+    EXPECT_EQ((*top_data.placement_data)[0].id, HierarchyId{block_layout});
 
     const ViewData &block_data = culled.view_data.at(HierarchyId{block_layout});
-    ASSERT_EQ(block_data.placement_data.size(), 1u); // leaf0 culled, leaf1 survives
-    EXPECT_EQ(block_data.placement_data[0].location.x, 500);
-    EXPECT_EQ(block_data.placement_data[0].location.y, 500);
+    ASSERT_EQ(block_data.placement_data->size(), 1u); // leaf0 culled, leaf1 survives
+    EXPECT_EQ((*block_data.placement_data)[0].location.x, 500);
+    EXPECT_EQ((*block_data.placement_data)[0].location.y, 500);
 }
 
 TEST_F(ViewportCullStageFixture, ReusingCachedIndexAcrossViewportOnlyChangesStaysCorrect)
@@ -134,15 +134,15 @@ TEST_F(ViewportCullStageFixture, ReusingCachedIndexAcrossViewportOnlyChangesStay
     // the first viewport instead of its own.
     const ViewRenderOptions everything = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
     const HierarchyResolverOutput &full = cull_runner.run(cold_output, 0, everything);
-    EXPECT_EQ(full.view_data.at(HierarchyId{block_layout}).placement_data.size(), 2u);
+    EXPECT_EQ(full.view_data.at(HierarchyId{block_layout}).placement_data->size(), 2u);
 
     const ViewRenderOptions narrow = options_with_viewport(Rect{.ll = Point{550, 550}, .ur = Point{650, 650}});
     const HierarchyResolverOutput &narrowed = cull_runner.run(cold_output, 0, narrow);
-    ASSERT_EQ(narrowed.view_data.at(HierarchyId{block_layout}).placement_data.size(), 1u);
-    EXPECT_EQ(narrowed.view_data.at(HierarchyId{block_layout}).placement_data[0].location.x, 500);
+    ASSERT_EQ(narrowed.view_data.at(HierarchyId{block_layout}).placement_data->size(), 1u);
+    EXPECT_EQ((*narrowed.view_data.at(HierarchyId{block_layout}).placement_data)[0].location.x, 500);
 
     const HierarchyResolverOutput &full_again = cull_runner.run(cold_output, 0, everything);
-    EXPECT_EQ(full_again.view_data.at(HierarchyId{block_layout}).placement_data.size(), 2u);
+    EXPECT_EQ(full_again.view_data.at(HierarchyId{block_layout}).placement_data->size(), 2u);
 }
 
 TEST_F(ViewportCullStageFixture, SubPixelPlacementIsCulledEvenWhenItOverlapsTheViewport)
@@ -167,7 +167,7 @@ TEST_F(ViewportCullStageFixture, SubPixelPlacementIsCulledEvenWhenItOverlapsTheV
     // viewport-overlap culling now applies to sub-pixel culling too.
     EXPECT_FALSE(culled.view_data.contains(HierarchyId{leaf_abstract}));
 
-    EXPECT_TRUE(culled.view_data.at(HierarchyId{block_layout}).placement_data.empty());
+    EXPECT_TRUE(culled.view_data.at(HierarchyId{block_layout}).placement_data->empty());
 }
 
 TEST_F(ViewportCullStageFixture, NonSubPixelPlacementSurvivesTheSameSubPixelCheck)
@@ -182,8 +182,8 @@ TEST_F(ViewportCullStageFixture, NonSubPixelPlacementSurvivesTheSameSubPixelChec
     const HierarchyResolverOutput &culled = cull_runner.run(cold_output, 0, options);
 
     ASSERT_TRUE(culled.view_data.contains(HierarchyId{top_layout}));
-    ASSERT_EQ(culled.view_data.at(HierarchyId{top_layout}).placement_data.size(), 1u);
-    EXPECT_EQ(culled.view_data.at(HierarchyId{top_layout}).placement_data[0].id, HierarchyId{block_layout});
+    ASSERT_EQ(culled.view_data.at(HierarchyId{top_layout}).placement_data->size(), 1u);
+    EXPECT_EQ((*culled.view_data.at(HierarchyId{top_layout}).placement_data)[0].id, HierarchyId{block_layout});
 }
 
 TEST_F(ViewportCullStageFixture, NullInputProducesEmptyOutput)
@@ -191,4 +191,33 @@ TEST_F(ViewportCullStageFixture, NullInputProducesEmptyOutput)
     const ViewRenderOptions options = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
     const HierarchyResolverOutput &culled = cull_runner.run(nullptr, 0, options);
     EXPECT_TRUE(culled.view_data.empty());
+}
+
+// An edit that leaves a node's placements alone (a route edit, say) makes
+// HierarchyResolverStage share that node's placement vector, so the
+// per-node placement index is reused rather than rebuilt; moving a
+// placement rebuilds only its own Layout's index.
+TEST_F(ViewportCullStageFixture, PlacementIndicesSurviveEditsThatDontTouchThem)
+{
+    const ViewRenderOptions options = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
+    cull_runner.run(cold_output, 0, options);
+    const std::size_t initial_builds = cull_runner.stage().index_builds(); // TOP, BLOCK, LEAF
+
+    const RouteId route = root.create_route(RouteData{.layout = top_layout});
+    root.create_shape(ShapeData{.route = route, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
+    root.bump_mutation_version();
+    hierarchy_resolver_runner.run(view_layers_handle, 0, options_with_viewport(Rect{}));
+    ASSERT_TRUE(hierarchy_resolver_runner.stage().last_compute_was_incremental());
+    cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, options);
+    EXPECT_EQ(cull_runner.stage().index_builds(), initial_builds);
+
+    PlacementId leaf1;
+    for (const PlacementId id : root.get_layout_placements(block_layout))
+        if (root.get_placement(id)->name == "leaf1")
+            leaf1 = id;
+    ASSERT_TRUE(root.update_placement(leaf1, block_layout, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, Point{600, 600}, std::nullopt, std::nullopt, std::nullopt));
+    root.bump_mutation_version();
+    hierarchy_resolver_runner.run(view_layers_handle, 0, options_with_viewport(Rect{}));
+    cull_runner.run(hierarchy_resolver_runner.last_handle(), 2, options);
+    EXPECT_EQ(cull_runner.stage().index_builds(), initial_builds + 1); // BLOCK's only
 }

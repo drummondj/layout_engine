@@ -1060,6 +1060,7 @@ namespace le
 
     int DEFReader::read_def(std::string filename, Root &root, std::string library_name)
     {
+        const SaturateChangeLogOnExit bulk_load{root}; // writes through mutable pointers too
         spdlog::info("read_def: reading '{}'...", filename);
 
         defrInit();

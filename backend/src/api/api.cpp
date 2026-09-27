@@ -376,6 +376,7 @@ namespace
         {
             shape->vias = data.vias;
             shape->via_iterates = data.via_iterates; // NEW_FEATURES_SEPT_2026.md item 12
+            root.note_shape_changed(id); // written through the pointer - not in the change log otherwise
         }
         return true;
     }
@@ -5381,6 +5382,7 @@ extern "C"
         if (!shape || static_cast<size_t>(index) >= shape->rects.size())
             return 1;
         shape->rects.erase(shape->rects.begin() + index);
+        handle->root.note_shape_changed(from_c(id));
         handle->root.bump_mutation_version();
         return 0;
     }
@@ -5439,6 +5441,7 @@ extern "C"
         if (!shape || static_cast<size_t>(polygon_index) >= shape->polygons.size())
             return 1;
         shape->polygons.erase(shape->polygons.begin() + polygon_index);
+        handle->root.note_shape_changed(from_c(id));
         handle->root.bump_mutation_version();
         return 0;
     }
@@ -5513,6 +5516,7 @@ extern "C"
         if (!shape || static_cast<size_t>(path_index) >= shape->paths.size())
             return 1;
         shape->paths.erase(shape->paths.begin() + path_index);
+        handle->root.note_shape_changed(from_c(id));
         handle->root.bump_mutation_version();
         return 0;
     }
@@ -5610,6 +5614,7 @@ extern "C"
                         if (!shape)
                             return false;
                         le::shape_ops::set_layer_or_purpose(*shape, snapshot);
+                        r.note_shape_changed(id);
                         return true;
                     });
         }

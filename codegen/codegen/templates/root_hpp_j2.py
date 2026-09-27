@@ -9,8 +9,93 @@ TEMPLATE = """
 #include <algorithm>
 #include <cassert>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace {{schema.namespace}} {
+    /// @brief Which pool-backed class a ChangeLogEntry names.
+    enum class ChangeKlass : uint16_t {
+    {%- for klass in schema.get_pool_classes() %}
+        {{klass.name}},
+    {%- endfor %}
+        None,
+    };
+
+    /// @brief What happened to the object a ChangeLogEntry names. NOTE
+    /// marks an in-place edit made through a mutable get_<klass>()
+    /// pointer, reported by its caller via note_<klass>_changed().
+    enum class ChangeOp : uint8_t { CREATE, UPDATE, DELETE, NOTE };
+
+    /// @brief An object's owner at the time a ChangeLogEntry was
+    /// recorded: its first set parent field - `slot` is that field's index
+    /// among the class's parent fields (Root::change_parent_field_name
+    /// names it) - or ChangeKlass::None for a parentless object.
+    struct ChangeParent {
+        ChangeKlass klass = ChangeKlass::None;
+        uint8_t slot = 0;
+        uint32_t index = 0;
+        uint32_t generation = 0;
+
+        friend bool operator==(const ChangeParent &, const ChangeParent &) = default;
+    };
+
+    /// @brief One database mutation, recorded by every generated create_/
+    /// update_/delete_/set_ call and by note_<klass>_changed(). An update
+    /// records the owner before the change and, if it moved, a second
+    /// entry with the new one - so a consumer can find everything an edit
+    /// affected even after the object (or its owner) is gone.
+    struct ChangeLogEntry {
+        ChangeKlass klass = ChangeKlass::None;
+        ChangeOp op = ChangeOp::UPDATE;
+        uint32_t index = 0;
+        uint32_t generation = 0;
+        ChangeParent parent;
+    };
+
+    /// @brief A fixed-capacity ring of the most recent ChangeLogEntries,
+    /// addressed by an ever-increasing sequence number - lets a consumer
+    /// (e.g. a render stage) update incrementally instead of recomputing
+    /// everything after an edit. A consumer remembers end_sequence() and
+    /// later asks covers(that) before reading for_each_since(that); if
+    /// the ring wrapped past it (a bulk load logs millions of entries) or
+    /// saturate() was called, covers() is false and the consumer must
+    /// treat everything as changed. Allocated on first use.
+    class ChangeLog {
+    public:
+        static constexpr uint64_t kCapacity = 1u << 16;
+
+        uint64_t end_sequence() const { return end_; }
+
+        bool covers(uint64_t since) const {
+            return since >= barrier_ && since <= end_ && end_ - since <= kCapacity;
+        }
+
+        template <typename Fn>
+        void for_each_since(uint64_t since, Fn &&fn) const {
+            for (uint64_t sequence = since; sequence < end_; ++sequence)
+                fn(ring_[sequence % kCapacity]);
+        }
+
+        void append(const ChangeLogEntry &entry) {
+            if (ring_.empty())
+                ring_.resize(kCapacity);
+            ring_[end_ % kCapacity] = entry;
+            ++end_;
+        }
+
+        /// @brief Invalidate every earlier sequence number: covers() is
+        /// false for all of them from now on.
+        void saturate() {
+            ++end_;
+            barrier_ = end_;
+        }
+
+    private:
+        std::vector<ChangeLogEntry> ring_;
+        uint64_t end_ = 0;
+        uint64_t barrier_ = 0;
+    };
+
     class Root {
     public:
         /// @brief Monotonic counter bumped by every bump_mutation_version()
@@ -31,6 +116,51 @@ namespace {{schema.namespace}} {
         /// once per logical mutation (not once per internal step of a
         /// multi-step one) after the database content actually changed.
         void bump_mutation_version() { ++mutation_version_; }
+
+        /// @brief Every recent mutation (ChangeLog's own doc comment).
+        const ChangeLog &change_log() const { return change_log_; }
+
+        /// @brief Mark everything as changed - for a bulk mutation that
+        /// bypasses the generated create_/update_/delete_ calls.
+        void saturate_change_log() { change_log_.saturate(); }
+
+        /// @brief The current owner of the (live) object `klass`/`index`/
+        /// `generation` names - ChangeKlass::None if it's gone or has none.
+        ChangeParent change_parent_of(ChangeKlass klass, uint32_t index, uint32_t generation) const {
+            switch (klass) {
+        {%- for klass in schema.get_pool_classes() %}
+            case ChangeKlass::{{klass.name}}:
+                if (const auto *d = {{klass.to_snake_case()}}_.get({{klass.name}}Id{index, generation}))
+                    return change_parent_({{klass.name}}Id{}, *d);
+                return {};
+        {%- endfor %}
+            case ChangeKlass::None:
+                return {};
+            }
+            return {};
+        }
+
+        /// @brief The name of `klass`'s parent field number `slot`
+        /// (ChangeParent::slot) - empty if out of range.
+        static std::string_view change_parent_field_name(ChangeKlass klass, uint8_t slot) {
+            switch (klass) {
+        {%- for klass in schema.get_pool_classes() %}
+            case ChangeKlass::{{klass.name}}: {
+                {%- if klass.get_parent_fields() %}
+                static constexpr std::string_view names[] = {
+                {%- for field in klass.get_parent_fields() %}"{{field.name}}"{% if not loop.last %}, {% endif %}{%- endfor -%}
+                };
+                return slot < std::size(names) ? names[slot] : std::string_view{};
+                {%- else %}
+                return {};
+                {%- endif %}
+            }
+        {%- endfor %}
+            case ChangeKlass::None:
+                return {};
+            }
+            return {};
+        }
 
     {%- for klass in schema.get_pool_classes() %}
         /// @brief Create a {{klass.name}} object
@@ -56,6 +186,7 @@ namespace {{schema.namespace}} {
             {%- endif %}
         {%- endfor %}
             {{klass.name}}Id id = {{klass.to_snake_case()}}_.create(std::move(data));
+            log_change_(ChangeKlass::{{klass.name}}, ChangeOp::CREATE, id, change_parent_(id, *{{klass.to_snake_case()}}_.get(id)));
 
         {%- if klass.has_indecies() %}
             const auto& d = *{{klass.to_snake_case()}}_.get(id);
@@ -97,7 +228,27 @@ namespace {{schema.namespace}} {
         /// create_{{klass.to_snake_case()}}() itself enforces.
         {%- endif %}
         bool update_{{klass.to_snake_case()}}({{klass.update_root_params()}}) {
+            const auto *before = {{klass.to_snake_case()}}_.get(id);
+            if (!before) return false;
+            const ChangeParent parent_before = change_parent_(id, *before);
+            const bool applied = [&]() -> bool {
 {{klass.update_root_body()}}
+            }();
+            if (applied) {
+                log_change_(ChangeKlass::{{klass.name}}, ChangeOp::UPDATE, id, parent_before);
+                const ChangeParent parent_after = change_parent_(id, *{{klass.to_snake_case()}}_.get(id));
+                if (!(parent_after == parent_before))
+                    log_change_(ChangeKlass::{{klass.name}}, ChangeOp::UPDATE, id, parent_after);
+            }
+            return applied;
+        }
+
+        /// @brief Record an in-place edit of a {{klass.name}} made through
+        /// the mutable get_{{klass.to_snake_case()}}() pointer, which the
+        /// change log can't see on its own. Call once per edited object.
+        void note_{{klass.to_snake_case()}}_changed({{klass.name}}Id id) {
+            if (const auto *d = {{klass.to_snake_case()}}_.get(id))
+                log_change_(ChangeKlass::{{klass.name}}, ChangeOp::NOTE, id, change_parent_(id, *d));
         }
 
         /// @brief Erase the {{klass.name}} at {{klass.name}}Id, cleaning up
@@ -110,6 +261,7 @@ namespace {{schema.namespace}} {
         bool delete_{{klass.to_snake_case()}}({{klass.name}}Id id) {
             const auto* existing = {{klass.to_snake_case()}}_.get(id);
             if (!existing) return false;
+            log_change_(ChangeKlass::{{klass.name}}, ChangeOp::DELETE, id, change_parent_(id, *existing));
 
         {%- if klass.has_indecies() %}
             const auto& d = *existing;
@@ -157,6 +309,7 @@ namespace {{schema.namespace}} {
             auto* existing = {{klass.to_snake_case()}}_.get(id);
             if (!existing) return false;
             if (existing->{{field.name}} == value) return true;
+            log_change_(ChangeKlass::{{klass.name}}, ChangeOp::UPDATE, id, change_parent_(id, *existing));
 
             {%- if field.unique_per_parent %}
             {
@@ -215,7 +368,7 @@ namespace {{schema.namespace}} {
         bool is_{{klass.to_snake_case()}}_empty() { return {{klass.to_snake_case()}}_.is_empty(); }
 
         /// @brief Clear all data from {{klass.name}} pool
-        void clear_{{klass.to_snake_case()}}() { return {{klass.to_snake_case()}}_.clear(); }
+        void clear_{{klass.to_snake_case()}}() { change_log_.saturate(); return {{klass.to_snake_case()}}_.clear(); }
 
         /// @brief Get size of {{klass.name}} pool
         uint64_t get_{{klass.to_snake_case()}}_size() { return {{klass.to_snake_case()}}_.size(); }
@@ -288,11 +441,35 @@ namespace {{schema.namespace}} {
     {%- endfor %}
 
     private:
+        template <typename IdT>
+        void log_change_(ChangeKlass klass, ChangeOp op, IdT id, ChangeParent parent) {
+            change_log_.append(ChangeLogEntry{.klass = klass, .op = op, .index = id.index, .generation = id.generation, .parent = parent});
+        }
+
+    {%- for klass in schema.get_pool_classes() %}
+        static ChangeParent change_parent_({{klass.name}}Id, [[maybe_unused]] const {{klass.name}}Data &d) {
+        {%- for field in klass.get_parent_fields() %}
+            if (d.{{field.name}}.valid())
+                return ChangeParent{.klass = ChangeKlass::{{field.type}}, .slot = {{loop.index0}}, .index = d.{{field.name}}.index, .generation = d.{{field.name}}.generation};
+        {%- endfor %}
+            return {};
+        }
+    {%- endfor %}
+
+        ChangeLog change_log_;
         uint64_t mutation_version_ = 0;
     {%- for klass in schema.get_pool_classes() %}
         Pool<{{klass.name}}Data, {{klass.name}}Id> {{klass.to_snake_case()}}_;
     {%- endfor %}
         Index index_;
+    };
+
+    /// @brief Saturates `root`'s change log when it goes out of scope -
+    /// for a bulk operation (a file reader, say) that may write through
+    /// mutable get_<klass>() pointers without note_<klass>_changed().
+    struct SaturateChangeLogOnExit {
+        Root &root;
+        ~SaturateChangeLogOnExit() { root.saturate_change_log(); }
     };
 }
 """

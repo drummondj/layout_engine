@@ -595,3 +595,34 @@ Findings:
 - **Memory is about 250 B per rendered shape** (RSS after resolve minus RSS after load, divided by rendered shapes; 3.0 GB for 12.0M shapes at 5x5). That is in line with the plan's 150-250 B estimate, so the plan's roughly 12 B/object incremental overhead remains about 5% of the resolver's output.
 - **The zoomed-in rows don't trend smoothly.** The window is the die's central tenth, and its content density varies between tilings; 4x4 and 8x8 center on a sparser region.
 - **Previously quoted 6.78 s for the 4x4 cold resolve**, measured before later resolver optimizations. It now measures 2.80 s.
+
+**Incremental HierarchyResolver after edits (plan steps 1 and 1b)**, on top of 3b7eefe:
+- **Root change log:** a fixed-size ring of every generated create_/update_/delete_ with the object's owner, plus `note_<klass>_changed()` for pointer edits. Readers saturate it.
+- **Per-kind chunks:** each Layout node's shapes are split into immutable, shared chunks, one per kind (`LayoutChunk`: diearea/blockages, routes, ports/free shapes, rows/tracks/gcells/regions, placements).
+- **Incremental compute:** after an edit, the stage rebuilds only the chunks the log says were touched.
+- **Shared placement vectors:** `ViewData::placement_data` is now shared and immutable, so `ViewportCullStage` keeps a node's placement index until that node's placements change.
+- **Per-chunk outline cache:** `RasterizeBlend2DStage`'s route-outline cache is kept per chunk and weakly referenced.
+
+Measured with `resolver_profile` (see the previous entry for its method). Each edit is near the die center, inside the zoomed-in window; the cull and rasterize stages were warm on that window before the edit. "first" is the first frame after the edit; "second" is the same frame forced again.
+
+| Metric | 1x1 | 2x1 | 2x2 | 3x2 | 3x3 | 4x4 | 5x5 | 6x6 | 7x7 | 8x8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| placements | 41k | 83k | 165k | 248k | 372k | 662k | 1.03M | 1.49M | 2.03M | 2.65M |
+| full cold resolve (every edit, before) | 146 ms | 297 ms | 593 ms | 863 ms | 1.35 s | 2.53 s | 4.29 s | 6.53 s | 8.44 s | 11.1 s |
+| free previous output (every edit, before) | 41 ms | 90 ms | 185 ms | 293 ms | 446 ms | 772 ms | 1.32 s | 1.93 s | 2.63 s | 3.47 s |
+| **placement move: resolve** | **5.5 ms** | **10 ms** | **21 ms** | **33 ms** | **52 ms** | **88 ms** | **136 ms** | **313 ms** | **272 ms** | **479 ms** |
+| placement move: first cull | 3.9 ms | 8.0 ms | 18 ms | 29 ms | 52 ms | 89 ms | 139 ms | 221 ms | 307 ms | 400 ms |
+| placement move: first / second frame | 32 / 32 ms | 39 / 37 ms | 67 / 65 ms | 89 / 85 ms | 177 / 174 ms | 106 / 102 ms | 196 / 188 ms | 246 / 237 ms | 335 / 322 ms | 295 / 278 ms |
+| route shape edit: resolve | 131 ms | 275 ms | 572 ms | 865 ms | 1.33 s | 2.39 s | 4.15 s | 6.08 s | 8.32 s | 11.1 s |
+| route shape edit: first cull | 0.14 ms | 0.16 ms | 0.30 ms | 0.35 ms | 0.43 ms | 0.70 ms | 0.88 ms | 1.36 ms | 1.67 ms | 2.14 ms |
+| route shape edit: first / second frame | 95 / 38 ms | 216 / 40 ms | 338 / 69 ms | 484 / 92 ms | 870 / 187 ms | 869 / 104 ms | 1.53 s / 194 ms | 2.24 s / 244 ms | 3.05 s / 329 ms | 3.72 s / 282 ms |
+| peak RSS (whole run) | 439 MB | 751 MB | 1.46 GB | 2.01 GB | 2.95 GB | 5.06 GB | 8.24 GB | 11.9 GB | 16.2 GB | 20.4 GB |
+
+Findings:
+
+- **A placement move is 23-28x cheaper to resolve** at every size (5.5 ms vs 146 ms at 1x1; 479 ms vs 11.1 s at 8x8), and frees nothing big. The first frame after it costs the same as a warm one: every other chunk's route-outline cache survives.
+- **After a placement move, the remaining cost is ViewportCull** rebuilding the top node's placement index (400 ms at 8x8). The whole edit-to-frame path is about 1.2 s at 8x8, down from about 15 s (resolve + free + cull + frame).
+- **A route shape edit still rebuilds the whole ROUTES chunk,** as expected before plan step 2 (spatial tiles), so its resolve equals a full one.
+- **The first frame after a route shape edit** pays about the old routes chunk's free (3.72 s - 0.28 s = 3.4 s at 8x8, matching "free previous output"). The chunk's last reference is the previous culled output held by ViewportCull/Rasterize, so it dies inside that frame, alongside refilling the new chunk's outline cache. The second frame is back to warm. Step 2 shrinks both costs to one tile. Freeing replaced chunks on a background thread (a custom deleter on each chunk) would take the free off the frame entirely.
+- **Loading is unchanged within noise.** The change log costs one ring write per generated mutation: 1x1 load took 870 ms before, and 895-912 ms across four runs after.
+- **Peak RSS is 20.4 GB at 8x8, vs 14.6 GB in the step 0 run.** A route edit briefly holds the old and new ROUTES chunks together. The app already did this on every recompute, since MemoizingStage keeps the old output until the new one is ready; the step 0 profile freed the old output first. A first version of the per-chunk outline cache held its chunk strongly and kept a replaced routes chunk alive until the next frame (25.7 GB peak at 8x8). It now holds a weak reference.

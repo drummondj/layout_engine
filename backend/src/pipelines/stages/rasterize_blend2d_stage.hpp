@@ -465,10 +465,15 @@ namespace le
         ctx.restore();
     }
 
+    /// @brief Geometry::path_to_polygons results, per Path - one per
+    /// ViewShapeChunk (its Paths' addresses are stable while it lives).
+    using PathOutlineCache = std::unordered_map<const Path *, std::vector<Polygon>>;
+
     /// @brief Draws one node's own direct shapes - per-layer/per-shape
-    /// structure, shapes_index-or-fallback viewport-culling dispatch, and
-    /// path_outline_cache (Geometry::path_to_polygons' own
-    /// std::vector<Polygon> result) via BLContext draw calls.
+    /// structure (each layer drawn across all the node's chunks before the
+    /// next, so z-order is by layer, not by chunk), shapes_index-or-
+    /// fallback viewport-culling dispatch, and `path_outline_caches` (one
+    /// per chunk, index-parallel to `chunks`) via BLContext draw calls.
     ///
     /// Text (Shape.texts) draws two cases: the generic per-shape
     /// TERMINAL/ROUTE label (kLabelWidthRatio-scaled, clamped to
@@ -515,10 +520,9 @@ namespace le
     /// own documented default (BL_COMP_OP_SRC_OVER) rather than setting
     /// it explicitly.
     inline void draw_view_shapes_blend2d(
-        BLContext &ctx, const ViewLayerShapes &shapes_by_layer, const ViewShapesIndexHandle &shapes_index, const Rect &query_bbox,
+        BLContext &ctx, const std::vector<ViewShapeChunk> &chunks, const std::vector<PathOutlineCache *> &path_outline_caches, const Rect &query_bbox,
         const ViewLayerSet &view_layers, double scale,
         const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
-        std::unordered_map<const Path *, std::vector<Polygon>> &path_outline_cache,
         std::unordered_map<int, MonospaceFontEntry> &monospace_font_cache,
         std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> &glyph_bitmap_cache,
         double requested_min_label_px = kMinLabelPixelSize, double max_label_px = kMaxLabelPixelSize)
@@ -587,9 +591,15 @@ namespace le
                                       { return id == port_marker_layer_id; });
         for (const ViewLayerId &view_layer_id : draw_order)
         {
-            const auto group_it = shapes_by_layer.find(view_layer_id);
-            if (group_it == shapes_by_layer.end() || group_it->second.empty())
+            const bool has_shapes = std::ranges::any_of(chunks, [&](const ViewShapeChunk &chunk)
+                                                        {
+                if (!chunk.shapes)
+                    return false;
+                const auto it = chunk.shapes->find(view_layer_id);
+                return it != chunk.shapes->end() && !it->second.empty(); });
+            if (!has_shapes)
                 continue;
+            PathOutlineCache *path_outline_cache = nullptr; // the current chunk's, set below
 
             const ViewLayerData *layer = view_layers.get(view_layer_id);
             if (!layer)
@@ -833,9 +843,9 @@ namespace le
                     }
                     any_geometry_drawn = true;
 
-                    auto outline_it = path_outline_cache.find(&p);
-                    if (outline_it == path_outline_cache.end())
-                        outline_it = path_outline_cache.emplace(&p, Geometry::path_to_polygons(p)).first;
+                    auto outline_it = path_outline_cache->find(&p);
+                    if (outline_it == path_outline_cache->end())
+                        outline_it = path_outline_cache->emplace(&p, Geometry::path_to_polygons(p)).first;
                     for (const Polygon &outline : outline_it->second)
                     {
                         const BLPath outline_path = to_bl_path(outline, /*close=*/true);
@@ -922,19 +932,31 @@ namespace le
                 }
             };
 
-            const std::vector<RenderShape> &shapes = group_it->second;
-            const auto layer_index_it = shapes_index ? shapes_index->find(view_layer_id) : ViewLayerShapeIndex::const_iterator{};
-            if (shapes_index && layer_index_it != shapes_index->end())
+            for (std::size_t c = 0; c < chunks.size(); ++c)
             {
-                std::vector<ShapeIndexEntry> hits;
-                layer_index_it->second.query(bgi::intersects(query_bbox), std::back_inserter(hits));
-                for (const ShapeIndexEntry &hit : hits)
-                    draw_one_shape(shapes[hit.second]);
-            }
-            else
-            {
-                for (const RenderShape &shape : shapes)
-                    draw_one_shape(shape);
+                const ViewShapeChunk &chunk = chunks[c];
+                if (!chunk.shapes)
+                    continue;
+                const auto group_it = chunk.shapes->find(view_layer_id);
+                if (group_it == chunk.shapes->end())
+                    continue;
+                path_outline_cache = path_outline_caches[c];
+
+                const std::vector<RenderShape> &shapes = group_it->second;
+                const auto &shapes_index = chunk.shapes_index;
+                const auto layer_index_it = shapes_index ? shapes_index->find(view_layer_id) : ViewLayerShapeIndex::const_iterator{};
+                if (shapes_index && layer_index_it != shapes_index->end())
+                {
+                    std::vector<ShapeIndexEntry> hits;
+                    layer_index_it->second.query(bgi::intersects(query_bbox), std::back_inserter(hits));
+                    for (const ShapeIndexEntry &hit : hits)
+                        draw_one_shape(shapes[hit.second]);
+                }
+                else
+                {
+                    for (const RenderShape &shape : shapes)
+                        draw_one_shape(shape);
+                }
             }
         }
     }
@@ -977,7 +999,8 @@ namespace le
 
             static const ViewLayerSet kEmptyViewLayers;
             const ViewLayerSet &view_layers = culled->view_layers != nullptr ? *culled->view_layers : kEmptyViewLayers;
-            static const ViewLayerShapes kEmptyShapes;
+            std::erase_if(path_outline_cache_by_chunk_, [](const auto &entry)
+                          { return entry.second.source.expired(); });
 
             constexpr int kMaxDimensionPx = 8192;
 
@@ -1017,16 +1040,22 @@ namespace le
                         draw_origin_marker_blend2d(ctx, *options.abstract_origin_dbu, options.scale);
                 }
 
-                NodePathOutlineCache &node_outline_cache = path_outline_cache_by_node_[id];
-                if (node_outline_cache.source != data.shapes)
+                std::vector<PathOutlineCache *> outline_caches;
+                outline_caches.reserve(data.chunks.size());
+                for (const ViewShapeChunk &chunk : data.chunks)
                 {
-                    node_outline_cache.outlines.clear();
-                    node_outline_cache.source = data.shapes;
+                    ChunkPathOutlineCache &cache = path_outline_cache_by_chunk_[chunk.shapes.get()];
+                    if (cache.source.lock() != chunk.shapes) // new, or a dead chunk's reused address
+                    {
+                        cache.outlines.clear();
+                        cache.source = chunk.shapes;
+                    }
+                    outline_caches.push_back(&cache.outlines);
                 }
 
                 draw_view_shapes_blend2d(
-                    ctx, data.shapes ? *data.shapes : kEmptyShapes, data.shapes_index, local_bbox, view_layers, options.scale,
-                    options.layer_name_visible, options.purpose_visible, node_outline_cache.outlines,
+                    ctx, data.chunks, outline_caches, local_bbox, view_layers, options.scale,
+                    options.layer_name_visible, options.purpose_visible,
                     monospace_font_cache_, glyph_bitmap_cache_, options.label_min_size_px, options.label_max_size_px);
 
                 ctx.end();
@@ -1093,12 +1122,18 @@ namespace le
         }
 
     private:
-        struct NodePathOutlineCache
+        // Route outlines per chunk. HierarchyResolverStage shares an
+        // unchanged chunk between outputs, so an edit keeps every other
+        // chunk's outlines. `source` is weak - the cache must never keep a
+        // replaced (possibly multi-GB) chunk alive; an expired entry is
+        // dropped at the start of the next compute(), and checked against
+        // the live chunk before use in case its address was reused.
+        struct ChunkPathOutlineCache
         {
-            ViewShapesHandle source;
-            std::unordered_map<const Path *, std::vector<Polygon>> outlines;
+            std::weak_ptr<const ViewLayerShapes> source;
+            PathOutlineCache outlines;
         };
-        std::unordered_map<HierarchyId, NodePathOutlineCache, HierarchyIdHash> path_outline_cache_by_node_;
+        std::unordered_map<const ViewLayerShapes *, ChunkPathOutlineCache> path_outline_cache_by_chunk_;
 
         // Both shared across every node this stage renders, and across
         // every frame for this stage's own lifetime - built/populated
@@ -1109,7 +1144,7 @@ namespace le
         // recurring across many different labels), not intra-node - see
         // draw_view_shapes_blend2d's own doc comment.
         //
-        // Unlike `path_outline_cache_by_node_` above, entries in either
+        // Unlike `path_outline_cache_by_chunk_` above, entries in either
         // map below never need invalidating - a (font_key)'s own BLFont,
         // or a (character, font_key, color)'s own rendered ink, never
         // changes - and unlike an earlier, since-replaced per-STRING

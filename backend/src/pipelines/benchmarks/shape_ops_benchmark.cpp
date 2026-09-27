@@ -268,9 +268,10 @@ namespace
         const HierarchyResolverOutput &check = check_runner.run(view_layers, 0, options);
         size_t collected = 0;
         for (const auto &[id, data] : check.view_data)
-            for (const auto &[view_layer, shapes] : *data.shapes)
-                if (const ViewLayerData *layer = view_layers->get(view_layer); layer && layer->purpose == ViewLayerPurpose::CUSTOM_SHAPE)
-                    collected += shapes.size();
+            for (const ViewShapeChunk &chunk : data.chunks)
+                for (const auto &[view_layer, shapes] : *chunk.shapes)
+                    if (const ViewLayerData *layer = view_layers->get(view_layer); layer && layer->purpose == ViewLayerPurpose::CUSTOM_SHAPE)
+                        collected += shapes.size();
         state.counters["custom_shapes_collected"] = static_cast<double>(collected);
         state.counters["free_shapes"] = static_cast<double>(state.range(0));
         state.counters["drawn_instances"] = static_cast<double>(state.range(0) * fixture.placements_of_target);

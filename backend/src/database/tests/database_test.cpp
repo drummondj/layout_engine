@@ -616,3 +616,113 @@ TEST(Database, InstanceStandingInForUnreadableSourceHasNoReferenceDesignButCanSt
     ASSERT_TRUE(pin->raw_expression.has_value());
     EXPECT_EQ(*pin->raw_expression, "clk");
 }
+
+// Root's change log - every generated mutation records what it touched and
+// its owner, so a consumer can update incrementally.
+namespace
+{
+    std::vector<ChangeLogEntry> entries_since(const Root &root, uint64_t since)
+    {
+        std::vector<ChangeLogEntry> entries;
+        root.change_log().for_each_since(since, [&](const ChangeLogEntry &entry)
+                                         { entries.push_back(entry); });
+        return entries;
+    }
+}
+
+TEST(DatabaseChangeLog, CreateUpdateDeleteRecordTheObjectAndItsOwner)
+{
+    Root root;
+    const LibraryId library = root.create_library(LibraryData{.name = "L"});
+    const DesignId design = root.create_design(DesignData{.library = library, .name = "D"});
+    const LayoutId layout = root.create_layout(LayoutData{.design = design});
+    const uint64_t since = root.change_log().end_sequence();
+
+    const RouteId route = root.create_route(RouteData{.layout = layout});
+    const ShapeId shape = root.create_shape(ShapeData{.route = route, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{1, 1}}}});
+    ASSERT_TRUE(root.update_shape(shape, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{0, 0}, .ur = Point{2, 2}}}, std::nullopt, std::nullopt, std::nullopt));
+    ASSERT_TRUE(root.delete_shape(shape));
+
+    ASSERT_TRUE(root.change_log().covers(since));
+    const std::vector<ChangeLogEntry> entries = entries_since(root, since);
+    ASSERT_EQ(entries.size(), 4u);
+    EXPECT_EQ(entries[0].klass, ChangeKlass::Route);
+    EXPECT_EQ(entries[0].op, ChangeOp::CREATE);
+    EXPECT_EQ(entries[0].parent.klass, ChangeKlass::Layout);
+    EXPECT_EQ(entries[0].parent.index, layout.index);
+    for (int i = 1; i < 4; ++i)
+    {
+        EXPECT_EQ(entries[i].klass, ChangeKlass::Shape);
+        EXPECT_EQ(entries[i].index, shape.index);
+        EXPECT_EQ(entries[i].parent.klass, ChangeKlass::Route);
+        EXPECT_EQ(Root::change_parent_field_name(ChangeKlass::Shape, entries[i].parent.slot), "route");
+    }
+    EXPECT_EQ(entries[1].op, ChangeOp::CREATE);
+    EXPECT_EQ(entries[2].op, ChangeOp::UPDATE);
+    EXPECT_EQ(entries[3].op, ChangeOp::DELETE);
+}
+
+TEST(DatabaseChangeLog, AReparentingUpdateRecordsTheOldAndTheNewOwner)
+{
+    Root root;
+    const LibraryId library = root.create_library(LibraryData{.name = "L"});
+    const DesignId design = root.create_design(DesignData{.library = library, .name = "D"});
+    const LayoutId layout_a = root.create_layout(LayoutData{.design = design});
+    const DesignId design_b = root.create_design(DesignData{.library = library, .name = "E"});
+    const LayoutId layout_b = root.create_layout(LayoutData{.design = design_b});
+    const RouteId route = root.create_route(RouteData{.layout = layout_a});
+    const uint64_t since = root.change_log().end_sequence();
+
+    ASSERT_TRUE(root.update_route(route, layout_b, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
+
+    const std::vector<ChangeLogEntry> entries = entries_since(root, since);
+    ASSERT_EQ(entries.size(), 2u);
+    EXPECT_EQ(entries[0].parent.index, layout_a.index);
+    EXPECT_EQ(entries[1].parent.index, layout_b.index);
+}
+
+TEST(DatabaseChangeLog, NoteChangedRecordsAPointerEditAndChangeParentOfReadsTheLiveOwner)
+{
+    Root root;
+    const LibraryId library = root.create_library(LibraryData{.name = "L"});
+    const DesignId design = root.create_design(DesignData{.library = library, .name = "D"});
+    const LayoutId layout = root.create_layout(LayoutData{.design = design});
+    const RouteId route = root.create_route(RouteData{.layout = layout});
+    const uint64_t since = root.change_log().end_sequence();
+
+    root.note_route_changed(route);
+    const std::vector<ChangeLogEntry> entries = entries_since(root, since);
+    ASSERT_EQ(entries.size(), 1u);
+    EXPECT_EQ(entries[0].op, ChangeOp::NOTE);
+
+    const ChangeParent parent = root.change_parent_of(ChangeKlass::Route, route.index, route.generation);
+    EXPECT_EQ(parent.klass, ChangeKlass::Layout);
+    EXPECT_EQ(parent.index, layout.index);
+    EXPECT_EQ(root.change_parent_of(ChangeKlass::Route, route.index + 1, 0).klass, ChangeKlass::None);
+}
+
+TEST(DatabaseChangeLog, SaturatingOrWrappingStopsCoveringEarlierSequences)
+{
+    Root root;
+    const uint64_t start = root.change_log().end_sequence();
+    root.saturate_change_log();
+    EXPECT_FALSE(root.change_log().covers(start));
+    const uint64_t after = root.change_log().end_sequence();
+    EXPECT_TRUE(root.change_log().covers(after));
+
+    // More entries than the ring holds: `after` falls out of it.
+    const LibraryId library = root.create_library(LibraryData{.name = "L"});
+    for (uint64_t i = 0; i < ChangeLog::kCapacity; ++i)
+        root.create_design(DesignData{.library = library, .name = "D" + std::to_string(i)});
+    EXPECT_FALSE(root.change_log().covers(after));
+    EXPECT_TRUE(root.change_log().covers(root.change_log().end_sequence() - 10));
+}
+
+TEST(DatabaseChangeLog, ClearingAPoolSaturates)
+{
+    Root root;
+    root.create_library(LibraryData{.name = "L"});
+    const uint64_t since = root.change_log().end_sequence();
+    root.clear_library();
+    EXPECT_FALSE(root.change_log().covers(since));
+}

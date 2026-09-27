@@ -727,6 +727,7 @@ namespace le
 
     int SVReader::read_netlist(std::vector<std::string> filenames, Root &root, std::string library_name)
     {
+        const SaturateChangeLogOnExit bulk_load{root}; // writes through mutable pointers too
         {
             std::string joined_filenames;
             for (const auto &filename : filenames)
@@ -1050,6 +1051,7 @@ namespace le
 
     int SVReader::read_rtl(std::vector<std::string> filenames, Root &root, std::string library_name)
     {
+        const SaturateChangeLogOnExit bulk_load{root}; // writes through mutable pointers too
         {
             std::string joined_filenames;
             for (const auto &filename : filenames)
@@ -1168,6 +1170,7 @@ namespace le
 
     size_t SVReader::link_unresolved_instances(Root &root)
     {
+        const SaturateChangeLogOnExit bulk_load{root}; // writes through mutable pointers too
         size_t resolved = 0;
         std::vector<InstanceId> instance_ids;
         root.for_each_instance_id([&](InstanceId id)

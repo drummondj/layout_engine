@@ -91,6 +91,7 @@ namespace le
 
     int LEFReader::read_lef(std::string filename, Root &root, std::string library_name)
     {
+        const SaturateChangeLogOnExit bulk_load{root}; // writes through mutable pointers too
         spdlog::info("read_lef: reading '{}'...", filename);
 
         // Snapshot every pool this read can add to, so the "completed"

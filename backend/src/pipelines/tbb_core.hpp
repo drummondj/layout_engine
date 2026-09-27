@@ -251,6 +251,11 @@ namespace le
         /// @return The computed output payload.
         virtual OutputData compute(const InputData &data, const PipelineOptions &options) = 0;
 
+        /// @brief The result of the previous compute() - still the old one
+        /// while compute() runs (it's replaced only once compute() returns),
+        /// so an incremental stage can build on it. Null before the first.
+        const OutputHandle &previous_result() const { return last_result_; }
+
         /// @brief Whether a change in options alone should force recomputation.
         /// @param last Options from the previous invocation.
         /// @param current Options for this invocation.

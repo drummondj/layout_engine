@@ -15,6 +15,7 @@
 #include <boost/geometry/index/rtree.hpp>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -235,17 +236,72 @@ namespace le
     /// compute()'s own two call sites) - like `shapes` itself, a
     /// shared_ptr copy elsewhere (ViewportCullStage's own per-tick ViewData
     /// rebuild) is a refcount bump, not a rebuild.
-    struct ViewData
+    /// @brief One separately-cached slice of a node's direct shapes, with
+    /// its own spatial index. Chunks are immutable once built and shared
+    /// (by refcount) between successive outputs, so an edit rebuilds only
+    /// the chunks it touched and every per-chunk downstream cache (e.g.
+    /// RasterizeBlend2DStage's route-outline cache) survives it.
+    struct ViewShapeChunk
     {
         ViewShapesHandle shapes;
         ViewShapesIndexHandle shapes_index;
-        std::vector<ViewPlacementData> placement_data;
+    };
+
+    /// @brief A Layout node's chunks, in ViewData::chunks order - one per
+    /// kind of content, so an edit to one kind (a placement move, a route
+    /// edit) leaves the others' chunks untouched. ROUTES is nearly all of
+    /// a real design's shapes (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md,
+    /// the aes_scaling phase profile). An Abstract node has one chunk.
+    enum class LayoutChunk : std::uint8_t
+    {
+        DIEAREA_BLOCKAGES,
+        ROUTES,
+        PORTS_FREE_SHAPES,
+        ROWS_TRACKS_GCELLS_REGIONS,
+        PLACEMENTS,
+    };
+    inline constexpr std::size_t kLayoutChunkCount = 5;
+
+    using ViewPlacements = std::shared_ptr<const std::vector<ViewPlacementData>>;
+
+    /// @brief An empty, shared ViewPlacements - ViewData::placement_data
+    /// is never null.
+    inline const ViewPlacements &no_placements()
+    {
+        static const ViewPlacements empty = std::make_shared<const std::vector<ViewPlacementData>>();
+        return empty;
+    }
+
+    struct ViewData
+    {
+        /// @brief The node's direct shapes: kLayoutChunkCount chunks
+        /// (LayoutChunk order) for a Layout, one for an Abstract.
+        std::vector<ViewShapeChunk> chunks;
+        /// @brief Resolved child placements - immutable and shared like
+        /// the chunks; a new vector only when they (or their extents)
+        /// change, so ViewportCullStage keys its per-node index on it.
+        ViewPlacements placement_data = no_placements();
         /// @brief The node's declared bbox (diearea/boundary) grown to
         /// cover everything it draws - its own shapes and its placements'
         /// `extent`s. RasterizeBlend2DStage sizes a nested node's image to
         /// this, so nothing outside a cell's boundary is clipped.
         Rect extent;
+        /// @brief The hierarchy depth budget this node was resolved with
+        /// (HierarchyResolverStage re-resolves its placements with it).
+        int remaining_depth = 0;
     };
+
+    /// @brief Every shape `data` draws on `view_layer`, across its chunks.
+    inline std::vector<const RenderShape *> view_data_shapes(const ViewData &data, ViewLayerId view_layer)
+    {
+        std::vector<const RenderShape *> shapes;
+        for (const ViewShapeChunk &chunk : data.chunks)
+            if (chunk.shapes)
+                if (const auto it = chunk.shapes->find(view_layer); it != chunk.shapes->end())
+                    for (const RenderShape &shape : it->second)
+                        shapes.push_back(&shape);
+        return shapes;
+    }
 
     /// @brief HierarchyResolverStage's own InputData - LayerGenerationStage's
     /// own OutputHandle (tbb_core.hpp's MemoizingStage::OutputHandle), so
@@ -383,16 +439,19 @@ namespace le
         HierarchyResolverOutputStats stats;
         for (const auto &[id, data] : output.view_data)
         {
-            stats.placement_count += data.placement_data.size();
+            stats.placement_count += data.placement_data->size();
             stats.own_overhead_bytes += sizeof(ViewData);
-            stats.own_overhead_bytes += data.placement_data.capacity() * sizeof(ViewPlacementData);
-            if (!data.shapes)
-                continue;
-            for (const auto &[view_layer_id, shapes] : *data.shapes)
+            stats.own_overhead_bytes += data.placement_data->capacity() * sizeof(ViewPlacementData);
+            for (const ViewShapeChunk &chunk : data.chunks)
             {
-                stats.shape_count += shapes.size();
-                for (const RenderShape &shape : shapes)
-                    stats.shape_bytes += estimate_shape_bytes(shape);
+                if (!chunk.shapes)
+                    continue;
+                for (const auto &[view_layer_id, shapes] : *chunk.shapes)
+                {
+                    stats.shape_count += shapes.size();
+                    for (const RenderShape &shape : shapes)
+                        stats.shape_bytes += estimate_shape_bytes(shape);
+                }
             }
         }
         return stats;
@@ -464,6 +523,19 @@ namespace le
     /// changed - LayerGenerationStage's own bumped version() becomes this
     /// stage's own incoming data_version, and execute()'s should_recompute
     /// check ORs that against options_did_change() below.
+    ///
+    /// Incremental updates: a recompute after an edit (same Root,
+    /// top_level and hierarchy_depth; a ViewLayerSet with the same ids -
+    /// a rebuilt or recolored one qualifies) reads the Root change log
+    /// since the previous compute() and rebuilds only the touched chunks
+    /// (LayoutChunk - a placement move rebuilds its Layout's PLACEMENTS,
+    /// a route edit its ROUTES, a cell edit that Abstract), sharing every
+    /// other chunk and placement vector with the previous output. Anything
+    /// it can't place precisely (technology/library/design edits, a
+    /// created or deleted Abstract/Layout, a saturated or wrapped log)
+    /// falls back to the full resolve. last_compute_was_incremental() says
+    /// which ran. Measured in PIPELINE_REFACTOR_BENCHMARK_RESULTS.md
+    /// (resolver_profile's edit.* rows).
     class HierarchyResolverStage : public MemoizingStage<ViewLayerSetHandle, HierarchyResolverOutput, ViewRenderOptions>
     {
     public:
@@ -473,176 +545,37 @@ namespace le
     protected:
         HierarchyResolverOutput compute(const ViewLayerSetHandle &view_layers_handle, const ViewRenderOptions &options) override
         {
-            HierarchyResolverOutput result;
-            result.view_layers = view_layers_handle;
+            last_compute_was_incremental_ = false;
             if (options.root == nullptr)
-                return result;
+            {
+                state_.reset();
+                return HierarchyResolverOutput{.view_layers = view_layers_handle};
+            }
 
             const Root &root = *options.root;
             static const ViewLayerSet kEmptyViewLayers;
             const ViewLayerSet &view_layers = view_layers_handle != nullptr ? *view_layers_handle : kEmptyViewLayers;
+            // Captured before reading anything: entries logged after this
+            // belong to the next compute().
+            const std::uint64_t log_end = root.change_log().end_sequence();
 
-            struct WorkItem
-            {
-                HierarchyId id;
-                int remaining_depth;
-            };
-            std::deque<WorkItem> worklist;
-            worklist.push_back(WorkItem{options.top_level, options.hierarchy_depth});
+            std::optional<HierarchyResolverOutput> result;
+            if (can_update_incrementally(root, view_layers, options))
+                result = update_incrementally(root, view_layers_handle, view_layers, options);
+            last_compute_was_incremental_ = result.has_value();
+            if (!result)
+                result = resolve_everything(root, view_layers_handle, view_layers, options);
 
-            while (!worklist.empty())
-            {
-                const WorkItem item = worklist.front();
-                worklist.pop_front();
-
-                if (result.view_data.contains(item.id))
-                    continue; // already resolved at an earlier (shallower) worklist entry
-
-                if (const LayoutId *layout_id = std::get_if<LayoutId>(&item.id))
-                {
-                    ViewLayerShapes shapes_by_layer = collect_layout_content(root, view_layers, *layout_id);
-                    ViewData data;
-                    std::optional<ResolverPhaseTimer> placements_timer(std::in_place, "layout.placements");
-
-                    const auto &placements = root.get_layout_placements(*layout_id);
-                    if (item.remaining_depth > 0)
-                        data.placement_data.reserve(placements.size()); // exact upper bound - not every placement resolves
-
-                    // One PLACEMENT rect+label per placement,
-                    // batched into a single Shape - measured directly
-                    // against aes_scaling_3x3 (372,096 placements): a
-                    // one-Shape-per-placement version spent ~126ms of its
-                    // ~149ms total on Shape/Text construction and the two
-                    // heap allocations each incurs, not on bbox/label
-                    // geometry (~23ms combined) - batching turns
-                    // O(placements) allocations into O(1) (one reserve()
-                    // each up front). A plain Shape has no SelectionRef/
-                    // ShapeId of its own (unlike the pre-restart
-                    // RenderedShape) so there's no independent per-
-                    // placement selection identity this would need to
-                    // preserve, unlike Row/Region's own one-per-item
-                    // convention elsewhere in this file.
-                    //
-                    // Computed here, in the same loop as the resolve/
-                    // recurse decision, rather than as a separate pass
-                    // over collect_layout_content: both need
-                    // resolve_design_target's own dispatch for this same
-                    // placement, and both need the same resolved bbox
-                    // (ViewPlacementData::bbox and this placeholder's own
-                    // rect are now the exact same value, computed once,
-                    // not twice) - a real, measured redundancy this
-                    // consolidation removes, not just a tidiness pass.
-                    //
-                    // rects/texts stay index-parallel (rects[i] is both
-                    // the drawn outline and texts[i]'s own reference box,
-                    // for RasterizeBlend2DStage's own width-fit
-                    // truncation) - see draw_view_shapes_blend2d's own
-                    // comment.
-                    RenderShape placement_shape;
-                    placement_shape.rects.reserve(placements.size());
-                    placement_shape.texts.reserve(placements.size());
-
-                    for (PlacementId placement_id : placements)
-                    {
-                        const PlacementData *placement = root.get_placement(placement_id);
-                        if (!placement || !placement->location || !placement->reference_design.valid())
-                            continue;
-
-                        // resolve_design_target is called unconditionally
-                        // (regardless of remaining_depth) - the placeholder
-                        // rect below always needs a resolved size, even at
-                        // remaining_depth == 0 where nothing gets visited
-                        // past this point (see this class's own top
-                        // comment on why depth 0 still draws placeholders).
-                        const DesignTarget target = resolve_design_target(root, placement->reference_design, item.remaining_depth);
-                        HierarchyId child_id;
-                        Rect child_local_bbox;
-                        if (target.kind == DesignTarget::Kind::Layout)
-                        {
-                            child_id = target.layout_id;
-                            child_local_bbox = layout_declared_bbox(root, target.layout_id);
-                        }
-                        else if (target.kind == DesignTarget::Kind::Abstract)
-                        {
-                            child_id = target.abstract_id;
-                            child_local_bbox = abstract_declared_bbox(root, target.abstract_id);
-                        }
-                        else
-                        {
-                            continue; // unresolved reference_design - nothing to place or draw
-                        }
-
-                        const Orientation orientation = placement->orientation.value_or(Orientation::N);
-                        const Geometry::InstanceTransform transform = Geometry::instance_transform(orientation, child_local_bbox, *placement->location);
-                        const Rect bbox = Geometry::transform_bbox(transform, child_local_bbox);
-
-                        // Label size/position ported from
-                        // pipelines.old/draw_helpers.hpp's own
-                        // draw_placement_labels: font size is a fraction
-                        // of the placement's own on-screen *height*
-                        // (kPlacementLabelHeightRatio, floored at
-                        // kMinLabelPixelSize - applied at draw time,
-                        // RasterizeBlend2DStage's own text loop, once
-                        // `scale` is known), anchored at the box's own
-                        // bottom-left corner (RasterizeBlend2DStage adds
-                        // the fixed pixel padding at draw time too, in
-                        // already-counter-
-                        // scaled local space, so it stays a constant
-                        // on-screen inset regardless of zoom - baking a
-                        // dbu-space padding in here instead would grow/
-                        // shrink with zoom, the wrong behavior). `size` is
-                        // therefore a pure dbu quantity (bbox height x the
-                        // ratio), matching Text.size's own schema
-                        // convention ("local width of the shape geometry
-                        // ... used to size the rendered text") rather than
-                        // a literal pixel font size.
-                        const double height_dbu = static_cast<double>(bbox.ur.y - bbox.ll.y);
-                        placement_shape.rects.push_back(bbox);
-                        placement_shape.texts.push_back(Text{.label = placement->name, .location = bbox.ll, .size = height_dbu * kPlacementLabelHeightRatio});
-
-                        if (item.remaining_depth <= 0)
-                            continue; // depth exhausted - placeholder drawn above, nothing further resolved/visited
-
-                        const int child_remaining_depth = target.kind == DesignTarget::Kind::Layout ? item.remaining_depth - 1 : 0;
-                        data.placement_data.push_back(ViewPlacementData{
-                            .id = child_id,
-                            .location = *placement->location,
-                            .bbox = bbox,
-                            .transform = transform,
-                            .orientation = orientation,
-                        });
-                        worklist.push_back(WorkItem{child_id, child_remaining_depth});
-                    }
-
-                    if (!placement_shape.rects.empty())
-                        shapes_by_layer[view_layers.placement_view_layer()].push_back(std::move(placement_shape));
-                    placements_timer.reset();
-
-                    data.shapes = std::make_shared<const ViewLayerShapes>(std::move(shapes_by_layer));
-                    {
-                        const ResolverPhaseTimer timer("layout.shape_index");
-                        data.shapes_index = build_shape_index(*data.shapes);
-                    }
-                    result.view_data.emplace(item.id, std::move(data));
-                }
-                else
-                {
-                    const ResolverPhaseTimer timer("abstracts");
-                    const AbstractId abstract_id = std::get<AbstractId>(item.id);
-                    ViewData data;
-                    data.shapes = std::make_shared<const ViewLayerShapes>(collect_abstract_content(root, view_layers, abstract_id));
-                    data.shapes_index = build_shape_index(*data.shapes);
-                    result.view_data.emplace(item.id, std::move(data));
-                }
-            }
-
-            {
-                const ResolverPhaseTimer timer("assign_extents");
-                assign_extents(root, result);
-            }
-            return result;
+            state_ = ResolveState{.root = &root, .top_level = options.top_level, .hierarchy_depth = options.hierarchy_depth, .log_end = log_end};
+            return std::move(*result);
         }
 
+    public:
+        /// @brief Whether the last compute() updated the previous output
+        /// from the Root change log rather than resolving everything.
+        bool last_compute_was_incremental() const { return last_compute_was_incremental_; }
+
+    protected:
         bool options_did_change(const ViewRenderOptions &last, const ViewRenderOptions &current) const override
         {
             return last.root_mutation_version != current.root_mutation_version ||
@@ -684,12 +617,452 @@ namespace le
         // such a shape either way (its per-geometry-kind loops simply
         // don't execute). Geometry::bbox is a template (geometry.hpp) so
         // this resolves against RenderShape without any change here.
+        // --- Full and incremental resolution -------------------------------
+        //
+        // A full resolve walks the hierarchy breadth-first from top_level
+        // (one worklist entry per discovered {id, remaining_depth},
+        // deduplicated by id - see the class comment) and builds every
+        // node's chunks. An incremental one (after an edit) starts from the
+        // previous output and rebuilds only the chunks the Root change log
+        // says were touched; every other chunk and placement vector is
+        // shared with the previous output, not copied or freed.
+
+        struct ResolveState
+        {
+            const Root *root = nullptr;
+            HierarchyId top_level;
+            int hierarchy_depth = 0;
+            std::uint64_t log_end = 0;
+        };
+
+        struct WorkItem
+        {
+            HierarchyId id;
+            int remaining_depth;
+        };
+
+        // Placement vectors built this compute() and not yet published -
+        // assign_extents fills their extents in place before they're wrapped.
+        using FreshPlacements = std::unordered_map<HierarchyId, std::vector<ViewPlacementData>, HierarchyIdHash>;
+
+        static ViewShapeChunk make_chunk(ViewLayerShapes shapes, const char *index_phase)
+        {
+            ViewShapeChunk chunk;
+            chunk.shapes = std::make_shared<const ViewLayerShapes>(std::move(shapes));
+            const ResolverPhaseTimer timer(index_phase);
+            chunk.shapes_index = build_shape_index(*chunk.shapes);
+            return chunk;
+        }
+
+        // A Layout's placements: one PLACEMENT rect + name label each,
+        // batched into a single RenderShape (one-per-placement construction
+        // measured ~126 of ~149ms on aes_scaling_3x3), plus - while depth
+        // remains - the resolved ViewPlacementData and the child to visit.
+        // resolve_design_target runs regardless of depth: the placeholder
+        // rect needs the resolved size even at remaining_depth 0.
+        static ViewLayerShapes collect_placements(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, int remaining_depth,
+                                                  std::vector<ViewPlacementData> &placement_data, std::vector<WorkItem> &children)
+        {
+            const ResolverPhaseTimer timer("layout.placements");
+            const auto &placements = root.get_layout_placements(layout_id);
+            if (remaining_depth > 0)
+                placement_data.reserve(placements.size()); // upper bound - not every placement resolves
+
+            RenderShape placement_shape;
+            placement_shape.rects.reserve(placements.size());
+            placement_shape.texts.reserve(placements.size());
+
+            for (PlacementId placement_id : placements)
+            {
+                const PlacementData *placement = root.get_placement(placement_id);
+                if (!placement || !placement->location || !placement->reference_design.valid())
+                    continue;
+
+                const DesignTarget target = resolve_design_target(root, placement->reference_design, remaining_depth);
+                HierarchyId child_id;
+                Rect child_local_bbox;
+                if (target.kind == DesignTarget::Kind::Layout)
+                {
+                    child_id = target.layout_id;
+                    child_local_bbox = layout_declared_bbox(root, target.layout_id);
+                }
+                else if (target.kind == DesignTarget::Kind::Abstract)
+                {
+                    child_id = target.abstract_id;
+                    child_local_bbox = abstract_declared_bbox(root, target.abstract_id);
+                }
+                else
+                {
+                    continue; // unresolved reference_design - nothing to place or draw
+                }
+
+                const Orientation orientation = placement->orientation.value_or(Orientation::N);
+                const Geometry::InstanceTransform transform = Geometry::instance_transform(orientation, child_local_bbox, *placement->location);
+                const Rect bbox = Geometry::transform_bbox(transform, child_local_bbox);
+
+                // Label size is a fraction of the box height (a dbu
+                // quantity, Text.size's convention), anchored at its
+                // bottom-left; the pixel floor/padding apply at draw time.
+                const double height_dbu = static_cast<double>(bbox.ur.y - bbox.ll.y);
+                placement_shape.rects.push_back(bbox);
+                placement_shape.texts.push_back(Text{.label = placement->name, .location = bbox.ll, .size = height_dbu * kPlacementLabelHeightRatio});
+
+                if (remaining_depth <= 0)
+                    continue; // depth exhausted - placeholder only
+
+                placement_data.push_back(ViewPlacementData{
+                    .id = child_id,
+                    .location = *placement->location,
+                    .bbox = bbox,
+                    .transform = transform,
+                    .orientation = orientation,
+                });
+                children.push_back(WorkItem{child_id, target.kind == DesignTarget::Kind::Layout ? remaining_depth - 1 : 0});
+            }
+
+            ViewLayerShapes shapes;
+            if (!placement_shape.rects.empty())
+                shapes[view_layers.placement_view_layer()].push_back(std::move(placement_shape));
+            return shapes;
+        }
+
+        // Builds one Layout chunk into `data`; for PLACEMENTS also the
+        // node's fresh placement vector and the children to visit.
+        static void build_layout_chunk(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, LayoutChunk chunk,
+                                       ViewData &data, FreshPlacements &fresh, std::vector<WorkItem> &children)
+        {
+            if (chunk == LayoutChunk::PLACEMENTS)
+            {
+                std::vector<ViewPlacementData> &placement_data = fresh[HierarchyId{layout_id}];
+                placement_data.clear();
+                data.chunks[static_cast<std::size_t>(chunk)] =
+                    make_chunk(collect_placements(root, view_layers, layout_id, data.remaining_depth, placement_data, children), "layout.shape_index");
+                return;
+            }
+            data.chunks[static_cast<std::size_t>(chunk)] = make_chunk(collect_layout_chunk(root, view_layers, layout_id, chunk), "layout.shape_index");
+        }
+
+        static ViewData build_node(const Root &root, const ViewLayerSet &view_layers, const WorkItem &item, FreshPlacements &fresh,
+                                   std::vector<WorkItem> &children)
+        {
+            ViewData data;
+            data.remaining_depth = item.remaining_depth;
+            if (const LayoutId *layout_id = std::get_if<LayoutId>(&item.id))
+            {
+                data.chunks.resize(kLayoutChunkCount);
+                for (std::size_t c = 0; c < kLayoutChunkCount; ++c)
+                    build_layout_chunk(root, view_layers, *layout_id, static_cast<LayoutChunk>(c), data, fresh, children);
+            }
+            else
+            {
+                const ResolverPhaseTimer timer("abstracts");
+                data.chunks.push_back(make_chunk(collect_abstract_content(root, view_layers, std::get<AbstractId>(item.id)), "abstracts"));
+            }
+            return data;
+        }
+
+        // Breadth-first from `worklist`, adding every node not already in
+        // `output` (shallowest depth first - see the class comment).
+        static void resolve_new_nodes(const Root &root, const ViewLayerSet &view_layers, std::deque<WorkItem> worklist,
+                                      HierarchyResolverOutput &output, FreshPlacements &fresh)
+        {
+            std::vector<WorkItem> children;
+            while (!worklist.empty())
+            {
+                const WorkItem item = worklist.front();
+                worklist.pop_front();
+                if (output.view_data.contains(item.id))
+                    continue;
+                children.clear();
+                output.view_data.emplace(item.id, build_node(root, view_layers, item, fresh, children));
+                worklist.insert(worklist.end(), children.begin(), children.end());
+            }
+        }
+
+        static HierarchyResolverOutput resolve_everything(const Root &root, const ViewLayerSetHandle &view_layers_handle,
+                                                          const ViewLayerSet &view_layers, const ViewRenderOptions &options)
+        {
+            HierarchyResolverOutput output{.view_layers = view_layers_handle};
+            FreshPlacements fresh;
+            resolve_new_nodes(root, view_layers, std::deque<WorkItem>{WorkItem{options.top_level, options.hierarchy_depth}}, output, fresh);
+            const ResolverPhaseTimer timer("assign_extents");
+            assign_extents(root, output, fresh);
+            return output;
+        }
+
+        // Two ViewLayerSets that map every ViewLayerId to the same (layer,
+        // purpose) - a rebuilt-but-unchanged set, or one differing only in
+        // colors - leave every chunk's ViewLayerId keys valid.
+        static bool same_view_layer_ids(const ViewLayerSet &a, const ViewLayerSet &b)
+        {
+            const std::vector<ViewLayerId> ids = a.all();
+            if (ids != b.all())
+                return false;
+            for (const ViewLayerId id : ids)
+            {
+                const ViewLayerData *x = a.get(id);
+                const ViewLayerData *y = b.get(id);
+                if (!x || !y || x->layer != y->layer || x->purpose != y->purpose)
+                    return false;
+            }
+            return true;
+        }
+
+        bool can_update_incrementally(const Root &root, const ViewLayerSet &view_layers, const ViewRenderOptions &options) const
+        {
+            const OutputHandle &previous = previous_result();
+            return state_ && previous && previous->view_layers && state_->root == &root && state_->top_level == options.top_level &&
+                   state_->hierarchy_depth == options.hierarchy_depth && root.change_log().covers(state_->log_end) &&
+                   same_view_layer_ids(*previous->view_layers, view_layers);
+        }
+
+        // What the change log says an edit touched.
+        struct Dirty
+        {
+            std::unordered_map<LayoutId, std::array<bool, kLayoutChunkCount>> layout_chunks;
+            std::unordered_set<AbstractId> abstracts;
+            bool declared_bbox_changed = false; // an Abstract's or Layout's boundary - placement rects everywhere
+            bool everything = false;
+        };
+
+        struct ChangeKey
+        {
+            ChangeKlass klass;
+            std::uint32_t index;
+            std::uint32_t generation;
+            bool operator==(const ChangeKey &) const = default;
+        };
+        struct ChangeKeyHash
+        {
+            std::size_t operator()(const ChangeKey &k) const noexcept
+            {
+                return (static_cast<std::size_t>(k.klass) << 56) ^ (static_cast<std::size_t>(k.index) << 20) ^ k.generation;
+            }
+        };
+
+        // Maps each change-log entry since the last compute() to the node
+        // chunks it touched. Anything it can't place precisely marks
+        // everything - the full resolve is always a correct fallback.
+        static Dirty collect_dirty(const Root &root, std::uint64_t since)
+        {
+            Dirty dirty;
+            // Owners of objects deleted in this batch - a live object's
+            // owner is read from the Root, a deleted one's from here.
+            std::unordered_map<ChangeKey, ChangeParent, ChangeKeyHash> deleted_parents;
+            root.change_log().for_each_since(since, [&](const ChangeLogEntry &entry)
+                                             {
+                if (entry.op == ChangeOp::DELETE)
+                    deleted_parents[ChangeKey{entry.klass, entry.index, entry.generation}] = entry.parent; });
+
+            // Climbs from an entry's recorded owner to the nearest ancestor
+            // of class `target`.
+            auto ancestor = [&](ChangeParent parent, ChangeKlass target) -> std::optional<ChangeParent>
+            {
+                for (int hops = 0; hops < 8 && parent.klass != ChangeKlass::None; ++hops)
+                {
+                    if (parent.klass == target)
+                        return parent;
+                    ChangeParent next = root.change_parent_of(parent.klass, parent.index, parent.generation);
+                    if (next.klass == ChangeKlass::None)
+                        if (const auto it = deleted_parents.find(ChangeKey{parent.klass, parent.index, parent.generation}); it != deleted_parents.end())
+                            next = it->second;
+                    parent = next;
+                }
+                return std::nullopt;
+            };
+            auto self = [](const ChangeLogEntry &entry)
+            { return ChangeParent{.klass = entry.klass, .index = entry.index, .generation = entry.generation}; };
+            auto mark_layout = [&](std::optional<ChangeParent> layout, std::initializer_list<LayoutChunk> chunks)
+            {
+                if (!layout)
+                    return;
+                auto &flags = dirty.layout_chunks[LayoutId{layout->index, layout->generation}];
+                for (const LayoutChunk chunk : chunks)
+                    flags[static_cast<std::size_t>(chunk)] = true;
+            };
+            auto mark_abstract = [&](std::optional<ChangeParent> abstract)
+            {
+                if (abstract)
+                    dirty.abstracts.insert(AbstractId{abstract->index, abstract->generation});
+            };
+
+            root.change_log().for_each_since(since, [&](const ChangeLogEntry &entry)
+                                             {
+                if (dirty.everything)
+                    return;
+                switch (entry.klass)
+                {
+                case ChangeKlass::Shape:
+                {
+                    if (entry.parent.klass == ChangeKlass::None)
+                        return; // an orphan shape draws nowhere
+                    const std::string_view field = Root::change_parent_field_name(ChangeKlass::Shape, entry.parent.slot);
+                    if (field == "route")
+                        mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::ROUTES});
+                    else if (field == "blockage")
+                        mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::DIEAREA_BLOCKAGES});
+                    else if (field == "physical_port_segment" || field == "in_layout")
+                        mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::PORTS_FREE_SHAPES});
+                    else if (field == "layout") // the diearea: port markers face its sides
+                    {
+                        mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::DIEAREA_BLOCKAGES, LayoutChunk::PORTS_FREE_SHAPES});
+                        dirty.declared_bbox_changed = true;
+                    }
+                    else if (field == "terminal_port" || field == "obstruction" || field == "in_abstract")
+                        mark_abstract(ancestor(entry.parent, ChangeKlass::Abstract));
+                    else if (field == "abstract") // the boundary
+                    {
+                        mark_abstract(ancestor(entry.parent, ChangeKlass::Abstract));
+                        dirty.declared_bbox_changed = true;
+                    }
+                    else
+                        dirty.everything = true;
+                    return;
+                }
+                case ChangeKlass::Route:
+                    mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::ROUTES});
+                    return;
+                case ChangeKlass::Blockage:
+                    mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::DIEAREA_BLOCKAGES});
+                    return;
+                case ChangeKlass::PhysicalPort:
+                case ChangeKlass::PhysicalPortSegment:
+                    mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::PORTS_FREE_SHAPES});
+                    return;
+                case ChangeKlass::Row:
+                case ChangeKlass::Track:
+                case ChangeKlass::GCellGrid:
+                case ChangeKlass::Region:
+                    mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::ROWS_TRACKS_GCELLS_REGIONS});
+                    return;
+                case ChangeKlass::Placement:
+                    mark_layout(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::PLACEMENTS});
+                    return;
+                case ChangeKlass::Terminal:
+                case ChangeKlass::TerminalPort:
+                case ChangeKlass::Obstruction:
+                    mark_abstract(ancestor(entry.parent, ChangeKlass::Abstract));
+                    return;
+                case ChangeKlass::Abstract:
+                case ChangeKlass::Layout:
+                    // Created or deleted, a design's view (what its
+                    // placements resolve to) changes - resolve everything.
+                    if (entry.op == ChangeOp::CREATE || entry.op == ChangeOp::DELETE)
+                    {
+                        dirty.everything = true;
+                        return;
+                    }
+                    if (entry.klass == ChangeKlass::Abstract)
+                        mark_abstract(self(entry));
+                    else
+                        mark_layout(self(entry), {LayoutChunk::DIEAREA_BLOCKAGES, LayoutChunk::ROUTES, LayoutChunk::PORTS_FREE_SHAPES,
+                                                  LayoutChunk::ROWS_TRACKS_GCELLS_REGIONS, LayoutChunk::PLACEMENTS});
+                    dirty.declared_bbox_changed = true; // Abstract.size, say
+                    return;
+                // Logical connectivity and property metadata: nothing drawn.
+                case ChangeKlass::Net:
+                case ChangeKlass::NetBus:
+                case ChangeKlass::Instance:
+                case ChangeKlass::Pin:
+                case ChangeKlass::Port:
+                case ChangeKlass::PortBus:
+                case ChangeKlass::Schematic:
+                case ChangeKlass::PropertyDefinition:
+                    return;
+                default: // technology, libraries, designs, vias, ...
+                    dirty.everything = true;
+                    return;
+                } });
+            return dirty;
+        }
+
+        std::optional<HierarchyResolverOutput> update_incrementally(const Root &root, const ViewLayerSetHandle &view_layers_handle,
+                                                                    const ViewLayerSet &view_layers, const ViewRenderOptions &options) const
+        {
+            const ResolverPhaseTimer timer("incremental");
+            Dirty dirty = collect_dirty(root, state_->log_end);
+            if (dirty.everything)
+                return std::nullopt;
+
+            HierarchyResolverOutput output = *previous_result(); // chunks/placements shared, not copied
+            output.view_layers = view_layers_handle;
+
+            // A boundary change moves placement rects wherever the cell is
+            // placed - rebuild every Layout's placements.
+            if (dirty.declared_bbox_changed)
+                for (const auto &[id, data] : output.view_data)
+                    if (const LayoutId *layout_id = std::get_if<LayoutId>(&id))
+                        dirty.layout_chunks[*layout_id][static_cast<std::size_t>(LayoutChunk::PLACEMENTS)] = true;
+
+            FreshPlacements fresh;
+            std::deque<WorkItem> new_children;
+            bool placements_rebuilt = false;
+            for (const auto &[layout_id, flags] : dirty.layout_chunks)
+            {
+                const auto it = output.view_data.find(HierarchyId{layout_id});
+                if (it == output.view_data.end())
+                    continue; // not visible from top_level
+                std::vector<WorkItem> children;
+                for (std::size_t c = 0; c < kLayoutChunkCount; ++c)
+                    if (flags[c])
+                        build_layout_chunk(root, view_layers, layout_id, static_cast<LayoutChunk>(c), it->second, fresh, children);
+                if (flags[static_cast<std::size_t>(LayoutChunk::PLACEMENTS)])
+                    placements_rebuilt = true;
+                new_children.insert(new_children.end(), children.begin(), children.end());
+            }
+            for (const AbstractId abstract_id : dirty.abstracts)
+            {
+                const auto it = output.view_data.find(HierarchyId{abstract_id});
+                if (it == output.view_data.end())
+                    continue;
+                const ResolverPhaseTimer abstract_timer("abstracts");
+                it->second.chunks.assign(1, make_chunk(collect_abstract_content(root, view_layers, abstract_id), "abstracts"));
+            }
+
+            if (placements_rebuilt)
+            {
+                // Resolve any newly placed designs, then drop nodes no
+                // placement reaches any more.
+                resolve_new_nodes(root, view_layers, std::move(new_children), output, fresh);
+                prune_unreachable(output, fresh, options.top_level);
+            }
+
+            const ResolverPhaseTimer extents_timer("assign_extents");
+            assign_extents(root, output, fresh);
+            return output;
+        }
+
+        static void prune_unreachable(HierarchyResolverOutput &output, const FreshPlacements &fresh, const HierarchyId &top_level)
+        {
+            std::unordered_set<HierarchyId, HierarchyIdHash> reachable{top_level};
+            std::deque<HierarchyId> queue{top_level};
+            while (!queue.empty())
+            {
+                const HierarchyId id = queue.front();
+                queue.pop_front();
+                const auto fresh_it = fresh.find(id);
+                const std::vector<ViewPlacementData> *placements = fresh_it != fresh.end() ? &fresh_it->second : nullptr;
+                if (!placements)
+                    if (const auto it = output.view_data.find(id); it != output.view_data.end())
+                        placements = it->second.placement_data.get();
+                if (!placements)
+                    continue;
+                for (const ViewPlacementData &placement : *placements)
+                    if (reachable.insert(placement.id).second)
+                        queue.push_back(placement.id);
+            }
+            std::erase_if(output.view_data, [&](const auto &entry)
+                          { return !reachable.contains(entry.first); });
+        }
+
         /// @brief Fills every node's `ViewData::extent` and every
         /// placement's `ViewPlacementData::extent`, children first (a
-        /// placement's extent needs its placed node's). Cheap: a node's
-        /// own shapes contribute via their per-layer rtree's cached
-        /// bounds, not a walk over every shape.
-        static void assign_extents(const Root &root, HierarchyResolverOutput &output)
+        /// placement's extent needs its placed node's). A node's own shapes
+        /// contribute via their per-layer rtrees' cached bounds, not a walk
+        /// over every shape. Placement vectors built this compute() (in
+        /// `fresh`) are filled in place and then published; a published
+        /// one is replaced only if one of its extents actually changed.
+        static void assign_extents(const Root &root, HierarchyResolverOutput &output, FreshPlacements &fresh)
         {
             auto grow = [](std::optional<Rect> &extent, const Rect &r)
             {
@@ -703,6 +1076,8 @@ namespace le
                 extent->ur.x = std::max(extent->ur.x, r.ur.x);
                 extent->ur.y = std::max(extent->ur.y, r.ur.y);
             };
+            auto same = [](const Rect &a, const Rect &b)
+            { return a.ll.x == b.ll.x && a.ll.y == b.ll.y && a.ur.x == b.ur.x && a.ur.y == b.ur.y; };
 
             std::unordered_set<HierarchyId, HierarchyIdHash> done;
             std::unordered_set<HierarchyId, HierarchyIdHash> in_progress;
@@ -722,21 +1097,49 @@ namespace le
                                                                            : abstract_declared_bbox(root, std::get<AbstractId>(id));
                 if (declared.ur.x > declared.ll.x || declared.ur.y > declared.ll.y)
                     grow(extent, declared);
-                if (data.shapes_index)
-                    for (const auto &[view_layer, index] : *data.shapes_index)
-                        if (!index.empty())
-                        {
-                            const auto bounds = index.bounds();
-                            grow(extent, Rect{.ll = Point{bg::get<bg::min_corner, 0>(bounds), bg::get<bg::min_corner, 1>(bounds)},
-                                              .ur = Point{bg::get<bg::max_corner, 0>(bounds), bg::get<bg::max_corner, 1>(bounds)}});
-                        }
-                for (ViewPlacementData &placement : data.placement_data)
+                for (const ViewShapeChunk &chunk : data.chunks)
+                    if (chunk.shapes_index)
+                        for (const auto &[view_layer, index] : *chunk.shapes_index)
+                            if (!index.empty())
+                            {
+                                const auto bounds = index.bounds();
+                                grow(extent, Rect{.ll = Point{bg::get<bg::min_corner, 0>(bounds), bg::get<bg::min_corner, 1>(bounds)},
+                                                  .ur = Point{bg::get<bg::max_corner, 0>(bounds), bg::get<bg::max_corner, 1>(bounds)}});
+                            }
+
+                auto placement_extent = [&](const ViewPlacementData &placement)
                 {
                     std::optional<Rect> placement_extent = placement.bbox;
                     if (const std::optional<Rect> child = self(self, placement.id))
                         grow(placement_extent, Geometry::transform_bbox(placement.transform, *child));
-                    placement.extent = *placement_extent;
-                    grow(extent, placement.extent);
+                    return *placement_extent;
+                };
+                if (const auto fresh_it = fresh.find(id); fresh_it != fresh.end())
+                {
+                    for (ViewPlacementData &placement : fresh_it->second)
+                    {
+                        placement.extent = placement_extent(placement);
+                        grow(extent, placement.extent);
+                    }
+                    data.placement_data = fresh_it->second.empty() ? no_placements()
+                                                                   : std::make_shared<const std::vector<ViewPlacementData>>(std::move(fresh_it->second));
+                    fresh.erase(fresh_it);
+                }
+                else
+                {
+                    std::optional<std::vector<ViewPlacementData>> changed;
+                    const std::vector<ViewPlacementData> &placements = *data.placement_data;
+                    for (std::size_t i = 0; i < placements.size(); ++i)
+                    {
+                        const Rect e = placement_extent(placements[i]);
+                        grow(extent, e);
+                        if (!changed && !same(e, placements[i].extent))
+                            changed.emplace(placements);
+                        if (changed)
+                            (*changed)[i].extent = e;
+                    }
+                    if (changed)
+                        data.placement_data = std::make_shared<const std::vector<ViewPlacementData>>(std::move(*changed));
                 }
 
                 data.extent = extent.value_or(Rect{});
@@ -1145,7 +1548,8 @@ namespace le
         // once (see that type's own comment) - collect_layout_content
         // itself can't do that wrap, since there's more to append after
         // it returns.
-        static ViewLayerShapes collect_layout_content(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id)
+        // One LayoutChunk's shapes (PLACEMENTS is collect_placements).
+        static ViewLayerShapes collect_layout_chunk(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, LayoutChunk chunk)
         {
             ViewLayerShapes shapes_by_layer;
 
@@ -1158,6 +1562,7 @@ namespace le
                 shapes_by_layer[resolve_view_layer(view_layers, *shape, fallback_purpose)].push_back(to_render_shape(*shape));
             };
 
+            if (chunk == LayoutChunk::DIEAREA_BLOCKAGES)
             {
                 const ResolverPhaseTimer timer("layout.diearea_blockages");
                 if (const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id)))
@@ -1168,6 +1573,7 @@ namespace le
                         push_shape_id(shape_id, ViewLayerPurpose::ROUTING_BLOCKAGE);
             }
 
+            if (chunk == LayoutChunk::ROUTES)
             {
                 const ResolverPhaseTimer timer("layout.routes");
                 for (RouteId route_id : root.get_layout_routes(layout_id))
@@ -1175,12 +1581,14 @@ namespace le
                         push_shape_id(shape_id, ViewLayerPurpose::ROUTE);
             }
 
+            if (chunk == LayoutChunk::PORTS_FREE_SHAPES)
             {
                 const ResolverPhaseTimer timer("layout.ports_free_shapes");
                 append_physical_port_shapes(root, view_layers, layout_id, shapes_by_layer);
                 append_free_shapes(root, view_layers, root.get_layout_free_shapes(layout_id), layout_id, shapes_by_layer);
             }
 
+            if (chunk == LayoutChunk::ROWS_TRACKS_GCELLS_REGIONS)
             {
                 const ResolverPhaseTimer timer("layout.rows_tracks_gcells_regions");
                 append_row_shapes(root, layout_id, view_layers, shapes_by_layer);
@@ -1188,14 +1596,13 @@ namespace le
                 append_gcell_grid_shapes(root, layout_id, view_layers, shapes_by_layer);
                 append_region_shapes(root, layout_id, view_layers, shapes_by_layer);
             }
-            // PLACEMENT is added by the main compute() loop, not
-            // here - it needs resolve_design_target's own per-placement
-            // dispatch (Layout vs. Abstract, depth-dependent) and the
-            // same resolved bbox that loop's own ViewPlacementData::bbox
-            // uses, so it's computed once there rather than duplicated
-            // into a second pass over this Layout's own placements.
+            // PLACEMENTS is collect_placements - it also produces the
+            // node's ViewPlacementData and children to visit.
 
             return shapes_by_layer;
         }
+
+        std::optional<ResolveState> state_;
+        bool last_compute_was_incremental_ = false;
     };
 }
