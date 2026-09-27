@@ -52,7 +52,17 @@ namespace le
     /// .vias/.via_iterates); every *synthesized* via/enclosure shape this
     /// function itself produces, though, only ever needs RenderShape's 4
     /// fields - see render_shape.hpp's own doc comment.
-    inline void append_via_shapes(const Root &root, const Shape &shape, ViewLayerPurpose purpose, const ViewLayerSet &view_layers, LayoutId layout_id, std::unordered_map<ViewLayerId, std::vector<RenderShape>> &shapes_by_layer)
+    ///
+    /// `on_push(view_layer)` is called after each shape pushed - for a
+    /// caller that records, per pushed shape, which Shape it came from
+    /// (HierarchyResolverStage's chunk sources, used for click selection).
+    struct NoViaPush
+    {
+        void operator()(ViewLayerId) const {}
+    };
+    template <typename OnPush = NoViaPush>
+    inline void append_via_shapes(const Root &root, const Shape &shape, ViewLayerPurpose purpose, const ViewLayerSet &view_layers, LayoutId layout_id,
+                                  std::unordered_map<ViewLayerId, std::vector<RenderShape>> &shapes_by_layer, OnPush &&on_push = {})
     {
         if (shape.vias.empty() && shape.via_iterates.empty())
             return;
@@ -144,7 +154,9 @@ namespace le
                     cut_shape.rects.push_back(Geometry::transform_bbox(transform, cut_rect));
                 }
             }
-            shapes_by_layer[view_layers.find(cut_layer_id, purpose)].push_back(std::move(cut_shape));
+            const ViewLayerId cut_view_layer = view_layers.find(cut_layer_id, purpose);
+            shapes_by_layer[cut_view_layer].push_back(std::move(cut_shape));
+            on_push(cut_view_layer);
 
             auto append_enclosure = [&](const std::string &layer_name, const std::optional<Point> &enclosure, const std::optional<Point> &layer_offset)
             {
@@ -165,7 +177,9 @@ namespace le
                 };
                 RenderShape metal_shape;
                 metal_shape.rects.push_back(Geometry::transform_bbox(transform, enclosure_rect));
-                shapes_by_layer[view_layers.find(layer_id, purpose)].push_back(std::move(metal_shape));
+                const ViewLayerId metal_view_layer = view_layers.find(layer_id, purpose);
+                shapes_by_layer[metal_view_layer].push_back(std::move(metal_shape));
+                on_push(metal_view_layer);
             };
             append_enclosure(bot_layer_name, bot_enclosure, bot_offset);
             append_enclosure(top_layer_name, top_enclosure, top_offset);
@@ -323,7 +337,9 @@ namespace le
                     resolved.polygons.push_back(std::move(transformed));
                 }
 
-                shapes_by_layer[view_layers.find(layer_id, purpose)].push_back(std::move(resolved));
+                const ViewLayerId resolved_view_layer = view_layers.find(layer_id, purpose);
+                shapes_by_layer[resolved_view_layer].push_back(std::move(resolved));
+                on_push(resolved_view_layer);
             }
         };
 

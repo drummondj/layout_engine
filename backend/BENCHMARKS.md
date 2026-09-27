@@ -1617,3 +1617,43 @@ a selection change reuses it and pays only for the selected placements'
 own lines - 2 us for a typical single-cell click on a 100k design, instead
 of 116 ms if the index were rebuilt per click. Nothing is computed at all
 while the FLIGHTLINE purpose is hidden (its default).
+
+## 2026-09-27 — Layout-view click selection from the render tree
+
+`src/pipelines/benchmarks/selection_profile.cpp` (target `selection_profile`, Release):
+- **Setup:** loads a real `test_data/aes_scaling_<label>.def` through the C API, opens its Layout (hierarchy depth 1) in a 1280x800 viewport and renders it once, as the GUI does before anyone can click.
+- **Measurement:** times Select-mode clicks (`le_mouse_down`/`le_mouse_up`) at the view center, zoom-fit and 20x zoomed in, and reports the first click separately.
+
+WSL2 Linux, GCC.
+
+**Before, every click scanned the whole design,** growing linearly with its size: 28 ms at 1x1, 369 ms at 3x3, about 2.7 s at 8x8. Measured with temporary timers at 3x3:
+- vias: 160 ms, every route shape's via boxes;
+- route/port shapes: 195 ms, every shape id bucketed by layer, then tested;
+- placements: 16 ms, every placement's world bbox re-resolved.
+
+**Now clicks read the render tree.**
+- **Chunk sources:** `HierarchyResolverStage`'s selectable chunks (route tiles, PORTS, placement tiles) carry `ChunkSources`, index-parallel to their render shapes: the ShapeId behind each (a via's owning Shape), and the PlacementId behind each batched placement rect.
+- **Candidates:** a click or rubber band (api.cpp's `layout_candidates`) queries the top node's per-chunk rtrees in the last resolver output (`ViewRenderPipeline::resolved_output()`), adds everything the change log says was edited since that output, and exact-tests only those candidates with the existing hit-test code.
+- **Fallback:** with no matching render (another layout or depth), or with edits since it that could move objects unlogged (boundaries, via definitions, designs), it scans the whole Layout as before.
+
+| | 1x1 | 3x3 | 5x5 | 8x8 |
+|---|---|---|---|---|
+| click, before (every click) | 28 ms | 369 ms | - | ~2.7 s (linear) |
+| **first click** | **1.0 ms** | **25 ms** | **28 ms** | **1.5 ms** |
+| later clicks | 0.5 ms | 25 ms | 25 ms | 0.5-0.7 ms |
+| memory added by the click | 0 | 0 | 0 | 0 |
+
+**Cost is paid in the resolver instead:**
+- **Memory:** +234 MB resident after the cold resolve at 8x8 (14.12 GB vs 13.89 GB, 1.7%).
+- **Time:** +2.7% cold resolve (10.19 s vs 9.93 s, same build with source recording disabled, median of 3). Incremental edits are unchanged (placement move 6 ms, route edit 20 ms at 8x8).
+
+A first version grew thousands of small per-layer source vectors push by push, and cost 28% of the cold resolve at 8x8 (12.7 s): memory churn that barely showed at 1x1 (+5%). Recording each tile's sources into one flat list, then distributing them into exactly-reserved per-layer lists once the tile is complete, brought that down to 2.7%. Caching the per-layer map lookup alone changed nothing.
+
+The 25 ms at 3x3/5x5 is their center point, which sits on dense special-net routing: about 60 objects under the point, hundreds of candidates. Two exact-test costs there were fixed along the way (`Geometry::find_hit_pieces`), both verified exact against the old buffering:
+- **Zero-width paths:** these buffer to nothing and so are never hit. Real designs have 3432-point zero-width special-net paths that were being buffered on every click; they now return "no hit" at once (`point_in_orthogonal_path`).
+- **Open orthogonal paths** are tested directly as a union of segment rectangles, with edges truncated as `path_to_polygons` truncates them. Randomized equality tests cover edge points and negative coordinates.
+- **Other paths** are buffered only if the point lies within a segment's bbox grown by the miter's reach (`path_may_contain`); a randomized test shows the pre-filter never drops a hit.
+
+Those fixes took the dense-point click from 48 ms to 24 ms. `ViaHitBoxes` also stopped building a `std::string` key for every via instance.
+
+A separate grid index (`LayoutSelectionIndex`, built on the first click and caught up from the change log) was tried first. It made later clicks just as fast but cost 1.8 s on the first click at 8x8, plus about 450 MB. It was replaced by this approach, which reuses the tree the render already built.

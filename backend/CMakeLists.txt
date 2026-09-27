@@ -1145,6 +1145,7 @@ add_executable(backend_tests
     src/io/tests/def_writer_test.cpp
     src/api/tests/api_test.cpp
     src/api/tests/le_handle_test.cpp
+    src/api/tests/selection_test.cpp
     src/api/tests/mutation_cascade_test.cpp
     src/core/tests/placement_move_test.cpp
     src/core/tests/flightlines_test.cpp
@@ -1263,6 +1264,15 @@ target_compile_definitions(resolver_profile PRIVATE
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_data"
 )
 le_enable_coverage_instrumentation(resolver_profile)
+
+# --- selection_profile: dev-only tool - Select-mode click time on one real
+# aes_scaling design through the C API. Not run by ctest. ---
+add_executable(selection_profile src/pipelines/benchmarks/selection_profile.cpp)
+target_link_libraries(selection_profile PRIVATE api)
+target_compile_definitions(selection_profile PRIVATE
+    REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_data"
+)
+le_enable_coverage_instrumentation(selection_profile)
 
 # --- spatial_index_benchmark: dev-only benchmark (BUGS_AND_ENHANCEMENTS.md
 # E31 zoom/pan-tick follow-up) - quantifies a Boost.Geometry Index rtree's

@@ -327,7 +327,15 @@ none of these are duplicated here.
   (`last_compute_was_incremental()`). `ViewData::placement_tiles` are
   shared immutable `ViewPlacementTile`s too, so `ViewportCullStage`'s
   per-tile index and `RasterizeBlend2DStage`'s per-chunk route-outline
-  cache survive edits that don't touch them.
+  cache survive edits that don't touch them. Chunks with selectable
+  content (route tiles, PORTS, placement tiles) carry `ChunkSources` - the
+  ShapeId behind each render shape (a via's owning Shape), the PlacementId
+  behind each batched placement rect - so Layout-view click and
+  rubber-band selection (api.cpp's `layout_candidates`) query the render
+  tree of the last resolver output (`ViewRenderPipeline::resolved_output()`)
+  plus anything edited since it, then exact-test only those candidates;
+  with no matching render (or edits that could move objects unlogged) they
+  scan the whole Layout (BENCHMARKS.md 2026-09-27).
   A nested node's image covers its `ViewData::extent` (declared
   diearea/boundary grown to everything it draws, placements included —
   `HierarchyResolverStage::assign_extents`), not just its boundary, so a

@@ -231,6 +231,11 @@ namespace le
         /// override it; 0 if nothing has been computed yet.
         std::size_t cache_bytes() const { return last_result_ ? estimate_output_bytes(*last_result_) : 0; }
 
+        /// @brief The most recent result (null before the first compute) -
+        /// immutable and shared, so safe to keep and read outside the graph
+        /// while nothing is running it.
+        const OutputHandle &latest_result() const { return last_result_; }
+
     protected:
         /// @brief How many objects (typically Shapes) `output` holds -
         /// override in a subclass whose OutputData has a meaningful

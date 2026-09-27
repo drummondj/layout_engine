@@ -226,14 +226,18 @@ namespace
 
         std::optional<le::Rect> bbox(const le::ShapeVia &via)
         {
-            const std::string key = via.via_name + '#' + std::to_string(via.width.value_or(-1));
-            auto it = local_.find(key);
-            if (it == local_.end())
+            // Looked up by name without building a key string - this runs
+            // once per via instance of every candidate a click tests.
+            auto &by_width = local_[via.via_name];
+            const int64_t width = via.width.value_or(-1);
+            auto it = std::ranges::find(by_width, width, &std::pair<int64_t, std::optional<le::Rect>>::first);
+            if (it == by_width.end())
             {
                 le::ShapeVia at_origin = via;
                 at_origin.origin = le::Point{};
                 at_origin.orientation = le::Orientation::N;
-                it = local_.emplace(key, le::Geometry::bbox(via_instance_geometry(root_, at_origin, layout_id_))).first;
+                by_width.emplace_back(width, le::Geometry::bbox(via_instance_geometry(root_, at_origin, layout_id_)));
+                it = by_width.end() - 1;
             }
             if (!it->second)
                 return std::nullopt;
@@ -266,7 +270,13 @@ namespace
     private:
         const le::Root &root_;
         le::LayoutId layout_id_;
-        std::unordered_map<std::string, std::optional<le::Rect>> local_;
+        // Transparent, so lookup by the via's own name allocates nothing.
+        struct NameHash
+        {
+            using is_transparent = void;
+            std::size_t operator()(std::string_view name) const noexcept { return std::hash<std::string_view>{}(name); }
+        };
+        std::unordered_map<std::string, std::vector<std::pair<int64_t, std::optional<le::Rect>>>, NameHash, std::equal_to<>> local_;
     };
 
     // Visits (ShapeId, purpose) for every Shape in the current view that
@@ -309,15 +319,174 @@ namespace
                handle->is_view_layer_selectable("PLACEMENT", le::ViewLayerPurpose::PLACEMENT);
     }
 
+    // Candidates for a Layout-view click or rubber band over `query`: the
+    // objects whose rendered geometry overlaps it, read from the render
+    // tree (the last resolver output's per-chunk rtrees and their sources -
+    // hierarchy_resolver_stage.hpp's ChunkSources), plus every object edited
+    // since that output (the tree may still show it somewhere else; the
+    // exact hit test sorts that out). nullopt when that output doesn't
+    // match the current view, or when something since could have moved
+    // objects without their own log entries - the caller then scans the
+    // whole Layout, which is always correct.
+    struct LayoutCandidates
+    {
+        std::vector<le::ShapeId> shapes;
+        std::vector<le::PlacementId> placements;
+    };
+    std::optional<LayoutCandidates> layout_candidates(const LeHandle *handle, le::Rect query)
+    {
+        const le::Root &root = handle->root;
+        const le::LayoutId layout_id = handle->current_layout();
+        const le::HierarchyResolverStage::OutputHandle output = handle->view_render_pipeline.resolved_output();
+        if (!output || !output->view_layers || output->root != &root || output->top_level != le::HierarchyId{layout_id} ||
+            output->hierarchy_depth != handle->hierarchy_depth() || !root.change_log().covers(output->log_end))
+            return std::nullopt;
+        const auto top = output->view_data.find(le::HierarchyId{layout_id});
+        if (top == output->view_data.end())
+            return std::nullopt;
+
+        LayoutCandidates out;
+        bool usable = true;
+        root.change_log().for_each_since(output->log_end, [&](const le::ChangeLogEntry &entry)
+                                         {
+            if (!usable)
+                return;
+            switch (entry.klass)
+            {
+            case le::ChangeKlass::Shape:
+            {
+                const std::string_view field = le::Root::change_parent_field_name(le::ChangeKlass::Shape, entry.parent.slot);
+                if (entry.parent.klass != le::ChangeKlass::None && (field == "layout" || field == "abstract"))
+                    usable = false; // a boundary - it sizes placements
+                else
+                    out.shapes.push_back(le::ShapeId{entry.index, entry.generation});
+                return;
+            }
+            case le::ChangeKlass::Route:
+                for (const le::ShapeId shape : root.get_route_shapes(le::RouteId{entry.index, entry.generation}))
+                    out.shapes.push_back(shape);
+                return;
+            case le::ChangeKlass::PhysicalPortSegment:
+                for (const le::ShapeId shape : root.get_physical_port_segment_shapes(le::PhysicalPortSegmentId{entry.index, entry.generation}))
+                    out.shapes.push_back(shape);
+                return;
+            case le::ChangeKlass::PhysicalPort:
+                for (const le::PhysicalPortSegmentId segment : root.get_physical_port_segments(le::PhysicalPortId{entry.index, entry.generation}))
+                    for (const le::ShapeId shape : root.get_physical_port_segment_shapes(segment))
+                        out.shapes.push_back(shape);
+                return;
+            case le::ChangeKlass::Placement:
+                out.placements.push_back(le::PlacementId{entry.index, entry.generation});
+                return;
+            // Not selectable here, and no effect on what is.
+            case le::ChangeKlass::Layer:
+            case le::ChangeKlass::Terminal:
+            case le::ChangeKlass::TerminalPort:
+            case le::ChangeKlass::Obstruction:
+            case le::ChangeKlass::Blockage:
+            case le::ChangeKlass::Row:
+            case le::ChangeKlass::Track:
+            case le::ChangeKlass::GCellGrid:
+            case le::ChangeKlass::Region:
+            case le::ChangeKlass::Net:
+            case le::ChangeKlass::NetBus:
+            case le::ChangeKlass::Instance:
+            case le::ChangeKlass::Pin:
+            case le::ChangeKlass::Port:
+            case le::ChangeKlass::PortBus:
+            case le::ChangeKlass::Schematic:
+            case le::ChangeKlass::PropertyDefinition:
+                return;
+            default: // via definitions, designs, abstracts, layouts, technology, ...
+                usable = false;
+                return;
+            } });
+        if (!usable)
+            return std::nullopt;
+
+        namespace bgi = boost::geometry::index;
+        const le::ViewLayerId placement_layer = output->view_layers->placement_view_layer();
+        std::vector<le::ShapeIndexEntry> hits;
+        for (const le::ViewShapeChunk &chunk : top->second.chunks)
+        {
+            if (!chunk.sources || !chunk.shapes_index)
+                continue;
+            for (const auto &[view_layer, index] : *chunk.shapes_index)
+            {
+                hits.clear();
+                index.query(bgi::intersects(query), std::back_inserter(hits));
+                if (hits.empty())
+                    continue;
+                if (view_layer == placement_layer && !chunk.sources->placements.empty())
+                {
+                    // A tile's batched PLACEMENT shape: rect i is placement i.
+                    for (const le::ShapeIndexEntry &hit : hits)
+                    {
+                        const std::vector<le::Rect> &rects = chunk.shapes->at(view_layer)[hit.second].rects;
+                        for (size_t i = 0; i < rects.size() && i < chunk.sources->placements.size(); ++i)
+                            if (boost::geometry::intersects(rects[i], query))
+                                out.placements.push_back(chunk.sources->placements[i]);
+                    }
+                    continue;
+                }
+                const auto sources = chunk.sources->shapes.find(view_layer);
+                if (sources == chunk.sources->shapes.end())
+                    continue;
+                for (const le::ShapeIndexEntry &hit : hits)
+                    if (hit.second < sources->second.size() && sources->second[hit.second].valid())
+                        out.shapes.push_back(sources->second[hit.second]);
+            }
+        }
+
+        // Only this Layout's route/port shapes and placements (edits
+        // anywhere are in the log), each once.
+        std::erase_if(out.shapes, [&](le::ShapeId id)
+                      {
+            const le::ShapeData *shape = root.get_shape(id);
+            if (!shape)
+                return true;
+            if (const le::RouteData *route = root.get_route(shape->route))
+                return route->layout != layout_id;
+            if (const le::PhysicalPortSegmentData *segment = root.get_physical_port_segment(shape->physical_port_segment))
+                if (const le::PhysicalPortData *port = root.get_physical_port(segment->physical_port))
+                    return port->layout != layout_id;
+            return true; });
+        std::erase_if(out.placements, [&](le::PlacementId id)
+                      {
+            const le::PlacementData *placement = root.get_placement(id);
+            return !placement || placement->layout != layout_id; });
+        std::ranges::sort(out.shapes);
+        out.shapes.erase(std::unique(out.shapes.begin(), out.shapes.end()), out.shapes.end());
+        std::ranges::sort(out.placements);
+        out.placements.erase(std::unique(out.placements.begin(), out.placements.end()), out.placements.end());
+        ++handle->render_tree_selections;
+        return out;
+    }
+
+    // for_each_via_owner_shape, limited in a Layout view to `candidates`
+    // (layout_candidates) when given - its via owners are route shapes.
+    template <typename Visit>
+    void for_each_via_candidate(const LeHandle *handle, const std::vector<le::ShapeId> *candidates, Visit visit)
+    {
+        if (!candidates || !handle->current_layout().valid())
+        {
+            for_each_via_owner_shape(handle, visit);
+            return;
+        }
+        for (const le::ShapeId shape_id : *candidates)
+            if (const le::ShapeData *shape = handle->root.get_shape(shape_id); shape && shape->route.valid())
+                visit(shape_id, le::ViewLayerPurpose::ROUTE);
+    }
+
     // Every selectable via or via array whose hit box contains dbu `p`,
     // smallest first (a via stacked inside a bigger one, or inside an
     // array's box, comes before it). A click anywhere in an array's box -
     // between its instances too - picks the whole array.
-    std::vector<LeHandle::ShapePiece> hit_test_via_point_all(const LeHandle *handle, le::Point p)
+    std::vector<LeHandle::ShapePiece> hit_test_via_point_all(const LeHandle *handle, le::Point p, const std::vector<le::ShapeId> *candidates = nullptr)
     {
         ViaHitBoxes boxes(handle->root, handle->current_layout());
         std::vector<std::pair<double, LeHandle::ShapePiece>> hits;
-        for_each_via_owner_shape(handle, [&](le::ShapeId shape_id, le::ViewLayerPurpose purpose)
+        for_each_via_candidate(handle, candidates, [&](le::ShapeId shape_id, le::ViewLayerPurpose purpose)
                                  {
             const le::ShapeData *shape = handle->root.get_shape(shape_id);
             if (!shape || (shape->vias.empty() && shape->via_iterates.empty()) || !via_owner_selectable(handle, *shape, purpose))
@@ -344,11 +513,11 @@ namespace
 
     // Every selectable via or via array whose hit box lies entirely inside
     // `rect` - the rubber-band rule every other piece follows.
-    std::vector<LeHandle::ShapePiece> hit_test_via_rect(const LeHandle *handle, le::Rect rect)
+    std::vector<LeHandle::ShapePiece> hit_test_via_rect(const LeHandle *handle, le::Rect rect, const std::vector<le::ShapeId> *candidates = nullptr)
     {
         ViaHitBoxes boxes(handle->root, handle->current_layout());
         std::vector<LeHandle::ShapePiece> hits;
-        for_each_via_owner_shape(handle, [&](le::ShapeId shape_id, le::ViewLayerPurpose purpose)
+        for_each_via_candidate(handle, candidates, [&](le::ShapeId shape_id, le::ViewLayerPurpose purpose)
                                  {
             const le::ShapeData *shape = handle->root.get_shape(shape_id);
             if (!shape || (shape->vias.empty() && shape->via_iterates.empty()) || !via_owner_selectable(handle, *shape, purpose))
@@ -4266,7 +4435,17 @@ extern "C"
     std::vector<LeHandle::SelectedObject> objects_under_point_unlocked(const LeHandle *handle, le::Point p)
     {
         std::vector<LeHandle::SelectedObject> objects;
-        for (const LeHandle::ShapePiece &via : hit_test_via_point_all(handle, p))
+        // In a Layout view only the objects the render tree has under the
+        // click are tested (layout_candidates), not the whole design.
+        std::optional<std::vector<le::ShapeId>> shape_candidates;
+        std::optional<std::vector<le::PlacementId>> placement_candidates;
+        if (handle->current_layout().valid())
+            if (std::optional<LayoutCandidates> candidates = layout_candidates(handle, le::Rect{.ll = p, .ur = p}))
+            {
+                shape_candidates = std::move(candidates->shapes);
+                placement_candidates = std::move(candidates->placements);
+            }
+        for (const LeHandle::ShapePiece &via : hit_test_via_point_all(handle, p, shape_candidates ? &*shape_candidates : nullptr))
             objects.emplace_back(via);
 
         const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
@@ -4279,10 +4458,12 @@ extern "C"
 
         if (const le::LayoutId layout_id = handle->current_layout(); layout_id.valid())
         {
-            add_pieces(le::hit_test_layout_point_all(handle->root, handle->view_layers, layout_id, p, handle->scale(), is_selectable));
+            add_pieces(le::hit_test_layout_point_all(handle->root, handle->view_layers, layout_id, p, handle->scale(), is_selectable, false,
+                                                     shape_candidates ? &*shape_candidates : nullptr));
             const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
             if (placements_selectable(handle))
-                for (const le::PlacementId placement_id : le::hit_test_placements_point_all(handle->root, layout_id, remaining_depth, p))
+                for (const le::PlacementId placement_id : le::hit_test_placements_point_all(handle->root, layout_id, remaining_depth, p,
+                                                                                           placement_candidates ? &*placement_candidates : nullptr))
                     objects.emplace_back(placement_id);
         }
         else
@@ -4439,13 +4620,18 @@ extern "C"
                 .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
             };
 
+            // Only objects the render tree has overlapping the rectangle can
+            // be inside it (layout_candidates); without one, scan everything.
+            const std::optional<LayoutCandidates> candidates = layout_candidates(handle, drag_rect);
+            const std::vector<le::ShapeId> *shape_candidates = candidates ? &candidates->shapes : nullptr;
             if (placements_selectable(handle))
-                for (le::PlacementId placement_id : le::hit_test_placements_rect(handle->root, layout_id, remaining_depth, drag_rect))
+                for (le::PlacementId placement_id : le::hit_test_placements_rect(handle->root, layout_id, remaining_depth, drag_rect,
+                                                                                 candidates ? &candidates->placements : nullptr))
                     handle->select(placement_id);
 
-            for (const le::AbstractHitPiece &hit : le::hit_test_layout_rect(handle->root, handle->view_layers, layout_id, drag_rect, handle->scale(), is_selectable))
+            for (const le::AbstractHitPiece &hit : le::hit_test_layout_rect(handle->root, handle->view_layers, layout_id, drag_rect, handle->scale(), is_selectable, shape_candidates))
                 handle->select(hit.shape_id, hit.piece_kind, hit.piece_index);
-            for (const LeHandle::ShapePiece &via : hit_test_via_rect(handle, drag_rect))
+            for (const LeHandle::ShapePiece &via : hit_test_via_rect(handle, drag_rect, shape_candidates))
                 handle->select(via.shape_id, via.piece_kind, via.piece_index);
         }
     }

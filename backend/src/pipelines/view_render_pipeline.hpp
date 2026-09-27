@@ -109,6 +109,13 @@ namespace le
         ViewRenderPipeline(const ViewRenderPipeline &) = delete;
         ViewRenderPipeline &operator=(const ViewRenderPipeline &) = delete;
 
+        /// @brief HierarchyResolverStage's most recent output (null before
+        /// the first run) - the render tree click selection queries
+        /// (api.cpp). Read it only while run() isn't executing: api.cpp
+        /// renders under the handle's shared lock and selects under its
+        /// write lock.
+        HierarchyResolverStage::OutputHandle resolved_output() const { return hierarchy_resolver_.latest_result(); }
+
         /// @brief Runs the full Cold+Warm chain for `root` under `options`
         /// (`options.root` is overwritten with `root` here - a caller only
         /// has to set the fields that actually vary: root_mutation_version/

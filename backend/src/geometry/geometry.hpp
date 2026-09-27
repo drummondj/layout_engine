@@ -932,6 +932,116 @@ namespace le
         /// priority) - for click-cycling through overlapping pieces
         /// (le_mouse_up). `first_only` stops at the first, which is what
         /// find_hit_piece returns.
+        /// @brief Whether `point` is strictly inside `path`'s area, exactly
+        /// as path_to_polygons would say (the flat-ended, mitred buffer of
+        /// its end-extended centerline), without buffering - for the common
+        /// case of an open path of orthogonal, non-zero, non-reversing
+        /// segments, whose area is then the union of each segment's
+        /// rectangle (half the width either side, extended by half the
+        /// width at both ends - llround'ed at the path's own two ends, as
+        /// extend_path_ends_for_buffering does). A zero-width path buffers to
+        /// nothing, so is never hit. nullopt for anything else (the caller
+        /// buffers). Edges are truncated to integers, as
+        /// path_to_polygons' corners are. Strictness: `point` must be in
+        /// some rectangle and so must all 8 neighbours 0.25 away - exact,
+        /// since every edge is then an integer.
+        static std::optional<bool> point_in_orthogonal_path(const Path &path, const Point &point)
+        {
+            const std::vector<Point> &pts = path.polygon.points;
+            if (path.width <= 0)
+                return false; // buffers to nothing - never hit (real designs have 3000-point ones)
+            if (pts.size() < 2 || (pts.front().x == pts.back().x && pts.front().y == pts.back().y))
+                return std::nullopt;
+            for (std::size_t i = 0; i + 1 < pts.size(); ++i)
+            {
+                const Point &a = pts[i];
+                const Point &b = pts[i + 1];
+                if ((a.x == b.x) == (a.y == b.y))
+                    return std::nullopt; // diagonal or zero-length
+                if (i + 2 < pts.size() && (b.x - a.x) * (pts[i + 2].x - b.x) + (b.y - a.y) * (pts[i + 2].y - b.y) < 0)
+                    return std::nullopt; // reverses - the miter differs
+            }
+
+            // Segment i's rectangle, edges truncated to integers as
+            // path_to_polygons' corners are (from_boost_polygon).
+            const double half = static_cast<double>(path.width) / 2.0;
+            const double end_extension = static_cast<double>(std::llround(half));
+            auto box = [&](std::size_t i, double &x0, double &y0, double &x1, double &y1)
+            {
+                const Point &a = pts[i];
+                const Point &b = pts[i + 1];
+                const double ext_a = i == 0 ? end_extension : half;
+                const double ext_b = i + 2 == pts.size() ? end_extension : half;
+                if (a.y == b.y)
+                {
+                    const bool forward = a.x < b.x;
+                    x0 = static_cast<double>(std::min(a.x, b.x)) - (forward ? ext_a : ext_b);
+                    x1 = static_cast<double>(std::max(a.x, b.x)) + (forward ? ext_b : ext_a);
+                    y0 = static_cast<double>(a.y) - half;
+                    y1 = static_cast<double>(a.y) + half;
+                }
+                else
+                {
+                    const bool forward = a.y < b.y;
+                    y0 = static_cast<double>(std::min(a.y, b.y)) - (forward ? ext_a : ext_b);
+                    y1 = static_cast<double>(std::max(a.y, b.y)) + (forward ? ext_b : ext_a);
+                    x0 = static_cast<double>(a.x) - half;
+                    x1 = static_cast<double>(a.x) + half;
+                }
+                x0 = std::trunc(x0);
+                y0 = std::trunc(y0);
+                x1 = std::trunc(x1);
+                y1 = std::trunc(y1);
+            };
+            auto covered = [&](double x, double y)
+            {
+                double x0, y0, x1, y1;
+                for (std::size_t i = 0; i + 1 < pts.size(); ++i)
+                {
+                    box(i, x0, y0, x1, y1);
+                    if (x >= x0 && x <= x1 && y >= y0 && y <= y1)
+                        return true;
+                }
+                return false;
+            };
+            const double px = static_cast<double>(point.x);
+            const double py = static_cast<double>(point.y);
+            if (!covered(px, py))
+                return false; // the common case - no neighbour checks
+            constexpr double e = 0.25;
+            for (const double dx : {-e, 0.0, e})
+                for (const double dy : {-e, 0.0, e})
+                    if ((dx != 0.0 || dy != 0.0) && !covered(px + dx, py + dy))
+                        return false;
+            return true;
+        }
+
+        /// @brief False when `point` certainly isn't in `path`'s area: it's
+        /// outside every segment's bbox grown by the farthest the buffer
+        /// reaches from a segment (a miter tip, path_to_area's limit 5 x
+        /// half the width, plus a unit for rounding). True means "maybe" -
+        /// buffer to decide. Lets a click skip buffering long non-orthogonal
+        /// paths it's nowhere near.
+        static bool path_may_contain(const Path &path, const Point &point)
+        {
+            const std::vector<Point> &pts = path.polygon.points;
+            if (pts.size() < 2)
+                return true;
+            const double reach = 5.0 * static_cast<double>(path.width) / 2.0 + 1.0;
+            const double px = static_cast<double>(point.x);
+            const double py = static_cast<double>(point.y);
+            for (std::size_t i = 0; i + 1 < pts.size(); ++i)
+            {
+                const double x0 = static_cast<double>(std::min(pts[i].x, pts[i + 1].x)) - reach;
+                const double x1 = static_cast<double>(std::max(pts[i].x, pts[i + 1].x)) + reach;
+                const double y0 = static_cast<double>(std::min(pts[i].y, pts[i + 1].y)) - reach;
+                const double y1 = static_cast<double>(std::max(pts[i].y, pts[i + 1].y)) + reach;
+                if (px >= x0 && px <= x1 && py >= y0 && py <= y1)
+                    return true;
+            }
+            return false;
+        }
+
         static std::vector<HitPiece> find_hit_pieces(const Shape &shape, const Point &point, bool first_only = false)
         {
             std::vector<HitPiece> hits;
@@ -963,15 +1073,23 @@ namespace le
                 if (!point_in_rect(point, bbox_of(shape.paths[i])))
                     continue;
 
-                for (const auto &part : path_to_polygons(shape.paths[i]))
+                // Buffering a path is costly (the bulk of a click's hit test
+                // near busy routing) - most are orthogonal, and tested directly.
+                bool hit = false;
+                if (const std::optional<bool> fast = point_in_orthogonal_path(shape.paths[i], point))
+                    hit = *fast;
+                else if (path_may_contain(shape.paths[i], point))
+                    for (const auto &part : path_to_polygons(shape.paths[i]))
+                        if (bg::within(point, to_boost_polygon(part)))
+                        {
+                            hit = true;
+                            break; // one hit per path, whichever of its parts contains the point
+                        }
+                if (hit)
                 {
-                    if (bg::within(point, to_boost_polygon(part)))
-                    {
-                        hits.push_back(HitPiece{.kind = PieceKind::PATH, .index = i, .outline = Shape{.layer = shape.layer, .paths = {shape.paths[i]}}});
-                        if (first_only)
-                            return hits;
-                        break; // one hit per path, whichever of its parts contains the point
-                    }
+                    hits.push_back(HitPiece{.kind = PieceKind::PATH, .index = i, .outline = Shape{.layer = shape.layer, .paths = {shape.paths[i]}}});
+                    if (first_only)
+                        return hits;
                 }
             }
 

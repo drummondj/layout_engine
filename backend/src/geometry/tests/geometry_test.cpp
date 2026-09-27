@@ -1386,3 +1386,130 @@ TEST(Geometry, ShapeToRectsOfDiagonalGeometryOverCoversIt)
         EXPECT_LE(r.ur.y, 100);
     }
 }
+
+// point_in_orthogonal_path must agree exactly with the buffered path area
+// (path_to_polygons + bg::within) - including points exactly on edges,
+// which a click at integer dbu can land on.
+TEST(Geometry, OrthogonalPathHitTestMatchesTheBufferedAreaExactly)
+{
+    auto buffered = [](const Path &path, const Point &p)
+    {
+        for (const Polygon &part : Geometry::path_to_polygons(path))
+        {
+            bg::model::polygon<Point> poly;
+            for (const Point &q : part.points)
+                bg::append(poly.outer(), q);
+            bg::correct(poly);
+            if (bg::within(p, poly))
+                return true;
+        }
+        return false;
+    };
+
+    std::uint32_t seed = 12345;
+    auto rnd = [&](int n)
+    {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<int>((seed >> 8) % static_cast<std::uint32_t>(n));
+    };
+    int fast_paths = 0;
+    for (int trial = 0; trial < 300; ++trial)
+    {
+        // A random open orthogonal walk (never reversing), odd or even width.
+        Path path{.width = 1 + rnd(9)};
+        Point at{rnd(40) - 20, rnd(40) - 20}; // around the origin: truncation differs from floor below 0
+        path.polygon.points.push_back(at);
+        int last_dir = -1;
+        for (int seg = 0; seg < 1 + rnd(4); ++seg)
+        {
+            int dir = rnd(4);
+            if (last_dir >= 0 && (dir ^ 1) == last_dir) // opposite of the previous direction
+                dir = last_dir;
+            const int len = 1 + rnd(15);
+            at = Point{at.x + (dir == 0 ? len : dir == 1 ? -len : 0), at.y + (dir == 2 ? len : dir == 3 ? -len : 0)};
+            path.polygon.points.push_back(at);
+            last_dir = dir;
+        }
+        const std::optional<Rect> box = Geometry::bbox(Shape{.paths = {path}});
+        ASSERT_TRUE(box);
+        for (int64_t y = box->ll.y - 1; y <= box->ur.y + 1; ++y)
+            for (int64_t x = box->ll.x - 1; x <= box->ur.x + 1; ++x)
+            {
+                const std::optional<bool> fast = Geometry::point_in_orthogonal_path(path, Point{x, y});
+                if (!fast)
+                    continue;
+                ++fast_paths;
+                ASSERT_EQ(*fast, buffered(path, Point{x, y})) << "trial " << trial << " point (" << x << ", " << y << ") width " << path.width;
+            }
+    }
+    EXPECT_GT(fast_paths, 0);
+}
+
+TEST(Geometry, OrthogonalPathHitTestDeclinesPathsItCantMatch)
+{
+    EXPECT_FALSE(Geometry::point_in_orthogonal_path(Path{.width = 4, .polygon = {.points = {Point{0, 0}, Point{10, 10}}}}, Point{5, 5})); // diagonal
+    EXPECT_FALSE(Geometry::point_in_orthogonal_path(Path{.width = 4, .polygon = {.points = {Point{0, 0}, Point{10, 0}, Point{5, 0}}}}, Point{5, 0})); // reverses
+    EXPECT_FALSE(Geometry::point_in_orthogonal_path(Path{.width = 4, .polygon = {.points = {Point{0, 0}, Point{10, 0}, Point{10, 10}, Point{0, 0}}}}, Point{5, 0})); // closed
+}
+
+// A zero-width path buffers to nothing, so is never hit - answered without
+// buffering (real designs have zero-width special-net paths of 3000+ points).
+TEST(Geometry, AZeroWidthPathIsNeverHit)
+{
+    const Path path{.width = 0, .polygon = {.points = {Point{0, 0}, Point{10, 0}, Point{10, 10}, Point{3, 10}}}};
+    EXPECT_TRUE(Geometry::path_to_polygons(path).empty());
+    for (const Point p : {Point{5, 0}, Point{10, 5}, Point{0, 0}, Point{6, 10}})
+    {
+        EXPECT_EQ(Geometry::point_in_orthogonal_path(path, p), std::optional<bool>(false));
+        EXPECT_TRUE(Geometry::find_hit_pieces(Shape{.paths = {path}}, p).empty());
+    }
+}
+
+// find_hit_pieces' conservative pre-filter (path_may_contain) must never
+// drop a real hit - checked against direct buffering on random paths with
+// diagonal segments, sharp turns and reversals (the slow path it guards).
+TEST(Geometry, PathHitPreFilterNeverDropsAHit)
+{
+    auto buffered = [](const Path &path, const Point &p)
+    {
+        for (const Polygon &part : Geometry::path_to_polygons(path))
+        {
+            bg::model::polygon<Point> poly;
+            for (const Point &q : part.points)
+                bg::append(poly.outer(), q);
+            bg::correct(poly);
+            if (bg::within(p, poly))
+                return true;
+        }
+        return false;
+    };
+    std::uint32_t seed = 777;
+    auto rnd = [&](int n)
+    {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<int>((seed >> 8) % static_cast<std::uint32_t>(n));
+    };
+    int hits = 0;
+    for (int trial = 0; trial < 150; ++trial)
+    {
+        Path path{.width = 2 + rnd(8)};
+        for (int k = 0; k < 2 + rnd(5); ++k)
+            path.polygon.points.push_back(Point{rnd(60) - 30, rnd(60) - 30});
+        const std::optional<Rect> box = Geometry::bbox(Shape{.paths = {path}});
+        ASSERT_TRUE(box);
+        const int64_t margin = 5 * path.width; // miter spikes reach past the bbox
+        for (int64_t y = box->ll.y - margin; y <= box->ur.y + margin; y += 2)
+            for (int64_t x = box->ll.x - margin; x <= box->ur.x + margin; x += 2)
+            {
+                // find_hit_pieces has always gated on the path's bbox (half
+                // the width around the centerline) first - miter spikes past
+                // it aren't hit; the pre-filter must only agree with that.
+                const bool in_bbox = x >= box->ll.x && x <= box->ur.x && y >= box->ll.y && y <= box->ur.y;
+                const bool expected = in_bbox && buffered(path, Point{x, y});
+                hits += expected;
+                ASSERT_EQ(!Geometry::find_hit_pieces(Shape{.paths = {path}}, Point{x, y}).empty(), expected)
+                    << "trial " << trial << " point (" << x << ", " << y << ")";
+            }
+    }
+    EXPECT_GT(hits, 0);
+}

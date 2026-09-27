@@ -243,10 +243,26 @@ namespace le
     /// (by refcount) between successive outputs, so an edit rebuilds only
     /// the chunks it touched and every per-chunk downstream cache (e.g.
     /// RasterizeBlend2DStage's route-outline cache) survives it.
+    /// @brief Which database object each of a chunk's RenderShapes came
+    /// from - so click selection (api.cpp) can find the objects under the
+    /// mouse by querying the render tree instead of scanning the design.
+    /// `shapes[layer][i]` is the Shape behind `chunk.shapes->at(layer)[i]`
+    /// (a via's owning Shape for its synthesized geometry; invalid for one
+    /// with none, a port marker); `placements[i]` the Placement behind rect
+    /// `i` of the chunk's batched PLACEMENT shape. Only chunks with
+    /// selectable content carry sources: route tiles, PORTS, placement tiles.
+    struct ChunkSources
+    {
+        std::unordered_map<ViewLayerId, std::vector<ShapeId>> shapes;
+        std::vector<PlacementId> placements;
+    };
+    using ChunkSourcesHandle = std::shared_ptr<const ChunkSources>;
+
     struct ViewShapeChunk
     {
         ViewShapesHandle shapes;
         ViewShapesIndexHandle shapes_index;
+        ChunkSourcesHandle sources; // null for a chunk with nothing selectable
     };
 
     /// @brief A Layout node's fixed chunks, first in ViewData::chunks -
@@ -260,10 +276,11 @@ namespace le
     enum class LayoutChunk : std::uint8_t
     {
         DIEAREA_BLOCKAGES,
-        PORTS_FREE_SHAPES,
+        PORTS,
+        FREE_SHAPES,
         ROWS_TRACKS_GCELLS_REGIONS,
     };
-    inline constexpr std::size_t kFixedLayoutChunkCount = 3;
+    inline constexpr std::size_t kFixedLayoutChunkCount = 4;
 
     /// @brief One placement tile's resolved child placements - immutable
     /// and shared between outputs like a chunk, so ViewportCullStage keys
@@ -364,6 +381,17 @@ namespace le
         /// its own compute() just copies this field through unchanged
         /// alongside its real (culled) view_data.
         ViewLayerSetHandle view_layers;
+
+        /// @brief What HierarchyResolverStage resolved this from - the Root,
+        /// top_level and hierarchy_depth, and the Root change log's
+        /// end_sequence() at the time - so a consumer outside the pipeline
+        /// (click selection) can tell whether it matches the current view
+        /// and which edits it doesn't include yet. Unset (null root) in
+        /// ViewportCullStage's output.
+        const Root *root = nullptr;
+        HierarchyId top_level;
+        int hierarchy_depth = 0;
+        std::uint64_t log_end = 0;
     };
 
     /// @brief pipeline_stage_benchmark cache-stat helper (tbb_core.hpp's
@@ -594,6 +622,10 @@ namespace le
                 result = resolve_everything(root, view_layers_handle, view_layers, options);
 
             state_ = ResolveState{.root = &root, .top_level = options.top_level, .hierarchy_depth = options.hierarchy_depth, .log_end = log_end};
+            result->root = &root;
+            result->top_level = options.top_level;
+            result->hierarchy_depth = options.hierarchy_depth;
+            result->log_end = log_end;
             return std::move(*result);
         }
 
@@ -769,18 +801,51 @@ namespace le
         // node and tile - assign_extents fills their extents, then wraps them.
         using FreshPlacements = std::unordered_map<HierarchyId, std::unordered_map<std::size_t, std::vector<ViewPlacementData>>, HierarchyIdHash>;
 
-        static ViewShapeChunk make_chunk(ViewLayerShapes shapes, const char *index_phase)
+        static ViewShapeChunk make_chunk(ViewLayerShapes shapes, const char *index_phase, std::optional<ChunkSources> sources = std::nullopt)
         {
             ViewShapeChunk chunk;
             chunk.shapes = std::make_shared<const ViewLayerShapes>(std::move(shapes));
+            if (sources)
+                chunk.sources = std::make_shared<const ChunkSources>(std::move(*sources));
             const ResolverPhaseTimer timer(index_phase);
             chunk.shapes_index = build_shape_index(*chunk.shapes);
             return chunk;
         }
 
-        // One route tile's shapes - its member routes still in `layout_id`.
-        static ViewLayerShapes collect_route_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const std::vector<RouteId> &routes)
+        // One fixed LayoutChunk, with sources for PORTS (its port shapes are selectable).
+        static ViewShapeChunk build_fixed_chunk(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, LayoutChunk chunk)
         {
+            ChunkSources sources;
+            ViewLayerShapes shapes = collect_layout_chunk(root, view_layers, layout_id, chunk, sources);
+            return make_chunk(std::move(shapes), "layout.shape_index",
+                              chunk == LayoutChunk::PORTS ? std::optional<ChunkSources>(std::move(sources)) : std::nullopt);
+        }
+
+        // One route tile's shapes - its member routes still in `layout_id`.
+        // Records a chunk's sources in push order into one flat list, then
+        // distributes them into exactly-sized per-layer lists once the
+        // chunk is complete - growing thousands of small per-layer lists
+        // push by push measured 28% of a cold resolve at aes_scaling_8x8.
+        struct SourceRecorder
+        {
+            std::vector<std::pair<ViewLayerId, ShapeId>> pushes;
+
+            void record(ViewLayerId view_layer, ShapeId shape_id) { pushes.emplace_back(view_layer, shape_id); }
+
+            void finish(ChunkSources &sources, const ViewLayerShapes &shapes_by_layer) const
+            {
+                for (const auto &[view_layer, shapes] : shapes_by_layer)
+                    sources.shapes[view_layer].reserve(shapes.size());
+                for (const auto &[view_layer, shape_id] : pushes)
+                    sources.shapes[view_layer].push_back(shape_id);
+            }
+        };
+
+        static ViewLayerShapes collect_route_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const std::vector<RouteId> &routes,
+                                                  ChunkSources &sources)
+        {
+            SourceRecorder recorder;
+            recorder.pushes.reserve(routes.size() * 4);
             const ResolverPhaseTimer timer("layout.routes");
             ViewLayerShapes shapes_by_layer;
             for (const RouteId route_id : routes)
@@ -793,10 +858,14 @@ namespace le
                     const Shape *shape = root.get_shape(shape_id);
                     if (!shape)
                         continue;
-                    append_via_shapes(root, *shape, ViewLayerPurpose::ROUTE, view_layers, layout_id, shapes_by_layer);
-                    shapes_by_layer[resolve_view_layer(view_layers, *shape, ViewLayerPurpose::ROUTE)].push_back(to_render_shape(*shape));
+                    append_via_shapes(root, *shape, ViewLayerPurpose::ROUTE, view_layers, layout_id, shapes_by_layer, [&](ViewLayerId view_layer)
+                                      { recorder.record(view_layer, shape_id); });
+                    const ViewLayerId view_layer = resolve_view_layer(view_layers, *shape, ViewLayerPurpose::ROUTE);
+                    shapes_by_layer[view_layer].push_back(to_render_shape(*shape));
+                    recorder.record(view_layer, shape_id);
                 }
             }
+            recorder.finish(sources, shapes_by_layer);
             return shapes_by_layer;
         }
 
@@ -808,7 +877,8 @@ namespace le
         // rect needs the resolved size even at remaining_depth 0.
         static ViewLayerShapes collect_placement_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, int remaining_depth,
                                                       const std::vector<PlacementId> &placements,
-                                                      std::vector<ViewPlacementData> &placement_data, std::vector<WorkItem> &children)
+                                                      std::vector<ViewPlacementData> &placement_data, std::vector<WorkItem> &children,
+                                                      std::vector<PlacementId> &rect_sources)
         {
             const ResolverPhaseTimer timer("layout.placements");
             if (remaining_depth > 0)
@@ -817,6 +887,7 @@ namespace le
             RenderShape placement_shape;
             placement_shape.rects.reserve(placements.size());
             placement_shape.texts.reserve(placements.size());
+            rect_sources.reserve(placements.size());
 
             for (const PlacementId placement_id : placements)
             {
@@ -852,6 +923,7 @@ namespace le
                 const double height_dbu = static_cast<double>(bbox.ur.y - bbox.ll.y);
                 placement_shape.rects.push_back(bbox);
                 placement_shape.texts.push_back(Text{.label = placement->name, .location = bbox.ll, .size = height_dbu * kPlacementLabelHeightRatio});
+                rect_sources.push_back(placement_id);
 
                 if (remaining_depth <= 0)
                     continue; // depth exhausted - placeholder only
@@ -875,7 +947,9 @@ namespace le
         static void rebuild_route_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const LayoutTiling &tiling,
                                        std::size_t tile, ViewData &data)
         {
-            data.chunks[tiling.route_chunk(tile)] = make_chunk(collect_route_tile(root, view_layers, layout_id, tiling.routes.members[tile]), "layout.shape_index");
+            ChunkSources sources;
+            ViewLayerShapes shapes = collect_route_tile(root, view_layers, layout_id, tiling.routes.members[tile], sources);
+            data.chunks[tiling.route_chunk(tile)] = make_chunk(std::move(shapes), "layout.shape_index", std::move(sources));
         }
 
         static void rebuild_placement_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const LayoutTiling &tiling,
@@ -883,9 +957,10 @@ namespace le
         {
             std::vector<ViewPlacementData> &placement_data = fresh[HierarchyId{layout_id}][tile];
             placement_data.clear();
-            data.chunks[tiling.placement_chunk(tile)] =
-                make_chunk(collect_placement_tile(root, view_layers, layout_id, data.remaining_depth, tiling.placements.members[tile], placement_data, children),
-                           "layout.shape_index");
+            ChunkSources sources;
+            ViewLayerShapes shapes = collect_placement_tile(root, view_layers, layout_id, data.remaining_depth, tiling.placements.members[tile], placement_data,
+                                                            children, sources.placements);
+            data.chunks[tiling.placement_chunk(tile)] = make_chunk(std::move(shapes), "layout.shape_index", std::move(sources));
         }
 
         // Lays out `layout_id`'s route and placement tiles from scratch.
@@ -931,7 +1006,7 @@ namespace le
             LayoutTiling &tiling = tilings_[layout_id] = make_tiling(root, layout_id);
             data.chunks.assign(kFixedLayoutChunkCount + tiling.routes.grid.count() + tiling.placements.grid.count(), ViewShapeChunk{});
             for (std::size_t c = 0; c < kFixedLayoutChunkCount; ++c)
-                data.chunks[c] = make_chunk(collect_layout_chunk(root, view_layers, layout_id, static_cast<LayoutChunk>(c)), "layout.shape_index");
+                data.chunks[c] = build_fixed_chunk(root, view_layers, layout_id, static_cast<LayoutChunk>(c));
             for (std::size_t t = 0; t < tiling.routes.grid.count(); ++t)
                 rebuild_route_tile(root, view_layers, layout_id, tiling, t, data);
             data.placement_tiles.assign(tiling.placements.grid.count(), empty_placement_tile());
@@ -1118,11 +1193,13 @@ namespace le
                         mark_route(entry.parent, layout);
                     else if (field == "blockage")
                         mark_fixed(layout, {LayoutChunk::DIEAREA_BLOCKAGES});
-                    else if (field == "physical_port_segment" || field == "in_layout")
-                        mark_fixed(layout, {LayoutChunk::PORTS_FREE_SHAPES});
+                    else if (field == "physical_port_segment")
+                        mark_fixed(layout, {LayoutChunk::PORTS});
+                    else if (field == "in_layout")
+                        mark_fixed(layout, {LayoutChunk::FREE_SHAPES});
                     else if (field == "layout") // the diearea: port markers face its sides
                     {
-                        mark_fixed(layout, {LayoutChunk::DIEAREA_BLOCKAGES, LayoutChunk::PORTS_FREE_SHAPES});
+                        mark_fixed(layout, {LayoutChunk::DIEAREA_BLOCKAGES, LayoutChunk::PORTS});
                         dirty.declared_bbox_changed = true;
                     }
                     else if (field == "terminal_port" || field == "obstruction" || field == "in_abstract")
@@ -1148,7 +1225,7 @@ namespace le
                     return;
                 case ChangeKlass::PhysicalPort:
                 case ChangeKlass::PhysicalPortSegment:
-                    mark_fixed(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::PORTS_FREE_SHAPES});
+                    mark_fixed(ancestor(entry.parent, ChangeKlass::Layout), {LayoutChunk::PORTS});
                     return;
                 case ChangeKlass::Row:
                 case ChangeKlass::Track:
@@ -1251,7 +1328,7 @@ namespace le
 
                 for (std::size_t c = 0; c < kFixedLayoutChunkCount; ++c)
                     if (layout_dirty.fixed[c])
-                        data.chunks[c] = make_chunk(collect_layout_chunk(root, view_layers, layout_id, static_cast<LayoutChunk>(c)), "layout.shape_index");
+                        data.chunks[c] = build_fixed_chunk(root, view_layers, layout_id, static_cast<LayoutChunk>(c));
 
                 std::set<std::size_t> route_tiles;
                 if (layout_dirty.all_routes)
@@ -1790,8 +1867,14 @@ namespace le
         // PORT_MARKER beside the port's outer edge (port_marker_polygons) -
         // one RenderShape per port, so the rasterizer can enlarge each
         // about its own anchor (enlarged_port_marker).
-        static void append_physical_port_shapes(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, ViewLayerShapes &shapes_by_layer)
+        static void append_physical_port_shapes(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, ViewLayerShapes &shapes_by_layer,
+                                                ChunkSources *sources = nullptr)
         {
+            auto record = [&](ViewLayerId view_layer, ShapeId shape_id)
+            {
+                if (sources)
+                    sources->shapes[view_layer].push_back(shape_id);
+            };
             const std::optional<Rect> die = layout_die_area_bbox(root, layout_id);
             const ViewLayerId marker_view_layer = view_layers.port_marker_view_layer();
 
@@ -1816,7 +1899,8 @@ namespace le
                         const Shape *shape = root.get_shape(shape_id);
                         if (!shape)
                             continue;
-                        append_via_shapes(root, *shape, ViewLayerPurpose::TERMINAL, view_layers, layout_id, shapes_by_layer);
+                        append_via_shapes(root, *shape, ViewLayerPurpose::TERMINAL, view_layers, layout_id, shapes_by_layer, [&](ViewLayerId via_layer)
+                                          { record(via_layer, shape_id); });
                         const ViewLayerId view_layer = resolve_view_layer(view_layers, *shape, ViewLayerPurpose::TERMINAL);
                         std::vector<RenderShape> &layer_shapes = shapes_by_layer[view_layer];
 
@@ -1833,6 +1917,7 @@ namespace le
                             acc->paths.insert(acc->paths.end(), shape->paths.begin(), shape->paths.end());
                         }
                         layer_shapes.push_back(to_render_shape(*shape));
+                        record(view_layer, shape_id);
                     }
 
                 for (const auto &[layer_id, acc] : by_layer)
@@ -1852,7 +1937,10 @@ namespace le
                     {
                         RenderShape marker{.polygons = port_marker_polygons(*port_bbox, *die, port->direction)};
                         if (!marker.polygons.empty())
+                        {
                             shapes_by_layer[marker_view_layer].push_back(std::move(marker));
+                            record(marker_view_layer, ShapeId{}); // not selectable
+                        }
                     }
             }
         }
@@ -1880,7 +1968,8 @@ namespace le
         // itself can't do that wrap, since there's more to append after
         // it returns.
         // One fixed LayoutChunk's shapes.
-        static ViewLayerShapes collect_layout_chunk(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, LayoutChunk chunk)
+        static ViewLayerShapes collect_layout_chunk(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, LayoutChunk chunk,
+                                                    ChunkSources &sources)
         {
             ViewLayerShapes shapes_by_layer;
 
@@ -1904,10 +1993,15 @@ namespace le
                         push_shape_id(shape_id, ViewLayerPurpose::ROUTING_BLOCKAGE);
             }
 
-            if (chunk == LayoutChunk::PORTS_FREE_SHAPES)
+            if (chunk == LayoutChunk::PORTS)
             {
                 const ResolverPhaseTimer timer("layout.ports_free_shapes");
-                append_physical_port_shapes(root, view_layers, layout_id, shapes_by_layer);
+                append_physical_port_shapes(root, view_layers, layout_id, shapes_by_layer, &sources);
+            }
+
+            if (chunk == LayoutChunk::FREE_SHAPES)
+            {
+                const ResolverPhaseTimer timer("layout.ports_free_shapes");
                 append_free_shapes(root, view_layers, root.get_layout_free_shapes(layout_id), layout_id, shapes_by_layer);
             }
 

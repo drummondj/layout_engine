@@ -1258,6 +1258,41 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersARouteOwnShapeOverAPlacementsBou
     EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_PLACEMENT);
 }
 
+// A route shape moved after a click is found at its new place, not its old
+// one (no render here, so this takes the whole-Layout scan - see
+// selection_test.cpp for the render-tree path).
+TEST_F(ApiFixture, AClickFindsARouteShapeAtItsNewPlaceAfterAnEdit)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+    const LeRouteId route_id = le_create_route(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", 0, 0, 0.0, 0, 0.0, nullptr);
+    const double route_rect_um[4] = {0.0, 0.0, 2.0, 2.0};
+    const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
+    const LeShapeId shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, route_id, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(shape_id.index, UINT32_MAX);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_viewport_size(handle, 100, 100);
+    le_zoom(handle, 0.005 - 1.0, 0, 100); // 0.2 um per pixel from (0,0) at the bottom-left, as the tests above
+
+    auto click = [&](int x, int y)
+    {
+        le_deselect_all(handle);
+        le_mouse_down(handle, x, y);
+        le_mouse_up(handle, x, y);
+        return le_selection_count(handle);
+    };
+    ASSERT_EQ(click(5, 95), 1); // (1,1) um
+
+    const double moved_um[4] = {12.0, 12.0, 14.0, 14.0};
+    ASSERT_EQ(le_update_shape(handle, shape_id, 0, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved_um, 4, 0, 0.0, 0, 0.0, 0, 0), 0);
+    EXPECT_EQ(click(5, 95), 0);  // nothing at the old place
+    ASSERT_EQ(click(65, 35), 1); // (13,13) um
+    EXPECT_EQ(le_selected_object_ref(handle, 0).index, shape_id.index);
+}
+
 // Hiding the PLACEMENT purpose, or making it unselectable, stops both
 // click and drag selection from picking a placement up.
 TEST_F(ApiFixture, PlacementsAreSelectableOnlyWhilePlacementPurposeIsVisibleAndSelectable)

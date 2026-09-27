@@ -131,6 +131,10 @@ struct LeHandle
         uint64_t version = 0;
     };
     mutable FlightlineCache flightline_cache;
+    // How many Layout-view selections were answered from the render tree
+    // (api.cpp's layout_candidates) rather than a whole-Layout scan - for
+    // tests. Only touched under the handle's write lock.
+    mutable std::uint64_t render_tree_selections = 0;
     // root.mutation_version() as of the most recent view_layers rebuild -
     // see api.cpp's own ensure_view_layers_current() for why this exists
     // (view_layers used to only ever get rebuilt inside le_read_lef,

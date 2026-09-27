@@ -169,10 +169,14 @@ namespace le
     /// Every top-level placement whose world bbox contains `dbu_point`,
     /// topmost first (hit_test_placements_point's own order) - for
     /// click-cycling through overlapping placements.
-    inline std::vector<PlacementId> hit_test_placements_point_all(const Root &root, LayoutId layout_id, int remaining_depth, Point dbu_point)
+    ///
+    /// `candidates` (a LayoutSelectionIndex's placements_at, in id order),
+    /// when given, are the only placements tested - newest id first.
+    inline std::vector<PlacementId> hit_test_placements_point_all(const Root &root, LayoutId layout_id, int remaining_depth, Point dbu_point,
+                                                                  const std::vector<PlacementId> *candidates = nullptr)
     {
         std::vector<PlacementId> hits;
-        const auto &placements = root.get_layout_placements(layout_id);
+        const auto &placements = candidates ? *candidates : root.get_layout_placements(layout_id);
         for (auto it = placements.rbegin(); it != placements.rend(); ++it)
         {
             const std::optional<Rect> bbox = placement_world_bbox(root, *it, remaining_depth);
@@ -186,10 +190,11 @@ namespace le
     /// top-level placement whose own world bbox is fully enclosed by
     /// `dbu_rect` (same "all layers, no topmost-only restriction"
     /// semantics as Pipeline::hit_test_rect), in no particular order.
-    inline std::vector<PlacementId> hit_test_placements_rect(const Root &root, LayoutId layout_id, int remaining_depth, Rect dbu_rect)
+    inline std::vector<PlacementId> hit_test_placements_rect(const Root &root, LayoutId layout_id, int remaining_depth, Rect dbu_rect,
+                                                             const std::vector<PlacementId> *candidates = nullptr)
     {
         std::vector<PlacementId> result;
-        for (PlacementId placement_id : root.get_layout_placements(layout_id))
+        for (PlacementId placement_id : candidates ? *candidates : root.get_layout_placements(layout_id))
         {
             const std::optional<Rect> bbox = placement_world_bbox(root, placement_id, remaining_depth);
             if (bbox && bbox->ll.x >= dbu_rect.ll.x && bbox->ll.y >= dbu_rect.ll.y && bbox->ur.x <= dbu_rect.ur.x && bbox->ur.y <= dbu_rect.ur.y)
@@ -416,31 +421,43 @@ namespace le
     /// therefore already rides the same TERMINAL-purpose gating a
     /// Terminal has, not a separate PHYSICAL_PORT purpose (there isn't
     /// one - view_style.hpp's own ViewLayerPurpose enum).
-    inline std::vector<AbstractHitPiece> hit_test_layout_point_all(
-        const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, Point dbu_point,
-        double scale, const ViewLayerSelectablePredicate &is_selectable, bool first_only = false)
+    /// Calls `visit(shape_id, purpose)` for `layout_id`'s route shapes
+    /// (ROUTE) then its physical-port shapes (TERMINAL) - all of them, or
+    /// only those in `candidates` (a LayoutSelectionIndex's, which holds
+    /// exactly these shapes), in the same routes-then-ports order.
+    template <typename Visit>
+    void for_each_layout_hit_shape(const Root &root, LayoutId layout_id, const std::vector<ShapeId> *candidates, Visit &&visit)
     {
-        std::unordered_map<ViewLayerId, std::vector<ShapeId>> by_layer;
-
+        if (candidates)
+        {
+            for (const ShapeId shape_id : *candidates)
+                if (const Shape *shape = root.get_shape(shape_id); shape && shape->route.valid())
+                    visit(shape_id, ViewLayerPurpose::ROUTE);
+            for (const ShapeId shape_id : *candidates)
+                if (const Shape *shape = root.get_shape(shape_id); shape && !shape->route.valid() && shape->physical_port_segment.valid())
+                    visit(shape_id, ViewLayerPurpose::TERMINAL);
+            return;
+        }
         for (RouteId route_id : root.get_layout_routes(layout_id))
             for (ShapeId shape_id : root.get_route_shapes(route_id))
-            {
-                const Shape *shape = root.get_shape(shape_id);
-                if (!shape || !shape->layer.valid())
-                    continue;
-                by_layer[view_layers.find(shape->layer, ViewLayerPurpose::ROUTE)].push_back(shape_id);
-            }
-
+                visit(shape_id, ViewLayerPurpose::ROUTE);
         for (PhysicalPortId port_id : root.get_layout_physical_ports(layout_id))
             for (PhysicalPortSegmentId segment_id : root.get_physical_port_segments(port_id))
                 for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
-                {
-                    const Shape *shape = root.get_shape(shape_id);
-                    if (!shape || !shape->layer.valid())
-                        continue;
-                    by_layer[view_layers.find(shape->layer, ViewLayerPurpose::TERMINAL)].push_back(shape_id);
-                }
+                    visit(shape_id, ViewLayerPurpose::TERMINAL);
+    }
 
+    inline std::vector<AbstractHitPiece> hit_test_layout_point_all(
+        const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, Point dbu_point,
+        double scale, const ViewLayerSelectablePredicate &is_selectable, bool first_only = false,
+        const std::vector<ShapeId> *candidates = nullptr)
+    {
+        std::unordered_map<ViewLayerId, std::vector<ShapeId>> by_layer;
+        for_each_layout_hit_shape(root, layout_id, candidates, [&](ShapeId shape_id, ViewLayerPurpose purpose)
+                                  {
+            const Shape *shape = root.get_shape(shape_id);
+            if (shape && shape->layer.valid())
+                by_layer[view_layers.find(shape->layer, purpose)].push_back(shape_id); });
         return point_hits_topmost_first(root, view_layers, by_layer, dbu_point, scale, is_selectable, first_only);
     }
 
@@ -462,7 +479,7 @@ namespace le
     /// hit_test_abstract_rect's own comment for the shared semantics.
     inline std::vector<AbstractHitPiece> hit_test_layout_rect(
         const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, Rect dbu_rect,
-        double scale, const ViewLayerSelectablePredicate &is_selectable)
+        double scale, const ViewLayerSelectablePredicate &is_selectable, const std::vector<ShapeId> *candidates = nullptr)
     {
         std::vector<AbstractHitPiece> result;
 
@@ -485,15 +502,7 @@ namespace le
             }
         };
 
-        for (RouteId route_id : root.get_layout_routes(layout_id))
-            for (ShapeId shape_id : root.get_route_shapes(route_id))
-                collect(shape_id, ViewLayerPurpose::ROUTE);
-
-        for (PhysicalPortId port_id : root.get_layout_physical_ports(layout_id))
-            for (PhysicalPortSegmentId segment_id : root.get_physical_port_segments(port_id))
-                for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
-                    collect(shape_id, ViewLayerPurpose::TERMINAL);
-
+        for_each_layout_hit_shape(root, layout_id, candidates, collect);
         return result;
     }
 }

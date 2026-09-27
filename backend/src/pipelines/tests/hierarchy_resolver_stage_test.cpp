@@ -776,3 +776,68 @@ TEST_F(IncrementalFixture, EditsInABigLayoutRebuildOnlyTheirTiles)
     const HierarchyResolverOutput &deleted = rerun_and_compare();
     EXPECT_EQ(rebuilt_chunks(before_delete, deleted, HierarchyId{top_layout}), 1u);
 }
+
+// Click selection reads the render tree, so every render shape in a
+// selectable chunk must name the database object behind it (ChunkSources):
+// a route shape and its via geometry the route Shape, a port shape its
+// Shape, a port marker nothing, and each placement rect its Placement.
+TEST_F(HierarchyResolverStageFixture, ChunkSourcesNameTheObjectBehindEverySelectableRenderShape)
+{
+    const LayerId m2 = root.create_layer(LayerData{.technology = technology_id, .name = "M2", .type = "ROUTING"});
+    view_layers = ViewLayerSet::build_for_technology(root, technology_id);
+    view_layers_handle = std::make_shared<const ViewLayerSet>(view_layers);
+    const ViaId via = root.create_via(ViaData{.technology = technology_id, .name = "VIA12"});
+    root.create_via_layer(ViaLayerData{.via = via, .layer_name = "M2", .rects = {Rect{.ll = {-5, -5}, .ur = {5, 5}}}});
+
+    const RouteId route = root.create_route(RouteData{.layout = top_layout, .name = "R1"});
+    const ShapeId route_shape = root.create_shape(ShapeData{.route = route, .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{100, 10}}},
+                                                            .vias = {ShapeVia{.via_name = "VIA12", .origin = Point{50, 5}}}});
+    const PhysicalPortId port = root.create_physical_port(PhysicalPortData{.layout = top_layout, .name = "IN", .direction = SignalDirection::INPUT});
+    const PhysicalPortSegmentId segment = root.create_physical_port_segment(PhysicalPortSegmentData{.physical_port = port});
+    const ShapeId port_shape = root.create_shape(ShapeData{.physical_port_segment = segment, .layer = m1, .rects = {Rect{.ll = Point{0, 2000}, .ur = Point{100, 2040}}}});
+
+    const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 1));
+    const ViewData &top = output.view_data.at(HierarchyId{top_layout});
+    const ViewLayerId placement_layer = view_layers.placement_view_layer();
+
+    std::map<std::pair<std::uint32_t, std::uint32_t>, std::set<std::uint32_t>> layers_of; // shape -> view layers it's behind
+    std::size_t marker_entries = 0;
+    std::vector<PlacementId> placements;
+    for (const ViewShapeChunk &chunk : top.chunks)
+    {
+        if (!chunk.sources)
+            continue;
+        for (const auto &[layer, shapes] : *chunk.shapes)
+        {
+            if (layer == placement_layer)
+            {
+                ASSERT_EQ(shapes.size(), 1u); // one batched shape per tile
+                ASSERT_EQ(chunk.sources->placements.size(), shapes[0].rects.size());
+                placements.insert(placements.end(), chunk.sources->placements.begin(), chunk.sources->placements.end());
+                continue;
+            }
+            ASSERT_TRUE(chunk.sources->shapes.contains(layer));
+            const std::vector<ShapeId> &sources = chunk.sources->shapes.at(layer);
+            ASSERT_EQ(sources.size(), shapes.size()); // index-parallel
+            for (const ShapeId id : sources)
+            {
+                if (layer == view_layers.port_marker_view_layer())
+                {
+                    EXPECT_FALSE(id.valid());
+                    ++marker_entries;
+                }
+                else
+                    layers_of[{id.index, id.generation}].insert(layer.index);
+            }
+        }
+    }
+
+    const std::set<std::uint32_t> route_layers = layers_of[{route_shape.index, route_shape.generation}];
+    EXPECT_TRUE(route_layers.contains(view_layers.find(m1, ViewLayerPurpose::ROUTE).index));
+    EXPECT_TRUE(route_layers.contains(view_layers.find(m2, ViewLayerPurpose::ROUTE).index)); // its via
+    const std::set<std::uint32_t> port_layers = layers_of[{port_shape.index, port_shape.generation}];
+    EXPECT_TRUE(port_layers.contains(view_layers.find(m1, ViewLayerPurpose::TERMINAL).index));
+    EXPECT_EQ(marker_entries, 1u);
+    ASSERT_EQ(placements.size(), 1u);
+    EXPECT_EQ(placements[0], root.get_layout_placements(top_layout).front());
+}
