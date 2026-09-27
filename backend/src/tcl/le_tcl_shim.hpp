@@ -347,6 +347,10 @@ void deselect_all_cmd();
 /// directly.
 void arm_move_cmd();
 
+/// @brief Backing for the `delete_selected_pieces` Tcl command - mirrors
+/// le_delete_selected_pieces directly (returns how many were deleted).
+int delete_selected_pieces_cmd();
+
 /// @brief Backing for `set_placement_snap_mode`/`get_placement_snap_mode`/
 /// the snap-availability check - mirror le_set_placement_snap_mode/
 /// le_get_placement_snap_mode/le_is_placement_snap_mode_available

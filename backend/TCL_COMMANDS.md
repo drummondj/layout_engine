@@ -1293,6 +1293,12 @@ Deletes a Schematic and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the Schematic to delete |
 
+## delete_selected_pieces
+
+`delete_selected_pieces [-help]`
+
+Deletes each selected shape piece - a rect, polygon, path, via or via array - from its shape, as the Edit-mode Delete button and the Del key do in the GUI. A shape left with no geometry is deleted too; owners (a route, a terminal port, ...) and any other selected objects stay. Undoable. Returns how many pieces were deleted.
+
 ## delete_shape
 
 `delete_shape <id> [-help]`

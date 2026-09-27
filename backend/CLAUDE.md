@@ -583,7 +583,12 @@ none of these are duplicated here.
   hover highlight (removed on request) - only the Resize tool's own
   edge indicator. The generated
   `update_shape`/`apply_shape_snapshot` don't carry `vias`/`via_iterates`,
-  so Shape edits record `apply_shape_snapshot_with_vias` for undo. A via
+  so Shape edits record `apply_shape_snapshot_with_vias` for undo.
+  `le_delete_selected_pieces` (NEW_FEATURES_SEPT_2026.md item 29 - the
+  Edit-mode toolbar's Delete button, the Del key in Edit mode,
+  `delete_selected_pieces` in Tcl) removes just the selected pieces from
+  their Shapes (and their index-parallel DEF masks), deleting a Shape left
+  with no geometry but never its owner, as one undoable step. A via
   array (`Shape.via_iterates`) is one `PieceKind::VIA_ITERATE` piece
   (item 12): its hit box is its first instance's stretched over every
   step, a click anywhere in it picks the whole array, and Move moves its

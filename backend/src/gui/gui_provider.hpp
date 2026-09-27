@@ -76,6 +76,9 @@ namespace le::gui
             bool is_rendering = false;
             bool is_move_armed = false;
             bool is_resize_armed = false;
+            // Selected shape pieces - the Edit-mode Delete button's targets
+            // (NEW_FEATURES_SEPT_2026.md item 29). Refreshed in Edit mode only.
+            int32_t selected_shape_piece_count = 0;
 
             struct StatusBar
             {
@@ -196,6 +199,7 @@ namespace le::gui
         void deselect_all();
         void arm_move();
         void arm_resize();
+        void delete_selected_pieces();
         void set_shape_snap_mode(int32_t kind, int32_t mode);
         void set_placement_snap_mode(int32_t mode);
         void rotate_placement();

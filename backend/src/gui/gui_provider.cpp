@@ -64,6 +64,7 @@ namespace le::gui
         state_.settings.label_max_size_px = le_label_max_size(handle_);
 
         state_.placement_move.selected_count = state_.mode == LE_MODE_EDIT ? le_selected_placement_count(handle_) : 0;
+        state_.selected_shape_piece_count = state_.mode == LE_MODE_EDIT ? le_selected_shape_piece_count(handle_) : 0;
         if (state_.placement_move.selected_count > 0)
         {
             state_.placement_move.snap_mode = le_get_placement_snap_mode(handle_);
@@ -354,6 +355,7 @@ namespace le::gui
     void GuiProvider::deselect_all() { run_tcl_command("deselect_all"); }
     void GuiProvider::arm_move() { run_tcl_command("arm_move"); }
     void GuiProvider::arm_resize() { run_tcl_command("arm_resize"); }
+    void GuiProvider::delete_selected_pieces() { run_tcl_command("delete_selected_pieces"); }
 
     void GuiProvider::set_shape_snap_mode(int32_t kind, int32_t mode)
     {

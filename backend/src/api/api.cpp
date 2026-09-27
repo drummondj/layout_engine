@@ -534,9 +534,11 @@ namespace
         return hits;
     }
 
-    // apply_shape_snapshot, plus Shape.vias/via_iterates - the generated update_shape
-    // (and so the generated snapshot applier) doesn't carry vias, which
-    // Move now changes. Used for every Shape edit this file records.
+    // apply_shape_snapshot, plus Shape.vias/via_iterates and the DEF masks
+    // (rect_/polygon_/path_masks, index-parallel to their pieces) - the
+    // generated update_shape (and so the generated snapshot applier)
+    // carries none of them, and Move/Delete change them. Used for every
+    // Shape edit this file records.
     bool apply_shape_snapshot_with_vias(le::Root &root, le::ShapeId id, const le::ShapeData &data)
     {
         if (!le::apply_shape_snapshot(root, id, data))
@@ -545,6 +547,9 @@ namespace
         {
             shape->vias = data.vias;
             shape->via_iterates = data.via_iterates; // NEW_FEATURES_SEPT_2026.md item 12
+            shape->rect_masks = data.rect_masks;     // item 29 - Delete removes a piece's mask with it
+            shape->polygon_masks = data.polygon_masks;
+            shape->path_masks = data.path_masks;
             root.note_shape_changed(id); // written through the pointer - not in the change log otherwise
         }
         return true;
@@ -1906,6 +1911,108 @@ namespace
         for (const LeHandle::SelectedObject &selected : moving_pieces)
             geometry.push_back(move_ghost_piece_unlocked(handle, selected));
         handle->arm_move(std::move(geometry));
+    }
+
+    // Removes piece `index` of kind `kind` from `shape` - and its DEF MASK
+    // number, which rect_masks/polygon_masks/path_masks hold index-parallel.
+    void erase_piece(le::ShapeData &shape, le::PieceKind kind, size_t index)
+    {
+        auto erase = [&](auto &pieces)
+        {
+            if (index < pieces.size())
+                pieces.erase(pieces.begin() + static_cast<std::ptrdiff_t>(index));
+        };
+        switch (kind)
+        {
+        case le::PieceKind::RECT:
+            erase(shape.rects);
+            erase(shape.rect_masks);
+            break;
+        case le::PieceKind::POLYGON:
+            erase(shape.polygons);
+            erase(shape.polygon_masks);
+            break;
+        case le::PieceKind::PATH:
+            erase(shape.paths);
+            erase(shape.path_masks);
+            break;
+        case le::PieceKind::VIA:
+            erase(shape.vias);
+            break;
+        case le::PieceKind::VIA_ITERATE:
+            erase(shape.via_iterates);
+            break;
+        }
+    }
+
+    // Whether `shape` has no geometry left at all.
+    bool has_no_geometry(const le::ShapeData &shape)
+    {
+        return shape.rects.empty() && shape.polygons.empty() && shape.paths.empty() && shape.rect_iterates.empty() && shape.polygon_iterates.empty() &&
+               shape.path_iterates.empty() && shape.vias.empty() && shape.via_iterates.empty();
+    }
+
+    // le_delete_selected_pieces / LE_KEY_DELETE (NEW_FEATURES_SEPT_2026.md
+    // item 29) - unlocked. Pieces of one Shape are removed highest index
+    // first per kind, so earlier deletions don't shift later ones. A Shape
+    // left with no geometry is deleted too (its owner stays); undo
+    // recreates it whole from its pre-delete snapshot.
+    int32_t delete_selected_pieces_unlocked(LeHandle *handle)
+    {
+        std::map<le::ShapeId, std::vector<const LeHandle::ShapePiece *>> by_shape;
+        for (const LeHandle::SelectedObject &selected : handle->selection())
+            if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected))
+                by_shape[piece->shape_id].push_back(piece);
+        if (by_shape.empty())
+            return 0;
+
+        handle->end_move();
+        handle->end_resize();
+
+        int32_t deleted = 0;
+        std::vector<LeHandle::ShapePiece> removed;
+        // Its own undo step - unless a typed Tcl command already opened one
+        // (le_repl_eval), which this then records into and leaves open.
+        const bool own_transaction = !handle->command_history.is_recording();
+        if (own_transaction)
+            handle->command_history.begin("delete");
+        for (auto &[shape_id, pieces] : by_shape)
+        {
+            const le::ShapeData *existing = handle->root.get_shape(shape_id);
+            if (!existing)
+                continue;
+            std::ranges::sort(pieces, [](const LeHandle::ShapePiece *a, const LeHandle::ShapePiece *b)
+                              { return std::tie(a->piece_kind, b->piece_index) < std::tie(b->piece_kind, a->piece_index); }); // index descending within a kind
+            const le::ShapeData before = *existing;
+            le::ShapeData after = before;
+            for (const LeHandle::ShapePiece *piece : pieces)
+                if (le::Geometry::piece_in_range(after, piece->piece_kind, piece->piece_index))
+                {
+                    erase_piece(after, piece->piece_kind, piece->piece_index);
+                    removed.push_back(*piece);
+                    ++deleted;
+                }
+            if (has_no_geometry(after))
+            {
+                handle->root.delete_shape(shape_id);
+                if (le::editing::Transaction *txn = handle->command_history.current())
+                    txn->record_delete<le::ShapeId, le::ShapeData>(
+                        shape_id, before, [](le::Root &r, const le::ShapeData &d)
+                        { return r.create_shape(d); }, [](le::Root &r, le::ShapeId i)
+                        { return r.delete_shape(i); });
+                continue;
+            }
+            apply_shape_snapshot_with_vias(handle->root, shape_id, after);
+            if (le::editing::Transaction *txn = handle->command_history.current())
+                txn->record_update<le::ShapeId, le::ShapeData>(shape_id, before, after, &apply_shape_snapshot_with_vias);
+        }
+        if (own_transaction)
+            handle->command_history.end(/*succeeded=*/deleted > 0);
+        for (const LeHandle::ShapePiece &piece : removed)
+            handle->deselect(piece.shape_id, piece.piece_kind, piece.piece_index);
+        if (deleted > 0)
+            handle->root.bump_mutation_version();
+        return deleted;
     }
 
     // LE_KEY_SELECT_ALL's own body (UPDATES.md 9.1) - unlocked variant,
@@ -3709,6 +3816,23 @@ extern "C"
         return handle->flightline_max_fanout();
     }
 
+    int32_t le_delete_selected_pieces(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        HandleWriteLock lock(handle);
+        return delete_selected_pieces_unlocked(handle);
+    }
+
+    int32_t le_selected_shape_piece_count(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return static_cast<int32_t>(std::ranges::count_if(handle->selection(), [](const LeHandle::SelectedObject &selected)
+                                                          { return std::holds_alternative<LeHandle::ShapePiece>(selected); }));
+    }
+
     int32_t le_selected_placement_count(LeHandle *handle)
     {
         if (!handle)
@@ -4334,6 +4458,10 @@ extern "C"
         case LE_KEY_MOVE:
             if (ctrl && !shift)
                 arm_move_unlocked(handle);
+            break;
+        case LE_KEY_DELETE:
+            if (handle->mode() == LeHandle::Mode::EDIT && !ctrl && !shift)
+                delete_selected_pieces_unlocked(handle);
             break;
         case LE_KEY_SELECT_MODE:
             if (!ctrl && !shift)

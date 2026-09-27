@@ -128,10 +128,26 @@ namespace le::gui
                              // refuses a selection with a placement in it.
                              provider.state().placement_move.selected_count > 0 ? "Resize - not available while a placement is selected" : nullptr);
 
-            // mode_toolbar.dart's own Rotate/Align */Delete buttons are
-            // all still no-ops there too (`onPressed: () => {}`) - left
-            // unported here rather than wiring up dead buttons; add them
-            // once the underlying feature exists.
+            // NEW_FEATURES_SEPT_2026.md item 29 - deletes the selected shape
+            // pieces (and any shape left empty), never their owners.
+            ImGui::SameLine();
+            {
+                const bool nothing_to_delete = provider.state().selected_shape_piece_count == 0;
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+                ImGui::BeginDisabled(nothing_to_delete);
+                const bool clicked = icon_button(ICON_LC_TRASH_2, "delete", kIconButtonSize);
+                ImGui::EndDisabled();
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("%s", nothing_to_delete ? "Delete - select shape parts to delete first"
+                                                              : "Delete (Del) - deletes the selected shape parts (a shape left empty goes too)");
+                if (clicked)
+                    provider.delete_selected_pieces();
+            }
+
+            // mode_toolbar.dart's own Rotate/Align buttons are still no-ops
+            // there too (`onPressed: () => {}`) - left unported here rather
+            // than wiring up dead buttons; add them once the feature exists.
             ImGui::SameLine();
             if (draw_button(ICON_LC_UNDO_2, "Undo", "ctrl-z"))
                 provider.undo();

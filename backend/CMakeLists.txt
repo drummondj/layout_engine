@@ -1146,6 +1146,7 @@ add_executable(backend_tests
     src/api/tests/api_test.cpp
     src/api/tests/le_handle_test.cpp
     src/api/tests/selection_test.cpp
+    src/api/tests/delete_pieces_test.cpp
     src/api/tests/mutation_cascade_test.cpp
     src/core/tests/placement_move_test.cpp
     src/core/tests/flightlines_test.cpp

@@ -325,6 +325,7 @@ namespace le::gui
             {ImGuiKey_R, LE_KEY_RULER_MODE},
             {ImGuiKey_Escape, LE_KEY_FINISH_RULER},
             {ImGuiKey_M, LE_KEY_MOVE},
+            {ImGuiKey_Delete, LE_KEY_DELETE}, // NEW_FEATURES_SEPT_2026.md item 29
         };
 
         // Forwards every currently-pressed/released/held key this frame

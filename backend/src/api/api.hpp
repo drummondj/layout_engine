@@ -724,6 +724,21 @@ extern "C"
     /// the selection mixes Placements with any other kind of object.
     void le_arm_move(LeHandle *handle);
 
+    /// @brief Deletes every selected shape piece - a rect, polygon, path,
+    /// via or via array - from its Shape; a Shape left with no geometry is
+    /// deleted too. Owners (a Route, a Terminal port, ...) and every other
+    /// selected object stay (NEW_FEATURES_SEPT_2026.md item 29; the
+    /// Edit-mode toolbar's Delete button and the Del key). One undoable
+    /// "delete" transaction (undo recreates a deleted Shape whole);
+    /// the deleted pieces leave the selection. Cancels an armed Move or
+    /// Resize first (their ghosts would name deleted pieces). Returns how
+    /// many pieces were deleted (0 if none are selected, or handle is null).
+    int32_t le_delete_selected_pieces(LeHandle *handle);
+
+    /// @brief How many shape pieces (le_delete_selected_pieces' targets)
+    /// are selected - 0 if handle is null.
+    int32_t le_selected_shape_piece_count(LeHandle *handle);
+
     /// @brief Cancels an in-progress move (armed or anchored, not yet
     /// committed) without applying it - e.g. the Escape key, which
     /// already reaches this via LE_KEY_FINISH_RULER's handler (safe to
@@ -1279,6 +1294,10 @@ extern "C"
         /// "z" press as LE_KEY_ZOOM regardless of modifiers, the same way
         /// every other canvas-navigation code already works.
         LE_KEY_MOVE = 25,
+        /// Deletes the selected shape pieces (NEW_FEATURES_SEPT_2026.md
+        /// item 29, the Del key) - see le_delete_selected_pieces. Edit mode
+        /// only, bare only (a no-op with LE_KEY_CTRL or LE_KEY_SHIFT held).
+        LE_KEY_DELETE = 26,
     };
 
     /// @brief Mark `key_code` (an LeKeyCode value) as currently held,
@@ -1352,6 +1371,8 @@ extern "C"
     ///   currently held and LE_KEY_SHIFT is not - equivalent to
     ///   le_arm_move(); a no-op outside Edit mode or with an empty
     ///   selection, same as that function.
+    /// - LE_KEY_DELETE (NEW_FEATURES_SEPT_2026.md item 29): Edit mode and
+    ///   bare only - le_delete_selected_pieces().
     /// - LE_KEY_SELECT_MODE/LE_KEY_EDIT_MODE/LE_KEY_RULER_MODE
     ///   (UPDATES.md item 11/13): bare only - a no-op while either
     ///   LE_KEY_CTRL or LE_KEY_SHIFT is held, so e.g. a Ctrl-S keystroke

@@ -1188,6 +1188,21 @@ register_command_help arm_move \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+# --- delete_selected_pieces (NEW_FEATURES_SEPT_2026.md item 29 - backed
+# by delete_selected_pieces_cmd -> le_delete_selected_pieces) ---
+proc delete_selected_pieces {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "delete_selected_pieces \[-help\] - Deletes the selected shape pieces, returning how many"
+    }
+    return [delete_selected_pieces_cmd]
+}
+register_command_help delete_selected_pieces \
+    "delete_selected_pieces \[-help\]" \
+    "Deletes each selected shape piece - a rect, polygon, path, via or via array - from its shape, as the Edit-mode Delete button and the Del key do in the GUI. A shape left with no geometry is deleted too; owners (a route, a terminal port, ...) and any other selected objects stay. Undoable. Returns how many pieces were deleted." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 # --- placement snapping and rotate/flip (NEW_FEATURES_SEPT_2026.md
 # item 2 - backed by set_placement_snap_mode_cmd/get_placement_snap_mode_cmd/
 # is_placement_snap_mode_available_cmd/apply_placement_orientation_op_cmd) ---

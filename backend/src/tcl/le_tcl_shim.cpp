@@ -877,6 +877,11 @@ void arm_move_cmd()
     le_arm_move(session());
 }
 
+int delete_selected_pieces_cmd()
+{
+    return le_delete_selected_pieces(session());
+}
+
 void set_placement_snap_mode_cmd(int mode)
 {
     le_set_placement_snap_mode(session(), mode);
