@@ -1145,6 +1145,14 @@ patterns. See `BENCHMARKS.md` for current numbers and full history. Add
 stable numbers when comparing two approaches, and
 `--benchmark_filter=<regex>` to run a subset.
 
+`src/pipelines/benchmarks/resolver_profile.cpp` (target `resolver_profile`,
+Release) profiles one real `test_data/aes_scaling_<label>.def` per process:
+the cold `HierarchyResolverStage` split by phase (its opt-in
+`ResolverPhaseProfile` hook), output size, peak RSS, and the first
+ViewportCull/Rasterize run after a resolve vs a warm one.
+`scripts/resolver_profile.py 1x1 2x1 ...` runs a matrix into a Markdown
+table (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md has the 1x1-8x8 results).
+
 `src/pipelines/benchmarks/render_preview.cpp` (target `render_preview`) is a
 dev-only tool, not a benchmark: `./build/render_preview a.lef [b.lef ...]`
 reads every given LEF file into one shared `Root` and writes one PNG per

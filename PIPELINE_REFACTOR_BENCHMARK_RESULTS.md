@@ -557,3 +557,41 @@ Drawing through the ambient dbu-to-pixel transform already active on `ctx` simpl
 
 This completes every item in the Hot-tier porting plan. Of the 10 still-failing `backend_tests`, all are pre-identified and out of scope for this plan: 6 pre-existing/unrelated, 2 the Layout-view own-shape hit-test gap, 2 the stale-`view_layers`-after-`create_layer` bug - none are rendering gaps this plan set out to close.
 
+
+Commit: (on top of) 156c92d
+
+**Cold HierarchyResolver phase profile across the real aes_scaling range** (step 0 of the incremental-resolve plan: how much of an edit's full cold resolve could be skipped). New dev tool `resolver_profile` (`backend/src/pipelines/benchmarks/resolver_profile.cpp`, driven by `backend/scripts/resolver_profile.py`): one design per process, so each peak RSS belongs to that design alone. It collects per-phase times from the new opt-in `ResolverPhaseProfile` hook in `HierarchyResolverStage::compute()`, which costs one relaxed atomic load per phase when unset. Release build, `hierarchy_depth` 1, median of 3. Viewports are a 1280-px-wide window with the GUI's default-hidden purposes hidden, and Rasterize uses `thread_count` 4. "first" is the first run on a freshly resolved output, as after any edit today (per-node caches empty); "warm" is a 1% pan.
+
+| Metric | 1x1 | 2x1 | 2x2 | 3x2 | 3x3 | 4x4 | 5x5 | 6x6 | 7x7 | 8x8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| placements | 41k | 83k | 165k | 248k | 372k | 662k | 1.03M | 1.49M | 2.03M | 2.65M |
+| routes | 19.5k | 39.1k | 78.2k | 117k | 176k | 313k | 489k | 704k | 958k | 1.25M |
+| rendered shapes | 479k | 957k | 1.91M | 2.87M | 4.31M | 7.65M | 12.0M | 17.2M | 23.4M | 30.6M |
+| **cold resolve total** | 144 ms | 292 ms | 585 ms | 902 ms | 1.46 s | 2.80 s | 5.36 s | 6.52 s | 8.97 s | 11.2 s |
+| - routes (collect) | 69 ms | 148 ms | 305 ms | 424 ms | 671 ms | 1.41 s | 2.33 s | 3.00 s | 3.93 s | 5.38 s |
+| - shape rtree build | 57 ms | 121 ms | 249 ms | 436 ms | 712 ms | 1.30 s | 2.69 s | 3.22 s | 4.42 s | 5.53 s |
+| - placements | 2.9 ms | 5.8 ms | 11.6 ms | 17.8 ms | 51.9 ms | 56.2 ms | 210 ms | 236 ms | 394 ms | 182 ms |
+| - abstracts | 13 ms | 13 ms | 13 ms | 13 ms | 13 ms | 13 ms | 21 ms | 13 ms | 13 ms | 13 ms |
+| - assign_extents | 1.0 ms | 2.1 ms | 4.1 ms | 6.2 ms | 9.2 ms | 16.5 ms | 31.1 ms | 37.4 ms | 50.0 ms | 66.0 ms |
+| - rows/tracks/gcells/regions | 0.7 ms | 1.0 ms | 1.4 ms | 1.8 ms | 2.1 ms | 2.8 ms | 8.5 ms | 4.3 ms | 5.7 ms | 5.7 ms |
+| free previous output | 36 ms | 84 ms | 193 ms | 296 ms | 455 ms | 761 ms | 1.55 s | 1.98 s | 2.59 s | 3.39 s |
+| RSS after load | 100 MB | 179 MB | 336 MB | 589 MB | 731 MB | 1.21 GB | 2.31 GB | 2.85 GB | 4.57 GB | 5.03 GB |
+| RSS after resolve | 246 MB | 468 MB | 891 MB | 1.27 GB | 1.90 GB | 3.16 GB | 5.30 GB | 7.60 GB | 10.3 GB | 13.1 GB |
+| est. RenderShape bytes | 69 MB | 143 MB | 285 MB | 427 MB | 640 MB | 1.09 GB | 1.78 GB | 2.56 GB | 3.48 GB | 4.54 GB |
+| cull, zoom-fit: first / warm | 6 / 2 ms | 16 / 7 ms | 32 / 14 ms | 46 / 21 ms | 71 / 29 ms | 130 / 54 ms | 286 / 104 ms | 300 / 124 ms | 398 / 158 ms | 551 / 222 ms |
+| cull, zoomed in: first / warm | 3.8 / 0.1 ms | 7.9 / 0.1 ms | 17 / 0.2 ms | 26 / 0.3 ms | 41 / 0.4 ms | 75 / 0.8 ms | 150 / 1.0 ms | 181 / 1.4 ms | 245 / 1.8 ms | 329 / 2.5 ms |
+| rasterize, zoom-fit: first / warm | 59 / 57 ms | 122 / 105 ms | 232 / 203 ms | 255 / 250 ms | 391 / 382 ms | 700 / 649 ms | 1.09 / 1.08 s | 1.58 / 1.55 s | 2.09 / 2.07 s | 2.52 / 2.51 s |
+| rasterize, zoomed in: first / warm | 56 / 33 ms | 128 / 38 ms | 162 / 65 ms | 201 / 86 ms | 443 / 175 ms | 116 / 104 ms | 325 / 234 ms | 324 / 239 ms | 418 / 326 ms | 294 / 281 ms |
+
+Findings:
+
+- **Every phase scales roughly linearly with design size.** The cold resolve takes about 0.37 µs per rendered shape at every size, from 1x1 (144 ms) to 8x8 (11.2 s).
+- **Routes are the whole story.** ROUTE shapes are more than 99.9% of rendered shapes at every size: every other purpose is a constant 700 shapes or fewer. Collecting route shapes plus building the per-layer shape rtrees takes 90-99% of the resolve.
+- **Placements are cheap.** Rebuilding all of them costs 1.6-4.4% of the resolve: 210 ms at 1.03M placements. A per-category split (plan step 1b), with routes and their rtrees cached apart from placements, would cut a placement-move edit from the full resolve to that placements share plus `assign_extents`: about 0.25 s instead of 5.36 s at 5x5, and 0.25 s instead of 11.2 s at 8x8.
+- **Route edits still need spatial tiles (plan step 2).** A per-category split alone would still redo 5-11 s of route work for each route edit at 5x5-8x8.
+- **Freeing the previous output costs another 25-30%** of the resolve (1.55 s at 5x5, 3.39 s at 8x8), paid on every recompute today. Incremental reuse, which shares untouched chunks or tiles, avoids it entirely.
+- **ViewportCull's first run on a new output** rebuilds its per-node placement rtree, so it costs 2-3x a warm zoom-fit tick and 100-300x a warm zoomed-in tick (329 ms vs 2.5 ms at 8x8).
+- **The first zoomed-in Rasterize after a resolve** is 1.1-3x slower than a warm one, because the route-outline cache is keyed per node and is discarded. The zoom-fit frames show almost no difference, since most paths there are sub-pixel.
+- **Memory is about 250 B per rendered shape** (RSS after resolve minus RSS after load, divided by rendered shapes; 3.0 GB for 12.0M shapes at 5x5). That is in line with the plan's 150-250 B estimate, so the plan's roughly 12 B/object incremental overhead remains about 5% of the resolver's output.
+- **The zoomed-in rows don't trend smoothly.** The window is the die's central tenth, and its content density varies between tilings; 4x4 and 8x8 center on a sparser region.
+- **Previously quoted 6.78 s for the 4x4 cold resolve**, measured before later resolver optimizations. It now measures 2.80 s.

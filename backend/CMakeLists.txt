@@ -1252,6 +1252,18 @@ add_executable(pipeline_stage_benchmark src/pipelines/benchmarks/pipeline_stage_
 target_link_libraries(pipeline_stage_benchmark PRIVATE api pipelines database geometry view_style io)
 le_enable_coverage_instrumentation(pipeline_stage_benchmark)
 
+# --- resolver_profile: dev-only tool (incremental HierarchyResolver plan,
+# step 0) - per-phase cold-resolve timing, output size, and downstream
+# first-frame costs for one aes_scaling design per process (clean peak
+# RSS). backend/scripts/resolver_profile.py runs it across the matrix.
+# Not run by ctest or the coverage target. ---
+add_executable(resolver_profile src/pipelines/benchmarks/resolver_profile.cpp)
+target_link_libraries(resolver_profile PRIVATE database geometry view_style pipelines io)
+target_compile_definitions(resolver_profile PRIVATE
+    REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_data"
+)
+le_enable_coverage_instrumentation(resolver_profile)
+
 # --- spatial_index_benchmark: dev-only benchmark (BUGS_AND_ENHANCEMENTS.md
 # E31 zoom/pan-tick follow-up) - quantifies a Boost.Geometry Index rtree's
 # query cost against HierarchyResolver::discover_layout_children's own

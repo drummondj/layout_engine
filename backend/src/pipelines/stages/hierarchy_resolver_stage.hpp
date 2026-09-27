@@ -15,6 +15,8 @@
 #include <boost/geometry/index/rtree.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -29,6 +31,56 @@
 
 namespace le
 {
+    /// @brief Opt-in per-phase wall-clock timing of HierarchyResolverStage::
+    /// compute(), for the resolver_profile dev tool (benchmarks/
+    /// resolver_profile.cpp) - how a cold resolve splits across routes,
+    /// placements, index building and so on. Set `g_resolver_phase_profile`
+    /// to collect; left null (always, outside that tool) each phase costs
+    /// one relaxed atomic load and no clock reads. Phases accumulate by
+    /// name in first-seen order; compute() runs serially, never concurrently
+    /// with itself.
+    struct ResolverPhaseProfile
+    {
+        std::vector<std::pair<std::string, double>> ms;
+
+        void add(const char *phase, double elapsed_ms)
+        {
+            for (auto &[name, total] : ms)
+                if (name == phase)
+                {
+                    total += elapsed_ms;
+                    return;
+                }
+            ms.emplace_back(phase, elapsed_ms);
+        }
+    };
+
+    inline std::atomic<ResolverPhaseProfile *> g_resolver_phase_profile{nullptr};
+
+    /// @brief Times its own scope into g_resolver_phase_profile, if set.
+    class ResolverPhaseTimer
+    {
+    public:
+        explicit ResolverPhaseTimer(const char *phase)
+            : phase_(phase), profile_(g_resolver_phase_profile.load(std::memory_order_relaxed))
+        {
+            if (profile_)
+                start_ = std::chrono::steady_clock::now();
+        }
+        ~ResolverPhaseTimer()
+        {
+            if (profile_)
+                profile_->add(phase_, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_).count());
+        }
+        ResolverPhaseTimer(const ResolverPhaseTimer &) = delete;
+        ResolverPhaseTimer &operator=(const ResolverPhaseTimer &) = delete;
+
+    private:
+        const char *phase_;
+        ResolverPhaseProfile *profile_;
+        std::chrono::steady_clock::time_point start_;
+    };
+
     /// @brief Which further Abstract or Layout a Placement resolves to -
     /// PIPELINE_REFACTOR.md's own id type (also HierarchyResolverOutput's
     /// own map key). See resolve_design_target (core/placement_geometry.hpp)
@@ -450,6 +502,7 @@ namespace le
                 {
                     ViewLayerShapes shapes_by_layer = collect_layout_content(root, view_layers, *layout_id);
                     ViewData data;
+                    std::optional<ResolverPhaseTimer> placements_timer(std::in_place, "layout.placements");
 
                     const auto &placements = root.get_layout_placements(*layout_id);
                     if (item.remaining_depth > 0)
@@ -563,13 +616,18 @@ namespace le
 
                     if (!placement_shape.rects.empty())
                         shapes_by_layer[view_layers.placement_view_layer()].push_back(std::move(placement_shape));
+                    placements_timer.reset();
 
                     data.shapes = std::make_shared<const ViewLayerShapes>(std::move(shapes_by_layer));
-                    data.shapes_index = build_shape_index(*data.shapes);
+                    {
+                        const ResolverPhaseTimer timer("layout.shape_index");
+                        data.shapes_index = build_shape_index(*data.shapes);
+                    }
                     result.view_data.emplace(item.id, std::move(data));
                 }
                 else
                 {
+                    const ResolverPhaseTimer timer("abstracts");
                     const AbstractId abstract_id = std::get<AbstractId>(item.id);
                     ViewData data;
                     data.shapes = std::make_shared<const ViewLayerShapes>(collect_abstract_content(root, view_layers, abstract_id));
@@ -578,7 +636,10 @@ namespace le
                 }
             }
 
-            assign_extents(root, result);
+            {
+                const ResolverPhaseTimer timer("assign_extents");
+                assign_extents(root, result);
+            }
             return result;
         }
 
@@ -1097,25 +1158,36 @@ namespace le
                 shapes_by_layer[resolve_view_layer(view_layers, *shape, fallback_purpose)].push_back(to_render_shape(*shape));
             };
 
-            if (const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id)))
-                shapes_by_layer[view_layers.boundary_view_layer()].push_back(to_render_shape(*diearea));
+            {
+                const ResolverPhaseTimer timer("layout.diearea_blockages");
+                if (const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id)))
+                    shapes_by_layer[view_layers.boundary_view_layer()].push_back(to_render_shape(*diearea));
 
-            for (BlockageId blockage_id : root.get_layout_blockages(layout_id))
-                for (ShapeId shape_id : root.get_blockage_shapes(blockage_id))
-                    push_shape_id(shape_id, ViewLayerPurpose::ROUTING_BLOCKAGE);
+                for (BlockageId blockage_id : root.get_layout_blockages(layout_id))
+                    for (ShapeId shape_id : root.get_blockage_shapes(blockage_id))
+                        push_shape_id(shape_id, ViewLayerPurpose::ROUTING_BLOCKAGE);
+            }
 
-            for (RouteId route_id : root.get_layout_routes(layout_id))
-                for (ShapeId shape_id : root.get_route_shapes(route_id))
-                    push_shape_id(shape_id, ViewLayerPurpose::ROUTE);
+            {
+                const ResolverPhaseTimer timer("layout.routes");
+                for (RouteId route_id : root.get_layout_routes(layout_id))
+                    for (ShapeId shape_id : root.get_route_shapes(route_id))
+                        push_shape_id(shape_id, ViewLayerPurpose::ROUTE);
+            }
 
-            append_physical_port_shapes(root, view_layers, layout_id, shapes_by_layer);
+            {
+                const ResolverPhaseTimer timer("layout.ports_free_shapes");
+                append_physical_port_shapes(root, view_layers, layout_id, shapes_by_layer);
+                append_free_shapes(root, view_layers, root.get_layout_free_shapes(layout_id), layout_id, shapes_by_layer);
+            }
 
-            append_free_shapes(root, view_layers, root.get_layout_free_shapes(layout_id), layout_id, shapes_by_layer);
-
-            append_row_shapes(root, layout_id, view_layers, shapes_by_layer);
-            append_track_shapes(root, layout_id, view_layers, shapes_by_layer);
-            append_gcell_grid_shapes(root, layout_id, view_layers, shapes_by_layer);
-            append_region_shapes(root, layout_id, view_layers, shapes_by_layer);
+            {
+                const ResolverPhaseTimer timer("layout.rows_tracks_gcells_regions");
+                append_row_shapes(root, layout_id, view_layers, shapes_by_layer);
+                append_track_shapes(root, layout_id, view_layers, shapes_by_layer);
+                append_gcell_grid_shapes(root, layout_id, view_layers, shapes_by_layer);
+                append_region_shapes(root, layout_id, view_layers, shapes_by_layer);
+            }
             // PLACEMENT is added by the main compute() loop, not
             // here - it needs resolve_design_target's own per-placement
             // dispatch (Layout vs. Abstract, depth-dependent) and the
