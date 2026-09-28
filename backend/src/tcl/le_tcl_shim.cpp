@@ -748,6 +748,12 @@ int write_def_cmd(const char *path, const char *layout_token)
     return le_write_def(session(), path, layout_id);
 }
 
+int write_db_cmd(const char *path) { return le_write_db(session(), path); }
+
+int read_db_cmd(const char *path) { return le_read_db(session(), path); }
+
+const char *db_info_cmd(const char *path) { return return_string(le_db_info(path)); }
+
 // BUGS_AND_ENHANCEMENTS.md E30 - get_selection/select. Only Shape/Row/
 // Placement/Region friendly ids are meaningful here (the same four kinds
 // Scene::SelectedObject's own variant covers - see le_select_object_ref's

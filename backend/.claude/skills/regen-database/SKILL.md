@@ -25,12 +25,16 @@ field type.
 
 ## Steps
 
-1. **Bump the schema version.** Every change to a class or field requires
-   incrementing `version=` in the `Schema(...)` call at the top of
-   `src/database/schema.py` — codegen embeds this so old serialized databases
-   are rejected instead of silently misread. (A pure formatting/codegen-side
-   change with no schema field/class shape change doesn't need this — e.g.
-   renaming a field's `type=` alias without changing its generated C++ type.)
+1. **Bump the schema version.** Every change to a class or field's data
+   shape (classes, fields, types, list/optional flags, parent relations,
+   indexes, defaults, enum values) requires incrementing `version=` in the
+   `Schema(...)` call at the top of `src/database/schema.py`. Descriptions,
+   examples and TCL-only flags don't count. codegen enforces this: step 3
+   compares the schema's fingerprint against `src/database/schema_history/`
+   and fails with "The schema changed ... but its version is still X" if you
+   forgot. While iterating on a version that hasn't been committed yet, pass
+   `--update-snapshot` to overwrite that version's snapshot instead of
+   bumping again.
 
 2. **Ensure the local `codegen` fork is installed, editable** (paths
    below are relative to the repo root - the directory holding `codegen/`
@@ -55,6 +59,42 @@ field type.
    ```
    codegen --schema backend/src/database/schema.py --output backend/src/database/generated
    ```
+
+   A new version writes `backend/src/database/schema_history/<version>.json`
+   - **commit it together with the schema change**. It is the record of what
+   that schema version looked like, which native-format migrations will be
+   checked against (NATIVE_FILE_FORMAT_RESEARCH.md §4).
+
+   A new version also needs its **golden files** - sample native database
+   files every later build must keep loading
+   (`src/persistence/tests/golden/<version>/`). After rebuilding
+   (step 5), write them and commit them with the schema change:
+
+   ```
+   ./build/backend_tests --gtest_also_run_disabled_tests \
+       --gtest_filter='GoldenFiles.DISABLED_WriteForCurrentSchemaVersion'
+   ```
+
+   A new version also needs a **migration** saying how data from the
+   previous version becomes this one (NATIVE_FILE_FORMAT_RESEARCH.md §4) -
+   step 3 fails with "schema version X has no migration" until it exists.
+   Draft it, then review/finish it and regenerate:
+
+   ```
+   codegen --schema backend/src/database/schema.py --target makemigration --name <what_changed>
+   ```
+
+   It diffs the previous snapshot against the schema, asks whether a
+   removed + added field of the same shape is a rename (a rename keeps
+   old files' data; remove + add drops it), and writes
+   `src/database/migrations/NNNN_<what_changed>.py`. Anything it can't
+   decide is left as a `Todo(...)` op, which fails generation until
+   replaced. Commit the migration with the schema change.
+   `codegen --schema ... --target checkmigrations` re-checks the chain alone.
+
+   `GoldenFiles.EveryVersionsFilesStillLoad` fails until they exist. If an
+   older version's golden file stops loading, the schema change needs a
+   migration - don't regenerate or delete old versions' files.
 
    (`poetry run codegen ...` from inside `codegen/` if you installed with
    poetry - adjust the relative paths to `../backend/...`.)

@@ -22,7 +22,7 @@ class TestCli(unittest.TestCase):
 
         result = runner.invoke(
             cli,
-            ["--schema", "examples/solar_system.py", "--output", "temp/solar_system"],
+            ["--schema", "examples/solar_system.py", "--output", "temp/solar_system", "--no-history"],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -42,6 +42,7 @@ class TestCli(unittest.TestCase):
                 "tests/schemas/validation_failures.py",
                 "--output",
                 "temp/validation_failures",
+                "--no-history",
             ],
             catch_exceptions=False,
         )

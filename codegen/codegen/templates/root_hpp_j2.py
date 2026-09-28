@@ -187,27 +187,7 @@ namespace {{schema.namespace}} {
         {%- endfor %}
             {{klass.name}}Id id = {{klass.to_snake_case()}}_.create(std::move(data));
             log_change_(ChangeKlass::{{klass.name}}, ChangeOp::CREATE, id, change_parent_(id, *{{klass.to_snake_case()}}_.get(id)));
-
-        {%- if klass.has_indecies() %}
-            const auto& d = *{{klass.to_snake_case()}}_.get(id);
-        {%- endif %}
-
-        {%- for field in klass.get_ordered_fields() %}
-            {%- if field.parent %}
-                {%- if field._parent_field.is_list %}
-            if (d.{{field.name}}.valid())
-                index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.name}}].push_back(id);
-                {%- else %}
-            if (d.{{field.name}}.valid())
-                index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.name}}] = id;
-                {%- endif %}
-            {%- elif field.index and field.unique_per_parent %}
-            if (d.{{klass.get_parent_field().name}}.valid())
-                index_.{{klass.to_snake_case()}}_by_{{field.name}}[d.{{klass.get_parent_field().name}}][d.{{field.name}}] = id;
-            {%- elif field.index %}
-            index_.{{klass.to_snake_case()}}_by_{{field.name}}[d.{{field.name}}] = id;
-            {%- endif %}
-        {%- endfor %}
+            index_insert_{{klass.to_snake_case()}}_(id, *{{klass.to_snake_case()}}_.get(id));
             return id;
         }
 
@@ -440,7 +420,105 @@ namespace {{schema.namespace}} {
         {%- endfor %}
     {%- endfor %}
 
+        /// @brief Direct pool access - for the native file format
+        /// (src/persistence) only, which saves pools as-is and loads them
+        /// with Pool::load_dense() followed by rebuild_indexes(). Anything
+        /// else must go through the generated create_/update_/delete_
+        /// calls, which keep the indexes and the change log in step.
+    {%- for klass in schema.get_pool_classes() %}
+        Pool<{{klass.name}}Data, {{klass.name}}Id>& pool_{{klass.to_snake_case()}}() { return {{klass.to_snake_case()}}_; }
+        const Pool<{{klass.name}}Data, {{klass.name}}Id>& pool_{{klass.to_snake_case()}}() const { return {{klass.to_snake_case()}}_; }
+    {%- endfor %}
+
+        /// @brief Empty every pool and index, and saturate the change log
+        /// (everything changed).
+        void clear_all() {
+        {%- for klass in schema.get_pool_classes() %}
+            {{klass.to_snake_case()}}_.clear();
+        {%- endfor %}
+            index_ = Index{};
+            change_log_.saturate();
+        }
+
+        /// @brief Take over every pool and index from `other` (which is
+        /// left empty), saturating the change log - how the native file
+        /// format's loader swaps in a fully built and validated Root only
+        /// once nothing can fail any more. mutation_version() is kept
+        /// (callers bump it), so a version-keyed cache can never mistake
+        /// the new contents for an old version.
+        void replace_contents_from(Root&& other) {
+        {%- for klass in schema.get_pool_classes() %}
+            {{klass.to_snake_case()}}_ = std::move(other.{{klass.to_snake_case()}}_);
+        {%- endfor %}
+            index_ = std::move(other.index_);
+            other.clear_all();
+            change_log_.saturate();
+        }
+
+        /// @brief Rebuild every index from the pools, visiting each pool's
+        /// live slots in index order - what create_<klass>() would have
+        /// built had each object been created in that order. For after
+        /// Pool::load_dense(). Returns a description of every
+        /// unique_per_parent violation found (the duplicate keeps the
+        /// index entry of whichever came later, as create_ would never
+        /// have allowed); empty means the data is consistent. Saturates
+        /// the change log.
+        std::vector<std::string> rebuild_indexes() {
+            std::vector<std::string> problems;
+            index_ = Index{};
+        {%- for klass in schema.get_pool_classes() %}
+            rebuild_{{klass.to_snake_case()}}_index(problems);
+        {%- endfor %}
+            change_log_.saturate();
+            return problems;
+        }
+
+    {%- for klass in schema.get_pool_classes() %}
+        /// @brief rebuild_indexes() for {{klass.name}} alone, into an index
+        /// that has no {{klass.name}} entries yet. Each class fills only its
+        /// own index maps (its by-field lookups, and the child lists its
+        /// parent fields name), so different classes' calls may run
+        /// concurrently - the native file loader does. Appends to
+        /// `problems`; doesn't touch the change log.
+        void rebuild_{{klass.to_snake_case()}}_index(std::vector<std::string>& problems) {
+            {{klass.to_snake_case()}}_.for_each_id([&]({{klass.name}}Id id) {
+                [[maybe_unused]] const auto& d = *{{klass.to_snake_case()}}_.get(id);
+            {%- for field in klass.get_ordered_fields() %}
+                {%- if field.unique_per_parent %}
+                if (d.{{klass.get_parent_field().name}}.valid()) {
+                    const auto& siblings = index_.{{klass.to_snake_case()}}_by_{{field.name}}[d.{{klass.get_parent_field().name}}];
+                    if (siblings.find(d.{{field.name}}) != siblings.end())
+                        problems.push_back("{{klass.name}} " + std::to_string(id.index) + ": duplicate {{field.name}} under the same {{klass.get_parent_field().name}}");
+                }
+                {%- endif %}
+            {%- endfor %}
+                index_insert_{{klass.to_snake_case()}}_(id, d);
+            });
+        }
+    {%- endfor %}
+
     private:
+    {%- for klass in schema.get_pool_classes() %}
+        void index_insert_{{klass.to_snake_case()}}_([[maybe_unused]] {{klass.name}}Id id, [[maybe_unused]] const {{klass.name}}Data& d) {
+        {%- for field in klass.get_ordered_fields() %}
+            {%- if field.parent %}
+                {%- if field._parent_field.is_list %}
+            if (d.{{field.name}}.valid())
+                index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.name}}].push_back(id);
+                {%- else %}
+            if (d.{{field.name}}.valid())
+                index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.name}}] = id;
+                {%- endif %}
+            {%- elif field.index and field.unique_per_parent %}
+            if (d.{{klass.get_parent_field().name}}.valid())
+                index_.{{klass.to_snake_case()}}_by_{{field.name}}[d.{{klass.get_parent_field().name}}][d.{{field.name}}] = id;
+            {%- elif field.index %}
+            index_.{{klass.to_snake_case()}}_by_{{field.name}}[d.{{field.name}}] = id;
+            {%- endif %}
+        {%- endfor %}
+        }
+    {%- endfor %}
+
         template <typename IdT>
         void log_change_(ChangeKlass klass, ChangeOp op, IdT id, ChangeParent parent) {
             change_log_.append(ChangeLogEntry{.klass = klass, .op = op, .index = id.index, .generation = id.generation, .parent = parent});

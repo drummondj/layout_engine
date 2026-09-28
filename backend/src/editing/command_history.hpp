@@ -100,6 +100,15 @@ namespace le::editing
         bool can_undo() const { return !undo_stack_.empty(); }
         bool can_redo() const { return !redo_stack_.empty(); }
 
+        /// @brief Forget every undo/redo step (the recall log is kept) -
+        /// for when the database is replaced wholesale (le_read_db), since
+        /// the steps' object Ids would refer to the new objects.
+        void clear_undo_redo()
+        {
+            undo_stack_.clear();
+            redo_stack_.clear();
+        }
+
         // --- Command recall (migrated from Terminal._commandHistory) ---
         size_t recall_count() const { return command_text_log_.size(); }
 

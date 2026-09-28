@@ -841,7 +841,21 @@ consumers to treat everything as changed.
 To change the schema: edit `src/database/schema.py`, bump `Schema.version`
 (only needed for a real field/class shape change, not a pure codegen-side
 formatting change), then regenerate with the `regen-database` skill rather
-than editing `generated/` by hand. Real test coverage lives in each module's
+than editing `generated/` by hand. codegen enforces the bump: it
+fingerprints the schema's data shape (`codegen/codegen/descriptor.py`) and
+compares it with the committed snapshots in `src/database/schema_history/`
+(one `<version>.json` per schema version, the groundwork for the native file
+format's migrations - NATIVE_FILE_FORMAT_RESEARCH.md §4). A changed shape
+under an existing version fails generation; a new version writes a new
+snapshot, which must be committed with the schema change - together with
+its migration (`src/database/migrations/NNNN_*.py`, drafted by
+`codegen --target makemigration`; generation fails until the chain of
+migrations replays the oldest snapshot into the current schema, see
+`codegen/codegen/migration.py`) and its golden files
+(`src/persistence/tests/golden/<version>/`). The generated
+`schema_version.hpp` exposes `le::schema_info::kVersion`/`kFingerprint`/
+`kDescriptorJson`; `native_tables.hpp` and `migrations.hpp` feed the
+native `.led` file format (`src/persistence/`, `write_db`/`read_db`). Real test coverage lives in each module's
 own `tests/` directory, not `generated/` — codegen doesn't emit test files.
 
 ## TCL codegen (codegen, `--target tcl`)

@@ -1769,6 +1769,69 @@ register_command_help write_def \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+# Native database files (NATIVE_FILE_FORMAT_RESEARCH.md): the whole
+# database in one .led file, readable by every later Layout Engine.
+# write_db errors on failure like write_def; read_db returns a status like
+# read_def (the details are printed either way).
+proc write_db {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "write_db <filename> \[-help\] - Saves the whole database to a native .led file"
+    }
+    if {[llength $args] != 1} {
+        error "write_db: expected exactly one <filename> argument, got \"$args\""
+    }
+    set filename [lindex $args 0]
+    if {[write_db_cmd $filename] != 0} {
+        error "write_db: failed to write \"$filename\" - see the terminal log for the specific reason"
+    }
+    return ""
+}
+register_command_help write_db \
+    "write_db <filename> \[-help\] - Saves the whole database to a native .led file" \
+    "Saves everything read or created so far - technology, libraries, designs, schematics and layouts - to one native Layout Engine database file (.led by convention), which read_db loads back exactly and later Layout Engine versions can still read. An existing file is only replaced once the new one is completely written. Afterwards the design counts as saved." \
+    {
+        {<filename> {type file required 1 description {Output .led file path}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc read_db {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "read_db <filename> \[-help\] - Loads a native .led database file into an empty session"
+    }
+    if {[llength $args] != 1} {
+        error "read_db: expected exactly one <filename> argument, got \"$args\""
+    }
+    return [read_db_cmd [lindex $args 0]]
+}
+register_command_help read_db \
+    "read_db <filename> \[-help\] - Loads a native .led database file into an empty session" \
+    "Loads a database file written by write_db. Only works in an empty session (before anything is read or created). A file written by an older Layout Engine loads too: fields added or removed since are matched by name, and anything dropped is printed as a warning. Clears undo/redo. Returns 0 on success, nonzero on an error (the details are printed)." \
+    {
+        {<filename> {type file required 1 description {.led file to read}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc db_info {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "db_info <filename> \[-help\] - Describes a native .led database file without loading it"
+    }
+    if {[llength $args] != 1} {
+        error "db_info: expected exactly one <filename> argument, got \"$args\""
+    }
+    set text [db_info_cmd [lindex $args 0]]
+    if {[string match "error: *" $text]} {
+        error "db_info: [string range $text 7 end]"
+    }
+    return $text
+}
+register_command_help db_info \
+    "db_info <filename> \[-help\] - Describes a native .led database file without loading it" \
+    "Returns a description of a database file written by write_db: its schema version, whether it matches this build's schema, and how many objects of each class it holds." \
+    {
+        {<filename> {type file required 1 description {.led file to describe}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 rename ::source ::_source_real
 # `args`, not a fixed `{path}`, and forwarded through as-is (not just
 # `path`) - Tcl's own standard library autoloading calls the real

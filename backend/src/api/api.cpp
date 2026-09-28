@@ -14,6 +14,8 @@
 #include "../sv/verilog_stub_writer.hpp"
 #include "../io/lef_writer.hpp"
 #include "../io/def_writer.hpp"
+#include "../persistence/native_format.hpp"
+#include "../database/generated/schema_version.hpp"
 #include "../view_style/view_style.hpp"
 #include "../pipelines/view_render_pipeline.hpp"
 #include "../pipelines/pipeline_options.hpp"
@@ -3232,6 +3234,117 @@ extern "C"
         if (result == 0)
             handle->saved_mutation_version = handle->root.mutation_version(); // item 18
         return result;
+    }
+
+    int le_write_db(LeHandle *handle, const char *path)
+    {
+        if (!handle)
+            return 1;
+        HandleWriteLock lock(handle);
+        if (!path || !path[0])
+        {
+            spdlog::error("write_db: a file path is required");
+            return 1;
+        }
+        const le::persistence::SaveReport report = le::persistence::save_native(handle->root, path);
+        if (!report.ok())
+        {
+            spdlog::error("write_db: {}", report.error);
+            return 1;
+        }
+        if (report.dangling_references)
+            spdlog::warn("write_db: {} reference(s) to objects that no longer exist were written as unset", report.dangling_references);
+        spdlog::info("write_db: wrote {} objects ({} bytes) to {}", report.objects, report.file_bytes, path);
+        handle->saved_mutation_version = handle->root.mutation_version(); // item 18
+        return 0;
+    }
+
+    int le_read_db(LeHandle *handle, const char *path)
+    {
+        if (!handle)
+            return 1;
+        HandleWriteLock lock(handle);
+        if (!path || !path[0])
+        {
+            spdlog::error("read_db: a file path is required");
+            return 1;
+        }
+        // Loading replaces the database wholesale, so it would silently
+        // discard anything already read or created - only into an empty
+        // one. (A "close/new design" command would lift this.)
+        if (!le::persistence::database_is_empty(handle->root))
+        {
+            spdlog::error("read_db: the database already has data in it - read_db only loads into an empty session");
+            return 1;
+        }
+
+        const le::persistence::LoadReport report = le::persistence::load_native(handle->root, path);
+        if (!report.ok())
+        {
+            spdlog::error("read_db: {}", report.error);
+            return 1;
+        }
+        for (const std::string &warning : report.warnings)
+            spdlog::warn("read_db: {}", warning);
+        if (!report.schema_matches)
+            spdlog::info("read_db: {} was written with schema version {} (this build: {}); its fields were matched by name", path, report.file_schema_version,
+                         le::schema_info::kVersion);
+
+        // Every object is new (Ids restart at {i, 0}): nothing that held an
+        // Id from before may survive.
+        handle->root.bump_mutation_version();
+        handle->command_history.clear_undo_redo();
+        handle->clear_selection();
+        handle->current_technology_id = {};
+        handle->current_abstract_id = {};
+        handle->current_schematic_id = {};
+        handle->current_layout_id = {};
+
+        // What le_read_lef sets up after a Technology first appears.
+        const auto technology_ids = handle->root.get_technology_ids();
+        if (!technology_ids.empty())
+        {
+            for (le::LayerId layer_id : handle->root.get_technology_layers(technology_ids.front()))
+            {
+                const le::LayerData *layer = handle->root.get_layer(layer_id);
+                if (layer && layer->type != "ROUTING" && layer->type != "CUT")
+                    handle->set_layer_name_visible(layer->name, false);
+            }
+            rebuild_view_layers(handle, technology_ids.front());
+            apply_pending_grid_um_unlocked(handle);
+            handle->current_technology_id = technology_ids.front();
+        }
+
+        spdlog::info("read_db: read {} objects from {}", report.objects, path);
+        handle->saved_mutation_version = handle->root.mutation_version(); // item 18 - matches the file
+        return 0;
+    }
+
+    const char *le_db_info(const char *path)
+    {
+        thread_local std::string text;
+        if (!path || !path[0])
+        {
+            text = "error: a file path is required";
+            return text.c_str();
+        }
+        const le::persistence::FileInfo info = le::persistence::inspect_native(path);
+        if (!info.ok())
+        {
+            text = "error: " + info.error;
+            return text.c_str();
+        }
+        text = fmt::format("file: {}\nsize: {} bytes\ncontainer version: {}\nschema version: {} (fingerprint {})\nthis build: {} (fingerprint {}) - {}\n", path,
+                           info.file_bytes, info.container_version, info.schema_version, info.fingerprint, le::schema_info::kVersion, le::schema_info::kFingerprint,
+                           info.schema_matches ? "same schema" : "different schema, fields matched by name on load");
+        uint64_t total = 0;
+        for (const auto &[name, rows] : info.classes)
+        {
+            text += fmt::format("  {:<32} {}\n", name, rows);
+            total += rows;
+        }
+        text += fmt::format("objects: {}", total);
+        return text.c_str();
     }
 
     int32_t le_design_count(LeHandle *handle)

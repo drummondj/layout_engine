@@ -458,6 +458,24 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json_header)
 
+# zstd - block compression for the native database file format
+# (src/persistence, NATIVE_FILE_FORMAT_RESEARCH.md §3). Pinned release
+# tarball; zstd's CMake project lives under build/cmake. Static library
+# only - no programs, tests or shared build.
+set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ZSTD_LEGACY_SUPPORT OFF CACHE BOOL "" FORCE)
+set(ZSTD_MULTITHREAD_SUPPORT OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    zstd
+    URL https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz
+    URL_HASH SHA256=8c29e06cf42aacc1eafc4077ae2ec6c6fcb96a626157e0593d5e82a34fd403c1
+    SOURCE_SUBDIR build/cmake
+)
+FetchContent_MakeAvailable(zstd)
+
 # portable-file-dialogs - le_gui's Settings panel's Save As/Load dialogs
 # (item 9). Header-only; at runtime it drives the platform's own dialog
 # (zenity/kdialog on Linux, osascript on macOS, the Win32 API on Windows)
@@ -610,6 +628,17 @@ target_link_libraries(io
 )
 le_enable_coverage_instrumentation(io)
 
+# --- persistence: the native database file format (.led) -
+# NATIVE_FILE_FORMAT_RESEARCH.md. Walks codegen's generated
+# native_tables.hpp, so it needs no per-class hand-written code. ---
+add_library(persistence STATIC src/persistence/native_format.cpp)
+target_include_directories(persistence
+    PUBLIC src/persistence
+    PRIVATE ${nlohmann_json_header_SOURCE_DIR} ${zstd_SOURCE_DIR}/lib
+)
+target_link_libraries(persistence PUBLIC database PRIVATE libzstd_static TBB::tbb)
+le_enable_coverage_instrumentation(persistence)
+
 # --- sv: SystemVerilog/Verilog netlist+RTL reader (SYSTEMVERILOG.md) ---
 add_library(sv STATIC src/sv/sv_reader.cpp)
 target_include_directories(sv PUBLIC src/sv)
@@ -630,7 +659,7 @@ le_enable_coverage_instrumentation(sv)
 # plain-C-parseable header for ffigen/Dart FFI - see api.hpp's own comment. ---
 add_library(api STATIC src/api/api.cpp)
 target_include_directories(api PUBLIC src/api)
-target_link_libraries(api PRIVATE database geometry editing view_style pipelines io sv)
+target_link_libraries(api PRIVATE database geometry editing view_style pipelines io sv persistence)
 target_include_directories(api PRIVATE ${nlohmann_json_header_SOURCE_DIR})
 le_enable_coverage_instrumentation(api)
 
@@ -981,6 +1010,18 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures/gate_netlist_clean.v
     )
 
+    # Native database file commands (NATIVE_FILE_FORMAT_RESEARCH.md,
+    # src/tcl/tests/native_db_test.tcl) - write_db/db_info in one session,
+    # read_db in a second tclsh process (read_db needs an empty session).
+    add_test(
+        NAME le_tcl_native_db
+        COMMAND ${TCL_TCLSH}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/native_db_test.tcl
+            $<TARGET_FILE:le_tcl>
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures/gate_netlist_clean.v
+    )
+
     # Phase 5 mutation side-effect regression check
     # (LINKING_STRATEGY_RESEARCH.md section 5, src/tcl/tests/
     # mutation_cascade_test.tcl) - delete_net cascade and update_net/
@@ -1134,6 +1175,9 @@ add_executable(backend_tests
     src/database/tests/filter_test.cpp
     src/database/tests/hierarchical_resolver_test.cpp
     src/database/tests/schematic_layout_linker_test.cpp
+    src/database/tests/schema_version_test.cpp
+    src/persistence/tests/native_format_test.cpp
+    src/persistence/tests/golden_files_test.cpp
     src/geometry/tests/geometry_test.cpp
     src/geometry/tests/shape_ops_test.cpp
     src/view_style/tests/view_style_test.cpp
@@ -1145,6 +1189,7 @@ add_executable(backend_tests
     src/io/tests/def_writer_test.cpp
     src/api/tests/api_test.cpp
     src/api/tests/le_handle_test.cpp
+    src/api/tests/native_db_api_test.cpp
     src/api/tests/selection_test.cpp
     src/api/tests/delete_pieces_test.cpp
     src/api/tests/mutation_cascade_test.cpp
@@ -1156,7 +1201,8 @@ add_executable(backend_tests
     src/sv/tests/sv_reader_test.cpp
     src/sv/tests/verilog_stub_writer_test.cpp
 )
-target_link_libraries(backend_tests PRIVATE database geometry view_style editing pipelines io api sv fmt::fmt GTest::gtest_main)
+target_link_libraries(backend_tests PRIVATE database geometry view_style editing pipelines io api sv persistence fmt::fmt GTest::gtest_main)
+target_include_directories(backend_tests PRIVATE ${nlohmann_json_header_SOURCE_DIR})
 target_compile_definitions(backend_tests PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
     IO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures"
@@ -1164,6 +1210,7 @@ target_compile_definitions(backend_tests PRIVATE
     SV_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures"
     LEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/bin/lefdiff"
     DEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/TEST"
+    PERSISTENCE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/persistence/tests/golden"
     DEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/bin/defdiff"
 )
 add_dependencies(backend_tests lef_lib def_lib)
@@ -1265,6 +1312,15 @@ target_compile_definitions(resolver_profile PRIVATE
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_data"
 )
 le_enable_coverage_instrumentation(resolver_profile)
+
+# --- native_format_profile: dev-only tool - native .led save/load time and
+# size against reading the DEF, for one aes_scaling design per process
+# (NATIVE_FILE_FORMAT_RESEARCH.md §7). Not run by ctest. ---
+add_executable(native_format_profile src/persistence/benchmarks/native_format_profile.cpp)
+target_link_libraries(native_format_profile PRIVATE database io persistence TBB::tbb)
+target_compile_definitions(native_format_profile PRIVATE
+    REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_data"
+)
 
 # --- selection_profile: dev-only tool - Select-mode click time on one real
 # aes_scaling design through the C API. Not run by ctest. ---

@@ -1,0 +1,4077 @@
+{
+  "version": "0.49.0",
+  "fingerprint": "db27ba6b68a31200",
+  "descriptor": {
+    "format": 1,
+    "name": "layout_engine",
+    "namespace": "le",
+    "version": "0.49.0",
+    "classes": [
+      {
+        "name": "Technology",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layers",
+            "kind": "child",
+            "type": "Layer",
+            "list": true
+          },
+          {
+            "name": "vias",
+            "kind": "child",
+            "type": "Via",
+            "list": true
+          },
+          {
+            "name": "via_rules",
+            "kind": "child",
+            "type": "ViaRule",
+            "list": true
+          },
+          {
+            "name": "sites",
+            "kind": "child",
+            "type": "Site",
+            "list": true
+          },
+          {
+            "name": "non_default_rules",
+            "kind": "child",
+            "type": "NonDefaultRule",
+            "list": true
+          },
+          {
+            "name": "property_definitions",
+            "kind": "child",
+            "type": "PropertyDefinition",
+            "list": true
+          },
+          {
+            "name": "database_units_microns",
+            "kind": "scalar",
+            "type": "double"
+          },
+          {
+            "name": "capacitance_units_pf",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "resistance_units_ohms",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "power_units_mw",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "current_units_ma",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "voltage_units_v",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "frequency_units_mhz",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "bus_bit_chars",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "divider_char",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "fixed_mask",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "use_min_spacing_obs",
+            "kind": "scalar",
+            "type": "bool",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "use_min_spacing_pin",
+            "kind": "scalar",
+            "type": "bool",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "clearance_measure",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "manufacturing_grid",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "fin_pitch",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "fin_offset",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "fin_direction",
+            "kind": "enum",
+            "type": "RoutingDirection",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "max_via_stack",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "max_via_stack_bottom_layer",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "max_via_stack_top_layer",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "antenna_input_gate_area",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "antenna_inout_diff_area",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "antenna_output_diff_area",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "LefProperty",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "is_number",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "string_value",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "number_value",
+            "kind": "scalar",
+            "type": "double"
+          }
+        ]
+      },
+      {
+        "name": "PropertyDefinition",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "technology",
+            "kind": "parent",
+            "type": "Technology",
+            "parent_field": "property_definitions"
+          },
+          {
+            "name": "owner_type",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "data_type",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "range_min",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "range_max",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "default_number",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "default_string",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "Layer",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "technology",
+            "kind": "parent",
+            "type": "Technology",
+            "parent_field": "layers"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true
+          },
+          {
+            "name": "type",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "direction",
+            "kind": "enum",
+            "type": "RoutingDirection"
+          },
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "pitch",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "offset",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "area",
+            "kind": "scalar",
+            "type": "dbu2",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "spacing_rules",
+            "kind": "child",
+            "type": "SpacingRule",
+            "list": true
+          },
+          {
+            "name": "minimum_cuts",
+            "kind": "child",
+            "type": "MinimumCut",
+            "list": true
+          },
+          {
+            "name": "min_steps",
+            "kind": "child",
+            "type": "MinStep",
+            "list": true
+          },
+          {
+            "name": "spacing_table_orthogonal",
+            "kind": "struct",
+            "type": "OrthogonalSpacingEntry",
+            "list": true
+          },
+          {
+            "name": "spacing_table_influence",
+            "kind": "child",
+            "type": "InfluenceSpacingEntry",
+            "list": true
+          },
+          {
+            "name": "spacing_table_parallel_run_length",
+            "kind": "struct",
+            "type": "ParallelRunLengthSpacingTable",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "resistance",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "capacitance",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "height",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "thickness",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "wire_extension",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "shrinkage",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "cap_multiplier",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "edge_cap",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "antenna_length",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "properties",
+            "kind": "struct",
+            "type": "LefProperty",
+            "list": true
+          },
+          {
+            "name": "antenna_models",
+            "kind": "child",
+            "type": "AntennaModel",
+            "list": true
+          },
+          {
+            "name": "default_mask",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "pitch_xy",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "offset_xy",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "diag_pitch",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "diag_pitch_xy",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "diag_spacing",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "diag_width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "diag_min_edge_length",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "max_width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "min_width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "min_sizes",
+            "kind": "struct",
+            "type": "MinSizeEntry",
+            "list": true
+          },
+          {
+            "name": "min_enclosed_areas",
+            "kind": "struct",
+            "type": "MinEnclosedAreaEntry",
+            "list": true
+          },
+          {
+            "name": "protrusion_width1",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "protrusion_length",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "protrusion_width2",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "array_cuts",
+            "kind": "struct",
+            "type": "ArrayCutsEntry",
+            "list": true
+          },
+          {
+            "name": "array_spacing",
+            "kind": "child",
+            "type": "ArraySpacing",
+            "optional": true
+          },
+          {
+            "name": "spacing_table_two_widths",
+            "kind": "child",
+            "type": "TwoWidthsSpacingEntry",
+            "list": true
+          },
+          {
+            "name": "prefer_enclosures",
+            "kind": "child",
+            "type": "PreferEnclosureEntry",
+            "list": true
+          },
+          {
+            "name": "enclosures",
+            "kind": "child",
+            "type": "EnclosureEntry",
+            "list": true
+          },
+          {
+            "name": "split_wire_width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "minimum_density",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "maximum_density",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "density_check_step",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "density_check_window",
+            "kind": "struct",
+            "type": "DensityCheckWindow",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "fill_active_spacing",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "ac_current_density",
+            "kind": "child",
+            "type": "LayerDensityEntry",
+            "list": true
+          },
+          {
+            "name": "dc_current_density",
+            "kind": "child",
+            "type": "LayerDensityEntry",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "AntennaPWLEntry",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "diffusion",
+            "kind": "scalar",
+            "type": "double"
+          },
+          {
+            "name": "ratio",
+            "kind": "scalar",
+            "type": "double"
+          }
+        ]
+      },
+      {
+        "name": "AntennaModel",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layer",
+            "kind": "parent",
+            "type": "Layer",
+            "parent_field": "antenna_models"
+          },
+          {
+            "name": "oxide",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "area_ratio",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "cum_area_ratio",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "area_factor",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "area_factor_diffuse_only",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "side_area_ratio",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "cum_side_area_ratio",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "side_area_factor",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "side_area_factor_diffuse_only",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "diff_area_ratio",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "diff_area_ratio_pwl",
+            "kind": "struct",
+            "type": "AntennaPWLEntry",
+            "list": true
+          },
+          {
+            "name": "cum_diff_area_ratio",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "cum_diff_area_ratio_pwl",
+            "kind": "struct",
+            "type": "AntennaPWLEntry",
+            "list": true
+          },
+          {
+            "name": "diff_side_area_ratio",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "diff_side_area_ratio_pwl",
+            "kind": "struct",
+            "type": "AntennaPWLEntry",
+            "list": true
+          },
+          {
+            "name": "cum_diff_side_area_ratio",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "cum_diff_side_area_ratio_pwl",
+            "kind": "struct",
+            "type": "AntennaPWLEntry",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "MinSizeEntry",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "length",
+            "kind": "scalar",
+            "type": "dbu"
+          }
+        ]
+      },
+      {
+        "name": "MinEnclosedAreaEntry",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "area",
+            "kind": "scalar",
+            "type": "dbu2"
+          },
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "ArrayCutsEntry",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "cuts",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "spacing",
+            "kind": "scalar",
+            "type": "dbu"
+          }
+        ]
+      },
+      {
+        "name": "ArraySpacing",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layer",
+            "kind": "parent",
+            "type": "Layer",
+            "parent_field": "array_spacing"
+          },
+          {
+            "name": "long_array",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "via_width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "cut_spacing",
+            "kind": "scalar",
+            "type": "dbu"
+          }
+        ]
+      },
+      {
+        "name": "TwoWidthsSpacingEntry",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layer",
+            "kind": "parent",
+            "type": "Layer",
+            "parent_field": "spacing_table_two_widths"
+          },
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "prl",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "spacings",
+            "kind": "scalar",
+            "type": "dbu",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "PreferEnclosureEntry",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layer",
+            "kind": "parent",
+            "type": "Layer",
+            "parent_field": "prefer_enclosures"
+          },
+          {
+            "name": "location",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "overhang1",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "overhang2",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "min_width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "EnclosureEntry",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layer",
+            "kind": "parent",
+            "type": "Layer",
+            "parent_field": "enclosures"
+          },
+          {
+            "name": "location",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "overhang1",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "overhang2",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "except_extra_cut",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "min_length",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "DensityCheckWindow",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "length",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu"
+          }
+        ]
+      },
+      {
+        "name": "LayerDensityEntry",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "ac_layer",
+            "kind": "parent",
+            "type": "Layer",
+            "parent_field": "ac_current_density"
+          },
+          {
+            "name": "dc_layer",
+            "kind": "parent",
+            "type": "Layer",
+            "parent_field": "dc_current_density"
+          },
+          {
+            "name": "type",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "one_entry",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "frequency",
+            "kind": "scalar",
+            "type": "double",
+            "list": true
+          },
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu",
+            "list": true
+          },
+          {
+            "name": "cutarea",
+            "kind": "scalar",
+            "type": "dbu2",
+            "list": true
+          },
+          {
+            "name": "table_entries",
+            "kind": "scalar",
+            "type": "double",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "RowPatternEntry",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "site_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "orient",
+            "kind": "enum",
+            "type": "Orientation"
+          }
+        ]
+      },
+      {
+        "name": "MacroSitePlacement",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "abstract",
+            "kind": "parent",
+            "type": "Abstract",
+            "parent_field": "site_placements"
+          },
+          {
+            "name": "site_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "origin",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "orient",
+            "kind": "enum",
+            "type": "Orientation"
+          },
+          {
+            "name": "num_x",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "num_y",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "step_x",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "step_y",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "Site",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "technology",
+            "kind": "parent",
+            "type": "Technology",
+            "parent_field": "sites"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true
+          },
+          {
+            "name": "site_class",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "size",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "symmetry",
+            "kind": "struct",
+            "type": "Symmetry",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "row_pattern",
+            "kind": "struct",
+            "type": "RowPatternEntry",
+            "list": true
+          },
+          {
+            "name": "properties",
+            "kind": "struct",
+            "type": "LefProperty",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "NonDefaultRuleLayer",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "non_default_rule",
+            "kind": "parent",
+            "type": "NonDefaultRule",
+            "parent_field": "layers"
+          },
+          {
+            "name": "layer_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "spacing",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "wire_extension",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "resistance",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "capacitance",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "edge_cap",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "diag_width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "NonDefaultRuleVia",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "non_default_rule",
+            "kind": "parent",
+            "type": "NonDefaultRule",
+            "parent_field": "vias"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "is_default",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "resistance",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "foreign",
+            "kind": "child",
+            "type": "Foreign",
+            "optional": true
+          },
+          {
+            "name": "layers",
+            "kind": "child",
+            "type": "ViaLayer",
+            "list": true
+          },
+          {
+            "name": "properties",
+            "kind": "struct",
+            "type": "LefProperty",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "MinCutOverride",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "cut_layer_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "num_cuts",
+            "kind": "scalar",
+            "type": "int"
+          }
+        ]
+      },
+      {
+        "name": "NonDefaultRule",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "technology",
+            "kind": "parent",
+            "type": "Technology",
+            "parent_field": "non_default_rules"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true
+          },
+          {
+            "name": "hard_spacing",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "layers",
+            "kind": "child",
+            "type": "NonDefaultRuleLayer",
+            "list": true
+          },
+          {
+            "name": "vias",
+            "kind": "child",
+            "type": "NonDefaultRuleVia",
+            "list": true
+          },
+          {
+            "name": "use_via_names",
+            "kind": "scalar",
+            "type": "str",
+            "list": true
+          },
+          {
+            "name": "use_via_rule_names",
+            "kind": "scalar",
+            "type": "str",
+            "list": true
+          },
+          {
+            "name": "min_cuts",
+            "kind": "struct",
+            "type": "MinCutOverride",
+            "list": true
+          },
+          {
+            "name": "properties",
+            "kind": "struct",
+            "type": "LefProperty",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "MinimumCut",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layer",
+            "kind": "parent",
+            "type": "Layer",
+            "parent_field": "minimum_cuts"
+          },
+          {
+            "name": "cuts",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "within",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "connection",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "length",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "distance",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "MinStep",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layer",
+            "kind": "parent",
+            "type": "Layer",
+            "parent_field": "min_steps"
+          },
+          {
+            "name": "distance",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "min_step_type",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "lengthsum",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "max_edges",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "OrthogonalSpacingEntry",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "cut_within",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "ortho_spacing",
+            "kind": "scalar",
+            "type": "dbu"
+          }
+        ]
+      },
+      {
+        "name": "InfluenceSpacingEntry",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layer",
+            "kind": "parent",
+            "type": "Layer",
+            "parent_field": "spacing_table_influence"
+          },
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "distance",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "spacing",
+            "kind": "scalar",
+            "type": "dbu"
+          }
+        ]
+      },
+      {
+        "name": "ParallelRunLengthSpacingTable",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lengths",
+            "kind": "scalar",
+            "type": "dbu",
+            "list": true
+          },
+          {
+            "name": "widths",
+            "kind": "scalar",
+            "type": "dbu",
+            "list": true
+          },
+          {
+            "name": "spacings",
+            "kind": "scalar",
+            "type": "dbu",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "SpacingRule",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layer",
+            "kind": "parent",
+            "type": "Layer",
+            "parent_field": "spacing_rules"
+          },
+          {
+            "name": "distance",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "range_min",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "range_max",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "range_use_length_threshold",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "range_influence",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "range_influence_range_min",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "range_influence_range_max",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "range_range_min",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "range_range_max",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "length_threshold",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "length_threshold_range_min",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "length_threshold_range_max",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "center_to_center",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "same_net",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "same_net_pg_only",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "parallel_overlap",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "end_of_line_width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "end_of_line_within",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "parallel_edge_space",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "parallel_edge_within",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "two_edges",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "notch_length",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "end_of_notch_width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "end_of_notch_spacing",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "end_of_notch_length",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "second_layer_name",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "second_layer_stack",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "adjacent_cuts",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "adjacent_within",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "adjacent_except_same_pg_net",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "area",
+            "kind": "scalar",
+            "type": "dbu2",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "ViaLayer",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "via",
+            "kind": "parent",
+            "type": "Via",
+            "parent_field": "layers"
+          },
+          {
+            "name": "non_default_rule_via",
+            "kind": "parent",
+            "type": "NonDefaultRuleVia",
+            "parent_field": "layers"
+          },
+          {
+            "name": "layout_via",
+            "kind": "parent",
+            "type": "LayoutVia",
+            "parent_field": "layers"
+          },
+          {
+            "name": "layer_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "rects",
+            "kind": "struct",
+            "type": "Rect",
+            "list": true
+          },
+          {
+            "name": "polygons",
+            "kind": "struct",
+            "type": "Polygon",
+            "list": true
+          },
+          {
+            "name": "rect_masks",
+            "kind": "scalar",
+            "type": "int",
+            "list": true
+          },
+          {
+            "name": "polygon_masks",
+            "kind": "scalar",
+            "type": "int",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "ViaRuleReference",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "via",
+            "kind": "parent",
+            "type": "Via",
+            "parent_field": "via_rule"
+          },
+          {
+            "name": "layout_via",
+            "kind": "parent",
+            "type": "LayoutVia",
+            "parent_field": "via_rule"
+          },
+          {
+            "name": "via_rule_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "cut_size",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "bot_layer_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "cut_layer_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "top_layer_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "cut_spacing",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "bot_enclosure",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "top_enclosure",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "num_cut_rows",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "num_cut_cols",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "origin",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "bot_offset",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "top_offset",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "ViaRuleLayer",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "via_rule",
+            "kind": "parent",
+            "type": "ViaRule",
+            "parent_field": "layers"
+          },
+          {
+            "name": "layer_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "direction",
+            "kind": "enum",
+            "type": "RoutingDirection"
+          },
+          {
+            "name": "width_min",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "width_max",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "overhang",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "metal_overhang",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "enclosure_overhang1",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "enclosure_overhang2",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "spacing_step_x",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "spacing_step_y",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "rect",
+            "kind": "struct",
+            "type": "Rect",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "resistance",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "Via",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "technology",
+            "kind": "parent",
+            "type": "Technology",
+            "parent_field": "vias"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true
+          },
+          {
+            "name": "is_default",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "resistance",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "foreign",
+            "kind": "child",
+            "type": "Foreign",
+            "optional": true
+          },
+          {
+            "name": "layers",
+            "kind": "child",
+            "type": "ViaLayer",
+            "list": true
+          },
+          {
+            "name": "via_rule",
+            "kind": "child",
+            "type": "ViaRuleReference",
+            "optional": true
+          },
+          {
+            "name": "properties",
+            "kind": "struct",
+            "type": "LefProperty",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "ViaRule",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "technology",
+            "kind": "parent",
+            "type": "Technology",
+            "parent_field": "via_rules"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true
+          },
+          {
+            "name": "is_generate",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "is_default",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "layers",
+            "kind": "child",
+            "type": "ViaRuleLayer",
+            "list": true
+          },
+          {
+            "name": "via_names",
+            "kind": "scalar",
+            "type": "str",
+            "list": true
+          },
+          {
+            "name": "properties",
+            "kind": "struct",
+            "type": "LefProperty",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "RoutingDirection",
+        "kind": "enum",
+        "values": [
+          {
+            "name": "H",
+            "value": 0
+          },
+          {
+            "name": "V",
+            "value": 1
+          },
+          {
+            "name": "NONE",
+            "value": 2
+          },
+          {
+            "name": "DIAG45",
+            "value": 3
+          },
+          {
+            "name": "DIAG135",
+            "value": 4
+          }
+        ]
+      },
+      {
+        "name": "Point",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "x",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "y",
+            "kind": "scalar",
+            "type": "dbu"
+          }
+        ]
+      },
+      {
+        "name": "Rect",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ll",
+            "kind": "struct",
+            "type": "Point"
+          },
+          {
+            "name": "ur",
+            "kind": "struct",
+            "type": "Point"
+          }
+        ]
+      },
+      {
+        "name": "Polygon",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "points",
+            "kind": "struct",
+            "type": "Point",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "Path",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "polygon",
+            "kind": "struct",
+            "type": "Polygon"
+          }
+        ]
+      },
+      {
+        "name": "RectIterate",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "rect",
+            "kind": "struct",
+            "type": "Rect"
+          },
+          {
+            "name": "num_x",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "num_y",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "space_x",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "space_y",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "mask",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "PathIterate",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "path",
+            "kind": "struct",
+            "type": "Path"
+          },
+          {
+            "name": "num_x",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "num_y",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "space_x",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "space_y",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "mask",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "PolygonIterate",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "polygon",
+            "kind": "struct",
+            "type": "Polygon"
+          },
+          {
+            "name": "num_x",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "num_y",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "space_x",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "space_y",
+            "kind": "scalar",
+            "type": "dbu"
+          }
+        ]
+      },
+      {
+        "name": "Text",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "label",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "location",
+            "kind": "struct",
+            "type": "Point"
+          },
+          {
+            "name": "size",
+            "kind": "scalar",
+            "type": "double"
+          }
+        ]
+      },
+      {
+        "name": "Shape",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "terminal_port",
+            "kind": "parent",
+            "type": "TerminalPort",
+            "parent_field": "shapes"
+          },
+          {
+            "name": "obstruction",
+            "kind": "parent",
+            "type": "Obstruction",
+            "parent_field": "shapes"
+          },
+          {
+            "name": "physical_port_segment",
+            "kind": "parent",
+            "type": "PhysicalPortSegment",
+            "parent_field": "shapes"
+          },
+          {
+            "name": "blockage",
+            "kind": "parent",
+            "type": "Blockage",
+            "parent_field": "shapes"
+          },
+          {
+            "name": "route",
+            "kind": "parent",
+            "type": "Route",
+            "parent_field": "shapes"
+          },
+          {
+            "name": "layout",
+            "kind": "parent",
+            "type": "Layout",
+            "parent_field": "diearea"
+          },
+          {
+            "name": "abstract",
+            "kind": "parent",
+            "type": "Abstract",
+            "parent_field": "boundary"
+          },
+          {
+            "name": "in_abstract",
+            "kind": "parent",
+            "type": "Abstract",
+            "parent_field": "free_shapes"
+          },
+          {
+            "name": "in_layout",
+            "kind": "parent",
+            "type": "Layout",
+            "parent_field": "free_shapes"
+          },
+          {
+            "name": "layer",
+            "kind": "ref",
+            "type": "Layer",
+            "optional": true
+          },
+          {
+            "name": "purpose",
+            "kind": "enum",
+            "type": "ShapePurpose",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "paths",
+            "kind": "struct",
+            "type": "Path",
+            "list": true
+          },
+          {
+            "name": "polygons",
+            "kind": "struct",
+            "type": "Polygon",
+            "list": true
+          },
+          {
+            "name": "rects",
+            "kind": "struct",
+            "type": "Rect",
+            "list": true
+          },
+          {
+            "name": "rect_iterates",
+            "kind": "struct",
+            "type": "RectIterate",
+            "list": true
+          },
+          {
+            "name": "path_iterates",
+            "kind": "struct",
+            "type": "PathIterate",
+            "list": true
+          },
+          {
+            "name": "polygon_iterates",
+            "kind": "struct",
+            "type": "PolygonIterate",
+            "list": true
+          },
+          {
+            "name": "texts",
+            "kind": "struct",
+            "type": "Text",
+            "list": true
+          },
+          {
+            "name": "rect_masks",
+            "kind": "scalar",
+            "type": "int",
+            "list": true
+          },
+          {
+            "name": "polygon_masks",
+            "kind": "scalar",
+            "type": "int",
+            "list": true
+          },
+          {
+            "name": "path_masks",
+            "kind": "scalar",
+            "type": "int",
+            "list": true
+          },
+          {
+            "name": "spacing",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "design_rule_width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "except_pg_net",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "vias",
+            "kind": "struct",
+            "type": "ShapeVia",
+            "list": true
+          },
+          {
+            "name": "via_iterates",
+            "kind": "struct",
+            "type": "ShapeViaIterate",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "ShapeVia",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "via_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "origin",
+            "kind": "struct",
+            "type": "Point"
+          },
+          {
+            "name": "orientation",
+            "kind": "enum",
+            "type": "Orientation",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "mask",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "ShapeViaIterate",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "via_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "origin",
+            "kind": "struct",
+            "type": "Point"
+          },
+          {
+            "name": "orientation",
+            "kind": "enum",
+            "type": "Orientation",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "num_x",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "num_y",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "space_x",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "space_y",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "mask",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "Orientation",
+        "kind": "enum",
+        "values": [
+          {
+            "name": "N",
+            "value": 0
+          },
+          {
+            "name": "S",
+            "value": 2
+          },
+          {
+            "name": "E",
+            "value": 3
+          },
+          {
+            "name": "W",
+            "value": 1
+          },
+          {
+            "name": "FN",
+            "value": 4
+          },
+          {
+            "name": "FS",
+            "value": 6
+          },
+          {
+            "name": "FE",
+            "value": 7
+          },
+          {
+            "name": "FW",
+            "value": 5
+          }
+        ]
+      },
+      {
+        "name": "Library",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true
+          },
+          {
+            "name": "designs",
+            "kind": "child",
+            "type": "Design",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "Design",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "library",
+            "kind": "parent",
+            "type": "Library",
+            "parent_field": "designs"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true
+          },
+          {
+            "name": "abstract",
+            "kind": "child",
+            "type": "Abstract"
+          },
+          {
+            "name": "schematic",
+            "kind": "child",
+            "type": "Schematic"
+          },
+          {
+            "name": "layout",
+            "kind": "child",
+            "type": "Layout"
+          }
+        ]
+      },
+      {
+        "name": "Abstract",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "design",
+            "kind": "parent",
+            "type": "Design",
+            "parent_field": "abstract"
+          },
+          {
+            "name": "type",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "foreigns",
+            "kind": "child",
+            "type": "Foreign",
+            "list": true
+          },
+          {
+            "name": "size",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "origin",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "bbox",
+            "kind": "struct",
+            "type": "Rect",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "boundary",
+            "kind": "child",
+            "type": "Shape",
+            "optional": true
+          },
+          {
+            "name": "free_shapes",
+            "kind": "child",
+            "type": "Shape",
+            "list": true
+          },
+          {
+            "name": "symmetry",
+            "kind": "struct",
+            "type": "Symmetry",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "site",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "site_placements",
+            "kind": "child",
+            "type": "MacroSitePlacement",
+            "list": true
+          },
+          {
+            "name": "terminals",
+            "kind": "child",
+            "type": "Terminal",
+            "list": true
+          },
+          {
+            "name": "obstructions",
+            "kind": "child",
+            "type": "Obstruction",
+            "list": true
+          },
+          {
+            "name": "eeq",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "leq",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "power",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "source",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "is_fixed_mask",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "densities",
+            "kind": "child",
+            "type": "MacroDensityLayer",
+            "list": true
+          },
+          {
+            "name": "properties",
+            "kind": "struct",
+            "type": "LefProperty",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "MacroDensityLayer",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "abstract",
+            "kind": "parent",
+            "type": "Abstract",
+            "parent_field": "densities"
+          },
+          {
+            "name": "layer_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "rects",
+            "kind": "struct",
+            "type": "Rect",
+            "list": true
+          },
+          {
+            "name": "values",
+            "kind": "scalar",
+            "type": "double",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "Foreign",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "via",
+            "kind": "parent",
+            "type": "Via",
+            "parent_field": "foreign"
+          },
+          {
+            "name": "non_default_rule_via",
+            "kind": "parent",
+            "type": "NonDefaultRuleVia",
+            "parent_field": "foreign"
+          },
+          {
+            "name": "abstract",
+            "kind": "parent",
+            "type": "Abstract",
+            "parent_field": "foreigns"
+          },
+          {
+            "name": "layout_via",
+            "kind": "parent",
+            "type": "LayoutVia",
+            "parent_field": "foreign"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "origin",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "orient",
+            "kind": "enum",
+            "type": "Orientation",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "Symmetry",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "r90",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "x",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "y",
+            "kind": "scalar",
+            "type": "bool"
+          }
+        ]
+      },
+      {
+        "name": "Terminal",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "abstract",
+            "kind": "parent",
+            "type": "Abstract",
+            "parent_field": "terminals"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true,
+            "unique_per_parent": true
+          },
+          {
+            "name": "direction",
+            "kind": "enum",
+            "type": "SignalDirection"
+          },
+          {
+            "name": "ports",
+            "kind": "child",
+            "type": "TerminalPort",
+            "list": true
+          },
+          {
+            "name": "shape",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "use",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "must_join",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "net_expr",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "leq",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "properties",
+            "kind": "struct",
+            "type": "LefProperty",
+            "list": true
+          },
+          {
+            "name": "antenna_partial_metal_area",
+            "kind": "struct",
+            "type": "PinAntennaValue",
+            "list": true
+          },
+          {
+            "name": "antenna_partial_metal_side_area",
+            "kind": "struct",
+            "type": "PinAntennaValue",
+            "list": true
+          },
+          {
+            "name": "antenna_partial_cut_area",
+            "kind": "struct",
+            "type": "PinAntennaValue",
+            "list": true
+          },
+          {
+            "name": "antenna_diff_area",
+            "kind": "struct",
+            "type": "PinAntennaValue",
+            "list": true
+          },
+          {
+            "name": "antenna_models",
+            "kind": "child",
+            "type": "PinAntennaModel",
+            "list": true
+          },
+          {
+            "name": "taper_rule",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "supply_sensitivity",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "ground_sensitivity",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "rise_slew_limit",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "fall_slew_limit",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "max_load",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "max_delay",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "PinAntennaValue",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "value",
+            "kind": "scalar",
+            "type": "double"
+          },
+          {
+            "name": "layer_name",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "PinAntennaModel",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "terminal",
+            "kind": "parent",
+            "type": "Terminal",
+            "parent_field": "antenna_models"
+          },
+          {
+            "name": "oxide",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "gate_area",
+            "kind": "struct",
+            "type": "PinAntennaValue",
+            "list": true
+          },
+          {
+            "name": "max_area_car",
+            "kind": "struct",
+            "type": "PinAntennaValue",
+            "list": true
+          },
+          {
+            "name": "max_side_area_car",
+            "kind": "struct",
+            "type": "PinAntennaValue",
+            "list": true
+          },
+          {
+            "name": "max_cut_car",
+            "kind": "struct",
+            "type": "PinAntennaValue",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "TerminalPort",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "terminal",
+            "kind": "parent",
+            "type": "Terminal",
+            "parent_field": "ports"
+          },
+          {
+            "name": "shapes",
+            "kind": "child",
+            "type": "Shape",
+            "list": true
+          },
+          {
+            "name": "port_class",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "Obstruction",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "abstract",
+            "kind": "parent",
+            "type": "Abstract",
+            "parent_field": "obstructions"
+          },
+          {
+            "name": "shapes",
+            "kind": "child",
+            "type": "Shape",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "Schematic",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "design",
+            "kind": "parent",
+            "type": "Design",
+            "parent_field": "schematic"
+          },
+          {
+            "name": "instances",
+            "kind": "child",
+            "type": "Instance",
+            "list": true
+          },
+          {
+            "name": "ports",
+            "kind": "child",
+            "type": "Port",
+            "list": true
+          },
+          {
+            "name": "nets",
+            "kind": "child",
+            "type": "Net",
+            "list": true
+          },
+          {
+            "name": "net_buses",
+            "kind": "child",
+            "type": "NetBus",
+            "list": true
+          },
+          {
+            "name": "port_buses",
+            "kind": "child",
+            "type": "PortBus",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "Instance",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "schematic",
+            "kind": "parent",
+            "type": "Schematic",
+            "parent_field": "instances"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true,
+            "unique_per_parent": true
+          },
+          {
+            "name": "reference_name",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "reference_design",
+            "kind": "ref",
+            "type": "Design",
+            "optional": true
+          },
+          {
+            "name": "location",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "pins",
+            "kind": "child",
+            "type": "Pin",
+            "list": true
+          },
+          {
+            "name": "rtl_text",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "source_file",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "diagnostic_summary",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "PortBus",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "schematic",
+            "kind": "parent",
+            "type": "Schematic",
+            "parent_field": "port_buses"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true,
+            "unique_per_parent": true
+          },
+          {
+            "name": "msb",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "lsb",
+            "kind": "scalar",
+            "type": "int"
+          }
+        ]
+      },
+      {
+        "name": "Port",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "schematic",
+            "kind": "parent",
+            "type": "Schematic",
+            "parent_field": "ports"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true,
+            "unique_per_parent": true
+          },
+          {
+            "name": "direction",
+            "kind": "enum",
+            "type": "SignalDirection"
+          },
+          {
+            "name": "bus",
+            "kind": "ref",
+            "type": "PortBus",
+            "optional": true
+          },
+          {
+            "name": "bit_index",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "net",
+            "kind": "ref",
+            "type": "Net",
+            "optional": true
+          }
+        ]
+      },
+      {
+        "name": "NetBus",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "schematic",
+            "kind": "parent",
+            "type": "Schematic",
+            "parent_field": "net_buses"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true,
+            "unique_per_parent": true
+          },
+          {
+            "name": "msb",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "lsb",
+            "kind": "scalar",
+            "type": "int"
+          }
+        ]
+      },
+      {
+        "name": "Net",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "schematic",
+            "kind": "parent",
+            "type": "Schematic",
+            "parent_field": "nets"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true,
+            "unique_per_parent": true
+          },
+          {
+            "name": "bus",
+            "kind": "ref",
+            "type": "NetBus",
+            "optional": true
+          },
+          {
+            "name": "bit_index",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "Pin",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "instance",
+            "kind": "parent",
+            "type": "Instance",
+            "parent_field": "pins"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "direction",
+            "kind": "enum",
+            "type": "SignalDirection",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "net",
+            "kind": "ref",
+            "type": "Net",
+            "optional": true
+          },
+          {
+            "name": "raw_expression",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "SignalDirection",
+        "kind": "enum",
+        "values": [
+          {
+            "name": "INPUT",
+            "value": 0
+          },
+          {
+            "name": "OUTPUT",
+            "value": 1
+          },
+          {
+            "name": "INOUT",
+            "value": 2
+          },
+          {
+            "name": "NONE",
+            "value": 3
+          },
+          {
+            "name": "OUTPUT_TRISTATE",
+            "value": 4
+          },
+          {
+            "name": "FEEDTHRU",
+            "value": 5
+          }
+        ]
+      },
+      {
+        "name": "PlacementStatus",
+        "kind": "enum",
+        "values": [
+          {
+            "name": "UNPLACED",
+            "value": 0
+          },
+          {
+            "name": "PLACED",
+            "value": 1
+          },
+          {
+            "name": "FIXED",
+            "value": 2
+          },
+          {
+            "name": "COVER",
+            "value": 3
+          },
+          {
+            "name": "SOFTFIXED",
+            "value": 4
+          }
+        ]
+      },
+      {
+        "name": "BlockageKind",
+        "kind": "enum",
+        "values": [
+          {
+            "name": "ROUTING",
+            "value": 0
+          },
+          {
+            "name": "PLACEMENT",
+            "value": 1
+          }
+        ]
+      },
+      {
+        "name": "ShapePurpose",
+        "kind": "enum",
+        "values": [
+          {
+            "name": "BOUNDARY",
+            "value": 0
+          },
+          {
+            "name": "PLACEMENT_BLOCKAGE",
+            "value": 1
+          },
+          {
+            "name": "DEBUG",
+            "value": 2
+          }
+        ]
+      },
+      {
+        "name": "Layout",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "design",
+            "kind": "parent",
+            "type": "Design",
+            "parent_field": "layout"
+          },
+          {
+            "name": "diearea",
+            "kind": "child",
+            "type": "Shape",
+            "optional": true
+          },
+          {
+            "name": "free_shapes",
+            "kind": "child",
+            "type": "Shape",
+            "list": true
+          },
+          {
+            "name": "rows",
+            "kind": "child",
+            "type": "Row",
+            "list": true
+          },
+          {
+            "name": "tracks",
+            "kind": "child",
+            "type": "Track",
+            "list": true
+          },
+          {
+            "name": "gcell_grids",
+            "kind": "child",
+            "type": "GCellGrid",
+            "list": true
+          },
+          {
+            "name": "placements",
+            "kind": "child",
+            "type": "Placement",
+            "list": true
+          },
+          {
+            "name": "physical_ports",
+            "kind": "child",
+            "type": "PhysicalPort",
+            "list": true
+          },
+          {
+            "name": "blockages",
+            "kind": "child",
+            "type": "Blockage",
+            "list": true
+          },
+          {
+            "name": "vias",
+            "kind": "child",
+            "type": "LayoutVia",
+            "list": true
+          },
+          {
+            "name": "routes",
+            "kind": "child",
+            "type": "Route",
+            "list": true
+          },
+          {
+            "name": "regions",
+            "kind": "child",
+            "type": "Region",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "Row",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layout",
+            "kind": "parent",
+            "type": "Layout",
+            "parent_field": "rows"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true,
+            "unique_per_parent": true
+          },
+          {
+            "name": "site_name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "origin",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "orientation",
+            "kind": "enum",
+            "type": "Orientation"
+          },
+          {
+            "name": "num_x",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "num_y",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "step_x",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "step_y",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "Track",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layout",
+            "kind": "parent",
+            "type": "Layout",
+            "parent_field": "tracks"
+          },
+          {
+            "name": "is_x",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "start",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "count",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "step",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "layer_names",
+            "kind": "scalar",
+            "type": "str",
+            "list": true
+          },
+          {
+            "name": "mask",
+            "kind": "scalar",
+            "type": "int",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "same_mask",
+            "kind": "scalar",
+            "type": "bool"
+          }
+        ]
+      },
+      {
+        "name": "GCellGrid",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layout",
+            "kind": "parent",
+            "type": "Layout",
+            "parent_field": "gcell_grids"
+          },
+          {
+            "name": "is_x",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "start",
+            "kind": "scalar",
+            "type": "dbu"
+          },
+          {
+            "name": "count",
+            "kind": "scalar",
+            "type": "int"
+          },
+          {
+            "name": "step",
+            "kind": "scalar",
+            "type": "dbu"
+          }
+        ]
+      },
+      {
+        "name": "Placement",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layout",
+            "kind": "parent",
+            "type": "Layout",
+            "parent_field": "placements"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true,
+            "unique_per_parent": true
+          },
+          {
+            "name": "reference_design",
+            "kind": "ref",
+            "type": "Design"
+          },
+          {
+            "name": "instance",
+            "kind": "ref",
+            "type": "Instance",
+            "optional": true
+          },
+          {
+            "name": "physical_only",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "placement_status",
+            "kind": "enum",
+            "type": "PlacementStatus"
+          },
+          {
+            "name": "location",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "orientation",
+            "kind": "enum",
+            "type": "Orientation",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "weight",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "source",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          }
+        ]
+      },
+      {
+        "name": "PhysicalPortSegment",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "physical_port",
+            "kind": "parent",
+            "type": "PhysicalPort",
+            "parent_field": "segments"
+          },
+          {
+            "name": "placement_status",
+            "kind": "enum",
+            "type": "PlacementStatus",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "location",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "orientation",
+            "kind": "enum",
+            "type": "Orientation",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "shapes",
+            "kind": "child",
+            "type": "Shape",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "PhysicalPort",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layout",
+            "kind": "parent",
+            "type": "Layout",
+            "parent_field": "physical_ports"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true,
+            "unique_per_parent": true
+          },
+          {
+            "name": "net_name",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "net",
+            "kind": "ref",
+            "type": "Net",
+            "optional": true
+          },
+          {
+            "name": "direction",
+            "kind": "enum",
+            "type": "SignalDirection",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "use",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "placement_status",
+            "kind": "enum",
+            "type": "PlacementStatus",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "location",
+            "kind": "struct",
+            "type": "Point",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "orientation",
+            "kind": "enum",
+            "type": "Orientation",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "segments",
+            "kind": "child",
+            "type": "PhysicalPortSegment",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "Blockage",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layout",
+            "kind": "parent",
+            "type": "Layout",
+            "parent_field": "blockages"
+          },
+          {
+            "name": "kind",
+            "kind": "enum",
+            "type": "BlockageKind"
+          },
+          {
+            "name": "layer_name",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "placement",
+            "kind": "ref",
+            "type": "Placement"
+          },
+          {
+            "name": "spacing",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "design_rule_width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "is_soft",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "placement_max_density",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "shapes",
+            "kind": "child",
+            "type": "Shape",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "LayoutVia",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layout",
+            "kind": "parent",
+            "type": "Layout",
+            "parent_field": "vias"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true,
+            "unique_per_parent": true
+          },
+          {
+            "name": "foreign",
+            "kind": "child",
+            "type": "Foreign",
+            "optional": true
+          },
+          {
+            "name": "layers",
+            "kind": "child",
+            "type": "ViaLayer",
+            "list": true
+          },
+          {
+            "name": "via_rule",
+            "kind": "child",
+            "type": "ViaRuleReference",
+            "optional": true
+          }
+        ]
+      },
+      {
+        "name": "Route",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layout",
+            "kind": "parent",
+            "type": "Layout",
+            "parent_field": "routes"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true,
+            "unique_per_parent": true
+          },
+          {
+            "name": "net",
+            "kind": "ref",
+            "type": "Net",
+            "optional": true
+          },
+          {
+            "name": "is_special",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "width",
+            "kind": "scalar",
+            "type": "dbu",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "voltage",
+            "kind": "scalar",
+            "type": "double",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "use",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "shapes",
+            "kind": "child",
+            "type": "Shape",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "Region",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layout",
+            "kind": "parent",
+            "type": "Layout",
+            "parent_field": "regions"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str",
+            "index": true,
+            "unique_per_parent": true
+          },
+          {
+            "name": "region_type",
+            "kind": "scalar",
+            "type": "str",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "rects",
+            "kind": "struct",
+            "type": "Rect",
+            "list": true
+          }
+        ]
+      }
+    ]
+  }
+}

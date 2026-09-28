@@ -913,6 +913,16 @@ Returns the current Technology (empty if none is set); with <id>, selects it fir
 | --- | --- | --- | --- |
 | `<id>` | `token` | no | A friendly-id token to select as current - omit to just read the current value |
 
+## db_info
+
+`db_info <filename> [-help]`
+
+Returns a description of a database file written by write_db: its schema version, whether it matches this build's schema, and how many objects of each class it holds.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<filename>` | `file` | yes | .led file to describe |
+
 ## delete_abstract
 
 `delete_abstract <id> [-help]`
@@ -2216,6 +2226,16 @@ Returns 1 if <mode> has something to snap to: rows in the current layout for sit
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<mode>` | `str` | yes | One of site, fin, manufacturing, none |
+
+## read_db
+
+`read_db <filename> [-help]`
+
+Loads a database file written by write_db. Only works in an empty session (before anything is read or created). A file written by an older Layout Engine loads too: fields added or removed since are matched by name, and anything dropped is printed as a warning. Clears undo/redo. Returns 0 on success, nonzero on an error (the details are printed).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<filename>` | `file` | yes | .led file to read |
 
 ## read_def
 
@@ -3533,6 +3553,16 @@ Changes the given fields of a ViaRuleReference; omitted flags leave a field unch
 | `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in microns (LEF VIARULE-inside-VIA ORIGIN) - unset means the array is centered exactly on the placement point (this schema's own prior default, still correct when ORIGIN is omitted) |
 | `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in microns (LEF VIARULE-inside-VIA OFFSET, bottom pair) - unset means no offset (the enclosure rect stays centered on the cut array, this schema's own prior default) |
 | `-top_offset` | `Point` | no | Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair) |
+
+## write_db
+
+`write_db <filename> [-help]`
+
+Saves everything read or created so far - technology, libraries, designs, schematics and layouts - to one native Layout Engine database file (.led by convention), which read_db loads back exactly and later Layout Engine versions can still read. An existing file is only replaced once the new one is completely written. Afterwards the design counts as saved.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<filename>` | `file` | yes | Output .led file path |
 
 ## write_def
 

@@ -347,6 +347,30 @@ extern "C"
     /// messages are logged via spdlog either way.
     int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id);
 
+    /// @brief Saves the whole database to a native Layout Engine database
+    /// file (.led - NATIVE_FILE_FORMAT_RESEARCH.md). Written via a
+    /// temporary file and a rename, so a failed save never damages an
+    /// existing file. On success the database counts as saved (the exit
+    /// dialog's unsaved-changes check, item 18). Returns 0 on success;
+    /// errors are logged via spdlog.
+    int le_write_db(LeHandle *handle, const char *path);
+
+    /// @brief Loads a native database file into this handle. Only into an
+    /// empty database (nothing read or created yet) - fails otherwise,
+    /// leaving everything as it was. A file written by an older schema
+    /// loads too when its differences are only added, removed or
+    /// reordered classes/fields (each dropped or defaulted field is logged
+    /// as a warning); one needing a real migration fails with a message
+    /// saying so. Clears undo/redo, and leaves the database saved. Returns
+    /// 0 on success; errors are logged via spdlog.
+    int le_read_db(LeHandle *handle, const char *path);
+
+    /// @brief A human-readable description of a native database file
+    /// (schema version, whether this build's schema matches, per-class
+    /// object counts) without loading it - or an "error: ..." line. The
+    /// returned string is valid until the next call on this thread.
+    const char *le_db_info(const char *path);
+
     /// @brief Number of Designs currently loaded across every LEF file
     /// read into this handle so far. 0 if handle is null.
     int32_t le_design_count(LeHandle *handle);

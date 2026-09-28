@@ -92,8 +92,40 @@ namespace {{schema.namespace}}
             return slots_.size();
         }
 
+        // Also drops the free list - it holds slot indices, and create()
+        // would otherwise pop one past the end of the now-empty slots_.
         void clear() {
             slots_.clear();
+            free_.clear();
+        }
+
+        /// @brief Replace the whole pool with `values`, alive at indices
+        /// 0..n-1 with generation 0 - so row i becomes Id{i, 0}. For the
+        /// native file format's loader (src/persistence) only; indexes
+        /// are the caller's to rebuild (Root::rebuild_indexes()).
+        void load_dense(std::vector<T> values) {
+            slots_.clear();
+            free_.clear();
+            slots_.resize(values.size());
+            for (size_t i = 0; i < values.size(); ++i) {
+                slots_[i].value = std::move(values[i]);
+                slots_[i].alive = true;
+            }
+        }
+
+        /// @brief load_dense() with `n` value-initialized objects, built in
+        /// place (no temporary to move from) - the loader then fills them.
+        void load_dense(size_t n) {
+            slots_.clear();
+            free_.clear();
+            slots_.resize(n);
+            for (Slot &slot : slots_)
+                slot.alive = true;
+        }
+
+        /// @brief Number of live objects (size() counts every slot).
+        size_t alive_count() const noexcept {
+            return slots_.size() - free_.size();
         }
 
     private:
