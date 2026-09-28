@@ -145,18 +145,20 @@ Also, on a separate purpose called "portMarker", which should be filled light gr
 
 Deleting shape segement objects in the GUI should be done in edit mode. Add a delete button to the edit mode toolbar, with a shortcut key DEL. Delete only deletes the currently selected/highighted shape part, not the whole shape or the parent object.
 
-30. Extension mechansim
+30. Extension mechansim - DONE
 
 **This is a research task, no code editing required**
 
-I would like to enable user to extend Layout Engines features, with there own propritory features. This includes:
+See EXTENSION_MECHANISM_RESEARCH.md for the proposed architecture.
+
+I would like to enable user to extend Layout Engines features, with there own proprietary features. This includes:
 
 1. Add objects to the schema
 2. Adding C++ modules to perform whatever they want
 3. Add TCL commands that call their C++ modules
 4. Add windows in the GUI with their custom ImGUI widgets
 
-The key here is their code must be copletely separate from layout_engine, but must still be compiled together. Then if they want to update to a later version of layout_engine, they can easily do so.
+The key here is their code must be completely separate from layout_engine, but must still be compiled together. Then if they want to update to a later version of layout_engine, they can easily do so.
 
 I'm looking for high level architecture suggestion on how to achieve this.
 
