@@ -315,6 +315,16 @@ TEST_F(ApiFixture, TooltipMessageReflectsEditMode)
     EXPECT_EQ(std::string(tooltip).find("Left click to select"), std::string::npos);
 }
 
+TEST_F(ApiFixture, EditModeTooltipListsEveryEditModeShortcutOnePerLine)
+{
+    le_set_mode(handle, LE_MODE_EDIT);
+    const std::string tooltip = le_tooltip_message(handle);
+    for (const char *shortcut : {"Ctrl-M", "Ctrl-R", "Shift", "Delete", "Esc", "Ctrl-Z", "Ctrl-Shift-Z", "Z / Shift-Z", "F:", "Ctrl-F", "Arrows",
+                                 "1-9", "S / R"})
+        EXPECT_NE(tooltip.find(shortcut), std::string::npos) << shortcut;
+    EXPECT_GE(std::ranges::count(tooltip, '\n'), 9);
+}
+
 TEST_F(ApiFixture, TooltipMessageReflectsRulerMode)
 {
     le_set_mode(handle, LE_MODE_RULER);
