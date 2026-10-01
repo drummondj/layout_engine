@@ -420,7 +420,7 @@ namespace {{schema.namespace}} {
     {%- endfor %}
 
         /// @brief Direct pool access - for the native file format
-        /// (src/persistence) only, which saves pools as-is and loads them
+        /// (src/io/native_format.cpp) only, which saves pools as-is and loads them
         /// with Pool::load_dense() followed by rebuild_indexes(). Anything
         /// else must go through the generated create_/update_/delete_
         /// calls, which keep the indexes and the change log in step.

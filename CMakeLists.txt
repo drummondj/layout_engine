@@ -179,8 +179,8 @@ if(NOT spdlog_FOUND)
     FetchContent_MakeAvailable(spdlog)
 endif()
 
-# --- slang (SystemVerilog/Verilog frontend for src/sv's netlist/RTL
-# reader). Pinned to the v11.0 tagged release (not
+# --- slang (SystemVerilog/Verilog frontend for io's netlist/RTL
+# reader, src/io/sv_reader.cpp). Pinned to the v11.0 tagged release (not
 # master) - unlike Blend2D/AsmJit above, slang publishes real tags, so it
 # follows fmt/spdlog's pin-to-release-zip convention instead. No
 # find_package fallback of our own (unlikely to be a preinstalled system
@@ -189,7 +189,7 @@ endif()
 # CMake target, slang::slang (its own source/CMakeLists.txt does
 # add_library(slang_slang ...) + ALIAS) - there is no separate
 # syntax-only sub-target; "syntax-only vs full elaboration" is a choice
-# of which slang API src/sv's own reader code calls, not a link-time one.
+# of which slang API the reader calls, not a link-time one.
 #
 # slang's own external/CMakeLists.txt declares its *own* "fmt"
 # FetchContent dependency, gated at >= 12.1 via FIND_PACKAGE_ARGS (CMake
@@ -425,7 +425,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json_header)
 
 # zstd - block compression for the native database file format
-# (src/persistence, docs/NATIVE_FILE_FORMAT_RESEARCH.md §3). Pinned release
+# (src/io/native_format.cpp, docs/NATIVE_FILE_FORMAT_RESEARCH.md §3). Pinned release
 # tarball; zstd's CMake project lives under build/cmake. Static library
 # only - no programs, tests or shared build.
 set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
@@ -554,54 +554,33 @@ set(LE_FONT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" CACHE PATH
     "Directory of bundled fonts default_blend2d_font_face() (pipelines.cpp) loads from")
 target_compile_definitions(pipelines PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
 
-# --- io: LEF/DEF file readers ---
-add_library(io STATIC src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp src/io/def_writer.cpp)
+# --- io: every file format - LEF/DEF readers and writers, the
+# SystemVerilog/Verilog netlist+RTL reader (slang), and the native
+# database file (.led, walking codegen's native_tables.hpp). ---
+add_library(io STATIC
+    src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp src/io/def_writer.cpp
+    src/io/sv_reader.cpp
+    src/io/native_format.cpp
+)
 add_dependencies(io lef_lib def_lib)
 target_include_directories(io
     PUBLIC src/io
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/include
         ${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/include
+        ${nlohmann_json_header_SOURCE_DIR}
+        ${zstd_SOURCE_DIR}/lib
 )
 target_link_libraries(io
-    # spdlog PUBLIC (not PRIVATE): lef_reader.hpp - io's own PUBLIC header -
-    # #includes spdlog/spdlog.h directly, so any consumer of that header
-    # needs spdlog's include path too, not just io's own .cpp files. Went
-    # unnoticed on macOS/Ubuntu (system spdlog headers sit on a default
-    # compiler search path regardless of CMake link scope); surfaced for
-    # real on a FetchContent-built spdlog (Rocky 8, no system package) -
-    # lef_roundtrip_diff.cpp failed with spdlog/spdlog.h: No such file or
-    # directory until this was PUBLIC. fmt stays PRIVATE - only io's own
-    # .cpp files use it directly.
-    PUBLIC database geometry spdlog::spdlog
-    PRIVATE fmt::fmt lef_static def_static
+    # spdlog and slang PUBLIC (not PRIVATE): io's public headers include
+    # them directly - lef_reader.hpp spdlog/spdlog.h, sv_reader.hpp
+    # slang/ast/SemanticFacts.h (SVReader::signal_direction_from_parser
+    # takes a slang::ast::ArgumentDirection) - so consumers need their
+    # include paths too. fmt stays PRIVATE - only io's own .cpp files use it.
+    PUBLIC database geometry spdlog::spdlog slang::slang
+    PRIVATE fmt::fmt lef_static def_static libzstd_static TBB::tbb
 )
 le_enable_coverage_instrumentation(io)
-
-# --- persistence: the native database file format (.led) -
-# docs/NATIVE_FILE_FORMAT_RESEARCH.md. Walks codegen's generated
-# native_tables.hpp, so it needs no per-class hand-written code. ---
-add_library(persistence STATIC src/persistence/native_format.cpp)
-target_include_directories(persistence
-    PUBLIC src/persistence
-    PRIVATE ${nlohmann_json_header_SOURCE_DIR} ${zstd_SOURCE_DIR}/lib
-)
-target_link_libraries(persistence PUBLIC database PRIVATE libzstd_static TBB::tbb)
-le_enable_coverage_instrumentation(persistence)
-
-# --- sv: SystemVerilog/Verilog netlist+RTL reader ---
-add_library(sv STATIC src/sv/sv_reader.cpp)
-target_include_directories(sv PUBLIC src/sv)
-# slang::slang PUBLIC (not PRIVATE): sv_reader.hpp - sv's own PUBLIC header -
-# #includes slang/ast/SemanticFacts.h directly (SVReader::
-# signal_direction_from_parser's public signature takes a real
-# slang::ast::ArgumentDirection, matching LEFReader::signal_direction_from_parser's
-# own directly-unit-testable pure-conversion convention) - so any
-# consumer of that header (api.cpp) needs slang's own include path too,
-# not just sv's own .cpp files. Same reasoning as io's own PUBLIC
-# spdlog::spdlog dependency above.
-target_link_libraries(sv PUBLIC database spdlog::spdlog slang::slang PRIVATE fmt::fmt)
-le_enable_coverage_instrumentation(sv)
 
 # --- api: the C API every front end calls (the GUI, the Tcl shim).
 # Compiled (not header-only): the opaque LeHandle's real definition must
@@ -609,7 +588,7 @@ le_enable_coverage_instrumentation(sv)
 # comment. ---
 add_library(api STATIC src/api/api.cpp)
 target_include_directories(api PUBLIC src/api)
-target_link_libraries(api PRIVATE database geometry editing view_style pipelines io sv persistence)
+target_link_libraries(api PRIVATE database geometry editing view_style pipelines io)
 target_include_directories(api PRIVATE ${nlohmann_json_header_SOURCE_DIR})
 le_enable_coverage_instrumentation(api)
 
@@ -820,14 +799,14 @@ if(SWIG_FOUND AND TCL_FOUND)
     # (src/tcl/tests/sv_test.tcl) - read_verilog plus
     # the generated get_designs/get_schematics/get_instances/get_ports/
     # get_pins surface, against the same gate_netlist_clean.v fixture
-    # src/sv/tests's own C++ tests already use.
+    # io's C++ tests use.
     add_test(
         NAME le_tcl_sv
         COMMAND ${TCL_TCLSH}
             ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/sv_test.tcl
             $<TARGET_FILE:le_tcl>
             ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures/gate_netlist_clean.v
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures/gate_netlist_clean.v
     )
 
     # Native database file commands (src/tcl/tests/native_db_test.tcl) -
@@ -839,7 +818,7 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/native_db_test.tcl
             $<TARGET_FILE:le_tcl>
             ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures/gate_netlist_clean.v
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures/gate_netlist_clean.v
     )
 
     # Schematic<->Layout link mutation side-effect regression check
@@ -992,8 +971,6 @@ add_executable(backend_tests
     src/database/tests/hierarchical_resolver_test.cpp
     src/database/tests/schematic_layout_linker_test.cpp
     src/database/tests/schema_version_test.cpp
-    src/persistence/tests/native_format_test.cpp
-    src/persistence/tests/golden_files_test.cpp
     src/geometry/tests/geometry_test.cpp
     src/geometry/tests/shape_ops_test.cpp
     src/view_style/tests/view_style_test.cpp
@@ -1003,6 +980,10 @@ add_executable(backend_tests
     src/io/tests/lef_writer_test.cpp
     src/io/tests/def_reader_test.cpp
     src/io/tests/def_writer_test.cpp
+    src/io/tests/sv_reader_test.cpp
+    src/io/tests/verilog_stub_writer_test.cpp
+    src/io/tests/native_format_test.cpp
+    src/io/tests/golden_files_test.cpp
     src/api/tests/api_test.cpp
     src/api/tests/le_handle_test.cpp
     src/api/tests/native_db_api_test.cpp
@@ -1015,19 +996,16 @@ add_executable(backend_tests
     src/core/tests/shape_resize_test.cpp
     src/gui/gui_provider.cpp
     src/gui/tests/gui_provider_test.cpp
-    src/sv/tests/sv_reader_test.cpp
-    src/sv/tests/verilog_stub_writer_test.cpp
 )
-target_link_libraries(backend_tests PRIVATE database geometry view_style editing pipelines io api sv persistence fmt::fmt GTest::gtest_main)
+target_link_libraries(backend_tests PRIVATE database geometry view_style editing pipelines io api fmt::fmt GTest::gtest_main)
 target_include_directories(backend_tests PRIVATE ${nlohmann_json_header_SOURCE_DIR})
 target_compile_definitions(backend_tests PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
     IO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures"
     API_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures"
-    SV_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures"
     LEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/bin/lefdiff"
     DEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/TEST"
-    PERSISTENCE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/persistence/tests/golden"
+    NATIVE_FORMAT_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/golden"
     DEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/bin/defdiff"
 )
 add_dependencies(backend_tests lef_lib def_lib)
@@ -1122,8 +1100,8 @@ le_enable_coverage_instrumentation(resolver_profile)
 # --- native_format_profile: dev-only tool - native .led save/load time and
 # size against reading the DEF, for one aes_scaling design per process
 # (docs/NATIVE_FILE_FORMAT_RESEARCH.md §7). Not run by ctest. ---
-add_executable(native_format_profile src/persistence/benchmarks/native_format_profile.cpp)
-target_link_libraries(native_format_profile PRIVATE database io persistence TBB::tbb)
+add_executable(native_format_profile src/io/benchmarks/native_format_profile.cpp)
+target_link_libraries(native_format_profile PRIVATE database io TBB::tbb)
 target_compile_definitions(native_format_profile PRIVATE
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test_data"
 )

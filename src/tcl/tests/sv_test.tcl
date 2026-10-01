@@ -1,7 +1,7 @@
 # Regression check for SystemVerilog/Verilog TCL wiring - loads the
 # built module under tclsh, sources
 # le_tcl_procs.tcl, and exercises read_verilog -netlist against the same
-# gate_netlist_clean.v fixture src/sv/tests's own C++ tests already use,
+# gate_netlist_clean.v fixture io's C++ tests use,
 # confirming the generated get_designs/get_schematics/get_instances/
 # get_ports/get_pins surface round-trips real data end to end through the
 # TCL layer, not just the C++ reader/database layers those other tests

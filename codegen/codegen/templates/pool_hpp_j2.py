@@ -101,7 +101,7 @@ namespace {{schema.namespace}}
 
         /// @brief Replace the whole pool with `values`, alive at indices
         /// 0..n-1 with generation 0 - so row i becomes Id{i, 0}. For the
-        /// native file format's loader (src/persistence) only; indexes
+        /// native file format's loader (src/io/native_format.cpp) only; indexes
         /// are the caller's to rebuild (Root::rebuild_indexes()).
         void load_dense(std::vector<T> values) {
             slots_.clear();
