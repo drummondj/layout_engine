@@ -70,7 +70,7 @@ TEST_F(GuiProviderFixture, OnlyPurposesWithSelectableObjectsOfferASelectableTogg
         if (purpose.has_selectable_objects)
             with_toggle.push_back(purpose.ordinal);
     std::ranges::sort(with_toggle);
-    EXPECT_EQ(with_toggle, (std::vector<int32_t>{0 /* TERMINAL */, 1 /* OBSTRUCTION */, 9 /* ROUTE */, 11 /* PLACEMENT */}));
+    EXPECT_EQ(with_toggle, (std::vector<int32_t>{0 /* TERMINAL */, 1 /* OBSTRUCTION */, 6 /* ROW */, 9 /* ROUTE */, 11 /* PLACEMENT */}));
 }
 
 // The Layers panel's indented Placement.type/Route.use rows, with each

@@ -1,6 +1,7 @@
 #pragma once
 #include "../database/database.hpp"
 #include <optional>
+#include <vector>
 
 namespace le
 {
@@ -30,5 +31,29 @@ namespace le
         const int64_t height = site->size->y + static_cast<int64_t>(num_y > 0 ? num_y - 1 : 0) * step_y;
 
         return Rect{.ll = *row->origin, .ur = Point{.x = row->origin->x + width, .y = row->origin->y + height}};
+    }
+
+    /// @brief Every Row of `layout_id` whose footprint contains `p` (edges
+    /// inclusive), in Layout order.
+    inline std::vector<RowId> hit_test_rows_point_all(const Root &root, LayoutId layout_id, Point p)
+    {
+        std::vector<RowId> hits;
+        for (const RowId row_id : root.get_layout_rows(layout_id))
+            if (const std::optional<Rect> bbox = row_footprint_bbox(root, row_id))
+                if (p.x >= bbox->ll.x && p.x <= bbox->ur.x && p.y >= bbox->ll.y && p.y <= bbox->ur.y)
+                    hits.push_back(row_id);
+        return hits;
+    }
+
+    /// @brief Every Row of `layout_id` whose footprint lies entirely
+    /// inside `rect`, in Layout order.
+    inline std::vector<RowId> hit_test_rows_rect(const Root &root, LayoutId layout_id, const Rect &rect)
+    {
+        std::vector<RowId> hits;
+        for (const RowId row_id : root.get_layout_rows(layout_id))
+            if (const std::optional<Rect> bbox = row_footprint_bbox(root, row_id))
+                if (bbox->ll.x >= rect.ll.x && bbox->ll.y >= rect.ll.y && bbox->ur.x <= rect.ur.x && bbox->ur.y <= rect.ur.y)
+                    hits.push_back(row_id);
+        return hits;
     }
 }

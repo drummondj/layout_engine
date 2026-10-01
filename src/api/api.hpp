@@ -929,7 +929,7 @@ extern "C"
 
     /// @brief Nonzero if anything drawn on `purpose` (a le_purpose_at
     /// ordinal) can ever be selected - zero means le_set_purpose_selectable
-    /// has no effect on it, e.g. ROW/GCELLGRID/DEBUG. Needs no handle:
+    /// has no effect on it, e.g. GCELLGRID/DEBUG. Needs no handle:
     /// a fixed property of the purpose itself.
     int32_t le_purpose_has_selectable_objects(int32_t purpose);
 
