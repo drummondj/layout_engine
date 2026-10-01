@@ -1033,17 +1033,14 @@ TEST_F(ApiFixture, UnsetOptionalEnumFieldDisplaysAsEmptyStringNotItsZeroValuedMe
     EXPECT_TRUE(found_purpose);
 }
 
-// Route/PhysicalPort own-shape selection (this codebase's own follow-up
-// to the Blockage case MouseClickInLayoutViewPrefersAnOwnShapeOver...
-// above documents but leaves skipped) - same click-before-placement-bbox
-// precedence, same ShapeId+piece re-resolution, using
-// hit_test_layout_point/_rect (core/placement_geometry.hpp) directly
-// instead of the still-deferred Blockage/Row/Region path.
+// A click over both a Route's own shape and a placement's bbox selects
+// the shape first (shape pieces come before placements in click order);
+// a click over the placement alone selects the placement.
 TEST_F(ApiFixture, MouseClickInLayoutViewPrefersARouteOwnShapeOverAPlacementsBoundingBoxAtTheSamePoint)
 {
-    // Same TESTCELL/6x6-shape/(3,3)-vs-(8,8) setup as the Blockage
-    // version of this test above, just with a Route's own Shape instead
-    // of a Blockage's.
+    // TESTCELL (10x10 um) placed at (0,0), and a 6x6 um route shape at
+    // the same origin: (3,3) um is inside both, (8,8) um only inside the
+    // placement's bbox.
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
 
@@ -1066,7 +1063,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersARouteOwnShapeOverAPlacementsBou
     le_set_hierarchy_depth(handle, 1);
 
     le_set_viewport_size(handle, 100, 100);
-    le_zoom(handle, 0.005 - 1.0, 0, 100); // see the Blockage version of this test for the scale/pan derivation
+    le_zoom(handle, 0.005 - 1.0, 0, 100); // 200 dbu/px: device (x, y) is dbu (200 x, 200 (100 - y))
 
     le_mouse_down(handle, 15, 85); // dbu (3000,3000) = (3,3) um - inside both the route shape and the placement's own bbox
     le_mouse_up(handle, 15, 85);
