@@ -33,7 +33,7 @@ namespace le
     /// find_hit_piece's own return convention) under the query point,
     /// plus `kind`/`index` identifying exactly where it lives in the
     /// owning Shape's own rects/polygons/paths vector - needed so a
-    /// caller (Scene::select, Move) can address that same piece again
+    /// caller (LeHandle::select, Move) can address that same piece again
     /// later, not just look at a disconnected copy of its geometry.
     struct HitPiece
     {

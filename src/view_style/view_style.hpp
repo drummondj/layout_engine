@@ -99,10 +99,10 @@ namespace le
         bool operator==(const Color &) const = default;
     };
 
-    /// @brief The fill treatment Renderer::draw_group draws a ViewLayer's
-    /// shapes with, on top of/instead of a flat color wash - see its own
-    /// doc comment for how each one is actually drawn (tiled shader vs.
-    /// drawn directly per-shape). Always drawn with a transparent
+    /// @brief The fill treatment RasterizeBlend2DStage draws a ViewLayer's
+    /// shapes with, on top of/instead of a flat color wash (a tiled
+    /// pattern - see pattern_blend2d - or, for CROSS, drawn directly
+    /// per-shape). Always drawn with a transparent
     /// background so ViewLayers below remain visible through the gaps.
     enum class FillPattern
     {
@@ -137,7 +137,7 @@ namespace le
     struct ViewLayerData
     {
         std::string name;       // e.g. "M1/TERMINAL", "BOUNDARY"
-        std::string layer_name; // e.g. "M1", "BOUNDARY" - Scene::is_view_layer_visible's grouping key (its ViewLayerRow's own name)
+        std::string layer_name; // e.g. "M1", "BOUNDARY" - LeHandle::is_view_layer_visible's grouping key (its ViewLayerRow's own name)
         ViewLayerPurpose purpose;
         LayerId layer;
         ViewLayerStyle style;
@@ -167,8 +167,8 @@ namespace le
     /// @brief The set of ViewLayers for a Technology: a TERMINAL and an
     /// OBSTRUCTION ViewLayer per physical Layer, plus one BOUNDARY
     /// ViewLayer not tied to any physical Layer. Shared/global for a
-    /// Technology (not per-Scene) - which ViewLayers are toggled off is a
-    /// per-Scene concern (Scene::set_layer_name_visible/set_purpose_visible),
+    /// Technology (not per-handle) - which ViewLayers are toggled off is a
+    /// per-handle concern (LeHandle::set_layer_name_visible/set_purpose_visible),
     /// but the set of ViewLayers that exist and how they're styled is not.
     class ViewLayerSet
     {
@@ -384,8 +384,7 @@ namespace le
         /// keyed on some other stable identity (e.g. AbstractId, which
         /// doesn't change across a rebuild) can still detect that the
         /// ViewLayerIds it previously resolved shapes against no longer
-        /// mean the same thing - see Pipeline::generate_shapes's cache
-        /// key, which learned this the hard way.
+        /// mean the same thing.
         uint64_t generation() const { return generation_; }
 
         const ViewLayerData *get(ViewLayerId id) const { return pool_.get(id); }
@@ -450,9 +449,9 @@ namespace le
         /// BOUNDARY, PLACEMENT, TERMINAL, OBSTRUCTION} for a typical
         /// Technology. The "columns"
         /// axis of a layer visibility/selectability widget - deliberately
-        /// not scoped to any one row/layer, since Scene's own visibility/
+        /// not scoped to any one row/layer, since LeHandle's own visibility/
         /// selectability model toggles a purpose across every layer at
-        /// once (see Scene::set_purpose_visible), not per row.
+        /// once (see LeHandle::set_purpose_visible), not per row.
         std::vector<ViewLayerPurpose> purposes() const
         {
             std::vector<ViewLayerPurpose> result;

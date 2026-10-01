@@ -25,9 +25,9 @@ namespace le::editing
     /// round trip at all. A reference held by some *other* object outside
     /// this Transaction (or from an earlier, already-committed one) is
     /// not retroactively repointed if that id is later deleted, undone,
-    /// and redone - the same class of staleness Scene already documents
-    /// and tolerates from ordinary pool-slot reuse (see scene.hpp), not a
-    /// new failure mode this introduces. No back-patching mechanism is
+    /// and redone - the same class of staleness LeHandle's selection
+    /// already tolerates from ordinary pool-slot reuse (see
+    /// LeHandle::set_current_abstract). No back-patching mechanism is
     /// built for it.
     class Transaction
     {

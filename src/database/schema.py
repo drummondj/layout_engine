@@ -1685,9 +1685,8 @@ schema = Schema(
         ),
         Klass(
             # Stored as-is (same convention as RectIterate/PathIterate/
-            # PolygonIterate) - unlike those, Pipeline::generate_shapes
-            # does not yet expand this one into concrete placements, since
-            # nothing currently renders VIA geometry. Also covers a DEF
+            # PolygonIterate) - expanded at render time by
+            # pipelines/via_shapes.hpp. Also covers a DEF
             # NETS/SPECIALNETS routed path's own arrayed VIA placement
             # ("VIA DO n BY m STEP x y") - structurally the same shape as
             # LEF's VIA ITERATE.
@@ -1824,7 +1823,7 @@ schema = Schema(
             description="A physical abstract view (LEF)",
             # "Current view" anchor for get_terminals/get_terminal_ports/
             # get_obstructions/get_shapes' own default (-of omitted) scope
-            # - see codegen/codegen/tcl_scope.py. Independent of Scene's
+            # - see codegen/codegen/tcl_scope.py. Independent of LeHandle's
             # own hand-written current_abstract_ (GUI rendering state) -
             # deliberately not bridged, see CLAUDE.md's TCL
             # codegen section.

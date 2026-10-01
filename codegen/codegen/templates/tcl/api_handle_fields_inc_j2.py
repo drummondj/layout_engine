@@ -21,7 +21,7 @@ std::vector<le::{{klass.name}}Id> {{klass.to_snake_case()}}_search_results;
 // codegen/codegen/tcl_scope.py's own module docstring for how every
 // other readable class's get_<type> default scope derives from these.
 // Independent of any hand-written "current view" state elsewhere (e.g.
-// Scene::current_abstract(), which drives GUI rendering) - deliberately
+// LeHandle::current_abstract(), which drives GUI rendering) - deliberately
 // not bridged, see CLAUDE.md's TCL codegen section.
 {% for klass in current_access_classes %}
 le::{{klass.name}}Id current_{{klass.to_snake_case()}}_id{};

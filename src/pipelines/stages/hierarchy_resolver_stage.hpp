@@ -200,8 +200,8 @@ namespace le
     using ViewLayerShapeIndex = std::unordered_map<ViewLayerId, ShapeSpatialIndex>;
     using ViewShapesIndexHandle = std::shared_ptr<const ViewLayerShapeIndex>;
 
-    /// @brief Mirrors Scene::is_view_layer_visible exactly (that class's
-    /// own doc comment): visible only if BOTH its own layer-name entry
+    /// @brief Mirrors LeHandle::is_view_layer_visible exactly: visible
+    /// only if BOTH its own layer-name entry
     /// (if any) and its own purpose entry (if any) say so - an unset key
     /// in either map means visible, not hidden. Defined here (rather than
     /// in a Blend2D-specific drawing header) since it's a pure function of

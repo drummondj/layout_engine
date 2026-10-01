@@ -146,10 +146,8 @@ TEST(Editing, ExternalReferenceNotRepointedAcrossDeleteUndoRedo)
     // comment: an id held by something *outside* this Transaction isn't
     // retroactively repointed when the transaction deletes, undoes, and
     // redoes that same object - it keeps pointing at the now-stale
-    // original id. Not a new failure mode (Scene already documents and
-    // tolerates the same class of staleness from ordinary pool-slot
-    // reuse) - just a new trigger for it, deliberately left unaddressed
-    // this round.
+    // original id - the same class of staleness LeHandle's selection
+    // already tolerates from ordinary pool-slot reuse.
     Root root;
     LibraryId library_id = root.create_library(LibraryData{.name = "LIB"});
     DesignId design_id = root.create_design(DesignData{.library = library_id, .name = "CELL"});

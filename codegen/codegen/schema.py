@@ -419,7 +419,7 @@ class Klass:
     # Whether this class has a generated "current instance" concept
     # (a settable Le{Klass}Id on LeHandle, plus generated current_X/
     # set_current_X_cmd TCL commands) - independent of any hand-written
-    # "current view" state elsewhere (e.g. Scene::current_abstract(),
+    # "current view" state elsewhere (e.g. LeHandle::current_abstract(),
     # which drives GUI rendering and is deliberately not bridged to this).
     # Every readable class's generated get_<type> search command derives
     # its default (-of omitted) scope from whichever has_current_access
@@ -2368,8 +2368,8 @@ class Field:
             list_compound_kind()-eligible list) - e.g. Shape.rect_iterates/
             path_iterates/polygon_iterates (raw LEF ITERATE statements,
             re-expanded into concrete rects/paths/polygons by
-            Pipeline::generate_shapes, never meant to be directly
-            authored) and Shape.texts (a Pipeline-computed render-time
+            Geometry::expand_iterates, never meant to be directly
+            authored) and Shape.texts (a computed render-time
             label, never LEF-authored data - see is_create_field()'s own
             docstring for the general "not user-authorable data" theme
             this flag exists for).
