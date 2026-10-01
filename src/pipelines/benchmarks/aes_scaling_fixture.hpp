@@ -12,7 +12,7 @@
 #include <map>
 #include <string>
 
-// Shared benchmark fixture (PIPELINE_REFACTOR.md's own "Benchmarking"
+// Shared benchmark fixture (docs/PIPELINE_REFACTOR.md's "Benchmarking"
 // section): every pipelines-module stage/pipeline benchmark measures the
 // same 5 points - 1x1, 2x1, 2x2, 3x2, 3x3 tiles of the AES_1 ISPD22 design
 // on Nangate45 - so scaling behavior is comparable stage to stage. Each
@@ -29,8 +29,8 @@ namespace le::benchmarks
         const char *label;
     };
 
-    /// @brief The 5 tiling points PIPELINE_REFACTOR.md asks every benchmark
-    /// to report - test_data/aes_scaling_<label>.def, generated from
+    /// @brief The 5 tiling points every benchmark reports -
+    /// test_data/aes_scaling_<label>.def, generated from
     /// ISPD22__final_benchmarks/AES_1/design_original.def via
     /// generate_tiled_design (see that tool's own comment).
     inline constexpr std::array<TileConfig, 5> kAesScalingTileConfigs = {{
@@ -42,9 +42,8 @@ namespace le::benchmarks
     }};
 
     /// @brief A 6th, larger validation point - deliberately NOT folded
-    /// into kAesScalingTileConfigs above (PIPELINE_REFACTOR.md's own
-    /// methodology names exactly those 5 as every stage benchmark's
-    /// standard scaling matrix; this one is a separate, special-purpose
+    /// into kAesScalingTileConfigs above (those 5 are every stage
+    /// benchmark's standard scaling matrix; this one is a separate, special-purpose
     /// check against the Cold tier's own real target scale, not another
     /// scaling data point). 41,344 x 25 = 1,033,600 components - close to
     /// a round 1,000,000, and test_data/aes_scaling_5x5.def already
@@ -115,9 +114,8 @@ namespace le::benchmarks
     /// everything outside it still runs every time. A fresh
     /// AesScalingFixture per invocation would reparse the DEF file (up to
     /// ~270,000 shapes at 3x2/3x3) that many times over, dwarfing the
-    /// thing actually being measured - confirmed directly, an earlier
-    /// version without this cache took several minutes per config in a
-    /// Debug build.
+    /// thing actually being measured (several minutes per config in a
+    /// Debug build).
     inline const AesScalingFixture &cached_aes_scaling_fixture(const TileConfig &config)
     {
         static std::map<std::string, AesScalingFixture> cache;

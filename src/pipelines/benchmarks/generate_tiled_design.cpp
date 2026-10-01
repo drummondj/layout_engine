@@ -8,14 +8,14 @@
 
 using namespace le;
 
-// Dev-only data-generation tool, not part of the render pipeline itself
-// (BUGS_AND_ENHANCEMENTS.md E31): reads one real LEF+DEF design and tiles
+// Dev-only data-generation tool, not part of the render pipeline itself:
+// reads one real LEF+DEF design and tiles
 // its own Layout content (COMPONENTS/NETS/SPECIALNETS/ROW, TRACKS/
 // GCELLGRID extended rather than duplicated - see below) across an
 // tile_x x tile_y grid, translating every coordinate by each tile's own
 // (dx, dy) offset, to produce one large *flat* DEF file (real duplicated
-// geometry, not DEF's own hierarchical MACRO-placement mechanism E7's
-// aes_5x5.def already exercises) for render-performance stress testing/
+// geometry, not DEF's own hierarchical MACRO-placement mechanism
+// aes_5x5.def exercises) for render-performance stress testing/
 // Tracy profiling at a scale no real single design in this repo reaches.
 //
 // All tiled content stays entirely within its own tile - the source
@@ -167,12 +167,10 @@ int main(int argc, char **argv)
     // only ever reads shape->polygons.front() (matching the reader's own
     // polygon_from_die_area, which always produces a polygon even for a
     // plain 2-corner DIEAREA), so a .rects-only diearea Shape here
-    // silently writes no DIEAREA statement at all - confirmed directly:
-    // an earlier version of this tool did exactly that, and the
-    // resulting DEF's own missing DIEAREA made a downstream zoom-fit
-    // silently no-op (Scene::fit_to_content(std::nullopt, ...) leaves
-    // scale/pan at their default 1.0/(0,0) - a real, all-white render at
-    // full-chip zoom, not an error).
+    // silently writes no DIEAREA statement at all, and a DEF with no
+    // DIEAREA makes zoom-fit silently no-op
+    // (LeHandle::fit_to_content(std::nullopt, ...) leaves scale/pan at
+    // their defaults - an all-white render, not an error).
     root.create_shape(ShapeData{
         .layout = out_layout_id,
         .purpose = ShapePurpose::BOUNDARY,

@@ -8,8 +8,8 @@
 
 namespace le
 {
-    /// @brief The direction marker for one PhysicalPort (DEF PIN) -
-    /// NEW_FEATURES_SEPT_2026.md item 28's "portMarker" purpose: triangles
+    /// @brief The direction marker for one PhysicalPort (DEF PIN) - the
+    /// PORT_MARKER purpose: triangles
     /// just beyond the port's outer edge (the one facing away from the
     /// block's center), so they never cover the port itself.
     ///

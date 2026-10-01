@@ -33,12 +33,8 @@ namespace
     /// RasterizeBlend2DStage's own set_thread_count() (rasterize_blend2d_stage.hpp) -
     /// this same function registered several times with different
     /// values, mirroring how BM_Rasterize's own `apply_default_visibility`
-    /// bool already works. No opaque-fast-path variant - tried and
-    /// removed (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md): measured zero
-    /// benefit even after hoisting comp_op out of the per-shape draw
-    /// loop, and even without its own color-alpha gate, which only
-    /// bought a real correctness cost (translucent layers stop blending)
-    /// for nothing.
+    /// bool already works. No opaque-fast-path variant - see
+    /// draw_view_shapes_blend2d's doc comment for why there isn't one.
     void BM_RasterizeBlend2D(benchmark::State &state, TileConfig config, uint32_t thread_count)
     {
         const AesScalingFixture &fixture = cached_aes_scaling_fixture(config);

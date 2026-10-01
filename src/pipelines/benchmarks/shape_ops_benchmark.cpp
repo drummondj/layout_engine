@@ -1,4 +1,4 @@
-// Benchmarks for the shape_* operations (NEW_FEATURES_SEPT_2026.md item 1)
+// Benchmarks for the shape_* operations
 // and for rendering the free-standing shapes they create:
 //
 //  - Geometry ops on a synthetic "clustered" layer: C disjoint clusters of

@@ -19,7 +19,7 @@ namespace le
 {
     namespace bgi = boost::geometry::index;
 
-    /// @brief Warm-tier stage 1 (PIPELINE_REFACTOR.md): prunes
+    /// @brief Warm-tier stage 1 (docs/PIPELINE_REFACTOR.md): prunes
     /// HierarchyResolverOutput down to what actually overlaps
     /// ViewRenderOptions::viewport, so downstream Rasterization/Compose
     /// never touch content that isn't visible. Output is the exact same
@@ -59,21 +59,12 @@ namespace le
     ///     needs no transform at all, unlike the overlap test above.
     ///     Skipped (not visited, not pushed to the worklist, no
     ///     substitute mark) exactly like a sub-pixel Rect/Polygon already
-    ///     is - real reported symptom this closes: at `hierarchy_depth >= 1`
-    ///     and a zoomed-way-out (e.g. zoom-fit) viewport, a placement
-    ///     whose own footprint is too small to matter used to still be
-    ///     fully descended into and rendered at full per-shape detail
-    ///     (only ITS OWN individual shapes were ever tested for being
-    ///     sub-pixel, never the placement as a whole), so a design with
-    ///     many placements each individually a few pixels wide - too big
-    ///     for any single shape inside them to be sub-pixel, but too
-    ///     small to be useful content - showed as visual noise the
-    ///     top-level's own directly-owned geometry never showed, even
-    ///     though it was culled the same way. Applying the identical
-    ///     threshold one level up (to the placement itself, before ever
-    ///     descending) closes that gap and also skips real, avoidable
-    ///     work (an entire subtree's own shape iteration/rasterization),
-    ///     not just a visual cleanup.
+    ///     is. Testing only a placement's individual shapes isn't enough:
+    ///     at `hierarchy_depth >= 1` on a zoomed-out viewport, many
+    ///     placements a few pixels wide each (too big for any single shape
+    ///     inside to be sub-pixel, too small to be useful content) would
+    ///     render as visual noise. Culling the placement itself, before
+    ///     descending, avoids that and skips the whole subtree's work.
     ///
     /// An id with no surviving placement anywhere never gets visited at
     /// all, and therefore never appears in the output - the same
@@ -97,10 +88,9 @@ namespace le
     /// position regardless, so this can only ever cost a little
     /// unnecessary off-screen work, never an incorrect on-screen result.
     ///
-    /// Overlap testing is spatially indexed, not a linear scan (measured:
-    /// a linear scan missed the Warm tier's own 500ms budget by ~3.5x at
-    /// the 1M-component target scale, PIPELINE_REFACTOR_BENCHMARK_RESULTS.md's
-    /// commit 6478286 entry). Two things make this fast rather than just
+    /// Overlap testing is spatially indexed, not a linear scan (a linear
+    /// scan misses the Warm tier's 500ms budget by ~3.5x at the
+    /// 1M-component target scale). Two things make this fast rather than just
     /// "an rtree slapped on":
     ///   - The *viewport* is brought into each node's own local space
     ///     (Geometry::invert(accumulated_transform) applied once per

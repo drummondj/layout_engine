@@ -99,12 +99,10 @@ namespace le
     /// the full OutputData on every single execute() (cache hit or miss:
     /// `return {last_result_, ...}` copy-constructs from the `last_result_`
     /// member either way), not just the recompute case - free for a small
-    /// OutputData, but a real, measured multi-second cost for a large one
-    /// (confirmed directly: ~1.75s of real compute() work vs. several
-    /// seconds more just moving a ~1,000,000-entry HierarchyResolverOutput
-    /// through the cache and this node's own TBB message-passing/
-    /// buffering down to a successor, PIPELINE_REFACTOR_BENCHMARK_RESULTS.md's
-    /// 5x5 entries). A `shared_ptr` copy is one atomic refcount bump
+    /// OutputData, but a multi-second cost for a large one (copying a
+    /// ~1,000,000-entry HierarchyResolverOutput through the cache and TBB
+    /// message-passing costs several times its ~1.75s compute()). A
+    /// `shared_ptr` copy is one atomic refcount bump
     /// regardless of payload size - `compute()` itself is unaffected
     /// (subclasses still just return a plain `OutputData` by value; this
     /// wraps it exactly once, in execute()). A downstream stage wired via
@@ -160,15 +158,13 @@ namespace le
         /// @brief Whether calling execute() with this exact
         /// (data_version, options) pair right now would trigger a real
         /// compute() call, without running it or mutating any state.
-        /// BUGS_AND_ENHANCEMENTS.md E31's own SynchronousStageChain
-        /// follow-up - lets a caller decide whether even TRIGGERING the
+        /// Lets a caller decide whether even TRIGGERING the
         /// underlying flow::graph node is worth its own real per-call
         /// TBB scheduling overhead, which execute()'s own early-return
         /// (on should_recompute == false) does NOT avoid by itself: the
         /// message still has to be try_put and the graph still has to be
-        /// waited on to get the (unchanged) result back out - measured,
-        /// not assumed, at 300-600ms on a real ~478,000-shape Layout
-        /// even on a guaranteed cache hit, before this method existed.
+        /// waited on to get the (unchanged) result back out - 300-600ms on
+        /// a ~478,000-shape Layout even on a guaranteed cache hit.
         bool would_recompute(std::uint64_t data_version, const PipelineOptions &options) const
         {
             return last_data_version_ != data_version || options_did_change(last_options_, options);

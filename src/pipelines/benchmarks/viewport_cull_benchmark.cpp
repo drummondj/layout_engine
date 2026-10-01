@@ -29,10 +29,8 @@ namespace
     // never a fresh one per tick. A fresh ViewportCullRunner per
     // iteration (BM_HierarchyResolver's own convention, for measuring a
     // real cache *miss*) would defeat the index entirely here, paying a
-    // full rebuild every single iteration - confirmed directly, an
-    // earlier version doing exactly that made every point in this matrix
-    // slower than the pre-index linear scan it was meant to replace, not
-    // faster. So: one runner, reused across the whole benchmark; each
+    // full rebuild every single iteration (slower than a linear scan).
+    // So: one runner, reused across the whole benchmark; each
     // iteration presents a genuinely different viewport (panning across
     // a small window) so MemoizingStage's own options_did_change() still
     // forces a real compute() call every time, exercising the index

@@ -25,8 +25,7 @@ namespace
 
     // RasterizedFrame's own pixel_data is premultiplied RGBA (compute()'s
     // own doc comment) - unpremultiply before comparing against a raw,
-    // straight ViewLayerStyle color, mirroring what SkPixmap::getColor
-    // used to do for free when this test was Skia-based.
+    // straight ViewLayerStyle color.
     SampledColor unpremultiply(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
     {
         if (a == 0)

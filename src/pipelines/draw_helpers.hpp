@@ -9,18 +9,9 @@
 #include <cmath>
 #include <cstdint>
 
-/// @brief Style constants and free drawing helpers shared across the
-/// restarted pipelines module - originally ported from
-/// pipelines.old/draw_helpers.hpp (git history, a Skia/pixel-space/
-/// SkPicture design), then narrowed to Blend2D once RasterizeStage
-/// (Skia) and the generic Skia/Blend2D-swappable pipeline were removed
-/// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) - RasterizeBlend2DStage is
-/// now the only Rasterize backend, and ComposeStage composites natively
-/// in Blend2D too, so nothing here needs to stay backend-agnostic
-/// anymore. See that entry for what was deleted (`pattern_shader`,
-/// `draw_cross`, `truncate_text_to_width`, `to_sk_color` - each had a
-/// direct Blend2D-only equivalent already in use, or a `to_bl_color`
-/// counterpart below).
+/// @brief Style constants and free drawing helpers shared by the
+/// pipelines module's Blend2D stages (RasterizeBlend2DStage and
+/// ComposeStage).
 namespace le
 {
     // Fixed screen-pixel tile size for every tiled FillPattern below
@@ -29,19 +20,16 @@ namespace le
     // zoom (the pattern stays a constant visual density at any zoom
     // level, like a hatch fill in a CAD tool, rather than shrinking to
     // nothing zoomed out or ballooning zoomed in) - see
-    // pattern_shader_for_scale's own local-matrix compensation below for
-    // how that's achieved when drawing happens in dbu space through an
-    // ambient scale, unlike the old pixel-space design this was ported
-    // from.
+    // RasterizeBlend2DStage's set_fill (BL_CONTEXT_STYLE_TRANSFORM_MODE_NONE)
+    // for how that's achieved when drawing happens in dbu space through
+    // an ambient scale.
     inline constexpr int kPatternTileSize = 12;
 
     // Spacing between stripes, in screen pixels.
     inline constexpr double kDiagonalStripePeriod = 8.0;
 
     // Blend2D's own repeating BLPattern tiles by exact multiples of the
-    // tile's own size, same as Skia's kRepeat tiling did (this constant's
-    // own reasoning predates the Skia removal, PIPELINE_REFACTOR_BENCHMARK_RESULTS.md,
-    // but still applies unchanged) - so for pattern_blend2d's own
+    // tile's own size - so for pattern_blend2d's own
     // "redundant offset lines, let the tile edge clip them" technique to
     // reconstruct a truly continuous periodic hatch (not a phase-shifted
     // zigzag between tiles), the tile size *must* be an exact multiple of
@@ -54,11 +42,11 @@ namespace le
     // instead of shrinking to unreadable specks.
     inline constexpr double kMinLabelPixelSize = 12.0;
 
-    // Flightlines (NEW_FEATURES_SEPT_2026.md item 5) - thin, so a dense
+    // Flightlines - thin, so a dense
     // net's star of lines stays readable.
     inline constexpr double kFlightlineStrokeWidth = 1.0;
 
-    // The Resize tool's hover indicator (NEW_FEATURES_SEPT_2026.md item 3) -
+    // The Resize tool's hover indicator -
     // the grabbable edge/segment, thicker than the hover outline, plus a
     // small square handle at its midpoint.
     inline constexpr double kResizeHoverStrokeWidth = 3.0;
@@ -67,12 +55,11 @@ namespace le
     // Maximum on-screen text size in pixels, regardless of how large the
     // labeled geometry's own on-screen footprint grows (e.g. zoomed in
     // close on a single cell) - a label only needs to stay legible, not
-    // grow without bound to match the geometry (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md's
-    // own text-rendering-cost investigation: capping this also bounds
+    // grow without bound to match the geometry. Capping this also bounds
     // RasterizeBlend2DStage's own per-(label,size,color) glyph-bitmap
     // cache to a small, fixed handful of distinct sizes instead of a
     // continuously-changing one per zoom tick, and keeps each cached
-    // bitmap - and so each blit - small). Tunable; 24px comfortably
+    // bitmap - and so each blit - small. Tunable; 24px comfortably
     // exceeds what's needed for a short pin/cell name to read clearly.
     inline constexpr double kMaxLabelPixelSize = 24.0;
 
@@ -101,15 +88,12 @@ namespace le
     // same `scale` before handing it to set_stroke_width - the same
     // "1.0 / scale" pattern this project's own hairline-stroke convention
     // already uses - or the resulting on-screen width scales with zoom
-    // instead of staying
-    // fixed (a real, found and fixed bug: both backends passed this
-    // constant straight through unscaled for a while).
+    // instead of staying fixed.
     inline constexpr float kViaCrossStrokeWidth = 3.0f;
 
     /// @brief True when a dbu-space bbox is under 1 on-screen pixel in
-    /// BOTH dimensions at the given scale - the exact "invisible dot"
-    /// test pipelines.old/stages/viewport_filter_stage.hpp used to drop a
-    /// shape entirely (not just one dimension, so a long thin wire
+    /// BOTH dimensions at the given scale - an "invisible dot" test that
+    /// drops a shape entirely (not just one dimension, so a long thin wire
     /// survives even if its width alone is sub-pixel; only a true
     /// dot-sized shape is culled). Used by RasterizeBlend2DStage's own
     /// draw_view_shapes_blend2d - a Rect/Polygon this returns true for is
@@ -117,15 +101,11 @@ namespace le
     /// at all, not merely left undrawn after the fact, since the whole
     /// point is avoiding that work's own real cost (BLPath construction,
     /// pattern lookup, draw-call dispatch) for geometry that ultimately
-    /// paints zero visible pixels either way - reintroduced
-    /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) after a real zoom-fit
-    /// investigation found Rasterize walking every shape in a design with
-    /// no equivalent size-based skip, unlike the pre-restart pipeline's
-    /// own ViewportFilterStage. Text (Shape.texts) is gated indirectly,
+    /// paints zero visible pixels either way (this dominates a zoom-fit
+    /// of a large design). Text (Shape.texts) is gated indirectly,
     /// not by this function directly: draw_view_shapes_blend2d's own
     /// draw_one_shape skips a whole shape's own text entirely once none
-    /// of its rects/polygons/paths survive this check (own doc comment,
-    /// PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) - a real, live shape
+    /// of its rects/polygons/paths survive this check - a real, live shape
     /// rendering an unrelated label floored at kMinLabelPixelSize with
     /// nothing visible to anchor it to reads as a rendering bug, not a
     /// feature.
@@ -136,7 +116,7 @@ namespace le
 
     /// @brief bbox_is_sub_pixel for a Polygon - computes its own bbox
     /// in-line (a Polygon carries no cached bbox of its own) rather than
-    /// building a full BLPath/SkPath first just to measure it; an empty
+    /// building a full BLPath first just to measure it; an empty
     /// point list (shouldn't occur for a real Shape's own polygon, but
     /// not this function's job to assume) is treated as sub-pixel, since
     /// there is nothing to draw either way.
@@ -158,18 +138,15 @@ namespace le
         return bbox_is_sub_pixel(max_x - min_x, max_y - min_y, scale);
     }
 
-    // Converts this codebase's own plain, backend-agnostic Color into a
-    // BLRgba32 - shared by RasterizeBlend2DStage (per-shape fill/stroke
-    // colors) and ComposeStage (drag-rect overlay) now that Blend2D is
-    // the only backend either ever draws with. BLRgba32's own constructor
+    // Converts this codebase's own plain Color into a BLRgba32 - shared
+    // by RasterizeBlend2DStage (per-shape fill/stroke colors) and
+    // ComposeStage (overlays). BLRgba32's own constructor
     // takes (r, g, b, a) in that order (core/rgba.h) - direct field-for-
     // field mapping, no reordering needed.
     inline BLRgba32 to_bl_color(Color c) { return BLRgba32(c.r, c.g, c.b, c.a); }
 
-    // Rubber-band drag-rectangle colors (ComposeStage's own doc comment) -
-    // ported from pipelines.old/draw_helpers.hpp verbatim, same RGBA
-    // values, so a user familiar with the pre-restart tool sees the exact
-    // same colors: blue for a plain select-drag, green for a
+    // Rubber-band drag-rectangle colors (ComposeStage's own doc comment):
+    // blue for a plain select-drag, green for a
     // drag-to-zoom gesture (ViewRenderOptions::drag_is_zoom picks which
     // pair). Translucent fill + a more opaque stroke, same convention as
     // every other overlay color in this codebase.
@@ -179,38 +156,25 @@ namespace le
     inline constexpr Color kZoomDragRectStrokeColor = {80, 255, 160, 220};
     inline constexpr float kDragRectStrokeWidth = 2.0f;
 
-    // White selection outline (UPDATES.md item 7) - ported verbatim from
-    // pipelines.old/draw_helpers.hpp's own kSelectionOutlineColor/
-    // kSelectionOutlineStrokeWidth, same RGBA/width, so a user familiar
-    // with the pre-restart tool sees the exact same highlight.
+    // White selection outline.
     inline constexpr Color kSelectionOutlineColor = {255, 255, 255, 255};
     inline constexpr double kSelectionOutlineStrokeWidth = 2.0;
 
-    // Red grid-snap cursor box (UPDATES.md 7.1 item 1) - ported verbatim
-    // from pipelines.old/draw_helpers.hpp's own kCursorBoxColor/
-    // kCursorBoxStrokeWidth/kCursorBoxSizePx, same RGBA/width/size - and
-    // the yellow the Resize tool's hover indicator draws in.
+    // Red grid-snap cursor box, and the yellow the Resize tool's hover
+    // indicator draws in.
     inline constexpr Color kCursorBoxColor = {255, 0, 0, 255};
     inline constexpr double kCursorBoxStrokeWidth = 1.0;
     inline constexpr double kCursorBoxSizePx = 7.0;
     inline constexpr Color kHoverOutlineColor = {255, 255, 0, 255};
 
-    // Dashed, translucent-white Move ghost preview (UPDATES.md item 21) -
-    // ported verbatim from pipelines.old/draw_helpers.hpp's own
-    // kMoveGhostColor/kMoveGhostStrokeWidth/kMoveGhostDashOnPx/
-    // kMoveGhostDashOffPx, same RGBA/width/dash pattern.
+    // Dashed, translucent-white Move ghost preview.
     inline constexpr Color kMoveGhostColor = {255, 255, 255, 160};
     inline constexpr double kMoveGhostStrokeWidth = 2.0;
     inline constexpr double kMoveGhostDashOnPx = 6.0;
     inline constexpr double kMoveGhostDashOffPx = 4.0;
 
-    // Ruler (UPDATES.md item 13) - orange line/ticks/labels, a translucent
-    // "ghost" variant for the not-yet-committed live segment - all ported
-    // verbatim from pipelines.old/draw_helpers.hpp's own kRulerColor/
-    // kRulerGhostColor/kRulerStrokeWidth/kRulerPointRadius/
-    // kRulerMajorTickLengthPx/kRulerMinorTickLengthPx/
-    // kMinRulerMajorTickPixelSpacing/kMinRulerMinorTickPixelSpacing, same
-    // RGBA/widths/spacings.
+    // Ruler - orange line/ticks/labels, with a translucent "ghost" variant
+    // for the not-yet-committed live segment.
     inline constexpr Color kRulerColor = {255, 140, 0, 255};
     inline constexpr Color kRulerGhostColor = {255, 140, 0, 140};
     inline constexpr double kRulerStrokeWidth = 1.5;
@@ -220,14 +184,8 @@ namespace le
     inline constexpr double kMinRulerMajorTickPixelSpacing = 40.0;
     inline constexpr double kMinRulerMinorTickPixelSpacing = 6.0;
 
-    // Background dbu grid (major/minor dot tiers + axis lines, UPDATES.md
-    // 5.1) and Abstract origin marker (UPDATES.md 5.4) - ported verbatim
-    // from pipelines.old/draw_helpers.hpp's own kMinGridDotPixelSpacing/
-    // kGridDotRadius/kMinorGridColor/kMajorGridColor/kAxisLineColor/
-    // kOriginMarkerColor/kOriginMarkerStrokeWidth/kOriginMarkerSizePx,
-    // same RGBA/sizes/spacing floor. Unlike the pre-restart version
-    // (recorded into an already-pixel-space picture with no ambient
-    // transform of its own), `RasterizeBlend2DStage`'s own per-node
+    // Background dbu grid (major/minor dot tiers + axis lines) and
+    // Abstract origin marker. `RasterizeBlend2DStage`'s own per-node
     // context already has a live dbu-to-pixel transform active by the
     // time these draw - see draw_grid_blend2d/draw_origin_marker_blend2d
     // (rasterize_blend2d_stage.hpp) for how every fixed on-screen size
@@ -245,11 +203,8 @@ namespace le
     /// @brief The largest-precision (smallest) power-of-ten micron
     /// spacing (..., 0.01, 0.1, 1, 10, 100, ...) whose on-screen pixel
     /// spacing is still >= kMinRulerMajorTickPixelSpacing, given
-    /// `pixels_per_um` (`scale * dbu_per_um`) - ported verbatim from
-    /// pipelines.old/draw_helpers.hpp's own ruler_major_tick_spacing_um
-    /// (pure math, no Skia dependency to narrow). Minor spacing is
-    /// always exactly this / 10 (UPDATES.md item 13's own "ten minor
-    /// ticks for every major tick").
+    /// `pixels_per_um` (`scale * dbu_per_um`). Minor spacing is always
+    /// exactly this / 10 (ten minor ticks for every major tick).
     inline double ruler_major_tick_spacing_um(double pixels_per_um)
     {
         if (pixels_per_um <= 0.0)
@@ -266,23 +221,16 @@ namespace le
     /// `stroke_width` - shared by every ComposeStage overlay that traces
     /// one piece's own outline (selection, hover, Move-ghost): each is
     /// just a different color/width/dash on the exact same "trace each
-    /// rect/polygon/path's own buffered outline" technique, ported from
-    /// pipelines.old/draw_helpers.hpp's own draw_selected_piece_outline/
-    /// draw_hover_outline/draw_move_ghost (near-identical bodies there
-    /// too, just duplicated three ways under Skia - unified into one
-    /// helper here since Blend2D's own `BLContext` state (fill/stroke
-    /// style, dash array) needs setting by the caller anyway, right next
-    /// to whichever color/width/dash *this* overlay uses, not hidden
-    /// inside a helper that would otherwise need a color/width/dash
-    /// parameter per overlay kind). A Path traces its own *buffered
+    /// rect/polygon/path's own buffered outline" technique. The caller
+    /// sets the `BLContext` stroke state (color/width/dash) itself, right
+    /// next to whichever style *this* overlay uses. A Path traces its own *buffered
     /// outline polygon* (`Geometry::path_to_polygons`), not a stroke
     /// along its centerline - matching exactly what
     /// `Geometry::find_hit_piece`/`fully_enclosed_pieces` themselves test
     /// against, so a highlight traces what's actually
     /// clickable/selected/hit, not an invisible centerline that would
     /// collapse into a solid-looking blob for a path whose width is
-    /// comparable to its own length (a real reported bug against
-    /// synthetic stress-test geometry shaped exactly like that).
+    /// comparable to its own length.
     ///
     /// Caller's own responsibility: `ctx.set_stroke_style`/
     /// `set_stroke_width`/dash state, called once before this (per-layer-

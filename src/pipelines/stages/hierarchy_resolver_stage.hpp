@@ -84,9 +84,9 @@ namespace le
         std::chrono::steady_clock::time_point start_;
     };
 
-    /// @brief Which further Abstract or Layout a Placement resolves to -
-    /// PIPELINE_REFACTOR.md's own id type (also HierarchyResolverOutput's
-    /// own map key). See resolve_design_target (core/placement_geometry.hpp)
+    /// @brief Which further Abstract or Layout a Placement resolves to
+    /// (also HierarchyResolverOutput's own map key). See
+    /// resolve_design_target (core/placement_geometry.hpp)
     /// for the single source of truth on Layout-vs-Abstract dispatch.
     using HierarchyId = std::variant<AbstractId, LayoutId>;
 
@@ -108,8 +108,7 @@ namespace le
         }
     };
 
-    /// @brief One placed instance of a Layout's own content -
-    /// PIPELINE_REFACTOR.md's own ViewPlacementData. `id` is already
+    /// @brief One placed instance of a Layout's own content. `id` is already
     /// resolved (Layout vs. Abstract, per HierarchyId's own comment)
     /// rather than the raw PlacementData::reference_design, so a Warm-tier
     /// consumer never has to re-run resolve_design_target itself.
@@ -176,15 +175,11 @@ namespace le
     ///
     /// A Warm-tier stage (ViewportCullStage) builds a new ViewData per
     /// node with different `placement_data` but the exact same `shapes`,
-    /// every single viewport-only call; measured directly
-    /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) that copying a
-    /// ~1,000,000-entry shapes structure by value on every such call,
-    /// even though its content never actually changes call to call,
-    /// dominated the Warm tier's own budget far more than the placement-
-    /// culling work itself - the same "a shared_ptr copy is a refcount
-    /// bump regardless of payload size" fix MemoizingStage's own
-    /// OutputHandle already applies one level up, applied here one level
-    /// down (hence a shared_ptr-wrapped handle, not the map itself).
+    /// every single viewport-only call. Copying a ~1,000,000-entry shapes
+    /// structure by value on every such call would dominate the Warm
+    /// tier's budget, so it's a shared_ptr-wrapped handle (a refcount
+    /// bump regardless of payload size, as with MemoizingStage's own
+    /// OutputHandle).
     using ViewLayerShapes = std::unordered_map<ViewLayerId, std::vector<RenderShape>>;
     using ViewShapesHandle = std::shared_ptr<const ViewLayerShapes>;
 
@@ -226,8 +221,8 @@ namespace le
         return true;
     }
 
-    /// @brief One Abstract's or Layout's own resolved content -
-    /// PIPELINE_REFACTOR.md's own ViewData. `shapes` is this node's own
+    /// @brief One Abstract's or Layout's own resolved content. `shapes`
+    /// is this node's own
     /// *direct* geometry only (an Abstract's Terminals/Obstructions/
     /// boundary; a Layout's own diearea/blockages/routes/physical ports/
     /// rows/tracks/gcell grids/regions) - a placed child's own shapes live
@@ -269,9 +264,8 @@ namespace le
     /// one per kind of small content, so an edit to one kind leaves the
     /// others untouched. After them come the Layout's route tiles, then
     /// its placement tiles (HierarchyResolverStage's LayoutTiling): routes
-    /// and placements are nearly all of a real design
-    /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md, the aes_scaling phase
-    /// profile), so they're split spatially and an edit rebuilds only the
+    /// and placements are nearly all of a real design, so they're split
+    /// spatially and an edit rebuilds only the
     /// tiles it touched. An Abstract node has one chunk.
     enum class LayoutChunk : std::uint8_t
     {
@@ -359,8 +353,8 @@ namespace le
     /// already in scope.
     using ViewLayerSetHandle = std::shared_ptr<const ViewLayerSet>;
 
-    /// @brief PIPELINE_REFACTOR.md's own HierarchyResolverOutput - every
-    /// Abstract/Layout HierarchyResolverStage's traversal reached, keyed
+    /// @brief HierarchyResolverStage's output - every
+    /// Abstract/Layout its traversal reached, keyed
     /// by its own id.
     struct HierarchyResolverOutput
     {
@@ -461,14 +455,11 @@ namespace le
         std::size_t owned_bytes_including_shapes() const { return shape_bytes + own_overhead_bytes; }
 
         /// @brief The bytes ViewportCullStage's own cache is responsible
-        /// for - excludes shape_bytes entirely. Confirmed directly in
-        /// that stage's own compute(): `data.shapes = source_data.shapes;`
-        /// is a shared_ptr copy (a refcount bump) of the exact same
-        /// ViewLayerShapes HierarchyResolverStage already built, not a
-        /// duplicate - see ViewData's own doc comment for the history (an
-        /// earlier by-value design measured a real multi-second cost
-        /// copying ~1,000,000 shapes on every viewport-only call,
-        /// PIPELINE_REFACTOR_BENCHMARK_RESULTS.md). Only `placement_data`
+        /// for - excludes shape_bytes entirely: that stage's compute()
+        /// does `data.shapes = source_data.shapes;`, a shared_ptr copy (a
+        /// refcount bump) of the exact same ViewLayerShapes
+        /// HierarchyResolverStage already built, not a duplicate (see
+        /// ViewShapesHandle's own doc comment). Only `placement_data`
         /// (this stage's own freshly-built culled subset) is real,
         /// additional memory - reporting shape_bytes here too would
         /// double-count bytes already attributed to HierarchyResolverStage's
@@ -510,7 +501,7 @@ namespace le
         return stats;
     }
 
-    /// @brief Cold-tier stage 2 (PIPELINE_REFACTOR.md): traverses
+    /// @brief Cold-tier stage 2 (docs/PIPELINE_REFACTOR.md): traverses
     /// Placement -> Design hierarchy from ViewRenderOptions::top_level,
     /// consuming one unit of ViewRenderOptions::hierarchy_depth per
     /// Layout -> Layout hop. At remaining_depth == 0 a Layout's own
@@ -520,16 +511,14 @@ namespace le
     /// PLACEMENT placeholder rect+label is still drawn (see the
     /// main compute() loop's own comment), since that's real data about
     /// this Layout's own direct content, not about what a placement
-    /// resolves to. This is a deliberate departure from
-    /// resolve_design_target's own "fall back to the Abstract regardless
-    /// of remaining depth" convention (core/placement_geometry.hpp) -
-    /// still the right choice, and still used here for sizing a
-    /// placement's own placeholder rect/ViewPlacementData::bbox, for
-    /// every *other* caller (hit-testing, Scene::hierarchy_depth()'s own
-    /// documented semantics, CLAUDE.md) - this stage's own
-    /// depth==0 case just isn't one of them: "traverses hierarchy ...
-    /// until hierarchy_depth is 0" is read literally here, not as
-    /// "one further Abstract-only hop past 0."
+    /// resolves to. This deliberately departs from
+    /// resolve_design_target's "fall back to the Abstract regardless of
+    /// remaining depth" convention (core/placement_geometry.hpp), which
+    /// is still used here for sizing a placement's own placeholder
+    /// rect/ViewPlacementData::bbox and by every other caller
+    /// (hit-testing, LeHandle::hierarchy_depth()'s documented semantics):
+    /// "traverses hierarchy ... until hierarchy_depth is 0" is read
+    /// literally here, not as "one further Abstract-only hop past 0."
     ///
     /// Gathers every reached Abstract's/Layout's own *direct* shapes
     /// (Terminal/Obstruction/boundary for an Abstract; diearea/Blockage/
@@ -537,25 +526,15 @@ namespace le
     /// PlacementBoundary for a Layout - the last one a synthesized,
     /// name-labeled outline of each of the Layout's own Placements' own
     /// resolved footprint, not real LEF/DEF geometry), each resolved to
-    /// its ViewLayerId - a simplified port of the pre-restart
-    /// AbstractGeometryStage/LayoutGeometryStage compute()
-    /// bodies (src/pipelines.old/stages/): RECT/PATH/POLYGON ITERATE
-    /// expansion and Terminal name-label placement are carried over (both
-    /// are real *data*, not a rendering-only concern), but SelectionRef/
-    /// ShapeId/path_outlines (Hot-tier hit-testing/picture-caching
-    /// concerns with no equivalent tracked here) and via-shape
-    /// expansion (Shape.vias/via_iterates - src/pipelines.old/stages/
-    /// via_shapes.hpp, ~380 lines of its own VIARULE/array-expansion logic)
-    /// are deliberately deferred to a follow-up rather than ported
-    /// speculatively in the same change - flag if real via-bearing fixture
-    /// data makes that gap visible sooner than expected.
+    /// its ViewLayerId. Also expands RECT/PATH/POLYGON ITERATE, places
+    /// Terminal name labels, and expands vias (via_shapes.hpp). Shapes
+    /// carry no ShapeId - hit-testing works against Root directly
+    /// (core/placement_geometry.hpp).
     ///
     /// Traversal is breadth-first, one worklist entry per discovered
     /// {id, remaining_depth}, deduplicating by `id` alone - not by
-    /// {id, remaining_depth}, unlike the pre-restart per-node graph's own
-    /// Layout key (HierarchyLayoutNodeStage's own doc comment): this
-    /// stage's own ViewData never bakes in a recursively-composed picture
-    /// the way that stage's own SkPicture output did, so a Layout's own
+    /// {id, remaining_depth}: ViewData never bakes in a recursively-
+    /// composed picture, so a Layout's own
     /// *direct* shapes genuinely don't depend on remaining_depth - only
     /// which further id one of its own placements resolves to does, and
     /// BFS visits every id at its shallowest discovered depth first, which
@@ -589,8 +568,7 @@ namespace le
     /// it can't place precisely (technology/library/design edits, a
     /// created or deleted Abstract/Layout, a saturated or wrapped log)
     /// falls back to the full resolve. last_compute_was_incremental() says
-    /// which ran. Measured in PIPELINE_REFACTOR_BENCHMARK_RESULTS.md
-    /// (resolver_profile's edit.* rows).
+    /// which ran. resolver_profile's edit.* rows measure it.
     class HierarchyResolverStage : public MemoizingStage<ViewLayerSetHandle, HierarchyResolverOutput, ViewRenderOptions>
     {
     public:
@@ -1574,12 +1552,10 @@ namespace le
             return std::make_shared<const ViewLayerShapeIndex>(std::move(index_by_layer));
         }
 
-        // Expands RECT/PATH/POLYGON ITERATE (UPDATES.md 12 Phase 1's raw-
-        // storage rework - see AbstractGeometryStage's own comment,
-        // src/pipelines.old/) into concrete rects/paths/polygons on a copy
-        // of `shape`. LEF-only in practice (DEF content never populates
-        // these fields), so collect_layout_content doesn't call this -
-        // matches the pre-restart stage split exactly.
+        // Expands RECT/PATH/POLYGON ITERATE (stored raw by LEFReader) into
+        // concrete rects/paths/polygons on a copy of `shape`. LEF-only in
+        // practice (DEF content never populates these fields), so
+        // collect_layout_content doesn't call this.
         static Shape expand_iterates(Shape shape)
         {
             return Geometry::expand_iterates(std::move(shape));
@@ -1658,8 +1634,7 @@ namespace le
             {
                 // Accumulates just the geometry primitives (not whole
                 // Shapes) per Layer, purely to place that Layer's own name
-                // label once its combined bbox is known - mirrors
-                // AbstractGeometryStage's own LabelAccumulator. Tracks
+                // label once its combined bbox is known. Tracks
                 // its own resolved view_layer too (not just first_shape_index)
                 // since the label-attach loop below needs it to reach
                 // back into shapes_by_layer, and it's a pure function of
@@ -1754,17 +1729,12 @@ namespace le
         }
 
         // Row/Track/GCellGrid have no stored Shape of their own (purely
-        // parametric geometry - Migration Step 2's own plan) - synthesized
-        // here exactly as LayoutGeometryStage's own append_*_shapes did.
+        // parametric geometry) - synthesized here.
         //
-        // Batched into one shared Shape (same reasoning as the main
-        // compute() loop's own placement-boundary batching: a plain Shape
-        // has no SelectionRef/ShapeId of its own to preserve per-Row,
-        // unlike the pre-restart RenderedShape) rather than one Shape per
-        // Row, the pre-restart stage's own convention - Row count is far
-        // below Placement's own (hundreds to low thousands, not hundreds
-        // of thousands), so the absolute win is smaller, but it's the same
-        // fix for the same reason.
+        // Batched into one shared Shape rather than one per Row (same
+        // reasoning as the main compute() loop's own placement-boundary
+        // batching: a plain RenderShape has no per-Row identity to
+        // preserve).
         static void append_row_shapes(const Root &root, LayoutId layout_id, const ViewLayerSet &view_layers, ViewLayerShapes &shapes_by_layer)
         {
             const auto &rows = root.get_layout_rows(layout_id);
@@ -1811,7 +1781,7 @@ namespace le
                     if (!layer_id.valid())
                         continue;
 
-                    // BUGS_AND_ENHANCEMENTS.md E2: a track resolves to
+                    // A track resolves to
                     // TRACK_PREFERRED if its own line direction matches
                     // this Layer's own declared preferred routing
                     // direction, else TRACK_NON_PREFERRED.
@@ -1859,8 +1829,8 @@ namespace le
                 shapes_by_layer[gcellgrid_view_layer].push_back(std::move(lines));
         }
 
-        // NEW_FEATURES_SEPT_2026.md item 28 - a Layout's PhysicalPorts (DEF
-        // PINS): their shapes on each layer's TERMINAL column (stored in
+        // A Layout's PhysicalPorts (DEF PINS): their shapes on each
+        // layer's TERMINAL column (stored in
         // design coordinates - DEFReader places them), the port's name as a
         // label per layer - placed like an Abstract terminal's (see
         // collect_abstract_content) - and a direction marker on

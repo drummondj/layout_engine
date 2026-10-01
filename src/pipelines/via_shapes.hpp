@@ -18,23 +18,17 @@ namespace le
     /// sibling Shapes appended directly into `shapes_by_layer`, keyed by
     /// each resolved ViaLayer's own physical Layer (`purpose` - whatever
     /// the referencing Shape's own purpose was: TERMINAL/OBSTRUCTION/
-    /// ROUTE/ROUTING_BLOCKAGE - resolved against that Layer). Ported from
-    /// pipelines.old/stages/via_shapes.hpp (git history) - see that file's
-    /// own extensive comments for the full three-tier resolution algorithm
-    /// (explicit LAYER/RECT geometry; a ViaRuleReference-driven array;
-    /// a bare VIARULE ... GENERATE name fit to the enclosing path's own
-    /// current width) and its documented approximations/gaps (PATTERN
-    /// bitmaps ignored, one scalar width fit symmetrically to both axes
-    /// for tier 3). The only real change from the old version: pushes a
-    /// plain `RenderShape` straight into the caller's own ViewLayerShapes map
-    /// (`shapes_by_layer[view_layer].push_back(...)`) instead of building
-    /// a `RenderedShape` with its own SelectionRef/path_outlines - the new
-    /// pipeline's collect_* functions already dropped that type (see
-    /// hierarchy_resolver_stage.hpp's own ViewLayerShapes comment), and a
-    /// via's own synthesized geometry has no independent selection
-    /// identity in either design (the Shape that referenced it, already
-    /// pushed as its own Shape by the caller, remains the selectable
-    /// unit).
+    /// ROUTE/ROUTING_BLOCKAGE - resolved against that Layer). Three
+    /// resolution tiers: explicit LAYER/RECT geometry; a
+    /// ViaRuleReference-driven array; a bare VIARULE ... GENERATE name fit
+    /// to the enclosing path's own current width. Approximations: PATTERN
+    /// bitmaps are ignored, and tier 3 fits one scalar width
+    /// symmetrically to both axes. Pushes a plain `RenderShape` straight
+    /// into the caller's own ViewLayerShapes map
+    /// (`shapes_by_layer[view_layer].push_back(...)`). A via's synthesized
+    /// geometry has no independent selection identity - the Shape that
+    /// referenced it (already pushed by the caller) is the selectable
+    /// unit.
     ///
     /// via_name resolves against the Layout's own DEF VIAS (LayoutVia,
     /// tried first when layout_id is valid - a design-scoped definition

@@ -421,7 +421,7 @@ TEST_F(HierarchyResolverStageFixture, AnAbstractsFreeShapesAppearInEveryPlacemen
               2);
 }
 
-// NEW_FEATURES_SEPT_2026.md item 28 - a Layout's PhysicalPorts draw their
+// A Layout's PhysicalPorts draw their
 // shapes on TERMINAL with the port's name as a label, plus one direction
 // marker per port on the PORT_MARKER row, beside its outer edge.
 TEST_F(HierarchyResolverStageFixture, PhysicalPortsDrawShapesLabelsAndDirectionMarkers)

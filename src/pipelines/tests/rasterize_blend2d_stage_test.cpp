@@ -22,11 +22,9 @@ namespace
     };
 
     // A BLImage's own BL_FORMAT_PRGB32 pixel data is premultiplied BGRA
-    // in memory on this little-endian target (confirmed by direct pixel
-    // inspection when this format was first adopted) - unpremultiply
+    // in memory on this little-endian target - unpremultiply
     // (comparing against a raw, straight ViewLayerStyle color) and
-    // reorder to RGBA here, mirroring what SkPixmap::getColor used to do
-    // for free when this test was Skia-based.
+    // reorder to RGBA here.
     SampledColor sample(const BLImage &image, int x, int y)
     {
         BLImageData data;
@@ -45,10 +43,7 @@ namespace
         return SampledColor{unpremul(r), unpremul(g), unpremul(b), a};
     }
 
-    // Same fixture shape as RasterizeStageFixture used to be (the earlier
-    // Skia-based rasterize_stage_test.cpp, now removed -
-    // PIPELINE_REFACTOR_BENCHMARK_RESULTS.md, RasterizeBlend2DStage is the
-    // only Rasterize backend): boundary (0,0)-(10,10), one Terminal rect
+    // Boundary (0,0)-(10,10), one Terminal rect
     // (1,1)-(2,2) and one Obstruction rect (3,3)-(4,4), both on the M1
     // routing layer.
     struct RasterizeBlend2DStageFixture : public ::testing::Test
@@ -82,28 +77,14 @@ namespace
             };
         }
 
-        // Same rationale as the earlier Skia fixture's own helper - a
-        // real per-object-type FillPattern means a single hardcoded
+        // A real per-object-type FillPattern means a single hardcoded
         // sample point can legitimately land on a pattern "gap", so tests
-        // scan a small block instead. A wider tolerance (30) than the
-        // Skia fixture's own (5) - unlike Skia (pattern_shader explicitly
-        // disabled antialiasing), Blend2D has exactly one
-        // BLRenderingQuality value (BL_RENDERING_QUALITY_ANTIALIAS) with
-        // no way to disable it. The brick tile's own 1px lines used to
-        // sit exactly ON a tile-boundary coordinate, splitting coverage
-        // ~75/25 across the two rows/columns each straddled (measured
-        // ~191/255 max alpha) - that part turned out to be a real, fixable
-        // bug (pattern_blend2d's own BRICK case, rasterize_blend2d_stage.hpp),
-        // the same class of "hazy wash instead of crisp joints" failure
-        // pipelines.old's own BRICK fix was originally about, just from
-        // mandatory AA rather than a missing line - offsetting each
-        // line's own cross-axis coordinate by +0.5 lands it fully within
-        // one pixel row/column instead, now measuring a solid 255/255.
-        // The diagonal-stripe tile's own ~233/255 max alpha *is* a real,
-        // permanent Blend2D characteristic, though - its 45-degree lines
-        // are never axis-aligned, so they always split AA coverage along
-        // their own length regardless of any fixed offset; 30 leaves
-        // comfortable margin for that alone.
+        // scan a small block instead. Tolerance is 30 because Blend2D
+        // always antialiases: the brick tile's 1px lines are offset by
+        // +0.5 to land fully within one pixel row/column (solid 255/255,
+        // see pattern_blend2d), but the diagonal-stripe tile's 45-degree
+        // lines always split AA coverage along their length (~233/255 max
+        // alpha).
         static bool region_contains_color_near(const BLImage &image, int x0, int y0, int x1, int y1, Color expected, int tolerance)
         {
             for (int y = y0; y < y1; ++y)
@@ -173,8 +154,7 @@ TEST_F(RasterizeBlend2DStageFixture, HidingAPurposeSkipsItsWholeLayerGroupButNot
 
 TEST_F(RasterizeBlend2DStageFixture, ShapeFarOutsideTheRenderViewportIsCulledButTheOneInsideStillDraws)
 {
-    // Mirrors the earlier Skia fixture's own equivalent test - confirms
-    // draw_view_shapes_blend2d's shapes_index-or-fallback dispatch is
+    // Confirms draw_view_shapes_blend2d's shapes_index-or-fallback dispatch is
     // wired correctly for this backend.
     const TerminalId far_terminal = root.create_terminal(TerminalData{.abstract = leaf_abstract, .name = "FAR", .direction = SignalDirection::INPUT});
     const TerminalPortId far_port = root.create_terminal_port(TerminalPortData{.terminal = far_terminal});
@@ -207,7 +187,7 @@ TEST_F(RasterizeBlend2DStageFixture, NullInputProducesEmptyOutput)
     EXPECT_EQ(output.culled, nullptr);
 }
 
-// NEW_FEATURES_SEPT_2026.md item 28 - a PhysicalPort's direction marker
+// A PhysicalPort's direction marker
 // draws under everything, so a port label running over its own marker (a
 // port on the right edge, label drawn left to right) stays readable.
 TEST_F(RasterizeBlend2DStageFixture, PortLabelDrawsOverItsOwnMarker)

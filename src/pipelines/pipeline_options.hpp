@@ -16,8 +16,8 @@
 namespace le
 {
     /// @brief Options shared by every stage of ViewRenderPipeline (see
-    /// PIPELINE_REFACTOR.md's own "Structure" section) - Cold, Warm, and
-    /// (eventually) Hot alike. Every stage wired into the same
+    /// docs/PIPELINE_REFACTOR.md's "Structure" section) - Cold, Warm, and
+    /// Hot alike. Every stage wired into the same
     /// oneapi::tbb::flow::graph must share this exact type (tbb_core.hpp's
     /// MemoizingStage is templated on one PipelineOptions type per graph),
     /// even though a given stage - e.g. LayerGenerationStage - only reads
@@ -34,9 +34,8 @@ namespace le
         /// LayerGenerationStage's own OutputHandle directly into
         /// HierarchyResolverStage's InputData via a real make_edge; the
         /// Root pointer has to travel some other way, since it isn't part
-        /// of that upstream output). Mirrors the pre-restart PipelineOptions'
-        /// own PipelineContext pattern (CLAUDE.md) for the same
-        /// reason. Never null-checked by a stage before use - each
+        /// of that upstream output). Never null-checked by a stage before
+        /// use - each
         /// degrades to an empty/default output instead (same convention
         /// as a null LeHandle in api.cpp).
         const Root *root = nullptr;
@@ -82,10 +81,7 @@ namespace le
         /// still forces a recompute, but currently unused by
         /// draw_view_shapes_blend2d's own draw calls: Blend2D has exactly
         /// one BLRenderingQuality value (BL_RENDERING_QUALITY_ANTIALIAS,
-        /// always on, rasterize_blend2d_stage.hpp's own comment), unlike
-        /// the earlier Skia-based RasterizeStage this field was
-        /// originally written for, which genuinely could and did disable
-        /// per-draw-call antialiasing.
+        /// always on, rasterize_blend2d_stage.hpp's own comment).
         bool antialiasing_enabled = false;
 
         /// @brief Per-layer-name and per-purpose visibility toggles - a
@@ -114,8 +110,8 @@ namespace le
         std::unordered_map<ViewLayerPurpose, bool> purpose_visible;
 
         /// @brief The user's per-layer colors (LeHandle::layer_color_overrides,
-        /// the Layers panel's color picker - NEW_FEATURES_SEPT_2026.md
-        /// item 17), applied by LayerGenerationStage on top of the default
+        /// the Layers panel's color picker), applied by LayerGenerationStage
+        /// on top of the default
         /// palette. Compared by content in its options_did_change, like the
         /// visibility maps above - small, one entry per recolored layer.
         std::map<std::string, Color> layer_color_overrides;
@@ -142,9 +138,8 @@ namespace le
 
         /// @brief Every currently-selected piece's own dbu-space geometry
         /// (`LeHandle::selection()`, already resolved to plain `Shape`s by
-        /// the caller - api.cpp's own view_render_options_for - the same
-        /// per-`SelectedObject`-kind resolution the pre-restart
-        /// `pipelines.old/stages/selection_overlay_stage.hpp` used:
+        /// the caller - api.cpp's own view_render_options_for - per
+        /// `SelectedObject` kind:
         /// `ShapePiece` via `Geometry::extract_piece`, `RowId` via
         /// `row_footprint_bbox`, `RegionId` via its own `RegionData::rects`
         /// directly, `PlacementId` via `placement_world_bbox`). One
@@ -154,13 +149,13 @@ namespace le
         /// produced it. Empty when nothing is selected.
         std::vector<Shape> selected_piece_outlines;
 
-        /// @brief The selected placements' flightlines (NEW_FEATURES_SEPT_2026.md
-        /// item 5, core/flightlines.hpp) - empty unless the FLIGHTLINE
+        /// @brief The selected placements' flightlines
+        /// (core/flightlines.hpp) - empty unless the FLIGHTLINE
         /// purpose is visible. Drawn in `flightline_color`.
         std::vector<Flightline> flightlines_dbu;
 
-        /// @brief The Resize tool's hover indicator (NEW_FEATURES_SEPT_2026.md
-        /// item 3) - the selected piece's edge/segment under the mouse that a
+        /// @brief The Resize tool's hover indicator - the selected
+        /// piece's edge/segment under the mouse that a
         /// click would grab. Changes only alongside `mouse_version`.
         std::optional<std::array<Point, 2>> resize_hover_segment_dbu;
         Color flightline_color;
@@ -195,8 +190,8 @@ namespace le
         /// uses.
         std::uint64_t mouse_version = 0;
 
-        /// @brief The live Move gesture's own ghost-preview geometry
-        /// (UPDATES.md item 21) - each moving piece's own *original*
+        /// @brief The live Move gesture's own ghost-preview geometry -
+        /// each moving piece's own *original*
         /// (pre-offset) dbu-space geometry, copied directly from
         /// `LeHandle::move().moving_geometry` (already one-piece `Shape`s,
         /// snapshotted at arm/re-arm time - no further resolution needed,
@@ -229,8 +224,7 @@ namespace le
         /// @brief The live, not-yet-committed ruler segment's own end
         /// point (`LeHandle::ruler_next_point()`) - nullopt unless
         /// `LeHandle::mode() == Mode::RULER` *and* there's an active
-        /// (unfinished, non-empty) ruler to extend, matching
-        /// pipelines.old's own `MouseOverlayStage` gating exactly. The
+        /// (unfinished, non-empty) ruler to extend. The
         /// segment's own start point is always the last entry's own last
         /// point in `ruler_polylines_dbu` - no separate field needed,
         /// since a ghost only ever exists when that polyline is real and
@@ -255,7 +249,7 @@ namespace le
         /// @brief Smallest / largest on-screen size (px) a shape or placement
         /// label is drawn at - `LeHandle::label_min_size_px()`/
         /// `label_max_size_px()`, the Settings panel's min/max label font
-        /// sizes (NEW_FEATURES_SEPT_2026.md item 9); draw_helpers.hpp's
+        /// sizes; draw_helpers.hpp's
         /// kMinLabelPixelSize/kMaxLabelPixelSize are the defaults. Compared
         /// in RasterizeBlend2DStage::options_did_change.
         double label_min_size_px = 12.0;
@@ -271,10 +265,8 @@ namespace le
 
         /// @brief Background dbu grid spacing (`LeHandle::
         /// minor_grid_spacing()`/`major_grid_spacing()`) - drawn only for
-        /// `top_level` itself (the currently-displayed content, not any
-        /// nested placement's own composited image - pipelines.old's own
-        /// `BuildDesignPictureStage` drew this only for the Abstract/
-        /// Layout actually being viewed too, never per-instance) by
+        /// `top_level` itself (the currently-displayed content, never any
+        /// nested placement's own composited image) by
         /// `RasterizeBlend2DStage`, not `ComposeStage` - this is Cold/
         /// Warm-tier design-adjacent content (drawn through the same
         /// per-node dbu-to-pixel transform real geometry uses), not
@@ -286,9 +278,8 @@ namespace le
         /// (`AbstractData::origin`, defaulting to dbu (0,0) when unset -
         /// `api.cpp`'s own `view_render_options_for` resolves this),
         /// nullopt when `top_level` isn't an `AbstractId` at all (a
-        /// Layout view has no origin marker - matching pipelines.old's
-        /// own scope, which never drew one for `BuildLayoutPictureStage`
-        /// either). Drawn by `RasterizeBlend2DStage` alongside the grid
+        /// Layout view has no origin marker). Drawn by
+        /// `RasterizeBlend2DStage` alongside the grid
         /// above, for the same "only for top_level itself" reason.
         std::optional<Point> abstract_origin_dbu;
     };

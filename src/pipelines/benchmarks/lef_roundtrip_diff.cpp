@@ -42,13 +42,12 @@ namespace
     }
 }
 
-// Dev-only progress-tracking tool for UPDATES.md item 12 (not a benchmark,
-// not run by ctest - mirrors render_preview's own "dev-only" precedent):
+// Dev-only LEF round-trip checker (not a benchmark, not run by ctest):
 // reads a LEF file, writes every Design's Abstract back out via LEFWriter
 // (each to its own file, plus one for the Technology's own layers -
-// LEFWriter::write_lef only ever writes one AbstractId at a time, per
-// UPDATES.md item 12 step 1's own spec, so there's no single "write the
-// whole file back out" call to make), gets the vendored lefdiff tool's own
+// LEFWriter::write_lef only ever writes one AbstractId at a time, so
+// there's no single "write the whole file back out" call to make), gets
+// the vendored lefdiff tool's own
 // normalized dump of each piece, concatenates them, and reports which
 // lines from the *original* file's own lefdiff dump are missing from that
 // concatenation - i.e. what LEFWriter/LEFReader still can't round-trip.
@@ -56,7 +55,7 @@ namespace
 // Usage: `cmake --build build --target lef_roundtrip_diff &&
 //         ./build/lef_roundtrip_diff [lef_file]`
 // Defaults to src/lefdef/lef/TEST/complete.5.8.lef (LEFDEF_TEST_DIR) - the
-// file item 12 names as the full-syntax target.
+// full-syntax target.
 int main(int argc, char **argv)
 {
     const std::string lef_path = argc > 1 ? argv[1] : std::string(LEFDEF_TEST_DIR) + "/complete.5.8.lef";

@@ -10,7 +10,7 @@
 
 namespace le
 {
-    /// @brief Cold-tier stage 1 (PIPELINE_REFACTOR.md): builds the
+    /// @brief Cold-tier stage 1 (docs/PIPELINE_REFACTOR.md): builds the
     /// technology's ViewLayers - a TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
     /// TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE ViewLayer per physical
     /// Layer plus the fixed ROW/BOUNDARY/PLACEMENT/GCELLGRID/
@@ -28,8 +28,8 @@ namespace le
     ///
     /// Recompute trigger: `ViewRenderOptions::root_mutation_version`,
     /// or a change to `layer_color_overrides` (the user's picked layer
-    /// colors, applied on top of the default palette - NEW_FEATURES_SEPT_2026.md
-    /// item 17), via options_did_change() below, not `data_version` - the
+    /// colors, applied on top of the default palette), via
+    /// options_did_change() below, not `data_version` - the
     /// input `Root*` itself never changes across calls within one handle's
     /// lifetime, so there is nothing meaningful to bump a data_version on;
     /// every database mutation already bumps root_mutation_version
@@ -61,7 +61,7 @@ namespace le
             // caller) - front() is every existing call site's convention,
             // not a new assumption introduced here.
             ViewLayerSet view_layers = ViewLayerSet::build_for_technology(*root, technology_ids.front());
-            // NEW_FEATURES_SEPT_2026.md item 17 - the user's picked colors.
+            // The user's picked colors.
             view_layers.apply_color_overrides(options.layer_color_overrides);
             return view_layers;
         }

@@ -8,7 +8,7 @@
 #include <vector>
 
 // Dev-only per-stage benchmarking tool (not a GoogleBenchmark target -
-// see pipeline_benchmarks/BENCHMARKS.md for that suite): drives the real
+// see the pipeline_benchmarks target for that suite): drives the real
 // LeHandle/api.hpp surface (le_read_lef/le_read_def/le_fit_scene/le_zoom/
 // le_render_pixel_buffer) through 3 phases - Cold Start Zoom-Fit, Zoom-In,
 // Final Zoom-Fit - for exactly ONE (design, hierarchy_depth) combination

@@ -51,14 +51,12 @@ namespace le
         return path;
     }
 
-    /// @brief Blend2D analog of draw_helpers.hpp's own `pattern_shader` -
-    /// same tile geometry/constants (kPatternTileSize/kDiagonalStripePeriod/
-    /// kDiagonalStripeTileSize, reused directly from that header rather
-    /// than redefined here), rendered into a small BLImage via a
-    /// throwaway BLContext instead of an SkSurface, then wrapped as a
+    /// @brief A FillPattern's tile (kPatternTileSize/kDiagonalStripePeriod/
+    /// kDiagonalStripeTileSize from draw_helpers.hpp), rendered into a
+    /// small BLImage via a throwaway BLContext, then wrapped as a
     /// repeating BLPattern. NONE/CROSS return an empty (default-constructed)
-    /// BLPattern - the caller checks `!pattern.empty()` (mirroring
-    /// pattern_shader's own nullptr-means-flat-fill contract) since
+    /// BLPattern - the caller checks `!pattern.empty()` (empty means a
+    /// flat fill) since
     /// FillPattern::CROSS is drawn specially (draw_cross_blend2d) rather
     /// than tiled.
     inline BLPattern pattern_blend2d(FillPattern pattern, BLRgba32 color)
@@ -98,19 +96,13 @@ namespace le
             // fully cover, not the along-line span) - without it, a
             // hairline centered exactly on an integer coordinate (0,
             // s/2) straddles the boundary between two pixel rows/
-            // columns, each getting only partial AA coverage. Skia's own
-            // pattern_shader sidesteps this with paint.setAntiAlias(false)
-            // (draw_helpers.hpp's own comment - "turns crisp brick/
-            // stripe edges into a hazy, low-alpha wash" is literally
-            // this same failure mode), but Blend2D has no equivalent -
-            // exactly one BLRenderingQuality value, always antialiased -
-            // so the fix here is geometric instead: shift the line so
-            // its own AA-softened edges land on the row/column's real
-            // integer boundaries (e.g. y=0.5 for row [0,1)) rather than
-            // straddling them. Found by direct pixel inspection - real,
-            // measured brick ink topped out at ~191/255 alpha before
-            // this (RasterizeBlend2DStageFixture's own wide color
-            // tolerance was working around it, not just AA softness).
+            // columns, each getting only partial AA coverage (a hazy,
+            // low-alpha wash instead of crisp brick/stripe edges).
+            // Blend2D can't turn antialiasing off - exactly one
+            // BLRenderingQuality value - so the fix is geometric: shift
+            // the line so its AA-softened edges land on the row/column's
+            // real integer boundaries (e.g. y=0.5 for row [0,1)) rather
+            // than straddling them.
             ctx.set_stroke_style(color);
             ctx.stroke_line(BLLine(0, 0.5, s, 0.5));
             ctx.stroke_line(BLLine(0, s / 2 + 0.5, s, s / 2 + 0.5));
@@ -141,19 +133,14 @@ namespace le
     }
 
     /// @brief Draws the background dot grid (major/minor tiers) plus
-    /// solid axis lines at dbu (x=0)/(y=0) - UPDATES.md 5.1, ported from
-    /// pipelines.old/draw_helpers.hpp's own `draw_grid`. Only ever called
+    /// solid axis lines at dbu (x=0)/(y=0). Only ever called
     /// for `id == options.top_level` (`RasterizeBlend2DStage::compute()`'s
     /// own call site) - drawing this per-node/per-placement too would
     /// bake a misaligned, independently-scaled grid into every nested
     /// child image, which then composites incorrectly once `ComposeStage`
-    /// blits it into its parent; the pre-restart version had the same
-    /// "top_level only" scope for the same reason (`BuildDesignPictureStage`,
-    /// never `BuildLayoutPictureStage`/an instance's own picture).
+    /// blits it into its parent.
     ///
-    /// Unlike the pre-restart version - recorded into an already-pixel-
-    /// space picture with no ambient transform of its own, so it needed
-    /// manual dbu-to-pixel math throughout - `ctx` here already has a
+    /// `ctx` here already has a
     /// live dbu-to-pixel transform active (the same translate+scale+flip
     /// `compute()` sets up before any real geometry draws), so every dot/
     /// line below is drawn directly in dbu coordinates and left to that
@@ -164,10 +151,8 @@ namespace le
     /// renders at a constant pixel size regardless of zoom.
     ///
     /// `visible_dbu` is the exact dbu-space rectangle `ctx`'s own image
-    /// covers (`options.viewport` for the top-level case) - unlike the
-    /// pre-restart version, which had to reconstruct this from
-    /// `pan`/`scale`/`viewport_width_px`/`viewport_height_px`, this stage
-    /// already has it on hand as `local_bbox`.
+    /// covers (`options.viewport` for the top-level case - the stage's
+    /// `local_bbox`).
     inline void draw_grid_blend2d(BLContext &ctx, const Rect &visible_dbu, double scale, int64_t minor_spacing, int64_t major_spacing)
     {
         if (scale <= 0.0)
@@ -219,7 +204,7 @@ namespace le
     }
 
     /// @brief Draws a fixed on-screen-size "+" cross at the Abstract's own
-    /// origin point (UPDATES.md 5.4) - not necessarily dbu (0,0); an
+    /// origin point - not necessarily dbu (0,0); an
     /// Abstract's origin is wherever its own LEF `ORIGIN` statement placed
     /// it (`AbstractData::origin`). Fixed size regardless of `scale`, same
     /// "marks a reference point, not geometry that should grow with zoom"
@@ -251,8 +236,7 @@ namespace le
     /// shape on that layer - see draw_view_shapes_blend2d's own per-layer
     /// setup). Rendering (and caching) each glyph directly at its own
     /// real target size, rather than always at one fixed reference size
-    /// and scaling the blit to fit, was tried and measured slower overall
-    /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) - Blend2D's scaled
+    /// and scaling the blit to fit, is faster overall - Blend2D's scaled
     /// `blit_image` overload resamples every destination pixel, real
     /// per-blit cost that a plain 1:1 point blit doesn't pay; rendering
     /// once per distinct size instead keeps every blit unscaled, at the
@@ -261,17 +245,14 @@ namespace le
     /// values, so this stays just as bounded as a size-independent key,
     /// only wider by that same small constant factor.
     ///
-    /// A per-CHARACTER cache, not a per-STRING one (an earlier version of
-    /// this cache, PIPELINE_REFACTOR_BENCHMARK_RESULTS.md - see that
-    /// entry's own postmortem): a whole-string cache's own key space
-    /// grows with the number of distinct STRINGS a design contains, which
-    /// is unbounded for content like a Placement's own name (unique per
-    /// instance, unlike a Terminal's own pin name, which repeats heavily
-    /// across instances of one library cell) - confirmed as a real,
-    /// reported OOM (continuous zooming with hierarchy_depth=0, so every
-    /// visible label is a placement name) that a whole-string cache
-    /// cannot ever bound, no matter how the rest of its lifetime is
-    /// scoped. A per-character cache is bounded by the size of the
+    /// A per-CHARACTER cache, not a per-STRING one: a whole-string
+    /// cache's own key space grows with the number of distinct STRINGS a
+    /// design contains, which is unbounded for content like a
+    /// Placement's own name (unique per instance, unlike a Terminal's own
+    /// pin name, which repeats heavily across instances of one library
+    /// cell) - continuous zooming with hierarchy_depth=0, where every
+    /// visible label is a placement name, would grow it until OOM. A
+    /// per-character cache is bounded by the size of the
     /// alphabet actually used (printable ASCII, well under 128) times the
     /// number of distinct font sizes (~15, clamped) times the number of
     /// distinct colors (small, one per physical layer) - regardless of
@@ -316,16 +297,14 @@ namespace le
     /// @brief Renders one ASCII character in `font` (sized for one of the
     /// ~15 distinct clamped/rounded pixel sizes a label can resolve to -
     /// GlyphBitmapCacheKey's own doc comment for why size IS part of this
-    /// cache's key, unlike an earlier version of this function) once into
-    /// a small, tightly-sized BLImage - the direct analog of Skia's own
-    /// internal glyph-bitmap cache, which Blend2D's `fill_utf8_text` has
-    /// no equivalent of (it shapes and fills each glyph run as vector
-    /// paths on every single call - measured at ~0.84us/call for a
-    /// 2-character label, PIPELINE_REFACTOR_BENCHMARK_RESULTS.md).
+    /// cache's key) once into a small, tightly-sized BLImage. Blend2D's
+    /// `fill_utf8_text` has no glyph-bitmap cache of its own (it shapes
+    /// and fills each glyph run as vector paths on every call -
+    /// ~0.84us/call for a 2-character label).
     ///
     /// Uses `BLFont::get_glyph_outlines` directly on a single mapped
-    /// glyph ID rather than `fill_glyph_run` on a shaped multi-glyph run
-    /// (this function's own earlier, whole-string form) - simpler AND
+    /// glyph ID rather than `fill_glyph_run` on a shaped multi-glyph run -
+    /// simpler AND
     /// correct here specifically because `font` is assumed monospace
     /// (`RasterizeBlend2DStage`'s own `default_blend2d_font_face()`,
     /// DejaVu Sans Mono): a monospace font's own glyph *shapes* still
@@ -435,9 +414,7 @@ namespace le
     /// a proportional font would need each character's own real advance
     /// (Blend2D's own shaped-run positioning, `BLGlyphRun::placement_data`)
     /// instead, which this function deliberately does not attempt -
-    /// simplicity was chosen over pixel-parity with Skia's own
-    /// proportional-font rendering for this backend, per explicit
-    /// direction, not an oversight.
+    /// a monospace font was chosen for simplicity.
     inline void draw_monospace_label_blend2d(
         BLContext &ctx, const MonospaceFontEntry &font_entry, int font_key,
         std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> &glyph_bitmap_cache,
@@ -502,21 +479,17 @@ namespace le
     /// compose_stage.hpp's own doc comment for the cross-node rotation/
     /// flip case this doesn't handle.
     ///
-    /// Blend2D has no Skia-style "stroke width 0 means always exactly 1
-    /// device pixel" hairline convention - a sub-pixel-on-screen (or
+    /// Blend2D has no "stroke width 0 means always exactly 1 device
+    /// pixel" hairline convention - a sub-pixel-on-screen (or
     /// deliberately zero-width, Track/GCellGrid) Path instead gets an
     /// explicit `1.0 / scale` stroke width, a real, on-screen-1-pixel-ish
     /// line at the current zoom.
     ///
     /// No opaque fast-path option (BL_COMP_OP_SRC_COPY instead of the
-    /// default BL_COMP_OP_SRC_OVER for a fully-opaque color) - tried and
-    /// removed (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md): measured zero
-    /// benefit even after hoisting comp_op out of this per-shape loop,
-    /// and even with its own color.a == 255 gate removed entirely, which
-    /// only bought a real, confirmed correctness cost instead (SRC_COPY
-    /// doesn't blend with the destination, it overwrites it outright -
-    /// a translucent fill/stroke drawn that way stops showing whatever
-    /// was drawn underneath it). Every draw below relies on BLContext's
+    /// default BL_COMP_OP_SRC_OVER for a fully-opaque color): it measures
+    /// no faster, and SRC_COPY overwrites rather than blends, so a
+    /// translucent fill/stroke drawn that way would hide whatever is
+    /// underneath it. Every draw below relies on BLContext's
     /// own documented default (BL_COMP_OP_SRC_OVER) rather than setting
     /// it explicitly.
     inline void draw_view_shapes_blend2d(
@@ -527,8 +500,8 @@ namespace le
         std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> &glyph_bitmap_cache,
         double requested_min_label_px = kMinLabelPixelSize, double max_label_px = kMaxLabelPixelSize)
     {
-        // The Settings panel's min/max label font sizes (NEW_FEATURES_SEPT_2026.md
-        // item 9, ViewRenderOptions::label_min_size_px/label_max_size_px):
+        // The Settings panel's min/max label font sizes
+        // (ViewRenderOptions::label_min_size_px/label_max_size_px):
         // every label is clamped to [min, max]; a min set above the max
         // yields to it.
         const double min_label_px = std::min(requested_min_label_px, max_label_px);
@@ -543,14 +516,11 @@ namespace le
         // recurring across many different labels drawn from a small
         // alphabet) is *cross-node*, not intra-node: HierarchyResolverStage
         // renders each distinct AbstractId's own content exactly once
-        // regardless of placement count (CLAUDE.md's own
-        // HierarchyResolver bullet - "a design placed N times is still
-        // resolved once"), so within any single call of THIS function a
-        // given Terminal's own pin name (or Placement's own instance
-        // name) appears at most once - an earlier, per-call-scoped
-        // version of an earlier (per-STRING) cache design measured a
-        // 100% miss rate against this exact fact
-        // (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md).
+        // regardless of placement count ("a design placed N times is
+        // still resolved once"), so within any single call of THIS
+        // function a given Terminal's own pin name (or Placement's own
+        // instance name) appears at most once - a per-call cache would
+        // miss every time.
         const BLFontFace &font_face = default_blend2d_font_face();
         const ViewLayerId placement_layer_id = view_layers.placement_view_layer();
         const ViewLayerId port_marker_layer_id = view_layers.port_marker_view_layer();
@@ -584,7 +554,7 @@ namespace le
 
         // PORT_MARKER draws first, under everything else - otherwise a
         // port's marker would cover its own label, drawn with the port's
-        // layer (NEW_FEATURES_SEPT_2026.md item 28). Markers sit outside
+        // layer. Markers sit outside
         // their ports, so nothing else they overlap hides a real shape.
         std::vector<ViewLayerId> draw_order = view_layers.all();
         std::ranges::stable_partition(draw_order, [&](ViewLayerId id)
@@ -655,15 +625,9 @@ namespace le
                     // `scale` *again* on top of what the ambient CTM
                     // already does to every draw call, shrinking the
                     // effective tile to a fraction of a pixel at any real
-                    // zoom (found by direct pixel inspection - every
-                    // sampled pixel showed a uniform partial-alpha
-                    // gradient with no fully-opaque or fully-transparent
-                    // pixel anywhere, consistent with sampling deep inside
-                    // one antialiased tile edge). NONE mode is the direct
-                    // Blend2D analog of the earlier Skia backend's own
-                    // pattern_shader/makeWithLocalMatrix scale-compensation -
-                    // achieved here by *not* combining with the CTM at all,
-                    // rather than manually inverting it.
+                    // zoom. NONE keeps the tile a constant screen size by
+                    // *not* combining with the CTM at all, rather than
+                    // manually inverting it.
                     ctx.set_fill_style(fill_pattern, BL_CONTEXT_STYLE_TRANSFORM_MODE_NONE);
                 else
                     ctx.set_fill_style(fill_color);
@@ -671,12 +635,10 @@ namespace le
             auto set_stroke = [&]
             {
                 ctx.set_stroke_style(stroke_color);
-                // Blend2D has no Skia-style "stroke width 0 means always
-                // exactly 1 device pixel" hairline convention (see this
-                // function's own top-level doc comment) - a literal 0
-                // renders nothing at all here, unlike Skia's own SkPaint
-                // hairline default. 1.0 / scale is the
-                // direct analog: a real, on-screen-~1-pixel-wide line at
+                // Blend2D has no "stroke width 0 means always exactly 1
+                // device pixel" hairline convention (see this function's
+                // own top-level doc comment) - a literal 0 renders nothing
+                // at all. 1.0 / scale gives a real, on-screen-~1-pixel-wide line at
                 // the current zoom, overridden below only where a wider
                 // width matters (kViaCrossStrokeWidth, or a Path's own
                 // sub-pixel case).
@@ -701,8 +663,7 @@ namespace le
             // stroke_color/the comp_op choice are all ViewLayerStyle-level
             // values, identical for every shape a layer holds, so
             // re-deriving the same BLContext fill/stroke state on every
-            // single shape (as this function used to do, inside
-            // draw_one_shape below) was pure repeated work - real cost at
+            // single shape would be pure repeated work - real cost at
             // real shape counts (a fresh BLArray<double> heap allocation
             // per shape for the dash array alone, on every dashed layer,
             // even when nothing about the dash pattern ever changes
@@ -751,13 +712,7 @@ namespace le
                 // no outline, nothing" (ApiFixture.
                 // SubPixelShapeIsNotRenderedAndIsNotSelectable, api_test.cpp) -
                 // not a label floating at kMinLabelPixelSize with no visible
-                // geometry backing it. A deliberate reversal of this
-                // function's own earlier "text is unaffected by sub-pixel
-                // culling" stance (bbox_is_sub_pixel's own doc comment,
-                // draw_helpers.hpp) once text drawing actually existed to
-                // expose the conflict - a real, live shape (e.g. a small
-                // pin) rendering an unrelated 10px label with nothing to
-                // anchor it to reads as a rendering bug, not a feature.
+                // geometry backing it, which reads as a rendering bug.
                 bool any_geometry_drawn = false;
 
                 for (const Rect &r : shape.rects)
@@ -783,8 +738,8 @@ namespace le
                     ctx.stroke_rect(rect);
                 }
 
-                // A port marker never shrinks below kMinPortMarkerPixelSize
-                // (NEW_FEATURES_SEPT_2026.md item 28) - grown about the
+                // A port marker never shrinks below kMinPortMarkerPixelSize -
+                // grown about the
                 // port's edge, so it's never sub-pixel either.
                 std::optional<std::vector<Polygon>> enlarged_marker;
                 if (is_port_marker_layer)
@@ -962,13 +917,8 @@ namespace le
     }
 
     /// @brief The Rasterize stage - Blend2D's own JIT-compiled
-    /// rasterization pipeline, multi-threaded tiled rendering, tried and
-    /// kept (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) after beating the
-    /// original Skia-based RasterizeStage (side experiment, since
-    /// removed) by 1.35-2.9x with zero tuning on this project's own
-    /// "millions of small shapes" workload - now the only Rasterize
-    /// backend, and the sole thing ViewRenderPipeline (view_render_pipeline.hpp)
-    /// wires in (no more backend-swappable template). Both generic
+    /// rasterization pipeline, multi-threaded tiled rendering, suited to
+    /// this project's "millions of small shapes" workload. Both generic
     /// per-shape text and placement-name labels are drawn (see
     /// draw_view_shapes_blend2d's own doc comment), via a monospace font.
     ///
@@ -1060,12 +1010,9 @@ namespace le
 
                 ctx.end();
 
-                // ComposeStage now composites BLImages natively (Blend2D
-                // is the only Rasterize backend, PIPELINE_REFACTOR_BENCHMARK_RESULTS.md -
-                // the generic Skia/Blend2D-swappable pipeline and its own
-                // sk_sp<SkImage>-wrapping shim this replaced are gone), so
-                // `image` itself is the finished RasterizedImage - no
-                // format conversion/copy needed at all.
+                // ComposeStage composites BLImages natively, so `image`
+                // itself is the finished RasterizedImage - no format
+                // conversion/copy needed at all.
                 result.images.emplace(id, RasterizedImage{std::move(image), local_bbox.ll});
             }
 
@@ -1147,9 +1094,8 @@ namespace le
         // Unlike `path_outline_cache_by_chunk_` above, entries in either
         // map below never need invalidating - a (font_key)'s own BLFont,
         // or a (character, font_key, color)'s own rendered ink, never
-        // changes - and unlike an earlier, since-replaced per-STRING
-        // glyph-bitmap cache design (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md),
-        // `glyph_bitmap_cache_` is bounded by construction: at most (the
+        // changes - and `glyph_bitmap_cache_` is bounded by construction:
+        // at most (the
         // size of the alphabet actually used - printable ASCII, well
         // under 128) times (~15 distinct clamped/rounded font sizes)
         // times (the number of distinct colors a design's own

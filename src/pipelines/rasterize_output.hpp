@@ -11,15 +11,10 @@ namespace le
 {
     /// @brief One node's own rasterized image - just its own direct
     /// `shapes` (a Rasterize stage never draws a node's own placements/
-    /// children - ComposeStage composites those, PIPELINE_REFACTOR.md's
-    /// own stage split). `BLImage` owns its own pixel storage (refcounted,
-    /// cheap to copy - Blend2D's own analog of `sk_sp<SkImage>`), the
-    /// direct output of RasterizeBlend2DStage's own `BLContext` - no
-    /// format conversion/wrapping needed now that ComposeStage composites
-    /// natively in Blend2D too (RasterizeBlend2DStage is the only
-    /// Rasterize backend; the generic Skia/Blend2D-swappable pipeline and
-    /// this struct's own former `sk_sp<SkImage>`-wrapping design are gone,
-    /// PIPELINE_REFACTOR_BENCHMARK_RESULTS.md).
+    /// children - ComposeStage composites those). `BLImage` owns its own
+    /// pixel storage (refcounted, cheap to copy), the direct output of
+    /// RasterizeBlend2DStage's own `BLContext` - ComposeStage composites
+    /// it natively in Blend2D, with no format conversion.
     struct RasterizedImage
     {
         BLImage image;

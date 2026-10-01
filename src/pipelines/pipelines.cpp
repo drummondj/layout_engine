@@ -11,15 +11,9 @@
 #include <unistd.h>
 #endif
 
-// One compiled TU (PIPELINE_REFACTOR.md's restart otherwise being
-// header-only) - kept around purely for default_blend2d_font_face()
-// below, now that RasterizeStage (Skia) and its own default_typeface()
-// are gone (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md - RasterizeBlend2DStage
-// is the only Rasterize backend); nothing here needs Skia's own
-// SkFontMgr_mac_ct.h/ApplicationServices.h Carbon-typedef-collision
-// isolation anymore, but a single compiled TU (rather than reverting this
-// target back to INTERFACE) is still convenient for a static function-
-// local cache like this one.
+// The pipelines module's one compiled TU (the rest is header-only) - for
+// default_blend2d_font_face() below, whose static function-local cache
+// needs a single definition.
 #ifndef LE_FONT_DIR
 #error "LE_FONT_DIR must be set by CMakeLists.txt"
 #endif

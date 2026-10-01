@@ -37,24 +37,18 @@ namespace
     }
 }
 
-// Dev-only benchmark (BUGS_AND_ENHANCEMENTS.md E31 zoom/pan-tick
-// follow-up): quantifies the win of a spatial index (Boost.Geometry
-// Index rtree, bulk-loaded from Placement world bboxes) over
-// HierarchyResolver::discover_layout_children's own current unconditional
-// per-placement linear scan (hierarchy_resolver.hpp) - the walk shown to
-// dominate every scale/pan-only "zoom tick" render, since it reruns in
-// full on every such call regardless of ensure_epoch's own scale-drift
-// tolerance.
+// Dev-only benchmark: quantifies the win of a spatial index
+// (Boost.Geometry Index rtree, bulk-loaded from Placement world bboxes)
+// over a per-placement linear scan for viewport queries.
 //
-// Deliberately measures the two costs discover_layout_children's own
-// per-tick budget would actually split into under a spatial-index
-// design: an rtree only pays off if it's built ONCE (keyed on
+// Measures the two costs separately: an rtree only pays off if it's
+// built ONCE (keyed on
 // root.mutation_version(), rebuilt only on a real database edit - Root
 // never changes between pan/zoom ticks) and reused across every
 // view-only call, so "build" and "query" are reported as two separate
 // numbers, not combined - the real per-tick win is the query number
 // alone, compared against the linear scan's own per-tick cost (which
-// pays the equivalent of a fresh "build" every single tick today).
+// pays the equivalent of a fresh "build" every single tick).
 //
 //   ./spatial_index_benchmark <tech.lef> <design.def>
 int main(int argc, char **argv)

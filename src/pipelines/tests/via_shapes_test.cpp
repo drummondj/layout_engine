@@ -1,17 +1,9 @@
-// Ported from pipelines.old/tests/pipelines_test.cpp's own
-// AbstractShapePipelineFixture via-resolution tests (git history) - see
-// via_shapes.hpp's own doc comment for why this logic exists at all
-// (BUGS_AND_ENHANCEMENTS.md B3, "Via arrays are not being rendered") and
-// the three-tier resolution algorithm each test below exercises. Calls
-// append_via_shapes directly rather than through a whole pipeline/stage
-// (the old fixture's own AbstractShapePipeline no longer exists in this
-// module) - a more precise unit test of exactly this function, and one
-// that doesn't need a Placement/Layout hierarchy just to reach it. This
-// also simplifies several assertions the old tests needed (e.g.
-// disambiguating a via's own synthesized enclosure rect from the
-// referencing Shape's own geometry by coordinate) since append_via_shapes
-// only ever adds via-synthesized Shapes, never the referencing Shape's
-// own rects/polygons.
+// Tests for via_shapes.hpp's three-tier via resolution (see its doc
+// comment). Calls append_via_shapes directly rather than through a whole
+// pipeline/stage, so no Placement/Layout hierarchy is needed to reach it,
+// and since append_via_shapes only ever adds via-synthesized Shapes
+// (never the referencing Shape's own rects/polygons), assertions need no
+// disambiguation by coordinate.
 #include "../via_shapes.hpp"
 #include <gtest/gtest.h>
 
@@ -62,7 +54,7 @@ TEST_F(ViaShapesFixture, ResolvesAnExplicitViaLayerOntoItsOwnPhysicalLayer)
     EXPECT_EQ(it->second.front().rects[0].ll.y, 45);
 }
 
-// BUGS_AND_ENHANCEMENTS.md B3 - a via with no explicit ViaLayer rects (a
+// A via with no explicit ViaLayer rects (a
 // LEF 5.6 VIARULE-inside-VIA reference) but a real ROWCOL clause is a via
 // *array*, synthesized into a real grid of cut rects rather than skipped
 // entirely (via_shapes.hpp's own append_via_rule_array).
@@ -142,7 +134,7 @@ TEST_F(ViaShapesFixture, SynthesizesASingleCutForAViaRuleReferenceWithNoRowCol)
     EXPECT_EQ(cut_it->second.front().rects.size(), 1u);
 }
 
-// BUGS_AND_ENHANCEMENTS.md B3 follow-up - ORIGIN shifts the whole cut
+// ORIGIN shifts the whole cut
 // array's own center away from the via's own placement point; OFFSET
 // separately shifts each metal layer's own enclosure-rect center on top
 // of that. rows=cols=1 (a single 2x2 cut) keeps the arithmetic small
@@ -211,7 +203,7 @@ TEST_F(ViaShapesFixture, AppliesOriginAndOffsetToAViaRuleReferencesCutArray)
     EXPECT_EQ(top_it->second.front().rects[0].ur.y, 47);
 }
 
-// BUGS_AND_ENHANCEMENTS.md B3 follow-up - a via_name resolving only to a
+// A via_name resolving only to a
 // top-level VIARULE ... GENERATE rule (no Via/LayoutVia, no
 // ViaRuleReference anywhere) synthesizes a cut array fit to the
 // available routing width (ShapeVia.width) - via_shapes.hpp's own

@@ -38,10 +38,9 @@ namespace le
     /// @brief ComposeStage's own output - the whole Warm tier's final
     /// image. `pixel_data` owns the final, already-byte-swapped RGBA
     /// bytes `buffer` points into (compute()'s own doc comment has the
-    /// BGRA-to-RGBA swap rationale) - simpler than the earlier Skia
-    /// design's `sk_sp<SkSurface>` member, since there's no surface/
-    /// context object that needs to stay alive once that one copy is
-    /// made. `empty` is true when nothing could be composed at all
+    /// BGRA-to-RGBA swap rationale) - no surface/context object needs to
+    /// stay alive once that one copy is made. `empty` is true when
+    /// nothing could be composed at all
     /// (top_level itself wasn't in RasterizeBlend2DStage's own output -
     /// e.g. a null Root, or top_level exceeding that stage's own pixel-
     /// dimension sanity clamp) - distinguishes "genuinely nothing to
@@ -54,14 +53,13 @@ namespace le
         bool empty = true;
     };
 
-    /// @brief Warm-tier stage 3 (PIPELINE_REFACTOR.md): composites every
+    /// @brief Warm-tier stage 3 (docs/PIPELINE_REFACTOR.md): composites every
     /// surviving node's own RasterizeBlend2DStage image into one final
     /// image, walking the same placement_data ViewportCullStage already
     /// pruned to what's visible. A node with no placements just IS its
     /// own image (no compositing needed, no copy either - composed_cache
     /// below hands back the same BLImage RasterizeBlend2DStage produced,
-    /// a cheap refcounted copy - Blend2D's own analog of sk_sp<SkImage>'s
-    /// COW semantics); a node WITH placements gets its own fresh
+    /// a cheap refcounted copy); a node WITH placements gets its own fresh
     /// BLContext, its own image drawn first, then each surviving child's
     /// own *fully composed* image (recursing depth-first via
     /// compose_node) drawn on top at the pixel position/orientation its
@@ -83,13 +81,8 @@ namespace le
     /// that rotation/reflection into the composited pixels of its own
     /// child image, including any text labels drawn within it by
     /// RasterizeBlend2DStage - a rotated placement's own labels render
-    /// rotated/mirrored too, unlike the pre-restart SkPicture-based
-    /// design (`pipelines.old`'s own UprightTextCanvas), which corrected
-    /// this at replay time regardless of nesting. Confirmed by direct
-    /// visual test (three placements, N/FN/FS, a real terminal label
-    /// mirroring right along with each flipped one) and left unfixed by
-    /// explicit decision, not merely deferred pending a future
-    /// evaluation: a correct fix needs text drawn as a separate overlay
+    /// rotated/mirrored too. Left unfixed by explicit decision: a correct
+    /// fix needs text drawn as a separate overlay
     /// pass after compositing (each label positioned at its own final,
     /// already-composited screen coordinates, independent of whatever
     /// per-node bitmap it originated from), a real architecture change,
@@ -244,11 +237,8 @@ namespace le
         /// progress. Drawn last, directly here, rather than as a separate
         /// stage/node: it's cheap (a fill + a stroke, no rasterization of
         /// its own to cache) and this way the whole ghost-rectangle
-        /// feature lives in ComposeStage's own one graph, matching the
-        /// pre-restart design's own choice to draw the equivalent mouse
-        /// overlay as one final un-rasterized pass rather than a cached
-        /// picture (src/pipelines.old/stages/compose_stage.hpp, git
-        /// history).
+        /// feature lives in ComposeStage's own one graph, as one final
+        /// un-rasterized pass rather than a cached picture.
         ///
         /// `pixel_height` is `ctx`'s own image's pixel height (the
         /// caller's own `height` - exactly `options.viewport` rasterized
@@ -285,7 +275,7 @@ namespace le
             ctx.stroke_rect(rect);
         }
 
-        /// @brief Draws a white outline (UPDATES.md item 7) around every
+        /// @brief Draws a white outline around every
         /// currently-selected piece's own geometry
         /// (`ViewRenderOptions::selected_piece_outlines`, already resolved
         /// to dbu-space `Shape`s by the caller - api.cpp's own
@@ -340,8 +330,8 @@ namespace le
         }
 
         /// @brief Draws the selected placements' flightlines
-        /// (`ViewRenderOptions::flightlines_dbu`, NEW_FEATURES_SEPT_2026.md
-        /// item 5) as thin straight lines in `flightline_color` - under the
+        /// (`ViewRenderOptions::flightlines_dbu`) as thin straight lines
+        /// in `flightline_color` - under the
         /// selection outline, so a selected cell's own outline stays on top.
         static void draw_flightline_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
         {
@@ -367,7 +357,7 @@ namespace le
         }
 
         /// @brief Draws the live Move gesture's own dashed, translucent
-        /// ghost preview (UPDATES.md item 21) -
+        /// ghost preview -
         /// `ViewRenderOptions::move_ghost_pieces_dbu`, each translated by
         /// `move_ghost_offset_dbu` in dbu space *before* mapping to pixels
         /// (so the preview traces the exact geometry Move would actually
@@ -401,13 +391,12 @@ namespace le
             ctx.set_stroke_dash_array(BLArray<double>()); // don't leak the dash state into any overlay drawn after this one
         }
 
-        /// @brief Draws a small red box (UPDATES.md 7.1 item 1) centered
+        /// @brief Draws a small red box centered
         /// on the grid-snapped mouse position
         /// (`ViewRenderOptions::cursor_snapped_position_dbu`) - a no-op if
         /// no mouse position has been set. Shown regardless of mode
         /// - the cursor marker is
-        /// meant to be visible at all times a position is known, matching
-        /// the pre-restart `draw_cursor`'s own doc comment.
+        /// meant to be visible at all times a position is known.
         static void draw_cursor_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
         {
             if (!options.cursor_snapped_position_dbu.has_value())
@@ -424,15 +413,14 @@ namespace le
             ctx.stroke_rect(rect);
         }
 
-        /// @brief Draws one ruler segment (UPDATES.md item 13): the line
+        /// @brief Draws one ruler segment: the line
         /// itself, a point marker at each end (`p1`'s only if not a ghost -
         /// the ghost's own leading end is already marked by
         /// `draw_cursor_overlay`'s own snap box), dynamic major/minor tick
         /// marks measured relative to the segment's own start (tape-
         /// measure semantics, not the absolute background grid), and the
-        /// segment's own point-to-point distance label near `p1` - ported
-        /// term-for-term from pipelines.old/draw_helpers.hpp's own
-        /// draw_ruler_segment. Perpendicular direction is computed in
+        /// segment's own point-to-point distance label near `p1`.
+        /// Perpendicular direction is computed in
         /// *pixel* space so tick length/spacing reads consistently on
         /// screen regardless of the segment's own angle - a free-form
         /// (non-orthogonal) segment gets the exact same treatment as an
@@ -444,9 +432,7 @@ namespace le
         /// own running total) always draws in solid `kRulerColor`,
         /// regardless of `is_ghost` - only the line/points/ticks
         /// themselves switch to the translucent `kRulerGhostColor` for
-        /// the live segment, matching the pre-restart version's own
-        /// behavior exactly (its own draw_ruler_label never took an
-        /// is_ghost parameter at all).
+        /// the live segment.
         template <typename ToPixel>
         void draw_ruler_segment(
             BLContext &ctx, const ToPixel &to_pixel, double dbu_per_um, Point p0_dbu, Point p1_dbu, bool is_ghost,
@@ -533,8 +519,8 @@ namespace le
         /// `draw_ruler_polyline` (each committed polyline, plus - once it
         /// has 2+ points - a "total: " running-length label at its own
         /// last point, offset to the opposite side from that last
-        /// segment's own distance label so the two don't overlap) and
-        /// `MouseOverlayStage`'s own live-ghost-segment gating (only the
+        /// segment's own distance label so the two don't overlap) and the
+        /// live ghost segment (only the
         /// *last* polyline can have an active ghost extending it, matching
         /// `LeHandle::ruler_next_point`'s own "the last entry is the
         /// active ruler" invariant).
@@ -742,11 +728,9 @@ namespace le
         ///
         /// BLMatrix2D's own (m00, m01, m10, m11, m20, m21) constructor
         /// maps a point as `x' = x*m00 + y*m10 + m20; y' = x*m01 +
-        /// y*m11 + m21` (core/matrix.h) - a different field-role
-        /// convention from Skia's SkMatrix::setAll(a,b,c,d,e,f,...)
-        /// (`x'=a*x+b*y+c; y'=d*x+e*y+f`) this was ported from, so each
-        /// term below is placed by matching the actual x'/y' equation,
-        /// not by copying setAll's own argument positions.
+        /// y*m11 + m21` (core/matrix.h) - note the column-major field
+        /// roles; each term below is placed by matching the actual x'/y'
+        /// equation.
         static BLMatrix2D dbu_to_pixel_matrix(Point origin, int pixel_height, double scale)
         {
             return BLMatrix2D(
@@ -796,15 +780,11 @@ namespace le
                 translation_x, translation_y);
         }
 
-        /// @brief Composes two BLMatrix2D in the same "apply inner first,
-        /// then outer" sense as Skia's SkMatrix::Concat(outer, inner) -
-        /// derived from scratch and verified by direct substitution
-        /// (result.map_point(x,y) == outer.map_point(inner.map_point(x,y))
-        /// for arbitrary x,y) rather than relying on Blend2D's own
-        /// matrix-multiply/transform API without being certain of its
-        /// exact composition-order convention - a silent sign/order error
-        /// here would mis-position every nested/rotated placement, so
-        /// this was worked out and checked by hand instead of guessed.
+        /// @brief Composes two BLMatrix2D: apply inner first, then outer -
+        /// result.map_point(x,y) == outer.map_point(inner.map_point(x,y)).
+        /// Written out explicitly rather than via Blend2D's matrix API, so
+        /// the composition order is unambiguous - an order error here
+        /// would mis-position every nested/rotated placement.
         static BLMatrix2D combine_outer_after_inner(const BLMatrix2D &outer, const BLMatrix2D &inner)
         {
             return BLMatrix2D(

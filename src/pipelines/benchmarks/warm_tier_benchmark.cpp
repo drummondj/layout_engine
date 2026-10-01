@@ -18,9 +18,8 @@ namespace
 {
     // Measures the WHOLE Warm tier (ViewportCull + Rasterize + Compose,
     // via ViewRenderPipeline::run()) against its own shared 500ms
-    // budget - PIPELINE_REFACTOR.md names 500ms for the tier as a whole,
-    // not per stage (a real, previously-wrong assumption corrected mid-
-    // development - see PIPELINE_REFACTOR_BENCHMARK_RESULTS.md), so this
+    // budget - docs/PIPELINE_REFACTOR.md sets 500ms for the tier as a
+    // whole, not per stage, so this
     // is the number that actually matters, not any one stage's own
     // isolated cost. One persistent ViewRenderPipeline reused across a
     // 16-position pan sequence (ViewportCullStage's own benchmark
@@ -69,10 +68,8 @@ namespace
         // MemoizingStage cache compares against the *last* (data_version,
         // options) pair regardless of which call set it - replaying index
         // 0 as the very first timed iteration would be a guaranteed,
-        // free cache hit doing zero real work (confirmed directly: this
-        // was silently inflating BM_WarmTier's own apparent speed by
-        // ~1/state.iterations() - about 10% at the 5x5 point's own 10
-        // iterations - until fixed here; BM_Rasterize/BM_Compose already
+        // free cache hit doing zero real work, inflating BM_WarmTier's
+        // apparent speed by ~1/state.iterations() (BM_Rasterize/BM_Compose
         // avoid this by bumping their own data_version on every timed
         // call regardless of options, see their own pan_index handling).
         int pan_index = 0;

@@ -13,7 +13,7 @@
 
 namespace le
 {
-    /// @brief PIPELINE_REFACTOR.md's own ViewRenderPipeline - one shared
+    /// @brief The ViewRenderPipeline (docs/PIPELINE_REFACTOR.md) - one shared
     /// oneapi::tbb::flow::graph wiring every tier's stages together with
     /// real make_edge connections, not the per-stage-private-graph
     /// SynchronousStageRunner pattern tests/benchmarks use to exercise one
@@ -24,70 +24,42 @@ namespace le
     /// with a single sink on the terminal node (compose_sink_) so run()
     /// can read the final frame back after wait_for_all() - see
     /// WarmOutput's own doc comment for why the four intermediate stages
-    /// don't get one of their own too. Hot tier stages get added to this
-    /// same graph/class later - one pipeline for the whole thing, not a
+    /// don't get one of their own too. Hot tier stages belong in this
+    /// same graph/class - one pipeline for the whole thing, not a
     /// separate class per tier.
     ///
     /// One entry point into this one graph: run() submits at
-    /// layer_generation_.node() and the existing make_edge chain carries
-    /// that single message all the way through to compose_.node() in one
-    /// try_put/wait_for_all - the whole graph was always wired this way
-    /// end to end; what used to force two separate submissions
-    /// (run_cold() then run_warm()) was RasterizeBlend2DStage's own
-    /// dependency on the ViewLayerSet LayerGenerationStage computes,
-    /// which had nowhere to travel to but ViewRenderOptions::view_layers -
-    /// a field every stage in one submission sees the exact same,
-    /// caller-supplied copy of (StageData<T, Options>'s own contract), so
-    /// a later stage could never see a value an earlier stage in that
-    /// same submission had just computed. Fixed at the source instead:
-    /// HierarchyResolverStage's own OutputData now echoes the
-    /// ViewLayerSetHandle it received as input back out as one of its own
-    /// fields (HierarchyResolverOutput::view_layers), and ViewportCullStage
-    /// passes it through unchanged - so it now arrives at
-    /// RasterizeBlend2DStage as part of `data`, the same way every other
-    /// stage's own real dependency does, and one submission through the
-    /// whole chain is enough.
+    /// layer_generation_.node() and the make_edge chain carries that
+    /// single message all the way through to compose_.node() in one
+    /// try_put/wait_for_all. A stage's dependencies must travel in `data`,
+    /// not `options`: every stage in one submission sees the same
+    /// caller-supplied options (StageData<T, Options>'s own contract), so
+    /// a later stage could never see a value an earlier stage just
+    /// computed there. That's why HierarchyResolverStage echoes the
+    /// ViewLayerSetHandle it received back out
+    /// (HierarchyResolverOutput::view_layers) and ViewportCullStage passes
+    /// it through unchanged, so it reaches RasterizeBlend2DStage as part
+    /// of `data`.
     ///
     /// The Root pointer every stage needs still travels via
     /// ViewRenderOptions::root, not any one stage's own InputData - run()
     /// sets it from its own `root` parameter, so a caller never has to set
     /// it independently.
-    ///
-    /// RasterizeBlend2DStage is the only Rasterize backend
-    /// (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md - the earlier Skia-based
-    /// RasterizeStage, benchmarked against it as a side experiment, and
-    /// the ViewRenderPipelineImpl<RasterizeStageT> template this class
-    /// used to be (parameterized to swap between the two) are both gone
-    /// now that ComposeStage itself also composites BLImages natively,
-    /// with no format-swappable seam left for a second backend to plug
-    /// into anyway) - so this class is concrete, not a template.
     class ViewRenderPipeline
     {
     public:
         /// @brief The full chain's own observable output - just the final
         /// `frame` (RasterizedFrame, ComposeStage's own OutputHandle).
-        /// Every intermediate stage's own result (view_layers/hierarchy/
-        /// culled/rasterized) used to live here too, each captured off its
-        /// own sink node - removed since nothing outside this class ever
-        /// read them (api.cpp, every benchmark, and every still-relevant
-        /// test all only ever needed `frame`); the sinks that captured them
-        /// went with them (see the constructor's own comment below).
+        /// Intermediate results aren't captured - nothing outside this
+        /// class needs them (resolved_output() covers the one exception).
         struct WarmOutput
         {
             ComposeStage::OutputHandle frame;
         };
 
-        /// @brief Only compose_sink_ remains, of what used to be five sink
-        /// nodes (one per stage) - the other four existed purely to let
-        /// run() read an intermediate stage's own result back into
-        /// WarmOutput, and WarmOutput no longer carries those fields (this
-        /// struct's own doc comment). Each removed sink's own make_edge
-        /// was strictly additional fan-out off a node already wired into
-        /// the main chain below it (e.g. layer_generation_.node() feeds
-        /// both hierarchy_resolver_.node() and, previously,
-        /// layer_generation_sink_) - removing it doesn't change what data
-        /// reaches compose_.node(), only that nothing else also captures a
-        /// copy of it along the way.
+        /// @brief Wires the five stages into one linear chain, with a single
+        /// sink (compose_sink_) on the terminal node so run() can read the
+        /// final frame back.
         explicit ViewRenderPipeline(std::string label = "ViewRenderPipeline")
             : layer_generation_(graph_, label + ".LayerGeneration"),
               hierarchy_resolver_(graph_, label + ".HierarchyResolver"),
@@ -121,8 +93,7 @@ namespace le
         /// has to set the fields that actually vary: root_mutation_version/
         /// top_level/hierarchy_depth/viewport/scale) in exactly one
         /// try_put/wait_for_all - see the class's own doc comment for how
-        /// RasterizeBlend2DStage's own ViewLayerSet dependency, the thing
-        /// that used to force two separate submissions here, now travels
+        /// RasterizeBlend2DStage's own ViewLayerSet dependency travels
         /// through `data` instead of `options`. No data_version parameter,
         /// unlike SynchronousStageRunner::run() - no stage's own recompute
         /// decision ever looks at one (all five rely entirely on
@@ -136,13 +107,10 @@ namespace le
         /// chain would recompute - see MemoizingStage::would_recompute()'s
         /// own doc comment (tbb_core.hpp) for why that's load-bearing, not
         /// just a nicety, even on a guaranteed cache hit (300-600ms of
-        /// pure TBB message-passing/scheduling overhead on a real
-        /// ~478,000-shape Layout, measured before that method existed -
-        /// paying that on every steady-state pan/zoom tick, when nothing
-        /// changed at all, is exactly the cost this guard exists to avoid).
-        /// Cascaded across all five stages in dependency order, same
-        /// reasoning run_cold()/run_warm() each used on their own half of
-        /// the chain before they were merged into this one method: an
+        /// pure TBB message-passing/scheduling overhead on a
+        /// ~478,000-shape Layout, which would otherwise be paid on every
+        /// steady-state pan/zoom tick when nothing changed at all).
+        /// Cascaded across all five stages in dependency order: an
         /// earlier stage's own future recompute isn't yet a real, bumped
         /// version() before it actually runs, so it has to be assumed to
         /// force every later stage's own data_version to change too rather
@@ -163,7 +131,7 @@ namespace le
         /// @brief The same cascade run() itself uses to decide whether to
         /// submit the graph at all, exposed separately so a caller (
         /// api.cpp's own le_render_pixel_buffer) can know *before* calling
-        /// run() whether it's about to do real work - used to bracket
+        /// run() whether it's about to do real work - to bracket
         /// LeHandle::is_rendering_ around only the actual recompute,
         /// rather than the whole call (le_is_rendering's own doc comment,
         /// api.hpp). `options.root` does not need to be pre-set by the

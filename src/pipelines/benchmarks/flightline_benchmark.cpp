@@ -1,5 +1,5 @@
-// Benchmarks for flightlines (NEW_FEATURES_SEPT_2026.md item 5,
-// core/flightlines.hpp), on a synthetic linked netlist: P placements of one
+// Benchmarks for flightlines (core/flightlines.hpp), on a synthetic
+// linked netlist: P placements of one
 // 4-pin cell, every pin on a net of 2-10 pins (so roughly P*4/6 nets) - the
 // shape of a real gate-level design's signal nets.
 //
