@@ -297,8 +297,17 @@ not a changelog.
 ## Work tracking
 
 Bugs and features are GitHub issues (`gh issue list`, `gh issue view N`).
-Reference the issue in the commit (`Fixes #N`). Long-lived designs and
-research live in `docs/`.
+Long-lived designs and research live in `docs/`.
+
+Code changes for an issue go on their own branch, never straight onto
+`main`:
+
+- Branch from an up-to-date `main`, named `<issue>-<short-slug>` (e.g.
+  `2-port-marker-one-piece`).
+- Commit messages explain the *why*; the commit that completes the issue
+  ends with `Fixes #N`.
+- When the work is done and tests pass, push the branch and open a PR
+  with `gh pr create`, referencing the issue. Merging is the user's call.
 
 ## Skills
 
