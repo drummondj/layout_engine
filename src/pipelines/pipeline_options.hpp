@@ -215,8 +215,7 @@ namespace le
         /// @brief Every ruler's own committed dbu-space points
         /// (`LeHandle::rulers()`, one entry per `Ruler` - `Ruler::finished`
         /// itself isn't carried across, since a finished and still-active
-        /// ruler draw identically, pipelines.old's own `draw_ruler_polyline`
-        /// doc comment). A polyline with fewer than 2 points draws
+        /// ruler draw identically). A polyline with fewer than 2 points draws
         /// nothing (no segment yet) - `ComposeStage` doesn't special-case
         /// this, the drawing loop just naturally has nothing to iterate.
         std::vector<std::vector<Point>> ruler_polylines_dbu;
@@ -236,9 +235,7 @@ namespace le
         /// computation works in real microns, not raw dbu, so this is
         /// needed to convert. 0 (rather than `std::optional`) means
         /// "unavailable" (no Technology yet, or a non-positive value) -
-        /// `ComposeStage` treats <= 0 as "skip ruler drawing entirely",
-        /// the same guard pipelines.old's own `draw_ruler_segment` used
-        /// its `std::optional<double>` parameter for.
+        /// `ComposeStage` treats <= 0 as "skip ruler drawing entirely".
         double ruler_dbu_per_um = 0.0;
 
         /// @brief On-screen text size (px) for every ruler label -

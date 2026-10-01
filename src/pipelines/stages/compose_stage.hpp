@@ -515,8 +515,8 @@ namespace le
         /// @brief Draws every ruler (`ViewRenderOptions::ruler_polylines_dbu`)
         /// plus the live, not-yet-committed segment
         /// (`ruler_ghost_point_dbu`) - a no-op if `ruler_dbu_per_um` isn't
-        /// available (no Technology yet). Ported from pipelines.old's own
-        /// `draw_ruler_polyline` (each committed polyline, plus - once it
+        /// available (no Technology yet). Draws each committed polyline
+        /// (plus - once it
         /// has 2+ points - a "total: " running-length label at its own
         /// last point, offset to the opposite side from that last
         /// segment's own distance label so the two don't overlap) and the
