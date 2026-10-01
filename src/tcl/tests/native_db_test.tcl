@@ -1,5 +1,5 @@
 # Regression check for the native database file commands (write_db/read_db/
-# db_info - NATIVE_FILE_FORMAT_RESEARCH.md) through the real TCL layer.
+# db_info) through the real TCL layer.
 # read_db only loads into an empty session, so the load half runs in a
 # second tclsh process: this same script, re-run with "load".
 #

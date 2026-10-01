@@ -1,4 +1,4 @@
-# Regression check for the integrated help system (UPDATES.md item 20):
+# Regression check for the integrated help system:
 # the ::command_help registry, help/man/complete_command/
 # generate_command_docs (le_tcl_procs.tcl), and the generated -help
 # support/registration calls (le_tcl_procs_generated_tcl_j2.py) for
@@ -181,8 +181,8 @@ check "complete_command -filter dot-path completion is scoped to -filter's own v
 check "complete_command -filter dot-path completion never fires for a command with no -filter flag" \
     {} [complete_command "create_terminal -filter {.dir"]
 
-# --- complete_command: filename completion (BUGS_AND_ENHANCEMENTS.md
-# E11) - read_lef/read_def/source/dump_png each take exactly one `type
+# --- complete_command: filename completion - read_lef/read_def/
+# source/dump_png each take exactly one `type
 # file` positional argument; every other command (get_terminals here)
 # stays unaffected, same as any other positional value complete_command
 # never speculatively completes. A scratch directory (not test_data/ or
@@ -239,9 +239,7 @@ check "complete_command never offers filename completion for an unrelated comman
 
 file delete -force $scratch_dir
 
-# --- -help / help-system integration for read_lef/read_def/source
-# (BUGS_AND_ENHANCEMENTS.md E11 - the three commands E11 needed a real
-# command_help registration for anyway) ---
+# --- -help / help-system integration for read_lef/read_def/source ---
 
 check_contains "read_lef -help returns its own usage text" [read_lef -help] "read_lef -library <name> <path>"
 check_contains "read_def -help returns its own usage text" [read_def -help] "read_def -library <name> <path>"
@@ -250,11 +248,10 @@ check_contains "help r* now includes read_lef" [help r*] "read_lef"
 check_contains "help r* now includes read_def" [help r*] "read_def"
 check_contains "man read_lef documents its own <path> argument" [man read_lef] "LEF file to read"
 
-# --- -help / help-system integration audit (BUGS_AND_ENHANCEMENTS.md
-# E14 - the full audit E11's own comment above deferred). Two real bug
-# classes found: (1) three raw SWIG-bound commands
-# (remove_shape_rect/_polygon/_path) had no Tcl-level wrapper at all -
-# not registered, no -help, not even listed by `help` - and (2) several
+# --- -help / help-system integration across every command. Two bug
+# classes to guard against: (1) raw SWIG-bound commands
+# (e.g. remove_shape_rect/_polygon/_path) with no Tcl-level wrapper -
+# not registered, no -help, not even listed by `help` - and (2)
 # already-registered hand-written commands with a fixed-arity Tcl `proc`
 # signature (2+ required positionals, or 0) either errored with a
 # generic "wrong # args" instead of returning their own usage text, or
@@ -300,9 +297,9 @@ foreach {cmd expect_substr} {
     check_contains "man $cmd documents -help" [man $cmd] "-help"
 }
 
-# get_layer_visible's own pre-fix bug specifically: "-help" used to be
-# silently accepted as a real layer_name (no error, wrong answer) rather
-# than being intercepted - confirm it's now the usage string, not 1/0.
+# get_layer_visible must intercept "-help" rather than silently accept it
+# as a real layer_name (no error, wrong answer) - it must be the usage
+# string, not 1/0.
 if {[get_layer_visible -help] eq "1" || [get_layer_visible -help] eq "0"} {
     puts stderr "FAIL: get_layer_visible -help silently treated -help as a layer name again"
     exit 1
@@ -311,8 +308,8 @@ puts "ok: get_layer_visible -help no longer silently misparses -help as a layer 
 
 # Regression for the fixed-arity-proc "-help alone doesn't fit the
 # required argument count" class of bug (set_layer_visible/
-# remove_shape_rect/_polygon/_path all used to have this exact shape,
-# 2 required positionals with no `args` catch-all) - -help must work
+# remove_shape_rect/_polygon/_path each have 2 required positionals) -
+# -help must work
 # with *zero* other arguments supplied, not just alongside a full,
 # otherwise-valid argument list.
 check_contains "set_layer_visible -help works with no other arguments at all" \

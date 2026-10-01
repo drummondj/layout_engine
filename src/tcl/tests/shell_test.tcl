@@ -1,4 +1,4 @@
-# Phase 6 regression check (TCL_EXPLORATION.md): runs as a batch script
+# Regression check for le_shell: runs as a batch script
 # under the real compiled le_shell binary (not tclsh directly loading
 # le_tcl - smoke_test.tcl/crud_test.tcl already cover that), so this is
 # what actually exercises le_shell.cpp's own bootstrap: -module/-procs

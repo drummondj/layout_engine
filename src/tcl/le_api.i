@@ -1,20 +1,17 @@
-// Phase 0 spike proved SWIG can wrap a Tcl-facing shim into a loadable
-// Tcl extension. Phase 5 (TCL_EXPLORATION.md) extends that to the full
-// Phase 4 CRUD/search surface and adds the one genuinely new SWIG
-// mechanism this phase needs: a custom typemap converting a Tcl list of
-// doubles into the flat `(const double*, int32_t count)` pairs
+// SWIG interface turning le_tcl_shim.hpp into the loadable le_tcl Tcl
+// extension. Its one custom mechanism is a typemap converting a Tcl list
+// of doubles into the flat `(const double*, int32_t count)` pairs
 // create_shape_cmd/update_shape_cmd's own generated -rects/-polygons/
 // -paths parameters take (le_api_generated_i_j2.py's own %apply lines,
 // see Klass.list_compound_swig_applies() in codegen/codegen/schema.py),
 // so a Tcl caller passes a real (possibly nested) list rather than
 // pre-flattening into a raw C array by hand.
 //
-// Wraps le_tcl_shim.hpp, not api.hpp directly - see this file's own
-// Phase 0 header comment (still accurate) for why: api.hpp's
-// handle-per-call design is for Dart FFI; the Tcl-facing surface item 15
-// wants has no visible handle and uses domain verb names, not
-// le_<verb>_<noun> ones. le_tcl_shim.hpp/.cpp supplies both by calling
-// into api.hpp underneath a hidden process-global LeHandle*.
+// Wraps le_tcl_shim.hpp, not api.hpp directly: api.hpp passes a handle on
+// every call, while the Tcl-facing surface has no visible handle and uses
+// domain verb names, not le_<verb>_<noun> ones. le_tcl_shim.hpp/.cpp
+// supplies both by calling into api.hpp underneath a hidden
+// process-global LeHandle*.
 //
 // AbstractId/DesignId cross this boundary packed into a plain `long
 // long`, not as a wrapped C struct - see le_tcl_shim.hpp's own "IDs"
@@ -47,7 +44,7 @@
 // matches.
 %include <stdint.i>
 
-// --- Coordinate-list typemap (Phase 5's own reason to exist) ---
+// --- Coordinate-list typemap ---
 //
 // Converts a Tcl list of doubles ($input) into the temp buffer's backing
 // storage, then hands the CRUD shim function a plain (const double*,
@@ -163,7 +160,7 @@ int shape_path_point_count(const char *id, int path_index);
 const char *shape_path_point_at(const char *id, int path_index, int point_index);
 int remove_shape_path(const char *id, int path_index);
 
-// --- shape_* operations (NEW_FEATURES_SEPT_2026.md item 1) - each takes a
+// --- shape_* operations - each takes a
 // space-separated shape token list; an empty -layer/-parent token means
 // "omitted". Creating ones return how many Shapes they made (read back via
 // shape_op_results_cmd), -1 on failure (reason logged), -2 for an unknown
@@ -178,7 +175,7 @@ int shape_change_layer_cmd(const char *shape_tokens, const char *layer_token);
 const char *shape_op_results_cmd(int count);
 const char *shape_bbox_cmd(const char *shape_tokens);
 
-// --- Editing / undo-redo (UPDATES.md item 21) ---
+// --- Editing / undo-redo ---
 void begin_command(const char *label);
 int end_command(int succeeded);
 int undo_command();

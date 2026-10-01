@@ -1,5 +1,5 @@
-# Regression check for SystemVerilog/Verilog TCL wiring (SYSTEMVERILOG.md,
-# see its own linked plan) - loads the built module under tclsh, sources
+# Regression check for SystemVerilog/Verilog TCL wiring - loads the
+# built module under tclsh, sources
 # le_tcl_procs.tcl, and exercises read_verilog -netlist against the same
 # gate_netlist_clean.v fixture src/sv/tests's own C++ tests already use,
 # confirming the generated get_designs/get_schematics/get_instances/
@@ -70,7 +70,7 @@ foreach instance_token [get_instances -of $schematic_token] {
 }
 puts "ok: total pins across all instances = $total_pins"
 
-# Hierarchical path syntax (LINKING_STRATEGY_RESEARCH.md sections 3/4) -
+# Hierarchical path syntax -
 # real multi-level nesting/escaping/"**"-fan-out coverage lives in the
 # C++ HierarchicalResolver test suite; this just confirms the TCL wiring
 # itself (get_instances/get_nets routing through the new

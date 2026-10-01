@@ -19,8 +19,7 @@ namespace
 {
     // Set by set_session_handle() (see le_tcl_shim.hpp) - an externally-
     // owned handle wins over the lazy self-create below whenever one has
-    // been injected, e.g. by a Flutter-embedded Tcl console sharing the
-    // Dart-owned LeHandle* (see TCL_EXPLORATION.md's show_gui section).
+    // been injected (le_shell injects the handle its GUI renders).
     LeHandle *&injected_handle()
     {
         static LeHandle *handle = nullptr;
@@ -540,8 +539,8 @@ int get_ports_by_path_cmd(const char *of_schematic, const char *path, const char
     return le_get_ports_by_path(session(), resolve_schematic_id(of_schematic), path, filter_expression);
 }
 
-// --- Phase 5 mutation side-effects (LINKING_STRATEGY_RESEARCH.md
-// section 5) - le_tcl_procs.tcl's own delete_net/update_net/
+// --- Schematic<->Layout link mutation side-effects - le_tcl_procs.tcl's
+// own delete_net/update_net/
 // update_instance overrides route to these instead of the generated
 // delete_net_cmd/update_net_cmd/update_instance_cmd (still used as the
 // fallback for an update_net/update_instance call that doesn't touch
@@ -618,10 +617,9 @@ const char *technology_id()
 
 namespace
 {
-    // Matches api.cpp's own kKeyFitPaddingPx / the Dart-side LeProvider.
-    // openDesign's own `_editor.fitScene(10)` call - the same padding
-    // convention every "just opened a view" fit already uses, duplicated
-    // here since le_tcl_shim.cpp is a separate TU from both.
+    // Matches api.cpp's own kKeyFitPaddingPx and GuiProvider's open
+    // actions - the same padding every "just opened a view" fit uses,
+    // duplicated here since le_tcl_shim.cpp is a separate TU.
     constexpr int32_t kOpenDesignFitPaddingPx = 10;
 }
 
@@ -629,11 +627,11 @@ int set_current_design_abstract_cmd(long long design_id)
 {
     const int result = le_set_current_design_abstract_by_id(session(), unpack<LeDesignId>(design_id));
     // Frames the newly-opened Abstract's own content the same way the
-    // GUI's own Library Browser open action does (LeProvider.openDesign)
-    // - a script-driven open_design should land on a sensible view, not
-    // whatever scale/pan happened to be left over from a previous one.
-    // Safe even with no viewport set yet (e.g. a headless le_shell run) -
-    // Scene::fit_to_content degrades to scale=1/pan={0,0} in that case.
+    // GUI's own Library Browser open action does - a script-driven
+    // open_design should land on a sensible view, not whatever scale/pan
+    // happened to be left over from a previous one. Safe even with no
+    // viewport set yet (e.g. a headless le_shell run) -
+    // LeHandle::fit_to_content degrades to scale=1/pan={0,0} in that case.
     if (result == 0)
         le_fit_scene(session(), kOpenDesignFitPaddingPx);
     return result;
@@ -754,9 +752,8 @@ int read_db_cmd(const char *path) { return le_read_db(session(), path); }
 
 const char *db_info_cmd(const char *path) { return return_string(le_db_info(path)); }
 
-// BUGS_AND_ENHANCEMENTS.md E30 - get_selection/select. Only Shape/Row/
-// Placement/Region friendly ids are meaningful here (the same four kinds
-// Scene::SelectedObject's own variant covers - see le_select_object_ref's
+// get_selection/select. Only Shape/Row/Placement/Region friendly ids are
+// meaningful here (the kinds LeHandle::SelectedObject covers - see le_select_object_ref's
 // own api.hpp doc comment); literal prefix strings rather than the
 // generated kShapePrefix/etc constants, since those live in the generated
 // file's own scope and duplicating a plain "shape:"/"row:"/... literal
@@ -984,10 +981,9 @@ int shape_rect_count(const char *id)
 
 const char *shape_rect_at(const char *id, int index)
 {
-    // BUGS_AND_ENHANCEMENTS.md E21 - brace-nested {{ll_x ll_y} {ur_x
-    // ur_y}}, matching every other Rect-shaped value's own convention
-    // (create_shape's own -rects flag, get_properties' rects display) -
-    // not the flat 4-number string this returned before.
+    // Brace-nested {{ll_x ll_y} {ur_x ur_y}}, matching every other
+    // Rect-shaped value's own convention (create_shape's own -rects flag,
+    // get_properties' rects display).
     LeRectUm rect = le_shape_rect_at(session(), resolve_shape_id(id), index);
     std::ostringstream out;
     out << '{' << rect.ll_x_um << ' ' << rect.ll_y_um << "} {" << rect.ur_x_um << ' ' << rect.ur_y_um << '}';
@@ -1050,7 +1046,7 @@ int remove_shape_path(const char *id, int path_index)
     return le_remove_shape_path(session(), resolve_shape_id(id), path_index);
 }
 
-// --- shape_* operations (NEW_FEATURES_SEPT_2026.md item 1) ---
+// --- shape_* operations ---
 //
 // Shape token lists cross as one space-separated string (le_tcl_procs.tcl
 // builds it with [join ...]) - the same plain word split write_lef_cmd's
@@ -1245,7 +1241,7 @@ const char *shape_bbox_cmd(const char *shape_tokens)
     return return_string("{" + number(box.ll_x_um) + " " + number(box.ll_y_um) + "} {" + number(box.ur_x_um) + " " + number(box.ur_y_um) + "}");
 }
 
-// --- Editing / undo-redo (UPDATES.md item 21) ---
+// --- Editing / undo-redo ---
 
 void begin_command(const char *label)
 {
@@ -1339,7 +1335,7 @@ void set_label_max_size_command(double px)
     le_set_label_max_size(session(), px);
 }
 
-// NEW_FEATURES_SEPT_2026.md item 17 - layer colors as "#rrggbb" (the "#" is
+// Layer colors as "#rrggbb" (the "#" is
 // optional). 1 if `color` isn't one.
 int set_layer_color_command(const char *layer, const char *color)
 {

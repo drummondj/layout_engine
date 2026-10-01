@@ -1,11 +1,8 @@
-// Regression check for TCL_EXPLORATION.md's show_gui design: proves
-// set_session_handle() actually redirects le_tcl_shim.cpp's session()
-// to an externally-owned LeHandle*, not just that the Tcl command runs
-// without error. This is what a Flutter-embedded Tcl console (a
-// Tcl_Interp created directly, not via Tcl_Main - see
-// flutter_plugin/macos/Classes/LeTclBridge.mm) actually relies on: the
-// same handle Dart's LeEditor already created via le_create() must be
-// the one every Tcl CRUD/search command operates on.
+// Proves set_session_handle() actually redirects le_tcl_shim.cpp's
+// session() to an externally-owned LeHandle*, not just that the Tcl
+// command runs without error. le_shell relies on this: the handle its
+// GUI renders (created via le_create()) must be the one every Tcl
+// CRUD/search command operates on.
 //
 // Two levels of proof, not one:
 // 1. A handle created and pre-loaded directly via api.hpp (no Tcl
@@ -83,23 +80,18 @@ TEST(SessionHandle, InjectedHandleIsSharedNotFresh)
     le_destroy(handle);
 }
 
-// Reproduces a real crash reported after embedding this same le_tcl.so
-// module inside layout_engine_plugin.framework (see LeTclBridge.mm): both
-// this TEST BINARY (which links `api` - and transitively `io`'s
-// lef_reader.cpp and the vendored liblef.a - directly, mirroring
-// layout_engine_plugin.framework's own static link) and the dynamically
-// `load`ed le_tcl.so (which ALSO links `api`/`io`/liblef.a) end up with
-// two independently-compiled copies of the vendored LEF parser's C++
-// code loaded into the *same* process - two separate Mach-O images. This
-// test calls `read_lef` *through Tcl* (le_tcl.so's own copy of the
-// parser) *first*, with no prior direct api.hpp call in this process -
-// reproducing exactly what happened in the app (the Tcl console's
-// read_lef was the first LEF parse in that process). Before the fix
-// (le_tcl's -unexported_symbols_list in CMakeLists.txt), le_tcl.so's
+// Both this test binary (which links `api` - and transitively `io`'s
+// lef_reader.cpp and the vendored liblef.a - directly, like le_shell)
+// and the dynamically `load`ed le_tcl.so (which ALSO links
+// `api`/`io`/liblef.a) end up with two independently-compiled copies of
+// the vendored LEF parser's C++ code loaded into the *same* process.
+// This calls `read_lef` *through Tcl* (le_tcl.so's own copy of the
+// parser) *first*, with no prior direct api.hpp call in this process.
+// Without le_tcl's -unexported_symbols_list (CMakeLists.txt), le_tcl.so's
 // internal call to LefDefParser::lefGetKeyword()'s function-local static
-// keyword-table std::map got bound by dyld to this test binary's own
+// keyword-table std::map gets bound by dyld to this binary's own
 // (separately-linked, differently-initialized) copy instead of its own,
-// reading through a garbage pointer - crashing exactly like the app did.
+// reading through a garbage pointer and crashing.
 TEST(SessionHandle, ReadLefThroughTclFirstDoesNotCrash)
 {
     Tcl_FindExecutable(nullptr);
@@ -120,31 +112,25 @@ TEST(SessionHandle, ReadLefThroughTclFirstDoesNotCrash)
     Tcl_DeleteInterp(interp);
 }
 
-// Covers the other real, reachable ordering: a LEF already read through
-// this process's own *direct* api.hpp copy (matching the app's "Import
-// LEF ..." button, which calls le_read_lef straight via Dart FFI into
-// layout_engine_plugin.framework's own statically-linked copy), *then* a
-// single Tcl_Interp - the same shape LeTclBridge actually uses (one
-// Tcl_Interp, created once, reused for the whole console session, never
-// recreated) - loads le_tcl.so and reads a LEF through it too. Exists
+// Covers the other reachable ordering: a LEF already read through this
+// process's own *direct* api.hpp copy, *then* a single Tcl_Interp (as in
+// le_shell - one Tcl_Interp, created once, reused for the whole session)
+// loads le_tcl.so and reads a LEF through it too. Exists
 // separately from ReadLefThroughTclFirstDoesNotCrash because gtest runs
 // every TEST() in a file within *one* process when the binary itself is
 // invoked directly (not through ctest) - during development, chaining
 // this scenario directly after InjectedHandleIsSharedNotFresh's own
-// create+delete of a *separate* Tcl_Interp surfaced a second, unrelated
+// create+delete of a *separate* Tcl_Interp can hit a second, unrelated
 // issue (std::system_error failing to RTTI-match a `catch (const
 // std::exception&)` across the dylib boundary - see the
 // -unexported_symbols_list comment in CMakeLists.txt) specific to two
 // *sequential, independent* Tcl_Interps each loading the same
 // already-resident .so. That specific shape doesn't occur here (this
-// test creates exactly one Tcl_Interp) and isn't how LeTclBridge or
-// le_shell (Tcl_Main - also exactly one Tcl_Interp per process) are
-// actually used, so it isn't chased further - each ctest case already
+// test creates exactly one Tcl_Interp) and isn't how le_shell (exactly
+// one Tcl_Interp per process) is actually used - each ctest case already
 // runs in its own process anyway (see this file's header comment).
-// Regression check for a reported get_shapes crash (investigated after
-// the fact - not reproduced from scratch even before the fix, see
-// le_tcl_unexported_symbols.txt's own comment in CMakeLists.txt for the
-// full writeup). le::Root's generated accessors (get_terminal_port_shapes,
+// Same dual-copy hazard for get_shapes (see le_tcl_unexported_symbols.txt's
+// own comment in CMakeLists.txt). le::Root's generated accessors (get_terminal_port_shapes,
 // get_obstruction_shapes, get_abstract_terminals, get_terminal_ports, ...)
 // are header-only and each return a function-local `static const ... empty;`
 // sentinel - the exact bug shape ReadLefThroughTclFirstDoesNotCrash above

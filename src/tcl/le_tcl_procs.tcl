@@ -1,42 +1,31 @@
 # Thin -flag parsing layer over the SWIG-wrapped *_cmd shim functions
 # (le_tcl_shim.hpp/.cpp) - Tcl's own `-flag value` calling convention has
 # to be parsed here, since SWIG-wrapped C++ functions are always
-# positional. See TCL_EXPLORATION.md's "Tcl ergonomics layer" section for
-# why this split exists (C++ shim owns session state + command logic,
-# Tcl owns flag parsing) rather than putting everything in one place.
-# Sourced by anything that loads the le_tcl module and wants the
-# ergonomic (item 15 -shaped) command surface rather than the raw *_cmd
-# forms.
+# positional (the C++ shim owns session state + command logic, Tcl owns
+# flag parsing). Sourced by anything that loads the le_tcl module and
+# wants the ergonomic command surface rather than the raw *_cmd forms.
 #
-# Also owns every piece of Phase 5's CRUD/search surface that's better
-# built in Tcl than in C++: property tables and search-result/shape-list
+# Also owns every piece of the CRUD/search surface that's better built in
+# Tcl than in C++: property tables and search-result/shape-list
 # aggregation (properties_for_token, shape_rects, ...) loop over the
 # shim's plain count+by-index accessors and build a real Tcl dict/list
 # with `dict set`/`lappend` - correct quoting by construction, unlike
 # hand-rolled string-building in C++ (see le_tcl_shim.hpp's own
-# "property tables and search results" comment for why that split was
-# made). Coordinate lists themselves (`-points {x y x y ...}`) need no
-# such treatment here - le_api.i's typemap already turns a plain Tcl list
-# into the shim's (const double*, int32_t count) pair directly.
+# "property tables and search results" comment). Coordinate lists
+# themselves (`-points {x y x y ...}`) need no such treatment here -
+# le_api.i's typemap already turns a plain Tcl list into the shim's
+# (const double*, int32_t count) pair directly.
 
 set kInvalidId 4294967295
 
-# --- Display truncation (BUGS_AND_ENHANCEMENTS.md E6) ---
+# --- Display truncation ---
 #
 # A single misbehaving typed command (e.g. a bare get_shapes on a design
 # with thousands of shapes) shouldn't be able to dump megabytes of text
-# into a console's scrollback - truncates what le_repl_eval (below)
-# returns for *display*, not the value itself: a script that calls
+# into a console - truncates what le_repl_eval (below) returns for
+# *display*, not the value itself: a script that calls
 # get_shapes/get_properties/etc. directly (not through le_repl_eval)
-# always gets the real, untruncated result. Previously done in Dart
-# (frontend/lib/components/terminal.dart's own kMaxResultDisplayLength/
-# _truncateForDisplay) - moved here (not into le_shell.cpp) so it's not
-# duplicated per-frontend and the Flutter console no longer needs to
-# know about it at all; le_shell's own interactive prompt isn't wired
-# through le_repl_eval (see that proc's own comment) and echoes results
-# via Tcl_Main's own hardcoded C runtime behavior, which has no
-# script-level hook to apply this to - same as a real tclsh, not a
-# regression this change introduces.
+# always gets the real, untruncated result.
 set kMaxResultDisplayLength 10000
 proc truncate_for_display {text} {
     global kMaxResultDisplayLength
@@ -46,46 +35,36 @@ proc truncate_for_display {text} {
     return "[string range $text 0 [expr {$kMaxResultDisplayLength - 1}]]..truncated"
 }
 
-# --- Editing / undo-redo (UPDATES.md item 21) ---
+# --- Editing / undo-redo ---
 #
 # Wraps one user-typed command with undo/redo transaction recording +
 # command-recall logging - the single bracket point every REPL-style
-# caller should use instead of raw Tcl_Eval, so a typed command is
-# exactly as undoable (Ctrl-Z/Ctrl-Shift-Z) as a GUI edit like Move.
-# Every command, successful or not, gets added to command_history
-# (BUGS_AND_ENHANCEMENTS.md E5 - a failed command is exactly the one a
-# user most wants back, to recall and edit into a working one). The
-# returned result is truncate_for_display()'d (E6) before it comes back
-# here - what a script gets from evaluating the *same command text*
-# itself, bypassing le_repl_eval, is unaffected. `uplevel #0` runs
-# $command in the *global* scope, not nested inside this proc's own
-# local one - matching how a real interactive shell evaluates each line
-# at toplevel (a bare `set x 5` lands in global scope, not thrown away
-# when this proc returns).
+# caller (le_shell's interactive loop, and commands the GUI queues)
+# uses instead of raw Tcl_Eval, so a typed command is exactly as
+# undoable (Ctrl-Z/Ctrl-Shift-Z) as a GUI edit like Move. Every command,
+# successful or not, gets added to command_history (a failed command is
+# exactly the one a user most wants back, to recall and edit into a
+# working one). The returned result is truncate_for_display()'d - what a
+# script gets from evaluating the *same command text* itself, bypassing
+# le_repl_eval, is unaffected. `uplevel #0` runs $command in the
+# *global* scope, not nested inside this proc's own local one - matching
+# how a real interactive shell evaluates each line at toplevel (a bare
+# `set x 5` lands in global scope, not thrown away when this proc
+# returns).
 #
 # complete_command (Tab-completion's own backing command, see below) is
 # the one command skipped entirely - not just excluded from the recall
 # log/truncation afterward, since it's a pure read with nothing to undo:
 # every Tab press would otherwise pollute command_history with its own
-# "complete_command ..." entry (BUGS_AND_ENHANCEMENTS.md E5's other
-# half), and its own result is a candidate list Dart's _completeCommand
-# parses programmatically, not display text - silently truncating it
-# mid-candidate would corrupt that list, not just shorten a printout.
+# "complete_command ..." entry, and its result is a candidate list
+# parsed programmatically, not display text - truncating it mid-candidate
+# would corrupt that list, not just shorten a printout.
 # help/man/generate_command_docs are still recorded normally (a user
 # typing `help` may well want it back via Up-arrow) but are exempted
 # from truncation alone, right below - see that check's own comment.
 # `[lindex $command 0]` reads the command name the same way Tcl itself
 # would dispatch it, so both checks catch e.g. "complete_command foo"
 # and "complete_command {foo bar}" alike regardless of quoting.
-#
-# `flutter_plugin`'s LeTclBridge.mm is the only caller (every typed
-# console command goes through it) - le_shell.cpp's own interactive REPL
-# is deliberately *not* wired through this yet, since it doesn't route
-# through a caller-controlled eval loop the way LeTclBridge.mm does; a
-# command typed at that shell is undoable/recorded at the individual
-# create/update/delete level (the generic per-mutation hook still fires),
-# just not batched into one transaction/recall entry per line the way a
-# Flutter-console command is.
 proc le_repl_eval {command} {
     set command_name [lindex $command 0]
     if {$command_name eq "complete_command"} {
@@ -109,7 +88,7 @@ proc le_repl_eval {command} {
     return [truncate_for_display $result]
 }
 
-# --- Help system (UPDATES.md item 20) ---
+# --- Help system ---
 #
 # ::command_help maps a command name to a {usage <str> description <str>
 # options <list>} dict - register_command_help below is the single write
@@ -226,7 +205,7 @@ proc man {name} {
 # `complete_command <line>` - candidate replacements for the
 # whitespace-delimited token currently being typed at the end of `line`
 # (a command name, a -flag, a .-prefixed property path, or a
-# filesystem path - BUGS_AND_ENHANCEMENTS.md E11 - for whichever
+# filesystem path, for whichever
 # command's own single `type file` positional argument it is, see
 # _file_positional_name), as a sorted Tcl list (empty if nothing matches
 # or the token being completed isn't one of those four kinds - e.g. a
@@ -247,10 +226,9 @@ proc man {name} {
 # start with an unbalanced "{" (see the -filter branch below), and a
 # real Tcl list's own canonical string form backslash-escapes an
 # unbalanced brace inside an element to stay re-parseable (harmless
-# to Tcl itself, but this crosses into the GUI console as plain text via
-# Tcl_Eval's own string result - see flutter_plugin's LeTclConsole/
-# LeTclBridge - where a naive caller splitting on whitespace would then
-# see a literal, wrong leading backslash). `join`'s output has no such
+# to Tcl itself, but a caller reading the result as plain text and
+# splitting on whitespace would then see a literal, wrong leading
+# backslash). `join`'s output has no such
 # escaping (it's a flat concatenation, not a list's own string
 # representation), so the plain-text contract stays exactly what every
 # caller (this file's own tests, the GUI) actually relies on.
@@ -327,9 +305,9 @@ proc complete_command {line} {
     }
 
     # A command whose own current positional argument is a real
-    # filesystem path (read_lef/read_def/source/dump_png -
-    # BUGS_AND_ENHANCEMENTS.md E11 - see _file_positional_name's own
-    # comment for why this is a `type file` metadata lookup rather than
+    # filesystem path (read_lef/read_def/source/dump_png - see
+    # _file_positional_name's own comment for why this is a `type file`
+    # metadata lookup rather than
     # a hardcoded command-name list) completes against the filesystem
     # instead of any of this proc's other completion kinds.
     if {[_file_positional_name $command_name] ne {}} {
@@ -506,8 +484,8 @@ proc _property_path_candidates {class_key partial} {
     return [lsort $candidates]
 }
 
-# complete_command's own filename-completion hook (BUGS_AND_ENHANCEMENTS.md
-# E11) - the name (without its angle brackets) of $command_name's own
+# complete_command's own filename-completion hook - the name (without its
+# angle brackets) of $command_name's own
 # positional argument, if it has exactly one registered positional
 # (`<name>`) option - flags like read_lef's own `-library` don't count -
 # and its type is "file"; {} otherwise (not registered at all, no positional
@@ -543,7 +521,7 @@ proc _file_positional_name {command_name} {
 }
 
 # Filesystem-glob-based candidates for a file-path argument's own
-# partial token (BUGS_AND_ENHANCEMENTS.md E11) - every candidate is
+# partial token - every candidate is
 # still a *full* replacement for `partial` (complete_command's own
 # contract, see its own doc comment), so this reconstructs each match's
 # full path text itself rather than returning bare filenames, and a
@@ -598,7 +576,7 @@ proc _filename_candidates {partial} {
 # recipe that regenerates TCL_COMMANDS.md from this.
 proc generate_command_docs {{path {}}} {
     set lines {}
-    # NEW_FEATURES_SEPT_2026.md item 24 - user-facing: a short intro, no
+    # User-facing: a short intro, no
     # -help row per command (every command has one), and the "generated"
     # note as an HTML comment so it doesn't render.
     lappend lines "<!-- Generated by generate_command_docs (le_tcl_procs.tcl) - edit the command help there, not this file. -->"
@@ -641,7 +619,7 @@ proc generate_command_docs {{path {}}} {
     return $text
 }
 
-# --- undo/redo/command_history (UPDATES.md item 21) - the raw undo_command/
+# --- undo/redo/command_history - the raw undo_command/
 # redo_command/command_history_count/command_history_at shim functions
 # (le_tcl_shim.hpp) are named with a suffix specifically so these procs
 # can be the real `undo`/`redo`/`command_history` Tcl commands without
@@ -740,7 +718,7 @@ register_command_help set_viewport_size \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# --- Current view (UPDATES.md item 17) ---
+# --- Current view ---
 
 # Selects `name`'s Design as this session's current view - every
 # subsequent get_terminals/get_obstructions/get_terminal_ports/get_shapes
@@ -748,15 +726,11 @@ register_command_help set_viewport_size \
 # current_abstract - see codegen/codegen/tcl_scope.py's own module
 # docstring) is scoped to its Abstract, since a script's "give me the
 # terminals" means "in the view I have open", not "across every open
-# Library/Design". Also moves Scene::current_abstract() (GUI rendering)
-# the same way, via the shared le_set_current_design_abstract_by_id both this and
-# the GUI's own design-selection path (LeProvider.openDesign) call into -
+# Library/Design". Also moves the GUI's current view the same way, via
+# the same API the GUI's own design-selection path calls into -
 # selecting a Design means the same thing regardless of which side asked
-# (see that function's own comment in api.cpp). `-view` is accepted but
-# currently only "abstract" is meaningful - every Design read via
-# read_lef() has exactly one Abstract view and no DEF/placement-driven
-# Design exists in this project yet (see le_tcl_shim.hpp's
-# design_abstract_id comment for the same caveat).
+# (see le_set_current_design_abstract_by_id's own comment in api.cpp).
+# `-view` picks the Abstract (default) or Layout view.
 proc open_design {name args} {
     # $name is checked too, not just $args: open_design takes a
     # *mandatory* leading positional (name), so calling it as bare
@@ -794,8 +768,8 @@ proc open_design {name args} {
         }
     }
     #
-    # design:<name>, not the raw design_id, for consistency with UPDATES.md
-    # item 19.1's own friendly-id convention - the caller already has
+    # design:<name>, not the raw design_id, for consistency with the
+    # friendly-id convention - the caller already has
     # `name` literally, so this costs nothing to derive.
     return "design:$name"
 }
@@ -1120,10 +1094,10 @@ register_command_help deselect_all \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# BUGS_AND_ENHANCEMENTS.md E30 - get_selection/select, the script-driven
-# counterpart to select_all/deselect_all/a real mouse click. Only
-# shape:/row:/placement:/region: tokens are meaningful (the same four
-# kinds Scene::SelectedObject's own variant covers, see
+# get_selection/select, the script-driven counterpart to
+# select_all/deselect_all/a real mouse click. Only
+# shape:/row:/placement:/region: tokens are meaningful (the kinds
+# LeHandle::SelectedObject covers, see
 # le_select_object_ref's own api.hpp comment) - selecting a shape:
 # token selects every one of its rects/polygons/paths, not one piece,
 # since piece-level granularity has no meaning outside a real mouse
@@ -1188,8 +1162,8 @@ register_command_help arm_move \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# --- delete_selected_pieces (NEW_FEATURES_SEPT_2026.md item 29 - backed
-# by delete_selected_pieces_cmd -> le_delete_selected_pieces) ---
+# --- delete_selected_pieces (backed by delete_selected_pieces_cmd ->
+# le_delete_selected_pieces) ---
 proc delete_selected_pieces {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "delete_selected_pieces \[-help\] - Deletes the selected shape pieces, returning how many"
@@ -1203,8 +1177,8 @@ register_command_help delete_selected_pieces \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# --- placement snapping and rotate/flip (NEW_FEATURES_SEPT_2026.md
-# item 2 - backed by set_placement_snap_mode_cmd/get_placement_snap_mode_cmd/
+# --- placement snapping and rotate/flip (backed by
+# set_placement_snap_mode_cmd/get_placement_snap_mode_cmd/
 # is_placement_snap_mode_available_cmd/apply_placement_orientation_op_cmd) ---
 array set ::placement_snap_names {none 0 site 1 fin 2 manufacturing 3}
 array set ::placement_snap_names_reverse {0 none 1 site 2 fin 3 manufacturing}
@@ -1257,7 +1231,7 @@ register_command_help placement_snap_mode_available \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# --- shape resizing (NEW_FEATURES_SEPT_2026.md item 3 - backed by
+# --- shape resizing (backed by
 # arm_resize_cmd/set_shape_snap_mode_cmd/get_shape_snap_mode_cmd/
 # is_shape_snap_mode_available_cmd) ---
 array set ::shape_kind_names {rect 0 polygon 1 path 2 via 3}
@@ -1421,25 +1395,20 @@ register_command_help get_antialiasing_enabled \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# --- read_lef/read_def/source/dump_png - BUGS_AND_ENHANCEMENTS.md E11/
-# E14. read_lef/read_def were previously raw SWIG-bound commands with no
-# -help/help-system integration at all, unlike every hand-written or
-# generated command elsewhere in this file (E14); `source` is Tcl's own
-# builtin, never registered at all. All four take a real filesystem path
+# --- read_lef/read_def/source/dump_png - wrapped so they get -help and
+# help-system registration like every other command (`source` is Tcl's
+# own builtin, otherwise never registered). All four take a real filesystem path
 # as their own single positional argument (`type file`, not the generic
 # `type str` every other string-typed argument elsewhere uses) -
 # complete_command's own _file_positional_name (below) looks for exactly
-# that type to offer filesystem completion (E11), rather than a separate
+# that type to offer filesystem completion, rather than a separate
 # hardcoded command-name list.
 #
-# Each `rename`s the real command out of the way first, the same trick
-# flutter_plugin/src/le_tcl_bridge.cpp's own kCapturePutsBootstrap uses
-# for `puts` - a Tcl proc can't otherwise both claim a command's real,
+# Each `rename`s the real command out of the way first - a Tcl proc
+# can't otherwise both claim a command's real,
 # expected name *and* still call through to what it's replacing.
-# read_lef/read_def: return code/error semantics are untouched (still an
-# int, 0 on success) - existing callers (le_shell scripts, every other
-# test fixture's own `read_lef $path`) see no behavior change beyond
-# gaining -help. source: `uplevel 1` (not a plain call) is load-bearing,
+# read_lef/read_def: return code/error semantics are those of the raw
+# commands (an int, 0 on success). source: `uplevel 1` (not a plain call) is load-bearing,
 # not defensive style - the real `source` command evaluates a script in
 # whatever scope *it* was called from; calling the renamed command
 # directly from inside this wrapper proc would instead trap the sourced
@@ -1448,11 +1417,11 @@ register_command_help get_antialiasing_enabled \
 # command's own immediate caller. `uplevel 1` calls it one frame up
 # instead - from wherever this wrapper's own caller actually is - so it
 # sees the real, original caller's scope, exactly like the unwrapped
-# command would have (confirmed empirically: a variable a sourced script
-# sets lands in the right scope whether `source` is called at top level
-# or from inside another proc).
-# Shared by read_lef/read_def/read_verilog (NEW_FEATURES_SEPT_2026.md
-# item 4): pulls the required `-library <name>` flag out of `arglist`,
+# command would have (a variable a sourced script sets lands in the
+# right scope whether `source` is called at top level or from inside
+# another proc).
+# Shared by read_lef/read_def/read_verilog: pulls the required
+# `-library <name>` flag out of `arglist`,
 # returning {library_name remaining_args}.
 proc _take_library_flag {command arglist} {
     set library ""
@@ -1514,7 +1483,7 @@ register_command_help read_def \
         {<path> {type file required 1 description {DEF file to read}}}
     }
 
-# read_verilog/link (SYSTEMVERILOG.md) - no `rename` dance needed here,
+# read_verilog/link - no `rename` dance needed here,
 # same reasoning as write_lef/write_def just below: read_verilog_cmd/
 # link_unresolved_instances_cmd (le_tcl_shim.cpp) are already distinctly
 # named from the proc names defined here (link's own underlying C++/API/
@@ -1618,7 +1587,7 @@ register_command_help link \
     "Resolves instances whose design wasn't known when they were read - e.g. after a later read_lef supplies a cell a netlist uses. read_verilog does this automatically. Returns the number of instances newly resolved." \
     {}
 
-# write_lef/write_def (BUGS_AND_ENHANCEMENTS.md E28) - no `rename` dance
+# write_lef/write_def - no `rename` dance
 # needed here unlike read_lef/read_def above: write_lef_cmd/write_def_cmd
 # (le_tcl_shim.cpp) are already distinctly named from the write_lef/
 # write_def proc names below, so there's no real command to shadow.
@@ -1681,10 +1650,10 @@ proc write_lef {args} {
     if {$opts(-include_tech) && $opts(-tech_only)} {
         error "write_lef: -include_tech and -tech_only are mutually exclusive"
     }
-    # BUGS_AND_ENHANCEMENTS.md E28.b - -abstract (a single Abstract) is
+    # -abstract (a single Abstract) is
     # mutually exclusive with -library/-abstracts (the whole-Library-or-
     # explicit-list mode) - mixing them has no sensible meaning. -library
-    # and -abstracts *can* be combined (per the item's own spec: -abstracts
+    # and -abstracts *can* be combined (-abstracts
     # narrows -library's own full Design list down to just the given
     # ones) - write_lef_cmd's own resolution order (see its .cpp comment)
     # handles that; -abstracts alone (no -library) is also allowed, a
@@ -1769,7 +1738,7 @@ register_command_help write_def \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# Native database files (NATIVE_FILE_FORMAT_RESEARCH.md): the whole
+# Native database files (design: docs/NATIVE_FILE_FORMAT_RESEARCH.md): the whole
 # database in one .led file, readable by every later Layout Engine.
 # write_db errors on failure like write_def; read_db returns a status like
 # read_def (the details are printed either way).
@@ -1872,17 +1841,16 @@ register_command_help dump_png \
         {<path> {type file required 1 description {Output PNG file path}}}
     }
 
-# --- get_<type> (UPDATES.md item 19.1) ---
+# --- get_<type> ---
 #
 # `get_<type> [<name-expr>...] [-of <parent-token>...] [-filter <expr>]
 # [-help]` - one shared shape across every object type. parse_get_args
 # tokenizes a proc's own `args` into that shape; each has_name_expr=0
-# type (Abstract/TerminalPort/Obstruction/Shape - none have a name field,
-# see UPDATES.md item 19.1's own NOTE) rejects a bare positional token
+# type (Abstract/TerminalPort/Obstruction/Shape - none have a name field)
+# rejects a bare positional token
 # instead of silently ignoring it. `-of`'s own value is itself a Tcl list
 # (same idiom as `-rect {...}`/`-points {...}` elsewhere in this file) -
-# `-of design:A` and `-of {design:A design:B}` both work, the latter OR'd
-# (UPDATES.md item 19.1: "-of <parent tokens>" is plural on purpose).
+# `-of design:A` and `-of {design:A design:B}` both work, the latter OR'd.
 proc parse_get_args {cmd_name args_list has_name_expr} {
     set name_exprs {}
     set of_tokens {}
@@ -1925,8 +1893,8 @@ proc parse_get_args {cmd_name args_list has_name_expr} {
 }
 
 # Every -of token must be validated against `cmd_name`'s own valid
-# parent-type prefix set *before* any shim call (UPDATES.md item 19.1's
-# error-checking requirement 1) - a wrong-type token is a script bug, not
+# parent-type prefix set *before* any shim call - a wrong-type token is a
+# script bug, not
 # an empty-result-shaped "not found".
 proc check_of_prefixes {cmd_name of_tokens prefixes} {
     foreach token $of_tokens {
@@ -1956,13 +1924,13 @@ proc default_to_unset {values} {
     return $values
 }
 
-# --- get_properties/report_properties (UPDATES.md item 19.2) ---
+# --- get_properties/report_properties ---
 #
 # property_accessors_for_token (dispatches a friendly-id token to its
 # {count name value path} shim-function quadruplet by prefix, across
 # every TCL-readable class - not just library:/design:/abstract:/
 # terminal:/terminal_port:/obstruction:/shape:) and the ::property_scalars/
-# ::property_hops dot-path completion tables (UPDATES.md item 20) are
+# ::property_hops dot-path completion tables are
 # generated - see generated/le_tcl_procs_generated.tcl and
 # CLAUDE.md's TCL section. Never edit that file directly, regenerate via
 # the regen-tcl skill instead.
@@ -1970,11 +1938,8 @@ proc default_to_unset {values} {
 # alongside this file, unchanged - ctest/le_shell/tclsh all source this file
 # straight from src/tcl/, where that subdirectory genuinely exists),
 # then falls back to a flat layout (this file's own directory, no generated/
-# subdirectory) - a packaged release bundle can't preserve that nesting (the
-# whole flutter_plugin bundling mechanism installs individual files into one
-# flat lib/ directory, no per-file destination subdirectory) - confirmed
-# necessary by a real "couldn't read file .../generated/le_tcl_procs_generated.tcl:
-# no such file or directory" error running a release build.
+# subdirectory) - a packaged release bundle (Dockerfile.linux-release's
+# `bundle` stage) copies files into one flat directory.
 set _le_generated_procs_candidates [list \
     [file join [file dirname [info script]] generated le_tcl_procs_generated.tcl] \
     [file join [file dirname [info script]] le_tcl_procs_generated.tcl] \
@@ -2004,7 +1969,7 @@ proc properties_for_token {token} {
 # distinguish a single bare token/name from a one-element list of them
 # (`terminal:IN0` literal and a one-match [get_terminals] result are
 # structurally identical), so this is the only rule that can match every
-# one of UPDATES.md item 19.2's own worked examples:
+# one of these cases:
 #   get_properties [get_terminals]              -> list of dicts (many tokens)
 #   get_properties terminal:IN0 .name           -> scalar (one token, one name)
 #   get_properties terminal:IN0 {.name .direction} -> flat list (one token, many names)
@@ -2147,10 +2112,8 @@ register_command_help shape_polygons \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# remove_shape_rect/_polygon/_path (BUGS_AND_ENHANCEMENTS.md E14) - the
-# last raw SWIG-bound commands left with no Tcl-level wrapper at all
-# (unlike every other command in this file, hand-written or generated) -
-# same `rename` + re-wrap trick read_lef/read_def use above, needed here
+# remove_shape_rect/_polygon/_path - wrapped with the same `rename` +
+# re-wrap trick read_lef/read_def use above, needed here
 # purely to intercept -help before it reaches the raw command's own fixed
 # 2-argument arity (id, index) and errors out. Return code/error
 # semantics are untouched - still an int, 0 on success, matching
@@ -2212,7 +2175,7 @@ register_command_help remove_shape_path \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# --- shape_* operations (NEW_FEATURES_SEPT_2026.md item 1) ---
+# --- shape_* operations ---
 #
 # Every operation works on each input Shape's own merged area (its rects,
 # polygons and stroked paths together). New Shapes go to the current
@@ -2609,8 +2572,8 @@ register_command_help get_flightline_max_fanout \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# --- Settings (NEW_FEATURES_SEPT_2026.md item 9 - the Settings panel's own
-# values, and the JSON file they save to/load from) ---
+# --- Settings (the Settings panel's own values, and the JSON file they
+# save to/load from) ---
 
 proc set_grid_spacing {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
@@ -2869,8 +2832,7 @@ register_command_help get_max_concurrency \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# --- get_instances/get_nets/get_ports: hierarchical path override
-# (LINKING_STRATEGY_RESEARCH.md sections 3/4) ---
+# --- get_instances/get_nets/get_ports: hierarchical path override ---
 #
 # Overrides the three generated flat-search procs of the same name
 # (sourced above from generated/le_tcl_procs_generated.tcl) - Tcl's own
@@ -2993,7 +2955,7 @@ register_command_help get_ports \
     $get_ports_options
 
 # --- delete_net/update_net/update_instance: mutation side-effect
-# overrides (LINKING_STRATEGY_RESEARCH.md section 5) ---
+# overrides ---
 #
 # Overrides the three generated procs of the same name (sourced above
 # from generated/le_tcl_procs_generated.tcl) - same "last proc definition

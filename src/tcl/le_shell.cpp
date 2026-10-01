@@ -1,61 +1,30 @@
-// Phase 6 batch shell (UPDATES.md item 15 / TCL_EXPLORATION.md): "run a
-// TCL shell from the terminal" - originally a small Tcl_AppInitProc
-// handed to Tcl_Main(), which supplied both modes item 15 asked for out
-// of the box: no script argument (and stdin is a terminal) dropped into
-// an interactive REPL with a "% " prompt; a script argument ran it
-// non-interactively then exited (batch mode).
+// le_shell: Layout Engine's Tcl shell. With no script argument it runs an
+// interactive readline loop; with a script path it evaluates the script
+// (Tcl_EvalFile, with $argv0/$argv/$argc set the way Tcl_Main sets them -
+// shell_test.tcl relies on this) and exits nonzero on a script error.
 //
-// The AppInitProc's own job is still just bootstrapping: `load` the
-// SWIG-wrapped le_tcl module (built by the le_tcl CMake target - a
-// shared library, not linked into this binary, same as any other Tcl
-// extension) and source le_tcl_procs.tcl, so every CRUD/search command
-// (create_terminal, get_terminal_ports, ...) is ready to type the
-// moment the shell starts, without the caller sourcing anything
-// themselves.
+// Both modes bootstrap identically: `load` the SWIG-wrapped le_tcl module
+// (a shared library built by the le_tcl CMake target, not linked into this
+// binary) and source le_tcl_procs.tcl, so every CRUD/search command is
+// ready without the caller sourcing anything.
 //
-// This binary no longer calls Tcl_Main() at all, though (see
-// run_interactive() below for the full reasoning) - its own hardcoded
-// interactive loop never routed a typed command through le_repl_eval
-// (le_tcl_procs.tcl), the single bracket point that makes a command
-// undoable, recorded into the recall log, and truncated for display
-// (UPDATES.md item 21, BUGS_AND_ENHANCEMENTS.md E5/E6) - only
-// flutter_plugin's own LeTclBridge ever exercised that, since the
-// Flutter Terminal widget used to be the primary interactive surface.
-// Now that `le_shell` is the *only* user-facing way to run Tcl commands
-// interactively (the Dear ImGui prototype's own window has no console
-// of its own - see src/gui/le_gui.hpp), it needed everything that
-// widget's own hand-rolled Dart implementation provided: real line
-// editing/recall history and Tab completion (GNU readline - see
-// CMakeLists.txt's own comment for why not libedit), plus the same
-// undo/recording/truncation behavior batch scripts and the Flutter
-// bridge already got. Batch mode (a script path given) is unchanged in
-// observable behavior - still Tcl_EvalFile, still sets up
-// $argv0/$argv/$argc the same way Tcl_Main's own convention did
-// (shell_test.tcl relies on this for its own $argv), and still exits
-// nonzero on a script error.
+// The interactive loop is hand-rolled rather than Tcl_Main(), so every
+// typed command goes through le_repl_eval (le_tcl_procs.tcl) - the single
+// bracket point that makes a command undoable, recorded into the recall
+// log, and truncated for display - with GNU readline for line editing,
+// history and Tab completion (see CMakeLists.txt for why not libedit).
 //
-// `show_gui` (see le_tcl_procs.tcl) opens a Dear ImGui window
-// (src/gui/le_gui.hpp) sharing this same process's session state - see
-// TCL_EXPLORATION.md's Phase 6 section for the earlier exploration of
-// this and why it went a different direction for the Flutter plugin's
-// own Tcl console first. Getting there means restructuring this
-// binary's own thread ownership: a blocking stdin-reading interactive
-// loop and a native GUI's own event loop (GLFW/Cocoa's NSApplication in
-// particular) can't share one thread - the same conflict
-// TCL_EXPLORATION.md already hit and steered around for the Flutter
-// plugin (Tcl embedded as a library on its own worker thread there,
-// instead of Tcl_Main). Here it's the mirror image: this process's own
-// true main thread is reserved for le::gui::run_main_thread_loop()
-// (GLFW requires window/context creation only there on macOS), and the
-// interactive console runs on a spawned thread instead - injecting the
-// LeHandle this main thread already created via set_session_handle
-// (le_tcl_shim.hpp) right after `load`-ing le_tcl, so a `show_gui`
-// window and this console mutate the exact same state. Both the GUI
-// window and readline-based editing are mandatory, unconditional
-// dependencies of this binary, not optional build features - `le_shell`
-// is the only user-facing way to run Tcl commands or open a design
-// window now, so a degraded build without either isn't a shape this
-// binary supports; see CMakeLists.txt's own `le_shell` target comment.
+// `show_gui` (le_tcl_procs.tcl) opens a Dear ImGui window
+// (src/gui/le_gui.hpp) sharing this process's session state. A blocking
+// stdin-reading loop and a native GUI's event loop can't share one
+// thread, and GLFW requires window/context creation on the true main
+// thread on macOS, so the main thread runs le::gui::run_main_thread_loop()
+// and the console runs on a spawned thread - injecting the LeHandle the
+// main thread created via set_session_handle (le_tcl_shim.hpp) right
+// after `load`-ing le_tcl, so the window and the console mutate the exact
+// same state. The GUI window and readline are mandatory dependencies of
+// this binary, not optional build features; see CMakeLists.txt's own
+// `le_shell` target comment.
 
 #include <filesystem>
 #include <tcl.h>
@@ -90,7 +59,7 @@ namespace
 
     LeHandle *g_injected_handle = nullptr;
 
-    // NEW_FEATURES_SEPT_2026.md item 18 - set (from the GUI thread) when the
+    // Set (from the GUI thread) when the
     // window's close dialog chose "Exit": drain_pending_gui_commands, on
     // this Tcl thread, then exits the way a typed `exit` would, after
     // letting readline restore the terminal.
@@ -130,9 +99,7 @@ namespace
     // genuinely still exists), but never valid once le_shell is copied
     // elsewhere - e.g. Dockerfile.linux-release's `bundle` stage, which
     // copies le_shell/le_tcl.so/le_tcl_procs.tcl flat into one directory,
-    // not this build tree's own layout. A real, repeated report (`load`
-    // failing with "No such file or directory" against the baked-in
-    // build-tree path) confirmed this. Checked via stat() first so a
+    // not this build tree's own layout. Checked via stat() first so a
     // genuinely missing file is diagnosed by us, not by Tcl's own opaque
     // `load` error. Only tried when no -module/-procs/env override was
     // given - an explicit override is trusted as-is, matching this
@@ -213,12 +180,10 @@ namespace
         std::exit(2);
     }
 
-    // Bootstrapping, same job this used to do as Tcl_Main's own
-    // Tcl_AppInitProc callback: `load` le_tcl and source
-    // le_tcl_procs.tcl, so both the interactive and batch-script paths
-    // get the full command surface identically - a batch script never
-    // needs its own `load`/`source` preamble. Called directly now
-    // (run_shell below), not handed to Tcl_Main.
+    // Bootstrapping: `load` le_tcl and source le_tcl_procs.tcl, so both
+    // the interactive and batch-script paths get the full command surface
+    // identically - a batch script never needs its own `load`/`source`
+    // preamble. Called directly by run_shell below.
     int app_init(Tcl_Interp *interp)
     {
         if (Tcl_Init(interp) == TCL_ERROR)
@@ -257,9 +222,7 @@ namespace
     // Runs one already-assembled command string through le_repl_eval and
     // prints whatever it returns - passed through Tcl_SetVar/a variable
     // reference, not substituted directly into the eval'd string, to
-    // avoid re-escaping arbitrary user-typed text (same pattern
-    // flutter_plugin/src/le_tcl_bridge.cpp's own worker thread already
-    // uses for the identical reason). Tcl_Eval's own return code isn't
+    // avoid re-escaping arbitrary user-typed text. Tcl_Eval's own return code isn't
     // checked - le_repl_eval already catches the wrapped command's own
     // error internally and always returns TCL_OK itself, the
     // interpreter's own string result holding the (successful or error)
@@ -283,10 +246,8 @@ namespace
     // Classic readline "generator" idiom (called repeatedly with
     // state=0,1,2,... until it returns nullptr) - state==0 computes and
     // caches the whole candidate list via complete_command once
-    // (le_tcl_procs.tcl), the same command Tab completion already went
-    // through for the Flutter Terminal widget
-    // (frontend/lib/components/terminal.dart's own _completeCommand) -
-    // complete_command does its own, richer whole-line analysis (command
+    // (le_tcl_procs.tcl) - complete_command does its own, richer
+    // whole-line analysis (command
     // name/flag/dot-path context, bracket nesting) rather than
     // readline's default "just the last word in isolation" model, so
     // `text` itself (readline's own idea of the word being completed) is
@@ -358,9 +319,7 @@ namespace
     // does. See le_enqueue_tcl_command's own doc comment (api.hpp) for
     // why a GUI component (src/gui/components/ - no Tcl interpreter of
     // its own) needs this at all: some of its own actions (layer/purpose
-    // visibility, hierarchy depth - the same subset the Flutter
-    // frontend's own LeProvider already routes through a Tcl command
-    // instead of a direct FFI call) should leave the same command-
+    // visibility, hierarchy depth) should leave the same command-
     // history trail a typed command would, but this thread's own
     // readline() call is the only place that can actually evaluate one.
     // Readline calls this periodically (its own ~0.1s select() timeout)
@@ -417,7 +376,7 @@ namespace
         return 0;
     }
 
-    // BUGS_AND_ENHANCEMENTS.md E26 - printed once, only in interactive
+    // Printed once, only in interactive
     // mode (run_shell's own script-argument branch never calls
     // run_interactive at all - a batch script's stdout shouldn't gain
     // unexpected banner noise). LE_SHELL_VERSION/LE_SHELL_BUILD_DATE come
@@ -460,7 +419,7 @@ namespace
         rl_completer_word_break_characters = const_cast<char *>(" \t\n");
         rl_event_hook = drain_pending_gui_commands;
 
-        // NEW_FEATURES_SEPT_2026.md item 18 - `exit` asks first when
+        // `exit` asks first when
         // something is unsaved (confirm_exit_if_unsaved); the real one
         // stays reachable as ::le_shell_builtin_exit.
         Tcl_CreateObjCommand(interp, "le_shell_confirm_exit", confirm_exit_cmd, nullptr, nullptr);
@@ -470,14 +429,12 @@ namespace
         std::string buffer;
         for (;;)
         {
-            // BUGS_AND_ENHANCEMENTS.md E27 - was "% ", Tcl_Main's own
-            // default prompt.
             const char *prompt = buffer.empty() ? "le_shell > " : "";
             char *raw = readline(prompt);
             if (raw == nullptr)
             {
                 std::fputc('\n', stdout);
-                if (!confirm_exit_if_unsaved()) // item 18 - Ctrl-D asks too
+                if (!confirm_exit_if_unsaved()) // Ctrl-D asks too
                     continue;
                 return;
             }
@@ -499,8 +456,8 @@ namespace
             // however many continuation lines it took) is a well-formed
             // empty command - evaluating it is a harmless no-op, but
             // routing it through le_repl_eval would still record a
-            // pointless empty entry into command_history
-            // (BUGS_AND_ENHANCEMENTS.md E5's own recall log), unlike a
+            // pointless empty entry into command_history's recall log,
+            // unlike a
             // real interactive tclsh, which does nothing at all for one.
             const bool blank = buffer.find_first_not_of(" \t\n\r") == std::string::npos;
             if (!blank)
@@ -611,7 +568,7 @@ int main(int argc, char **argv)
 
     g_injected_handle = le_create();
 
-    // The user's saved settings (NEW_FEATURES_SEPT_2026.md item 9) - in
+    // The user's saved settings - in
     // interactive mode only: a batch script (including every ctest run of
     // le_shell) stays reproducible regardless of what a developer has
     // saved, and can call load_settings itself if it wants them.
@@ -634,22 +591,16 @@ int main(int argc, char **argv)
     // valid regardless of main()'s local variables, even though main()
     // also never returns before process exit here.
     //
-    // Joining instead of detaching was tried as a fix for the real
-    // glfwInit()-failure race below (see run_main_thread_loop's own
-    // comment) and reverted - it broke the normal interactive/GUI path
-    // outright (show_gui stopped opening a window at all, confirmed live)
-    // for reasons that don't reduce to anything in this file's own code -
-    // std::thread's own join/detach state is pure userspace bookkeeping,
-    // it has no business affecting GLFW/window-server behavior, but it
-    // empirically did. Left detached, matching the original design; the
-    // race is fixed on the other side instead (run_main_thread_loop
-    // itself never returns now, even on glfwInit failure), which doesn't
-    // touch this file at all.
+    // Detached, not joined: joining stops show_gui from opening a window
+    // at all (for reasons not understood - std::thread's join/detach state
+    // shouldn't affect GLFW, but it does). The glfwInit()-failure race is
+    // handled on the other side instead: run_main_thread_loop never
+    // returns, even on glfwInit failure.
     std::thread tcl_thread([remaining]() mutable
                             { run_shell(remaining); });
     tcl_thread.detach();
 
-    // NEW_FEATURES_SEPT_2026.md item 18 - interactively, the close dialog's
+    // Interactively, the close dialog's
     // "Exit" hands off to the Tcl thread (so readline restores the
     // terminal); a batch script keeps le_gui's default immediate exit.
     if (remaining.size() == 1)

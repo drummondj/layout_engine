@@ -1,7 +1,6 @@
-# Phase 5 regression check (TCL_EXPLORATION.md): exercises the full
-# Phase 4 CRUD/search surface through the ergonomic (item 15 -shaped)
-# command layer - not just that SWIG can wrap it (smoke_test.tcl already
-# covers that for the Phase 0 scalar slice), but that a real Tcl caller
+# Regression check for the full CRUD/search surface through the
+# ergonomic command layer - not just that SWIG can wrap it
+# (smoke_test.tcl covers the scalar commands), but that a real Tcl caller
 # can create a Terminal/TerminalPort/Obstruction, attach rect/polygon/
 # path geometry to a Shape via the coordinate-list typemap (a plain Tcl
 # list, not a pre-flattened C array), search with a filter expression,
@@ -12,7 +11,7 @@
 #       <path to testcell.lef fixture> <path to othercell.lef fixture>
 #
 # othercell.lef (MACRO OTHERCELL, PIN B) is read in as a second Design
-# late in this script purely to prove UPDATES.md item 17's scoping: that
+# late in this script purely to prove current-view scoping: that
 # open_design's current-view selection actually confines
 # get_terminals/get_obstructions/get_terminal_ports to the Abstract in
 # view, not every Abstract ever read into the session.
@@ -63,7 +62,7 @@ if {[catch {open_design DOES_NOT_EXIST} err]} {
     exit 1
 }
 
-# --- Library/Design/Abstract search (UPDATES.md item 19.1) ---
+# --- Library/Design/Abstract search ---
 
 check "get_libraries finds the loaded library" library:testcell [get_libraries]
 check "get_libraries with a matching name expression" library:testcell [get_libraries testcell]
@@ -84,9 +83,8 @@ if {[catch {get_abstracts -of library:testcell} err]} {
     exit 1
 }
 
-# --- Library/Design/Abstract properties (UPDATES.md item 19.2 - new
-# types, exercising get_properties beyond the Terminal-only examples in
-# the item's own text) ---
+# --- Library/Design/Abstract properties (get_properties beyond
+# Terminals) ---
 
 check "get_properties on a library token" testcell \
     [dict get [get_properties [get_libraries]] name]
@@ -116,7 +114,7 @@ check_true "create_terminal without -abstract returned a valid friendly id" [exp
 check "create_terminal without -abstract lands on current_abstract" $from_current [get_terminals -of $abstract_token FROM_CURRENT]
 check "delete_terminal (current-abstract-default fixture) return code" 0 [delete_terminal $from_current]
 
-# --- Terminal-name uniqueness enforcement (UPDATES.md's friendly-id item) ---
+# --- Terminal-name uniqueness enforcement ---
 
 if {![catch {create_terminal -abstract $abstract_token -name IN0 -direction INPUT}]} {
     puts stderr "FAIL: create_terminal with a colliding name did not raise a Tcl error"
@@ -135,8 +133,8 @@ set props [get_properties $in0]
 check "get_properties name" IN0 [dict get $props name]
 check "get_properties direction" INPUT [dict get $props direction]
 
-# --- get_properties/report_properties shape (UPDATES.md item 19.2) ---
-# Verifies all four of the item's own worked examples: single-token/no
+# --- get_properties/report_properties shape ---
+# Verifies all four result shapes: single-token/no
 # names -> dict (above); single-token/one-name -> scalar; single-token/
 # many-names -> flat list; many-tokens/many-names -> list of flat lists.
 
@@ -233,8 +231,7 @@ check "get_terminals -filter with an unknown field returns empty" {} [get_termin
 set port [create_terminal_port -terminal $in0]
 check_true "create_terminal_port returned a valid friendly id" [expr {$port ne {}}]
 
-# --- get_properties chained/dot-notation paths (dot-notation follow-up to
-# item 19.2) ---
+# --- get_properties chained/dot-notation paths ---
 
 check "get_properties chained path through a hop" IN0 [get_properties $port .terminal.name]
 check "get_properties chained path, many names -> flat list" {IN0 INPUT} \
@@ -310,11 +307,10 @@ check "get_properties on a shape token" M1 [get_properties $shape .layer.name]
 # "<field>_count" - clean, micron-converted, brace-nested coordinates
 # ("{{ll_x ll_y} {ur_x ur_y}}" per rect), generated generically for every
 # class (codegen/codegen/schema.py's `dbu` field type + Field.wrap_with_*
-# methods - see CLAUDE.md's Database codegen section), not a
-# Shape-only hand-written override anymore. A Path's own width is listed
-# before its own "polygon" field (BUGS_AND_ENHANCEMENTS.md E21 - Path's
-# own fields are declared width-then-polygon in schema.py specifically so
-# this display order comes out that way), the polygon itself getting its
+# methods - see CLAUDE.md's Database codegen section). A Path's own
+# width is listed before its own "polygon" field (Path's own fields are
+# declared width-then-polygon in schema.py specifically so this display
+# order comes out that way), the polygon itself getting its
 # own wrapping brace group like any other embedded-klass reference
 # (Polygon's points list nested one level inside that). ---
 
@@ -352,12 +348,11 @@ check "get_properties rects second element" {{10 10} {20 20}} [lindex $two_rects
 check "remove second shape rect return code" 0 [remove_shape_rect $shape 1]
 
 # --- get_properties single-segment dot-path lookup on rects/polygons/
-# paths (get_properties $shape .rects) - a regression check for a real
-# dangling-pointer bug: le_X_property_path used to build its LeProperty
-# result from a std::optional<PropertyValue>/vector local to the
-# function, whose .c_str() pointers went stale the instant the function
-# returned. A short value ("IN0") happened to keep "working" by sheer
-# luck (still-intact bytes in the just-freed stack slot, small enough for
+# paths (get_properties $shape .rects) - le_X_property_path's LeProperty
+# strings must outlive the call (a result built from function-local
+# storage would leave .c_str() pointers dangling). A short value ("IN0")
+# can appear to work by luck (still-intact bytes in the just-freed stack
+# slot, small enough for
 # std::string's small-string optimization), which is exactly why this
 # went unnoticed until a long, heap-allocated value (a formatted rects/
 # polygons/paths coordinate list) came back corrupted instead. Fixed by
@@ -490,10 +485,9 @@ open_design TESTCELL
 # Klass.delete_api_body()'s own docstring (codegen/codegen/schema.py) for
 # the recursive-cascade mechanism this exercises. $port/$shape were
 # created earlier in this file (Terminal $in0 -> TerminalPort $port ->
-# Shape $shape) - this is a regression check for a real bug in the
-# formerly hand-written le_delete_terminal, which only ever cascaded one
-# level deep (deleting each TerminalPort but never that port's own
-# Shapes, leaving them as permanently-unreachable orphaned pool entries).
+# Shape $shape) - the cascade must reach every level (each TerminalPort
+# and that port's own Shapes), or they'd be left as permanently-
+# unreachable orphaned pool entries.
 # get_properties on a deleted object's own now-stale friendly id degrades
 # to an empty dict (0 properties - same "unknown id -> 0 rows" contract
 # every property-table accessor already has), which only holds for
@@ -512,7 +506,7 @@ check "delete_terminal (out0) return code" 0 [delete_terminal $out0]
 # gone.
 check "get_terminals after deleting both created terminals" A [dict get [get_properties [get_terminals]] name]
 
-# --- Current-view scoping (UPDATES.md item 17) ---
+# --- Current-view scoping ---
 #
 # othercell.lef (OTHERCELL/PIN B) was already read above (the Terminal
 # reparenting section needed a second, independent Abstract) - confirm
@@ -578,7 +572,7 @@ set scratch_shape [create_shape -terminal_port $scratch_port -layer layer:M1 -re
 check_true "create_shape on the from-scratch TerminalPort returned a valid friendly id" [expr {$scratch_shape ne {}}]
 check "the from-scratch shape's rect round-trips" {{0 0} {10 10}} [lindex [shape_rects $scratch_shape] 0]
 
-# --- Undo/redo (UPDATES.md item 21) - via le_repl_eval, the same bracket
+# --- Undo/redo - via le_repl_eval, the same bracket
 # point a typed console command goes through, exercising the real
 # create_terminal/update_shape/delete_terminal command names (not the
 # raw C++/Root layer - see editing_test.cpp for that). Reuses the
@@ -618,8 +612,8 @@ check "layer name is back to M1 after undo" M1 [get_properties $scratch_shape .l
 check "redo re-applies the rename" 1 [redo]
 check "layer name is M2 again after redo" M2 [get_properties $scratch_shape .layer.name]
 
-# A deliberately-errored command is still added to command_history
-# (BUGS_AND_ENHANCEMENTS.md E5) - unlike every other entry so far, its
+# A deliberately-errored command is still added to command_history -
+# unlike every other entry so far, its
 # own text is the literal, unresolved command as submitted (there's no
 # successful/generated form to record instead).
 set count_before [command_history_count]
@@ -628,15 +622,15 @@ check "command_history gained one entry after a failed command" [expr {$count_be
 check "the failed command's own text is recorded verbatim" "this_command_does_not_exist" \
     [command_history_at [expr {[command_history_count] - 1}]]
 
-# complete_command itself is never added to command_history
-# (BUGS_AND_ENHANCEMENTS.md E5's other half) - Tab-completion shouldn't
+# complete_command itself is never added to command_history -
+# Tab-completion shouldn't
 # pollute the recall log with its own lookups.
 set count_before_completion [command_history_count]
 le_repl_eval {complete_command get_t}
 check "command_history is unchanged after a complete_command call" $count_before_completion [command_history_count]
 
-# le_repl_eval truncates a long result for display (BUGS_AND_ENHANCEMENTS.md
-# E6) - a script evaluating the same command directly (not through
+# le_repl_eval truncates a long result for display - a script
+# evaluating the same command directly (not through
 # le_repl_eval) still gets the full, untruncated value.
 set long_result [le_repl_eval {string repeat x 20000}]
 check "a long le_repl_eval result is truncated to kMaxResultDisplayLength plus the suffix" \
@@ -647,7 +641,7 @@ check "evaluating the same command directly (not via le_repl_eval) is not trunca
     20000 [string length [string repeat x 20000]]
 
 # help/man/generate_command_docs are exempt from truncation even via
-# le_repl_eval (BUGS_AND_ENHANCEMENTS.md E6) - bounded, deliberately-
+# le_repl_eval - bounded, deliberately-
 # readable reference text, not a risky database query's own return
 # value; `help` (no pattern - every registered command) is comfortably
 # past kMaxResultDisplayLength with this many commands registered.
@@ -668,8 +662,8 @@ check "undo recreates the deleted terminal" 1 [undo]
 check_true "get_terminals sees the recreated terminal" [expr {[get_terminals DELETETEST] ne {}}]
 
 # --- Error messages name the real user-facing command, not the raw le_
-# C API function (BUGS_AND_ENHANCEMENTS.md E29 - the item's own example
-# was "le_read_lef vs read_lef"). A generated create_<type> raises a
+# C API function (read_lef, not le_read_lef). A generated create_<type>
+# raises a
 # Tcl error on failure, but the specific reason is logged via
 # spdlog::error, not pushed anywhere Tcl can read it back - so the "names
 # create_design, not le_create_design" half of this regression is a
@@ -686,7 +680,7 @@ if {[catch {create_design -library library:does_not_exist -name SHOULD_NOT_EXIST
     exit 1
 }
 
-# --- write_lef/write_def (BUGS_AND_ENHANCEMENTS.md E28) - reuses
+# --- write_lef/write_def - reuses
 # scratch_abstract (still the current Abstract from the from-scratch
 # section above) and a from-scratch Layout on scratch_design, so this
 # needs no extra fixture file. ---
@@ -718,7 +712,7 @@ set scratch_def_current_path [file join $write_scratch_dir "scratch_current.def"
 check "write_def with no -layout falls back to current_layout" "" [write_def $scratch_def_current_path]
 check_true "write_def's current-Layout-fallback output file is non-empty" [expr {[file size $scratch_def_current_path] > 0}]
 
-# --- write_lef -library/-abstracts (BUGS_AND_ENHANCEMENTS.md E28.b) - a
+# --- write_lef -library/-abstracts - a
 # second from-scratch Design/Abstract under the same $scratch_library,
 # so -library has two real Abstracts to write MACROs for. ---
 
@@ -753,7 +747,7 @@ if {[catch {write_lef -abstract $scratch_abstract -library $scratch_library [fil
 
 file delete -force $write_scratch_dir
 
-# --- get_selection/select (BUGS_AND_ENHANCEMENTS.md E30) - reuses
+# --- get_selection/select - reuses
 # scratch_shape (one rect) and scratch_layout (from the sections above)
 # for a real Row/Placement/Region to select too. ---
 

@@ -1,6 +1,6 @@
-# Regression check for the Phase 5 mutation side-effect commands
-# (LINKING_STRATEGY_RESEARCH.md section 5: delete_net cascade, update_net/
-# update_instance rename propagation) through the real TCL layer - proves
+# Regression check for the Schematic<->Layout link mutation side-effect
+# commands (delete_net cascade, update_net/update_instance rename
+# propagation) through the real TCL layer - proves
 # the le_tcl_procs.tcl overrides + SWIG-exposed shim functions
 # (delete_net_cascade_cmd/rename_net_cmd/rename_instance_cmd) are wired
 # up correctly end to end, not just the underlying C++ logic

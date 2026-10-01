@@ -1,4 +1,4 @@
-# One-shot driver for UPDATES.md item 20's Markdown documentation
+# One-shot driver for the Markdown command reference
 # (generate_command_docs, le_tcl_procs.tcl) - run via the
 # generate-tcl-docs skill, not part of the regular ctest suite (doc
 # generation isn't a regression check, it's a build artifact this writes

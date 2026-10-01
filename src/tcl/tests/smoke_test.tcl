@@ -1,5 +1,4 @@
-# Phase 0 SWIG toolchain spike regression check (TCL_EXPLORATION.md's
-# "Tcl ergonomics layer" section). Proves the *representative* command
+# SWIG/Tcl smoke test. Proves the *representative* command
 # shape works end to end, not just that SWIG can wrap something: no
 # visible handle (a hidden session inside le_tcl_shim.cpp), domain-verb
 # command names (read_lef, not le_read_lef), and a real -flag-style
@@ -65,9 +64,8 @@ if {[catch {zoom -bogus 1} err]} {
     exit 1
 }
 
-# --- BUGS_AND_ENHANCEMENTS.md E20: LeProvider-facing TCL commands for
-# discrete UI actions previously only reachable via a direct API call
-# (layer/purpose selectability, mode, rulers, selection, move) - real
+# --- TCL commands for discrete UI actions (layer/purpose
+# selectability, mode, rulers, selection, move) - real
 # round-trip checks, not just -help presence (that's help_test.tcl's own
 # job), since these are genuinely new wiring, not already-tested
 # pass-throughs.
@@ -177,21 +175,21 @@ if {[catch {set_flightline_max_fanout -1} err]} {
     exit 1
 }
 
-# NEW_FEATURES_SEPT_2026.md item 9 - settings commands.
+# Settings commands.
 set_ruler_label_size 15
 check "set_ruler_label_size round-trips" 15.0 [get_ruler_label_size]
 set_label_min_size 10
 check "set_label_min_size round-trips" 10.0 [get_label_min_size]
 set_label_max_size 20
 check "set_label_max_size round-trips" 20.0 [get_label_max_size]
-# NEW_FEATURES_SEPT_2026.md item 18 - unsaved changes and close_gui.
+# Unsaved changes and close_gui.
 check "close_gui with no window open is a no-op" "" [close_gui]
 set before_unsaved [unsaved_changes]
 if {[lsearch -exact $before_unsaved design] >= 0} {
     puts stderr "FAIL: unsaved_changes reported design edits after only reading a LEF: $before_unsaved"
     exit 1
 }
-# NEW_FEATURES_SEPT_2026.md item 17 - layer colors.
+# Layer colors.
 set_layer_color M1 #1234ab
 check "set_layer_color round-trips" "#1234ab" [get_layer_color M1]
 reset_layer_color M1
@@ -255,7 +253,7 @@ if {[catch {select "not_a_real_token"} err]} {
 arm_move
 puts "ok: arm_move"
 
-# NEW_FEATURES_SEPT_2026.md item 27 - every length reads and writes in
+# Every length reads and writes in
 # microns and every area in square microns, including -filter and chained
 # property paths (the DB stores database units: 1000/um here).
 if {[info exists ::env(TMPDIR)]} {

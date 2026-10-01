@@ -1,5 +1,5 @@
-# End-to-end check of the shape_* commands (NEW_FEATURES_SEPT_2026.md
-# item 1) through the real TCL layer: token-list parsing, -layer/-parent
+# End-to-end check of the shape_* commands through the real TCL layer:
+# token-list parsing, -layer/-parent
 # resolution, results landing in Abstract/Layout.free_shapes, and those
 # free-standing shapes staying out of write_def's output.
 #
@@ -208,8 +208,8 @@ check_true "-parent layout" [expr {[lsearch -exact [get_shapes -of $layout] $lay
 check "write_def output unchanged by a free-standing shape" $before [write_def_text $layout]
 
 # In a Layout view, create_shape with no parent adds to the Layout's
-# free_shapes - it used to replace the Layout's single diearea Shape, so
-# a second shape made the first disappear.
+# free_shapes - it must not replace the Layout's diearea Shape, and a
+# second shape must not make the first disappear.
 open_design TESTCELL -view layout
 set shape_count [llength [get_shapes -of $layout]]
 set d1 [create_shape -layer debug -rects {{{0 0} {1 1}}}]
