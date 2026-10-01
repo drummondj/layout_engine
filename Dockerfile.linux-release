@@ -28,22 +28,12 @@
 # ---- base: gcc-toolset-13 (RHEL8's stock GCC 8.5 can't do C++20/23) plus
 # every -devel package needed to build/test the project (le_shell/le_tcl
 # included) - dnf install, not rootless RPM extraction, since this
-# container has real root. Package names confirmed real via
-# scripts/rocky8-bootstrap.sh's own real run logs against a real
-# Rocky 8 machine this session (tcl-devel/tk-devel/mesa-* all showed as
-# already-installed there; the gcc-toolset-13-* packages downloaded
-# successfully). No Skia dependency anywhere in this project anymore (see
-# the `source` stage's own comment below) - zlib-devel/libpng-devel/
-# libjpeg-turbo-devel/freetype-devel/pcre2-devel used to be here only for
-# Skia's own build and are gone; the `tools` stage's own SWIG build passes
-# --without-pcre (confirmed via a real failed build here: SWIG's configure
-# doesn't recognize --without-pcre2 at all - it silently ignores it and
-# still probes for pcre2-config - --without-pcre is the flag its own error
-# message names) rather than reintroducing pcre2-devel just for that -
-# SWIG's core functionality doesn't need PCRE2-backed regex support.
-# scripts/rocky8-bootstrap.sh's own stage_swig has this same
-# --without-pcre2 mistake (marked unverified against a real Rocky 8
-# machine in CLAUDE.md's Open gaps section) - fixed there too. ----
+# container has real root. No font/image-codec packages (Blend2D bundles
+# its own). The `tools` stage's SWIG build passes --without-pcre rather
+# than needing pcre2-devel - SWIG's configure doesn't recognize
+# --without-pcre2 at all (it silently ignores it and still probes for
+# pcre2-config), and SWIG's core functionality doesn't need PCRE2-backed
+# regex support. ----
 FROM rockylinux:8 AS base
 RUN dnf install -y dnf-plugins-core \
  && (dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb || true) \
@@ -128,9 +118,7 @@ ENV BOOST_ROOT=/opt/boost
 # form was a complete no-op for oneTBB's own targets the whole time - real
 # GitHub Actions release runs still got IPO-enabled TBB regardless (and
 # apparently never hit the failure below there, only in local
-# verification - see the QEMU note). Confirmed while verifying the fixes
-# below (BUGS_AND_ENHANCEMENTS.md B8-adjacent runtime report: shipped
-# le_shell missing libtbb.so.12/generated Tcl procs): a local
+# verification - see the QEMU note). A local
 # x86_64-under-QEMU-on-arm64 rebuild of this stage with only the old
 # global flag hit `lto1: internal compiler error: in return_token, at
 # opts-common.cc:2135` linking libtbb.so.12 - the same GCC LTO ICE
@@ -159,18 +147,8 @@ ENV CMAKE_PREFIX_PATH=/opt/tbb
 # stays cached across workflow runs regardless of what source changed -
 # see .github/workflows/release.yml's GHA cache config.
 #
-# No Skia dependency anywhere in this project anymore (see
-# CMakeLists.txt's own `pipelines` target comment) - a `skia`
-# stage used to sit here, built from source against the `tbb` stage below
-# (same pinned commit as Dockerfile.linux-ci's own former Skia stage,
-# git history has the exact GN args if ever needed again for reference).
-# Blend2D (FetchContent, vendored/built from source, statically linked) is
-# the only Rasterize/Compose backend now, and le_tcl's own former Skia
-# PNG-export path uses Blend2D's built-in PNG codec too - so this stage
-# now builds straight on `tbb`, not a `skia` stage, and the base stage's
-# own image-codec/font packages (zlib/libpng/libjpeg-turbo/freetype,
-# needed only for Skia's own build) are gone from here too (see the base
-# stage's own comment). ----
+# Builds straight on `tbb` - Blend2D (FetchContent, built from source,
+# statically linked) needs no prebuilt stage of its own. ----
 FROM tbb AS source
 WORKDIR /workspace
 COPY . .
@@ -235,19 +213,15 @@ RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
 # every one of api/pipelines/le_shell/le_tcl.so links dynamically (`find`,
 # not a hardcoded lib/lib64 path - GNUInstallDirs' own choice between the
 # two isn't worth pinning down by hand here), the bundled font directory
-# Linux's own default_typeface() reads from (CLAUDE.md's Open
-# gaps), and lucide.ttf (the toolbar icon font, le_gui.cpp) - not the raw
+# default_blend2d_font_face() reads from, and lucide.ttf (the toolbar
+# icon font, le_gui.cpp) - not the raw
 # build tree/CMake cache. lucide.ttf is copied from build_release/
 # itself, not the source tree - CMakeLists.txt's own
 # file(COPY ...) right after FetchContent_MakeAvailable(lucide_font) puts
 # a real copy there specifically so this bundle stage (and
 # le_gui.cpp's own exe-relative runtime fallback, once shipped) don't
-# need to know FetchContent's own internal cache path. Both fonts were a
-# real, confirmed gap - a Linux release build reported every text label
-# AND every toolbar icon rendering blank, traced to default_typeface()'s
-# fallback still pointing at a since-removed flutter_plugin bundling
-# convention (lib/ instead of fonts/) and lucide.ttf never being bundled
-# at all. ----
+# need to know FetchContent's own internal cache path. Without both
+# fonts every text label and toolbar icon renders blank. ----
 FROM build AS bundle
 RUN mkdir -p /bundle/fonts \
  && cp build_release/le_shell /bundle/ \

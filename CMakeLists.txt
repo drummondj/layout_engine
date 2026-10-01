@@ -1,28 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Must be set before project() to take effect. Without this, CMake lets
-# clang default to targeting whatever macOS SDK/version this machine
-# currently runs (drifts upward over time, e.g. macOS 26.0 as of this
-# writing) - fine for this backend's own standalone binaries (ctest,
-# benchmarks), but a real problem once linked into flutter_plugin's
-# macOS app bundle, which targets a much older macOS (11.0, per
-# frontend/macos/Podfile's/Runner.xcodeproj's own MACOSX_DEPLOYMENT_TARGET) -
-# found via a real crash, not anticipated: Apple's libc++ has real
-# __API_AVAILABLE-gated implementation differences for synchronization
-# primitives across SDK versions, so object code compiled assuming a much
-# newer minimum (this backend's libapi.a/libTracyClient.a, previously
-# unset -> 26.0) linked into a binary built for 11.0 can end up with a
-# std::mutex whose construction/locking disagrees with what the final
-# binary's own runtime expects - manifested as Tracy's own background
-# profiler thread (tracy::Profiler::Worker) throwing `std::mutex::lock()
-# "Invalid argument"` on startup, only inside the actual Flutter app
-# bundle, never in this backend's own plain CLI binaries (which stayed
-# internally consistent throughout). 11.0 matches the actual effective
-# target the app's own linker already reported building for (`ld:
-# warning: building for macOS-11.0`) - keep in sync with frontend/macos's
-# own deployment target if that ever changes.
+# Must be set before project() to take effect. Pins the minimum macOS
+# version rather than letting clang target whatever SDK the build machine
+# currently runs (which drifts upward over time). Apple's libc++ has
+# __API_AVAILABLE-gated differences in synchronization primitives across
+# SDK versions, so object code built for different minimums can disagree
+# about std::mutex at link time (seen as Tracy's profiler thread throwing
+# `std::mutex::lock()` "Invalid argument"). It's also why filter.hpp
+# carries a strtod fallback for std::from_chars on doubles.
 if(APPLE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version - must match flutter_plugin's own Flutter-app deployment target, see comment above")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version - see comment above")
 endif()
 
 project(layout_engine_backend VERSION 0.1.0 LANGUAGES C CXX)
@@ -89,7 +76,7 @@ ExternalProject_Add(
     BUILD_COMMAND ${CMAKE_COMMAND} -E env --unset=MAKEFLAGS --unset=MFLAGS CXXFLAGS=-fPIC CFLAGS=-fPIC make -j1
     INSTALL_COMMAND ""
     BUILD_IN_SOURCE 1
-    # lefdiff (UPDATES.md 12 Phase 1's round-trip fidelity check) is also a
+    # lefdiff (the LEF round-trip fidelity check) is also a
     # side effect of this same build - the vendored top-level Makefile's
     # own BUILD_ORDER already includes it (and lefwrite) alongside lef/
     # clef/lefrw, so no separate build step is needed, just tracking it as
@@ -140,8 +127,8 @@ add_dependencies(def_static def_lib)
 # --- Third-party dependencies ---
 # fmt is pinned via a hard-required exact-version find_package (not the
 # "prefer system, else fetch" pattern spdlog below still uses) -
-# discovered empirically while adding the slang dependency further down
-# (SystemVerilog/Verilog reader, SYSTEMVERILOG.md): a CMake target name
+# required by the slang dependency further down (SystemVerilog/Verilog
+# reader): a CMake target name
 # is process-global, so this project's own fmt::fmt and slang's own
 # internal fmt::fmt lookup (it declares its own FetchContent dependency
 # on fmt, gated at >= 12.1) must resolve to the *same* target or one
@@ -193,7 +180,7 @@ if(NOT spdlog_FOUND)
 endif()
 
 # --- slang (SystemVerilog/Verilog frontend for src/sv's netlist/RTL
-# reader - see SYSTEMVERILOG.md). Pinned to the v11.0 tagged release (not
+# reader). Pinned to the v11.0 tagged release (not
 # master) - unlike Blend2D/AsmJit above, slang publishes real tags, so it
 # follows fmt/spdlog's pin-to-release-zip convention instead. No
 # find_package fallback of our own (unlikely to be a preinstalled system
@@ -276,16 +263,15 @@ set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googlebenchmark)
 
-# --- Blend2D (a side-experiment alternative Rasterize backend to Skia's -
-# see rasterize_blend2d_stage.hpp's own doc comment; PIPELINE_REFACTOR_BENCHMARK_RESULTS.md
-# has the benchmark comparisons this exists to produce) + its own required
+# --- Blend2D (the Rasterize/Compose backend - see
+# rasterize_blend2d_stage.hpp's own doc comment) + its own required
 # AsmJit dependency (Blend2D's JIT-compiled rendering pipelines need it;
 # its own CMakeLists.txt looks for a sibling/vendored `3rdparty/asmjit`
 # directory via the ASMJIT_DIR cache variable, auto-detected only if not
 # already set - see the block below).
 #
-# Neither project publishes tagged releases (confirmed: blend2d/blend2d
-# and asmjit/asmjit both have zero tags on GitHub, development happens
+# Neither project publishes tagged releases (blend2d/blend2d and
+# asmjit/asmjit have no tags on GitHub, development happens
 # directly on `master`) - pinned to a specific commit SHA each instead of
 # the `URL .../refs/tags/vX.Y.Z.zip` convention every other FetchContent
 # dependency in this file uses, via GitHub's own "archive of one commit"
@@ -316,23 +302,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(blend2d)
 
-# --- oneTBB (ONETBB_INTEGRATION.md migration - src/pipelines
-# replaced pipeline/render/instancing at the Phase 5 cutover, and `api`
-# now depends on it unconditionally - see api.cpp's own LeHandle comment).
-# TBB_DIR is a Homebrew-macOS-specific hint, matching the sibling
-# oneTBB_test project's own CMakeLists.txt. REQUIRED (not QUIET/optional
-# as it was pre-cutover): api - and therefore le_tcl, le_shell,
-# backend_tests - can no longer build without it. Both Docker-based Linux
-# paths now provide it too (Dockerfile.linux-ci's own `libtbb-dev`
-# package - Ubuntu 24.04's is modern enough to have real CMake config
-# support; Dockerfile.linux-release's own `tbb` stage, oneTBB built from
-# source, since Rocky 8's own dnf `tbb-devel` is a 2018-era package
-# predating that support entirely) - found the hard way, by actually
-# running `docker compose run --rm ci` and hitting the exact
-# `find_package(TBB)` failure this comment used to only warn about.
-# `scripts/rocky8-bootstrap.sh` (the separate rootless-build target, see
-# the Rocky 8 bullet in CLAUDE.md's Open gaps) still doesn't provision
-# TBB at all - that one remains real, tracked, NOT-yet-solved. ---
+# --- oneTBB (src/pipelines' flow graph; `api` depends on it
+# unconditionally - see le_handle.hpp). TBB_DIR is a Homebrew-macOS-
+# specific hint. REQUIRED: api - and therefore le_tcl, le_shell,
+# backend_tests - can't build without it. Both Docker-based Linux paths
+# provide it (Dockerfile.linux-ci's `libtbb-dev` package - Ubuntu 24.04's
+# has real CMake config support; Dockerfile.linux-release's `tbb` stage
+# builds oneTBB from source, since Rocky 8's dnf `tbb-devel` predates that
+# support). `scripts/rocky8-bootstrap.sh` (the rootless-build path, see
+# the Rocky 8 bullet in CLAUDE.md's Open gaps) doesn't provision TBB at
+# all yet. ---
 if(APPLE)
     set(TBB_DIR "/opt/homebrew/opt/tbb/lib/cmake/TBB" CACHE PATH
         "Path to a oneTBB CMake package config (Homebrew tbb keg)")
@@ -346,16 +325,9 @@ find_package(TBB REQUIRED CONFIG)
 # Tracy GUI viewer's own protocol version, per that project's own
 # CLAUDE.md).
 #
-# TRACY_ENABLE ON - see this file's own CMAKE_OSX_DEPLOYMENT_TARGET
-# comment near the top for the real story: this was briefly set OFF after
-# Tracy's own background profiler worker thread crashed on startup inside
-# the Flutter macOS app bundle (`std::mutex::lock()` throwing "Invalid
-# argument", tracy::Thread::Launch -> tracy::Profiler::Worker, SIGABRT) -
-# root-caused to this backend's own object code (including TracyClient's)
-# having drifted to targeting a much newer macOS SDK minimum than the
-# actual app binary it links into, not a real Tracy bug or a reason to
-# keep it disabled. Re-enabled once CMAKE_OSX_DEPLOYMENT_TARGET pinned
-# both to the same target.
+# TRACY_ENABLE ON - Tracy's profiler thread depends on every object file
+# sharing one macOS deployment target (see CMAKE_OSX_DEPLOYMENT_TARGET at
+# the top of this file).
 # LE_ENABLE_TRACY: defaults ON everywhere (unchanged behavior for local
 # dev builds), overridable to OFF for a build that shouldn't carry
 # profiling instrumentation - Dockerfile.linux-release's own Release-tree
@@ -378,11 +350,9 @@ if(TARGET TracyClient)
     target_compile_definitions(TracyClient PRIVATE NDEBUG)
 endif()
 
-# --- GLFW + Dear ImGui (Dear ImGui prototype) - a native window showing
-# le_shell's own rendered pixel buffer, replacing Flutter for the
-# CPU-only-Linux-VM deploy target this was prototyped for (Flutter's own
-# GPU-oriented rendering assumptions perform poorly there; ImGui's own
-# per-frame draw-call count is tiny by comparison). Unconditional -
+# --- GLFW + Dear ImGui - a native window showing le_shell's own rendered
+# pixel buffer, suited to the CPU-only Linux-VM deploy target (ImGui's
+# per-frame draw-call count is tiny). Unconditional -
 # le_shell's own `show_gui` command requires this. GLFW is a normal
 # CMake package (find_package fallback to FetchContent, same pattern as
 # fmt/spdlog above); Dear ImGui ships no CMake project of its own, so
@@ -410,12 +380,9 @@ if(NOT glfw3_FOUND)
 endif()
 
 # The `docking` branch, not a tagged mainline release - window docking
-# (drag a panel to split/tab/rearrange it, matching the Flutter frontend's
-# own `docking` package-based layout - see src/gui/le_gui.cpp's own
-# dockspace comment) is a long-lived, actively-maintained feature branch
-# upstream, not yet merged to master as of this writing, and is what this
-# prototype needs to mirror the Flutter UI's left/center/right panel
-# layout. Pinned to a specific commit (not a moving branch ref) for
+# (drag a panel to split/tab/rearrange it - see src/gui/le_gui.cpp's own
+# dockspace comment) is a long-lived feature branch upstream, not merged
+# to master. Pinned to a specific commit (not a moving branch ref) for
 # reproducible builds, same as every other FetchContent dependency above
 # being pinned to a specific tag/version - bump this by hand (check
 # https://github.com/ocornut/imgui/commits/docking) when a newer commit
@@ -433,9 +400,8 @@ FetchContent_MakeAvailable(imgui)
 # into the same font atlas as the regular text font (ImFontConfig::MergeMode,
 # see le_gui.cpp's own font-setup code) and drawing an icon as plain text
 # via its own Unicode codepoint. Lucide (MIT) rather than the more common
-# Font Awesome: its outline/stroke icon style matches the Flutter
-# frontend's own HugeIcons "strokeRounded" look far more closely than
-# Font Awesome's free tier, which is mostly filled "Solid" glyphs.
+# Font Awesome: its outline/stroke icon style suits the toolbars better
+# than Font Awesome's free tier, which is mostly filled "Solid" glyphs.
 # IconsLucide.h (juliettef/IconFontCppHeaders - ICON_LC_* codepoint
 # constants for C/C++) has to be pinned to the *exact* commit that
 # generated it against a specific lucide-static release - its own
@@ -446,8 +412,8 @@ FetchContent_MakeAvailable(imgui)
 # still point at). DOWNLOAD_NO_EXTRACT - both are a single loose file,
 # not an archive with a build system inside like every other
 # FetchContent dependency above.
-# nlohmann/json - the settings file (NEW_FEATURES_SEPT_2026.md item 9,
-# api.cpp's le_save_settings/le_load_settings). The release's own
+# nlohmann/json - the settings file (api.cpp's
+# le_save_settings/le_load_settings). The release's own
 # single-header amalgamation, pinned by version, same loose-file
 # DOWNLOAD_NO_EXTRACT treatment as the icon header below.
 FetchContent_Declare(
@@ -459,7 +425,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json_header)
 
 # zstd - block compression for the native database file format
-# (src/persistence, NATIVE_FILE_FORMAT_RESEARCH.md §3). Pinned release
+# (src/persistence, docs/NATIVE_FILE_FORMAT_RESEARCH.md §3). Pinned release
 # tarball; zstd's CMake project lives under build/cmake. Static library
 # only - no programs, tests or shared build.
 set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
@@ -476,8 +442,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(zstd)
 
-# portable-file-dialogs - le_gui's Settings panel's Save As/Load dialogs
-# (item 9). Header-only; at runtime it drives the platform's own dialog
+# portable-file-dialogs - le_gui's Settings panel's Save As/Load dialogs.
+# Header-only; at runtime it drives the platform's own dialog
 # (zenity/kdialog on Linux, osascript on macOS, the Win32 API on Windows)
 # - no build-time GTK/Qt dependency. Pinned to a commit.
 FetchContent_Declare(
@@ -525,7 +491,7 @@ target_include_directories(database INTERFACE src/database src/database/generate
 # --- geometry: header-only Boost.Geometry wrapper over database types ---
 #
 # Links database's own includes plus Boost_INCLUDE_DIRS directly, not
-# Boost::boost - a real, confirmed bug on any platform where
+# Boost::boost - which breaks on any platform where
 # find_package(Boost REQUIRED) below resolves via CMake's bundled legacy
 # FindBoost.cmake MODULE (no real Boost CMake CONFIG package installed,
 # e.g. Dockerfile.linux-release/rocky8-bootstrap.sh's raw-source-plus-
@@ -555,39 +521,23 @@ add_library(view_style INTERFACE)
 target_include_directories(view_style INTERFACE src)
 target_link_libraries(view_style INTERFACE database)
 
-# --- editing: header-only undo/redo command recording (UPDATES.md item 21) ---
+# --- editing: header-only undo/redo command recording ---
 add_library(editing INTERFACE)
 target_include_directories(editing INTERFACE src)
 target_link_libraries(editing INTERFACE database)
 
-# --- core: header-only generic building blocks (RenderedShape/TinyShapeDot,
-# VersionedStage) shared by `pipelines` and by HierarchyResolver's own
-# recursive core, which stays on VersionedStage rather than MemoizingStage
-# (ONETBB_INTEGRATION.md migration plan, decision 1). See
-# UPDATES.md item 16. ---
+# --- core: header-only editing/hit-test geometry (placement bboxes and
+# hit-tests, Move/Resize snapping, fin grids, flightlines) shared by
+# `api` and `pipelines`. ---
 add_library(core INTERFACE)
 target_include_directories(core INTERFACE src)
 target_link_libraries(core INTERFACE database view_style)
 
-# --- pipelines: PIPELINE_REFACTOR.md restart - the Cold/Warm/Hot
-# ViewRenderPipeline, built on oneTBB's flow::graph (tbb_core.hpp's
-# MemoizingStage/FanInCollectStage). The pre-restart module (STATIC,
-# compiled for its own Skia/CoreText default_typeface() - see git history)
-# has been moved to src/pipelines.old/ and is being rebuilt one stage at a
-# time (PIPELINE_REFACTOR.md's own methodology). Was header-only (INTERFACE)
-# through the Cold tier and Warm stage 1 (ViewportCullStage, no Skia
-# dependency); reverted to STATIC here with the Warm tier's own
-# Rasterization/Compose stages, which do need a real compiled TU -
-# pipelines.cpp defines default_blend2d_font_face() for the same reason the
-# pre-restart module's own compiled TU existed (see that file's own
-# comment). No Skia dependency anywhere in this project anymore
-# (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md - the earlier Skia-based
-# RasterizeStage and its own Skia-based ComposeStage sibling are both
-# gone, RasterizeBlend2DStage/Blend2D-native ComposeStage are the only
-# Rasterize/Compose implementations now) - le_tcl's own last remaining
-# Skia consumer, dump_png_cmd's PNG export, was ported onto Blend2D's own
-# built-in PNG codec (BLImage::write_to_file) too, so the `skia` CMake
-# target that used to exist here (a pre-built checkout, SKIA_DIR) is gone.
+# --- pipelines: the Cold/Warm/Hot ViewRenderPipeline
+# (docs/PIPELINE_REFACTOR.md), built on oneTBB's flow::graph
+# (tbb_core.hpp's MemoizingStage). Rasterize/Compose are Blend2D-native.
+# STATIC because pipelines.cpp defines default_blend2d_font_face() (see
+# that file's own comment); everything else is header-only.
 add_library(pipelines STATIC src/pipelines/pipelines.cpp)
 target_include_directories(pipelines PUBLIC src)
 
@@ -597,8 +547,8 @@ target_link_libraries(pipelines PUBLIC database view_style core blend2d::blend2d
 # loads its font from this bundled directory rather than system
 # fontconfig, so text labels still render on a locked-down target machine
 # with no fonts installed at all, on every platform - Blend2D has no
-# font-manager abstraction to fall back on the way Skia's CoreText path
-# does on macOS, so it always loads one specific bundled file from here
+# font-manager abstraction to fall back on, so it always loads one
+# specific bundled file from here
 # directly - see pipelines.cpp's own comment.
 set(LE_FONT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" CACHE PATH
     "Directory of bundled fonts default_blend2d_font_face() (pipelines.cpp) loads from")
@@ -629,7 +579,7 @@ target_link_libraries(io
 le_enable_coverage_instrumentation(io)
 
 # --- persistence: the native database file format (.led) -
-# NATIVE_FILE_FORMAT_RESEARCH.md. Walks codegen's generated
+# docs/NATIVE_FILE_FORMAT_RESEARCH.md. Walks codegen's generated
 # native_tables.hpp, so it needs no per-class hand-written code. ---
 add_library(persistence STATIC src/persistence/native_format.cpp)
 target_include_directories(persistence
@@ -639,7 +589,7 @@ target_include_directories(persistence
 target_link_libraries(persistence PUBLIC database PRIVATE libzstd_static TBB::tbb)
 le_enable_coverage_instrumentation(persistence)
 
-# --- sv: SystemVerilog/Verilog netlist+RTL reader (SYSTEMVERILOG.md) ---
+# --- sv: SystemVerilog/Verilog netlist+RTL reader ---
 add_library(sv STATIC src/sv/sv_reader.cpp)
 target_include_directories(sv PUBLIC src/sv)
 # slang::slang PUBLIC (not PRIVATE): sv_reader.hpp - sv's own PUBLIC header -
@@ -653,10 +603,10 @@ target_include_directories(sv PUBLIC src/sv)
 target_link_libraries(sv PUBLIC database spdlog::spdlog slang::slang PRIVATE fmt::fmt)
 le_enable_coverage_instrumentation(sv)
 
-# --- api: the C API surface a Flutter plugin's Dart FFI binds to (see
-# README's `api` module entry). Compiled (not header-only): the opaque
-# LeHandle's real definition must stay out of api.hpp, which needs to be a
-# plain-C-parseable header for ffigen/Dart FFI - see api.hpp's own comment. ---
+# --- api: the C API every front end calls (the GUI, the Tcl shim).
+# Compiled (not header-only): the opaque LeHandle's real definition must
+# stay out of api.hpp, which is a plain-C header - see api.hpp's own
+# comment. ---
 add_library(api STATIC src/api/api.cpp)
 target_include_directories(api PUBLIC src/api)
 target_link_libraries(api PRIVATE database geometry editing view_style pipelines io sv persistence)
@@ -730,17 +680,15 @@ else()
     target_link_libraries(gui PRIVATE OpenGL::GL)
 endif()
 
-# --- le_tcl: Phase 0 SWIG toolchain spike (UPDATES.md item 15 /
-# TCL_EXPLORATION.md) - SWIG-wraps src/tcl/le_tcl_shim.{hpp,cpp} (a thin
+# --- le_tcl: SWIG-wraps src/tcl/le_tcl_shim.{hpp,cpp} (a thin
 # Tcl-ergonomics layer over api.hpp - hidden session handle, domain-verb
-# command names) into a loadable Tcl extension, proving the build/link
-# story before any CRUD/filter-search work exists to wrap for real.
+# command names) into a loadable Tcl extension, which le_shell `load`s.
 # Optional: only built if SWIG and Tcl are both found, so a machine not
-# yet provisioned for this (e.g. CI) still configures/builds everything
-# else. Pinned to Homebrew's tcl-tk@8 (Tcl 8.6), not the also-installed
-# tcl-tk 9.0 - SWIG 4.5's Tcl support is battle-tested against 8.x, and
-# Tcl 9's C ABI (released 2025) isn't yet a safe default target for this
-# spike. Override TCL_TK_ROOT for a different Tcl 8.x install. ---
+# provisioned for it still configures/builds everything else. Pinned to
+# Homebrew's tcl-tk@8 (Tcl 8.6), not the also-installed tcl-tk 9.0 -
+# SWIG 4.5's Tcl support is battle-tested against 8.x, and Tcl 9's C ABI
+# isn't yet a safe default target. Override TCL_TK_ROOT for a different
+# Tcl 8.x install. ---
 set(TCL_TK_ROOT "/opt/homebrew/opt/tcl-tk@8" CACHE PATH
     "Path to a Tcl 8.6 install (Homebrew tcl-tk@8 keg) used for the SWIG Tcl spike")
 if(EXISTS "${TCL_TK_ROOT}/include/tcl-tk/tcl.h")
@@ -764,181 +712,53 @@ if(SWIG_FOUND AND TCL_FOUND)
     # blend2d::blend2d alongside `api` - `pipelines` (api's own dependency)
     # links it too, but only PUBLIC-propagates it as far as api, not this
     # far; le_tcl_shim.cpp needs it directly for dump_png_cmd's own
-    # BLImage::write_to_file PNG export (no Skia dependency anywhere in
-    # this project anymore - see the `pipelines` target's own comment
-    # above).
+    # BLImage::write_to_file PNG export.
     target_link_libraries(le_tcl PRIVATE api blend2d::blend2d ${TCL_LIBRARY})
-    # Hide this target's own copy of the vendored LEF parser's symbols
-    # (everything under the LefDefParser:: namespace -
-    # src/tcl/le_tcl_unexported_symbols.txt). Without this, a process
-    # that *also* separately links the same static libraries
-    # (api/io/render/liblef.a) into another Mach-O image (e.g.
-    # layout_engine_plugin.framework, for LeTclBridge's embedded Tcl
-    # console - see TCL_EXPLORATION.md's show_gui section) crashes: dyld
-    # binds a call inside this module's own copy of the vendored parser
-    # (specifically LefDefParser::lefGetKeyword's internal keyword-table
-    # std::map, a function-local static) to the *other* image's
-    # differently-initialized copy of the same symbol instead of this
-    # module's own, reading through a garbage/uninitialized pointer -
-    # reproduced headlessly and fixed here after a real crash report,
-    # see ReadLefThroughTclFirstDoesNotCrash in
-    # src/tcl/tests/session_handle_test.cpp.
+    # Hide this module's own copies of symbols that are also statically
+    # linked into the process that loads it (src/tcl/le_tcl_unexported_symbols.txt).
+    # On macOS, le_shell links `api` (and transitively io/liblef.a,
+    # pipelines, TracyClient) and then `load`s le_tcl.so, which links its
+    # own copies of the same static code. dyld's flat-namespace
+    # coalescing can then bind a call inside this module to the *other*
+    # image's differently-initialized copy of a function-local static or
+    # singleton - reading through a garbage pointer, or tripping a
+    # `std::mutex::lock()` "Invalid argument". The list covers:
+    #   - `LefDefParser::` - lefGetKeyword's keyword-table std::map
+    #     (ReadLefThroughTclFirstDoesNotCrash, session_handle_test.cpp).
+    #   - `le::Root::` (`2le4Root`, the exact Itanium mangling of that
+    #     scope) - generated accessors' `static const ... empty;` sentinels.
+    #   - `tracy::` - Tracy's global Profiler singleton and its worker
+    #     threads (TracyClient is STATIC, so each image gets its own copy).
+    #   - `tbb::detail::d1::global_control` (`2d114global_control`) - its
+    #     constructor/destructor are header-inline, so compiled into both
+    #     images, while `tbb::detail::r1::` stays shared via libtbb.
     #
-    # Deliberately a *linker*-level denylist
-    # (-unexported_symbols_list), not CXX_VISIBILITY_PRESET or a
-    # blanket -exported_symbols_list allowlist - two things learned by
-    # trial, not assumed:
-    # - CXX_VISIBILITY_PRESET only sets compile flags for this target's
-    #   own two listed sources (le_tcl_shim.cpp, the SWIG wrap file) -
-    #   api/io/render/lef_lib are separate CMake targets, already
-    #   compiled into .a archives with default (visible) symbols, and a
-    #   consuming target's own visibility preset can't retroactively
-    #   hide symbols already baked into object code linked in from
-    #   elsewhere. Confirmed by trial: with only CXX_VISIBILITY_PRESET
-    #   set, the crash reproduced identically.
-    # - A blanket -exported_symbols_list allowlist (hide everything
-    #   except two named entry points) does stop the original crash, but
-    #   breaks something worse: it also hides libc++ typeinfo symbols
-    #   that are *supposed* to stay coalescable across dylib boundaries
-    #   (weak/vague linkage), so std::system_error thrown deep in the
-    #   parser's std::vector/std::map usage stops RTTI-matching a
-    #   `catch (const std::exception&)` in the calling image - "unknown
-    #   C++ exception" instead of a clean TCL_ERROR. Confirmed by trial
-    #   (abi::__cxa_current_exception_type()->name() ==
-    #   "NSt3__112system_errorE", uncaught by a std::exception handler).
-    #   A denylist scoped to exactly the confirmed culprit
-    #   (LefDefParser::) avoids this - everything else, including any
-    #   std:: template instantiated with a LefDefParser:: type as a
-    #   parameter (e.g. exception guards for vector<lefrOBSSpacing>),
-    #   keeps its normal default visibility and stays coalescable.
+    # A *denylist* (-unexported_symbols_list), not CXX_VISIBILITY_PRESET or
+    # an -exported_symbols_list allowlist: the visibility preset only
+    # affects this target's own two sources, not the .a archives linked in;
+    # and an allowlist also hides libc++ typeinfo that must stay
+    # coalescable, so a std::system_error thrown inside the parser would
+    # stop matching `catch (const std::exception&)` in the calling image.
     #
-    # Investigating a reported get_shapes crash (mutex::lock() throwing
-    # system_error inside le_get_shapes) found the exact same bug SHAPE in
-    # a second place: le::Root (src/database/generated/root.hpp, header-
-    # only/inline, so - like LefDefParser:: - compiled separately into
-    # this target and into whatever else statically links `api`) has ~10
-    # accessors (get_terminal_port_shapes, get_obstruction_shapes,
-    # get_abstract_terminals, get_terminal_ports, get_technology_layers,
-    # etc.) that return `static const std::vector<X> empty;`/`static
-    # const XxxId empty;` as their "not found" sentinel - a function-local
-    # magic static, exported with default visibility exactly like
-    # lefGetKeyword's keyword table was (confirmed via `nm` that both this
-    # target's build/le_tcl.so and build_release/libapi.a export the same
-    # symbol names before this fix). `__Z*2le4Root*` closes it the same
-    # way - confirmed via `nm` that the ::empty statics and their guard
-    # variables are local (t/b) afterward, not just the accessors
-    # themselves. `2le4Root` (not e.g. `le4Root`) is the exact Itanium
-    # mangling substring for the `le::Root::` scope prefix - confirmed by
-    # grepping both built libraries' full symbol dumps that it doesn't
-    # false-match symbols merely mentioning Root as a template argument
-    # (those use mangling substitution compression instead of re-spelling
-    # `2le4Root`) or any typeinfo/vtable symbol (Root isn't part of any
-    # exception/RTTI hierarchy). Note: a from-scratch repro (this
-    # target's Debug build force-loaded alongside build_release's Release
-    # libapi.a in one process, driving get_shapes/get_terminal_ports/
-    # get_properties through Tcl repeatedly, including through two
-    # independent Tcl_Interps loading the already-resident module) did
-    # NOT reproduce an actual crash from this gap even before this fix -
-    # most of these sentinels are all-zero-safe (an empty std::vector's
-    # default-constructed bit pattern is valid regardless of which
-    # image's copy of the guard "wins" a coalescing race), so this closes
-    # a real, confirmed-duplicated hazard without itself being confirmed
-    # as the original report's actual cause.
+    # Editing le_tcl_unexported_symbols.txt alone doesn't trigger a relink
+    # (it's passed as a raw path, not a build dependency) - delete
+    # build*/le_tcl.so or touch src/tcl/le_tcl_shim.cpp first.
     #
-    # A third instance of the exact same bug (ONETBB_INTEGRATION.md
-    # migration) - `tracy::` (Tracy's own global Profiler singleton and its
-    # background worker threads, pulled in transitively via `api` ->
-    # `pipelines` -> the STATIC `TracyClient` library - a genuine STATIC
-    # library gets its own separate copy of code baked into every image
-    # that links it, unlike TBB's own runtime, which stays a single shared
-    # instance across images since libtbb is a dylib, not a static lib).
-    # This one WAS confirmed as a real crash's actual cause, not just a
-    # closed-preemptively gap like le::Root above: a real crash report
-    # showed `le_tcl.so` loaded into the same process as
-    # flutter_plugin's own main app binary (both independently linking
-    # `api`/`pipelines`/`TracyClient`), and Tracy's own background
-    # worker thread (tracy::Profiler::Worker, already running against the
-    # main binary's own copy of the Profiler singleton) crashed with
-    # `std::mutex::lock() "Invalid argument"` at almost exactly the
-    # moment le_tcl.so's own Tcl bridge was first invoked (the frontend's
-    # "Load Test Data" button, calling into a `read_lef` Tcl command) -
-    # dyld's flat-namespace symbol coalescing rebinding some subset of
-    # calls to le_tcl.so's own freshly-loaded, differently-initialized
-    # copy of the same singleton state out from under the already-running
-    # worker thread. `__ZN5tracy*` (not just an exact-namespace match -
-    # Tracy vendors its own `tracy::moodycamel::` queue implementation
-    # nested inside the same `tracy` namespace, which needs covering too)
-    # closes this the same way the other two entries do.
+    # session_handle_test.cpp's TEST()s must each run in a fresh process
+    # (`ctest -R SessionHandle`, not the raw binary): chaining several
+    # handle-inject/destroy sequences in one process corrupts le_tcl_shim's
+    # process-wide session state, independent of this list.
     #
-    # A fourth instance (BUGS_AND_ENHANCEMENTS.md E10) - oneapi::tbb::
-    # global_control (LeHandle's own concurrency_control_, api.cpp).
-    # Unlike tracy:: above, oneTBB's actual runtime state genuinely IS a
-    # single shared instance across images (libtbb is a real dylib, not a
-    # static library baked into `api` - see this comment block's own
-    # opening paragraph) - but tbb::detail::d1::global_control's own
-    # constructor/destructor bodies are header-inline (oneapi/tbb/
-    # global_control.h), so they still get compiled separately into this
-    # target's own object code AND into whatever else statically links
-    # `api`, the exact "duplicated code, coalescable across the dylib
-    # boundary" shape every entry above shares - confirmed via `nm
-    # build/libapi.a`: __ZN3tbb6detail2d114global_controlC1/C2/D1/D2 (and
-    # the std::optional<global_control> wrapper functions LeHandle's own
-    # std::optional<global_control> member needs) are all default-
-    # visibility (T) symbols baked directly into this archive, not merely
-    # forwarding calls to libtbb.dylib. This one WAS reproduced as a real
-    # crash (not just closed preemptively like le::Root above):
-    # SessionHandle.InjectedHandleIsSharedNotFresh/GetShapesThroughTclDoesNotCrash
-    # (session_handle_test.cpp, the same "this module + a directly-linked
-    # copy of `api` in one process" shape every entry here needs) SIGTRAP'd/
-    # segfaulted the moment LeHandle's constructor ran through this
-    # module's own copy of global_control's constructor with the other
-    # image's copy already live - fixed by adding this pattern here,
-    # confirmed clean (5/5) afterward. `2d114global_control` (not e.g.
-    # `14global_control` alone) is the exact Itanium mangling substring
-    # for the `tbb::detail::d1::global_control` scope prefix - narrow
-    # enough to leave `tbb::detail::r1::` (the genuinely-shared-across-
-    # images runtime entry points every d1:: call forwards into) and
-    # every other tbb:: symbol coalescable as normal.
-    #
-    # Second gotcha: editing le_tcl_unexported_symbols.txt alone does not
-    # reliably trigger a relink - it's passed to the linker as a raw path
-    # inside a string here, so CMake/ninja/make don't know to treat it as
-    # a build dependency and can report `le_tcl` "up to date" (skipping
-    # the link step and its `nm`-visible effect entirely) after only the
-    # list file changed. `rm build*/le_tcl.so` (or touch
-    # src/tcl/le_tcl_shim.cpp) before rebuilding this target if a change
-    # here doesn't seem to take effect.
-    #
-    # Third gotcha hit while verifying this: running
-    # src/tcl/tests/session_handle_test.cpp's binary directly (all 4
-    # TEST()s in one process) makes ReadLefThroughTclFirstDoesNotCrash and
-    # DirectReadThenSingleTclInterpReadBothSucceed fail with "Unknown C++
-    # exception thrown" - looking like this fix broke RTTI coalescing
-    # exactly like the "blanket allowlist" mistake above. It didn't - that
-    # file's own header comment already explains why: each TEST() is
-    # meant to run as its own ctest case via gtest_discover_tests, in its
-    # own fresh process, specifically because chaining several of these
-    # handle-inject/destroy sequences in one process corrupts the shared
-    # session()/injected_handle() state in le_tcl_shim.cpp (an
-    # anonymous-namespace static, process-wide, not per-Tcl_Interp) -
-    # unrelated to this fix and reproducible identically without it. Use
-    # `ctest --test-dir build -R SessionHandle`, not the raw binary, to
-    # get a real signal - confirmed clean (4/4) with this fix applied.
-    # -unexported_symbols_list is an Apple ld64 flag, and the list file
-    # above uses Mach-O's underscore-prefixed symbol names - both specific
-    # to the macOS dyld flat-namespace coalescing bug this works around
-    # (see the comment block above), which only arises when this module
-    # and layout_engine_plugin.framework separately link the same static
-    # libraries into one macOS process. Linux CI never does that (le_tcl.so
-    # here is only ever loaded standalone, by ctest/tclsh), so there's no
-    # GNU-ld equivalent to wire up.
+    # -unexported_symbols_list is an Apple ld64 flag and the list uses
+    # Mach-O's underscore-prefixed names; the flat-namespace coalescing it
+    # works around is macOS-specific, so there's no GNU-ld equivalent.
     if(APPLE)
         target_link_options(le_tcl PRIVATE
             "-Wl,-unexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_unexported_symbols.txt"
         )
     endif()
 
-    # Regression check for the spike itself (src/tcl/tests/smoke_test.tcl) -
+    # Smoke test (src/tcl/tests/smoke_test.tcl) -
     # loads the built module under tclsh, sources le_tcl_procs.tcl, and
     # exercises the ergonomic command surface against the same
     # testcell.lef fixture api_test.cpp's C++ tests already use, asserting
@@ -952,8 +772,8 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/testcell.lef
     )
 
-    # Regression check for the integrated help system (UPDATES.md item 20 -
-    # src/tcl/tests/help_test.tcl): the ::command_help registry, help/man/
+    # Regression check for the integrated help system
+    # (src/tcl/tests/help_test.tcl): the ::command_help registry, help/man/
     # complete_command/generate_command_docs, and the generated -help
     # support for get_<type>/create_<type>/update_<type>. No LEF fixture -
     # everything it exercises is either pure static schema metadata
@@ -967,7 +787,7 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
     )
 
-    # Phase 5 regression check (src/tcl/tests/crud_test.tcl) - exercises
+    # CRUD regression check (src/tcl/tests/crud_test.tcl) - exercises
     # the full Terminal/TerminalPort/Obstruction/Shape CRUD+search
     # surface and the coordinate-list typemap, against the same
     # testcell.lef fixture.
@@ -981,8 +801,8 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/othercell.lef
     )
 
-    # shape_* boolean/conversion commands (NEW_FEATURES_SEPT_2026.md item
-    # 1, src/tcl/tests/shape_ops_test.tcl) - token-list parsing, -layer/
+    # shape_* boolean/conversion commands
+    # (src/tcl/tests/shape_ops_test.tcl) - token-list parsing, -layer/
     # -parent resolution, and free-standing shapes staying out of
     # write_def's output.
     add_test(
@@ -997,7 +817,7 @@ if(SWIG_FOUND AND TCL_FOUND)
     )
 
     # Regression check for the SystemVerilog/Verilog TCL wiring
-    # (SYSTEMVERILOG.md, src/tcl/tests/sv_test.tcl) - read_verilog plus
+    # (src/tcl/tests/sv_test.tcl) - read_verilog plus
     # the generated get_designs/get_schematics/get_instances/get_ports/
     # get_pins surface, against the same gate_netlist_clean.v fixture
     # src/sv/tests's own C++ tests already use.
@@ -1010,8 +830,8 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures/gate_netlist_clean.v
     )
 
-    # Native database file commands (NATIVE_FILE_FORMAT_RESEARCH.md,
-    # src/tcl/tests/native_db_test.tcl) - write_db/db_info in one session,
+    # Native database file commands (src/tcl/tests/native_db_test.tcl) -
+    # write_db/db_info in one session,
     # read_db in a second tclsh process (read_db needs an empty session).
     add_test(
         NAME le_tcl_native_db
@@ -1022,9 +842,8 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/sv/tests/fixtures/gate_netlist_clean.v
     )
 
-    # Phase 5 mutation side-effect regression check
-    # (LINKING_STRATEGY_RESEARCH.md section 5, src/tcl/tests/
-    # mutation_cascade_test.tcl) - delete_net cascade and update_net/
+    # Schematic<->Layout link mutation side-effect regression check
+    # (src/tcl/tests/mutation_cascade_test.tcl) - delete_net cascade and update_net/
     # update_instance rename propagation, through the real TCL layer.
     add_test(
         NAME le_tcl_mutation_cascade
@@ -1045,11 +864,10 @@ if(SWIG_FOUND AND TCL_FOUND)
     # (real line editing/recall history/Tab completion - see
     # le_shell.cpp's own header comment for why this replaced Tcl_Main's
     # own hardcoded REPL) - all three unconditional, not optional
-    # features: this shell is the *only* user-facing way to run Tcl
-    # commands now that the Flutter Terminal widget isn't the primary
-    # interactive surface, so it needs the real window and the real
-    # console experience every time, not a degraded fallback.
-    # BUGS_AND_ENHANCEMENTS.md E26 - le_shell's own version/build-date
+    # features: this shell is the only user-facing way to run Tcl
+    # commands, so it needs the real window and the real console
+    # experience every time, not a degraded fallback.
+    # le_shell's own version/build-date
     # banner (le_shell.cpp's own run_interactive()), regenerated fresh on
     # every build (not just every configure) - see
     # cmake/generate_le_shell_version.cmake's own header comment for why
@@ -1115,9 +933,8 @@ if(SWIG_FOUND AND TCL_FOUND)
     # `bundle` stage copies just the le_shell/le_tcl.so binaries (plus a
     # copy of libtbb.so.12 itself) into one flat directory, and a plain
     # user checkout on another machine (e.g. the Rocky 8 target machine
-    # BUILD.md describes) has no /opt/tbb at all - confirmed via a real
-    # "error while loading shared libraries: libtbb.so.12: cannot open
-    # shared object file" report running that bundle's own le_shell.
+    # BUILD.md describes) has no /opt/tbb at all ("error while loading
+    # shared libraries: libtbb.so.12").
     # BUILD_RPATH (not INSTALL_RPATH/BUILD_WITH_INSTALL_RPATH) ADDS
     # "$ORIGIN" (an ELF/ld.so token, expanded to whichever directory the
     # referencing binary itself lives in, not cwd) to that default
@@ -1148,11 +965,10 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/testcell.lef
     )
 
-    # show_gui design regression check (src/tcl/tests/session_handle_test.cpp) -
+    # Session-handle regression check (src/tcl/tests/session_handle_test.cpp) -
     # a plain GTest binary, not a Tcl script: proves set_session_handle()
     # actually redirects le_tcl_shim.cpp's session() to an externally-
-    # owned LeHandle*, the mechanism a Flutter-embedded Tcl console
-    # relies on (see TCL_EXPLORATION.md's show_gui section). Kept out of
+    # owned LeHandle*, the mechanism le_shell relies on. Kept out of
     # backend_tests (unconditional, built even without SWIG/TCL) since
     # this needs both.
     add_executable(le_tcl_session_test src/tcl/tests/session_handle_test.cpp)
@@ -1166,7 +982,7 @@ if(SWIG_FOUND AND TCL_FOUND)
     add_dependencies(le_tcl_session_test le_tcl)
     gtest_discover_tests(le_tcl_session_test)
 else()
-    message(STATUS "SWIG and/or Tcl not found - skipping le_tcl spike target (see TCL_EXPLORATION.md Phase 0)")
+    message(STATUS "SWIG and/or Tcl not found - skipping le_tcl target")
 endif()
 
 # --- tests ---
@@ -1217,11 +1033,9 @@ add_dependencies(backend_tests lef_lib def_lib)
 le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
 
-# --- pipelines_tests: the new (PIPELINE_REFACTOR.md) pipelines module's own
-# test binary, deliberately separate from backend_tests - developed and
-# benchmarked standalone against database/view_style alone, integration
-# with api/backend_tests deferred until the module is far enough along to
-# replace src/pipelines.old's own equivalents there. ---
+# --- pipelines_tests: the pipelines module's own test binary, separate
+# from backend_tests so the stages can be tested standalone against
+# database/view_style. ---
 add_executable(pipelines_tests
     src/pipelines/tests/layer_generation_stage_test.cpp
     src/pipelines/tests/hierarchy_resolver_stage_test.cpp
@@ -1236,12 +1050,11 @@ target_link_libraries(pipelines_tests PRIVATE database geometry view_style pipel
 gtest_discover_tests(pipelines_tests)
 
 # --- benchmarks ---
-# --- pipeline_benchmarks: PIPELINE_REFACTOR.md's own per-stage benchmarks,
-# standalone against database/view_style/io - see aes_scaling_fixture.hpp
-# for the shared 1x1/2x1/2x2/3x2/3x3 tiling fixture every stage benchmark
-# uses (PIPELINE_REFACTOR.md's own "Benchmarking" section). Deliberately no
-# `scene`/`api` dependency yet - those return once a stage/benchmark
-# actually needs them. ---
+# --- pipeline_benchmarks: per-stage benchmarks, standalone against
+# database/view_style/io - see aes_scaling_fixture.hpp for the shared
+# 1x1/2x1/2x2/3x2/3x3 tiling fixture every stage benchmark uses
+# (docs/PIPELINE_REFACTOR.md's "Benchmarking" section). No `api`
+# dependency. ---
 add_executable(pipeline_benchmarks
     src/pipelines/benchmarks/benchmark_main.cpp
     src/pipelines/benchmarks/layer_generation_benchmark.cpp
@@ -1264,17 +1077,12 @@ target_compile_definitions(pipeline_benchmarks PRIVATE
 # target also passes -fprofile-instr-generate, or the link fails.
 le_enable_coverage_instrumentation(pipeline_benchmarks)
 
-# render_preview (rasterizes a LEF's Designs to PNGs via the real render
-# pipeline) is out for now - it depends on the pre-restart FrameRenderPipeline/
-# HierarchyResolver (src/pipelines.old/), which PIPELINE_REFACTOR.md's Warm/Hot
-# tiers haven't rebuilt yet. Restore once those exist.
-
-# --- generate_tiled_design: dev-only data-generation tool
-# (BUGS_AND_ENHANCEMENTS.md E31) - tiles a real LEF+DEF design's own
+# --- generate_tiled_design: dev-only data-generation tool - tiles a
+# real LEF+DEF design's own
 # Layout content across a grid, producing one large flat DEF file for
 # render-performance stress testing/Tracy profiling. Not a benchmark or a
 # test - not run by ctest or the coverage target. Only needs database/io
-# (no geometry/scene/pipelines) - it never renders anything itself.
+# (no geometry/pipelines) - it never renders anything itself.
 add_executable(generate_tiled_design src/pipelines/benchmarks/generate_tiled_design.cpp)
 target_link_libraries(generate_tiled_design PRIVATE database io)
 le_enable_coverage_instrumentation(generate_tiled_design)
@@ -1292,11 +1100,8 @@ le_enable_coverage_instrumentation(generate_tiled_design)
 # cache-size instrumentation. scripts/pipeline_stage_benchmark.py
 # is the outer driver that runs this once per test case and aggregates
 # results into a combined CSV + Markdown report. Needs `api` (LeHandle),
-# unlike generate_tiled_design/spatial_index_benchmark below - the
-# render_preview/profile_tiled_render "depends on the pre-restart
-# FrameRenderPipeline... restore once Warm/Hot tiers exist" comments
-# elsewhere in this file are stale: ViewRenderPipeline is exactly that
-# rebuilt Warm/Hot tier now. Not run by ctest or the coverage target.
+# unlike generate_tiled_design/spatial_index_benchmark below. Not run by
+# ctest or the coverage target.
 add_executable(pipeline_stage_benchmark src/pipelines/benchmarks/pipeline_stage_benchmark.cpp)
 target_link_libraries(pipeline_stage_benchmark PRIVATE api pipelines database geometry view_style io)
 le_enable_coverage_instrumentation(pipeline_stage_benchmark)
@@ -1315,7 +1120,7 @@ le_enable_coverage_instrumentation(resolver_profile)
 
 # --- native_format_profile: dev-only tool - native .led save/load time and
 # size against reading the DEF, for one aes_scaling design per process
-# (NATIVE_FILE_FORMAT_RESEARCH.md §7). Not run by ctest. ---
+# (docs/NATIVE_FILE_FORMAT_RESEARCH.md §7). Not run by ctest. ---
 add_executable(native_format_profile src/persistence/benchmarks/native_format_profile.cpp)
 target_link_libraries(native_format_profile PRIVATE database io persistence TBB::tbb)
 target_compile_definitions(native_format_profile PRIVATE
@@ -1331,10 +1136,9 @@ target_compile_definitions(selection_profile PRIVATE
 )
 le_enable_coverage_instrumentation(selection_profile)
 
-# --- spatial_index_benchmark: dev-only benchmark (BUGS_AND_ENHANCEMENTS.md
-# E31 zoom/pan-tick follow-up) - quantifies a Boost.Geometry Index rtree's
-# query cost against HierarchyResolver::discover_layout_children's own
-# current linear per-placement scan, at several simulated zoom levels.
+# --- spatial_index_benchmark: dev-only benchmark - quantifies a
+# Boost.Geometry Index rtree's query cost against a linear per-placement
+# scan, at several simulated zoom levels.
 # Not run by ctest or the coverage target.
 add_executable(spatial_index_benchmark src/pipelines/benchmarks/spatial_index_benchmark.cpp)
 target_link_libraries(spatial_index_benchmark PRIVATE database geometry io)
@@ -1346,8 +1150,8 @@ le_enable_coverage_instrumentation(spatial_index_benchmark)
 add_executable(blend2d_smoke_test src/pipelines/benchmarks/blend2d_smoke_test.cpp)
 target_link_libraries(blend2d_smoke_test PRIVATE blend2d::blend2d)
 
-# --- lef_roundtrip_diff: dev-only progress-tracking tool for UPDATES.md
-# item 12 (LEF syntax completion) - reads a LEF file (default:
+# --- lef_roundtrip_diff: dev-only LEF round-trip checker - reads a LEF
+# file (default:
 # complete.5.8.lef), writes every Design + the Technology's layers back out
 # via LEFWriter, and reports what the vendored lefdiff tool's own
 # normalized dump still shows as missing after the round trip. Not a

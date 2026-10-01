@@ -23,7 +23,7 @@
 #   scripts/rocky8-bootstrap.sh swig
 #
 # After this completes, `source scripts/rocky8-env.sh` before
-# configuring the actual CMake/Flutter builds.
+# configuring the actual CMake build.
 #
 # Every run's full output is also written to a timestamped log file under
 # $LE_TOOLCHAIN_ROOT/logs/ (see BUILD.md at the repo root) - if a stage
@@ -199,14 +199,11 @@ stage_rpms() {
     # version RHEL8 would have packaged works fine for these, unlike the
     # compiler above. Checked via extract_rpm_closure_if_missing (see its
     # own comment) rather than unconditionally extracting a redundant
-    # private copy on top of a perfectly good system one - a real, if
-    # harmless, waste this stage used to always pay regardless of what the
-    # machine already had, especially likely for GTK3's own large closure
-    # on a machine that (per its confirmed real display) probably already
-    # has a working desktop GTK3 stack. ---
+    # private copy on top of a perfectly good system one - especially
+    # wasteful for GTK3's own large closure on a machine that already has
+    # a working desktop GTK3 stack. ---
 
-    # --- Tcl/Tk (real runtime need - le_tcl_bridge.cpp #includes tcl.h
-    # directly, and the le_tcl SWIG target links against it) - likely
+    # --- Tcl/Tk (le_shell and the le_tcl SWIG target link against it) - likely
     # behind the crb repo (Rocky's name for RHEL's
     # codeready-builder-for-rhel-8-*-rpms - verify the repo id on the real
     # machine if this fails; it varies by RHEL-family distro/variant). ---
@@ -215,12 +212,12 @@ stage_rpms() {
     extract_rpm_closure_if_missing tcl-devel || return 1
     extract_rpm_closure_if_missing tk-devel || return 1
 
-    # --- GTK3 + transitive closure (Flutter's Linux embedder is
-    # fundamentally GTK3-based). This hand list is a sanity check, not
+    # --- GTK3 + transitive closure - not used by the current GLFW/X11 GUI;
+    # Mesa GL/EGL is. This hand list is a sanity check, not
     # authoritative - `dnf download --resolve --alldeps gtk3-devel` above
     # is what actually determines the real closure; the extra packages
     # below cover things gtk3-devel's own closure may not pull in
-    # directly (Mesa GL/EGL for Flutter's own compositor). ---
+    # directly. ---
     extract_rpm_closure_if_missing gtk3-devel || return 1
     extract_rpm_closure_if_missing mesa-libGL-devel || return 1
     extract_rpm_closure_if_missing mesa-libEGL-devel || return 1

@@ -1,10 +1,8 @@
 name: CI
 
-# Regular push/PR build+test (le_shell/le_tcl included),
-# via Dockerfile.linux-ci - the dev/PR CI path that Dockerfile's own header
-# comment has always described but that, until now, no workflow actually
-# triggered (docker-compose.yml/`docker compose run --rm ci` was
-# local-dev-only). Separate from .github/workflows/release.yml (tag-
+# Regular push/PR build+test (le_shell/le_tcl included), via
+# Dockerfile.linux-ci - the same `docker compose run --rm ci` used
+# locally. Separate from .github/workflows/release.yml (tag-
 # triggered, Dockerfile.linux-release, a from-scratch Rocky Linux 8
 # release build) - this one runs on every push/PR instead, against the
 # lighter Ubuntu-based dev image.

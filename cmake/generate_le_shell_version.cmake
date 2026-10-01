@@ -1,4 +1,4 @@
-# BUGS_AND_ENHANCEMENTS.md E26 - regenerates le_shell's own version/build-date
+# Regenerates le_shell's own version/build-date
 # header. Run via `${CMAKE_COMMAND} -P` from an `add_custom_target(... ALL ...)`
 # (CMakeLists.txt's own le_shell target) rather than at CMake configure
 # time (a plain configure_file() call) specifically so the git hash and build
@@ -14,7 +14,7 @@
 
 find_package(Git QUIET)
 
-# "Official" release (E26's own wording) = the exact commit currently
+# "Official" release = the exact commit currently
 # checked out is tagged - `git describe --tags --exact-match` only succeeds
 # in that case, distinguishing a real tagged release from every other build
 # (a local dev build, a CI build off a branch, ...), which instead falls

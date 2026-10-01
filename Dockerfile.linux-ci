@@ -7,17 +7,11 @@
 # invalidate any image layer below. Only the OS/toolchain setup happens at
 # build time, since that's the expensive, rarely-changing part.
 
-# ---- base: system packages needed by every later stage. No Skia
-# dependency anywhere in this project anymore (see CMakeLists.txt's
-# own `pipelines` target comment) - Blend2D (FetchContent, vendored/built
-# from source, statically linked) is the only Rasterize/Compose backend,
-# and le_tcl's own former Skia PNG-export path now uses Blend2D's built-in
-# PNG codec too, so this stage no longer needs a Skia build or any of its
-# font/image-codec support libraries (harfbuzz/icu/jpeg/png/zlib/webp/
-# fontconfig/freetype) - Blend2D has its own built-in font engine and
-# image codecs, loading its one bundled font file directly from
-# LE_FONT_DIR (CMakeLists.txt) rather than any system font
-# manager. ----
+# ---- base: system packages needed by every later stage. No font/
+# image-codec libraries (freetype/fontconfig/libpng/...): Blend2D
+# (FetchContent, built from source, statically linked) has its own font
+# engine and image codecs, loading its one bundled font file from
+# LE_FONT_DIR (CMakeLists.txt). ----
 FROM ubuntu:24.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \

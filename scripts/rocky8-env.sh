@@ -33,8 +33,8 @@ _le_gcc_root="$_le_root/opt/rh/gcc-toolset-13/root/usr"
 # --- Compiler (gcc-toolset-13, rootlessly extracted via rpm2cpio) ---
 export CC="$_le_gcc_root/bin/gcc"
 export CXX="$_le_gcc_root/bin/g++"
-# Belt-and-braces alongside CC/CXX above - some tools (Flutter's own
-# build) invoke `gcc`/`g++` by bare name rather than respecting CC/CXX,
+# Belt-and-braces alongside CC/CXX above - some tools invoke
+# `gcc`/`g++` by bare name rather than respecting CC/CXX,
 # so PATH needs the real one found first too. Reconfigure (fresh build
 # directory) after changing CC/CXX on an existing build - CMake caches the
 # compiler path at first configure and won't pick up a change to these
