@@ -133,8 +133,6 @@ void request_show_gui_cmd();
 void request_close_gui_cmd();
 int has_unsaved_database_changes_cmd();
 int has_unsaved_settings_cmd();
-void set_antialiasing_enabled_cmd(bool enabled);
-bool get_antialiasing_enabled_cmd();
 void set_session_handle(long long handle_address);
 
 // --- Terminal/TerminalPort/Obstruction CRUD is fully generated now

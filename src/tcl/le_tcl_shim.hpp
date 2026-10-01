@@ -370,14 +370,6 @@ void request_close_gui_cmd();
 int has_unsaved_database_changes_cmd();
 int has_unsaved_settings_cmd();
 
-/// @brief Backing for the `set_antialiasing_enabled <enabled>` Tcl
-/// command - mirrors le_set_antialiasing_enabled directly.
-void set_antialiasing_enabled_cmd(bool enabled);
-
-/// @brief Backing for the `get_antialiasing_enabled` Tcl command - mirrors
-/// le_is_antialiasing_enabled directly.
-bool get_antialiasing_enabled_cmd();
-
 /// @brief Sentinel for "no such id" for AbstractId/DesignId in their
 /// CRUD-flag/session-selection role - see this header's own "IDs"
 /// comment. Every api.hpp failure path for these two types in that role

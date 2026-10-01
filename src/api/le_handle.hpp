@@ -1355,24 +1355,10 @@ struct LeHandle
         const std::unordered_map<std::string, bool> &layer_name_visibility() const { return layer_name_visible_; }
         const std::unordered_map<le::ViewLayerPurpose, bool> &purpose_visibility() const { return purpose_visible_; }
 
-        // Monotonic counter bumped by set_layer_name_visible/set_purpose_visible/
-        // set_antialiasing_enabled - cheap for a caller to compare instead of
-        // comparing both maps (or this flag) by value.
+        // Monotonic counter bumped by set_layer_name_visible/set_purpose_visible
+        // - cheap for a caller to compare instead of comparing both maps by
+        // value.
         uint64_t visibility_version() const { return visibility_version_; }
-
-        // --- Design-content anti-aliasing - passed to the render as
-        // ViewRenderOptions::antialiasing_enabled, but Blend2D always
-        // antialiases, so it currently has no visual effect. Off by
-        // default. Reuses
-        // visibility_version_ rather than a dedicated counter, same "a
-        // render-config change" category set_layer_name_visible/
-        // set_purpose_visible already are, not a separate concern.
-        bool antialiasing_enabled() const { return antialiasing_enabled_; }
-        void set_antialiasing_enabled(bool enabled)
-        {
-            antialiasing_enabled_ = enabled;
-            ++visibility_version_;
-        }
 
         // --- Layer selectability (defaults to selectable until toggled,
         // except TRACK_PREFERRED/TRACK_NON_PREFERRED/GCELLGRID, pre-seeded
@@ -1582,7 +1568,6 @@ struct LeHandle
             {le::ViewLayerPurpose::FLIGHTLINE, false},
         };
         uint64_t visibility_version_ = 0;
-        bool antialiasing_enabled_ = false;
         std::unordered_map<std::string, bool> layer_name_selectable_;
         // Pre-seeded false for TRACK_PREFERRED/TRACK_NON_PREFERRED/
         // GCELLGRID - hit-testing never returns tracks or gcell grids

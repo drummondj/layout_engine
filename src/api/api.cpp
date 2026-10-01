@@ -1177,7 +1177,6 @@ namespace
         options.root_mutation_version = handle->root.mutation_version();
         options.hierarchy_depth = handle->hierarchy_depth();
         options.scale = handle->scale();
-        options.antialiasing_enabled = handle->antialiasing_enabled();
         options.layer_name_visible = handle->layer_name_visibility();
         options.purpose_visible = handle->purpose_visibility();
         options.layer_color_overrides = handle->layer_color_overrides();
@@ -3623,22 +3622,6 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         handle->set_layer_name_visible(layer_name, visible);
-    }
-
-    bool le_is_antialiasing_enabled(LeHandle *handle)
-    {
-        if (!handle)
-            return false;
-        HandleWriteLock lock(handle);
-        return handle->antialiasing_enabled();
-    }
-
-    void le_set_antialiasing_enabled(LeHandle *handle, bool enabled)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        handle->set_antialiasing_enabled(enabled);
     }
 
     int32_t le_max_concurrency(LeHandle *handle)

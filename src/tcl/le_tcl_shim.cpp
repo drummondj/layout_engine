@@ -945,16 +945,6 @@ int has_unsaved_settings_cmd()
     return le_has_unsaved_settings(session());
 }
 
-void set_antialiasing_enabled_cmd(bool enabled)
-{
-    le_set_antialiasing_enabled(session(), enabled);
-}
-
-bool get_antialiasing_enabled_cmd()
-{
-    return le_is_antialiasing_enabled(session());
-}
-
 void set_session_handle(long long handle_address)
 {
     injected_handle() = reinterpret_cast<LeHandle *>(static_cast<uintptr_t>(handle_address));

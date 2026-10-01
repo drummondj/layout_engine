@@ -1364,37 +1364,6 @@ register_command_help flip_placement \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# --- antialiasing (backed by set_antialiasing_enabled_cmd/
-# get_antialiasing_enabled_cmd -> le_set_antialiasing_enabled/
-# le_is_antialiasing_enabled) ---
-proc set_antialiasing_enabled { enabled } {
-    if {$enabled eq "-help"} {
-        return "set_antialiasing_enabled <enabled> \[-help\] - Sets whether fill/stroke paints antialias"
-    }
-    set_antialiasing_enabled_cmd $enabled
-    return ""
-}
-register_command_help set_antialiasing_enabled \
-    "set_antialiasing_enabled <enabled> \[-help\]" \
-    "Turns antialiasing of shapes and their labels on or off. Off by default, which is faster on large designs; the grid, rulers and highlights are always antialiased." \
-    {
-        {<enabled> {type bool required 1 description {0/1 or true/false}}}
-        {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
-
-proc get_antialiasing_enabled {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "get_antialiasing_enabled \[-help\] - Returns whether fill/stroke paints currently antialias"
-    }
-    return [get_antialiasing_enabled_cmd]
-}
-register_command_help get_antialiasing_enabled \
-    "get_antialiasing_enabled \[-help\]" \
-    "Returns 1 if shapes are drawn antialiased, 0 otherwise." \
-    {
-        {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
-
 # --- read_lef/read_def/source/dump_png - wrapped so they get -help and
 # help-system registration like every other command (`source` is Tcl's
 # own builtin, otherwise never registered). All four take a real filesystem path

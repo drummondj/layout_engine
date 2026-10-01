@@ -275,8 +275,6 @@ foreach {cmd expect_substr} {
     select_all                  "select_all"
     deselect_all                "deselect_all"
     arm_move                    "arm_move"
-    set_antialiasing_enabled   "set_antialiasing_enabled <enabled>"
-    get_antialiasing_enabled   "get_antialiasing_enabled"
     shape_rects                "shape_rects <id>"
     shape_polygons              "shape_polygons <id>"
     shape_paths                "shape_paths <id>"
