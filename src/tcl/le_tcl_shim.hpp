@@ -1,0 +1,532 @@
+#pragma once
+
+#include <cstdint>
+
+// Tcl-facing session shim (see TCL_EXPLORATION.md's "Tcl ergonomics
+// layer" section for the full rationale). Owns one process-global
+// LeHandle* (lazily created on first use - the single-process/
+// shared-state model TCL_EXPLORATION.md's round-1 recommendation already
+// settled on for GUI<->batch-mode connection), and exposes bare,
+// handle-free functions named with UPDATES.md item 15's own domain
+// vocabulary (read_lef, not le_read_lef) - these are what le_api.i wraps
+// into Tcl commands, not api.hpp directly.
+//
+// Scalar/no-flag commands (read_lef, design_count, ...) are exposed
+// under their final Tcl name directly. Anything item 15 shows called
+// with `-flag value` syntax (e.g. `set_viewport_size -width W -height H`,
+// `create_terminal -name IN0 -direction IN`) is exposed here under an
+// internal `*_cmd` name taking plain positional arguments instead:
+// SWIG-wrapped C++ functions are always positional, so Tcl's own
+// `-flag value` calling convention has to be parsed in Tcl itself, not
+// here - a matching thin proc in le_tcl_procs.tcl does that parsing and
+// then calls the `*_cmd` form positionally. This split (C++ shim owns
+// session state + command logic; a thin Tcl proc layer owns flag
+// parsing) is the answer to "is smoke_test.tcl representative of the
+// real interface?" - it wasn't; Phase 0 fixed that, and every Phase 4
+// CRUD command below follows the same shape.
+//
+// --- IDs (Phase 5, revised for friendly ids - UPDATES.md items 18/19.1;
+// generated create_<type> - see CLAUDE.md's TCL codegen section -
+// later moved every CRUD-flag parent id onto this same token convention
+// too, so it's now the uniform rule, not an exception) ---
+// AbstractId/DesignId's own session-selection uses (design_abstract_id,
+// design_by_name, set_current_design_abstract_cmd - none of these are
+// create_<type>/update_<type> CRUD flags) are still a plain {uint32_t
+// index, generation} struct in api.hpp, packed
+// into one int64_t (generation in the high 32 bits, index in the low 32
+// bits, via pack<IdT>/unpack<IdT> in le_tcl_shim.cpp) - int64_t is a
+// fundamental type SWIG's stdint.i already marshals to/from a plain Tcl
+// integer with zero custom typemap code. kInvalidId (0xFFFFFFFF) marks an
+// invalid id for these two types in that role, since a packed valid id
+// (index != UINT32_MAX) can never equal it. Item 19.1's own new
+// get_libraries/get_designs/get_abstracts commands (and every generated
+// create_<type> parent flag, including `-abstract`) are additive - they
+// return/accept friendly strings (below), not a retrofit of those
+// already-shipped session-selection entry points (a deliberate, flagged
+// choice, see UPDATES.md item 19.1's own Resolution).
+//
+// Every other class's ids (Terminal/TerminalPort/Obstruction/Shape from
+// item 18, every other pool-backed class from item 19.1's own get_*
+// commands and the generated create_<type> surface) cross this shim as
+// type-prefixed strings instead - not user-friendly to hand a script a
+// raw packed integer as its only handle on an object. `"terminal:<name>"`/
+// `"library:<name>"`/`"design:<name>"` (each has a real, uniquely-
+// indexed-or-uniqueness-enforced .name field - Terminal's uniqueness is
+// enforced per-Abstract via the generated unique_per_parent index, not
+// hand-written in api.hpp anymore; Library/Design's is a real global codegen
+// index=True) and `"obstruction:<n>"`/`"terminal_port:<n>"`/`"shape:<n>"`/
+// `"abstract:<n>"`/... (no name field on these - `<n>` is a packed
+// integer, type-prefixed for self-description, resolved with
+// resolve_numeric_friendly_id) are built/parsed entirely in
+// le_tcl_shim.cpp (hand-written ones) or le_tcl_shim_generated.inc
+// (everything else, including every generated create_<type>'s own
+// return value and parent-token parameters) - api.hpp's own return types
+// for these are unchanged (still typed LeTerminalId/etc structs),
+// matching this shim's usual "ergonomics stay here, not in the shared C
+// API" split. Empty string `""` is the uniform "not found / invalid"
+// signal for all of them - a malformed string or a wrong-type prefix
+// (e.g. passing an `"obstruction:..."` id where a `"terminal:..."` one is
+// expected) resolves to the same invalid sentinel api.hpp's own not-found
+// paths already produce, indistinguishable from "no such object" - no
+// separate error path needed for it. An empty *token* string is exactly
+// what a caller passes to mean "no -of given" (or "omit this optional
+// create_<type> flag" - see api_declarations_inc_j2's own comment) too -
+// it resolves the same way (an unresolvable/absent token both look like
+// "invalid" to the resolver), which is exactly what "use the default" needs.
+//
+// --- get_<type> command pattern (UPDATES.md item 19.1) ---
+// Every get_<type> command shares one shape at the api.hpp layer: zero or
+// more `of_<parent>` ids (an invalid/default-constructed one means "no
+// -of given, use the default scope" - see codegen/codegen/tcl_scope.py's
+// own module docstring for how that default is derived), an optional
+// `name_expression` (glob-matched against the type's own friendly-id
+// field, Tcl `string match` semantics - only present for types that have
+// one), and an optional `filter_expression` (src/database/
+// filter.hpp, field/hop names validated against a generated allowlist per
+// type - an unrecognized name is a real error, not silent no-match). At
+// the Tcl layer, `-of` accepts a *list* of same-type parent tokens (OR'd)
+// and name expressions are likewise OR'd (see le_tcl_procs.tcl's
+// parse_get_args) - the shim/api.hpp layer only ever sees one resolved
+// id/expression per call; the Tcl proc loops over multiple tokens/
+// expressions itself and unions the per-call results. Search-result
+// accessors are uniformly count+by-index (get_<type>_cmd/get_<type>_at),
+// same shape as every property table below - this whole surface is
+// generated now (see CLAUDE.md's TCL codegen section), including
+// every class's own create_<type>/update_<type>/delete_<type>; the only
+// hand-written CRUD-ish surface left is Shape's own remove_shape_rect/
+// _polygon/_path (removing one geometry entry by index, further below -
+// not per-class flag-driven CRUD in the same sense).
+//
+// --- Property tables and search results (Phase 5) ---
+// Deliberately NOT built as Tcl lists/dicts in C++ here - that needs
+// correct Tcl quoting (a value containing spaces/braces has to be
+// list-escaped), which is Tcl's own job (`lappend`/`dict set` do it
+// correctly by construction) and error-prone to hand-roll in C++. This
+// shim only exposes count+by-index accessors, mirroring api.hpp's own
+// shape exactly; le_tcl_procs.tcl loops over them to build the ergonomic
+// dict/list a real Tcl caller wants (see e.g. `properties_for_token`,
+// UPDATES.md item 19.2's shared helper behind `get_properties`/
+// `report_properties`).
+// Every property value is exposed pre-stringified (`*_property_value`),
+// not int/double/string-tagged - Tcl is "everything is a string" by its
+// own design (`expr {$v + 1}` works on a numeric string exactly the same
+// as a native int), so preserving LeProperty's STRING/INT/DOUBLE tag
+// across this boundary isn't worth the extra accessors it would take.
+
+int read_lef(const char *path, const char *library_name);
+int read_def(const char *path, const char *library_name);
+// paths is a space-separated list of one or more filenames, all read
+// into the same le_read_verilog call - see this function's own .cpp
+// comment for why that matters specifically for read_netlist (letting a
+// generated Verilog stub file and a real netlist share one slang
+// elaboration - verilog_stub_writer.hpp).
+int read_verilog_cmd(const char *paths, int is_netlist, const char *library_name);
+int link_unresolved_instances_cmd();
+
+/// @brief Tcl-facing wrapper for le_write_verilog_stubs - see that
+/// function's own api.hpp comment and verilog_stub_writer.hpp.
+/// library_token may be null/empty to mean "the sole Library read so
+/// far" (fails if that's not exactly one Library).
+int write_verilog_stubs_cmd(const char *path, const char *library_token);
+
+// Hierarchical-path variants of get_instances_cmd/get_nets_cmd/
+// get_ports_cmd (LINKING_STRATEGY_RESEARCH.md sections 3/4) -
+// get_instances/get_nets/get_ports (le_tcl_procs.tcl) call one of these
+// instead of the plain flat *_cmd whenever a name-expr argument contains
+// "/". Reuses the existing get_instances_at/get_nets_at/get_ports_at
+// result accessors unchanged - both paths populate the same handle-side
+// search-results field.
+int get_instances_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);
+int get_nets_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);
+int get_ports_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);
+
+// Phase 5 mutation side-effects (LINKING_STRATEGY_RESEARCH.md section 5) -
+// see these functions' own definitions (le_tcl_shim.cpp) and
+// le_api.hpp's le_delete_net_cascade/le_rename_net_propagate/
+// le_rename_instance_propagate for what each does.
+int delete_net_cascade_cmd(const char *id);
+const char *rename_net_cmd(const char *id, const char *new_name);
+const char *rename_instance_cmd(const char *id, const char *new_name);
+
+int design_count();
+const char *design_name(int index);
+
+/// @brief Tcl-facing wrapper for le_property_path_failed - see that
+/// function's own api.hpp comment. get_properties (le_tcl_procs.tcl)
+/// checks this right after each *_property_path call to tell a genuine
+/// parse/validation error apart from a path that just resolves to
+/// nothing.
+int property_path_failed();
+
+/// @brief Positional form behind `set_viewport_size -width W -height H`
+/// (see le_tcl_procs.tcl). Demonstrates the -flag-parsing split
+/// end-to-end using an existing api.hpp call (le_set_viewport_size).
+void set_viewport_size_cmd(int width_px, int height_px);
+
+/// @brief Round-trips through le_render_pixel_buffer() to prove
+/// set_viewport_size_cmd() actually took effect, without wrapping the
+/// whole LePixelBuffer struct (its `data` pointer would need its own
+/// typemap - out of scope for this demonstration).
+int viewport_width();
+int viewport_height();
+
+/// @brief The AbstractId of the design at `design_index` (0..design_count()-1,
+/// same flat indexing as design_name) - a raw packed id, unlike
+/// create_terminal/create_obstruction/update_abstract, which all take an
+/// `"abstract:N"` friendly-id token instead (see get_abstracts/
+/// get_abstracts_at, or just format "abstract:" + this call's own
+/// result). Scoped to the first Library only
+/// (le_library_design_at's library_index=0) - correct as long as only
+/// one LEF file/library is in play, same assumption this project's
+/// single-shared-Technology convention already makes elsewhere. Superseded
+/// for the "select a view to work in" use case by open_design below
+/// (UPDATES.md item 17), and for general enumeration by get_abstracts
+/// (UPDATES.md item 19.1) - kept as-is since scripts may still want a raw
+/// AbstractId without changing the session's current-view state.
+/// Returns kInvalidId if index is out of range.
+long long design_abstract_id(int design_index);
+
+/// @brief Positional form behind `open_design NAME -view abstract` (see
+/// le_tcl_procs.tcl) - resolves NAME to a LeDesignId. Returns kInvalidId
+/// if no Design named `name` is loaded on this session.
+long long design_by_name(const char *name);
+
+/// @brief The singleton Technology's friendly `"technology:N"` id (see
+/// this header's own "IDs" comment) - the way a script reaches Layer/
+/// Via/Site/NonDefaultRule, e.g. `technology_layers [technology_id]`.
+/// Returns "" if no Technology has been read yet.
+const char *technology_id();
+
+/// @brief Select the Design `design_id` (as returned by design_by_name)
+/// as this session's current view (UPDATES.md item 17) - every
+/// subsequent get_terminals/get_obstructions/get_terminal_ports call is
+/// scoped to its Abstract. Returns 0 on success, nonzero if design_id
+/// doesn't name a Design on this session.
+int set_current_design_abstract_cmd(long long design_id);
+
+/// @brief Same as set_current_design_abstract_cmd, but selects the Design's
+/// Layout view instead of its Abstract view - the two are mutually
+/// exclusive (only one view is "open" at a time - see
+/// le_set_current_design_layout's own api.hpp comment). Every subsequent
+/// get_rows/get_placements/get_blockages/... call is scoped to this
+/// Layout instead.
+int set_current_design_layout_cmd(long long design_id);
+
+/// @brief Backing for the `zoom -factor <double>` Tcl command (see
+/// le_tcl_procs.tcl) - zooms the current view in (positive factor) or
+/// out (negative factor) by le_zoom's own signed-fractional-step
+/// semantics (new_scale = scale * (1 + factor)), anchored at the
+/// viewport's own center via viewport_width()/viewport_height() above -
+/// a script has no live mouse position to anchor a le_zoom-style point
+/// zoom on the way the GUI's own keyboard shortcut does.
+void zoom_cmd(double factor);
+
+/// @brief Backing for the `zoom_area {llx lly urx ury} [-padding <int>]`
+/// Tcl command - mirrors le_fit_rect directly (fits the viewport's pan/
+/// scale to the given micron-space rect, uniform scale, centered, with
+/// `padding_px` margin - see that function's own api.hpp comment for the
+/// um->dbu conversion and the degenerate-rect fallback).
+void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int padding_px);
+
+/// @brief Backing for the `dump_png <path>` Tcl command - renders the
+/// current view via le_render_pixel_buffer (the same output the app's own
+/// Texture uses, and the same call le_shell's own viewport_width()/
+/// viewport_height() above already make - no GUI needed) and encodes it
+/// as an RGBA8888 PNG at `path` via Blend2D's own built-in PNG codec
+/// (BLImage::write_to_file - scoped to this Tcl-facing shim rather than
+/// api.hpp - the Flutter app never needs to write a PNG of its own
+/// render, only a script/debugging session does). Returns 0 on success,
+/// nonzero if the buffer is empty (e.g. no viewport size set) or the
+/// file couldn't be opened/encoded.
+int dump_png_cmd(const char *path);
+
+/// @brief Backing for the `write_lef` Tcl command (BUGS_AND_ENHANCEMENTS.md
+/// E28/E28.b) - mirrors le_write_lef directly. `abstract_tokens` is a
+/// space-separated list of zero or more friendly Abstract ids (see this
+/// function's own .cpp comment for why a plain word split is safe);
+/// `library_token`, if non-empty, is resolved via the generated
+/// resolve_library_id. An empty/null `abstract_tokens` with an empty/null
+/// `library_token` passes both through as "give le_write_lef nothing",
+/// which it reads as "use the current Abstract instead" (see that
+/// function's own api.hpp comment for its full 4-step resolution order).
+/// `layer_write_mode` is one of the LeLefLayerWriteMode values.
+int write_lef_cmd(const char *path, const char *abstract_tokens, const char *library_token, int32_t layer_write_mode);
+
+/// @brief Backing for the `write_def` Tcl command (BUGS_AND_ENHANCEMENTS.md
+/// E28) - mirrors le_write_def directly, same empty-token-means-"use
+/// current" convention as write_lef_cmd above (resolve_layout_id/
+/// le_write_def's own current-Layout fallback).
+int write_def_cmd(const char *path, const char *layout_token);
+
+/// @brief Backing for the native database file commands write_db/read_db/
+/// db_info (NATIVE_FILE_FORMAT_RESEARCH.md) - thin wrappers over
+/// le_write_db/le_read_db/le_db_info.
+int write_db_cmd(const char *path);
+int read_db_cmd(const char *path);
+const char *db_info_cmd(const char *path);
+
+/// @brief Backing for `get_selection` (BUGS_AND_ENHANCEMENTS.md E30) -
+/// le_selection_count(session()) directly, no extra logic needed.
+int selection_count_cmd();
+
+/// @brief Backing for `get_selection` (BUGS_AND_ENHANCEMENTS.md E30) - the
+/// friendly token (shape:/row:/placement:/region:) for the selected
+/// object at `index` (0..selection_count_cmd()-1), or an empty string for
+/// an out-of-range index or an unsupported LeObjectKind (there are none
+/// today - le_selected_object_ref only ever returns one of the four kinds
+/// this dispatches, but this stays exhaustive-safe rather than assuming).
+const char *get_selection_at_cmd(int index);
+
+/// @brief Backing for `select` (BUGS_AND_ENHANCEMENTS.md E30) - resolves
+/// `token`'s own shape:/row:/placement:/region: prefix to a LeObjectRef
+/// and calls le_select_object_ref. Returns 0 on success, 1 for a
+/// recognized-prefix-but-unresolvable/unsupported token (le_select_object_ref's
+/// own failure, with a real ERROR message logged via spdlog::error), or 2
+/// for an unrecognized prefix (no message logged - select, le_tcl_procs.tcl,
+/// raises its own Tcl error using the token text it already has instead).
+int select_cmd(const char *token);
+
+/// @brief Backing for the `set_layer_visible <layer_name> <visible>` Tcl
+/// command - mirrors le_set_layer_name_visible directly (affects every
+/// ViewLayer of the real Layer named `layer_name`, e.g. both TERMINAL and
+/// OBSTRUCTION - see that function's own api.hpp comment for why it's the
+/// whole real-Layer's worth, not one ViewLayerPurpose at a time).
+void set_layer_visible_cmd(const char *layer_name, bool visible);
+
+/// @brief Backing for the `get_layer_visible <layer_name>` Tcl command -
+/// mirrors le_is_layer_name_visible directly. Returns false if
+/// `layer_name` doesn't name a real Layer (le_is_layer_name_visible's own
+/// "unknown name" fallback).
+bool get_layer_visible_cmd(const char *layer_name);
+
+/// @brief Backing for the `set_layer_selectable <layer_name> <selectable>`
+/// Tcl command - mirrors le_set_layer_name_selectable directly (whole real-
+/// Layer's worth, same row-not-column granularity as set_layer_visible_cmd).
+void set_layer_selectable_cmd(const char *layer_name, bool selectable);
+
+/// @brief Backing for the `get_layer_selectable <layer_name>` Tcl command -
+/// mirrors le_is_layer_name_selectable directly.
+bool get_layer_selectable_cmd(const char *layer_name);
+
+/// @brief Backing for the `set_purpose_visible <purpose> <visible>` Tcl
+/// command - mirrors le_set_purpose_visible directly. `purpose` is the raw
+/// ordinal le_purpose_at()/le_tcl_procs.tcl's own ::purpose_names dict
+/// resolves a friendly keyword (e.g. "OBSTRUCTION") to - see le_purpose_at's
+/// own api.hpp comment for the full ordinal list and why it must be passed
+/// through opaquely rather than re-derived.
+void set_purpose_visible_cmd(int32_t purpose, bool visible);
+
+/// @brief Backing for the `get_purpose_visible <purpose>` Tcl command -
+/// mirrors le_is_purpose_visible directly.
+bool get_purpose_visible_cmd(int32_t purpose);
+
+/// @brief Backing for the `set_purpose_selectable <purpose> <selectable>`
+/// Tcl command - mirrors le_set_purpose_selectable directly.
+void set_purpose_selectable_cmd(int32_t purpose, bool selectable);
+
+/// @brief Backing for the `get_purpose_selectable <purpose>` Tcl command -
+/// mirrors le_is_purpose_selectable directly.
+bool get_purpose_selectable_cmd(int32_t purpose);
+
+/// @brief Backing for the `set_mode <mode>` Tcl command - mirrors
+/// le_set_mode directly. `mode` is LeMode's own raw ordinal (0=SELECT,
+/// 1=EDIT, 2=RULER) - le_tcl_procs.tcl's own set_mode wrapper resolves a
+/// friendly keyword ("select"/"edit"/"ruler") to it.
+void set_mode_cmd(int32_t mode);
+
+/// @brief Backing for the `get_mode` Tcl command - mirrors le_get_mode
+/// directly, returned as the same raw ordinal set_mode_cmd takes.
+int32_t get_mode_cmd();
+
+/// @brief Backing for the `clear_rulers` Tcl command - mirrors
+/// le_clear_rulers directly.
+void clear_rulers_cmd();
+
+/// @brief Backing for the `select_all` Tcl command - mirrors le_select_all
+/// directly.
+void select_all_cmd();
+
+/// @brief Backing for the `deselect_all` Tcl command - mirrors
+/// le_deselect_all directly.
+void deselect_all_cmd();
+
+/// @brief Backing for the `arm_move` Tcl command - mirrors le_arm_move
+/// directly.
+void arm_move_cmd();
+
+/// @brief Backing for the `delete_selected_pieces` Tcl command - mirrors
+/// le_delete_selected_pieces directly (returns how many were deleted).
+int delete_selected_pieces_cmd();
+
+/// @brief Backing for `set_placement_snap_mode`/`get_placement_snap_mode`/
+/// the snap-availability check - mirror le_set_placement_snap_mode/
+/// le_get_placement_snap_mode/le_is_placement_snap_mode_available
+/// (LePlacementSnapMode values; le_tcl_procs.tcl maps the keywords).
+void set_placement_snap_mode_cmd(int mode);
+int get_placement_snap_mode_cmd();
+bool is_placement_snap_mode_available_cmd(int mode);
+
+/// @brief Backing for `rotate_placement`/`flip_placement` - mirrors
+/// le_apply_placement_orientation_op (LeOrientationOp values; returns
+/// its status code).
+int apply_placement_orientation_op_cmd(int op);
+
+/// @brief Backing for `arm_resize`/`set_shape_snap_mode`/
+/// `get_shape_snap_mode`/`shape_snap_mode_available` - mirror
+/// le_arm_resize/le_set_shape_snap_mode/le_get_shape_snap_mode/
+/// le_is_shape_snap_mode_available (LePieceKind/LeShapeSnapMode values;
+/// le_tcl_procs.tcl maps the keywords).
+void arm_resize_cmd();
+void set_shape_snap_mode_cmd(int kind, int mode);
+int get_shape_snap_mode_cmd(int kind);
+bool is_shape_snap_mode_available_cmd(int kind, int mode);
+
+/// @brief Backing for the `show_gui` Tcl command - mirrors
+/// le_request_show_gui directly. Fire-and-forget: the actual window is
+/// opened by a separate, dedicated GUI thread (src/gui/le_gui.hpp) that
+/// polls for this request - see that header's own doc comment for the
+/// full threading story (Tcl_Main's own blocking event loop can't share
+/// a thread with a native GUI's own event loop).
+void request_show_gui_cmd();
+void request_close_gui_cmd();
+int has_unsaved_database_changes_cmd();
+int has_unsaved_settings_cmd();
+
+/// @brief Backing for the `set_antialiasing_enabled <enabled>` Tcl
+/// command - mirrors le_set_antialiasing_enabled directly.
+void set_antialiasing_enabled_cmd(bool enabled);
+
+/// @brief Backing for the `get_antialiasing_enabled` Tcl command - mirrors
+/// le_is_antialiasing_enabled directly.
+bool get_antialiasing_enabled_cmd();
+
+/// @brief Sentinel for "no such id" for AbstractId/DesignId in their
+/// CRUD-flag/session-selection role - see this header's own "IDs"
+/// comment. Every api.hpp failure path for these two types in that role
+/// returns an id struct with index == UINT32_MAX and generation == 0
+/// (never left uninitialized - see TCL_EXPLORATION.md's "zero-init bug"
+/// note), which pack() (in le_tcl_shim.cpp) always turns into exactly
+/// this value - not -1 (0xFFFFFFFFFFFFFFFF), which would require
+/// generation == UINT32_MAX too. Every other id type (including Library/
+/// Design/Abstract wherever get_* commands return/accept them) uses an
+/// empty string ("") as their own invalid sentinel instead - see the
+/// "IDs" comment above.
+constexpr long long kInvalidId = 0xFFFFFFFFLL;
+
+/// @brief Point every subsequent shim call at an externally-owned
+/// LeHandle* (packed the same way every other id crosses this shim -
+/// see the "IDs" comment above) instead of the shim's own lazily-self-
+/// created one - e.g. the Dart-owned handle a Flutter-embedded Tcl
+/// console shares (see TCL_EXPLORATION.md's show_gui section), so a Tcl
+/// command mutates the exact same database the GUI is already
+/// rendering, not an unrelated standalone one. The shim never destroys
+/// an injected handle - ownership (le_destroy()) stays with whoever
+/// created it, same as le_shell's own self-created handle is never
+/// explicitly destroyed either (process-lifetime). Must be called (if
+/// at all) before any other shim function that touches session() - the
+/// self-created handle is lazily latched on session()'s first call and
+/// is never revisited afterward, injected or not.
+void set_session_handle(long long handle_address);
+
+// --- Terminal/TerminalPort/Obstruction CRUD - create_X_cmd/update_X_cmd/
+// delete_X_cmd are all generated (see le_tcl_shim_generated.hpp), nothing
+// hand-written here for these three classes anymore. ---
+
+// --- Shape CRUD (rects/polygons/paths - texts deliberately excluded,
+// see TCL_EXPLORATION.md's round-7 finding: they're a Pipeline-computed
+// render-time label, never LEF-authored data; create_shape_cmd/
+// update_shape_cmd/delete_shape_cmd are generated - see
+// le_tcl_shim_generated.hpp - create_shape_cmd takes both a
+// terminal_port_id and an obstruction_id token, exactly one of which must
+// resolve, replacing this header's former create_terminal_port_shape_cmd/
+// create_obstruction_shape_cmd split) ---
+
+const char *shape_layer_name(const char *id);
+
+int shape_rect_count(const char *id);
+/// @brief The rect at `index`, as a brace-nested "{ll_x ll_y} {ur_x
+/// ur_y}" microns string (BUGS_AND_ENHANCEMENTS.md E21 - matches every
+/// other Rect-shaped value's own convention).
+const char *shape_rect_at(const char *id, int index);
+int remove_shape_rect(const char *id, int index);
+
+int shape_polygon_count(const char *id);
+int shape_polygon_point_count(const char *id, int polygon_index);
+/// @brief The point at `point_index` in the polygon at `polygon_index`,
+/// as a 2-element "x y" microns string.
+const char *shape_polygon_point_at(const char *id, int polygon_index, int point_index);
+int remove_shape_polygon(const char *id, int polygon_index);
+
+int shape_path_count(const char *id);
+double shape_path_width_um(const char *id, int path_index);
+int shape_path_point_count(const char *id, int path_index);
+const char *shape_path_point_at(const char *id, int path_index, int point_index);
+int remove_shape_path(const char *id, int path_index);
+
+// --- shape_* operations (NEW_FEATURES_SEPT_2026.md item 1) - each takes a
+// space-separated shape token list; an empty -layer/-parent token means
+// "omitted". Creating ones return how many Shapes they made (read back via
+// shape_op_results_cmd), -1 on failure (reason logged), -2 for an unknown
+// -layer token, -3 for an unknown/unsupported -parent token.
+int shape_copy_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token);
+int shape_boolean_cmd(const char *shape_tokens_a, const char *shape_tokens_b, int op, const char *layer_token, const char *parent_token);
+int shape_to_polygon_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token);
+int shape_to_rects_cmd(const char *shape_tokens, int vertical, const char *layer_token, const char *parent_token);
+int shape_size_cmd(const char *shape_tokens, double dx_um, double dy_um, const char *layer_token, const char *parent_token);
+int shape_path_cmd(const char *shape_tokens, double width_um, const char *layer_token, const char *parent_token);
+int shape_change_layer_cmd(const char *shape_tokens, const char *layer_token);
+const char *shape_op_results_cmd(int count);
+const char *shape_bbox_cmd(const char *shape_tokens);
+
+// --- Editing / undo-redo (UPDATES.md item 21) - begin_command/end_command
+// bracket one recording transaction; le_repl_eval (le_tcl_procs.tcl) is
+// the only caller, wrapping every top-level typed console command with
+// them so it's exactly as undoable as a GUI edit like Move. undo/redo/
+// command_history back the `undo`/`redo`/`command_history` Tcl commands
+// directly (le_tcl_procs.tcl). ---
+
+void begin_command(const char *label);
+int end_command(int succeeded);
+int undo_command();
+int redo_command();
+int command_history_count();
+/// @brief The command text at `index` (0..command_history_count()-1).
+/// Empty string if index is out of range.
+const char *command_history_at(int index);
+
+int get_hierarchy_depth_command();
+void set_hierarchy_depth_command(int depth);
+
+// Flightline fanout limit (NEW_FEATURES_SEPT_2026.md item 5) - mirror
+// le_flightline_max_fanout/le_set_flightline_max_fanout.
+int get_flightline_max_fanout_command();
+void set_flightline_max_fanout_command(int max_fanout);
+
+// NEW_FEATURES_SEPT_2026.md item 9 - le_grid_spacing_um/le_set_grid_spacing_um,
+// le_ruler_label_size/le_set_ruler_label_size, le_label_size/le_set_label_size,
+// le_save_settings/le_load_settings/le_default_settings_path. The settings
+// commands return 0 on success, nonzero on failure.
+double get_grid_spacing_um_command(int major);
+void set_grid_spacing_um_command(double minor_um, double major_um);
+double get_ruler_label_size_command();
+void set_ruler_label_size_command(double px);
+double get_label_min_size_command();
+void set_label_min_size_command(double px);
+double get_label_max_size_command();
+void set_label_max_size_command(double px);
+int set_layer_color_command(const char *layer, const char *color);
+void reset_layer_color_command(const char *layer);
+const char *get_layer_color_command(const char *layer);
+int save_settings_command(const char *path);
+int load_settings_command(const char *path);
+const char *default_settings_path_command();
+
+int get_max_concurrency_command();
+void set_max_concurrency_command(int max_concurrency);
+
+// --- Generated TCL property-reading surface (see CLAUDE.md's
+// TCL section) - bare property-table accessors and is_child-field
+// enumeration for every TCL-readable class not already covered above.
+// Never edit generated/le_tcl_shim_generated.hpp directly - regenerate
+// via the regen-tcl skill instead. ---
+#include "generated/le_tcl_shim_generated.hpp"

@@ -1,5 +1,37 @@
-__pycache__
+__pycache__/
 generated
 generated_tcl
 test_data
-.DS_Store
+**/.DS_Store
+
+# Debug (ctest) and Release (le_shell/le_tcl) trees - see BUILD.md.
+build/
+build_release/
+
+# lefdef produces these during `make`; not source, don't commit them.
+# Every subdirectory (lef/, clef/, clefzlib/, lefdiff/, lefrw/, lefwrite/,
+# and the def/ equivalents) compiles its own .o files and some their own
+# .a, so these are blanket patterns rather than enumerated per-directory.
+src/lefdef/**/*.o
+src/lefdef/**/*.a
+src/lefdef/**/lef.tab.cpp
+src/lefdef/**/lef.tab.h
+src/lefdef/**/lef.output
+src/lefdef/**/def.tab.cpp
+src/lefdef/**/def.tab.h
+src/lefdef/**/def.output
+src/lefdef/**/include/
+src/lefdef/**/lib/
+src/lefdef/**/bin/*
+!src/lefdef/**/bin/lefdefdiff
+src/lefdef/**/lefdiff/lefdiff
+src/lefdef/**/lefrw/lefrw
+src/lefdef/**/lefwrite/lefwrite
+src/lefdef/**/defdiff/defdiff
+src/lefdef/**/defrw/defrw
+src/lefdef/**/defwrite/defwrite
+
+lefRWarning.log
+*.profraw
+.cache
+roundtrip

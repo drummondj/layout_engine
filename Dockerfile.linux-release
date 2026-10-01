@@ -12,7 +12,7 @@
 #
 # Not tied to any of this repo's other Linux build paths' machine-specific
 # constraints (Dockerfile.linux-ci's Ubuntu base, or
-# backend/scripts/rocky8-bootstrap.sh's no-root/no-Docker constraint) -
+# scripts/rocky8-bootstrap.sh's no-root/no-Docker constraint) -
 # this container has full root and full outbound network access, so
 # packages install normally via dnf and the two source-built tools below
 # fetch straight from their real upstream hosts (no need for the
@@ -26,10 +26,10 @@
 # confirmed present.
 
 # ---- base: gcc-toolset-13 (RHEL8's stock GCC 8.5 can't do C++20/23) plus
-# every -devel package needed to build/test the backend (le_shell/le_tcl
+# every -devel package needed to build/test the project (le_shell/le_tcl
 # included) - dnf install, not rootless RPM extraction, since this
 # container has real root. Package names confirmed real via
-# backend/scripts/rocky8-bootstrap.sh's own real run logs against a real
+# scripts/rocky8-bootstrap.sh's own real run logs against a real
 # Rocky 8 machine this session (tcl-devel/tk-devel/mesa-* all showed as
 # already-installed there; the gcc-toolset-13-* packages downloaded
 # successfully). No Skia dependency anywhere in this project anymore (see
@@ -41,9 +41,9 @@
 # still probes for pcre2-config - --without-pcre is the flag its own error
 # message names) rather than reintroducing pcre2-devel just for that -
 # SWIG's core functionality doesn't need PCRE2-backed regex support.
-# backend/scripts/rocky8-bootstrap.sh's own stage_swig has this same
+# scripts/rocky8-bootstrap.sh's own stage_swig has this same
 # --without-pcre2 mistake (marked unverified against a real Rocky 8
-# machine in backend/CLAUDE.md's Open gaps section) - fixed there too. ----
+# machine in CLAUDE.md's Open gaps section) - fixed there too. ----
 FROM rockylinux:8 AS base
 RUN dnf install -y dnf-plugins-core \
  && (dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb || true) \
@@ -51,14 +51,14 @@ RUN dnf install -y dnf-plugins-core \
     gcc-toolset-13-gcc-c++ gcc-toolset-13-libstdc++-devel gcc-toolset-13-binutils make \
     tcl-devel tk-devel \
     mesa-libGL-devel mesa-libEGL-devel mesa-dri-drivers mesa-libgbm xz-devel \
-    # GLFW's own Linux/X11 backend (backend/src/gui/, le_shell's `show_gui`) -
+    # GLFW's own Linux/X11 backend (src/gui/, le_shell's `show_gui`) -
     # CMakeLists.txt's own find_package(glfw3)/FetchContent fallback builds
     # GLFW from source here, which needs these dev headers present to
     # configure its X11 backend at all.
     libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
     libXext-devel \
     # le_shell links GNU readline unconditionally now (real line editing/
-    # history/Tab completion) - see backend/CLAUDE.md's src/tcl/ bullet.
+    # history/Tab completion) - see CLAUDE.md's src/tcl/ bullet.
     readline-devel \
     git curl tar gzip unzip which python3 python3.12 python3.12-pip pkgconfig \
     autoconf automake libtool gettext-devel texinfo m4 \
@@ -70,7 +70,7 @@ ENV LD_LIBRARY_PATH="/opt/rh/gcc-toolset-13/root/usr/lib64"
 
 # ---- tools: CMake/Ninja (upstream relocatable releases - RHEL8's own
 # cmake/ninja-build packages can't be trusted to satisfy
-# backend/CMakeLists.txt's >=3.20 requirement, same reasoning as
+# CMakeLists.txt's >=3.20 requirement, same reasoning as
 # rocky8-bootstrap.sh's stage_cmake/stage_ninja), plus bison+SWIG built
 # from source (RHEL8's stock bison is 3.0.4; SWIG 4.2.1's grammar
 # declares '%require "3.5"' - a real, already-confirmed build failure this
@@ -99,7 +99,7 @@ RUN curl -fL -o /tmp/swig.tar.gz \
  && make -j"$(nproc)" && make install \
  && rm -rf /tmp/swig /tmp/swig.tar.gz
 
-# ---- boost: header-only (Boost.Geometry only, see backend/CMakeLists.txt) -
+# ---- boost: header-only (Boost.Geometry only, see CMakeLists.txt) -
 # same upstream tarball/version as rocky8-bootstrap.sh's stage_boost, not
 # RHEL8's own boost-devel package, so both Rocky-8-based build paths stay
 # on one consistent Boost version. ----
@@ -110,7 +110,7 @@ RUN curl -fL -o /tmp/boost.tar.gz \
  && rm /tmp/boost.tar.gz
 ENV BOOST_ROOT=/opt/boost
 
-# ---- tbb: oneTBB built from source - backend/CMakeLists.txt's
+# ---- tbb: oneTBB built from source - CMakeLists.txt's
 # find_package(TBB REQUIRED CONFIG) has no source-build fallback (unlike
 # GLFW below), and RHEL8's own dnf package (`tbb-devel`, checked directly:
 # 2018.2) predates oneTBB's own CMake-config support entirely (that
@@ -160,7 +160,7 @@ ENV CMAKE_PREFIX_PATH=/opt/tbb
 # see .github/workflows/release.yml's GHA cache config.
 #
 # No Skia dependency anywhere in this project anymore (see
-# backend/CMakeLists.txt's own `pipelines` target comment) - a `skia`
+# CMakeLists.txt's own `pipelines` target comment) - a `skia`
 # stage used to sit here, built from source against the `tbb` stage below
 # (same pinned commit as Dockerfile.linux-ci's own former Skia stage,
 # git history has the exact GN args if ever needed again for reference).
@@ -182,7 +182,7 @@ COPY . .
 # regen-tcl skills. Dockerfile.linux-ci/rocky8-bootstrap.sh never needed
 # this step because they operate on an already-bootstrapped host checkout
 # where these were generated once, ages ago, and left on disk; a COPY'd-in
-# fresh checkout has no such history, so backend/pipelines.cpp's #include
+# fresh checkout has no such history, so src/pipelines/pipelines.cpp's #include
 # "generated/property.hpp" fails outright without this - confirmed by
 # hitting exactly that failure before adding this stage. codegen's own
 # pyproject.toml requires Python >=3.11 (RHEL8's stock `python3` is 3.6) -
@@ -191,20 +191,20 @@ COPY . .
 FROM source AS codegen
 WORKDIR /workspace/codegen
 RUN python3.12 -m pip install --no-cache-dir .
-RUN codegen --schema /workspace/backend/src/database/schema.py \
-        --output /workspace/backend/src/database/generated \
- && codegen --schema /workspace/backend/src/database/schema.py \
-        --output /workspace/backend/src \
+RUN codegen --schema /workspace/src/database/schema.py \
+        --output /workspace/src/database/generated \
+ && codegen --schema /workspace/src/database/schema.py \
+        --output /workspace/src \
         --target tcl
 
-# ---- backend: build + test. ctest gates the whole release - a failing
+# ---- build: build + test. ctest gates the whole release - a failing
 # test here fails this `docker build`, so nothing downstream ever runs.
 # Debug tree for ctest, Release tree for what the shipped le_shell/le_tcl
 # actually link - same two-tree split as every other build path in this
-# repo, see backend/CLAUDE.md's Build section. ----
-FROM codegen AS backend
-WORKDIR /workspace/backend
-# BACKEND_BUILD_JOBS (not a bare `-j`/nproc): same reasoning as
+# repo, see CLAUDE.md's Build section. ----
+FROM codegen AS build
+WORKDIR /workspace
+# BUILD_JOBS (not a bare `-j`/nproc): same reasoning as
 # Dockerfile.linux-ci's own identically-named ENV - a handful of
 # translation units (pipeline_benchmark.cpp pulling in googlebenchmark,
 # geometry_test.cpp's Boost.Geometry instantiations) are memory-heavy
@@ -212,18 +212,18 @@ WORKDIR /workspace/backend
 # compiler on a memory-constrained builder - confirmed by hitting exactly
 # that ("g++: fatal error: Killed signal terminated program cc1plus")
 # under full parallelism on this Mac's Docker Desktop VM. Override via
-# --build-arg BACKEND_BUILD_JOBS=N on a machine/runner with more memory
+# --build-arg BUILD_JOBS=N on a machine/runner with more memory
 # available.
 #
 # -DLE_ENABLE_TRACY=OFF on the Release-tree configure only (not the
 # Debug/ctest tree, which isn't shipped either way) - a shipped release
 # binary shouldn't carry Tracy's own profiling instrumentation.
-ARG BACKEND_BUILD_JOBS=2
-RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug \
- && cmake --build build-linux -j ${BACKEND_BUILD_JOBS} \
- && ctest --test-dir build-linux --output-on-failure \
- && cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release -DLE_ENABLE_TRACY=OFF \
- && cmake --build build_release-linux --target api pipelines io le_shell le_tcl -j ${BACKEND_BUILD_JOBS}
+ARG BUILD_JOBS=2
+RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
+ && cmake --build build -j ${BUILD_JOBS} \
+ && ctest --test-dir build --output-on-failure \
+ && cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release -DLE_ENABLE_TRACY=OFF \
+ && cmake --build build_release --target api pipelines io le_shell le_tcl -j ${BUILD_JOBS}
 
 # ---- bundle: the release asset's actual content, nothing else - just the
 # Release-tree le_shell binary, the le_tcl.so module it `load`s at
@@ -235,10 +235,10 @@ RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug \
 # every one of api/pipelines/le_shell/le_tcl.so links dynamically (`find`,
 # not a hardcoded lib/lib64 path - GNUInstallDirs' own choice between the
 # two isn't worth pinning down by hand here), the bundled font directory
-# Linux's own default_typeface() reads from (backend/CLAUDE.md's Open
+# Linux's own default_typeface() reads from (CLAUDE.md's Open
 # gaps), and lucide.ttf (the toolbar icon font, le_gui.cpp) - not the raw
-# build tree/CMake cache. lucide.ttf is copied from build_release-linux/
-# itself, not backend/'s own source tree - backend/CMakeLists.txt's own
+# build tree/CMake cache. lucide.ttf is copied from build_release/
+# itself, not the source tree - CMakeLists.txt's own
 # file(COPY ...) right after FetchContent_MakeAvailable(lucide_font) puts
 # a real copy there specifically so this bundle stage (and
 # le_gui.cpp's own exe-relative runtime fallback, once shipped) don't
@@ -248,11 +248,11 @@ RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug \
 # fallback still pointing at a since-removed flutter_plugin bundling
 # convention (lib/ instead of fonts/) and lucide.ttf never being bundled
 # at all. ----
-FROM backend AS bundle
+FROM build AS bundle
 RUN mkdir -p /bundle/fonts \
- && cp build_release-linux/le_shell /bundle/ \
- && cp build_release-linux/le_tcl.so /bundle/ \
- && cp build_release-linux/lucide.ttf /bundle/ \
+ && cp build_release/le_shell /bundle/ \
+ && cp build_release/le_tcl.so /bundle/ \
+ && cp build_release/lucide.ttf /bundle/ \
  && cp src/tcl/le_tcl_procs.tcl /bundle/ \
  && cp src/tcl/generated/le_tcl_procs_generated.tcl /bundle/ \
  && cp -r assets/fonts/. /bundle/fonts/ \
@@ -263,21 +263,21 @@ RUN mkdir -p /bundle/fonts \
 # -procs flags and no LE_TCL_MODULE/LE_TCL_PROCS_PATH env vars, so its own
 # resolve_path() (le_shell.cpp) must fall all the way through its
 # compile-time default (this image's own build tree path,
-# /workspace/backend/build_release-linux/le_tcl.so, baked in by
+# /workspace/build_release/le_tcl.so, baked in by
 # CMakeLists.txt at this same `docker build`'s configure step) to its
 # executable-relative fallback, the same way it would on a machine that
 # never had /workspace at all - added after a real, repeated report
 # (`load` failing with "couldn't load file
-# .../build_release-linux/le_tcl.so: No such file or directory") that
+# .../build_release/le_tcl.so: No such file or directory") that
 # reached a shipped release before anything caught it.
 #
-# build_release-linux is moved out of the way first (nothing after this
+# build_release is moved out of the way first (nothing after this
 # stage needs it - `export` below copies only /bundle) specifically so
 # the compile-time default genuinely can't resolve here either; without
 # that, this whole check would silently pass regardless of whether the
 # fallback actually works, since that build-tree file still exists
 # in-image at this point otherwise.
-RUN mv build_release-linux build_release-linux.hidden-for-bundle-smoke-test \
+RUN mv build_release build_release.hidden-for-bundle-smoke-test \
  && mkdir -p /tmp/bundle-smoke-test \
  && cp -r /bundle/. /tmp/bundle-smoke-test/ \
  && cd /tmp/bundle-smoke-test \

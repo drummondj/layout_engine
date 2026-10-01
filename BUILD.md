@@ -46,7 +46,7 @@ rather than assuming it's something else.
 ## 1. Bootstrap the toolchain
 
 ```
-backend/scripts/rocky8-bootstrap.sh
+scripts/rocky8-bootstrap.sh
 ```
 
 This assembles a compiler (`gcc-toolset-13`), CMake, Ninja, Boost, SWIG,
@@ -65,7 +65,7 @@ log points at and re-run either the whole script (already-done stages
 skip themselves) or just the failed stage by name, e.g.:
 
 ```
-backend/scripts/rocky8-bootstrap.sh swig
+scripts/rocky8-bootstrap.sh swig
 ```
 
 **If this fails and you're stuck:** send the log file it names in its own
@@ -75,7 +75,7 @@ itself) — that's the one that actually matters, not just what scrolled by.
 ## 2. Activate the toolchain
 
 ```
-source backend/scripts/rocky8-env.sh
+source scripts/rocky8-env.sh
 ```
 
 Not run — **sourced**, every new shell session, before any of the steps
@@ -87,10 +87,10 @@ complete — go back and fix that first.
 
 ## 3. Generate the database/TCL bindings (codegen)
 
-Step 4 below won't compile without this — `backend/src/database/generated/`
-and the TCL-facing generated surface (`backend/src/api/generated_tcl/`,
-`backend/src/tcl/generated/`) are `.gitignore`d, produced from
-`backend/src/database/schema.py` by this repo's own `codegen` fork (repo
+Step 4 below won't compile without this — `src/database/generated/`
+and the TCL-facing generated surface (`src/api/generated_tcl/`,
+`src/tcl/generated/`) are `.gitignore`d, produced from
+`src/database/schema.py` by this repo's own `codegen` fork (repo
 root: `codegen/`), not checked in. There's no combined script for this yet —
 run both generation targets by hand:
 
@@ -98,12 +98,12 @@ run both generation targets by hand:
 cd codegen
 poetry install 2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-poetry-install.log"
 
-poetry run codegen --schema ../backend/src/database/schema.py \
-                --output ../backend/src/database/generated \
+poetry run codegen --schema ../src/database/schema.py \
+                --output ../src/database/generated \
     2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-database.log"
 
-poetry run codegen --schema ../backend/src/database/schema.py \
-                --output ../backend/src \
+poetry run codegen --schema ../src/database/schema.py \
+                --output ../src \
                 --target tcl \
     2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-tcl.log"
 
@@ -121,7 +121,7 @@ target machine yet, so treat it the same as everything else in this
 doc — expect to hit something here and send back
 `codegen-poetry-install.log` if `poetry install` itself is what fails.
 
-See `backend/.claude/skills/regen-database/SKILL.md` and
+See `.claude/skills/regen-database/SKILL.md` and
 `regen-tcl/SKILL.md` for what each target actually generates and why
 both are needed (one covers `src/database/generated/`, the other covers
 the TCL/SWIG-facing surface `src/tcl/` and `src/api/` `#include`). Rerun
@@ -129,45 +129,43 @@ both any time `schema.py` changes — those skills are the ones to reach
 for then, this section is just the one-time "get from nothing to a
 buildable tree" version.
 
-## 4. Build and test the backend
+## 4. Build and test
 
 ```
-cd backend
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
+    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/configure-debug.log"
 
-cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/backend-configure-debug.log"
+cmake --build build -j \
+    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/build-debug.log"
 
-cmake --build build-linux -j \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/backend-build-debug.log"
+ctest --test-dir build --output-on-failure \
+    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/ctest.log"
 
-ctest --test-dir build-linux --output-on-failure \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/backend-ctest.log"
+cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release \
+    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/configure-release.log"
 
-cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/backend-configure-release.log"
-
-cmake --build build_release-linux --target api pipelines io le_shell le_tcl -j \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/backend-build-release.log"
+cmake --build build_release --target api pipelines io le_shell le_tcl -j \
+    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/build-release.log"
 ```
 
-Two trees on purpose: `build-linux` (Debug) is what `ctest` runs against;
-`build_release-linux` (Release) is what the actual `le_shell` binary
-links — see `backend/CLAUDE.md`'s Build section. Step 5 below needs
-`build_release-linux` to already exist, so don't skip it even though
+Two trees on purpose: `build` (Debug) is what `ctest` runs against;
+`build_release` (Release) is what the actual `le_shell` binary
+links — see `CLAUDE.md`'s Build section. Step 5 below needs
+`build_release` to already exist, so don't skip it even though
 `ctest` doesn't touch it.
 
 **Expect real test failures here** — beyond the "does it link at all"
 question, `ctest`'s actual pass/fail results are the first real signal
-about whether the RHEL8-specific choices in `backend/CMakeLists.txt`
+about whether the RHEL8-specific choices in `CMakeLists.txt`
 actually hold up. `ctest`'s own `--output-on-failure` output goes into
-`backend-ctest.log` above; that's the one to send back for a test failure
+`ctest.log` above; that's the one to send back for a test failure
 specifically (not the configure/build logs, unless the failure is a build
 error rather than a test result).
 
 ## 5. Run it
 
 ```
-./build_release-linux/le_shell -module build_release-linux/le_tcl.so -procs src/tcl/le_tcl_procs.tcl
+./build_release/le_shell -module build_release/le_tcl.so -procs src/tcl/le_tcl_procs.tcl
 ```
 
 Drops into the interactive `le_shell` console. `le_shell`/`le_gui` link
@@ -177,7 +175,7 @@ path (step 1) doesn't yet provision either's system dev packages
 `libXi-devel`/`readline-devel` — only `mesa-*-devel` is staged today), so
 step 4's own configure will likely fail to find them until
 `rocky8-bootstrap.sh` is extended to match — a known, tracked gap, not
-yet done (see `backend/CLAUDE.md`'s own Open gaps section). The two
+yet done (see `CLAUDE.md`'s own Open gaps section). The two
 Docker-based Linux paths (`docker-compose.yml`/`Dockerfile.linux-ci`, and
 the GitHub Releases build/`Dockerfile.linux-release`) already provision
 these and are the more reliable Linux paths for `le_shell`/`show_gui`
@@ -186,16 +184,17 @@ today.
 ## After a source change
 
 Steps 1-2 are one-time (until you want to rebuild the toolchain itself).
-After editing backend C++ source, re-run step 4's `cmake --build`/`ctest`
+After editing C++ source, re-run step 4's `cmake --build`/`ctest`
 lines (no need to reconfigure unless `CMakeLists.txt` itself changed).
-After editing `backend/src/database/schema.py`, re-run step 3 (both
+After editing `src/database/schema.py`, re-run step 3 (both
 `codegen` targets) before step 4 — see the `regen-database`/`regen-tcl`
 skills for the fuller regeneration workflow. If a build ever looks
 inexplicably wrong after switching between this path and something else
-(e.g. macOS, or Docker) on the *same* checkout, suspect stale
-cross-environment build artifacts in `build*/` or
-`backend/src/lefdef/lef/lib/` before anything else — deleting the
-relevant `build*` directory is the fix. This bit us for real during
+(e.g. macOS, or Docker) on the *same* checkout, suspect stale cross-environment
+build artifacts in build*/ or src/lefdef/{lef,def}/ before anything else.
+The fix is to delete the relevant build* directory and clean lefdef's in-source
+output (the same find … -delete / rm -rf src/lefdef/{lef,def}/{lib,include,bin}
+step Dockerfile.linux-ci's CMD runs). This bit us for real during
 development: a debug build already compiled by GCC on Linux, or an `.a`
 archive built by macOS's `ar`, is not usable by the other platform's
 toolchain, and the symptom is a confusing build/link error that has

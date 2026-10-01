@@ -404,10 +404,10 @@ class Klass:
     is_enum: bool = False
     enum_values: List["EnumValue"] = field(default_factory=list)
 
-    # TCL codegen (backend/src/tcl) - not database codegen. `None` means
+    # TCL codegen (src/tcl) - not database codegen. `None` means
     # "default to has_pool": every pool-backed class is TCL-readable
     # (property tables + friendly-id resolution) unless explicitly opted
-    # out with tcl_readable=False. See backend/CLAUDE.md's TCL section.
+    # out with tcl_readable=False. See CLAUDE.md's TCL section.
     tcl_readable: Optional[bool] = None
 
     # Explicit override for the field backing this class's TCL friendly
@@ -1828,7 +1828,7 @@ class Klass:
         (see the nested plan_edge() closure below), not runtime C++ - each
         schema-graph depth level becomes one more flat, unrolled loop in
         the emitted body (this codebase's own "flat generated code"
-        aesthetic - see backend/CLAUDE.md's TCL codegen section - not a
+        aesthetic - see CLAUDE.md's TCL codegen section - not a
         generic recursive C++ helper). A level's own children are always
         collected into one flat vector *across every parent object at that
         level* (not one nested vector per parent), so a 3-level cascade
@@ -3850,7 +3850,7 @@ class Field:
         embedded Rect/Point/Polygon/Path fields having shown raw-dbu,
         debug-style `Rect{ll=Point{x=...}}` text while Shape's own
         rects/polygons/paths were hand-patched (in api.cpp) to show
-        clean microns - see backend/src/api/api.cpp's now-deleted
+        clean microns - see src/api/api.cpp's now-deleted
         replace_shape_geometry_properties for the override this
         generalizes and replaces.
         """

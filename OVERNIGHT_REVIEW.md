@@ -88,7 +88,7 @@ as before):
   baseline snapshot `schema_history/0.49.0.json` was rewritten with
   `--update-snapshot`. The fingerprint is now `db27ba6b68a31200`.
 
-## 2. The `persistence` library (`backend/src/persistence/`)
+## 2. The `persistence` library (`src/persistence/`)
 
 The files:
 - `byte_io.hpp`: varint and zig-zag encoding, CRC-32, and a bounds-checked
@@ -228,7 +228,7 @@ the three new entries.
 - File names carry the container version (`*.c1.led`), so a future
   container change adds files instead of replacing the v1 evidence.
 
-**Judgment call:** the files live under `backend/src/persistence/tests/`,
+**Judgment call:** the files live under `src/persistence/tests/`,
 not `test_data/` as the research doc suggested, because `test_data/` isn't
 tracked by git.
 
@@ -359,9 +359,9 @@ waits for the extension mechanism itself.
    segments, row-major structs, enums stored by name, and the explicit
    `presence` flag.
 2. **Committed artifacts that must go in together:**
-   - `backend/src/database/schema_history/0.49.0.json`: the baseline,
+   - `src/database/schema_history/0.49.0.json`: the baseline,
      fingerprint `db27ba6b68a31200`
-   - `backend/src/persistence/tests/golden/0.49.0/`
+   - `src/persistence/tests/golden/0.49.0/`
 3. **zstd** is a new third-party dependency.
 4. **`read_db` loads into an empty session only** (§3 judgment call).
 

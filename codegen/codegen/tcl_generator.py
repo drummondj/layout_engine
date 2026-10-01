@@ -1,5 +1,5 @@
-"""Generates the TCL/SWIG property-reading and search surface (backend/src/
-api's generated_tcl/ fragments, backend/src/tcl's generated/ files) from a
+"""Generates the TCL/SWIG property-reading and search surface (src/
+api's generated_tcl/ fragments, src/tcl's generated/ files) from a
 schema - a separate generation target from generator.py's database
 codegen, invoked via `codegen --target tcl`.
 """

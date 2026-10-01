@@ -1,7 +1,6 @@
-# Linux build/test environment for this repo's backend - see
+# Linux build/test environment for this repo - see
 # docker-compose.yml for how the stage below is exposed as a runnable
-# service, and backend/CLAUDE.md for the equivalent macOS recipe this
-# mirrors.
+# service, and CLAUDE.md for the equivalent native recipe this mirrors.
 #
 # Source code is NOT copied into this image - docker-compose.yml bind-
 # mounts the repo at /workspace at *run* time, so editing source doesn't
@@ -9,7 +8,7 @@
 # build time, since that's the expensive, rarely-changing part.
 
 # ---- base: system packages needed by every later stage. No Skia
-# dependency anywhere in this project anymore (see backend/CMakeLists.txt's
+# dependency anywhere in this project anymore (see CMakeLists.txt's
 # own `pipelines` target comment) - Blend2D (FetchContent, vendored/built
 # from source, statically linked) is the only Rasterize/Compose backend,
 # and le_tcl's own former Skia PNG-export path now uses Blend2D's built-in
@@ -17,7 +16,7 @@
 # font/image-codec support libraries (harfbuzz/icu/jpeg/png/zlib/webp/
 # fontconfig/freetype) - Blend2D has its own built-in font engine and
 # image codecs, loading its one bundled font file directly from
-# LE_FONT_DIR (backend/CMakeLists.txt) rather than any system font
+# LE_FONT_DIR (CMakeLists.txt) rather than any system font
 # manager. ----
 FROM ubuntu:24.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
@@ -26,105 +25,92 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl unzip xz-utils bison flex \
     libboost-dev libspdlog-dev libfmt-dev \
     tcl8.6-dev tk8.6-dev swig \
-    # GLFW's own Linux/X11 backend (backend/src/gui/, le_shell's `show_gui`) -
-    # backend/CLAUDE.md's own "Open gaps" flagged these as a known, not-yet-
+    # GLFW's own Linux/X11 backend (src/gui/, le_shell's `show_gui`) -
+    # CLAUDE.md's own "Open gaps" flagged these as a known, not-yet-
     # done requirement; CMakeLists.txt's own find_package(glfw3)/FetchContent
     # fallback builds GLFW from source here, which needs these dev headers
     # present to configure its X11 backend at all.
     libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
     libxext-dev libgl1-mesa-dev \
     # le_shell links GNU readline unconditionally now (real line editing/
-    # history/Tab completion) - see backend/CLAUDE.md's src/tcl/ bullet.
+    # history/Tab completion) - see CLAUDE.md's src/tcl/ bullet.
     libreadline-dev \
-    # oneTBB - backend/CMakeLists.txt's find_package(TBB REQUIRED CONFIG)
+    # oneTBB - CMakeLists.txt's find_package(TBB REQUIRED CONFIG)
     # has no source-build fallback (unlike GLFW above), so this has to be a
     # real package. Ubuntu 24.04's libtbb-dev (2021.11.0) is modern oneTBB
     # with proper CMake config support - confirmed by actually running
-    # `docker compose run --rm backend` without this and hitting "Could not
+    # `docker compose run --rm ci` without this and hitting "Could not
     # find a package configuration file provided by TBB" (CMakeLists.txt's
     # own "Linux/Rocky8 TBB acquisition... NOT-yet-solved" comment was
     # right that this was never actually wired up here).
     libtbb-dev \
  && rm -rf /var/lib/apt/lists/*
 
-# ---- backend: build/test environment for the C++ core (le_shell/le_tcl
+# ---- ci: build/test environment for the C++ project (le_shell/le_tcl
 # included). Source is bind-mounted at /workspace by docker-compose; this
 # stage only provides the toolchain. ----
-FROM base AS backend
+FROM base AS ci
 # Build-job parallelism capped (not bare `-j`/nproc): several translation
 # units here (geometry_test.cpp's Boost.Geometry instantiations,
 # pipeline_benchmark.cpp pulling in googlebenchmark) are memory-heavy
 # enough per-cc1plus that nproc-wide parallelism (10 jobs on this VM's 10
 # CPUs) OOM-kills the compiler on the ~8GB-default Docker VM. ENV (not ARG)
 # because this is read inside CMD, which runs at container-start time, not
-# image-build time - override via `docker compose run -e
-# BACKEND_BUILD_JOBS=N backend` on a machine with more RAM available to
-# the Docker VM.
-ENV BACKEND_BUILD_JOBS=2
-WORKDIR /workspace/backend
-# Separate build-linux/build_release-linux trees, not the plain build/
-# build_release the macOS-native workflow uses - the repo is bind-mounted
-# from the host (see docker-compose.yml), and a CMakeCache.txt generated
-# under /workspace/backend can't be reused from
-# /Volumes/.../backend (absolute paths baked in) or vice versa.
+# image-build time - override via `docker compose run -e BUILD_JOBS=N ci`
+# on a machine with more RAM available to the Docker VM.
+ENV BUILD_JOBS=2
+WORKDIR /workspace
+# Build trees live at /build/debug and /build/release, outside the bind-
+# mounted source (docker-compose.yml backs /build with a named volume so
+# local reruns stay incremental). A CMakeCache.txt generated under
+# /workspace has absolute paths baked in and can't share a directory with
+# the host's own build/build_release, so keeping the container's trees
+# off the host entirely means the two never clobber each other.
 #
 # lef_lib/def_lib (src/lefdef/lef, src/lefdef/def) are the one exception
 # to that separation: their vendored Makefiles are BUILD_IN_SOURCE,
 # writing liblef.a/libdef.a/*.o/generated headers directly under
-# src/lefdef/{lef,def}/ itself - NOT under build-linux/, so they're
-# shared with whatever a macOS-native `cmake --build build` last left
-# there on the bind-mounted host checkout. Those Makefiles' own
-# dependency tracking is timestamp-based ("Nothing to be done for
-# 'installlib'"), so they happily treat someone else's platform's .o/.a
-# files as already up to date instead of rebuilding - macOS's `ar`
-# archives (Mach-O members, `__.SYMDEF`) and Linux's (ELF members) are
-# link-incompatible, and the resulting "undefined reference to
-# LefDefParser::..." errors give no hint that the real problem is object
-# format, not a missing/misordered library (confirmed the hard way: this
-# clean step originally covered lef_lib only, and def_lib's own identical
-# hazard surfaced as exactly this symptom - defiBlockage/defiVia/defiNet/
-# etc "undefined reference" at the final link, not a compile error, the
-# first time this image actually got far enough to link a def_lib
-# consumer). Force-clean both before every container build so this tree
-# is never trusted across platforms; the same hazard applies in reverse
-# (a native macOS build run after this container leaves ELF .o's lying
-# around) - clean-rebuild both on whichever side you touch second. Also
-# clear ExternalProject_Add's own stamp directories
-# (build-linux/{lef,def}_lib-prefix) - they persist across runs on this
-# bind-mounted tree same as the rest of build-linux/, and their stamp
-# says "already built" regardless of whether the artifacts above were
-# just deleted, so without this the build step is silently skipped and
-# io/pipelines fail on a missing src/lefdef/{lef,def}/include/*.hpp instead.
+# src/lefdef/{lef,def}/ itself - NOT under the build tree, so they're
+# shared with whatever a host-native `cmake --build build` last left
+# there on the bind-mounted checkout. Those Makefiles' own dependency
+# tracking is timestamp-based ("Nothing to be done for 'installlib'"), so
+# they happily treat another platform's/toolchain's .o/.a files as
+# already up to date instead of rebuilding, and the resulting "undefined
+# reference to LefDefParser::..." errors give no hint that the real
+# problem is object format, not a missing/misordered library. Force-clean
+# both before every container build so this tree is never trusted across
+# environments; the same hazard applies in reverse (a host build run
+# after this container) - clean-rebuild both on whichever side you touch
+# second. Also clear ExternalProject_Add's own stamp directories
+# (/build/*/{lef,def}_lib-prefix) - they persist across runs in the
+# volume, and their stamp says "already built" regardless of whether the
+# artifacts above were just deleted, so without this the build step is
+# silently skipped and io/pipelines fail on a missing
+# src/lefdef/{lef,def}/include/*.hpp instead.
 #
 # codegen step (pip install + codegen, both targets): src/database/generated/,
 # src/api/generated_tcl/, and src/tcl/generated/ are all .gitignore'd
-# build artifacts (see the regen-database/regen-tcl skills) - this
-# Dockerfile's own header comment used to assume "an already-bootstrapped
-# host checkout where these were generated once, ages ago, and left on
-# disk", true for a long-lived local dev bind-mount but never true for a
-# fresh CI checkout (confirmed by hitting exactly "Unable to find
-# 'generated/le_api_generated.i'" the first time this image actually ran
-# against one, via .github/workflows/ci.yml). Reinstalling+regenerating
-# on every run (not just once) is deliberate, mirroring
-# Dockerfile.linux-release's own codegen stage - both this project's
-# own codegen/ source and backend/src/database/schema.py are bind-mounted
-# source that can change between runs, and `pip install .` of a small
-# pure-Python package is cheap enough not to matter. --break-system-packages:
-# Ubuntu 24.04's system Python is PEP 668-protected; this is an ephemeral,
+# build artifacts (see the regen-database/regen-tcl skills), never present
+# in a fresh CI checkout. Reinstalling+regenerating on every run (not just
+# once) is deliberate, mirroring Dockerfile.linux-release's own codegen
+# stage - both codegen/ and src/database/schema.py are bind-mounted source
+# that can change between runs, and `pip install .` of a small pure-Python
+# package is cheap enough not to matter. --break-system-packages: Ubuntu
+# 24.04's system Python is PEP 668-protected; this is an ephemeral,
 # single-purpose container, not a shared system, so the usual venv
 # reasoning for avoiding it doesn't apply.
 CMD ["bash", "-c", "\
     find src/lefdef/lef src/lefdef/def \\( -name '*.o' -o -name '*.a' -o -name 'lef.tab.cpp' -o -name 'lef.tab.h' -o -name 'lef.output' -o -name 'def.tab.cpp' -o -name 'def.tab.h' -o -name 'def.output' \\) -delete && \
     rm -rf src/lefdef/lef/lib src/lefdef/lef/include src/lefdef/lef/bin && \
     rm -rf src/lefdef/def/lib src/lefdef/def/include src/lefdef/def/bin && \
-    rm -rf build-linux/lef_lib-prefix build_release-linux/lef_lib-prefix && \
-    rm -rf build-linux/def_lib-prefix build_release-linux/def_lib-prefix && \
-    python3 -m pip install --no-cache-dir --break-system-packages ../codegen && \
+    rm -rf /build/debug/lef_lib-prefix /build/release/lef_lib-prefix && \
+    rm -rf /build/debug/def_lib-prefix /build/release/def_lib-prefix && \
+    python3 -m pip install --no-cache-dir --break-system-packages ./codegen && \
     codegen --schema src/database/schema.py --output src/database/generated && \
     codegen --schema src/database/schema.py --output src --target tcl && \
-    cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug && \
-    cmake --build build-linux -j ${BACKEND_BUILD_JOBS} && \
-    ctest --test-dir build-linux --output-on-failure && \
-    cmake -S . -B build_release-linux -DCMAKE_BUILD_TYPE=Release && \
-    cmake --build build_release-linux --target api pipelines io le_shell le_tcl -j ${BACKEND_BUILD_JOBS} \
+    cmake -S . -B /build/debug -DCMAKE_BUILD_TYPE=Debug && \
+    cmake --build /build/debug -j ${BUILD_JOBS} && \
+    ctest --test-dir /build/debug --output-on-failure && \
+    cmake -S . -B /build/release -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build /build/release --target api pipelines io le_shell le_tcl -j ${BUILD_JOBS} \
 "]

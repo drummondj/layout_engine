@@ -1,7 +1,7 @@
 TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl skill
 // (codegen --target tcl). #include'd once from api.hpp - see this
 // project's own "generated code, never hand-edited" convention
-// (backend/CLAUDE.md's Database codegen section; this is the TCL-surface
+// (CLAUDE.md's Database codegen section; this is the TCL-surface
 // analog of it).
 //
 // Plain-C declarations for the generated TCL property-reading/search

@@ -4,7 +4,7 @@ Schema migrations (NATIVE_FILE_FORMAT_RESEARCH.md §4).
 A migration file describes how data shaped like schema version N-1 becomes
 data shaped like version N, as an ordered list of typed ops:
 
-    # backend/src/database/migrations/0001_layer_kind.py
+    # src/database/migrations/0001_layer_kind.py
     from codegen.migration import *
 
     migration = Migration(

@@ -20,7 +20,7 @@ TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl s
 {%- set custom_id_field = klass.tcl_friendly_id_field() if id_field is none else none %}
 {%- if custom_id_field %}
 // {{klass.name}}'s friendly id uses `{{custom_id_field.name}}`, but that field isn't
-// globally indexed (see its own comment in backend/src/database/schema.py) -
+// globally indexed (see its own comment in src/database/schema.py) -
 // there's no Root-level by-name lookup to generate a resolve/format pair
 // from, so k{{klass.name}}Prefix/resolve_{{klass.to_snake_case()}}_id/format_{{klass.to_snake_case()}}_id stay
 // hand-written (le_tcl_shim.cpp) instead.

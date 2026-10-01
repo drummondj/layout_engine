@@ -4,7 +4,7 @@ Research for `LINKING_STRATEGY.md`. This document proposes no code changes by it
 it lays out the solution space (2–3 concrete options per sub-problem, with pros/cons and
 a recommendation) so a direction can be picked before implementation starts.
 
-All file:line references are to `backend/` unless stated otherwise.
+All file:line references are relative to the repo root unless stated otherwise.
 
 ## 0. Ground truth this document leans on
 
@@ -274,7 +274,7 @@ measured against the real stress fixtures — the user's own expectation, based 
 project's scale (millions of instances/placements in the existing benchmark fixtures),
 is that this will likely be needed eventually. Per this project's own explicit rule —
 "Performance decisions must be backed by a benchmark, not intuition"
-(`backend/CLAUDE.md`) — the plan is still to implement and measure Option A (and B if
+(`CLAUDE.md`) — the plan is still to implement and measure Option A (and B if
 needed) first, with Option C as the pre-identified next step the moment profiling shows
 it's warranted, rather than building it speculatively now.
 

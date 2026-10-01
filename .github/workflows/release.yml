@@ -7,7 +7,7 @@ name: Linux release build
 # own header comment for the full rationale.
 #
 # Not a replacement for Dockerfile.linux-ci (the dev/PR CI path, untouched
-# by this workflow) or backend/scripts/rocky8-bootstrap.sh (for developing
+# by this workflow) or scripts/rocky8-bootstrap.sh (for developing
 # on a locked-down machine with no root/Docker) - this workflow assumes
 # neither constraint, since GitHub-hosted runners have full root and full
 # outbound network access.

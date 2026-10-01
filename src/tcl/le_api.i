@@ -1,0 +1,214 @@
+// Phase 0 spike proved SWIG can wrap a Tcl-facing shim into a loadable
+// Tcl extension. Phase 5 (TCL_EXPLORATION.md) extends that to the full
+// Phase 4 CRUD/search surface and adds the one genuinely new SWIG
+// mechanism this phase needs: a custom typemap converting a Tcl list of
+// doubles into the flat `(const double*, int32_t count)` pairs
+// create_shape_cmd/update_shape_cmd's own generated -rects/-polygons/
+// -paths parameters take (le_api_generated_i_j2.py's own %apply lines,
+// see Klass.list_compound_swig_applies() in codegen/codegen/schema.py),
+// so a Tcl caller passes a real (possibly nested) list rather than
+// pre-flattening into a raw C array by hand.
+//
+// Wraps le_tcl_shim.hpp, not api.hpp directly - see this file's own
+// Phase 0 header comment (still accurate) for why: api.hpp's
+// handle-per-call design is for Dart FFI; the Tcl-facing surface item 15
+// wants has no visible handle and uses domain verb names, not
+// le_<verb>_<noun> ones. le_tcl_shim.hpp/.cpp supplies both by calling
+// into api.hpp underneath a hidden process-global LeHandle*.
+//
+// AbstractId/DesignId cross this boundary packed into a plain `long
+// long`, not as a wrapped C struct - see le_tcl_shim.hpp's own "IDs"
+// comment for why (avoids custom struct typemaps; `long long`/`int32_t`
+// are fundamental/portable types SWIG already knows how to marshal
+// to/from a Tcl integer). TerminalId/TerminalPortId/ObstructionId/
+// ShapeId cross as type-prefixed `const char*` friendly strings instead
+// (`"terminal:NAME"`/`"terminal_port:N"`/`"obstruction:N"`/`"shape:N"` - see
+// le_tcl_shim.hpp's own "IDs" comment) - SWIG's built-in string typemap
+// already handles plain `const char*` params/returns, so this needs no
+// typemap of its own either - only the coordinate-list one below.
+//
+// `-flag value` commands (create_terminal, update_terminal,
+// create_shape, ...) are declared here under their internal `*_cmd`
+// name, taking plain positional arguments - SWIG-wrapped C++ functions
+// are always positional. le_tcl_procs.tcl supplies the real, flag-
+// parsing command name on top of each (see its own header comment for
+// why that split exists).
+%module le_tcl
+
+%{
+#include "le_tcl_shim.hpp"
+#include <vector>
+%}
+
+// Gives SWIG a portable definition of int32_t/int64_t (and their Tcl
+// marshalling) independent of whatever <cstdint> resolves to on this
+// toolchain - needed so the typemap pattern below (and the plain
+// int32_t point_coord_count/coord_count parameters elsewhere) actually
+// matches.
+%include <stdint.i>
+
+// --- Coordinate-list typemap (Phase 5's own reason to exist) ---
+//
+// Converts a Tcl list of doubles ($input) into the temp buffer's backing
+// storage, then hands the CRUD shim function a plain (const double*,
+// int32_t count) pair pointing into it. `temp` is declared as a typemap
+// local variable (the third parens block) so it lives for the whole
+// wrapper function body, not just this typemap's own code block -
+// otherwise $1 would point into a vector already destroyed by the time
+// the wrapped function runs.
+%typemap(in) (const double *POINTS_ARRAY_UM, int32_t POINTS_COORD_COUNT) (std::vector<double> temp) {
+    int listc;
+    Tcl_Obj **listv;
+    if (Tcl_ListObjGetElements(interp, $input, &listc, &listv) != TCL_OK) {
+        SWIG_fail;
+    }
+    temp.resize(static_cast<size_t>(listc));
+    for (int i = 0; i < listc; i++) {
+        double val;
+        if (Tcl_GetDoubleFromObj(interp, listv[i], &val) != TCL_OK) {
+            SWIG_fail;
+        }
+        temp[static_cast<size_t>(i)] = val;
+    }
+    $1 = temp.empty() ? nullptr : temp.data();
+    $2 = static_cast<int32_t>(listc);
+}
+
+
+int read_lef(const char *path, const char *library_name);
+int read_def(const char *path, const char *library_name);
+int read_verilog_cmd(const char *paths, int is_netlist, const char *library_name);
+int link_unresolved_instances_cmd();
+int write_verilog_stubs_cmd(const char *path, const char *library_token);
+int get_instances_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);
+int get_nets_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);
+int get_ports_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression);
+int delete_net_cascade_cmd(const char *id);
+const char *rename_net_cmd(const char *id, const char *new_name);
+const char *rename_instance_cmd(const char *id, const char *new_name);
+int design_count();
+const char *design_name(int index);
+int property_path_failed();
+void set_viewport_size_cmd(int width_px, int height_px);
+int viewport_width();
+int viewport_height();
+
+long long design_abstract_id(int design_index);
+long long design_by_name(const char *name);
+const char *technology_id();
+int set_current_design_abstract_cmd(long long design_id);
+int set_current_design_layout_cmd(long long design_id);
+void zoom_cmd(double factor);
+void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int padding_px);
+void set_layer_visible_cmd(const char *layer_name, bool visible);
+int dump_png_cmd(const char *path);
+int write_lef_cmd(const char *path, const char *abstract_tokens, const char *library_token, int32_t layer_write_mode);
+int write_def_cmd(const char *path, const char *layout_token);
+int write_db_cmd(const char *path);
+int read_db_cmd(const char *path);
+const char *db_info_cmd(const char *path);
+int selection_count_cmd();
+const char *get_selection_at_cmd(int index);
+int select_cmd(const char *token);
+bool get_layer_visible_cmd(const char *layer_name);
+void set_layer_selectable_cmd(const char *layer_name, bool selectable);
+bool get_layer_selectable_cmd(const char *layer_name);
+void set_purpose_visible_cmd(int purpose, bool visible);
+bool get_purpose_visible_cmd(int purpose);
+void set_purpose_selectable_cmd(int purpose, bool selectable);
+bool get_purpose_selectable_cmd(int purpose);
+void set_mode_cmd(int mode);
+int get_mode_cmd();
+void clear_rulers_cmd();
+void select_all_cmd();
+void deselect_all_cmd();
+void arm_move_cmd();
+int delete_selected_pieces_cmd();
+void set_placement_snap_mode_cmd(int mode);
+int get_placement_snap_mode_cmd();
+bool is_placement_snap_mode_available_cmd(int mode);
+int apply_placement_orientation_op_cmd(int op);
+void arm_resize_cmd();
+void set_shape_snap_mode_cmd(int kind, int mode);
+int get_shape_snap_mode_cmd(int kind);
+bool is_shape_snap_mode_available_cmd(int kind, int mode);
+void request_show_gui_cmd();
+void request_close_gui_cmd();
+int has_unsaved_database_changes_cmd();
+int has_unsaved_settings_cmd();
+void set_antialiasing_enabled_cmd(bool enabled);
+bool get_antialiasing_enabled_cmd();
+void set_session_handle(long long handle_address);
+
+// --- Terminal/TerminalPort/Obstruction CRUD is fully generated now
+// (create_X_cmd/update_X_cmd/delete_X_cmd - le_api_generated.i) ---
+
+// --- Shape (create_shape_cmd/update_shape_cmd/delete_shape_cmd are
+// generated - create_shape_cmd unifies the former
+// create_terminal_port_shape_cmd/create_obstruction_shape_cmd split) ---
+const char *shape_layer_name(const char *id);
+
+int shape_rect_count(const char *id);
+const char *shape_rect_at(const char *id, int index);
+int remove_shape_rect(const char *id, int index);
+
+int shape_polygon_count(const char *id);
+int shape_polygon_point_count(const char *id, int polygon_index);
+const char *shape_polygon_point_at(const char *id, int polygon_index, int point_index);
+int remove_shape_polygon(const char *id, int polygon_index);
+
+int shape_path_count(const char *id);
+double shape_path_width_um(const char *id, int path_index);
+int shape_path_point_count(const char *id, int path_index);
+const char *shape_path_point_at(const char *id, int path_index, int point_index);
+int remove_shape_path(const char *id, int path_index);
+
+// --- shape_* operations (NEW_FEATURES_SEPT_2026.md item 1) - each takes a
+// space-separated shape token list; an empty -layer/-parent token means
+// "omitted". Creating ones return how many Shapes they made (read back via
+// shape_op_results_cmd), -1 on failure (reason logged), -2 for an unknown
+// -layer token, -3 for an unknown/unsupported -parent token.
+int shape_copy_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token);
+int shape_boolean_cmd(const char *shape_tokens_a, const char *shape_tokens_b, int op, const char *layer_token, const char *parent_token);
+int shape_to_polygon_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token);
+int shape_to_rects_cmd(const char *shape_tokens, int vertical, const char *layer_token, const char *parent_token);
+int shape_size_cmd(const char *shape_tokens, double dx_um, double dy_um, const char *layer_token, const char *parent_token);
+int shape_path_cmd(const char *shape_tokens, double width_um, const char *layer_token, const char *parent_token);
+int shape_change_layer_cmd(const char *shape_tokens, const char *layer_token);
+const char *shape_op_results_cmd(int count);
+const char *shape_bbox_cmd(const char *shape_tokens);
+
+// --- Editing / undo-redo (UPDATES.md item 21) ---
+void begin_command(const char *label);
+int end_command(int succeeded);
+int undo_command();
+int redo_command();
+int command_history_count();
+const char *command_history_at(int index);
+
+int get_hierarchy_depth_command();
+void set_hierarchy_depth_command(int depth);
+int get_flightline_max_fanout_command();
+void set_flightline_max_fanout_command(int max_fanout);
+double get_grid_spacing_um_command(int major);
+void set_grid_spacing_um_command(double minor_um, double major_um);
+double get_ruler_label_size_command();
+void set_ruler_label_size_command(double px);
+double get_label_min_size_command();
+void set_label_min_size_command(double px);
+double get_label_max_size_command();
+void set_label_max_size_command(double px);
+int set_layer_color_command(const char *layer, const char *color);
+void reset_layer_color_command(const char *layer);
+const char *get_layer_color_command(const char *layer);
+int save_settings_command(const char *path);
+int load_settings_command(const char *path);
+const char *default_settings_path_command();
+
+int get_max_concurrency_command();
+void set_max_concurrency_command(int max_concurrency);
+
+// --- Generated TCL property-reading surface (see CLAUDE.md's
+// TCL section) - never edit generated/le_api_generated.i directly,
+// regenerate via the regen-tcl skill instead. ---
+%include "generated/le_api_generated.i"

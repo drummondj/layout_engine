@@ -1,0 +1,3097 @@
+# Thin -flag parsing layer over the SWIG-wrapped *_cmd shim functions
+# (le_tcl_shim.hpp/.cpp) - Tcl's own `-flag value` calling convention has
+# to be parsed here, since SWIG-wrapped C++ functions are always
+# positional. See TCL_EXPLORATION.md's "Tcl ergonomics layer" section for
+# why this split exists (C++ shim owns session state + command logic,
+# Tcl owns flag parsing) rather than putting everything in one place.
+# Sourced by anything that loads the le_tcl module and wants the
+# ergonomic (item 15 -shaped) command surface rather than the raw *_cmd
+# forms.
+#
+# Also owns every piece of Phase 5's CRUD/search surface that's better
+# built in Tcl than in C++: property tables and search-result/shape-list
+# aggregation (properties_for_token, shape_rects, ...) loop over the
+# shim's plain count+by-index accessors and build a real Tcl dict/list
+# with `dict set`/`lappend` - correct quoting by construction, unlike
+# hand-rolled string-building in C++ (see le_tcl_shim.hpp's own
+# "property tables and search results" comment for why that split was
+# made). Coordinate lists themselves (`-points {x y x y ...}`) need no
+# such treatment here - le_api.i's typemap already turns a plain Tcl list
+# into the shim's (const double*, int32_t count) pair directly.
+
+set kInvalidId 4294967295
+
+# --- Display truncation (BUGS_AND_ENHANCEMENTS.md E6) ---
+#
+# A single misbehaving typed command (e.g. a bare get_shapes on a design
+# with thousands of shapes) shouldn't be able to dump megabytes of text
+# into a console's scrollback - truncates what le_repl_eval (below)
+# returns for *display*, not the value itself: a script that calls
+# get_shapes/get_properties/etc. directly (not through le_repl_eval)
+# always gets the real, untruncated result. Previously done in Dart
+# (frontend/lib/components/terminal.dart's own kMaxResultDisplayLength/
+# _truncateForDisplay) - moved here (not into le_shell.cpp) so it's not
+# duplicated per-frontend and the Flutter console no longer needs to
+# know about it at all; le_shell's own interactive prompt isn't wired
+# through le_repl_eval (see that proc's own comment) and echoes results
+# via Tcl_Main's own hardcoded C runtime behavior, which has no
+# script-level hook to apply this to - same as a real tclsh, not a
+# regression this change introduces.
+set kMaxResultDisplayLength 10000
+proc truncate_for_display {text} {
+    global kMaxResultDisplayLength
+    if {[string length $text] <= $kMaxResultDisplayLength} {
+        return $text
+    }
+    return "[string range $text 0 [expr {$kMaxResultDisplayLength - 1}]]..truncated"
+}
+
+# --- Editing / undo-redo (UPDATES.md item 21) ---
+#
+# Wraps one user-typed command with undo/redo transaction recording +
+# command-recall logging - the single bracket point every REPL-style
+# caller should use instead of raw Tcl_Eval, so a typed command is
+# exactly as undoable (Ctrl-Z/Ctrl-Shift-Z) as a GUI edit like Move.
+# Every command, successful or not, gets added to command_history
+# (BUGS_AND_ENHANCEMENTS.md E5 - a failed command is exactly the one a
+# user most wants back, to recall and edit into a working one). The
+# returned result is truncate_for_display()'d (E6) before it comes back
+# here - what a script gets from evaluating the *same command text*
+# itself, bypassing le_repl_eval, is unaffected. `uplevel #0` runs
+# $command in the *global* scope, not nested inside this proc's own
+# local one - matching how a real interactive shell evaluates each line
+# at toplevel (a bare `set x 5` lands in global scope, not thrown away
+# when this proc returns).
+#
+# complete_command (Tab-completion's own backing command, see below) is
+# the one command skipped entirely - not just excluded from the recall
+# log/truncation afterward, since it's a pure read with nothing to undo:
+# every Tab press would otherwise pollute command_history with its own
+# "complete_command ..." entry (BUGS_AND_ENHANCEMENTS.md E5's other
+# half), and its own result is a candidate list Dart's _completeCommand
+# parses programmatically, not display text - silently truncating it
+# mid-candidate would corrupt that list, not just shorten a printout.
+# help/man/generate_command_docs are still recorded normally (a user
+# typing `help` may well want it back via Up-arrow) but are exempted
+# from truncation alone, right below - see that check's own comment.
+# `[lindex $command 0]` reads the command name the same way Tcl itself
+# would dispatch it, so both checks catch e.g. "complete_command foo"
+# and "complete_command {foo bar}" alike regardless of quoting.
+#
+# `flutter_plugin`'s LeTclBridge.mm is the only caller (every typed
+# console command goes through it) - le_shell.cpp's own interactive REPL
+# is deliberately *not* wired through this yet, since it doesn't route
+# through a caller-controlled eval loop the way LeTclBridge.mm does; a
+# command typed at that shell is undoable/recorded at the individual
+# create/update/delete level (the generic per-mutation hook still fires),
+# just not batched into one transaction/recall entry per line the way a
+# Flutter-console command is.
+proc le_repl_eval {command} {
+    set command_name [lindex $command 0]
+    if {$command_name eq "complete_command"} {
+        catch {uplevel #0 $command} result
+        return $result
+    }
+    begin_command $command
+    set code [catch {uplevel #0 $command} result]
+    end_command [expr {$code == 0}]
+    # help/man/generate_command_docs build and *return* their own listing
+    # as a plain string rather than printing it via `puts`, so mechanically
+    # they look just like a risky get_<type> query's own return value -
+    # but they're bounded, deliberately-readable reference text (sized by
+    # how many commands are registered, not by database content), not the
+    # "single misbehaving command dumps megabytes" case truncation exists
+    # for, so they're exempt the same way complete_command is (just still
+    # recorded in command_history, unlike complete_command).
+    if {$command_name in {help man generate_command_docs}} {
+        return $result
+    }
+    return [truncate_for_display $result]
+}
+
+# --- Help system (UPDATES.md item 20) ---
+#
+# ::command_help maps a command name to a {usage <str> description <str>
+# options <list>} dict - register_command_help below is the single write
+# path, called once per command right after its own `proc` definition.
+# Every generated command (get_<type>/create_<type>/update_<type>)
+# registers itself from generated/le_tcl_procs_generated.tcl, sourced
+# further down this file; every hand-written command below registers
+# itself directly, right after its own definition. help/man/
+# complete_command/generate_command_docs all read purely from this
+# registry - none of them re-derive metadata by invoking a command with
+# -help.
+#
+# An `options` entry is `{-flag {type T required R description {D}}}` (or
+# `{<positional> {...}}` for a plain positional parameter, which
+# documents the same way but is never treated as a `-`-flag by
+# complete_command's own flag-completion branch, since it doesn't start
+# with `-`). `required`/`type` are always present; `type` is a
+# human-readable label only (e.g. "str"/"int"/"token"/"Point..."), not
+# machine-validated here - real validation still happens inside each
+# command's own body, same as before this system existed.
+set ::command_help [dict create]
+
+proc register_command_help {name usage description options} {
+    dict set ::command_help $name [dict create usage $usage description $description options $options]
+}
+
+# `help ?pattern?` - one line per registered command whose name matches
+# `pattern` (Tcl `string match` glob syntax, default `*` - every
+# command), e.g. `help get_*` lists every search command. Just the bare
+# command name (no argument/flag syntax - see `man <name>` for that) and
+# its own description, names padded to the longest match so every
+# description column lines up. Returns the joined text (not puts - see
+# le_tcl_procs.tcl's own get_properties for why: usable both
+# interactively and captured into a variable).
+proc help {{pattern *}} {
+    set names [lsort [dict keys $::command_help]]
+    set matches [lsearch -all -inline -glob $names $pattern]
+    if {[llength $matches] == 0} {
+        return "help: no commands match \"$pattern\""
+    }
+    set max_len 0
+    foreach name $matches {
+        if {[string length $name] > $max_len} {
+            set max_len [string length $name]
+        }
+    }
+    set lines {}
+    foreach name $matches {
+        set description [dict get $::command_help $name description]
+        lappend lines [format "%-*s  %s" $max_len $name $description]
+    }
+    return [join $lines "\n"]
+}
+
+# The `<command> <args...>` portion of a registered usage string, with
+# its own trailing ` - <description>` dropped - every usage string ends
+# with that suffix (see register_command_help's own callers), so man/
+# generate_command_docs below can show the syntax and the (fuller, not
+# truncated to one line) description as two distinct sections without
+# printing the same description text twice. Splits on the *first* " - "
+# - safe because no flag/type fragment a usage string's own syntax
+# portion ever contains that exact substring, only the description
+# suffix does.
+proc _usage_syntax {usage} {
+    set idx [string first " - " $usage]
+    if {$idx < 0} {
+        return $usage
+    }
+    return [string range $usage 0 [expr {$idx - 1}]]
+}
+
+# `man <name>` - the full registered page for one command: its own
+# `<command> <args...>` syntax line, blank line, description, then (if
+# any options are registered) an Options: table - one line per flag/
+# positional with its type, required/optional-ness, and description.
+proc man {name} {
+    if {![dict exists $::command_help $name]} {
+        error "man: no such command \"$name\" - see \[help\] for the full list"
+    }
+    set info [dict get $::command_help $name]
+    set lines {}
+    lappend lines [_usage_syntax [dict get $info usage]]
+    lappend lines ""
+    lappend lines [dict get $info description]
+    set options [dict get $info options]
+    if {[llength $options] > 0} {
+        lappend lines ""
+        lappend lines "Options:"
+        # Each option's own "<flag> <type> (required/optional)" label
+        # varies in length, so build them all first and pad every one to
+        # the longest before appending its description - otherwise the
+        # description column starts at a different place on every line.
+        set labels {}
+        foreach opt $options {
+            lassign $opt flag meta
+            set type [dict get $meta type]
+            set required [expr {[dict get $meta required] ? "required" : "optional"}]
+            lappend labels "$flag <$type> ($required)"
+        }
+        set max_len 0
+        foreach label $labels {
+            if {[string length $label] > $max_len} {
+                set max_len [string length $label]
+            }
+        }
+        foreach opt $options label $labels {
+            set desc [dict get [lindex $opt 1] description]
+            lappend lines [format "  %-*s  %s" $max_len $label $desc]
+        }
+    }
+    return [join $lines "\n"]
+}
+
+# `complete_command <line>` - candidate replacements for the
+# whitespace-delimited token currently being typed at the end of `line`
+# (a command name, a -flag, a .-prefixed property path, or a
+# filesystem path - BUGS_AND_ENHANCEMENTS.md E11 - for whichever
+# command's own single `type file` positional argument it is, see
+# _file_positional_name), as a sorted Tcl list (empty if nothing matches
+# or the token being completed isn't one of those four kinds - e.g. a
+# plain positional value like a friendly-id token isn't attempted, since
+# suggesting real object tokens would mean actually running a query
+# while the user is still typing, not a safe/generic thing to do
+# speculatively). Every candidate is a *full* replacement for that last
+# token, not just a suffix, so the caller's own splice logic ("replace
+# the last token with the chosen candidate") stays uniform across every
+# completion kind. Pure static-metadata lookup (::command_help/
+# ::property_scalars/::property_hops) for every kind except filenames,
+# which is the one real (if narrowly scoped and read-only) filesystem
+# access in this whole proc - never runs the command/query being
+# completed.
+#
+# Always returns via `join` (a plain space-separated string), never a
+# raw Tcl list value directly - a property-path candidate can itself
+# start with an unbalanced "{" (see the -filter branch below), and a
+# real Tcl list's own canonical string form backslash-escapes an
+# unbalanced brace inside an element to stay re-parseable (harmless
+# to Tcl itself, but this crosses into the GUI console as plain text via
+# Tcl_Eval's own string result - see flutter_plugin's LeTclConsole/
+# LeTclBridge - where a naive caller splitting on whitespace would then
+# see a literal, wrong leading backslash). `join`'s output has no such
+# escaping (it's a flat concatenation, not a list's own string
+# representation), so the plain-text contract stays exactly what every
+# caller (this file's own tests, the GUI) actually relies on.
+proc complete_command {line} {
+    set tokens [regexp -all -inline {\S+} $line]
+    set ends_with_space [expr {
+        [string length $line] > 0 && [string is space [string index $line end]]
+    }]
+
+    if {[llength $tokens] == 0 || (!$ends_with_space && [llength $tokens] == 1)} {
+        # Completing the command name itself - nothing typed yet, or
+        # exactly one still-partial token with no trailing space.
+        set partial [expr {[llength $tokens] == 0 ? "" : [lindex $tokens end]}]
+        return [join [lsort [lsearch -all -inline -glob [dict keys $::command_help] "${partial}*"]]]
+    }
+
+    set partial [expr {$ends_with_space ? "" : [lindex $tokens end]}]
+    # Every already-complete token on the line, i.e. every token except
+    # the partial one currently being typed - all of $tokens when
+    # $ends_with_space (nothing partial yet), otherwise all but the last.
+    set complete_tokens [expr {$ends_with_space ? $tokens : [lrange $tokens 0 end-1]}]
+    # $command_name is whichever command's own *arguments* the partial
+    # token is currently completing - not always $tokens' own first
+    # token: once a nested command's name has already been typed inside
+    # "[...]" (e.g. `set t [get_terminals -f`), -flag/dot-path
+    # completion below needs *that* command's own options, not the
+    # outer one's. _innermost_command_start finds where the innermost
+    # still-open bracket's own command name begins; with no bracket
+    # open at all it's just index 0, the outer command, unchanged from
+    # before this existed.
+    set command_name [string trimleft \
+        [lindex $complete_tokens [_innermost_command_start $complete_tokens]] "\["]
+
+    # A command name can also start right after "[" - Tcl command
+    # substitution nested inside another command's own argument, e.g.
+    # `set t [get_` (the leading bracket glues onto whatever follows it
+    # with no space, same as a -filter value's own leading brace
+    # character below) or `set t [ get_` (whitespace after the bracket
+    # makes it its own complete token instead). Either way this is the
+    # start of a brand new
+    # command, not a continuation of $command_name's own arguments, so
+    # it gets its own top-level command-name completion, same as the
+    # very first token of the whole line - checked before the -flag/
+    # dot-path branches below, since those only make sense once we're
+    # actually still inside $command_name's own argument list.
+    set bracket_prefix ""
+    set command_partial $partial
+    while {[string index $command_partial 0] eq "\["} {
+        append bracket_prefix "\["
+        set command_partial [string range $command_partial 1 end]
+    }
+    set after_lone_bracket [expr {
+        $bracket_prefix eq "" && [llength $complete_tokens] > 0
+        && [lindex $complete_tokens end] eq "\["
+    }]
+    if {$bracket_prefix ne "" || $after_lone_bracket} {
+        set matches [lsort [lsearch -all -inline -glob [dict keys $::command_help] "${command_partial}*"]]
+        set candidates {}
+        foreach match $matches {
+            lappend candidates "${bracket_prefix}${match}"
+        }
+        return [join $candidates]
+    }
+
+    if {[string index $partial 0] eq "-"} {
+        if {![dict exists $::command_help $command_name]} {
+            return {}
+        }
+        set flags {}
+        foreach opt [dict get $::command_help $command_name options] {
+            lappend flags [lindex $opt 0]
+        }
+        return [join [lsort [lsearch -all -inline -glob $flags "${partial}*"]]]
+    }
+
+    # A command whose own current positional argument is a real
+    # filesystem path (read_lef/read_def/source/dump_png -
+    # BUGS_AND_ENHANCEMENTS.md E11 - see _file_positional_name's own
+    # comment for why this is a `type file` metadata lookup rather than
+    # a hardcoded command-name list) completes against the filesystem
+    # instead of any of this proc's other completion kinds.
+    if {[_file_positional_name $command_name] ne {}} {
+        return [join [_filename_candidates $partial]]
+    }
+
+    # A dot-path can be completed in two different argument shapes:
+    # get_properties/report_properties take one bare (each one always
+    # its own whitespace-delimited token), while a get_<type> command's
+    # own -filter expression embeds one or more inside a single braced
+    # list argument, e.g. -filter {.direction == INPUT}. That opening
+    # brace glues onto whatever follows it with no space (this
+    # tokenizer only splits on whitespace), so the very first segment
+    # arrives here as one token starting with a brace, not a dot -
+    # strip any leading braces before checking for the dot both shapes
+    # share, and remember them to re-prepend to every candidate, so a
+    # candidate is still a full replacement for the actual token being
+    # typed, braces included.
+    set brace_prefix ""
+    set dot_partial $partial
+    while {[string index $dot_partial 0] eq "\{"} {
+        append brace_prefix "\{"
+        set dot_partial [string range $dot_partial 1 end]
+    }
+
+    if {[string index $dot_partial 0] eq "."} {
+        set class_key {}
+        if {$command_name in {get_properties report_properties}} {
+            set class_key [_property_path_seed_class $complete_tokens]
+        } elseif {[info exists ::get_command_class($command_name)]
+                && [_partial_is_inside_filter_value $complete_tokens]} {
+            set class_key $::get_command_class($command_name)
+        }
+        if {$class_key ne {}} {
+            set candidates {}
+            foreach candidate [_property_path_candidates $class_key $dot_partial] {
+                lappend candidates "${brace_prefix}${candidate}"
+            }
+            return [join $candidates]
+        }
+    }
+
+    return {}
+}
+
+# The index into complete_tokens where the innermost currently-open
+# "[...]" command-substitution scope's own command name begins (the
+# bracket character itself not included), for complete_command's own
+# $command_name above - a nested command's own -flag/dot-path
+# completion (e.g. `set t [get_terminals -f`) needs *its* options, not
+# the outer command's. 0 (the very first token, i.e. the outer command
+# itself) if no bracket is currently open.
+#
+# Scans char-by-char within each token, not just each token's first/
+# last character, so a bracket that opens and/or closes mid-token (e.g.
+# `[get_terminals]` fully self-contained in one token, or one appearing
+# inside a -filter expression's own value) is still tracked correctly -
+# every other part of complete_command already reasons at whole-token
+# granularity, so this only needs to know *which token* a scope starts/
+# ends in, not an exact character offset. A "[" glued to the front of
+# the token it opens in (no space) makes that same token the new scope's
+# own start; a "[" that's the very last character of its token (space
+# before the next word) makes the *next* token the start instead -
+# mirrors complete_command's own bracket_prefix/after_lone_bracket
+# handling for a partial token that itself opens a new command.
+proc _innermost_command_start {complete_tokens} {
+    set stack {}
+    set n [llength $complete_tokens]
+    for {set i 0} {$i < $n} {incr i} {
+        set token [lindex $complete_tokens $i]
+        set chars [split $token {}]
+        set clen [llength $chars]
+        for {set j 0} {$j < $clen} {incr j} {
+            set ch [lindex $chars $j]
+            if {$ch eq "\["} {
+                if {$j < $clen - 1} {
+                    lappend stack $i
+                } else {
+                    lappend stack [expr {$i + 1}]
+                }
+            } elseif {$ch eq "\]" && [llength $stack] > 0} {
+                set stack [lrange $stack 0 end-1]
+            }
+        }
+    }
+    if {[llength $stack] == 0} {
+        return 0
+    }
+    return [lindex $stack end]
+}
+
+# Whether the partial token currently being completed is inside a
+# `-filter <expr>` value, for complete_command's own get_<type> branch
+# above - true iff the most recent already-typed `-`-prefixed token
+# (scanning backward) is literally "-filter", not some other flag (whose
+# own value we're still inside) or a filter-expression token that merely
+# starts with "-" (e.g. a negative number literal - a rare, accepted
+# miss: this degrades to "no completion offered", never a wrong one).
+proc _partial_is_inside_filter_value {complete_tokens} {
+    foreach token [lreverse $complete_tokens] {
+        if {[string index $token 0] eq "-"} {
+            return [expr {$token eq "-filter"}]
+        }
+    }
+    return 0
+}
+
+# The dot-path completion seed for get_properties/report_properties -
+# the most recent earlier token (scanning backward) matching a
+# friendly-id token (kind:value), or "" if none does. get_<type>'s own
+# -filter branch above needs no scan at all: ::get_command_class already
+# names its class directly.
+proc _property_path_seed_class {complete_tokens} {
+    foreach token [lreverse $complete_tokens] {
+        if {[regexp {^([a-z_]+):} $token whole_match prefix] && [info exists ::property_scalars($prefix)]} {
+            return $prefix
+        }
+    }
+    return {}
+}
+
+# Dot-hop property-path completion, given the class already known to
+# start from (get_properties/report_properties's own friendly-id-token
+# seed via _property_path_seed_class, or a get_<type> command's own
+# class via ::get_command_class) and the .-prefixed path fragment
+# currently being completed (e.g. ".terminal_port.na"). Follows each
+# already-typed hop segment through ::property_hops one at a time - an
+# unresolvable segment yields no candidates (an invalid path so far),
+# matching resolve_property_path's own error behavior. Every returned
+# candidate is the *full* path (resolved prefix + matched leaf/hop
+# name), not just the trailing segment, so complete_command's "replace
+# the last token" contract stays uniform.
+proc _property_path_candidates {class_key partial} {
+    # partial always starts with "." - drop it, then split on "." to get
+    # every already-complete hop segment plus the final (possibly empty)
+    # segment still being typed.
+    set segments [split [string range $partial 1 end] "."]
+    set final_segment [lindex $segments end]
+    set hop_segments [lrange $segments 0 end-1]
+
+    set resolved_prefix "."
+    foreach hop $hop_segments {
+        set next_key {}
+        if {[info exists ::property_hops($class_key)]} {
+            foreach pair $::property_hops($class_key) {
+                lassign $pair hop_name target_key
+                if {$hop_name eq $hop} {
+                    set next_key $target_key
+                    break
+                }
+            }
+        }
+        if {$next_key eq {}} {
+            return {}
+        }
+        set class_key $next_key
+        append resolved_prefix "${hop}."
+    }
+
+    set candidates {}
+    if {[info exists ::property_scalars($class_key)]} {
+        foreach name [lsearch -all -inline -glob $::property_scalars($class_key) "${final_segment}*"] {
+            lappend candidates "${resolved_prefix}${name}"
+        }
+    }
+    if {[info exists ::property_hops($class_key)]} {
+        foreach pair $::property_hops($class_key) {
+            set hop_name [lindex $pair 0]
+            if {[string match "${final_segment}*" $hop_name]} {
+                lappend candidates "${resolved_prefix}${hop_name}"
+            }
+        }
+    }
+    return [lsort $candidates]
+}
+
+# complete_command's own filename-completion hook (BUGS_AND_ENHANCEMENTS.md
+# E11) - the name (without its angle brackets) of $command_name's own
+# positional argument, if it has exactly one registered positional
+# (`<name>`) option - flags like read_lef's own `-library` don't count -
+# and its type is "file"; {} otherwise (not registered at all, no positional
+# argument, or a positional whose type isn't "file"). "file" is a plain
+# free-form label like every other `type` value here (str/bool/flag/
+# token...) - nothing else in this file switches on it, so introducing
+# it doesn't touch man/generate_command_docs, only this lookup.
+#
+# Checking "does this command have exactly one positional, and is *it*
+# file-typed" (not "which specific positional index is being typed") is
+# enough for every command wired into this so far (read_lef/read_def/
+# source/dump_png each take exactly one positional argument) - a future
+# command with more than one positional, only some of them file-typed,
+# would need a real index-aware lookup instead of this presence check.
+proc _file_positional_name {command_name} {
+    if {![dict exists $::command_help $command_name]} {
+        return {}
+    }
+    set positionals {}
+    foreach option [dict get $::command_help $command_name options] {
+        if {[string index [lindex $option 0] 0] eq "<"} {
+            lappend positionals $option
+        }
+    }
+    if {[llength $positionals] != 1} {
+        return {}
+    }
+    lassign [lindex $positionals 0] name meta
+    if {[dict get $meta type] ne "file"} {
+        return {}
+    }
+    return [string trim $name "<>"]
+}
+
+# Filesystem-glob-based candidates for a file-path argument's own
+# partial token (BUGS_AND_ENHANCEMENTS.md E11) - every candidate is
+# still a *full* replacement for `partial` (complete_command's own
+# contract, see its own doc comment), so this reconstructs each match's
+# full path text itself rather than returning bare filenames, and a
+# directory match gets its own trailing "/" appended (same convention a
+# real shell's filename completion uses) so a caller can keep tabbing
+# deeper without retyping the separator.
+#
+# `partial` ending in "/" (the user already named a directory and typed
+# the separator) lists *that* directory's own contents, not siblings
+# matching it as a prefix - `file dirname`/`file tail` alone can't tell
+# these two cases apart (both normalize away a trailing slash, e.g.
+# `file tail foo/` is "foo", identical to `file tail foo`), so the
+# trailing slash is checked and stripped explicitly first.
+proc _filename_candidates {partial} {
+    set has_trailing_slash [expr {
+        [string length $partial] > 0 && [string index $partial end] eq "/"
+    }]
+    set trimmed [expr {$has_trailing_slash ? [string range $partial 0 end-1] : $partial}]
+
+    if {$has_trailing_slash} {
+        set search_dir [expr {$trimmed eq {} ? "/" : $trimmed}]
+        set dir_prefix $partial
+        set prefix ""
+    } else {
+        set has_dir [expr {[string first "/" $trimmed] >= 0}]
+        if {$has_dir} {
+            set search_dir [file dirname $trimmed]
+            set dir_prefix "${search_dir}/"
+        } else {
+            set search_dir "."
+            set dir_prefix ""
+        }
+        set prefix [file tail $trimmed]
+    }
+
+    set entries [lsort [glob -nocomplain -tails -directory $search_dir -- "${prefix}*"]]
+    set candidates {}
+    foreach entry $entries {
+        set candidate "${dir_prefix}${entry}"
+        if {[file isdirectory [file join $search_dir $entry]]} {
+            append candidate "/"
+        }
+        lappend candidates $candidate
+    }
+    return $candidates
+}
+
+# `generate_command_docs ?path?` - one Markdown string covering every
+# registered command (usage/description/options table), in name order;
+# if `path` is non-empty, also writes it there. Always returns the full
+# text either way. See backend's generate-tcl-docs skill for the
+# recipe that regenerates TCL_COMMANDS.md from this.
+proc generate_command_docs {{path {}}} {
+    set lines {}
+    # NEW_FEATURES_SEPT_2026.md item 24 - user-facing: a short intro, no
+    # -help row per command (every command has one), and the "generated"
+    # note as an HTML comment so it doesn't render.
+    lappend lines "<!-- Generated by generate_command_docs (le_tcl_procs.tcl) - edit the command help there, not this file. -->"
+    lappend lines ""
+    lappend lines "# TCL Command Reference"
+    lappend lines ""
+    lappend lines "Every Tcl command le_shell provides. Objects are named by tokens such as `layer:M1`, `terminal:A` or `shape:12` - what the `get_` commands return and every other command accepts. Every command also takes `-help`, which returns its usage; `help <pattern>` lists matching commands and `man <command>` shows one in full. All lengths and coordinates - including points `{x y}`, rectangles and `-filter` comparisons - are in microns (`um`), and areas in square microns (`um2`)."
+    lappend lines ""
+    foreach name [lsort [dict keys $::command_help]] {
+        set info [dict get $::command_help $name]
+        lappend lines "## $name"
+        lappend lines ""
+        lappend lines "`[_usage_syntax [dict get $info usage]]`"
+        lappend lines ""
+        lappend lines [dict get $info description]
+        set options [lsearch -all -inline -not -index 0 [dict get $info options] -help]
+        if {[llength $options] > 0} {
+            lappend lines ""
+            lappend lines "| Flag | Type | Required | Description |"
+            lappend lines "| --- | --- | --- | --- |"
+            foreach opt $options {
+                lassign $opt flag meta
+                if {$flag eq "-help"} {
+                    continue
+                }
+                set type [dict get $meta type]
+                set required [expr {[dict get $meta required] ? "yes" : "no"}]
+                set desc [dict get $meta description]
+                lappend lines "| \`$flag\` | \`$type\` | $required | $desc |"
+            }
+        }
+        lappend lines ""
+    }
+    set text [join $lines "\n"]
+    if {$path ne {}} {
+        set fh [open $path w]
+        puts $fh $text
+        close $fh
+    }
+    return $text
+}
+
+# --- undo/redo/command_history (UPDATES.md item 21) - the raw undo_command/
+# redo_command/command_history_count/command_history_at shim functions
+# (le_tcl_shim.hpp) are named with a suffix specifically so these procs
+# can be the real `undo`/`redo`/`command_history` Tcl commands without
+# shadowing (and thereby recursing into) the shim's own SWIG-bound ones. ---
+
+proc undo {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "undo \[-help\] - Undoes the most recently recorded command or edit"
+    }
+    return [expr {[undo_command] ? "1" : "0"}]
+}
+register_command_help undo \
+    "undo \[-help\] - Undoes the most recently recorded command or edit" \
+    "Undoes the last change - a typed command or a GUI edit such as a Move. Returns 1 if something was undone, 0 if there was nothing to undo." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc redo {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "redo \[-help\] - Redoes the most recently undone command or edit"
+    }
+    return [expr {[redo_command] ? "1" : "0"}]
+}
+register_command_help redo \
+    "redo \[-help\] - Redoes the most recently undone command or edit" \
+    "Redoes the last undone change. Returns 1 if something was redone, 0 otherwise." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc command_history {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "command_history \[-help\] - Lists every typed command, in order"
+    }
+    set count [command_history_count]
+    set lines {}
+    for {set i 0} {$i < $count} {incr i} {
+        lappend lines "$i: [command_history_at $i]"
+    }
+    return [join $lines "\n"]
+}
+register_command_help command_history \
+    "command_history \[-help\] - Lists every typed command, in order" \
+    "Lists this session's typed commands, numbered, in the order they were entered - including ones that failed. Up/Down at the prompt recall them." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# Real Tcl core `history` (autoloaded from $tcl_library/history.tcl) stays
+# installed (nothing renames/removes it - unlike `source` above, nothing
+# else here depends on calling it with alternate args) but is never
+# actually useful in this shell: it only records anything via its own
+# `history add`, which Tcl_Main's interactive loop calls after every typed
+# line - this shell's own run_interactive (le_shell.cpp) doesn't use
+# Tcl_Main at all, so that never fires, and a user typing plain `history`
+# out of habit gets a permanently empty listing instead of an error.
+# Redefined as a thin alias for command_history - this shell's own real
+# recall log - instead, since that's what a user typing `history` actually
+# wants here.
+proc history {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "history \[-help\] - Alias for command_history - lists every typed command, in order"
+    }
+    return [command_history {*}$args]
+}
+register_command_help history \
+    "history \[-help\] - Alias for command_history - lists every typed command, in order" \
+    "Same as command_history." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_viewport_size {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "set_viewport_size -width <int> -height <int> \[-help\] - Sets the render viewport's pixel size"
+    }
+    array set opts {-width {} -height {}}
+    foreach {flag value} $args {
+        if {![info exists opts($flag)]} {
+            error "set_viewport_size: unknown flag $flag"
+        }
+        set opts($flag) $value
+    }
+    if {$opts(-width) eq {} || $opts(-height) eq {}} {
+        error "set_viewport_size: -width and -height are required"
+    }
+    return [set_viewport_size_cmd $opts(-width) $opts(-height)]
+}
+register_command_help set_viewport_size \
+    "set_viewport_size -width <int> -height <int> \[-help\] - Sets the render viewport's pixel size" \
+    "Sets the size in pixels of the rendered view - what dump_png writes and what zoom_area fits to. The GUI sets this itself as its window resizes." \
+    {
+        {-width {type int required 1 description {Viewport width, in pixels}}}
+        {-height {type int required 1 description {Viewport height, in pixels}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- Current view (UPDATES.md item 17) ---
+
+# Selects `name`'s Design as this session's current view - every
+# subsequent get_terminals/get_obstructions/get_terminal_ports/get_shapes
+# call (whose default scope, absent an explicit -of, derives from
+# current_abstract - see codegen/codegen/tcl_scope.py's own module
+# docstring) is scoped to its Abstract, since a script's "give me the
+# terminals" means "in the view I have open", not "across every open
+# Library/Design". Also moves Scene::current_abstract() (GUI rendering)
+# the same way, via the shared le_set_current_design_abstract_by_id both this and
+# the GUI's own design-selection path (LeProvider.openDesign) call into -
+# selecting a Design means the same thing regardless of which side asked
+# (see that function's own comment in api.cpp). `-view` is accepted but
+# currently only "abstract" is meaningful - every Design read via
+# read_lef() has exactly one Abstract view and no DEF/placement-driven
+# Design exists in this project yet (see le_tcl_shim.hpp's
+# design_abstract_id comment for the same caveat).
+proc open_design {name args} {
+    # $name is checked too, not just $args: open_design takes a
+    # *mandatory* leading positional (name), so calling it as bare
+    # `open_design -help` (no real design name supplied at all) binds
+    # "-help" to $name, leaving $args empty - the same class of bug
+    # found (and fixed the same way) in every generated update_<type>.
+    if {$name eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "open_design <name> \[-view abstract|layout\] \[-help\] - Selects <name>'s Design as this session's current view"
+    }
+    array set opts {-view abstract}
+    foreach {flag value} $args {
+        if {![info exists opts($flag)]} {
+            error "open_design: unknown flag $flag"
+        }
+        set opts($flag) $value
+    }
+    if {$opts(-view) ne "abstract" && $opts(-view) ne "layout"} {
+        error "open_design: -view $opts(-view) is not supported - only \"abstract\" or \"layout\" are meaningful"
+    }
+    set design_id [design_by_name $name]
+    if {$design_id == $::kInvalidId} {
+        error "open_design: no such design \"$name\""
+    }
+    # Only one view is ever "open" at a time (mutually exclusive) -
+    # set_current_design_abstract_cmd (Abstract) and set_current_design_layout_cmd
+    # (Layout) each deactivate the other's own current-instance tracker
+    # as a side effect - see their own api.cpp comments.
+    if {$opts(-view) eq "abstract"} {
+        if {[set_current_design_abstract_cmd $design_id] != 0} {
+            error "open_design: failed to select design \"$name\""
+        }
+    } else {
+        if {[set_current_design_layout_cmd $design_id] != 0} {
+            error "open_design: failed to select design \"$name\""
+        }
+    }
+    #
+    # design:<name>, not the raw design_id, for consistency with UPDATES.md
+    # item 19.1's own friendly-id convention - the caller already has
+    # `name` literally, so this costs nothing to derive.
+    return "design:$name"
+}
+register_command_help open_design \
+    "open_design <name> \[-view abstract|layout\] \[-help\] - Selects <name>'s Design as this session's current view" \
+    "Opens the design <name> as the current view - its abstract (the default) or its layout. Commands with an -of flag search the current view when it's omitted." \
+    {
+        {<name> {type str required 1 description {Name of the Design to open}}}
+        {-view {type str required 0 description {"abstract" (the default) or "layout"}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- zoom (backed by zoom_cmd/le_zoom) ---
+proc zoom {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "zoom -factor <double> \[-help\] - Zooms the current view in or out, anchored at the viewport center"
+    }
+    array set opts {-factor {}}
+    foreach {flag value} $args {
+        if {![info exists opts($flag)]} {
+            error "zoom: unknown flag $flag"
+        }
+        set opts($flag) $value
+    }
+    if {$opts(-factor) eq ""} {
+        error "zoom: -factor is required"
+    }
+    zoom_cmd $opts(-factor)
+    return ""
+}
+register_command_help zoom \
+    "zoom -factor <double> \[-help\] - Zooms the current view in or out, anchored at the viewport center" \
+    "Zooms the current view in (positive -factor) or out (negative) about its center: the new scale is the old one times (1 + factor). The GUI's zoom keys step by 0.3." \
+    {
+        {-factor {type double required 1 description {Zoom step - e.g. 0.3 zooms in 30%, -0.3 zooms out}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- zoom_area (backed by zoom_area_cmd -> le_fit_rect) ---
+proc zoom_area {rect args} {
+    if {$rect eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "zoom_area {{llx lly} {urx ury}} \[-padding <int>\] \[-help\] - Fits the viewport's pan/scale to a micron-space rectangle"
+    }
+    # Same {{llx lly} {urx ury}} Rect form every generated -bbox/-rects
+    # flag and shape_bbox's own result use.
+    if {[llength $rect] != 2 || [llength [lindex $rect 0]] != 2 || [llength [lindex $rect 1]] != 2} {
+        error "zoom_area: rect must be {{llx lly} {urx ury}}, got \"$rect\""
+    }
+    array set opts {-padding 0}
+    foreach {flag value} $args {
+        if {![info exists opts($flag)]} {
+            error "zoom_area: unknown flag $flag"
+        }
+        set opts($flag) $value
+    }
+    lassign [concat {*}$rect] llx lly urx ury
+    zoom_area_cmd $llx $lly $urx $ury $opts(-padding)
+    return ""
+}
+register_command_help zoom_area \
+    "zoom_area {{llx lly} {urx ury}} \[-padding <int>\] \[-help\] - Fits the viewport's pan/scale to a micron-space rectangle" \
+    "Fits the view to the rectangle {{llx lly} {urx ury}}, in microns, keeping its aspect ratio, with -padding pixels of margin. Takes the rectangle shape_bbox returns, so zoom_area \[shape_bbox ...\] works." \
+    {
+        {<rect> {type Rect required 1 description {{{llx lly} {urx ury}}, in microns}}}
+        {-padding {type int required 0 description {Margin in pixels on every side - 0 by default}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- layer visibility (backed by set_layer_visible_cmd/get_layer_visible_cmd
+# -> le_set_layer_name_visible/le_is_layer_name_visible) ---
+proc set_layer_visible { layer_name args } {
+    if {$layer_name eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_layer_visible <layer_name> <visible> \[-help\] - Sets a layer row's own visibility"
+    }
+    if {[llength $args] != 1} {
+        error "set_layer_visible: expected exactly 2 arguments (layer_name, visible), got [expr {1 + [llength $args]}]"
+    }
+    set_layer_visible_cmd $layer_name [lindex $args 0]
+    return ""
+}
+register_command_help set_layer_visible \
+    "set_layer_visible <layer_name> <visible> \[-help\]" \
+    "Shows or hides everything on the layer <layer_name> - its pins, obstructions, routes, tracks and so on. Layers are visible by default." \
+    {
+        {<layer_name> {type str required 1 description {Layer name, e.g. "M1"}}}
+        {<visible> {type bool required 1 description {0/1 or true/false - hide/show}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_layer_visible { layer_name } {
+    if {$layer_name eq "-help"} {
+        return "get_layer_visible <layer_name> \[-help\] - Returns a layer row's own current visibility"
+    }
+    return [get_layer_visible_cmd $layer_name]
+}
+register_command_help get_layer_visible \
+    "get_layer_visible <layer_name> \[-help\]" \
+    "Returns 1 if the layer <layer_name> is visible, 0 if it's hidden. An unknown layer reads as visible." \
+    {
+        {<layer_name> {type str required 1 description {Layer name, e.g. "M1"}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_layer_selectable { layer_name args } {
+    if {$layer_name eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_layer_selectable <layer_name> <selectable> \[-help\] - Sets a layer row's own selectability"
+    }
+    if {[llength $args] != 1} {
+        error "set_layer_selectable: expected exactly 2 arguments (layer_name, selectable), got [expr {1 + [llength $args]}]"
+    }
+    set_layer_selectable_cmd $layer_name [lindex $args 0]
+    return ""
+}
+register_command_help set_layer_selectable \
+    "set_layer_selectable <layer_name> <selectable> \[-help\]" \
+    "Sets whether shapes on the layer <layer_name> can be selected. Layers are selectable by default." \
+    {
+        {<layer_name> {type str required 1 description {Layer name, e.g. "M1"}}}
+        {<selectable> {type bool required 1 description {0/1 or true/false}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_layer_selectable { layer_name } {
+    if {$layer_name eq "-help"} {
+        return "get_layer_selectable <layer_name> \[-help\] - Returns a layer row's own current selectability"
+    }
+    return [get_layer_selectable_cmd $layer_name]
+}
+register_command_help get_layer_selectable \
+    "get_layer_selectable <layer_name> \[-help\]" \
+    "Returns 1 if shapes on the layer <layer_name> can be selected, 0 otherwise." \
+    {
+        {<layer_name> {type str required 1 description {Layer name, e.g. "M1"}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- purpose visibility/selectability (backed by set_purpose_visible_cmd/
+# get_purpose_visible_cmd/set_purpose_selectable_cmd/
+# get_purpose_selectable_cmd -> le_set_purpose_visible/le_is_purpose_visible/
+# le_set_purpose_selectable/le_is_purpose_selectable). A purpose is the
+# other axis from a layer row - see set_layer_visible's own comment - one
+# column (e.g. just a layer's own OBSTRUCTION shapes) rather than a whole
+# row. Takes a friendly keyword, not le_purpose_at's own raw ordinal
+# directly - ::purpose_names below mirrors le_purpose_at's own api.hpp
+# comment (the ordinal list, not its per-Technology *index*) and must be
+# kept in sync with it and with le_gui's own layer_manager.cpp
+# (kPurposeNames) - a purpose appended to ViewLayerPurpose (view_style.hpp)
+# must be added to both, or a caller passing its new keyword here gets
+# "unknown purpose" while the GUI side shows "?" for it.
+array set ::purpose_names {
+    terminal 0
+    obstruction 1
+    boundary 2
+    trackPreferred 3
+    trackNonPreferred 4
+    routingBlockage 5
+    row 6
+    gcellgrid 7
+    placementBlockage 8
+    route 9
+    region 10
+    placement 11
+    customShape 12
+    debug 13
+    flightline 14
+    portMarker 15
+}
+
+proc _resolve_purpose_name {command purpose} {
+    if {![info exists ::purpose_names($purpose)]} {
+        error "$command: unknown purpose \"$purpose\" - expected one of [lsort [array names ::purpose_names]]"
+    }
+    return $::purpose_names($purpose)
+}
+
+proc set_purpose_visible { purpose args } {
+    if {$purpose eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_purpose_visible <purpose> <visible> \[-help\] - Sets one purpose column's own visibility"
+    }
+    if {[llength $args] != 1} {
+        error "set_purpose_visible: expected exactly 2 arguments (purpose, visible), got [expr {1 + [llength $args]}]"
+    }
+    set_purpose_visible_cmd [_resolve_purpose_name set_purpose_visible $purpose] [lindex $args 0]
+    return ""
+}
+register_command_help set_purpose_visible \
+    "set_purpose_visible <purpose> <visible> \[-help\]" \
+    "Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placement placementBlockage portMarker region route routingBlockage row terminal trackNonPreferred trackPreferred. Everything is visible by default except row, trackPreferred, trackNonPreferred, gcellgrid and flightline." \
+    {
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker}}}
+        {<visible> {type bool required 1 description {0/1 or true/false - hide/show}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_purpose_visible { purpose } {
+    if {$purpose eq "-help"} {
+        return "get_purpose_visible <purpose> \[-help\] - Returns one purpose column's own current visibility"
+    }
+    return [get_purpose_visible_cmd [_resolve_purpose_name get_purpose_visible $purpose]]
+}
+register_command_help get_purpose_visible \
+    "get_purpose_visible <purpose> \[-help\]" \
+    "Returns 1 if the purpose <purpose> is visible, 0 if it's hidden - see set_purpose_visible." \
+    {
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_purpose_selectable { purpose args } {
+    if {$purpose eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_purpose_selectable <purpose> <selectable> \[-help\] - Sets one purpose column's own selectability"
+    }
+    if {[llength $args] != 1} {
+        error "set_purpose_selectable: expected exactly 2 arguments (purpose, selectable), got [expr {1 + [llength $args]}]"
+    }
+    set_purpose_selectable_cmd [_resolve_purpose_name set_purpose_selectable $purpose] [lindex $args 0]
+    return ""
+}
+register_command_help set_purpose_selectable \
+    "set_purpose_selectable <purpose> <selectable> \[-help\]" \
+    "Sets whether shapes of one purpose - e.g. obstructions - can be selected, across every layer. See set_purpose_visible for the purposes." \
+    {
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker}}}
+        {<selectable> {type bool required 1 description {0/1 or true/false}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_purpose_selectable { purpose } {
+    if {$purpose eq "-help"} {
+        return "get_purpose_selectable <purpose> \[-help\] - Returns one purpose column's own current selectability"
+    }
+    return [get_purpose_selectable_cmd [_resolve_purpose_name get_purpose_selectable $purpose]]
+}
+register_command_help get_purpose_selectable \
+    "get_purpose_selectable <purpose> \[-help\]" \
+    "Returns 1 if shapes of the purpose <purpose> can be selected, 0 otherwise." \
+    {
+        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- mode (backed by set_mode_cmd/get_mode_cmd -> le_set_mode/le_get_mode).
+# Takes/returns a friendly keyword, not LeMode's own raw ordinal - mirrors
+# open_design's own -view abstract|layout keyword style.
+array set ::mode_names {select 0 edit 1 ruler 2}
+array set ::mode_names_reverse {0 select 1 edit 2 ruler}
+
+proc set_mode { mode } {
+    if {$mode eq "-help"} {
+        return "set_mode <mode> \[-help\] - Switches the current interaction mode"
+    }
+    if {![info exists ::mode_names($mode)]} {
+        error "set_mode: unknown mode \"$mode\" - expected one of [lsort [array names ::mode_names]]"
+    }
+    set_mode_cmd $::mode_names($mode)
+    return ""
+}
+register_command_help set_mode \
+    "set_mode <mode> \[-help\]" \
+    "Switches the interaction mode: select (the default), edit or ruler. The GUI's s/e/r keys do the same." \
+    {
+        {<mode> {type str required 1 description {One of select, edit, ruler}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_mode {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_mode \[-help\] - Returns the current interaction mode"
+    }
+    return $::mode_names_reverse([get_mode_cmd])
+}
+register_command_help get_mode \
+    "get_mode \[-help\]" \
+    "Returns the interaction mode: select, edit or ruler." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- rulers/selection/move (backed by clear_rulers_cmd/select_all_cmd/
+# deselect_all_cmd/arm_move_cmd -> le_clear_rulers/le_select_all/
+# le_deselect_all/le_arm_move) ---
+
+proc clear_rulers {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "clear_rulers \[-help\] - Removes every ruler, finished or not"
+    }
+    clear_rulers_cmd
+    return ""
+}
+register_command_help clear_rulers \
+    "clear_rulers \[-help\]" \
+    "Removes every ruler, finished or not." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc select_all {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "select_all \[-help\] - Selects every currently selectable shape in the current Abstract"
+    }
+    select_all_cmd
+    return ""
+}
+register_command_help select_all \
+    "select_all \[-help\]" \
+    "Selects every selectable shape in the current view." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc deselect_all {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "deselect_all \[-help\] - Clears the current selection"
+    }
+    deselect_all_cmd
+    return ""
+}
+register_command_help deselect_all \
+    "deselect_all \[-help\]" \
+    "Clears the current selection." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# BUGS_AND_ENHANCEMENTS.md E30 - get_selection/select, the script-driven
+# counterpart to select_all/deselect_all/a real mouse click. Only
+# shape:/row:/placement:/region: tokens are meaningful (the same four
+# kinds Scene::SelectedObject's own variant covers, see
+# le_select_object_ref's own api.hpp comment) - selecting a shape:
+# token selects every one of its rects/polygons/paths, not one piece,
+# since piece-level granularity has no meaning outside a real mouse
+# hit-test.
+proc get_selection {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_selection \[-help\] - Returns the current selection as a list of tokens"
+    }
+    set result {}
+    set count [selection_count_cmd]
+    for {set i 0} {$i < $count} {incr i} {
+        set token [get_selection_at_cmd $i]
+        if {$token ne {}} {
+            lappend result $token
+        }
+    }
+    return $result
+}
+register_command_help get_selection \
+    "get_selection \[-help\]" \
+    "Returns the selection as a list of tokens (shape:, row:, placement:, region:) - the form select accepts." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc select {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "select <tokens> \[-help\] - Adds the given shape:/row:/placement:/region: tokens to the current selection"
+    }
+    if {[llength $args] < 1} {
+        error "select: expected at least one <token>, got \"$args\""
+    }
+    foreach token $args {
+        set status [select_cmd $token]
+        if {$status == 2} {
+            error "select: unrecognized token \"$token\" (expected a shape:/row:/placement:/region: token)"
+        } elseif {$status != 0} {
+            error "select: failed to select \"$token\" - see the terminal log for the specific reason"
+        }
+    }
+    return ""
+}
+register_command_help select \
+    "select <tokens> \[-help\] - Adds the given shape:/row:/placement:/region: tokens to the current selection" \
+    "Adds each token to the selection, keeping what's already selected (use deselect_all first to replace it). A shape: token selects all of that shape's rects, polygons and paths." \
+    {
+        {<tokens> {type token required 1 description {One or more shape:/row:/placement:/region: tokens to select}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc arm_move {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "arm_move \[-help\] - Arms Move for the current selection"
+    }
+    arm_move_cmd
+    return ""
+}
+register_command_help arm_move \
+    "arm_move \[-help\]" \
+    "Arms the Move tool, as Ctrl-M does in the GUI: click to set the start point, move the mouse, and click again to move the selection. Stays armed for another move until Escape. Edit mode only, with something selected; refused when placements are selected together with other objects." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- delete_selected_pieces (NEW_FEATURES_SEPT_2026.md item 29 - backed
+# by delete_selected_pieces_cmd -> le_delete_selected_pieces) ---
+proc delete_selected_pieces {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "delete_selected_pieces \[-help\] - Deletes the selected shape pieces, returning how many"
+    }
+    return [delete_selected_pieces_cmd]
+}
+register_command_help delete_selected_pieces \
+    "delete_selected_pieces \[-help\]" \
+    "Deletes each selected shape piece - a rect, polygon, path, via or via array - from its shape, as the Edit-mode Delete button and the Del key do in the GUI. A shape left with no geometry is deleted too; owners (a route, a terminal port, ...) and any other selected objects stay. Undoable. Returns how many pieces were deleted." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- placement snapping and rotate/flip (NEW_FEATURES_SEPT_2026.md
+# item 2 - backed by set_placement_snap_mode_cmd/get_placement_snap_mode_cmd/
+# is_placement_snap_mode_available_cmd/apply_placement_orientation_op_cmd) ---
+array set ::placement_snap_names {none 0 site 1 fin 2 manufacturing 3}
+array set ::placement_snap_names_reverse {0 none 1 site 2 fin 3 manufacturing}
+
+proc set_placement_snap_mode { mode } {
+    if {$mode eq "-help"} {
+        return "set_placement_snap_mode <mode> \[-help\] - Sets what a moving placement snaps to"
+    }
+    if {![info exists ::placement_snap_names($mode)]} {
+        error "set_placement_snap_mode: unknown mode \"$mode\" - expected one of [lsort [array names ::placement_snap_names]]"
+    }
+    set_placement_snap_mode_cmd $::placement_snap_names($mode)
+    return ""
+}
+register_command_help set_placement_snap_mode \
+    "set_placement_snap_mode <mode> \[-help\]" \
+    "Sets what a moved placement snaps to: site (the default - a core cell snaps to the nearest row of its own site, in an orientation the row allows; anything else to the manufacturing grid), fin (the FinFET grid across the fins, the manufacturing grid along them), manufacturing (the manufacturing grid) or none." \
+    {
+        {<mode> {type str required 1 description {One of site, fin, manufacturing, none}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_placement_snap_mode {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_placement_snap_mode \[-help\] - Returns what a moving placement snaps to"
+    }
+    return $::placement_snap_names_reverse([get_placement_snap_mode_cmd])
+}
+register_command_help get_placement_snap_mode \
+    "get_placement_snap_mode \[-help\]" \
+    "Returns the placement snap mode: site, fin, manufacturing or none." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc placement_snap_mode_available { mode } {
+    if {$mode eq "-help"} {
+        return "placement_snap_mode_available <mode> \[-help\] - Returns whether a placement snap mode has anything to snap to"
+    }
+    if {![info exists ::placement_snap_names($mode)]} {
+        error "placement_snap_mode_available: unknown mode \"$mode\" - expected one of [lsort [array names ::placement_snap_names]]"
+    }
+    return [expr {[is_placement_snap_mode_available_cmd $::placement_snap_names($mode)] ? 1 : 0}]
+}
+register_command_help placement_snap_mode_available \
+    "placement_snap_mode_available <mode> \[-help\]" \
+    "Returns 1 if <mode> has something to snap to: rows in the current layout for site, a FinFET grid for fin, a manufacturing grid for manufacturing; none always returns 1." \
+    {
+        {<mode> {type str required 1 description {One of site, fin, manufacturing, none}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- shape resizing (NEW_FEATURES_SEPT_2026.md item 3 - backed by
+# arm_resize_cmd/set_shape_snap_mode_cmd/get_shape_snap_mode_cmd/
+# is_shape_snap_mode_available_cmd) ---
+array set ::shape_kind_names {rect 0 polygon 1 path 2 via 3}
+array set ::shape_snap_names {none 0 user 1 manufacturing 2 fin 3 tracks 4}
+array set ::shape_snap_names_reverse {0 none 1 user 2 manufacturing 3 fin 4 tracks}
+
+proc _shape_kind_code {command kind} {
+    if {![info exists ::shape_kind_names($kind)]} {
+        error "$command: unknown shape kind \"$kind\" - expected one of [lsort [array names ::shape_kind_names]]"
+    }
+    return $::shape_kind_names($kind)
+}
+
+proc _shape_snap_code {command mode} {
+    if {![info exists ::shape_snap_names($mode)]} {
+        error "$command: unknown snap mode \"$mode\" - expected one of [lsort [array names ::shape_snap_names]]"
+    }
+    return $::shape_snap_names($mode)
+}
+
+proc arm_resize {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "arm_resize \[-help\] - Arms the Resize tool for the selected shapes"
+    }
+    arm_resize_cmd
+    return ""
+}
+register_command_help arm_resize \
+    "arm_resize \[-help\]" \
+    "Arms the Resize tool, as Ctrl-R does in the GUI: hovering an edge of a selected rect or polygon, or a path segment, highlights it; click it, move the mouse, and click again to resize (one undoable edit). Escape cancels a resize, or disarms the tool. Edit mode only; not available while placements are selected." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_shape_snap_mode {kind args} {
+    if {$kind eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_shape_snap_mode <kind> <mode> \[-help\] - Sets what a resized or moved shape of one kind snaps to"
+    }
+    if {[llength $args] != 1} {
+        error "set_shape_snap_mode: expected exactly 2 arguments (kind, mode), got [expr {1 + [llength $args]}]"
+    }
+    set mode [lindex $args 0]
+    set kind_code [_shape_kind_code set_shape_snap_mode $kind]
+    set mode_code [_shape_snap_code set_shape_snap_mode $mode]
+    set path_like [expr {$kind eq "path" || $kind eq "via"}]
+    if {($path_like && $mode eq "fin") || (!$path_like && $mode eq "tracks")} {
+        error "set_shape_snap_mode: $kind shapes can't snap to $mode"
+    }
+    set_shape_snap_mode_cmd $kind_code $mode_code
+    return ""
+}
+register_command_help set_shape_snap_mode \
+    "set_shape_snap_mode <kind> <mode> \[-help\] - Sets what a resized or moved shape of one kind snaps to" \
+    "Sets what a resized or moved shape of <kind> snaps to. Rects and polygons (Resize): user (the minor grid - the default), manufacturing, fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths, vias and via arrays share one mode: user, manufacturing (a path's edges land on the grid), tracks (a path's centerline, or a via's origin, lands on a routing track of its layer) or none." \
+    {
+        {<kind> {type str required 1 description {rect, polygon, path or via}}}
+        {<mode> {type str required 1 description {none, user, manufacturing, fin (rect/polygon) or tracks (path/via)}}}
+    }
+
+proc get_shape_snap_mode {kind} {
+    if {$kind eq "-help"} {
+        return "get_shape_snap_mode <kind> \[-help\] - Returns what a resized or moved shape of one kind snaps to"
+    }
+    return $::shape_snap_names_reverse([get_shape_snap_mode_cmd [_shape_kind_code get_shape_snap_mode $kind]])
+}
+register_command_help get_shape_snap_mode \
+    "get_shape_snap_mode <kind> \[-help\] - Returns what a resized or moved shape of one kind snaps to" \
+    "Returns the snap mode for <kind>: none, user, manufacturing, fin or tracks. See set_shape_snap_mode." \
+    {
+        {<kind> {type str required 1 description {rect, polygon, path or via}}}
+    }
+
+proc shape_snap_mode_available {kind args} {
+    if {$kind eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "shape_snap_mode_available <kind> <mode> \[-help\] - Returns whether a resize snap mode has anything to snap to"
+    }
+    if {[llength $args] != 1} {
+        error "shape_snap_mode_available: expected exactly 2 arguments (kind, mode), got [expr {1 + [llength $args]}]"
+    }
+    set mode [lindex $args 0]
+    return [expr {[is_shape_snap_mode_available_cmd [_shape_kind_code shape_snap_mode_available $kind] [_shape_snap_code shape_snap_mode_available $mode]] ? 1 : 0}]
+}
+register_command_help shape_snap_mode_available \
+    "shape_snap_mode_available <kind> <mode> \[-help\] - Returns whether a resize snap mode has anything to snap to" \
+    "Returns 1 if <kind> offers <mode> and there's something to snap to: always for none and user, a manufacturing grid for manufacturing, a FinFET grid for fin, and routing tracks on a selected path's layer for tracks." \
+    {
+        {<kind> {type str required 1 description {rect, polygon or path}}}
+        {<mode> {type str required 1 description {none, user, manufacturing, fin or tracks}}}
+    }
+
+# Shared by rotate_placement/flip_placement - raises a Tcl error naming
+# why le_apply_placement_orientation_op refused.
+proc apply_placement_orientation_op_checked {command op} {
+    switch -- [apply_placement_orientation_op_cmd $op] {
+        0 { return "" }
+        1 { error "$command: no placement is selected" }
+        2 { error "$command: not allowed right now - a move is under way, or site snapping is on and the row's site SYMMETRY doesn't permit it" }
+        default { error "$command: failed" }
+    }
+}
+
+proc rotate_placement {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "rotate_placement \[-help\] - Rotates the selected placements 90 degrees counterclockwise"
+    }
+    return [apply_placement_orientation_op_checked rotate_placement 0]
+}
+register_command_help rotate_placement \
+    "rotate_placement \[-help\]" \
+    "Rotates each selected placement 90 degrees counterclockwise about its center (N, W, S, E), as one undoable edit. An error if no placement is selected, a move is under way, or site snapping is on and the row's site doesn't allow R90." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc flip_placement { direction } {
+    if {$direction eq "-help"} {
+        return "flip_placement <direction> \[-help\] - Flips the selected placements horizontally or vertically"
+    }
+    switch -- $direction {
+        horizontal { return [apply_placement_orientation_op_checked flip_placement 1] }
+        vertical { return [apply_placement_orientation_op_checked flip_placement 2] }
+        default { error "flip_placement: unknown direction \"$direction\" - expected horizontal or vertical" }
+    }
+}
+register_command_help flip_placement \
+    "flip_placement <direction> \[-help\]" \
+    "Flips each selected placement about its center, as one undoable edit: horizontal mirrors it left-right (N to FN), vertical top-bottom (N to FS). An error if no placement is selected, a move is under way, or site snapping is on and the row's site symmetry doesn't allow it." \
+    {
+        {<direction> {type str required 1 description {horizontal or vertical}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- antialiasing (backed by set_antialiasing_enabled_cmd/
+# get_antialiasing_enabled_cmd -> le_set_antialiasing_enabled/
+# le_is_antialiasing_enabled) ---
+proc set_antialiasing_enabled { enabled } {
+    if {$enabled eq "-help"} {
+        return "set_antialiasing_enabled <enabled> \[-help\] - Sets whether fill/stroke paints antialias"
+    }
+    set_antialiasing_enabled_cmd $enabled
+    return ""
+}
+register_command_help set_antialiasing_enabled \
+    "set_antialiasing_enabled <enabled> \[-help\]" \
+    "Turns antialiasing of shapes and their labels on or off. Off by default, which is faster on large designs; the grid, rulers and highlights are always antialiased." \
+    {
+        {<enabled> {type bool required 1 description {0/1 or true/false}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_antialiasing_enabled {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_antialiasing_enabled \[-help\] - Returns whether fill/stroke paints currently antialias"
+    }
+    return [get_antialiasing_enabled_cmd]
+}
+register_command_help get_antialiasing_enabled \
+    "get_antialiasing_enabled \[-help\]" \
+    "Returns 1 if shapes are drawn antialiased, 0 otherwise." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- read_lef/read_def/source/dump_png - BUGS_AND_ENHANCEMENTS.md E11/
+# E14. read_lef/read_def were previously raw SWIG-bound commands with no
+# -help/help-system integration at all, unlike every hand-written or
+# generated command elsewhere in this file (E14); `source` is Tcl's own
+# builtin, never registered at all. All four take a real filesystem path
+# as their own single positional argument (`type file`, not the generic
+# `type str` every other string-typed argument elsewhere uses) -
+# complete_command's own _file_positional_name (below) looks for exactly
+# that type to offer filesystem completion (E11), rather than a separate
+# hardcoded command-name list.
+#
+# Each `rename`s the real command out of the way first, the same trick
+# flutter_plugin/src/le_tcl_bridge.cpp's own kCapturePutsBootstrap uses
+# for `puts` - a Tcl proc can't otherwise both claim a command's real,
+# expected name *and* still call through to what it's replacing.
+# read_lef/read_def: return code/error semantics are untouched (still an
+# int, 0 on success) - existing callers (le_shell scripts, every other
+# test fixture's own `read_lef $path`) see no behavior change beyond
+# gaining -help. source: `uplevel 1` (not a plain call) is load-bearing,
+# not defensive style - the real `source` command evaluates a script in
+# whatever scope *it* was called from; calling the renamed command
+# directly from inside this wrapper proc would instead trap the sourced
+# script's own top-level `set`s etc. in *this proc's* local scope,
+# discarding them the moment it returns, since that's now the renamed
+# command's own immediate caller. `uplevel 1` calls it one frame up
+# instead - from wherever this wrapper's own caller actually is - so it
+# sees the real, original caller's scope, exactly like the unwrapped
+# command would have (confirmed empirically: a variable a sourced script
+# sets lands in the right scope whether `source` is called at top level
+# or from inside another proc).
+# Shared by read_lef/read_def/read_verilog (NEW_FEATURES_SEPT_2026.md
+# item 4): pulls the required `-library <name>` flag out of `arglist`,
+# returning {library_name remaining_args}.
+proc _take_library_flag {command arglist} {
+    set library ""
+    set rest {}
+    set n [llength $arglist]
+    for {set i 0} {$i < $n} {incr i} {
+        set arg [lindex $arglist $i]
+        if {$arg eq "-library"} {
+            incr i
+            if {$i >= $n} {
+                error "$command: -library needs a library name"
+            }
+            set library [lindex $arglist $i]
+        } else {
+            lappend rest $arg
+        }
+    }
+    if {$library eq ""} {
+        error "$command: -library <name> is required"
+    }
+    return [list $library $rest]
+}
+
+rename read_lef _read_lef_cmd
+proc read_lef {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "read_lef -library <name> <path> \[-help\] - Reads a LEF file into the shared Technology and a named Library"
+    }
+    lassign [_take_library_flag read_lef $args] library positional
+    if {[llength $positional] != 1} {
+        error "read_lef: expected exactly one <path> argument, got \"$positional\""
+    }
+    return [_read_lef_cmd [lindex $positional 0] $library]
+}
+register_command_help read_lef \
+    "read_lef -library <name> <path> \[-help\] - Reads a LEF file into the shared Technology and a named Library" \
+    "Reads a LEF file - technology, cells, or both - into the session. Call it more than once to add a technology file and then cell libraries. Each MACRO becomes a design in the -library library, which is created if it doesn't exist; a design that already has an abstract view is an error. Returns 0 on success, nonzero on an error (the details are printed)." \
+    {
+        {-library {type str required 1 description {Library to read the LEF's macros into - created if it doesn't exist}}}
+        {<path> {type file required 1 description {LEF file to read}}}
+    }
+
+rename read_def _read_def_cmd
+proc read_def {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "read_def -library <name> <path> \[-help\] - Reads a DEF file into a new Layout in a named Library"
+    }
+    lassign [_take_library_flag read_def $args] library positional
+    if {[llength $positional] != 1} {
+        error "read_def: expected exactly one <path> argument, got \"$positional\""
+    }
+    return [_read_def_cmd [lindex $positional 0] $library]
+}
+register_command_help read_def \
+    "read_def -library <name> <path> \[-help\] - Reads a DEF file into a new Layout in a named Library" \
+    "Reads a DEF file as a layout. The technology and cells it uses must already be read with read_lef. The design goes into the -library library, which is created if it doesn't exist; an existing design of that name (e.g. from read_verilog) gets the layout view instead, but one that already has a layout is an error. Returns 0 on success, nonzero on an error (the details are printed)." \
+    {
+        {-library {type str required 1 description {Library to read the DEF's design into - created if it doesn't exist}}}
+        {<path> {type file required 1 description {DEF file to read}}}
+    }
+
+# read_verilog/link (SYSTEMVERILOG.md) - no `rename` dance needed here,
+# same reasoning as write_lef/write_def just below: read_verilog_cmd/
+# link_unresolved_instances_cmd (le_tcl_shim.cpp) are already distinctly
+# named from the proc names defined here (link's own underlying C++/API/
+# shim names stay link_unresolved_instances/le_link_unresolved_instances -
+# only this TCL-facing command name is shortened). Hand-rolled
+# flag parsing, same shape as write_lef's own below - -netlist/-rtl are
+# bare mutually-exclusive flags (exactly one required) rather than
+# {flag value} pairs.
+proc read_verilog {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "read_verilog -netlist|-rtl -library <name> <path> \[<path> ...\] \[-help\] - Reads one or more SystemVerilog/Verilog files"
+    }
+    lassign [_take_library_flag read_verilog $args] library args
+    set is_netlist -1
+    set positional {}
+    foreach arg $args {
+        switch -- $arg {
+            -netlist {
+                if {$is_netlist == 0} {
+                    error "read_verilog: -netlist and -rtl are mutually exclusive"
+                }
+                set is_netlist 1
+            }
+            -rtl {
+                if {$is_netlist == 1} {
+                    error "read_verilog: -netlist and -rtl are mutually exclusive"
+                }
+                set is_netlist 0
+            }
+            default {
+                lappend positional $arg
+            }
+        }
+    }
+    if {$is_netlist < 0} {
+        error "read_verilog: exactly one of -netlist or -rtl is required"
+    }
+    if {[llength $positional] < 1} {
+        error "read_verilog: expected at least one <path> argument, got \"$args\""
+    }
+    return [read_verilog_cmd [join $positional] $is_netlist $library]
+}
+register_command_help read_verilog \
+    "read_verilog -netlist|-rtl -library <name> <path> \[<path> ...\] \[-help\] - Reads one or more SystemVerilog/Verilog files" \
+    "Reads one or more SystemVerilog/Verilog files, compiled together, as schematics. -netlist elaborates a gate-level netlist fully (parameters, generate blocks); cells read with read_lef but with no Verilog of their own get stub modules automatically, so their instances resolve. -rtl only parses, keeping anything it can't read as a placeholder instance. New designs go into the -library library, which is created if it doesn't exist; an existing design (e.g. from read_lef) gets the schematic view instead, but one that already has a schematic is an error. Instances are linked to known designs afterwards (see link). Returns 0 on success, nonzero on an error (the details are printed)." \
+    {
+        {-netlist {type flag required 0 description {Full-elaboration flavor for a gate-level netlist}}}
+        {-rtl {type flag required 0 description {Syntax-only flavor, tolerant of invalid/unsupported content}}}
+        {-library {type str required 1 description {Library to read new designs into - created if it doesn't exist}}}
+        {<path> {type file... required 1 description {One or more SystemVerilog/Verilog files to read together}}}
+    }
+
+proc write_verilog_stubs {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "write_verilog_stubs \[-library <token>\] <filename> \[-help\] - Writes stub Verilog modules for a Library's LEF-only Designs"
+    }
+    array set opts {-library ""}
+    set positional {}
+    set i 0
+    set n [llength $args]
+    while {$i < $n} {
+        set arg [lindex $args $i]
+        switch -- $arg {
+            -library {
+                incr i
+                if {$i >= $n} {
+                    error "write_verilog_stubs: -library requires a value"
+                }
+                set opts(-library) [lindex $args $i]
+                incr i
+            }
+            default {
+                lappend positional $arg
+                incr i
+            }
+        }
+    }
+    if {[llength $positional] != 1} {
+        error "write_verilog_stubs: expected exactly one <filename> argument, got \"$args\""
+    }
+    set filename [lindex $positional 0]
+    if {[write_verilog_stubs_cmd $filename $opts(-library)] != 0} {
+        error "write_verilog_stubs: failed to write \"$filename\" - see the terminal log for the specific reason"
+    }
+    return ""
+}
+register_command_help write_verilog_stubs \
+    "write_verilog_stubs \[-library <token>\] <filename> \[-help\] - Writes stub Verilog modules for a Library's LEF-only Designs" \
+    "Writes an empty Verilog module for every design in -library (or the only library, if there's just one) that has an abstract but no schematic - the cells read from LEF only. Bit-numbered pins such as addr_in\[0\]..addr_in\[7\] become one bus port when their bits are contiguous and share a direction. read_verilog -netlist already does this for itself; use this to see or reuse the stubs." \
+    {
+        {-library {type token required 0 description {Library to write stubs for - the only library, if omitted}}}
+        {<filename> {type file required 1 description {Output Verilog file path}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc link {} {
+    return [link_unresolved_instances_cmd]
+}
+register_command_help link \
+    "link - Re-resolves unlinked Instance references" \
+    "Resolves instances whose design wasn't known when they were read - e.g. after a later read_lef supplies a cell a netlist uses. read_verilog does this automatically. Returns the number of instances newly resolved." \
+    {}
+
+# write_lef/write_def (BUGS_AND_ENHANCEMENTS.md E28) - no `rename` dance
+# needed here unlike read_lef/read_def above: write_lef_cmd/write_def_cmd
+# (le_tcl_shim.cpp) are already distinctly named from the write_lef/
+# write_def proc names below, so there's no real command to shadow.
+# Hand-rolled flag parsing (not the generated get_<type>/create_<type>
+# machinery, which is per-class CRUD, not a plain action command) -
+# mirrors zoom_area's own {flag value} loop shape just above, extended
+# with a couple of bare (no-value) flags.
+proc write_lef {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "write_lef \[-abstract <token>\] \[-library <token>\] \[-abstracts <tokens>\] \[-include_tech\] \[-tech_only\] <filename> \[-help\] - Writes a LEF file"
+    }
+    array set opts {-abstract "" -library "" -abstracts "" -include_tech 0 -tech_only 0}
+    set positional {}
+    set i 0
+    set n [llength $args]
+    while {$i < $n} {
+        set arg [lindex $args $i]
+        switch -- $arg {
+            -abstract {
+                incr i
+                if {$i >= $n} {
+                    error "write_lef: -abstract requires a value"
+                }
+                set opts(-abstract) [lindex $args $i]
+                incr i
+            }
+            -library {
+                incr i
+                if {$i >= $n} {
+                    error "write_lef: -library requires a value"
+                }
+                set opts(-library) [lindex $args $i]
+                incr i
+            }
+            -abstracts {
+                incr i
+                if {$i >= $n} {
+                    error "write_lef: -abstracts requires a value"
+                }
+                set opts(-abstracts) [lindex $args $i]
+                incr i
+            }
+            -include_tech {
+                set opts(-include_tech) 1
+                incr i
+            }
+            -tech_only {
+                set opts(-tech_only) 1
+                incr i
+            }
+            default {
+                lappend positional $arg
+                incr i
+            }
+        }
+    }
+    if {[llength $positional] != 1} {
+        error "write_lef: expected exactly one <filename> argument, got \"$args\""
+    }
+    if {$opts(-include_tech) && $opts(-tech_only)} {
+        error "write_lef: -include_tech and -tech_only are mutually exclusive"
+    }
+    # BUGS_AND_ENHANCEMENTS.md E28.b - -abstract (a single Abstract) is
+    # mutually exclusive with -library/-abstracts (the whole-Library-or-
+    # explicit-list mode) - mixing them has no sensible meaning. -library
+    # and -abstracts *can* be combined (per the item's own spec: -abstracts
+    # narrows -library's own full Design list down to just the given
+    # ones) - write_lef_cmd's own resolution order (see its .cpp comment)
+    # handles that; -abstracts alone (no -library) is also allowed, a
+    # deliberate relaxation of the item's own strict "-abstracts under
+    # -library" framing since an explicit token list already fully
+    # determines what to write on its own.
+    if {$opts(-abstract) ne "" && ($opts(-library) ne "" || $opts(-abstracts) ne "")} {
+        error "write_lef: -abstract cannot be combined with -library/-abstracts"
+    }
+    # Matches LeLefLayerWriteMode (api.hpp): 0=None, 1=IncludeWithAbstract,
+    # 2=TechnologyOnly.
+    set mode 0
+    if {$opts(-tech_only)} {
+        set mode 2
+    } elseif {$opts(-include_tech)} {
+        set mode 1
+    }
+    set filename [lindex $positional 0]
+    # A plain space-separated word list - write_lef_cmd (le_tcl_shim.cpp)
+    # splits it back apart the same way, safe since no friendly id this
+    # codebase generates ever contains whitespace. -abstract (singular)
+    # folds into the same "tokens" argument as a one-element list.
+    set abstract_tokens [expr {$opts(-abstract) ne "" ? $opts(-abstract) : [join $opts(-abstracts)]}]
+    if {[write_lef_cmd $filename $abstract_tokens $opts(-library) $mode] != 0} {
+        error "write_lef: failed to write LEF to \"$filename\" - see the terminal log for the specific reason"
+    }
+    return ""
+}
+register_command_help write_lef \
+    "write_lef \[-abstract <token>\] \[-library <token>\] \[-abstracts <tokens>\] \[-include_tech\] \[-tech_only\] <filename> \[-help\] - Writes a LEF file" \
+    "Writes a LEF file. -abstract writes one abstract's MACRO (the current abstract if -abstract, -library and -abstracts are all omitted); -library writes a MACRO for every abstract in a library, and -abstracts limits that to the ones listed (or works alone). Technology layers are left out unless -include_tech is given; -tech_only writes only them." \
+    {
+        {-abstract {type token required 0 description {A single Abstract to write - defaults to the current Abstract if this, -library, and -abstracts are all omitted}}}
+        {-library {type token required 0 description {Write a MACRO for every Abstract in every Design of this Library}}}
+        {-abstracts {type token required 0 description {Abstracts to write - limits -library to these, or works alone}}}
+        {-include_tech {type flag required 0 description {Also write every Technology layer alongside the MACRO(s)}}}
+        {-tech_only {type flag required 0 description {Write only Technology layers, no MACRO at all}}}
+        {<filename> {type file required 1 description {Output LEF file path}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc write_def {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "write_def \[-layout <token>\] <filename> \[-help\] - Writes a DEF file"
+    }
+    array set opts {-layout ""}
+    set positional {}
+    set i 0
+    set n [llength $args]
+    while {$i < $n} {
+        set arg [lindex $args $i]
+        switch -- $arg {
+            -layout {
+                incr i
+                if {$i >= $n} {
+                    error "write_def: -layout requires a value"
+                }
+                set opts(-layout) [lindex $args $i]
+                incr i
+            }
+            default {
+                lappend positional $arg
+                incr i
+            }
+        }
+    }
+    if {[llength $positional] != 1} {
+        error "write_def: expected exactly one <filename> argument, got \"$args\""
+    }
+    set filename [lindex $positional 0]
+    if {[write_def_cmd $filename $opts(-layout)] != 0} {
+        error "write_def: failed to write DEF to \"$filename\" - see the terminal log for the specific reason"
+    }
+    return ""
+}
+register_command_help write_def \
+    "write_def \[-layout <token>\] <filename> \[-help\] - Writes a DEF file" \
+    "Writes the layout -layout (the current layout if omitted) as a DEF file." \
+    {
+        {-layout {type token required 0 description {Layout to write - defaults to the current Layout}}}
+        {<filename> {type file required 1 description {Output DEF file path}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# Native database files (NATIVE_FILE_FORMAT_RESEARCH.md): the whole
+# database in one .led file, readable by every later Layout Engine.
+# write_db errors on failure like write_def; read_db returns a status like
+# read_def (the details are printed either way).
+proc write_db {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "write_db <filename> \[-help\] - Saves the whole database to a native .led file"
+    }
+    if {[llength $args] != 1} {
+        error "write_db: expected exactly one <filename> argument, got \"$args\""
+    }
+    set filename [lindex $args 0]
+    if {[write_db_cmd $filename] != 0} {
+        error "write_db: failed to write \"$filename\" - see the terminal log for the specific reason"
+    }
+    return ""
+}
+register_command_help write_db \
+    "write_db <filename> \[-help\] - Saves the whole database to a native .led file" \
+    "Saves everything read or created so far - technology, libraries, designs, schematics and layouts - to one native Layout Engine database file (.led by convention), which read_db loads back exactly and later Layout Engine versions can still read. An existing file is only replaced once the new one is completely written. Afterwards the design counts as saved." \
+    {
+        {<filename> {type file required 1 description {Output .led file path}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc read_db {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "read_db <filename> \[-help\] - Loads a native .led database file into an empty session"
+    }
+    if {[llength $args] != 1} {
+        error "read_db: expected exactly one <filename> argument, got \"$args\""
+    }
+    return [read_db_cmd [lindex $args 0]]
+}
+register_command_help read_db \
+    "read_db <filename> \[-help\] - Loads a native .led database file into an empty session" \
+    "Loads a database file written by write_db. Only works in an empty session (before anything is read or created). A file written by an older Layout Engine loads too: fields added or removed since are matched by name, and anything dropped is printed as a warning. Clears undo/redo. Returns 0 on success, nonzero on an error (the details are printed)." \
+    {
+        {<filename> {type file required 1 description {.led file to read}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc db_info {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "db_info <filename> \[-help\] - Describes a native .led database file without loading it"
+    }
+    if {[llength $args] != 1} {
+        error "db_info: expected exactly one <filename> argument, got \"$args\""
+    }
+    set text [db_info_cmd [lindex $args 0]]
+    if {[string match "error: *" $text]} {
+        error "db_info: [string range $text 7 end]"
+    }
+    return $text
+}
+register_command_help db_info \
+    "db_info <filename> \[-help\] - Describes a native .led database file without loading it" \
+    "Returns a description of a database file written by write_db: its schema version, whether it matches this build's schema, and how many objects of each class it holds." \
+    {
+        {<filename> {type file required 1 description {.led file to describe}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+rename ::source ::_source_real
+# `args`, not a fixed `{path}`, and forwarded through as-is (not just
+# `path`) - Tcl's own standard library autoloading calls the real
+# `source` with its own extra flags (e.g. `source -encoding utf-8
+# <path>`, `tclIndex`'s own auto_index entry for `history` and every
+# other not-yet-loaded core library command), and a fixed single-`path`
+# signature broke every one of those the moment this wrapper's own
+# `-help` support was added - `history` (a real user-visible regression,
+# not a naming collision with this project's own unrelated
+# command_history recall log) surfaced this first, but the bug would
+# have hit any other autoloaded stdlib proc too.
+proc source {args} {
+    if {[llength $args] == 1 && [lindex $args 0] eq "-help"} {
+        return "source <path> \[-help\] - Evaluates a Tcl script file"
+    }
+    return [uplevel 1 [linsert $args 0 _source_real]]
+}
+register_command_help source \
+    "source <path> \[-help\] - Evaluates a Tcl script file" \
+    "Runs a Tcl script file, as Tcl's own source does. Returns the result of the script's last command." \
+    {
+        {<path> {type file required 1 description {Tcl script file to evaluate}}}
+    }
+
+proc dump_png { path } {
+    if {$path eq "-help"} {
+        return "dump_png <path> \[-help\] - Writes the current render as a PNG file"
+    }
+    if {[dump_png_cmd $path] != 0} {
+        error "dump_png: failed to write PNG to \"$path\""
+    }
+    return ""
+}
+register_command_help dump_png \
+    "dump_png <path> \[-help\] - Writes the current render as a PNG file" \
+    "Renders the current view and writes it as a PNG with a transparent background, at the viewport size (see set_viewport_size) - no GUI needed." \
+    {
+        {<path> {type file required 1 description {Output PNG file path}}}
+    }
+
+# --- get_<type> (UPDATES.md item 19.1) ---
+#
+# `get_<type> [<name-expr>...] [-of <parent-token>...] [-filter <expr>]
+# [-help]` - one shared shape across every object type. parse_get_args
+# tokenizes a proc's own `args` into that shape; each has_name_expr=0
+# type (Abstract/TerminalPort/Obstruction/Shape - none have a name field,
+# see UPDATES.md item 19.1's own NOTE) rejects a bare positional token
+# instead of silently ignoring it. `-of`'s own value is itself a Tcl list
+# (same idiom as `-rect {...}`/`-points {...}` elsewhere in this file) -
+# `-of design:A` and `-of {design:A design:B}` both work, the latter OR'd
+# (UPDATES.md item 19.1: "-of <parent tokens>" is plural on purpose).
+proc parse_get_args {cmd_name args_list has_name_expr} {
+    set name_exprs {}
+    set of_tokens {}
+    set filter {}
+    set help 0
+
+    set i 0
+    set n [llength $args_list]
+    while {$i < $n} {
+        set token [lindex $args_list $i]
+        if {$token eq "-help"} {
+            set help 1
+            incr i
+        } elseif {$token eq "-of"} {
+            if {$i + 1 >= $n} {
+                error "$cmd_name: -of requires a value"
+            }
+            foreach t [lindex $args_list [expr {$i + 1}]] {
+                lappend of_tokens $t
+            }
+            incr i 2
+        } elseif {$token eq "-filter"} {
+            if {$i + 1 >= $n} {
+                error "$cmd_name: -filter requires a value"
+            }
+            set filter [lindex $args_list [expr {$i + 1}]]
+            incr i 2
+        } elseif {[string index $token 0] eq "-"} {
+            error "$cmd_name: unknown flag $token"
+        } else {
+            if {!$has_name_expr} {
+                error "$cmd_name: this object type has no name - only -of/-filter/-help are valid"
+            }
+            lappend name_exprs $token
+            incr i
+        }
+    }
+
+    return [dict create name_exprs $name_exprs of_tokens $of_tokens filter $filter help $help]
+}
+
+# Every -of token must be validated against `cmd_name`'s own valid
+# parent-type prefix set *before* any shim call (UPDATES.md item 19.1's
+# error-checking requirement 1) - a wrong-type token is a script bug, not
+# an empty-result-shaped "not found".
+proc check_of_prefixes {cmd_name of_tokens prefixes} {
+    foreach token $of_tokens {
+        set matched 0
+        foreach prefix $prefixes {
+            if {[string match "${prefix}:*" $token]} {
+                set matched 1
+                break
+            }
+        }
+        if {!$matched} {
+            error "$cmd_name: -of only accepts [join $prefixes {: or }]: tokens (got \"$token\") - only [join $prefixes { or }] objects are valid parents for $cmd_name"
+        }
+    }
+}
+
+# {} (a single empty-string element) is the "axis not given" default for
+# both name-expressions and -of tokens - each shim *_cmd already treats
+# an empty name_expression/of_token as "skip this axis"/"use the default
+# scope" (see le_tcl_shim.hpp's own "IDs" comment), so looping a
+# one-element list holding that empty string through the same call path
+# as a real value needs no special-casing here.
+proc default_to_unset {values} {
+    if {[llength $values] == 0} {
+        return {{}}
+    }
+    return $values
+}
+
+# --- get_properties/report_properties (UPDATES.md item 19.2) ---
+#
+# property_accessors_for_token (dispatches a friendly-id token to its
+# {count name value path} shim-function quadruplet by prefix, across
+# every TCL-readable class - not just library:/design:/abstract:/
+# terminal:/terminal_port:/obstruction:/shape:) and the ::property_scalars/
+# ::property_hops dot-path completion tables (UPDATES.md item 20) are
+# generated - see generated/le_tcl_procs_generated.tcl and
+# CLAUDE.md's TCL section. Never edit that file directly, regenerate via
+# the regen-tcl skill instead.
+# Tries the real source-tree layout first (generated/le_tcl_procs_generated.tcl,
+# alongside this file, unchanged - ctest/le_shell/tclsh all source this file
+# straight from src/tcl/, where that subdirectory genuinely exists),
+# then falls back to a flat layout (this file's own directory, no generated/
+# subdirectory) - a packaged release bundle can't preserve that nesting (the
+# whole flutter_plugin bundling mechanism installs individual files into one
+# flat lib/ directory, no per-file destination subdirectory) - confirmed
+# necessary by a real "couldn't read file .../generated/le_tcl_procs_generated.tcl:
+# no such file or directory" error running a release build.
+set _le_generated_procs_candidates [list \
+    [file join [file dirname [info script]] generated le_tcl_procs_generated.tcl] \
+    [file join [file dirname [info script]] le_tcl_procs_generated.tcl] \
+]
+foreach _le_candidate $_le_generated_procs_candidates {
+    if {[file exists $_le_candidate]} {
+        source $_le_candidate
+        break
+    }
+}
+unset _le_generated_procs_candidates _le_candidate
+
+# All properties for one token, as a dict - the shared building block
+# behind both get_properties and report_properties.
+proc properties_for_token {token} {
+    lassign [property_accessors_for_token $token] count_cmd name_cmd value_cmd
+    set result {}
+    set n [$count_cmd $token]
+    for {set i 0} {$i < $n} {incr i} {
+        dict set result [$name_cmd $token $i] [$value_cmd $token $i]
+    }
+    return $result
+}
+
+# `tokens`/`property_names` each independently collapse from "a list" to
+# "one value" when they hold exactly one element - Tcl can't otherwise
+# distinguish a single bare token/name from a one-element list of them
+# (`terminal:IN0` literal and a one-match [get_terminals] result are
+# structurally identical), so this is the only rule that can match every
+# one of UPDATES.md item 19.2's own worked examples:
+#   get_properties [get_terminals]              -> list of dicts (many tokens)
+#   get_properties terminal:IN0 .name           -> scalar (one token, one name)
+#   get_properties terminal:IN0 {.name .direction} -> flat list (one token, many names)
+#   get_properties [get_terminals] {.name .direction} -> list of flat lists
+#
+# Each requested property name is a dotted path (`.name`, or chained
+# through a hop like `.terminal.name` - src/database/filter.hpp's
+# parse_property_path/resolve_property_path grammar, the same one -filter
+# expressions already use for their own field paths) resolved via the
+# token's own *_property_path shim function - always through this path
+# mechanism, even for a plain single-segment name, rather than a separate
+# dict-lookup fast path, so chained and unchained lookups behave
+# identically. A path that fails to parse or references an unrecognized
+# field/hop logs an ERROR via spdlog::error and resolves to "" - the same
+# "" a structurally valid path that simply has no data for this object
+# (e.g. a list hop with zero elements) resolves to. property_path_failed
+# (backed by LeHandle::last_property_path_failed, api.hpp) is what still
+# tells the two apart from Tcl, now that the message text itself only
+# goes to the terminal log, not a queryable queue.
+proc get_properties {tokens {property_names {}}} {
+    set single_token [expr {[llength $tokens] == 1}]
+    set token_list [expr {$single_token ? [list $tokens] : $tokens}]
+
+    set results {}
+    foreach token $token_list {
+        if {[llength $property_names] == 0} {
+            lappend results [properties_for_token $token]
+        } else {
+            lassign [property_accessors_for_token $token] count_cmd name_cmd value_cmd path_cmd
+            set values {}
+            foreach path $property_names {
+                set value [$path_cmd $token $path]
+                if {[property_path_failed]} {
+                    error "get_properties: invalid property path \"$path\" for \"$token\" - see the terminal log for the specific reason"
+                }
+                lappend values $value
+            }
+            if {[llength $property_names] == 1} {
+                lappend results [lindex $values 0]
+            } else {
+                lappend results $values
+            }
+        }
+    }
+
+    if {$single_token} {
+        return [lindex $results 0]
+    }
+    return $results
+}
+register_command_help get_properties \
+    "get_properties <tokens> ?property_names? - Reads one or more dotted property paths from one or more friendly-id tokens" \
+    "Returns the properties of one or more objects: all of them, or the ones named (e.g. .name, or a chained path such as .terminal.name). One object and one property give a single value; otherwise a list. See man get_properties." \
+    {
+        {<tokens> {type token... required 1 description {An object's token, or a list of them (e.g. the result of get_terminals)}}}
+        {<property_names> {type str... required 0 description {A property path such as .name, or a list of them - every property if omitted}}}
+    }
+
+# Pretty-prints every property of every token to stdout, one block per
+# token, names padded (within that token's own block) to align values.
+proc report_properties {tokens} {
+    foreach token $tokens {
+        puts $token
+        set props [properties_for_token $token]
+        set max_len 0
+        foreach name [dict keys $props] {
+            if {[string length $name] > $max_len} {
+                set max_len [string length $name]
+            }
+        }
+        dict for {name value} $props {
+            puts [format "  %-*s %s" [expr {$max_len + 1}] "${name}:" $value]
+        }
+        puts ""
+    }
+}
+register_command_help report_properties \
+    "report_properties <tokens> - Pretty-prints every property of every token to stdout" \
+    "Prints every property of each object, one aligned block per object. For a value a script can use, see get_properties." \
+    {
+        {<tokens> {type token... required 1 description {An object's token, or a list of them}}}
+    }
+
+# --- Terminal (create_terminal/update_terminal are generated -
+# le_tcl_procs_generated.tcl) ---
+
+# --- TerminalPort (create_terminal_port is generated) ---
+
+# --- Obstruction (create_obstruction is generated) ---
+
+# --- Shape (create_shape/update_shape are generated - unify the former
+# create_terminal_port_shape/create_obstruction_shape split into one
+# command taking -terminal_port|-obstruction, exactly one required, and
+# take their own -rects/-polygons/-paths flags directly - geometry no
+# longer needs a separate add_shape_rect/_polygon/_path call after
+# create_shape; remove_shape_rect/_polygon/_path below still cover
+# removing one entry by index, the one thing update_shape's own
+# "replace-the-whole-list" flags don't do more conveniently) ---
+
+proc shape_rects {id} {
+    if {$id eq "-help"} {
+        return "shape_rects <id> \[-help\] - Every rect on Shape <id>, as a list of {{ll_x ll_y} {ur_x ur_y}} (microns)"
+    }
+    set result {}
+    set n [shape_rect_count $id]
+    for {set i 0} {$i < $n} {incr i} {
+        lappend result [shape_rect_at $id $i]
+    }
+    return $result
+}
+register_command_help shape_rects \
+    "shape_rects <id> \[-help\] - Every rect on Shape <id>, as a list of {{ll_x ll_y} {ur_x ur_y}} (microns)" \
+    "Returns a shape's rects as a list of {{ll_x ll_y} {ur_x ur_y}}, in microns - the form create_shape's -rects takes." \
+    {
+        {<id> {type token required 1 description {A shape: token}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc shape_polygons {id} {
+    if {$id eq "-help"} {
+        return "shape_polygons <id> \[-help\] - Every polygon on Shape <id>, as a list of {x y} point lists (microns)"
+    }
+    set result {}
+    set polygon_count [shape_polygon_count $id]
+    for {set p 0} {$p < $polygon_count} {incr p} {
+        set points {}
+        set point_count [shape_polygon_point_count $id $p]
+        for {set c 0} {$c < $point_count} {incr c} {
+            lappend points [shape_polygon_point_at $id $p $c]
+        }
+        lappend result $points
+    }
+    return $result
+}
+register_command_help shape_polygons \
+    "shape_polygons <id> \[-help\] - Every polygon on Shape <id>, as a list of {x y} point lists (microns)" \
+    "Returns a shape's polygons as a list of point lists, each point an {x y} pair in microns - the form create_shape's -polygons takes." \
+    {
+        {<id> {type token required 1 description {A shape: token}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# remove_shape_rect/_polygon/_path (BUGS_AND_ENHANCEMENTS.md E14) - the
+# last raw SWIG-bound commands left with no Tcl-level wrapper at all
+# (unlike every other command in this file, hand-written or generated) -
+# same `rename` + re-wrap trick read_lef/read_def use above, needed here
+# purely to intercept -help before it reaches the raw command's own fixed
+# 2-argument arity (id, index) and errors out. Return code/error
+# semantics are untouched - still an int, 0 on success, matching
+# le_remove_shape_rect/_polygon/_path's own doc comment.
+rename remove_shape_rect _remove_shape_rect_cmd
+proc remove_shape_rect {id args} {
+    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "remove_shape_rect <id> <index> \[-help\] - Removes the rect at <index> from Shape <id>"
+    }
+    if {[llength $args] != 1} {
+        error "remove_shape_rect: expected exactly 2 arguments (id, index), got [expr {1 + [llength $args]}]"
+    }
+    return [_remove_shape_rect_cmd $id [lindex $args 0]]
+}
+register_command_help remove_shape_rect \
+    "remove_shape_rect <id> <index> \[-help\]" \
+    "Removes the rect at <index> from a shape; later rects move down one index. Returns 0, or nonzero if the shape or index doesn't exist." \
+    {
+        {<id> {type token required 1 description {A shape: token}}}
+        {<index> {type int required 1 description {Rect index, from 0}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+rename remove_shape_polygon _remove_shape_polygon_cmd
+proc remove_shape_polygon {id args} {
+    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "remove_shape_polygon <id> <polygon_index> \[-help\] - Removes the polygon at <polygon_index> from Shape <id>"
+    }
+    if {[llength $args] != 1} {
+        error "remove_shape_polygon: expected exactly 2 arguments (id, polygon_index), got [expr {1 + [llength $args]}]"
+    }
+    return [_remove_shape_polygon_cmd $id [lindex $args 0]]
+}
+register_command_help remove_shape_polygon \
+    "remove_shape_polygon <id> <polygon_index> \[-help\]" \
+    "Removes the polygon at <polygon_index> from a shape; later polygons move down one index. Returns 0, or nonzero if the shape or index doesn't exist." \
+    {
+        {<id> {type token required 1 description {A shape: token}}}
+        {<polygon_index> {type int required 1 description {Polygon index, from 0}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+rename remove_shape_path _remove_shape_path_cmd
+proc remove_shape_path {id args} {
+    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "remove_shape_path <id> <path_index> \[-help\] - Removes the path at <path_index> from Shape <id>"
+    }
+    if {[llength $args] != 1} {
+        error "remove_shape_path: expected exactly 2 arguments (id, path_index), got [expr {1 + [llength $args]}]"
+    }
+    return [_remove_shape_path_cmd $id [lindex $args 0]]
+}
+register_command_help remove_shape_path \
+    "remove_shape_path <id> <path_index> \[-help\]" \
+    "Removes the path at <path_index> from a shape; later paths move down one index. Returns 0, or nonzero if the shape or index doesn't exist." \
+    {
+        {<id> {type token required 1 description {A shape: token}}}
+        {<path_index> {type int required 1 description {Path index, from 0}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- shape_* operations (NEW_FEATURES_SEPT_2026.md item 1) ---
+#
+# Every operation works on each input Shape's own merged area (its rects,
+# polygons and stroked paths together). New Shapes go to the current
+# Abstract/Layout's free-standing shapes (Abstract/Layout.free_shapes -
+# never written by write_lef/write_def) unless -parent names somewhere
+# else; see le_shape_*'s own api.hpp comment.
+
+# Parses a shape_* command's arguments: every non-flag argument is a shape
+# token or a *list* of them - so [get_selection]/[get_shapes ...] can be
+# passed straight in - flattened in order into the returned dict's `shapes`.
+# `flags` maps each allowed -flag to its default value.
+proc _parse_shape_op_args {name arglist flags} {
+    set opts $flags
+    set shapes {}
+    set i 0
+    set n [llength $arglist]
+    while {$i < $n} {
+        set arg [lindex $arglist $i]
+        if {[dict exists $flags $arg]} {
+            incr i
+            if {$i >= $n} {
+                error "$name: $arg requires a value"
+            }
+            dict set opts $arg [lindex $arglist $i]
+        } elseif {[string index $arg 0] eq "-"} {
+            error "$name: unknown option \"$arg\""
+        } else {
+            set shapes [concat $shapes $arg]
+        }
+        incr i
+    }
+    dict set opts shapes $shapes
+    return $opts
+}
+
+proc _require_shapes {name opts} {
+    if {[llength [dict get $opts shapes]] == 0} {
+        error "$name: expected at least one shape token"
+    }
+}
+
+proc _require_number {name flag value} {
+    if {![string is double -strict $value]} {
+        error "$name: $flag expects a number, got \"$value\""
+    }
+}
+
+# Maps a creating shape_*_cmd's own status to the new shape tokens, or to
+# a specific error - see le_tcl_shim.hpp's own shape_* comment.
+proc _finish_shape_op {name count} {
+    switch -- $count {
+        -2 {
+            error "$name: unknown -layer token"
+        }
+        -3 {
+            error "$name: -parent must name an existing abstract, layout, obstruction, terminal_port, route, blockage or physical_port_segment"
+        }
+    }
+    if {$count < 0} {
+        error "$name: failed - see the terminal log for the specific reason"
+    }
+    return [shape_op_results_cmd $count]
+}
+
+proc shape_copy {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_copy <shapes> -layer <token> \[-parent <token>\] \[-help\] - Copies shapes onto another layer"
+    }
+    set opts [_parse_shape_op_args shape_copy $args {-layer "" -parent ""}]
+    _require_shapes shape_copy $opts
+    if {[dict get $opts -layer] eq ""} {
+        error "shape_copy: -layer is required"
+    }
+    return [_finish_shape_op shape_copy [shape_copy_cmd [join [dict get $opts shapes]] [dict get $opts -layer] [dict get $opts -parent]]]
+}
+register_command_help shape_copy \
+    "shape_copy <shapes> -layer <token> \[-parent <token>\] \[-help\] - Copies shapes onto another layer" \
+    "Creates one new Shape per input shape, with the same geometry, on -layer. The originals are untouched. New Shapes go to the current Abstract/Layout's free-standing shapes (not written by write_lef/write_def) unless -parent names an abstract, layout, obstruction, terminal_port, route, blockage or physical_port_segment to add them to. Returns the new shape tokens." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them (e.g. [get_selection])}}}
+        {-layer {type token required 1 description {The layer to copy onto, or debug for the debug layer}}}
+        {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc shape_change_layer {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_change_layer <shapes> -layer <token> \[-help\] - Changes the layer of shapes"
+    }
+    set opts [_parse_shape_op_args shape_change_layer $args {-layer ""}]
+    _require_shapes shape_change_layer $opts
+    set layer [dict get $opts -layer]
+    if {$layer eq ""} {
+        error "shape_change_layer: -layer is required"
+    }
+    set count [shape_change_layer_cmd [join [dict get $opts shapes]] $layer]
+    if {$count == -2} {
+        error "shape_change_layer: unknown -layer token"
+    }
+    if {$count < 0} {
+        error "shape_change_layer: failed - see the terminal log for the specific reason"
+    }
+    return [dict get $opts shapes]
+}
+register_command_help shape_change_layer \
+    "shape_change_layer <shapes> -layer <token> \[-help\] - Changes the layer of shapes" \
+    "Puts each shape onto -layer in place (its geometry, position and owner are unchanged); -layer debug puts it on the debug layer (drawn on top of everything in light blue). All-or-nothing: an unknown shape changes nothing. Undoable. Returns the same shape tokens." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them (e.g. [get_selection])}}}
+        {-layer {type token required 1 description {The layer to move onto, or debug for the debug layer}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# Matches LeShapeBooleanOp (api.hpp): 0=OR, 1=AND, 2=NOT.
+proc _shape_boolean {name op arglist} {
+    if {[lsearch -exact $arglist "-help"] >= 0} {
+        return "$name <shapes> -with <shapes> \[-layer <token>\] \[-parent <token>\] \[-help\]"
+    }
+    set opts [_parse_shape_op_args $name $arglist {-with "" -layer "" -parent ""}]
+    _require_shapes $name $opts
+    if {[llength [dict get $opts -with]] == 0} {
+        error "$name: -with requires at least one shape token"
+    }
+    return [_finish_shape_op $name [shape_boolean_cmd [join [dict get $opts shapes]] [join [dict get $opts -with]] $op \
+        [dict get $opts -layer] [dict get $opts -parent]]]
+}
+
+proc shape_or {args} {
+    return [_shape_boolean shape_or 0 $args]
+}
+proc shape_and {args} {
+    return [_shape_boolean shape_and 1 $args]
+}
+proc shape_not {args} {
+    return [_shape_boolean shape_not 2 $args]
+}
+foreach {name what} {
+    shape_or {the union of both groups}
+    shape_and {the overlap of the two groups}
+    shape_not {the first group minus the -with group}
+} {
+    register_command_help $name \
+        "$name <shapes> -with <shapes> \[-layer <token>\] \[-parent <token>\] \[-help\] - Boolean [string toupper [string range $name 6 end]] of two shape groups" \
+        "Creates one new Shape holding $what, merging every shape within each group first. It goes on the first input shape's own layer unless -layer is given. A region with holes comes back as exact rects (a polygon can't hold a hole). An empty result creates nothing and returns an empty list. New Shapes go to the current Abstract/Layout's free-standing shapes unless -parent says otherwise (see shape_copy). Returns the new shape tokens." \
+        {
+            {<shapes> {type token... required 1 description {The first group - shape tokens, or lists of them}}}
+            {-with {type token... required 1 description {The second group - a list of shape tokens}}}
+            {-layer {type token required 0 description {Layer for the result (or debug for the debug layer) - defaults to the first input shape's own}}}
+            {-parent {type token required 0 description {Where the new Shape goes - defaults to the current Abstract/Layout's free-standing shapes}}}
+            {-help {type flag required 0 description {Show this usage message and return immediately}}}
+        }
+}
+
+proc shape_to_polygon {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_to_polygon <shapes> \[-layer <token>\] \[-parent <token>\] \[-help\] - Converts shapes to polygons"
+    }
+    set opts [_parse_shape_op_args shape_to_polygon $args {-layer "" -parent ""}]
+    _require_shapes shape_to_polygon $opts
+    return [_finish_shape_op shape_to_polygon [shape_to_polygon_cmd [join [dict get $opts shapes]] [dict get $opts -layer] [dict get $opts -parent]]]
+}
+register_command_help shape_to_polygon \
+    "shape_to_polygon <shapes> \[-layer <token>\] \[-parent <token>\] \[-help\] - Converts shapes to polygons" \
+    "Creates one new polygon-only Shape per input shape, covering its merged area. A region with holes is split into exact rectangular polygons (a polygon can't hold a hole). Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
+        {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc shape_to_rects {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_to_rects <shapes> \[-direction horizontal|vertical\] \[-layer <token>\] \[-parent <token>\] \[-help\] - Converts shapes to rects"
+    }
+    set opts [_parse_shape_op_args shape_to_rects $args {-direction horizontal -layer "" -parent ""}]
+    _require_shapes shape_to_rects $opts
+    switch -- [dict get $opts -direction] {
+        horizontal { set vertical 0 }
+        vertical { set vertical 1 }
+        default { error "shape_to_rects: -direction must be horizontal or vertical" }
+    }
+    return [_finish_shape_op shape_to_rects [shape_to_rects_cmd [join [dict get $opts shapes]] $vertical [dict get $opts -layer] [dict get $opts -parent]]]
+}
+register_command_help shape_to_rects \
+    "shape_to_rects <shapes> \[-direction horizontal|vertical\] \[-layer <token>\] \[-parent <token>\] \[-help\] - Converts shapes to rects" \
+    "Creates one new rect-only Shape per input shape, fracturing its merged area into non-overlapping rects: -direction horizontal (the default) cuts with horizontal lines, giving horizontal strips; vertical gives vertical strips. Exact for axis-aligned geometry; a diagonal edge is over-covered by its strip's bounding box. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {-direction {type str required 0 description {horizontal (default) or vertical fracturing}}}
+        {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
+        {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc shape_bbox {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_bbox <shapes> \[-help\] - Returns the bounding box of shapes"
+    }
+    set opts [_parse_shape_op_args shape_bbox $args {}]
+    _require_shapes shape_bbox $opts
+    set box [shape_bbox_cmd [join [dict get $opts shapes]]]
+    if {$box eq ""} {
+        error "shape_bbox: failed - see the terminal log for the specific reason"
+    }
+    return $box
+}
+register_command_help shape_bbox \
+    "shape_bbox <shapes> \[-help\] - Returns the bounding box of shapes" \
+    "Returns the bounding box of every given shape together as a Rect, {{llx lly} {urx ury}} in microns - the same form -bbox/-rects flags and zoom_area take (zoom_area \[shape_bbox ...\]). Creates nothing." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc shape_size {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_size <shapes> \[-by <um>\] \[-x <um>\] \[-y <um>\] \[-layer <token>\] \[-parent <token>\] \[-help\] - Grows or shrinks shapes"
+    }
+    set opts [_parse_shape_op_args shape_size $args {-by "" -x "" -y "" -layer "" -parent ""}]
+    _require_shapes shape_size $opts
+    set by [dict get $opts -by]
+    if {$by ne ""} {
+        _require_number shape_size -by $by
+    } else {
+        set by 0
+    }
+    set dx [expr {[dict get $opts -x] ne "" ? [dict get $opts -x] : $by}]
+    set dy [expr {[dict get $opts -y] ne "" ? [dict get $opts -y] : $by}]
+    _require_number shape_size -x $dx
+    _require_number shape_size -y $dy
+    return [_finish_shape_op shape_size [shape_size_cmd [join [dict get $opts shapes]] $dx $dy [dict get $opts -layer] [dict get $opts -parent]]]
+}
+register_command_help shape_size \
+    "shape_size <shapes> \[-by <um>\] \[-x <um>\] \[-y <um>\] \[-layer <token>\] \[-parent <token>\] \[-help\] - Grows or shrinks shapes" \
+    "Creates one new Shape per input shape: its merged area grown (positive) or shrunk (negative) by -x microns in X and -y in Y (-by sets both; an explicit -x/-y overrides it). Exact for axis-aligned geometry with any X/Y amounts; other geometry only supports equal X and Y. A shape shrunk away entirely creates nothing. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {-by {type um required 0 description {Grow (positive) or shrink (negative) by this in both X and Y, in microns}}}
+        {-x {type um required 0 description {Grow/shrink in X, in microns - overrides -by}}}
+        {-y {type um required 0 description {Grow/shrink in Y, in microns - overrides -by}}}
+        {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
+        {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc shape_path {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "shape_path <shapes> -width <um> \[-layer <token>\] \[-parent <token>\] \[-help\] - Creates paths along shape outlines"
+    }
+    set opts [_parse_shape_op_args shape_path $args {-width "" -layer "" -parent ""}]
+    _require_shapes shape_path $opts
+    set width [dict get $opts -width]
+    if {$width eq ""} {
+        error "shape_path: -width is required"
+    }
+    _require_number shape_path -width $width
+    return [_finish_shape_op shape_path [shape_path_cmd [join [dict get $opts shapes]] $width [dict get $opts -layer] [dict get $opts -parent]]]
+}
+register_command_help shape_path \
+    "shape_path <shapes> -width <um> \[-layer <token>\] \[-parent <token>\] \[-help\] - Creates paths along shape outlines" \
+    "Creates one new path-only Shape per input shape: a closed path of -width microns along the outline of its merged rects/polygons (and around any holes), plus each of its own paths' centerlines re-stroked at -width. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
+    {
+        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {-width {type um required 1 description {Path width, in microns}}}
+        {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
+        {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- GUI (Dear ImGui prototype - see src/gui/le_gui.hpp) ---
+
+# Requests that le_shell's own dedicated GUI thread open a window showing
+# this session's current view - fire-and-forget (request_show_gui_cmd
+# just sets a flag and returns), so the console prompt keeps working
+# immediately, not blocked on the window actually appearing. A no-op if
+# running under a caller (e.g. a test harness) with no such thread
+# polling for the request - the flag is simply never consumed, and this
+# command still returns successfully either way.
+proc show_gui {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "show_gui \[-help\] - Opens a window showing this session's current view"
+    }
+    request_show_gui_cmd
+    puts "show_gui: opening window..."
+}
+register_command_help show_gui \
+    "show_gui \[-help\] - Opens a window showing this session's current view" \
+    "Opens a window showing the session's current view. It shares the session - the mouse and keyboard there act on the same design as the console. Returns at once." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc close_gui {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "close_gui \[-help\] - Closes the GUI window, leaving le_shell running"
+    }
+    request_close_gui_cmd
+    return ""
+}
+register_command_help close_gui \
+    "close_gui \[-help\] - Closes the GUI window, leaving le_shell running" \
+    "Closes the window show_gui opened, without asking - nothing is lost, and show_gui reopens it. The window's own close button instead asks whether to close the window or exit." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc unsaved_changes {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "unsaved_changes \[-help\] - Lists what has changed since it was last saved: design and/or settings"
+    }
+    set result {}
+    if {[has_unsaved_database_changes_cmd]} {
+        lappend result design
+    }
+    if {[has_unsaved_settings_cmd]} {
+        lappend result settings
+    }
+    return $result
+}
+register_command_help unsaved_changes \
+    "unsaved_changes \[-help\] - Lists what has changed since it was last saved: design and/or settings" \
+    "Returns what has changed since it was last saved: \"design\" if the design has edits not yet written with write_def or write_lef (reading files doesn't count), and \"settings\" if settings differ from the last save_settings or load_settings. Empty if nothing is unsaved. le_shell asks before exiting when it isn't." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc shape_paths {id} {
+    if {$id eq "-help"} {
+        return "shape_paths <id> \[-help\] - Every path on Shape <id>, as a list of {width {{x y} ...}} (microns)"
+    }
+    set result {}
+    set path_count [shape_path_count $id]
+    for {set p 0} {$p < $path_count} {incr p} {
+        set points {}
+        set point_count [shape_path_point_count $id $p]
+        for {set c 0} {$c < $point_count} {incr c} {
+            lappend points [shape_path_point_at $id $p $c]
+        }
+        lappend result [list [shape_path_width_um $id $p] $points]
+    }
+    return $result
+}
+register_command_help shape_paths \
+    "shape_paths <id> \[-help\] - Every path on Shape <id>, as a list of {width {{x y} ...}} (microns)" \
+    "Returns a shape's paths as a list of {width {{x y} {x y} ...}}, in microns - the form create_shape's -paths takes." \
+    {
+        {<id> {type token required 1 description {A shape: token}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_hierarchy_depth { depth } {
+    if {$depth eq "-help"} {
+        return "set_hierarchy_depth <depth> \[-help\] - Sets the visible hierarchy depth"
+    }
+    set_hierarchy_depth_command $depth
+}
+register_command_help set_hierarchy_depth \
+    "set_hierarchy_depth <depth> \[-help\]" \
+    "Sets how many levels of placed designs the layout view draws in full; deeper placements are drawn as their cells' abstracts." \
+    {
+        {<depth> {type int required 1 description {The hierarchy depth, 1 or larger}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_flightline_max_fanout { max_fanout } {
+    if {$max_fanout eq "-help"} {
+        return "set_flightline_max_fanout <max_fanout> \[-help\] - Sets the flightline fanout limit"
+    }
+    if {![string is integer -strict $max_fanout] || $max_fanout < 0} {
+        error "set_flightline_max_fanout: expected a non-negative integer, got \"$max_fanout\""
+    }
+    set_flightline_max_fanout_command $max_fanout
+    return ""
+}
+register_command_help set_flightline_max_fanout \
+    "set_flightline_max_fanout <max_fanout> \[-help\]" \
+    "Sets the flightline fanout limit - a net connecting more than <max_fanout> pins besides the selected one (e.g. a clock or reset net) draws no flightlines. 0 means no limit; 10 by default." \
+    {
+        {<max_fanout> {type int required 1 description {The fanout limit, 0 for none}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_flightline_max_fanout {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_flightline_max_fanout \[-help\] - Returns the flightline fanout limit"
+    }
+    return [get_flightline_max_fanout_command]
+}
+register_command_help get_flightline_max_fanout \
+    "get_flightline_max_fanout \[-help\]" \
+    "Returns the flightline fanout limit (0 means no limit)." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- Settings (NEW_FEATURES_SEPT_2026.md item 9 - the Settings panel's own
+# values, and the JSON file they save to/load from) ---
+
+proc set_grid_spacing {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "set_grid_spacing \[-minor <um>\] \[-major <um>\] \[-help\] - Sets the minor/major grid spacing in microns"
+    }
+    array set opts {-minor 0 -major 0}
+    foreach {flag value} $args {
+        if {![info exists opts($flag)]} {
+            error "set_grid_spacing: unknown flag $flag"
+        }
+        if {![string is double -strict $value] || $value <= 0} {
+            error "set_grid_spacing: $flag expects a positive number of microns, got \"$value\""
+        }
+        set opts($flag) $value
+    }
+    set_grid_spacing_um_command $opts(-minor) $opts(-major)
+    return ""
+}
+register_command_help set_grid_spacing \
+    "set_grid_spacing \[-minor <um>\] \[-major <um>\] \[-help\]" \
+    "Sets the background grid spacing in microns - the minor grid is also what drawing, Move and Resize snap to. An omitted flag leaves that spacing unchanged. Before any technology is read the value is held and applied once one is." \
+    {
+        {-minor {type double required 0 description {Minor grid spacing, in microns}}}
+        {-major {type double required 0 description {Major grid spacing, in microns}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_grid_spacing {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_grid_spacing \[-major\] \[-help\] - Returns the minor (or major) grid spacing in microns"
+    }
+    return [get_grid_spacing_um_command [expr {[lsearch -exact $args "-major"] >= 0}]]
+}
+register_command_help get_grid_spacing \
+    "get_grid_spacing \[-major\] \[-help\]" \
+    "Returns the minor grid spacing in microns, or the major one with -major; -1 if it isn't known yet (no technology read and none set)." \
+    {
+        {-major {type flag required 0 description {Return the major grid spacing instead}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_ruler_label_size {px} {
+    if {$px eq "-help"} {
+        return "set_ruler_label_size <px> \[-help\] - Sets the ruler label font size"
+    }
+    set_ruler_label_size_command $px
+    return ""
+}
+register_command_help set_ruler_label_size \
+    "set_ruler_label_size <px> \[-help\]" \
+    "Sets the on-screen font size (pixels) of ruler labels. 11 by default; values <= 0 are ignored." \
+    {
+        {<px> {type double required 1 description {Font size in pixels}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_ruler_label_size {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_ruler_label_size \[-help\] - Returns the ruler label font size"
+    }
+    return [get_ruler_label_size_command]
+}
+register_command_help get_ruler_label_size \
+    "get_ruler_label_size \[-help\]" \
+    "Returns the ruler label font size in pixels." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_label_min_size {px} {
+    if {$px eq "-help"} {
+        return "set_label_min_size <px> \[-help\] - Sets the smallest font size of shape and placement labels"
+    }
+    set_label_min_size_command $px
+    return ""
+}
+register_command_help set_label_min_size \
+    "set_label_min_size <px> \[-help\]" \
+    "Sets the smallest on-screen font size (pixels) of pin, route and placement name labels - they scale with their shapes between this and set_label_max_size's size, so they stay legible when zoomed out. 12 by default; a min above the max yields to the max; values <= 0 are ignored." \
+    {
+        {<px> {type double required 1 description {Font size in pixels}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_label_min_size {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_label_min_size \[-help\] - Returns the smallest font size of shape and placement labels"
+    }
+    return [get_label_min_size_command]
+}
+register_command_help get_label_min_size \
+    "get_label_min_size \[-help\]" \
+    "Returns the smallest label font size in pixels - see set_label_min_size." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_label_max_size {px} {
+    if {$px eq "-help"} {
+        return "set_label_max_size <px> \[-help\] - Sets the largest font size of shape and placement labels"
+    }
+    set_label_max_size_command $px
+    return ""
+}
+register_command_help set_label_max_size \
+    "set_label_max_size <px> \[-help\]" \
+    "Sets the largest on-screen font size (pixels) of pin, route and placement name labels - they scale with their shapes between set_label_min_size's size and this, so they don't grow without bound when zoomed in. 24 by default; values <= 0 are ignored." \
+    {
+        {<px> {type double required 1 description {Font size in pixels}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_label_max_size {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_label_max_size \[-help\] - Returns the largest font size of shape and placement labels"
+    }
+    return [get_label_max_size_command]
+}
+register_command_help get_label_max_size \
+    "get_label_max_size \[-help\]" \
+    "Returns the largest label font size in pixels - see set_label_max_size." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_layer_color {layer color} {
+    if {$layer eq "-help"} {
+        return "set_layer_color <layer> <#rrggbb> \[-help\] - Sets a layer's color"
+    }
+    if {[set_layer_color_command $layer $color] != 0} {
+        error "set_layer_color: \"$color\" isn't a #rrggbb color"
+    }
+    return ""
+}
+register_command_help set_layer_color \
+    "set_layer_color <layer> <#rrggbb> \[-help\]" \
+    "Sets the color of every purpose of <layer> (a technology layer, or a row like BOUNDARY), replacing its default palette color - the same as picking one from its swatch in the Layers panel. Saved by save_settings. A layer that doesn't exist yet takes the color once it's read. See reset_layer_color." \
+    {
+        {<layer> {type str required 1 description {Layer (or row) name}}}
+        {<color> {type str required 1 description {Color as #rrggbb}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc reset_layer_color {layer} {
+    if {$layer eq "-help"} {
+        return "reset_layer_color <layer> \[-help\] - Returns a layer to its default color"
+    }
+    reset_layer_color_command $layer
+    return ""
+}
+register_command_help reset_layer_color \
+    "reset_layer_color <layer> \[-help\]" \
+    "Drops set_layer_color's color for <layer>, returning it to its default palette color." \
+    {
+        {<layer> {type str required 1 description {Layer (or row) name}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_layer_color {layer} {
+    if {$layer eq "-help"} {
+        return "get_layer_color <layer> \[-help\] - Returns a layer's color as #rrggbb"
+    }
+    set color [get_layer_color_command $layer]
+    if {$color eq ""} {
+        error "get_layer_color: no layer or row named \"$layer\""
+    }
+    return $color
+}
+register_command_help get_layer_color \
+    "get_layer_color <layer> \[-help\]" \
+    "Returns the current color of <layer> (a technology layer, or a row like BOUNDARY) as #rrggbb - set_layer_color's if set, else its default." \
+    {
+        {<layer> {type str required 1 description {Layer (or row) name}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc save_settings {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "save_settings \[<path>\] \[-help\] - Saves the settings as JSON"
+    }
+    if {[llength $args] > 1} {
+        error "save_settings: expected at most one <path>, got \"$args\""
+    }
+    set path [lindex $args 0]
+    if {[save_settings_command $path] != 0} {
+        error "save_settings: couldn't write [expr {$path eq "" ? [default_settings_path_command] : $path}] - see the terminal log"
+    }
+    return ""
+}
+register_command_help save_settings \
+    "save_settings \[<path>\] \[-help\]" \
+    "Saves the settings - grid spacing, font sizes, hierarchy depth, flightline fanout limit, CPUs, snap modes and layer colors - as JSON to <path>, or to ~/.layout_engine/settings.json if omitted, which le_shell loads when it starts." \
+    {
+        {<path> {type file required 0 description {JSON file to write - ~/.layout_engine/settings.json if omitted}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc load_settings {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "load_settings \[<path>\] \[-help\] - Loads settings saved by save_settings"
+    }
+    if {[llength $args] > 1} {
+        error "load_settings: expected at most one <path>, got \"$args\""
+    }
+    set path [lindex $args 0]
+    if {[load_settings_command $path] != 0} {
+        error "load_settings: couldn't read [expr {$path eq "" ? [default_settings_path_command] : $path}] - see the terminal log"
+    }
+    return ""
+}
+register_command_help load_settings \
+    "load_settings \[<path>\] \[-help\]" \
+    "Loads settings written by save_settings from <path>, or ~/.layout_engine/settings.json if omitted. A setting missing from the file keeps its current value; an invalid one is skipped with a warning." \
+    {
+        {<path> {type file required 0 description {JSON file to read - ~/.layout_engine/settings.json if omitted}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_hierarchy_depth {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_hierarchy_depth \[-help\] - Returns the visible hierarchy depth"
+    }
+    return [get_hierarchy_depth_command]
+}
+register_command_help get_hierarchy_depth \
+    "get_hierarchy_depth \[-help\]" \
+    "Returns the hierarchy depth - see set_hierarchy_depth." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_max_concurrency { max_concurrency } {
+    if {$max_concurrency eq "-help"} {
+        return "set_max_concurrency <max_concurrency> \[-help\] - Sets the max number of threads the backend may use"
+    }
+    set_max_concurrency_command $max_concurrency
+}
+register_command_help set_max_concurrency \
+    "set_max_concurrency <max_concurrency> \[-help\]" \
+    "Sets the most threads rendering may use at once - useful to limit CPU use on machines with many cores. At least 2; 8 by default. The Settings panel's CPUs field." \
+    {
+        {<max_concurrency> {type int required 1 description {Most threads, at least 2}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_max_concurrency {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_max_concurrency \[-help\] - Returns the max number of threads the backend may use"
+    }
+    return [get_max_concurrency_command]
+}
+register_command_help get_max_concurrency \
+    "get_max_concurrency \[-help\]" \
+    "Returns the most threads rendering may use at once." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+# --- get_instances/get_nets/get_ports: hierarchical path override
+# (LINKING_STRATEGY_RESEARCH.md sections 3/4) ---
+#
+# Overrides the three generated flat-search procs of the same name
+# (sourced above from generated/le_tcl_procs_generated.tcl) - Tcl's own
+# "last proc definition wins" semantics make this a real replacement, not
+# a conflict. Each name-expr is checked independently: one containing "/"
+# routes through the shared hierarchical resolver - the exact same one
+# `link` itself uses internally (src/database/
+# hierarchical_resolver.hpp) - via the new get_<type>s_by_path_cmd; a
+# bare name-expr with no "/" is the plain, fully-backward-compatible flat
+# glob-match case, routed through the original get_<type>s_cmd exactly as
+# before (a real "/"-free single-level glob is still expressed as one
+# such bare name-expr, unchanged). "**" (recursive descent - e.g.
+# "get_instances top/a/b/**" lists every instance nested anywhere under
+# "b", at any depth) works the same way as a mid-path or leaf glob
+# segment, since it's the same shared resolver either way - a genuine
+# differentiator most EDA tool TCL interfaces don't offer. A *bare* "**"
+# with no "/" at all (recursive descent from the current/`-of` scope
+# itself, e.g. plain "get_instances **") is routed to the path resolver
+# too via an explicit `eq "**"` check alongside the "/" check below - it
+# has no slash to trigger the plain heuristic, but still means "resolve
+# via the hierarchical path resolver," not "a literal two-character glob
+# pattern" (which would harmlessly, but wrongly, collapse to a same-level-
+# only "*"). `-filter` still applies on top of a path result exactly as
+# it does for a flat one.
+
+proc get_instances {args} {
+    set parsed [parse_get_args get_instances $args 1]
+    if {[dict get $parsed help]} {
+        return "get_instances \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\] - An instance of another design, or a placeholder for source code that could not be fully read. A name-expr containing \"/\" is a hierarchical path down the Instance tree (each segment may be a plain literal, a glob, or \"**\" for recursive descent) - e.g. \"top/a/b/**\" lists every instance nested anywhere under \"b\"."
+    }
+    check_of_prefixes get_instances [dict get $parsed of_tokens] {schematic}
+    set filter [dict get $parsed filter]
+
+    set result {}
+    foreach of_token [default_to_unset [dict get $parsed of_tokens]] {
+        set of_schematic {}
+        if {[string match "schematic:*" $of_token]} {
+            set of_schematic $of_token
+        }
+        foreach name_expr [default_to_unset [dict get $parsed name_exprs]] {
+            if {[string first "/" $name_expr] >= 0 || $name_expr eq "**"} {
+                set count [get_instances_by_path_cmd $of_schematic $name_expr $filter]
+            } else {
+                set count [get_instances_cmd $of_schematic $name_expr $filter]
+            }
+            for {set i 0} {$i < $count} {incr i} {
+                lappend result [get_instances_at $i]
+            }
+        }
+    }
+    return [lsort -unique $result]
+}
+register_command_help get_instances \
+    "get_instances \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\]" \
+    "Returns the instances matching the given names and filters - an instance being a placed design in a schematic, or a placeholder for source that couldn't be read. A name containing \"/\" is a hierarchical path: each part is a name or glob, and \"**\" matches any depth (e.g. \"top/a/b/**\" is every instance anywhere under b)." \
+    $get_instances_options
+
+proc get_nets {args} {
+    set parsed [parse_get_args get_nets $args 1]
+    if {[dict get $parsed help]} {
+        return "get_nets \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\] - Logical connectivity net within a Schematic. A name-expr containing \"/\" is a hierarchical path (each segment may be a plain literal, a glob, or \"**\" for recursive descent) - e.g. \"top/a/b/**\" lists every net nested anywhere under \"b\"."
+    }
+    check_of_prefixes get_nets [dict get $parsed of_tokens] {schematic}
+    set filter [dict get $parsed filter]
+
+    set result {}
+    foreach of_token [default_to_unset [dict get $parsed of_tokens]] {
+        set of_schematic {}
+        if {[string match "schematic:*" $of_token]} {
+            set of_schematic $of_token
+        }
+        foreach name_expr [default_to_unset [dict get $parsed name_exprs]] {
+            if {[string first "/" $name_expr] >= 0 || $name_expr eq "**"} {
+                set count [get_nets_by_path_cmd $of_schematic $name_expr $filter]
+            } else {
+                set count [get_nets_cmd $of_schematic $name_expr $filter]
+            }
+            for {set i 0} {$i < $count} {incr i} {
+                lappend result [get_nets_at $i]
+            }
+        }
+    }
+    return [lsort -unique $result]
+}
+register_command_help get_nets \
+    "get_nets \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\]" \
+    "Returns the nets matching the given names and filters - one net per bit of a schematic's wires. A name containing \"/\" is a hierarchical path ending at a net: each part is a name or glob, and \"**\" matches any depth (e.g. \"u_block/u_aes/address\[7\]\", or \"top/a/b/**\" for every net anywhere under b)." \
+    $get_nets_options
+
+proc get_ports {args} {
+    set parsed [parse_get_args get_ports $args 1]
+    if {[dict get $parsed help]} {
+        return "get_ports \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\] - Logical top-level port of a Schematic. A name-expr containing \"/\" is a hierarchical path (each segment may be a plain literal, a glob, or \"**\" for recursive descent) - e.g. \"top/a/b/**\" lists every port nested anywhere under \"b\"."
+    }
+    check_of_prefixes get_ports [dict get $parsed of_tokens] {schematic}
+    set filter [dict get $parsed filter]
+
+    set result {}
+    foreach of_token [default_to_unset [dict get $parsed of_tokens]] {
+        set of_schematic {}
+        if {[string match "schematic:*" $of_token]} {
+            set of_schematic $of_token
+        }
+        foreach name_expr [default_to_unset [dict get $parsed name_exprs]] {
+            if {[string first "/" $name_expr] >= 0 || $name_expr eq "**"} {
+                set count [get_ports_by_path_cmd $of_schematic $name_expr $filter]
+            } else {
+                set count [get_ports_cmd $of_schematic $name_expr $filter]
+            }
+            for {set i 0} {$i < $count} {incr i} {
+                lappend result [get_ports_at $i]
+            }
+        }
+    }
+    return [lsort -unique $result]
+}
+register_command_help get_ports \
+    "get_ports \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\]" \
+    "Returns the ports matching the given names and filters - one port per bit of a schematic's inputs, outputs and inouts. A name containing \"/\" is a hierarchical path ending at a port: each part is a name or glob, and \"**\" matches any depth." \
+    $get_ports_options
+
+# --- delete_net/update_net/update_instance: mutation side-effect
+# overrides (LINKING_STRATEGY_RESEARCH.md section 5) ---
+#
+# Overrides the three generated procs of the same name (sourced above
+# from generated/le_tcl_procs_generated.tcl) - same "last proc definition
+# wins" mechanism the get_instances/get_nets/get_ports overrides above
+# use. delete_net always routes through delete_net_cascade_cmd - a Net
+# delete needs the same Route-delete/PhysicalPort.net-clearing/Pin.net-
+# clearing/Port.net-clearing side effects every time (section 5a).
+# update_net/update_instance only need the rename-propagation path
+# (rename_net_cmd/rename_instance_cmd) when their own -name flag is the
+# *only* flag present - any other shape (a plain non-rename update, or a
+# rename combined with some other field change in the same call) falls
+# through to the original generated update_net_cmd/update_instance_cmd
+# unchanged, since propagation only has meaning for a pure rename and
+# there's no reason this override can't stay narrow. Help text/options
+# tables below are copied verbatim from the generated procs (still the
+# accurate flag-level documentation - only the dispatch body changes).
+
+proc delete_net {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "delete_net <id> \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus."
+    }
+    if {[llength $args] != 1} {
+        error "delete_net: exactly one argument (a Net id) is required"
+    }
+    if {[delete_net_cascade_cmd [lindex $args 0]] != 0} {
+        error "delete_net: failed to delete \"[lindex $args 0]\""
+    }
+    return 0
+}
+register_command_help delete_net "delete_net <id> \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus." "Deletes a net." {{<id> {type token required 1 description {Token of the net to delete}}} {-help {type flag required 0 description {Show this usage message and return immediately}}}}
+
+proc update_net {id args} {
+    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "update_net <id> \[-schematic <token>\] \[-bus <token>\] \[-name <str>\] \[-bit_index <int>\] \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus"
+    }
+    if {[llength $args] == 0} {
+        error "update_net: at least one -flag is required"
+    }
+    array set opts {-schematic {} -bus {} -name {} -bit_index {}}
+    foreach {flag value} $args {
+        if {![info exists opts($flag)]} {
+            error "update_net: unknown flag $flag"
+        }
+        set opts($flag) $value
+    }
+
+    if {$opts(-name) ne {} && $opts(-schematic) eq {} && $opts(-bus) eq {} && $opts(-bit_index) eq {}} {
+        set new_id [rename_net_cmd $id $opts(-name)]
+        if {$new_id eq {}} {
+            error "update_net: failed to update \"$id\""
+        }
+        return $new_id
+    }
+
+    set new_id [update_net_cmd $id [expr {$opts(-schematic) ne {} ? 1 : 0}] $opts(-schematic) [expr {$opts(-bus) ne {} ? 1 : 0}] $opts(-bus) $opts(-name) [expr {$opts(-bit_index) ne {} ? 1 : 0}] [expr {$opts(-bit_index) ne {} ? $opts(-bit_index) : 0}]]
+    if {$new_id eq {}} {
+        error "update_net: failed to update \"$id\""
+    }
+    return $new_id
+}
+register_command_help update_net "update_net <id> \[-schematic <token>\] \[-bus <token>\] \[-name <str>\] \[-bit_index <int>\] \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus" "Changes the given fields of a net; omitted flags leave a field unchanged." {{-schematic {type token required 0 description {Move it to this schematic (token)}}} {-bus {type token required 0 description {The NetBus this Net is one bit of, if any - unset for a scalar (1-bit) net}}} {-name {type str required 0 description {The net's name - bracketed ("address[7]") for one bit of a bus, plain otherwise; unique within its schematic}}} {-bit_index {type int required 0 description {Which bit of -bus this net is - unset for a 1-bit net}}} {-help {type flag required 0 description {Show this usage message and return immediately}}}}
+
+proc update_instance {id args} {
+    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "update_instance <id> \[-schematic <token>\] \[-reference_design <token>\] \[-name <str>\] \[-reference_name <str>\] \[-location <Point>\] \[-rtl_text <str>\] \[-source_file <str>\] \[-diagnostic_summary <str>\] \[-help\] - An instance of another design, or a placeholder for source code that could not be fully read"
+    }
+    if {[llength $args] == 0} {
+        error "update_instance: at least one -flag is required"
+    }
+    array set opts {-schematic {} -reference_design {} -name {} -reference_name {} -location {} -rtl_text {} -source_file {} -diagnostic_summary {}}
+    foreach {flag value} $args {
+        if {![info exists opts($flag)]} {
+            error "update_instance: unknown flag $flag"
+        }
+        set opts($flag) $value
+    }
+
+    if {$opts(-name) ne {} && $opts(-schematic) eq {} && $opts(-reference_design) eq {} \
+            && $opts(-reference_name) eq {} && [llength $opts(-location)] == 0 \
+            && $opts(-rtl_text) eq {} && $opts(-source_file) eq {} && $opts(-diagnostic_summary) eq {}} {
+        set new_id [rename_instance_cmd $id $opts(-name)]
+        if {$new_id eq {}} {
+            error "update_instance: failed to update \"$id\""
+        }
+        return $new_id
+    }
+
+    set location_vals $opts(-location)
+    set has_location [expr {[llength $location_vals] > 0 ? 1 : 0}]
+    if {$has_location && [llength $location_vals] != 2} {
+        error "update_instance: -location expects 2 values {x y}, got [llength $location_vals]"
+    }
+    if {!$has_location} { set location_vals {0 0} }
+    lassign $location_vals location_x_um location_y_um
+    set new_id [update_instance_cmd $id [expr {$opts(-schematic) ne {} ? 1 : 0}] $opts(-schematic) [expr {$opts(-reference_design) ne {} ? 1 : 0}] $opts(-reference_design) $opts(-name) $opts(-reference_name) $has_location $location_x_um $location_y_um $opts(-rtl_text) $opts(-source_file) $opts(-diagnostic_summary)]
+    if {$new_id eq {}} {
+        error "update_instance: failed to update \"$id\""
+    }
+    return $new_id
+}
+register_command_help update_instance "update_instance <id> \[-schematic <token>\] \[-reference_design <token>\] \[-name <str>\] \[-reference_name <str>\] \[-location <Point>\] \[-rtl_text <str>\] \[-source_file <str>\] \[-diagnostic_summary <str>\] \[-help\] - An instance of another design, or a placeholder for source code that could not be fully read" "Changes the given fields of an instance; omitted flags leave a field unchanged." {{-schematic {type token required 0 description {Move it to this schematic (token)}}} {-reference_design {type token required 0 description {The design it's an instance of, once resolved - never set for a placeholder instance}}} {-name {type str required 0 description {The instance's name - unique within its schematic}}} {-reference_name {type str required 0 description {The name of the referenced design, if known}}} {-location {type Point required 0 description {The location of the lower-left corner of this instance}}} {-rtl_text {type str required 0 description {The original source text, if this instance is a placeholder for source code that could not be fully read - unset for a normal instance}}} {-source_file {type str required 0 description {The file rtl_text came from, if known}}} {-diagnostic_summary {type str required 0 description {A short explanation of why this instance's source could not be fully read, if available}}} {-help {type flag required 0 description {Show this usage message and return immediately}}}}

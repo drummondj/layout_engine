@@ -36,7 +36,7 @@ Secondary goals:
 
 ## 1. What exists today
 
-Paths below are relative to `backend/src/`.
+Paths below are relative to `src/`.
 
 **Database shape**
 - Every pooled class is a plain struct, `XxxData` (for example `database/generated/net.hpp`, `NetData`), stored in `Pool<XxxData, XxxId>` (`database/generated/pool.hpp`).
@@ -162,8 +162,8 @@ Schema evolution is handled by a single mechanism: an **ordered chain of declara
 
 | Artifact | Location | Written by | Purpose |
 |---|---|---|---|
-| Schema snapshot | `backend/src/database/schema_history/<version>.json` | codegen, on every version bump | The exact shape of version *N*: classes, fields, types, enums, parent relations. The "before" side of the next migration, and the reference the chain is checked against. |
-| Migration file | `backend/src/database/migrations/NNNN_<slug>.py` | drafted by `codegen makemigration`, finished and reviewed by the author | Ordered ops transforming *N-1* → *N*. |
+| Schema snapshot | `src/database/schema_history/<version>.json` | codegen, on every version bump | The exact shape of version *N*: classes, fields, types, enums, parent relations. The "before" side of the next migration, and the reference the chain is checked against. |
+| Migration file | `src/database/migrations/NNNN_<slug>.py` | drafted by `codegen makemigration`, finished and reviewed by the author | Ordered ops transforming *N-1* → *N*. |
 | Golden files | `test_data/native_format/<version>/*.led` | a script that runs `write_db` on the standard inputs | Real data at version *N*, loaded by CI forever after. |
 
 A schema change is one commit containing:
@@ -177,7 +177,7 @@ The migration file is the reviewable statement of "here is how every existing us
 ### 4.2 Drafting a migration: `codegen makemigration`
 
 ```
-codegen makemigration --schema backend/src/database/schema.py --name boundary_to_shape
+codegen makemigration --schema src/database/schema.py --name boundary_to_shape
 ```
 
 1. **Diff** the newest snapshot against the current `schema.py`, and emit ops for every change that can be detected unambiguously:
@@ -194,7 +194,7 @@ codegen makemigration --schema backend/src/database/schema.py --name boundary_to
 For the real `d5d16a2` change, the author would finish the draft into this:
 
 ```python
-# backend/src/database/migrations/0012_boundary_to_shape.py
+# src/database/migrations/0012_boundary_to_shape.py
 from codegen.migration import *
 
 migration = Migration(
@@ -249,7 +249,7 @@ The vocabulary is expected to grow. A new op is added when a second `RunCode` ne
 
 1. **Generic decode.** When the file's schema fingerprint differs from the running build's, the reader decodes the file into a **`DynamicDb`**: for each class name, a table of rows, each row mapping field names to `Value` variants (int, double, string, enum-name, ref, list, struct). The decoder is driven entirely by the file's embedded schema descriptor, so any file ever written can be decoded, with no old generated code needed.
 2. **Pick the chain.** The chain runs from the file's `schema_version` to the build's. Versions are totally ordered, and each migration has exactly one `from` and one `to`, so the chain is a straight line. Branching is prevented by a validation rule: two migrations may not share a `from_version`.
-3. **Run the ops.** codegen compiles every migration file into C++, as `migrations_generated.cpp`. Each op becomes a call into a small runtime library (`backend/src/persistence/migrate/`) that implements the op vocabulary on `DynamicDb`. `RunCode` ops call the named hand-written functions. Ops run in order, and each migration runs as one step.
+3. **Run the ops.** codegen compiles every migration file into C++, as `migrations_generated.cpp`. Each op becomes a call into a small runtime library (`src/persistence/migrate/`) that implements the op vocabulary on `DynamicDb`. `RunCode` ops call the named hand-written functions. Ops run in order, and each migration runs as one step.
 4. **Materialize.** The migrated `DynamicDb` now matches the current schema exactly, which §4.5 guarantees. The generic materializer writes it into the pools (§5).
 
 **Fast path:** if the file's fingerprint equals the build's, steps 1–3 are skipped. Generated typed decoders write columns straight into the pools. Old files take the slower generic path, and the app can offer to re-save them in the current format.
@@ -456,9 +456,9 @@ The SESSION chunk is JSON so it can evolve loosely: unknown keys are ignored and
 
 | Phase | Work |
 |---|---|
-| 1 ✅ | codegen: schema descriptor, fingerprint, `schema_version.hpp`, the first `schema_history/` snapshot (the baseline, with no migration before it), and a "schema changed without a snapshot" check. **Done:** `codegen/codegen/descriptor.py`; the check runs inside every `codegen --target database` run, and the baseline is `backend/src/database/schema_history/0.49.0.json`. |
-| 2 ✅ | Container writer/reader (chunks, strings, CRC, zstd), generated typed tables, `Pool::load_dense`, `Root::rebuild_indexes()`. **Done** (`backend/src/persistence/`, see OVERNIGHT_REVIEW.md 2026-09-27/28). Differences from §3: no chunk directory (an END chunk detects truncation instead); nested structs are row-major inside their column; columns are split into 65,536-row segments; the name-matching decode (§4, additive changes) is built in, while `DynamicDb` waits for Phase 4. |
-| 3 ✅ | C API, TCL commands, golden corpus (first version) plus the corpus test. **Done:** `le_write_db`/`le_read_db`/`le_db_info`, TCL `write_db`/`read_db`/`db_info`. `read_db` loads into an empty session only. Golden files are in `backend/src/persistence/tests/golden/<version>/`. |
+| 1 ✅ | codegen: schema descriptor, fingerprint, `schema_version.hpp`, the first `schema_history/` snapshot (the baseline, with no migration before it), and a "schema changed without a snapshot" check. **Done:** `codegen/codegen/descriptor.py`; the check runs inside every `codegen --target database` run, and the baseline is `src/database/schema_history/0.49.0.json`. |
+| 2 ✅ | Container writer/reader (chunks, strings, CRC, zstd), generated typed tables, `Pool::load_dense`, `Root::rebuild_indexes()`. **Done** (`src/persistence/`, see OVERNIGHT_REVIEW.md 2026-09-27/28). Differences from §3: no chunk directory (an END chunk detects truncation instead); nested structs are row-major inside their column; columns are split into 65,536-row segments; the name-matching decode (§4, additive changes) is built in, while `DynamicDb` waits for Phase 4. |
+| 3 ✅ | C API, TCL commands, golden corpus (first version) plus the corpus test. **Done:** `le_write_db`/`le_read_db`/`le_db_info`, TCL `write_db`/`read_db`/`db_info`. `read_db` loads into an empty session only. Golden files are in `src/persistence/tests/golden/<version>/`. |
 | 4 🟡 | Migration framework. **Done so far** (`codegen/codegen/migration.py`): the op classes, symbolic replay and per-op validation, which run on every `codegen --target database` and replace the phase-1 check; `makemigration` with diffing and rename prompts (`Todo` when non-interactive); `checkmigrations`. The generated `migrations.hpp` table lets the loader apply **renames** (class, field, enum value, and `RemoveEnumValue(map_to=)`) to an older file's schema before name matching. **Not yet:** `DynamicDb` and the data runtime for `ConvertField`, `ExtractToChild`/`InlineChild`, split/merge and `RunCode`. Those ops are declared unsupported at runtime, so a file needing one is refused with the migration's description. Op names differ slightly from §4.3: `AlterField` stands in for `ConvertField` with storage-compatible conversions only. |
 | 5 | SESSION chunk, GUI File menu, extension migration chains, `-keep_unknown`. |
 | 6 | Performance: parallel encode and decode, benchmark against `read_def` on `aes_scaling_*`. |

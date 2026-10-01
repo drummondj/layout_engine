@@ -32,7 +32,7 @@ Their code must live **completely outside** the layout_engine tree, yet be **com
 
 ## 1. Where things stand today
 
-Layout Engine is a closed world today: there are no extension points anywhere. Relevant facts, with paths relative to `backend/`:
+Layout Engine is a closed world today: there are no extension points anywhere. Relevant facts, with paths relative to the repo root:
 
 **Schema and codegen**
 - `src/database/schema.py` is a Python DSL: `Schema(name="layout_engine", namespace="le", classes=[Klass(...), ...])`.

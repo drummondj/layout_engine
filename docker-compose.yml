@@ -1,20 +1,24 @@
-# Linux build/test for this repo's backend. See Dockerfile.linux-ci for
-# the underlying image stage, and backend/CLAUDE.md/build-test skill for
-# the macOS-native equivalent of what this service's CMD runs.
+# Linux build/test for this repo. See Dockerfile.linux-ci for the
+# underlying image stage, and CLAUDE.md/build-test skill for the native
+# equivalent of what this service's CMD runs.
 #
 # Usage:
-#   docker compose build backend    # image only, no run
-#   docker compose run --rm backend # build + ctest (le_shell/le_tcl included)
+#   docker compose build ci    # image only, no run
+#   docker compose run --rm ci # build + ctest (le_shell/le_tcl included)
 #
-# The repo is bind-mounted read-write at /workspace, so build artifacts
-# (backend/build-linux, backend/build_release-linux) land in the real
-# working tree, same as a native build would - expect a `git status` to
-# show them as untracked, same as today.
+# The repo is bind-mounted read-write at /workspace (codegen output lands
+# in the real working tree, same as a native regen would), but the build
+# trees live in the `ci-build` named volume at /build so they never collide
+# with the host's own build/ and build_release/ CMake caches.
 services:
-  backend:
+  ci:
     build:
       context: .
       dockerfile: Dockerfile.linux-ci
-      target: backend
+      target: ci
     volumes:
       - .:/workspace
+      - ci-build:/build
+
+volumes:
+  ci-build:

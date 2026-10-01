@@ -1,9 +1,9 @@
-name: Backend CI
+name: CI
 
-# Regular push/PR build+test for the backend (le_shell/le_tcl included),
+# Regular push/PR build+test (le_shell/le_tcl included),
 # via Dockerfile.linux-ci - the dev/PR CI path that Dockerfile's own header
 # comment has always described but that, until now, no workflow actually
-# triggered (docker-compose.yml/`docker compose run --rm backend` was
+# triggered (docker-compose.yml/`docker compose run --rm ci` was
 # local-dev-only). Separate from .github/workflows/release.yml (tag-
 # triggered, Dockerfile.linux-release, a from-scratch Rocky Linux 8
 # release build) - this one runs on every push/PR instead, against the
@@ -12,18 +12,18 @@ name: Backend CI
 # Dockerfile.linux-ci is designed around a *bind-mounted* build (source
 # mounted at container *run* time, not COPY'd in - see its own header
 # comment), unlike Dockerfile.linux-release's one-shot COPY build, so this
-# mirrors the existing local-dev command (`docker compose run --rm
-# backend`) directly rather than going through docker/build-push-action.
+# mirrors the existing local-dev command (`docker compose run --rm ci`)
+# directly rather than going through docker/build-push-action.
 
 on:
   push:
   pull_request:
 
 jobs:
-  backend:
+  build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build and test backend (le_shell/le_tcl included)
-        run: docker compose run --rm backend
+      - name: Build and test (le_shell/le_tcl included)
+        run: docker compose run --rm ci
