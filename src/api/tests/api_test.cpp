@@ -1582,7 +1582,7 @@ TEST_F(ApiFixture, RowsAreNotSelectableWhileTheRowPurposeIsHiddenOrUnselectable)
     EXPECT_EQ(le_selection_count(handle), 0);
 
     le_set_purpose_visible(handle, kRowPurpose, 1);
-    le_set_layer_name_selectable(handle, "ROW", 0);
+    le_set_purpose_selectable(handle, kRowPurpose, 0);
     le_mouse_down(handle, 10, 90);
     le_mouse_up(handle, 10, 90);
     EXPECT_EQ(le_selection_count(handle), 0);
