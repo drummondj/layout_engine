@@ -13,8 +13,11 @@ name: CI
 # mirrors the existing local-dev command (`docker compose run --rm ci`)
 # directly rather than going through docker/build-push-action.
 
+# Pushes to main only: a PR branch is built by its pull_request run, so
+# building its pushes too would run every commit twice.
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
