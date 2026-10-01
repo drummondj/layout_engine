@@ -43,23 +43,23 @@ Creates a Abstract and returns its token. Abstract: A physical abstract view (LE
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-design` | `token` | yes | Parent Design token |
-| `-type` | `str` | no | Type or class of abstract, e.g. CORE, PAD, SPACER, ENDCAP, COVER etc (LEF MACRO CLASS) - unset if never read |
+| `-type` | `str` | no | Type or class of abstract, e.g. CORE, PAD, SPACER, ENDCAP, COVER etc (LEF MACRO CLASS) |
 | `-size` | `Point` | no | The width and height of the block |
 | `-origin` | `Point` | no | The origin of the block |
 | `-bbox` | `Rect` | no | The bbox of the boundary |
 | `-symmetry` | `Symmetry` | no | The symmetry of the abstract |
-| `-site` | `str` | no | The name of the SITE - unset if omitted (mutually exclusive with site_placements) |
-| `-eeq` | `str` | no | Electrically-equivalent macro name (LEF EEQ) - unset if omitted |
-| `-leq` | `str` | no | Logically-equivalent macro name (LEF LEQ) - unset if omitted |
+| `-site` | `str` | no | The name of the SITE - mutually exclusive with site_placements |
+| `-eeq` | `str` | no | Electrically-equivalent macro name (LEF EEQ) |
+| `-leq` | `str` | no | Logically-equivalent macro name (LEF LEQ) |
 | `-power` | `double` | no | Macro-level power consumption, in the LEF file's own declared units (LEF POWER) |
-| `-source` | `str` | no | How this macro was created - USER, GENERATE, BLOCK, or unset (LEF SOURCE, obsolete since 5.6 but still parsed) |
+| `-source` | `str` | no | How this macro was created - USER, GENERATE or BLOCK (LEF SOURCE, obsolete since 5.6 but still parsed) |
 | `-is_fixed_mask` | `bool` | no | Whether FIXEDMASK was specified (LEF 5.8) |
 
 ## create_antenna_model
 
 `create_antenna_model -layer <token> -oxide <str> [-area_ratio <double>] [-cum_area_ratio <double>] [-area_factor <double>] [-area_factor_diffuse_only <bool>] [-side_area_ratio <double>] [-cum_side_area_ratio <double>] [-side_area_factor <double>] [-side_area_factor_diffuse_only <bool>] [-diff_area_ratio <double>] [-cum_diff_area_ratio <double>] [-diff_side_area_ratio <double>] [-cum_diff_side_area_ratio <double>] [-help]`
 
-Creates a AntennaModel and returns its token. AntennaModel: One LEF ANTENNAMODEL OXIDE1-4 block within a LAYER - each scalar-or-PWL pair is mutually exclusive (an unset scalar with an empty pwl list means neither was present)
+Creates a AntennaModel and returns its token. AntennaModel: One LEF ANTENNAMODEL OXIDE1-4 block within a LAYER - each scalar and its PWL list are mutually exclusive
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -100,13 +100,13 @@ Creates a Blockage and returns its token. Blockage: A routing or placement block
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layout` | `token` | yes | Parent Layout token |
-| `-placement` | `token` | yes | Scope this blockage to underneath one placed instance - invalid id if unscoped |
+| `-placement` | `token` | yes | The placed instance this blockage is scoped to, if any |
 | `-kind` | `BlockageKind` | yes | Whether this is a routing-layer or placement blockage |
 | `-layer_name` | `str` | no | The name of the blocked routing layer, as read - set only for a ROUTING blockage |
 | `-spacing` | `um` | no | Minimum spacing override, in microns (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width |
 | `-design_rule_width` | `um` | no | Effective width for design rule checks, in microns (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing |
 | `-is_soft` | `bool` | no | PLACEMENT ... SOFT - PLACEMENT only |
-| `-placement_max_density` | `double` | no | PLACEMENT ... PARTIAL maxDensity (0-100) - unset if not PARTIAL |
+| `-placement_max_density` | `double` | no | PLACEMENT ... PARTIAL maxDensity (0-100) |
 
 ## create_design
 
@@ -128,7 +128,7 @@ Creates a EnclosureEntry and returns its token. EnclosureEntry: One LEF ENCLOSUR
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layer` | `token` | yes | Parent Layer token |
-| `-location` | `str` | no | ABOVE, BELOW, or unset |
+| `-location` | `str` | no | ABOVE or BELOW |
 | `-overhang1` | `um` | yes | In microns |
 | `-overhang2` | `um` | yes | In microns |
 | `-width` | `um` | no | Optional WIDTH, in microns |
@@ -148,7 +148,7 @@ Creates a Foreign and returns its token. Foreign: A design abstract view foreign
 | `-abstract` | `token` | no | Parent Abstract token - give exactly one of the parent flags |
 | `-layout_via` | `token` | no | Parent LayoutVia token - give exactly one of the parent flags |
 | `-name` | `str` | yes | The foreign cell name (usually the same as the design name) |
-| `-origin` | `Point` | no | The foreign origin - LEF FOREIGN's point is itself optional (bare 'FOREIGN name ;' is legal), so unset here means no point was written, not (0,0) |
+| `-origin` | `Point` | no | The foreign origin - optional in LEF FOREIGN; if not given, no point was written (it is not (0,0)) |
 | `-orient` | `Orientation` | no | The foreign orientation - also optional independently of origin ('FOREIGN name ( x y ) ;' with no orientation is legal) |
 
 ## create_g_cell_grid
@@ -187,11 +187,11 @@ Creates a Instance and returns its token. Instance: An instance of another desig
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-schematic` | `token` | yes | Parent Schematic token |
-| `-reference_design` | `token` | no | The referenced design, once resolved - unset until then, and never set for a placeholder instance (see rtl_text) |
+| `-reference_design` | `token` | no | The referenced design, once resolved - never set for a placeholder instance (see rtl_text) |
 | `-name` | `str` | yes | The name of the instance - unique within its schematic |
 | `-reference_name` | `str` | no | The name of the referenced design, if known |
 | `-location` | `Point` | no | The location of the lower-left corner of this instance |
-| `-rtl_text` | `str` | no | The original source text, if this instance is a placeholder for source code that could not be fully read - unset for a normal instance |
+| `-rtl_text` | `str` | no | The original source text, if this instance is a placeholder for source code that could not be fully read |
 | `-source_file` | `str` | no | The file rtl_text came from, if known |
 | `-diagnostic_summary` | `str` | no | A short explanation of why this instance's source could not be fully read, if available |
 
@@ -322,7 +322,7 @@ Creates a MinStep and returns its token. MinStep: One LEF MINSTEP rule (ROUTING 
 | --- | --- | --- | --- |
 | `-layer` | `token` | yes | Parent Layer token |
 | `-distance` | `um` | yes | The minimum step distance, in microns (LEF MINSTEP) |
-| `-min_step_type` | `str` | no | INSIDECORNER, OUTSIDECORNER, or STEP - unset otherwise |
+| `-min_step_type` | `str` | no | INSIDECORNER, OUTSIDECORNER or STEP |
 | `-lengthsum` | `um` | no | MINSTEP ... LENGTHSUM value, in microns |
 | `-max_edges` | `int` | no | MINSTEP ... MAXEDGES value (5.7) |
 
@@ -338,7 +338,7 @@ Creates a MinimumCut and returns its token. MinimumCut: One LEF MINIMUMCUT rule 
 | `-cuts` | `int` | yes | Number of cuts required (LEF MINIMUMCUT) |
 | `-width` | `um` | yes | Width above which the rule applies, in microns |
 | `-within` | `um` | no | MINIMUMCUT ... WITHIN distance, in microns (5.7) |
-| `-connection` | `str` | no | FROMABOVE or FROMBELOW, unset otherwise |
+| `-connection` | `str` | no | FROMABOVE or FROMBELOW |
 | `-length` | `um` | no | MINIMUMCUT ... LENGTH value, in microns |
 | `-distance` | `um` | no | MINIMUMCUT ... LENGTH ... WITHIN distance, in microns |
 
@@ -351,9 +351,9 @@ Creates a Net and returns its token. Net: Logical connectivity net within a Sche
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-schematic` | `token` | yes | Parent Schematic token |
-| `-bus` | `token` | no | The NetBus this Net is one bit of, if any - unset for a scalar (1-bit) net |
+| `-bus` | `token` | no | The NetBus this Net is one bit of, if it is part of a multi-bit net |
 | `-name` | `str` | yes | The name of the net - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit net, plain for a scalar net - unique within its schematic |
-| `-bit_index` | `int` | no | Which bit of .bus this Net represents - unset for a scalar net |
+| `-bit_index` | `int` | no | Which bit of .bus this Net represents |
 
 ## create_net_bus
 
@@ -402,7 +402,7 @@ Creates a NonDefaultRuleLayer and returns its token. NonDefaultRuleLayer: One LA
 
 `create_non_default_rule_via -non_default_rule <token> -name <str> [-is_default <bool>] [-resistance <double>] [-help]`
 
-Creates a NonDefaultRuleVia and returns its token. NonDefaultRuleVia: A VIA definition embedded inline in a NONDEFAULTRULE - same shape as the pool-backed Via, but a nested child of NonDefaultRule rather than a Technology-scoped entity referenced by name elsewhere
+Creates a NonDefaultRuleVia and returns its token. NonDefaultRuleVia: A VIA defined inline within a NONDEFAULTRULE - the same content as a technology-level Via, but owned by the rule
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -430,14 +430,14 @@ Creates a PhysicalPort and returns its token. PhysicalPort: A chip-boundary I/O 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layout` | `token` | yes | Parent Layout token |
-| `-net` | `token` | no | The logical Net this pin connects to, resolved by `link` against `net_name` - unset until linked, or if net_name was never set |
+| `-net` | `token` | no | The logical Net this pin connects to, resolved by `link` against `net_name` |
 | `-name` | `str` | yes | The name of the pin - unique within its layout |
 | `-net_name` | `str` | no | The name of the net this pin connects to, as read (DEF PINS NET) - see `net` for the resolved link |
-| `-direction` | `SignalDirection` | no | The direction of the pin - unset if omitted |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF PINS USE) |
-| `-placement_status` | `PlacementStatus` | no | Placement status - unset if never placed |
-| `-location` | `Point` | no | The pin's location, in microns - unset if unplaced |
-| `-orientation` | `Orientation` | no | Placement orientation - unset if unplaced |
+| `-direction` | `SignalDirection` | no | The direction of the pin |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF PINS USE) |
+| `-placement_status` | `PlacementStatus` | no | Placement status |
+| `-location` | `Point` | no | The pin's location, in microns |
+| `-orientation` | `Orientation` | no | Placement orientation |
 
 ## create_physical_port_segment
 
@@ -448,9 +448,9 @@ Creates a PhysicalPortSegment and returns its token. PhysicalPortSegment: One ph
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-physical_port` | `token` | yes | Parent PhysicalPort token |
-| `-placement_status` | `PlacementStatus` | no | This segment's own placement status - unset for the synthetic segment of a simple (non-multi-port) pin, whose placement lives on the parent PhysicalPort instead |
-| `-location` | `Point` | no | This segment's own location, in microns - unset if unplaced |
-| `-orientation` | `Orientation` | no | This segment's own orientation - unset if unplaced |
+| `-placement_status` | `PlacementStatus` | no | This segment's own placement status - for a simple (non-multi-port) pin the placement is on the parent PhysicalPort instead |
+| `-location` | `Point` | no | This segment's own location, in microns |
+| `-orientation` | `Orientation` | no | This segment's own orientation |
 
 ## create_pin
 
@@ -461,7 +461,7 @@ Creates a Pin and returns its token. Pin: Logical connection point on an Instanc
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-instance` | `token` | yes | Parent Instance token |
-| `-net` | `token` | no | The net this pin connects to, if any - a connection to one bit of a multi-bit net (e.g. .A(bus[2])) resolves directly to that bit's own per-bit Net (see Net.bus/.bit_index), not a separate bit-index field here |
+| `-net` | `token` | no | The net this pin connects to, if any - a connection to one bit of a multi-bit net (e.g. .A(bus[2])) is that bit's Net (see Net.bus/.bit_index) |
 | `-name` | `str` | yes | The pin name as connected in source, e.g. the A in .A(net23) |
 | `-direction` | `SignalDirection` | no | The pin's direction, if known |
 | `-raw_expression` | `str` | no | The connection expression exactly as written in the source |
@@ -470,7 +470,7 @@ Creates a Pin and returns its token. Pin: Logical connection point on an Instanc
 
 `create_pin_antenna_model -terminal <token> -oxide <str> [-help]`
 
-Creates a PinAntennaModel and returns its token. PinAntennaModel: One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer's own AntennaModel (only 4 fields, each a list of (value, layer) entries)
+Creates a PinAntennaModel and returns its token. PinAntennaModel: One LEF PIN ANTENNAMODEL OXIDE1-4 block - each field is a list of (value, layer) entries
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -487,14 +487,14 @@ Creates a Placement and returns its token. Placement: A placed physical instance
 | --- | --- | --- | --- |
 | `-layout` | `token` | yes | Parent Layout token |
 | `-reference_design` | `token` | yes | The reference Design, resolved from the referenced macro/design name at creation time - readers error rather than create a Placement with an unresolved reference |
-| `-instance` | `token` | no | The logical Instance this placement corresponds to, resolved by `link` against the sibling Schematic - unset until linked, and stays unset for a physical_only Placement |
+| `-instance` | `token` | no | The logical Instance this placement corresponds to, resolved by `link` against the sibling Schematic - never set for a physical_only Placement |
 | `-name` | `str` | yes | The name of the instance - unique within its layout |
 | `-physical_only` | `bool` | no | Set by `link` when no Instance in the sibling Schematic matches this Placement's name (e.g. a filler/decap cell with no logical counterpart) - not a DEF-native concept, always False until `link` runs |
 | `-placement_status` | `PlacementStatus` | yes | Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED) |
-| `-location` | `Point` | no | The location of the lower-left corner of this instance, in microns - unset if UNPLACED |
-| `-orientation` | `Orientation` | no | Placement orientation - unset if UNPLACED |
-| `-weight` | `double` | no | DEF COMPONENTS WEIGHT - unset if omitted |
-| `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) - unset if omitted |
+| `-location` | `Point` | no | The location of the lower-left corner of this instance, in microns |
+| `-orientation` | `Orientation` | no | Placement orientation |
+| `-weight` | `double` | no | DEF COMPONENTS WEIGHT |
+| `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) |
 
 ## create_port
 
@@ -505,11 +505,11 @@ Creates a Port and returns its token. Port: Logical top-level port of a Schemati
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-schematic` | `token` | yes | Parent Schematic token |
-| `-bus` | `token` | no | The PortBus this Port is one bit of, if any - unset for a scalar (1-bit) port |
+| `-bus` | `token` | no | The PortBus this Port is one bit of, if it is part of a multi-bit port |
 | `-net` | `token` | no | The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name) - the matching per-bit Net for a multi-bit port |
 | `-name` | `str` | yes | The name of the port - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit port, plain for a scalar port - unique within its schematic |
 | `-direction` | `SignalDirection` | yes | The direction of the port |
-| `-bit_index` | `int` | no | Which bit of .bus this Port represents - unset for a scalar port |
+| `-bit_index` | `int` | no | Which bit of .bus this Port represents |
 
 ## create_port_bus
 
@@ -533,7 +533,7 @@ Creates a PreferEnclosureEntry and returns its token. PreferEnclosureEntry: One 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layer` | `token` | yes | Parent Layer token |
-| `-location` | `str` | no | ABOVE, BELOW, or unset |
+| `-location` | `str` | no | ABOVE or BELOW |
 | `-overhang1` | `um` | yes | In microns |
 | `-overhang2` | `um` | yes | In microns |
 | `-min_width` | `um` | no | Optional WIDTH, in microns |
@@ -547,13 +547,13 @@ Creates a PropertyDefinition and returns its token. PropertyDefinition: One LEF 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-technology` | `token` | yes | Parent Technology token |
-| `-owner_type` | `str` | yes | Which construct this property applies to - LIBRARY, LAYER, VIA, VIARULE, NONDEFAULTRULE, MACRO, or PIN (LEF's own PROPERTYDEFINITIONS syntax, from lefiProp::propType()) |
+| `-owner_type` | `str` | yes | Which construct this property applies to - LIBRARY, LAYER, VIA, VIARULE, NONDEFAULTRULE, MACRO, or PIN |
 | `-name` | `str` | yes | The property name |
 | `-data_type` | `str` | yes | The data type code - I(nteger), R(eal), S(tring), or Q(uoted string) |
 | `-range_min` | `double` | no | RANGE lower bound, in the property's own units |
 | `-range_max` | `double` | no | RANGE upper bound, in the property's own units |
-| `-default_number` | `double` | no | Default value, if data_type is I(nteger)/R(eal) - unset if none was declared |
-| `-default_string` | `str` | no | Default value, if data_type is S(tring)/Q(uoted string) - unset if none was declared |
+| `-default_number` | `double` | no | Default value, if data_type is I(nteger)/R(eal) |
+| `-default_string` | `str` | no | Default value, if data_type is S(tring)/Q(uoted string) |
 
 ## create_region
 
@@ -565,7 +565,7 @@ Creates a Region and returns its token. Region: A placement region (DEF REGIONS)
 | --- | --- | --- | --- |
 | `-layout` | `token` | yes | Parent Layout token |
 | `-name` | `str` | yes | The name of the region - unique within its layout |
-| `-region_type` | `str` | no | FENCE or GUIDE - unset if omitted (DEF REGIONS TYPE) |
+| `-region_type` | `str` | no | FENCE or GUIDE (DEF REGIONS TYPE) |
 | `-rects` | `Rect...` | no | The region's rects (a region can be a multi-rect rectilinear area) |
 
 ## create_route
@@ -577,12 +577,12 @@ Creates a Route and returns its token. Route: The routing geometry of a regular 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layout` | `token` | yes | Parent Layout token |
-| `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` - unset until linked |
+| `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` |
 | `-name` | `str` | yes | The name of the net this routes, as read - unique within its layout. See net for the resolved link |
 | `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
-| `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only, unset if omitted |
-| `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only, unset if omitted |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF NETS/SPECIALNETS USE) |
+| `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only |
+| `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE) |
 
 ## create_row
 
@@ -594,7 +594,7 @@ Creates a Row and returns its token. Row: A placement row (DEF ROW)
 | --- | --- | --- | --- |
 | `-layout` | `token` | yes | Parent Layout token |
 | `-name` | `str` | yes | The name of the row |
-| `-site_name` | `str` | yes | The name of the site this row is built from, as read (DEF ROW macro name) - a plain name reference, same convention as Abstract.site, not resolved to a SiteId |
+| `-site_name` | `str` | yes | The name of the site this row is built from, as read (DEF ROW macro name) - a plain name, not a reference to a Site |
 | `-origin` | `Point` | no | The row's origin, in microns |
 | `-orientation` | `Orientation` | yes | The row's orientation |
 | `-num_x` | `int` | no | Number of site repeats in X (DEF ROW DO n) |
@@ -629,13 +629,13 @@ Creates a Shape and returns its token. Shape: A shape on a layer.
 | `-abstract` | `token` | no | Parent Abstract token - give exactly one of the parent flags |
 | `-in_abstract` | `token` | no | Parent Abstract token - give exactly one of the parent flags |
 | `-in_layout` | `token` | no | Parent Layout token - give exactly one of the parent flags |
-| `-layer` | `token` | no | The layer this shape is on, if it's real LEF/DEF routing/terminal/obstruction geometry - resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). Exactly one of layer/purpose is ever set (documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent) - a Shape with no real physical layer (Layout.diearea, Abstract.boundary, a DEF PLACEMENT blockage's own region) uses purpose instead, unset here. From TCL, a layer:<name> token; create_shape -layer debug means -purpose DEBUG (the debug layer - no physical layer). |
+| `-layer` | `token` | no | The physical layer this shape is on. Exactly one of layer and purpose is set - a shape with no physical layer (a diearea, an abstract boundary, a placement blockage) uses purpose instead. From TCL, a layer:<name> token; create_shape -layer debug means -purpose DEBUG. |
 | `-purpose` | `ShapePurpose` | no | What this shape is, when it isn't on a physical layer - a boundary, a placement blockage or debug geometry. Exactly one of layer and purpose is set. |
 | `-paths` | `Path...` | no | A list of paths |
 | `-polygons` | `Polygon...` | no | A list of polygons |
 | `-rects` | `Rect...` | no | A list of rects |
-| `-spacing` | `um` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in microns - unset means the layer's own rules apply; 0 is a real value. Mutually exclusive with design_rule_width. |
-| `-design_rule_width` | `um` | no | LEF LAYER ... DESIGNRULEWIDTH, in microns - unset means none; 0 is a real value. Mutually exclusive with spacing. |
+| `-spacing` | `um` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in microns - the layer's own rules apply if not given. Mutually exclusive with design_rule_width. |
+| `-design_rule_width` | `um` | no | LEF LAYER ... DESIGNRULEWIDTH, in microns. Mutually exclusive with spacing. |
 | `-except_pg_net` | `bool` | no | LEF LAYER ... EXCEPTPGNET (5.7) - write_lef writes it for OBS only |
 
 ## create_site
@@ -648,7 +648,7 @@ Creates a Site and returns its token. Site: A site definition (LEF SITE) - the p
 | --- | --- | --- | --- |
 | `-technology` | `token` | yes | Parent Technology token |
 | `-name` | `str` | yes | The name of the site |
-| `-site_class` | `str` | no | PAD, CORE, VIRTUAL, or unset (LEF CLASS) |
+| `-site_class` | `str` | no | PAD, CORE or VIRTUAL (LEF CLASS) |
 | `-size` | `Point` | no | The site size, in microns (LEF SIZE) |
 | `-symmetry` | `Symmetry` | no | Which flips/rotations this site allows (LEF SYMMETRY) |
 
@@ -686,7 +686,7 @@ Creates a SpacingRule and returns its token. SpacingRule: One LEF SPACING statem
 | `-end_of_notch_width` | `um` | no | SPACING ... ENDOFNOTCHWIDTH, in microns - read-only, not written back by write_lef |
 | `-end_of_notch_spacing` | `um` | no | ENDOFNOTCHWIDTH ... NOTCHSPACING, in microns |
 | `-end_of_notch_length` | `um` | no | ENDOFNOTCHWIDTH ... NOTCHLENGTH, in microns |
-| `-second_layer_name` | `str` | no | SPACING ... LAYER name (CUT inter-layer spacing) - unset otherwise |
+| `-second_layer_name` | `str` | no | SPACING ... LAYER name (CUT inter-layer spacing) |
 | `-second_layer_stack` | `bool` | no | LAYER ... STACK was specified |
 | `-adjacent_cuts` | `int` | no | ADJACENTCUTS count |
 | `-adjacent_within` | `um` | no | ADJACENTCUTS ... WITHIN distance, in microns |
@@ -702,28 +702,28 @@ Creates a Technology and returns its token. Technology: Technology information s
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-database_units_microns` | `double` | yes | Database units per micron (LEF UNITS DATABASE MICRONS) |
-| `-capacitance_units_pf` | `double` | no | LEF UNITS CAPACITANCE PICOFARADS <value> - unset if the LEF file never declared it |
-| `-resistance_units_ohms` | `double` | no | LEF UNITS RESISTANCE OHMS <value> - unset if the LEF file never declared it |
-| `-power_units_mw` | `double` | no | LEF UNITS POWER MILLIWATTS <value> - unset if the LEF file never declared it |
-| `-current_units_ma` | `double` | no | LEF UNITS CURRENT MILLIAMPS <value> - unset if the LEF file never declared it |
-| `-voltage_units_v` | `double` | no | LEF UNITS VOLTAGE VOLTS <value> - unset if the LEF file never declared it |
-| `-frequency_units_mhz` | `double` | no | LEF UNITS FREQUENCY MEGAHERTZ <value> - unset if the LEF file never declared it |
-| `-bus_bit_chars` | `str` | no | The bus bit delimiter characters (LEF BUSBITCHARS), e.g. "<>" - unset if never read (not written if unset) |
-| `-divider_char` | `str` | no | The hierarchy divider character (LEF DIVIDERCHAR), e.g. "/" - unset if never read (not written if unset) |
+| `-capacitance_units_pf` | `double` | no | LEF UNITS CAPACITANCE PICOFARADS <value> |
+| `-resistance_units_ohms` | `double` | no | LEF UNITS RESISTANCE OHMS <value> |
+| `-power_units_mw` | `double` | no | LEF UNITS POWER MILLIWATTS <value> |
+| `-current_units_ma` | `double` | no | LEF UNITS CURRENT MILLIAMPS <value> |
+| `-voltage_units_v` | `double` | no | LEF UNITS VOLTAGE VOLTS <value> |
+| `-frequency_units_mhz` | `double` | no | LEF UNITS FREQUENCY MEGAHERTZ <value> |
+| `-bus_bit_chars` | `str` | no | The bus bit delimiter characters (LEF BUSBITCHARS), e.g. "<>" |
+| `-divider_char` | `str` | no | The hierarchy divider character (LEF DIVIDERCHAR), e.g. "/" |
 | `-fixed_mask` | `bool` | no | Top-level LEF FIXEDMASK was specified - distinct from Abstract.is_fixed_mask (LEF MACRO ... FIXEDMASK) |
-| `-use_min_spacing_obs` | `bool` | no | LEF USEMINSPACING OBS ON|OFF - unset if the LEF file never declared it |
-| `-use_min_spacing_pin` | `bool` | no | LEF USEMINSPACING PIN ON|OFF - unset if the LEF file never declared it |
-| `-clearance_measure` | `str` | no | LEF CLEARANCEMEASURE (EUCLIDEAN or MAXXY) - unset if never read |
-| `-manufacturing_grid` | `double` | no | LEF MANUFACTURINGGRID, in microns - unset if never read |
-| `-fin_pitch` | `um` | no | FinFET grid pitch, in microns - overrides the pitch of a LIBRARY LEF58_FINFET property; unset means use that property's |
-| `-fin_offset` | `um` | no | FinFET grid offset, in microns - overrides LEF58_FINFET's OFFSET, unset means use that property's (0 if it has none) |
-| `-fin_direction` | `RoutingDirection` | no | FinFET direction (H: horizontal fins, the grid snaps Y; V: vertical fins, snaps X) - overrides LEF58_FINFET's HORIZONTAL/VERTICAL, unset means use that property's (HORIZONTAL if it has none) |
-| `-max_via_stack` | `int` | no | LEF MAXVIASTACK value - unset if never read |
-| `-max_via_stack_bottom_layer` | `str` | no | LEF MAXVIASTACK ... RANGE bottomLayer - unset if the RANGE clause was omitted |
-| `-max_via_stack_top_layer` | `str` | no | LEF MAXVIASTACK ... RANGE topLayer - unset if the RANGE clause was omitted |
-| `-antenna_input_gate_area` | `double` | no | Top-level LEF ANTENNAINPUTGATEAREA (legacy pre-5.0 default, distinct from a PIN's own per-pin ANTENNAGATEAREA) - unset if never read |
-| `-antenna_inout_diff_area` | `double` | no | Top-level LEF ANTENNAINOUTDIFFAREA (legacy pre-5.0 default) - unset if never read |
-| `-antenna_output_diff_area` | `double` | no | Top-level LEF ANTENNAOUTPUTDIFFAREA (legacy pre-5.0 default) - unset if never read |
+| `-use_min_spacing_obs` | `bool` | no | LEF USEMINSPACING OBS ON|OFF |
+| `-use_min_spacing_pin` | `bool` | no | LEF USEMINSPACING PIN ON|OFF |
+| `-clearance_measure` | `str` | no | LEF CLEARANCEMEASURE (EUCLIDEAN or MAXXY) |
+| `-manufacturing_grid` | `double` | no | LEF MANUFACTURINGGRID, in microns |
+| `-fin_pitch` | `um` | no | FinFET grid pitch, in microns - overrides the pitch of a LIBRARY LEF58_FINFET property |
+| `-fin_offset` | `um` | no | FinFET grid offset, in microns - overrides LEF58_FINFET's OFFSET (0 if neither is given) |
+| `-fin_direction` | `RoutingDirection` | no | FinFET direction (H: horizontal fins, the grid snaps Y; V: vertical fins, snaps X) - overrides LEF58_FINFET's HORIZONTAL/VERTICAL (HORIZONTAL if neither is given) |
+| `-max_via_stack` | `int` | no | LEF MAXVIASTACK value |
+| `-max_via_stack_bottom_layer` | `str` | no | LEF MAXVIASTACK ... RANGE bottomLayer |
+| `-max_via_stack_top_layer` | `str` | no | LEF MAXVIASTACK ... RANGE topLayer |
+| `-antenna_input_gate_area` | `double` | no | Top-level LEF ANTENNAINPUTGATEAREA (legacy pre-5.0 default, distinct from a PIN's own per-pin ANTENNAGATEAREA) |
+| `-antenna_inout_diff_area` | `double` | no | Top-level LEF ANTENNAINOUTDIFFAREA (legacy pre-5.0 default) |
+| `-antenna_output_diff_area` | `double` | no | Top-level LEF ANTENNAOUTPUTDIFFAREA (legacy pre-5.0 default) |
 
 ## create_terminal
 
@@ -736,17 +736,17 @@ Creates a Terminal and returns its token. Terminal: Top-level pin name of an abs
 | `-abstract` | `token` | yes | Parent Abstract token |
 | `-name` | `str` | yes | Name of the terminal - unique within its abstract |
 | `-direction` | `SignalDirection` | yes | The direction of the terminal |
-| `-shape` | `str` | no | ABUTMENT, RING, FEEDTHRU, or unset (LEF PIN SHAPE) |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, TIEOFF, ANALOG, SCAN, or unset (LEF PIN USE) |
-| `-must_join` | `str` | no | The name of another pin this one must be joined with, or unset (LEF PIN MUSTJOIN) |
-| `-net_expr` | `str` | no | A verbatim NETEXPR string (LEF 5.6), round-tripped as-is rather than parsed - unset if omitted |
-| `-leq` | `str` | no | This pin's own logically-equivalent-pin name (LEF PIN LEQ) - distinct from the macro-level Abstract.leq - unset if omitted |
-| `-taper_rule` | `str` | no | LEF PIN TAPERRULE - unset if omitted |
-| `-supply_sensitivity` | `str` | no | LEF PIN SUPPLYSENSITIVITY (5.6) - net name, unset if omitted |
-| `-ground_sensitivity` | `str` | no | LEF PIN GROUNDSENSITIVITY (5.6) - net name, unset if omitted |
+| `-shape` | `str` | no | ABUTMENT, RING or FEEDTHRU (LEF PIN SHAPE) |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, TIEOFF, ANALOG or SCAN (LEF PIN USE) |
+| `-must_join` | `str` | no | The name of another pin this one must be joined with (LEF PIN MUSTJOIN) |
+| `-net_expr` | `str` | no | A verbatim NETEXPR string (LEF 5.6), round-tripped as-is rather than parsed |
+| `-leq` | `str` | no | This pin's own logically-equivalent-pin name (LEF PIN LEQ) - distinct from the macro-level Abstract.leq |
+| `-taper_rule` | `str` | no | LEF PIN TAPERRULE |
+| `-supply_sensitivity` | `str` | no | LEF PIN SUPPLYSENSITIVITY (5.6) - net name |
+| `-ground_sensitivity` | `str` | no | LEF PIN GROUNDSENSITIVITY (5.6) - net name |
 | `-rise_slew_limit` | `double` | no | LEF PIN RISESLEWLIMIT, in the LEF file's declared units - read-only, not written back by write_lef |
-| `-fall_slew_limit` | `double` | no | LEF PIN FALLSLEWLIMIT, declared units - read-only, same gap as rise_slew_limit - unset if never read |
-| `-max_load` | `double` | no | LEF PIN MAXLOAD, declared units - read-only, same gap as rise_slew_limit - unset if never read |
+| `-fall_slew_limit` | `double` | no | LEF PIN FALLSLEWLIMIT, in the LEF file's declared units - read-only, not written back by write_lef |
+| `-max_load` | `double` | no | LEF PIN MAXLOAD, in the LEF file's declared units - read-only, not written back by write_lef |
 | `-max_delay` | `double` | no | LEF PIN MAXDELAY, in the LEF file's declared units - read-only, not written back by write_lef |
 
 ## create_terminal_port
@@ -758,7 +758,7 @@ Creates a TerminalPort and returns its token. TerminalPort: Physical connection 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-terminal` | `token` | yes | Parent Terminal token |
-| `-port_class` | `str` | no | LEF PORT CLASS (NONE/CORE/BUMP) - unset if omitted |
+| `-port_class` | `str` | no | LEF PORT CLASS (NONE/CORE/BUMP) |
 
 ## create_track
 
@@ -773,7 +773,7 @@ Creates a Track and returns its token. Track: A routing track pattern (DEF TRACK
 | `-start` | `um` | yes | Starting coordinate, in microns (DEF TRACKS DO start) |
 | `-count` | `int` | yes | Number of tracks (DEF TRACKS DO ... n) |
 | `-step` | `um` | yes | Spacing between tracks, in microns (DEF TRACKS STEP) |
-| `-mask` | `int` | no | MASK color (DEF 5.8) - unset if omitted |
+| `-mask` | `int` | no | MASK color (DEF 5.8) |
 | `-same_mask` | `bool` | no | Whether SAMEMASK was specified (DEF 5.8) |
 
 ## create_two_widths_spacing_entry
@@ -867,10 +867,10 @@ Creates a ViaRuleReference and returns its token. ViaRuleReference: A VIA's own 
 | `-cut_spacing` | `Point` | no | The cut spacing, in microns (LEF CUTSPACING) |
 | `-bot_enclosure` | `Point` | no | The bottom layer enclosure, in microns (LEF ENCLOSURE, bottom pair) |
 | `-top_enclosure` | `Point` | no | The top layer enclosure, in microns (LEF ENCLOSURE, top pair) |
-| `-num_cut_rows` | `int` | no | Number of cut rows (LEF ROWCOL) - unset means a single cut |
-| `-num_cut_cols` | `int` | no | Number of cut columns (LEF ROWCOL) - unset means a single cut |
-| `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in microns (LEF VIARULE-inside-VIA ORIGIN) - unset means the array is centered exactly on the placement point (this schema's own prior default, still correct when ORIGIN is omitted) |
-| `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in microns (LEF VIARULE-inside-VIA OFFSET, bottom pair) - unset means no offset (the enclosure rect stays centered on the cut array, this schema's own prior default) |
+| `-num_cut_rows` | `int` | no | Number of cut rows (LEF ROWCOL) - a single cut if not given |
+| `-num_cut_cols` | `int` | no | Number of cut columns (LEF ROWCOL) - a single cut if not given |
+| `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in microns (LEF VIARULE-inside-VIA ORIGIN) - the array is centered on the placement point if not given |
+| `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in microns (LEF VIARULE-inside-VIA OFFSET, bottom pair) - the enclosure rect is centered on the cut array if not given |
 | `-top_offset` | `Point` | no | Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair) |
 
 ## current_abstract
@@ -1480,7 +1480,7 @@ Returns the Abstract objects matching the given names and filters, as tokens. Ab
 
 `get_antenna_models [-of <token>...] [-filter <expr>] [-help]`
 
-Returns the AntennaModel objects matching the given names and filters, as tokens. AntennaModel: One LEF ANTENNAMODEL OXIDE1-4 block within a LAYER - each scalar-or-PWL pair is mutually exclusive (an unset scalar with an empty pwl list means neither was present)
+Returns the AntennaModel objects matching the given names and filters, as tokens. AntennaModel: One LEF ANTENNAMODEL OXIDE1-4 block within a LAYER - each scalar and its PWL list are mutually exclusive
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1799,7 +1799,7 @@ Returns the NonDefaultRuleLayer objects matching the given names and filters, as
 
 `get_non_default_rule_vias [-of <token>...] [-filter <expr>] [-help]`
 
-Returns the NonDefaultRuleVia objects matching the given names and filters, as tokens. NonDefaultRuleVia: A VIA definition embedded inline in a NONDEFAULTRULE - same shape as the pool-backed Via, but a nested child of NonDefaultRule rather than a Technology-scoped entity referenced by name elsewhere
+Returns the NonDefaultRuleVia objects matching the given names and filters, as tokens. NonDefaultRuleVia: A VIA defined inline within a NONDEFAULTRULE - the same content as a technology-level Via, but owned by the rule
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1856,7 +1856,7 @@ Returns the PhysicalPort objects matching the given names and filters, as tokens
 
 `get_pin_antenna_models [-of <token>...] [-filter <expr>] [-help]`
 
-Returns the PinAntennaModel objects matching the given names and filters, as tokens. PinAntennaModel: One LEF PIN ANTENNAMODEL OXIDE1-4 block - a distinct, narrower class from Layer's own AntennaModel (only 4 fields, each a list of (value, layer) entries)
+Returns the PinAntennaModel objects matching the given names and filters, as tokens. PinAntennaModel: One LEF PIN ANTENNAMODEL OXIDE1-4 block - each field is a list of (value, layer) entries
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2744,16 +2744,16 @@ Changes the given fields of a Abstract; omitted flags leave a field unchanged.
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-design` | `token` | no | Move it to this Design (token) |
-| `-type` | `str` | no | Type or class of abstract, e.g. CORE, PAD, SPACER, ENDCAP, COVER etc (LEF MACRO CLASS) - unset if never read |
+| `-type` | `str` | no | Type or class of abstract, e.g. CORE, PAD, SPACER, ENDCAP, COVER etc (LEF MACRO CLASS) |
 | `-size` | `Point` | no | The width and height of the block |
 | `-origin` | `Point` | no | The origin of the block |
 | `-bbox` | `Rect` | no | The bbox of the boundary |
 | `-symmetry` | `Symmetry` | no | The symmetry of the abstract |
-| `-site` | `str` | no | The name of the SITE - unset if omitted (mutually exclusive with site_placements) |
-| `-eeq` | `str` | no | Electrically-equivalent macro name (LEF EEQ) - unset if omitted |
-| `-leq` | `str` | no | Logically-equivalent macro name (LEF LEQ) - unset if omitted |
+| `-site` | `str` | no | The name of the SITE - mutually exclusive with site_placements |
+| `-eeq` | `str` | no | Electrically-equivalent macro name (LEF EEQ) |
+| `-leq` | `str` | no | Logically-equivalent macro name (LEF LEQ) |
 | `-power` | `double` | no | Macro-level power consumption, in the LEF file's own declared units (LEF POWER) |
-| `-source` | `str` | no | How this macro was created - USER, GENERATE, BLOCK, or unset (LEF SOURCE, obsolete since 5.6 but still parsed) |
+| `-source` | `str` | no | How this macro was created - USER, GENERATE or BLOCK (LEF SOURCE, obsolete since 5.6 but still parsed) |
 | `-is_fixed_mask` | `bool` | no | Whether FIXEDMASK was specified (LEF 5.8) |
 
 ## update_antenna_model
@@ -2801,13 +2801,13 @@ Changes the given fields of a Blockage; omitted flags leave a field unchanged.
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layout` | `token` | no | Move it to this Layout (token) |
-| `-placement` | `token` | no | Scope this blockage to underneath one placed instance - invalid id if unscoped |
+| `-placement` | `token` | no | The placed instance this blockage is scoped to, if any |
 | `-kind` | `BlockageKind` | no | Whether this is a routing-layer or placement blockage |
 | `-layer_name` | `str` | no | The name of the blocked routing layer, as read - set only for a ROUTING blockage |
 | `-spacing` | `um` | no | Minimum spacing override, in microns (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width |
 | `-design_rule_width` | `um` | no | Effective width for design rule checks, in microns (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing |
 | `-is_soft` | `bool` | no | PLACEMENT ... SOFT - PLACEMENT only |
-| `-placement_max_density` | `double` | no | PLACEMENT ... PARTIAL maxDensity (0-100) - unset if not PARTIAL |
+| `-placement_max_density` | `double` | no | PLACEMENT ... PARTIAL maxDensity (0-100) |
 
 ## update_design
 
@@ -2829,7 +2829,7 @@ Changes the given fields of a EnclosureEntry; omitted flags leave a field unchan
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layer` | `token` | no | Move it to this Layer (token) |
-| `-location` | `str` | no | ABOVE, BELOW, or unset |
+| `-location` | `str` | no | ABOVE or BELOW |
 | `-overhang1` | `um` | no | In microns |
 | `-overhang2` | `um` | no | In microns |
 | `-width` | `um` | no | Optional WIDTH, in microns |
@@ -2845,7 +2845,7 @@ Changes the given fields of a Foreign; omitted flags leave a field unchanged.
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-name` | `str` | no | The foreign cell name (usually the same as the design name) |
-| `-origin` | `Point` | no | The foreign origin - LEF FOREIGN's point is itself optional (bare 'FOREIGN name ;' is legal), so unset here means no point was written, not (0,0) |
+| `-origin` | `Point` | no | The foreign origin - optional in LEF FOREIGN; if not given, no point was written (it is not (0,0)) |
 | `-orient` | `Orientation` | no | The foreign orientation - also optional independently of origin ('FOREIGN name ( x y ) ;' with no orientation is legal) |
 
 ## update_g_cell_grid
@@ -2888,7 +2888,7 @@ Changes the given fields of an instance; omitted flags leave a field unchanged.
 | `-name` | `str` | no | The instance's name - unique within its schematic |
 | `-reference_name` | `str` | no | The name of the referenced design, if known |
 | `-location` | `Point` | no | The location of the lower-left corner of this instance |
-| `-rtl_text` | `str` | no | The original source text, if this instance is a placeholder for source code that could not be fully read - unset for a normal instance |
+| `-rtl_text` | `str` | no | The original source text, if this instance is a placeholder for source code that could not be fully read |
 | `-source_file` | `str` | no | The file rtl_text came from, if known |
 | `-diagnostic_summary` | `str` | no | A short explanation of why this instance's source could not be fully read, if available |
 
@@ -3017,7 +3017,7 @@ Changes the given fields of a MinStep; omitted flags leave a field unchanged.
 | --- | --- | --- | --- |
 | `-layer` | `token` | no | Move it to this Layer (token) |
 | `-distance` | `um` | no | The minimum step distance, in microns (LEF MINSTEP) |
-| `-min_step_type` | `str` | no | INSIDECORNER, OUTSIDECORNER, or STEP - unset otherwise |
+| `-min_step_type` | `str` | no | INSIDECORNER, OUTSIDECORNER or STEP |
 | `-lengthsum` | `um` | no | MINSTEP ... LENGTHSUM value, in microns |
 | `-max_edges` | `int` | no | MINSTEP ... MAXEDGES value (5.7) |
 
@@ -3033,7 +3033,7 @@ Changes the given fields of a MinimumCut; omitted flags leave a field unchanged.
 | `-cuts` | `int` | no | Number of cuts required (LEF MINIMUMCUT) |
 | `-width` | `um` | no | Width above which the rule applies, in microns |
 | `-within` | `um` | no | MINIMUMCUT ... WITHIN distance, in microns (5.7) |
-| `-connection` | `str` | no | FROMABOVE or FROMBELOW, unset otherwise |
+| `-connection` | `str` | no | FROMABOVE or FROMBELOW |
 | `-length` | `um` | no | MINIMUMCUT ... LENGTH value, in microns |
 | `-distance` | `um` | no | MINIMUMCUT ... LENGTH ... WITHIN distance, in microns |
 
@@ -3046,9 +3046,9 @@ Changes the given fields of a net; omitted flags leave a field unchanged.
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-schematic` | `token` | no | Move it to this schematic (token) |
-| `-bus` | `token` | no | The NetBus this Net is one bit of, if any - unset for a scalar (1-bit) net |
+| `-bus` | `token` | no | The NetBus this Net is one bit of, if it is part of a multi-bit net |
 | `-name` | `str` | no | The net's name - bracketed ("address[7]") for one bit of a bus, plain otherwise; unique within its schematic |
-| `-bit_index` | `int` | no | Which bit of -bus this net is - unset for a 1-bit net |
+| `-bit_index` | `int` | no | Which bit of -bus this net is |
 
 ## update_net_bus
 
@@ -3125,14 +3125,14 @@ Changes the given fields of a PhysicalPort; omitted flags leave a field unchange
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layout` | `token` | no | Move it to this Layout (token) |
-| `-net` | `token` | no | The logical Net this pin connects to, resolved by `link` against `net_name` - unset until linked, or if net_name was never set |
+| `-net` | `token` | no | The logical Net this pin connects to, resolved by `link` against `net_name` |
 | `-name` | `str` | no | The name of the pin - unique within its layout |
 | `-net_name` | `str` | no | The name of the net this pin connects to, as read (DEF PINS NET) - see `net` for the resolved link |
-| `-direction` | `SignalDirection` | no | The direction of the pin - unset if omitted |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF PINS USE) |
-| `-placement_status` | `PlacementStatus` | no | Placement status - unset if never placed |
-| `-location` | `Point` | no | The pin's location, in microns - unset if unplaced |
-| `-orientation` | `Orientation` | no | Placement orientation - unset if unplaced |
+| `-direction` | `SignalDirection` | no | The direction of the pin |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF PINS USE) |
+| `-placement_status` | `PlacementStatus` | no | Placement status |
+| `-location` | `Point` | no | The pin's location, in microns |
+| `-orientation` | `Orientation` | no | Placement orientation |
 
 ## update_physical_port_segment
 
@@ -3143,9 +3143,9 @@ Changes the given fields of a PhysicalPortSegment; omitted flags leave a field u
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-physical_port` | `token` | no | Move it to this PhysicalPort (token) |
-| `-placement_status` | `PlacementStatus` | no | This segment's own placement status - unset for the synthetic segment of a simple (non-multi-port) pin, whose placement lives on the parent PhysicalPort instead |
-| `-location` | `Point` | no | This segment's own location, in microns - unset if unplaced |
-| `-orientation` | `Orientation` | no | This segment's own orientation - unset if unplaced |
+| `-placement_status` | `PlacementStatus` | no | This segment's own placement status - for a simple (non-multi-port) pin the placement is on the parent PhysicalPort instead |
+| `-location` | `Point` | no | This segment's own location, in microns |
+| `-orientation` | `Orientation` | no | This segment's own orientation |
 
 ## update_pin
 
@@ -3156,7 +3156,7 @@ Changes the given fields of a Pin; omitted flags leave a field unchanged.
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-instance` | `token` | no | Move it to this Instance (token) |
-| `-net` | `token` | no | The net this pin connects to, if any - a connection to one bit of a multi-bit net (e.g. .A(bus[2])) resolves directly to that bit's own per-bit Net (see Net.bus/.bit_index), not a separate bit-index field here |
+| `-net` | `token` | no | The net this pin connects to, if any - a connection to one bit of a multi-bit net (e.g. .A(bus[2])) is that bit's Net (see Net.bus/.bit_index) |
 | `-name` | `str` | no | The pin name as connected in source, e.g. the A in .A(net23) |
 | `-direction` | `SignalDirection` | no | The pin's direction, if known |
 | `-raw_expression` | `str` | no | The connection expression exactly as written in the source |
@@ -3182,14 +3182,14 @@ Changes the given fields of a Placement; omitted flags leave a field unchanged.
 | --- | --- | --- | --- |
 | `-layout` | `token` | no | Move it to this Layout (token) |
 | `-reference_design` | `token` | no | The reference Design, resolved from the referenced macro/design name at creation time - readers error rather than create a Placement with an unresolved reference |
-| `-instance` | `token` | no | The logical Instance this placement corresponds to, resolved by `link` against the sibling Schematic - unset until linked, and stays unset for a physical_only Placement |
+| `-instance` | `token` | no | The logical Instance this placement corresponds to, resolved by `link` against the sibling Schematic - never set for a physical_only Placement |
 | `-name` | `str` | no | The name of the instance - unique within its layout |
 | `-physical_only` | `bool` | no | Set by `link` when no Instance in the sibling Schematic matches this Placement's name (e.g. a filler/decap cell with no logical counterpart) - not a DEF-native concept, always False until `link` runs |
 | `-placement_status` | `PlacementStatus` | no | Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED) |
-| `-location` | `Point` | no | The location of the lower-left corner of this instance, in microns - unset if UNPLACED |
-| `-orientation` | `Orientation` | no | Placement orientation - unset if UNPLACED |
-| `-weight` | `double` | no | DEF COMPONENTS WEIGHT - unset if omitted |
-| `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) - unset if omitted |
+| `-location` | `Point` | no | The location of the lower-left corner of this instance, in microns |
+| `-orientation` | `Orientation` | no | Placement orientation |
+| `-weight` | `double` | no | DEF COMPONENTS WEIGHT |
+| `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) |
 
 ## update_port
 
@@ -3200,11 +3200,11 @@ Changes the given fields of a Port; omitted flags leave a field unchanged.
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-schematic` | `token` | no | Move it to this Schematic (token) |
-| `-bus` | `token` | no | The PortBus this Port is one bit of, if any - unset for a scalar (1-bit) port |
+| `-bus` | `token` | no | The PortBus this Port is one bit of, if it is part of a multi-bit port |
 | `-net` | `token` | no | The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name) - the matching per-bit Net for a multi-bit port |
 | `-name` | `str` | no | The name of the port - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit port, plain for a scalar port - unique within its schematic |
 | `-direction` | `SignalDirection` | no | The direction of the port |
-| `-bit_index` | `int` | no | Which bit of .bus this Port represents - unset for a scalar port |
+| `-bit_index` | `int` | no | Which bit of .bus this Port represents |
 
 ## update_port_bus
 
@@ -3228,7 +3228,7 @@ Changes the given fields of a PreferEnclosureEntry; omitted flags leave a field 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layer` | `token` | no | Move it to this Layer (token) |
-| `-location` | `str` | no | ABOVE, BELOW, or unset |
+| `-location` | `str` | no | ABOVE or BELOW |
 | `-overhang1` | `um` | no | In microns |
 | `-overhang2` | `um` | no | In microns |
 | `-min_width` | `um` | no | Optional WIDTH, in microns |
@@ -3242,13 +3242,13 @@ Changes the given fields of a PropertyDefinition; omitted flags leave a field un
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-technology` | `token` | no | Move it to this Technology (token) |
-| `-owner_type` | `str` | no | Which construct this property applies to - LIBRARY, LAYER, VIA, VIARULE, NONDEFAULTRULE, MACRO, or PIN (LEF's own PROPERTYDEFINITIONS syntax, from lefiProp::propType()) |
+| `-owner_type` | `str` | no | Which construct this property applies to - LIBRARY, LAYER, VIA, VIARULE, NONDEFAULTRULE, MACRO, or PIN |
 | `-name` | `str` | no | The property name |
 | `-data_type` | `str` | no | The data type code - I(nteger), R(eal), S(tring), or Q(uoted string) |
 | `-range_min` | `double` | no | RANGE lower bound, in the property's own units |
 | `-range_max` | `double` | no | RANGE upper bound, in the property's own units |
-| `-default_number` | `double` | no | Default value, if data_type is I(nteger)/R(eal) - unset if none was declared |
-| `-default_string` | `str` | no | Default value, if data_type is S(tring)/Q(uoted string) - unset if none was declared |
+| `-default_number` | `double` | no | Default value, if data_type is I(nteger)/R(eal) |
+| `-default_string` | `str` | no | Default value, if data_type is S(tring)/Q(uoted string) |
 
 ## update_region
 
@@ -3260,7 +3260,7 @@ Changes the given fields of a Region; omitted flags leave a field unchanged.
 | --- | --- | --- | --- |
 | `-layout` | `token` | no | Move it to this Layout (token) |
 | `-name` | `str` | no | The name of the region - unique within its layout |
-| `-region_type` | `str` | no | FENCE or GUIDE - unset if omitted (DEF REGIONS TYPE) |
+| `-region_type` | `str` | no | FENCE or GUIDE (DEF REGIONS TYPE) |
 | `-rects` | `Rect...` | no | The region's rects (a region can be a multi-rect rectilinear area) |
 
 ## update_route
@@ -3272,12 +3272,12 @@ Changes the given fields of a Route; omitted flags leave a field unchanged.
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layout` | `token` | no | Move it to this Layout (token) |
-| `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` - unset until linked |
+| `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` |
 | `-name` | `str` | no | The name of the net this routes, as read - unique within its layout. See net for the resolved link |
 | `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
-| `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only, unset if omitted |
-| `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only, unset if omitted |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... or unset (DEF NETS/SPECIALNETS USE) |
+| `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only |
+| `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE) |
 
 ## update_row
 
@@ -3289,7 +3289,7 @@ Changes the given fields of a Row; omitted flags leave a field unchanged.
 | --- | --- | --- | --- |
 | `-layout` | `token` | no | Move it to this Layout (token) |
 | `-name` | `str` | no | The name of the row |
-| `-site_name` | `str` | no | The name of the site this row is built from, as read (DEF ROW macro name) - a plain name reference, same convention as Abstract.site, not resolved to a SiteId |
+| `-site_name` | `str` | no | The name of the site this row is built from, as read (DEF ROW macro name) - a plain name, not a reference to a Site |
 | `-origin` | `Point` | no | The row's origin, in microns |
 | `-orientation` | `Orientation` | no | The row's orientation |
 | `-num_x` | `int` | no | Number of site repeats in X (DEF ROW DO n) |
@@ -3315,13 +3315,13 @@ Changes the given fields of a Shape; omitted flags leave a field unchanged.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `-layer` | `token` | no | The layer this shape is on, if it's real LEF/DEF routing/terminal/obstruction geometry - resolved to the Technology's own Layer at creation time (readers error rather than create a Shape with an unresolved layer). Exactly one of layer/purpose is ever set (documented convention, not database-enforced, same as e.g. Blockage.spacing/design_rule_width's own precedent) - a Shape with no real physical layer (Layout.diearea, Abstract.boundary, a DEF PLACEMENT blockage's own region) uses purpose instead, unset here. From TCL, a layer:<name> token; create_shape -layer debug means -purpose DEBUG (the debug layer - no physical layer). |
+| `-layer` | `token` | no | The physical layer this shape is on. Exactly one of layer and purpose is set - a shape with no physical layer (a diearea, an abstract boundary, a placement blockage) uses purpose instead. From TCL, a layer:<name> token; create_shape -layer debug means -purpose DEBUG. |
 | `-purpose` | `ShapePurpose` | no | What this shape is, when it isn't on a physical layer - a boundary, a placement blockage or debug geometry. Exactly one of layer and purpose is set. |
 | `-paths` | `Path...` | no | A list of paths |
 | `-polygons` | `Polygon...` | no | A list of polygons |
 | `-rects` | `Rect...` | no | A list of rects |
-| `-spacing` | `um` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in microns - unset means the layer's own rules apply; 0 is a real value. Mutually exclusive with design_rule_width. |
-| `-design_rule_width` | `um` | no | LEF LAYER ... DESIGNRULEWIDTH, in microns - unset means none; 0 is a real value. Mutually exclusive with spacing. |
+| `-spacing` | `um` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in microns - the layer's own rules apply if not given. Mutually exclusive with design_rule_width. |
+| `-design_rule_width` | `um` | no | LEF LAYER ... DESIGNRULEWIDTH, in microns. Mutually exclusive with spacing. |
 | `-except_pg_net` | `bool` | no | LEF LAYER ... EXCEPTPGNET (5.7) - write_lef writes it for OBS only |
 
 ## update_site
@@ -3334,7 +3334,7 @@ Changes the given fields of a Site; omitted flags leave a field unchanged.
 | --- | --- | --- | --- |
 | `-technology` | `token` | no | Move it to this Technology (token) |
 | `-name` | `str` | no | The name of the site |
-| `-site_class` | `str` | no | PAD, CORE, VIRTUAL, or unset (LEF CLASS) |
+| `-site_class` | `str` | no | PAD, CORE or VIRTUAL (LEF CLASS) |
 | `-size` | `Point` | no | The site size, in microns (LEF SIZE) |
 | `-symmetry` | `Symmetry` | no | Which flips/rotations this site allows (LEF SYMMETRY) |
 
@@ -3372,7 +3372,7 @@ Changes the given fields of a SpacingRule; omitted flags leave a field unchanged
 | `-end_of_notch_width` | `um` | no | SPACING ... ENDOFNOTCHWIDTH, in microns - read-only, not written back by write_lef |
 | `-end_of_notch_spacing` | `um` | no | ENDOFNOTCHWIDTH ... NOTCHSPACING, in microns |
 | `-end_of_notch_length` | `um` | no | ENDOFNOTCHWIDTH ... NOTCHLENGTH, in microns |
-| `-second_layer_name` | `str` | no | SPACING ... LAYER name (CUT inter-layer spacing) - unset otherwise |
+| `-second_layer_name` | `str` | no | SPACING ... LAYER name (CUT inter-layer spacing) |
 | `-second_layer_stack` | `bool` | no | LAYER ... STACK was specified |
 | `-adjacent_cuts` | `int` | no | ADJACENTCUTS count |
 | `-adjacent_within` | `um` | no | ADJACENTCUTS ... WITHIN distance, in microns |
@@ -3388,28 +3388,28 @@ Changes the given fields of a Technology; omitted flags leave a field unchanged.
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-database_units_microns` | `double` | no | Database units per micron (LEF UNITS DATABASE MICRONS) |
-| `-capacitance_units_pf` | `double` | no | LEF UNITS CAPACITANCE PICOFARADS <value> - unset if the LEF file never declared it |
-| `-resistance_units_ohms` | `double` | no | LEF UNITS RESISTANCE OHMS <value> - unset if the LEF file never declared it |
-| `-power_units_mw` | `double` | no | LEF UNITS POWER MILLIWATTS <value> - unset if the LEF file never declared it |
-| `-current_units_ma` | `double` | no | LEF UNITS CURRENT MILLIAMPS <value> - unset if the LEF file never declared it |
-| `-voltage_units_v` | `double` | no | LEF UNITS VOLTAGE VOLTS <value> - unset if the LEF file never declared it |
-| `-frequency_units_mhz` | `double` | no | LEF UNITS FREQUENCY MEGAHERTZ <value> - unset if the LEF file never declared it |
-| `-bus_bit_chars` | `str` | no | The bus bit delimiter characters (LEF BUSBITCHARS), e.g. "<>" - unset if never read (not written if unset) |
-| `-divider_char` | `str` | no | The hierarchy divider character (LEF DIVIDERCHAR), e.g. "/" - unset if never read (not written if unset) |
+| `-capacitance_units_pf` | `double` | no | LEF UNITS CAPACITANCE PICOFARADS <value> |
+| `-resistance_units_ohms` | `double` | no | LEF UNITS RESISTANCE OHMS <value> |
+| `-power_units_mw` | `double` | no | LEF UNITS POWER MILLIWATTS <value> |
+| `-current_units_ma` | `double` | no | LEF UNITS CURRENT MILLIAMPS <value> |
+| `-voltage_units_v` | `double` | no | LEF UNITS VOLTAGE VOLTS <value> |
+| `-frequency_units_mhz` | `double` | no | LEF UNITS FREQUENCY MEGAHERTZ <value> |
+| `-bus_bit_chars` | `str` | no | The bus bit delimiter characters (LEF BUSBITCHARS), e.g. "<>" |
+| `-divider_char` | `str` | no | The hierarchy divider character (LEF DIVIDERCHAR), e.g. "/" |
 | `-fixed_mask` | `bool` | no | Top-level LEF FIXEDMASK was specified - distinct from Abstract.is_fixed_mask (LEF MACRO ... FIXEDMASK) |
-| `-use_min_spacing_obs` | `bool` | no | LEF USEMINSPACING OBS ON|OFF - unset if the LEF file never declared it |
-| `-use_min_spacing_pin` | `bool` | no | LEF USEMINSPACING PIN ON|OFF - unset if the LEF file never declared it |
-| `-clearance_measure` | `str` | no | LEF CLEARANCEMEASURE (EUCLIDEAN or MAXXY) - unset if never read |
-| `-manufacturing_grid` | `double` | no | LEF MANUFACTURINGGRID, in microns - unset if never read |
-| `-fin_pitch` | `um` | no | FinFET grid pitch, in microns - overrides the pitch of a LIBRARY LEF58_FINFET property; unset means use that property's |
-| `-fin_offset` | `um` | no | FinFET grid offset, in microns - overrides LEF58_FINFET's OFFSET, unset means use that property's (0 if it has none) |
-| `-fin_direction` | `RoutingDirection` | no | FinFET direction (H: horizontal fins, the grid snaps Y; V: vertical fins, snaps X) - overrides LEF58_FINFET's HORIZONTAL/VERTICAL, unset means use that property's (HORIZONTAL if it has none) |
-| `-max_via_stack` | `int` | no | LEF MAXVIASTACK value - unset if never read |
-| `-max_via_stack_bottom_layer` | `str` | no | LEF MAXVIASTACK ... RANGE bottomLayer - unset if the RANGE clause was omitted |
-| `-max_via_stack_top_layer` | `str` | no | LEF MAXVIASTACK ... RANGE topLayer - unset if the RANGE clause was omitted |
-| `-antenna_input_gate_area` | `double` | no | Top-level LEF ANTENNAINPUTGATEAREA (legacy pre-5.0 default, distinct from a PIN's own per-pin ANTENNAGATEAREA) - unset if never read |
-| `-antenna_inout_diff_area` | `double` | no | Top-level LEF ANTENNAINOUTDIFFAREA (legacy pre-5.0 default) - unset if never read |
-| `-antenna_output_diff_area` | `double` | no | Top-level LEF ANTENNAOUTPUTDIFFAREA (legacy pre-5.0 default) - unset if never read |
+| `-use_min_spacing_obs` | `bool` | no | LEF USEMINSPACING OBS ON|OFF |
+| `-use_min_spacing_pin` | `bool` | no | LEF USEMINSPACING PIN ON|OFF |
+| `-clearance_measure` | `str` | no | LEF CLEARANCEMEASURE (EUCLIDEAN or MAXXY) |
+| `-manufacturing_grid` | `double` | no | LEF MANUFACTURINGGRID, in microns |
+| `-fin_pitch` | `um` | no | FinFET grid pitch, in microns - overrides the pitch of a LIBRARY LEF58_FINFET property |
+| `-fin_offset` | `um` | no | FinFET grid offset, in microns - overrides LEF58_FINFET's OFFSET (0 if neither is given) |
+| `-fin_direction` | `RoutingDirection` | no | FinFET direction (H: horizontal fins, the grid snaps Y; V: vertical fins, snaps X) - overrides LEF58_FINFET's HORIZONTAL/VERTICAL (HORIZONTAL if neither is given) |
+| `-max_via_stack` | `int` | no | LEF MAXVIASTACK value |
+| `-max_via_stack_bottom_layer` | `str` | no | LEF MAXVIASTACK ... RANGE bottomLayer |
+| `-max_via_stack_top_layer` | `str` | no | LEF MAXVIASTACK ... RANGE topLayer |
+| `-antenna_input_gate_area` | `double` | no | Top-level LEF ANTENNAINPUTGATEAREA (legacy pre-5.0 default, distinct from a PIN's own per-pin ANTENNAGATEAREA) |
+| `-antenna_inout_diff_area` | `double` | no | Top-level LEF ANTENNAINOUTDIFFAREA (legacy pre-5.0 default) |
+| `-antenna_output_diff_area` | `double` | no | Top-level LEF ANTENNAOUTPUTDIFFAREA (legacy pre-5.0 default) |
 
 ## update_terminal
 
@@ -3422,17 +3422,17 @@ Changes the given fields of a Terminal; omitted flags leave a field unchanged.
 | `-abstract` | `token` | no | Move it to this Abstract (token) |
 | `-name` | `str` | no | Name of the terminal - unique within its abstract |
 | `-direction` | `SignalDirection` | no | The direction of the terminal |
-| `-shape` | `str` | no | ABUTMENT, RING, FEEDTHRU, or unset (LEF PIN SHAPE) |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, TIEOFF, ANALOG, SCAN, or unset (LEF PIN USE) |
-| `-must_join` | `str` | no | The name of another pin this one must be joined with, or unset (LEF PIN MUSTJOIN) |
-| `-net_expr` | `str` | no | A verbatim NETEXPR string (LEF 5.6), round-tripped as-is rather than parsed - unset if omitted |
-| `-leq` | `str` | no | This pin's own logically-equivalent-pin name (LEF PIN LEQ) - distinct from the macro-level Abstract.leq - unset if omitted |
-| `-taper_rule` | `str` | no | LEF PIN TAPERRULE - unset if omitted |
-| `-supply_sensitivity` | `str` | no | LEF PIN SUPPLYSENSITIVITY (5.6) - net name, unset if omitted |
-| `-ground_sensitivity` | `str` | no | LEF PIN GROUNDSENSITIVITY (5.6) - net name, unset if omitted |
+| `-shape` | `str` | no | ABUTMENT, RING or FEEDTHRU (LEF PIN SHAPE) |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, TIEOFF, ANALOG or SCAN (LEF PIN USE) |
+| `-must_join` | `str` | no | The name of another pin this one must be joined with (LEF PIN MUSTJOIN) |
+| `-net_expr` | `str` | no | A verbatim NETEXPR string (LEF 5.6), round-tripped as-is rather than parsed |
+| `-leq` | `str` | no | This pin's own logically-equivalent-pin name (LEF PIN LEQ) - distinct from the macro-level Abstract.leq |
+| `-taper_rule` | `str` | no | LEF PIN TAPERRULE |
+| `-supply_sensitivity` | `str` | no | LEF PIN SUPPLYSENSITIVITY (5.6) - net name |
+| `-ground_sensitivity` | `str` | no | LEF PIN GROUNDSENSITIVITY (5.6) - net name |
 | `-rise_slew_limit` | `double` | no | LEF PIN RISESLEWLIMIT, in the LEF file's declared units - read-only, not written back by write_lef |
-| `-fall_slew_limit` | `double` | no | LEF PIN FALLSLEWLIMIT, declared units - read-only, same gap as rise_slew_limit - unset if never read |
-| `-max_load` | `double` | no | LEF PIN MAXLOAD, declared units - read-only, same gap as rise_slew_limit - unset if never read |
+| `-fall_slew_limit` | `double` | no | LEF PIN FALLSLEWLIMIT, in the LEF file's declared units - read-only, not written back by write_lef |
+| `-max_load` | `double` | no | LEF PIN MAXLOAD, in the LEF file's declared units - read-only, not written back by write_lef |
 | `-max_delay` | `double` | no | LEF PIN MAXDELAY, in the LEF file's declared units - read-only, not written back by write_lef |
 
 ## update_terminal_port
@@ -3444,7 +3444,7 @@ Changes the given fields of a TerminalPort; omitted flags leave a field unchange
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-terminal` | `token` | no | Move it to this Terminal (token) |
-| `-port_class` | `str` | no | LEF PORT CLASS (NONE/CORE/BUMP) - unset if omitted |
+| `-port_class` | `str` | no | LEF PORT CLASS (NONE/CORE/BUMP) |
 
 ## update_track
 
@@ -3459,7 +3459,7 @@ Changes the given fields of a Track; omitted flags leave a field unchanged.
 | `-start` | `um` | no | Starting coordinate, in microns (DEF TRACKS DO start) |
 | `-count` | `int` | no | Number of tracks (DEF TRACKS DO ... n) |
 | `-step` | `um` | no | Spacing between tracks, in microns (DEF TRACKS STEP) |
-| `-mask` | `int` | no | MASK color (DEF 5.8) - unset if omitted |
+| `-mask` | `int` | no | MASK color (DEF 5.8) |
 | `-same_mask` | `bool` | no | Whether SAMEMASK was specified (DEF 5.8) |
 
 ## update_two_widths_spacing_entry
@@ -3548,10 +3548,10 @@ Changes the given fields of a ViaRuleReference; omitted flags leave a field unch
 | `-cut_spacing` | `Point` | no | The cut spacing, in microns (LEF CUTSPACING) |
 | `-bot_enclosure` | `Point` | no | The bottom layer enclosure, in microns (LEF ENCLOSURE, bottom pair) |
 | `-top_enclosure` | `Point` | no | The top layer enclosure, in microns (LEF ENCLOSURE, top pair) |
-| `-num_cut_rows` | `int` | no | Number of cut rows (LEF ROWCOL) - unset means a single cut |
-| `-num_cut_cols` | `int` | no | Number of cut columns (LEF ROWCOL) - unset means a single cut |
-| `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in microns (LEF VIARULE-inside-VIA ORIGIN) - unset means the array is centered exactly on the placement point (this schema's own prior default, still correct when ORIGIN is omitted) |
-| `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in microns (LEF VIARULE-inside-VIA OFFSET, bottom pair) - unset means no offset (the enclosure rect stays centered on the cut array, this schema's own prior default) |
+| `-num_cut_rows` | `int` | no | Number of cut rows (LEF ROWCOL) - a single cut if not given |
+| `-num_cut_cols` | `int` | no | Number of cut columns (LEF ROWCOL) - a single cut if not given |
+| `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in microns (LEF VIARULE-inside-VIA ORIGIN) - the array is centered on the placement point if not given |
+| `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in microns (LEF VIARULE-inside-VIA OFFSET, bottom pair) - the enclosure rect is centered on the cut array if not given |
 | `-top_offset` | `Point` | no | Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair) |
 
 ## write_db
