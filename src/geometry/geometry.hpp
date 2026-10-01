@@ -741,35 +741,22 @@ namespace le
         template <typename ShapeLike>
         static Point get_label_location(const ShapeLike &shape)
         {
-            std::optional<Rect> best;
-            int64_t best_area = -1;
-
-            auto consider = [&](const Rect &r)
-            {
-                const int64_t area = (r.ur.x - r.ll.x) * (r.ur.y - r.ll.y);
-                if (area > best_area)
-                {
-                    best_area = area;
-                    best = r;
-                }
-            };
-
-            for (const auto &rect : shape.rects)
-                consider(rect);
-
-            for (const auto &polygon : shape.polygons)
-                for (const auto &r : fracture_into_rects(to_boost_polygon(polygon)))
-                    consider(r);
-
-            for (const auto &path : shape.paths)
-                for (const auto &poly : path_to_polygons(path))
-                    for (const auto &r : fracture_into_rects(to_boost_polygon(poly)))
-                        consider(r);
-
+            const std::optional<LabelCandidate> best = largest_label_candidate(shape);
             if (!best)
                 return Point{0, 0};
+            return Point{(best->rect.ll.x + best->rect.ur.x) / 2, (best->rect.ll.y + best->rect.ur.y) / 2};
+        }
 
-            return Point{(best->ll.x + best->ur.x) / 2, (best->ll.y + best->ur.y) / 2};
+        /// @brief The bbox of the one rect/polygon/path of `shape` that
+        /// get_label_location places its label on - std::nullopt for a
+        /// shape with no geometry.
+        template <typename ShapeLike>
+        static std::optional<Rect> label_piece_bbox(const ShapeLike &shape)
+        {
+            const std::optional<LabelCandidate> best = largest_label_candidate(shape);
+            if (!best)
+                return std::nullopt;
+            return best->piece_bbox;
         }
 
         /// @brief The local "width" (thickness) of `shape` at `point`: the
@@ -1405,6 +1392,52 @@ namespace le
         }
 
     private:
+        /// A label candidate rect and the bbox of the piece it came from.
+        struct LabelCandidate
+        {
+            Rect rect;
+            Rect piece_bbox;
+        };
+
+        // get_label_location's choice: the largest candidate rect, first
+        // wins on a tie.
+        template <typename ShapeLike>
+        static std::optional<LabelCandidate> largest_label_candidate(const ShapeLike &shape)
+        {
+            std::optional<LabelCandidate> best;
+            int64_t best_area = -1;
+
+            auto consider = [&](const Rect &r, const Rect &piece_bbox)
+            {
+                const int64_t area = (r.ur.x - r.ll.x) * (r.ur.y - r.ll.y);
+                if (area > best_area)
+                {
+                    best_area = area;
+                    best = LabelCandidate{.rect = r, .piece_bbox = piece_bbox};
+                }
+            };
+
+            for (const auto &rect : shape.rects)
+                consider(rect, rect);
+
+            for (const auto &polygon : shape.polygons)
+            {
+                const Rect piece_bbox = bbox_of(polygon);
+                for (const auto &r : fracture_into_rects(to_boost_polygon(polygon)))
+                    consider(r, piece_bbox);
+            }
+
+            for (const auto &path : shape.paths)
+            {
+                const Rect piece_bbox = bbox_of(path);
+                for (const auto &poly : path_to_polygons(path))
+                    for (const auto &r : fracture_into_rects(to_boost_polygon(poly)))
+                        consider(r, piece_bbox);
+            }
+
+            return best;
+        }
+
         using BgPolygon = bg::model::polygon<Point>;
         using BgArea = bg::model::multi_polygon<BgPolygon>;
 
