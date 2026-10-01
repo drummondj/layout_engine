@@ -1223,6 +1223,28 @@ sanity-checked without waiting for Flutter texture wiring. Not run by
   `lefiLayer::hasDirection()`) before trusting a getter, or a value can leak
   forward from a previous element that happened to set it.
 
+## Comments
+
+Comments describe how the code works now and why it is this way. They are
+not a changelog.
+
+- Write in the present tense: invariants, non-obvious constraints, units,
+  ownership, gotchas. If the code already says it, don't comment.
+- No tracker references — no item numbers, `E1`-style IDs, "Phase N", or
+  `.md` files cited as justification. A reader shouldn't need another
+  document to understand a comment.
+- No discovery stories ("confirmed by hitting…", "originally…", "used to…",
+  "now-deleted…"). Keep the lesson as a one-line reason; drop the story.
+- When behaviour changes, update or delete the comments that describe it.
+- Why something changed belongs in the commit message and its GitHub issue
+  (`Fixes #N`), not in the code.
+
+## Work tracking
+
+Bugs and features are GitHub issues (`gh issue list`, `gh issue view N`).
+Reference the issue in the commit (`Fixes #N`). Long-lived designs and
+research live in `docs/`.
+
 ## Related prior art
 
 `../../layout_engine/backend` (sibling repo, same author) is an earlier,

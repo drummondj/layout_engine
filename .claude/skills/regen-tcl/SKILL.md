@@ -59,10 +59,8 @@ the delete cascade plan).
 
    The second line must print this checkout's `codegen/codegen/__init__.py`.
    A non-editable install (`pip install codegen` without `-e`) is a frozen
-   copy that silently goes stale as `codegen/` changes - it once failed on a
-   `Field` argument the schema had long since started using. The command is
-   `codegen` (it was `cmg` until NEW_FEATURES_SEPT_2026.md item 26 renamed it,
-   so it can't collide with an installed upstream `cmg`). If pip refuses with
+   copy that silently goes stale as `codegen/` changes. The command is
+   `codegen` (named so it can't collide with an installed upstream `cmg`). If pip refuses with
    "externally-managed-environment", add `--break-system-packages` (a
    `--user` install doesn't touch the system packages) or use poetry.
 
@@ -176,7 +174,7 @@ again on subsequent regenerations:
   `le_create_<type>`/`le_update_<type>`/`le_delete_<type>` declarations).
 - `api.cpp` - **five** injection points: `#include "generated_tcl/snapshot_appliers.hpp"`
   near the top of the file with the rest of its ordinary top-level
-  `#include`s (UPDATES.md item 21) - unlike every other generated_tcl/
+  `#include`s - unlike every other generated_tcl/
   file below, this one is a real standalone header (`#pragma once`, its
   own `namespace le { ... }`), not a `.inc` fragment spliced into a
   specific existing scope, since `apply_<snake>_snapshot(Root&, <Klass>Id,
@@ -199,7 +197,7 @@ again on subsequent regenerations:
   into one; `le_create_X`/`le_update_X`'s generated bodies also each
   record themselves into `handle->command_history`'s currently-recording
   transaction, if any, using `apply_<snake>_snapshot` from
-  `snapshot_appliers.hpp` above - see UPDATES.md item 21; `le_delete_X`
+  `snapshot_appliers.hpp` above; `le_delete_X`
   records itself the same way, but doesn't need `apply_<snake>_snapshot`
   at all - a delete's own undo is a plain `create_x(snapshot)` replay, not
   a field-by-field apply, see `Klass.delete_api_body()`'s own docstring,

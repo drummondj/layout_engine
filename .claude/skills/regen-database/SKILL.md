@@ -50,9 +50,8 @@ field type.
    "externally-managed-environment", add `--break-system-packages` (a
    `--user` install doesn't touch the system packages) or use poetry.
 
-3. **Run the generator** - the command is `codegen` (it was `cmg`, the
-   upstream tool's name, until NEW_FEATURES_SEPT_2026.md item 26 renamed it
-   so it can't collide with an installed upstream `cmg`). INDEXED_POOLS is
+3. **Run the generator** - the command is `codegen` (named so it can't
+   collide with an installed upstream `cmg`). INDEXED_POOLS is
    the fork's only export style, no `--export-style` flag needed:
 
    ```
@@ -62,7 +61,7 @@ field type.
    A new version writes `src/database/schema_history/<version>.json`
    - **commit it together with the schema change**. It is the record of what
    that schema version looked like, which native-format migrations will be
-   checked against (NATIVE_FILE_FORMAT_RESEARCH.md §4).
+   checked against (docs/NATIVE_FILE_FORMAT_RESEARCH.md §4).
 
    A new version also needs its **golden files** - sample native database
    files every later build must keep loading
@@ -75,7 +74,7 @@ field type.
    ```
 
    A new version also needs a **migration** saying how data from the
-   previous version becomes this one (NATIVE_FILE_FORMAT_RESEARCH.md §4) -
+   previous version becomes this one (docs/NATIVE_FILE_FORMAT_RESEARCH.md §4) -
    step 3 fails with "schema version X has no migration" until it exists.
    Draft it, then review/finish it and regenerate:
 
