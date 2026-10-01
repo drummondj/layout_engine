@@ -1013,6 +1013,7 @@ add_executable(backend_tests
     src/core/tests/placement_move_test.cpp
     src/core/tests/flightlines_test.cpp
     src/core/tests/shape_resize_test.cpp
+    src/core/tests/row_geometry_test.cpp
     src/gui/gui_provider.cpp
     src/gui/tests/gui_provider_test.cpp
     src/sv/tests/sv_reader_test.cpp

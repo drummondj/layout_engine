@@ -262,7 +262,7 @@ comparing. Results history: `docs/BENCHMARKS.md`,
 
 ## Known gaps
 
-- Layout view: Blockage/Row/Region own shapes aren't hit-tested yet;
+- Layout view: Blockage/Region own shapes aren't hit-tested yet;
   selection into instanced content is whole-placement only.
 - Free-standing shapes (`free_shapes`) aren't selectable.
 - `scripts/rocky8-bootstrap.sh` is unverified on a real Rocky 8 machine,
