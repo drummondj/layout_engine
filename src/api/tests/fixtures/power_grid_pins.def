@@ -1,0 +1,30 @@
+VERSION 5.8 ;
+DIVIDERCHAR "/" ;
+BUSBITCHARS "[]" ;
+DESIGN GRIDTOP ;
+UNITS DISTANCE MICRONS 1000 ;
+DIEAREA ( 0 0 ) ( 100000 100000 ) ;
+
+# A VDD/VSS power grid where every stripe is also a PORT of its pin:
+# 2um M2 stripes running the die's full height, VDD at x = 10, 30, 50,
+# 70, 90um and VSS at 20, 40, 60, 80um, plus 1um M1 stripes running
+# its full width, VDD at y = 10, 50, 90um and VSS at 30, 70um.
+PINS 2 ;
+- VDD + NET VDD + SPECIAL + DIRECTION INOUT + USE POWER
+  + PORT + LAYER M2 ( -1000 0 ) ( 1000 100000 ) + FIXED ( 10000 0 ) N
+  + PORT + LAYER M2 ( -1000 0 ) ( 1000 100000 ) + FIXED ( 30000 0 ) N
+  + PORT + LAYER M2 ( -1000 0 ) ( 1000 100000 ) + FIXED ( 50000 0 ) N
+  + PORT + LAYER M2 ( -1000 0 ) ( 1000 100000 ) + FIXED ( 70000 0 ) N
+  + PORT + LAYER M2 ( -1000 0 ) ( 1000 100000 ) + FIXED ( 90000 0 ) N
+  + PORT + LAYER M1 ( 0 -500 ) ( 100000 500 ) + FIXED ( 0 10000 ) N
+  + PORT + LAYER M1 ( 0 -500 ) ( 100000 500 ) + FIXED ( 0 50000 ) N
+  + PORT + LAYER M1 ( 0 -500 ) ( 100000 500 ) + FIXED ( 0 90000 ) N ;
+- VSS + NET VSS + SPECIAL + DIRECTION INOUT + USE GROUND
+  + PORT + LAYER M2 ( -1000 0 ) ( 1000 100000 ) + FIXED ( 20000 0 ) N
+  + PORT + LAYER M2 ( -1000 0 ) ( 1000 100000 ) + FIXED ( 40000 0 ) N
+  + PORT + LAYER M2 ( -1000 0 ) ( 1000 100000 ) + FIXED ( 60000 0 ) N
+  + PORT + LAYER M2 ( -1000 0 ) ( 1000 100000 ) + FIXED ( 80000 0 ) N
+  + PORT + LAYER M1 ( 0 -500 ) ( 100000 500 ) + FIXED ( 0 30000 ) N
+  + PORT + LAYER M1 ( 0 -500 ) ( 100000 500 ) + FIXED ( 0 70000 ) N ;
+END PINS
+END DESIGN

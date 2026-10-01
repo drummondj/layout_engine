@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace le
@@ -13,8 +14,11 @@ namespace le
     /// just beyond the port's outer edge (the one facing away from the
     /// block's center), so they never cover the port itself.
     ///
-    /// Orthogonal only: the port faces whichever side of `die` its center
-    /// is nearest, and the marker points straight in (+ toward the block)
+    /// Orthogonal only: the port faces whichever side of `die` its own
+    /// edge is nearest - on a tie (a stripe touching both ends of the
+    /// die), the side along which the port is narrower, so a stripe's
+    /// marker sits on its end, not along it - and the marker points
+    /// straight in (+ toward the block)
     /// or out along that side's normal. An input gets one triangle pointing
     /// in, an output (or tristate output) one pointing out; an inout - and
     /// a feedthru or unspecified direction, which could carry either way -
@@ -36,24 +40,23 @@ namespace le
         if (port_w <= 0 || port_h <= 0 || die.ur.x <= die.ll.x || die.ur.y <= die.ll.y)
             return {};
 
-        // The side of the die nearest the port's center - its outward normal.
-        const double cx = 0.5 * static_cast<double>(port.ll.x + port.ur.x);
-        const double cy = 0.5 * static_cast<double>(port.ll.y + port.ur.y);
-        const double to_left = cx - static_cast<double>(die.ll.x);
-        const double to_right = static_cast<double>(die.ur.x) - cx;
-        const double to_bottom = cy - static_cast<double>(die.ll.y);
-        const double to_top = static_cast<double>(die.ur.y) - cy;
-        const double nearest = std::min({to_left, to_right, to_bottom, to_top});
-        int nx = 0;
-        int ny = 0;
-        if (nearest == to_left)
-            nx = -1;
-        else if (nearest == to_right)
-            nx = 1;
-        else if (nearest == to_bottom)
-            ny = -1;
-        else
-            ny = 1;
+        // The side of the die nearest the port's edge - its outward normal.
+        struct Side
+        {
+            int64_t distance;
+            int64_t extent; // the port's extent along that side
+            int nx, ny;
+        };
+        const Side sides[] = {
+            {.distance = port.ll.x - die.ll.x, .extent = port_h, .nx = -1, .ny = 0},
+            {.distance = die.ur.x - port.ur.x, .extent = port_h, .nx = 1, .ny = 0},
+            {.distance = port.ll.y - die.ll.y, .extent = port_w, .nx = 0, .ny = -1},
+            {.distance = die.ur.y - port.ur.y, .extent = port_w, .nx = 0, .ny = 1},
+        };
+        const Side &side = *std::ranges::min_element(sides, {}, [](const Side &s)
+                                                     { return std::pair{s.distance, s.extent}; });
+        const int nx = side.nx;
+        const int ny = side.ny;
 
         // Marker frame: `outer` is the coordinate of the port's outer edge
         // along the normal, [lo, hi] its extent along the edge.

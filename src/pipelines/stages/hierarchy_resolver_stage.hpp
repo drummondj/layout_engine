@@ -1834,9 +1834,11 @@ namespace le
         // design coordinates - DEFReader places them), the port's name as a
         // label per layer - placed like an Abstract terminal's (see
         // collect_abstract_content) - and a direction marker on
-        // PORT_MARKER beside the port's outer edge (port_marker_polygons) -
-        // one RenderShape per port, so the rasterizer can enlarge each
-        // about its own anchor (enlarged_port_marker).
+        // PORT_MARKER beside the outer edge of one piece: the port's
+        // largest, which also carries its layer's label. Bounding every
+        // piece instead would stretch a power grid's marker across the
+        // block. One RenderShape per port, so the rasterizer can enlarge
+        // each about its own anchor (enlarged_port_marker).
         static void append_physical_port_shapes(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, ViewLayerShapes &shapes_by_layer,
                                                 ChunkSources *sources = nullptr)
         {
@@ -1903,9 +1905,9 @@ namespace le
                 }
 
                 if (die)
-                    if (const std::optional<Rect> port_bbox = Geometry::bbox(whole_port))
+                    if (const std::optional<Rect> piece_bbox = Geometry::label_piece_bbox(whole_port))
                     {
-                        RenderShape marker{.polygons = port_marker_polygons(*port_bbox, *die, port->direction)};
+                        RenderShape marker{.polygons = port_marker_polygons(*piece_bbox, *die, port->direction)};
                         if (!marker.polygons.empty())
                         {
                             shapes_by_layer[marker_view_layer].push_back(std::move(marker));

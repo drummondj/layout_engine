@@ -97,6 +97,33 @@ TEST(PortMarkers, EveryDirectionAnchorsAtTheOuterEdgeMidpoint)
     }
 }
 
+TEST(PortMarkers, ADieSpanningStripeGetsItsMarkerOnItsEnd)
+{
+    // A 20-wide stripe running the die's full height, nearer the left side
+    // than the bottom by its center but touching both bottom and top: the
+    // marker goes under its bottom end, 20 wide, not along its 1000 length.
+    const auto markers = port_marker_polygons(Rect{.ll = Point{100, 0}, .ur = Point{120, 1000}}, kDie, SignalDirection::INPUT);
+    ASSERT_EQ(markers.size(), 1u);
+    const auto &pts = markers[0].points;
+    EXPECT_EQ(pts[0].x, 110); // apex at the bottom end's midpoint
+    EXPECT_EQ(pts[0].y, 0);
+    EXPECT_EQ(pts[1].x, 100);
+    EXPECT_EQ(pts[1].y, -20);
+    EXPECT_EQ(pts[2].x, 120);
+    EXPECT_EQ(pts[2].y, -20);
+}
+
+TEST(PortMarkers, TheSideNearestThePortsEdgeWinsOverItsCenter)
+{
+    // 10 from the bottom, 30 from the left by edge - but the left side is
+    // nearer the center (40 vs 210).
+    const auto markers = port_marker_polygons(Rect{.ll = Point{30, 10}, .ur = Point{50, 410}}, kDie, SignalDirection::OUTPUT);
+    ASSERT_EQ(markers.size(), 1u);
+    EXPECT_EQ(markers[0].points[0].x, 40);
+    EXPECT_EQ(markers[0].points[0].y, 10);
+    EXPECT_EQ(markers[0].points[2].y, -10); // apex 20 below
+}
+
 TEST(PortMarkers, EnlargedIsNulloptWhenAlreadyBigEnough)
 {
     // 40 dbu at 0.1 px/dbu is 4 px - over the 3 px minimum.

@@ -1007,6 +1007,7 @@ add_executable(backend_tests
     src/api/tests/le_handle_test.cpp
     src/api/tests/native_db_api_test.cpp
     src/api/tests/selection_test.cpp
+    src/api/tests/power_grid_port_markers_test.cpp
     src/api/tests/delete_pieces_test.cpp
     src/api/tests/mutation_cascade_test.cpp
     src/core/tests/placement_move_test.cpp

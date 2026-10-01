@@ -311,6 +311,30 @@ TEST(Geometry, LabelLocationIncludesPolygonsAndPathsNotJustRects)
     expect_point_eq(label, Point{50, 50});
 }
 
+TEST(Geometry, LabelPieceBboxIsThePieceTheLabelSitsOn)
+{
+    Shape empty;
+    EXPECT_FALSE(Geometry::label_piece_bbox(empty).has_value());
+
+    // The L polygon's leg slab (area 1600) beats the rect (100) - the
+    // result is the whole polygon's bbox, not just the slab.
+    Shape shape;
+    shape.rects.push_back(Rect{.ll = {200, 200}, .ur = {210, 210}});
+    shape.polygons.push_back(Polygon{.points = {{0, 0}, {100, 0}, {100, 60}, {80, 60}, {80, 20}, {0, 20}}});
+    const std::optional<Rect> piece = Geometry::label_piece_bbox(shape);
+    ASSERT_TRUE(piece.has_value());
+    expect_point_eq(piece->ll, Point{0, 0});
+    expect_point_eq(piece->ur, Point{100, 60});
+
+    // A path's piece is its centerline's bbox padded by half its width.
+    Shape path_shape;
+    path_shape.paths.push_back(Path{.width = 4, .polygon = Polygon{.points = {{0, 0}, {100, 0}}}});
+    const std::optional<Rect> path_piece = Geometry::label_piece_bbox(path_shape);
+    ASSERT_TRUE(path_piece.has_value());
+    expect_point_eq(path_piece->ll, Point{-2, -2});
+    expect_point_eq(path_piece->ur, Point{102, 2});
+}
+
 TEST(Geometry, LabelLocationOnAWidePolygonFracturesVerticallyAndPicksTheLargestSlab)
 {
     // A rectilinear L: a long horizontal leg (0,0)-(100,20) plus a short
