@@ -9,7 +9,7 @@ namespace le
 {
     /// @brief Reads SystemVerilog/Verilog source into the logical
     /// connectivity data model (Schematic/Port/Net/Instance/Pin), using
-    /// the slang frontend (see SYSTEMVERILOG.md and its linked plan).
+    /// the slang frontend.
     /// Two entry points, matching this project's read_lef/read_def
     /// convention of one function per distinct reading mode: read_netlist
     /// (full elaboration, for gate-level netlists where parameter/

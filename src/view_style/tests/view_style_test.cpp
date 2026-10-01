@@ -111,10 +111,8 @@ TEST_F(ViewStyleFixture, TerminalAndObstructionOfSameLayerShareTheSameColor)
 
 TEST_F(ViewStyleFixture, BoundaryColorIsUnaffectedByThePerLayerPaletteAndLighterThanRow)
 {
-    // BUGS_AND_ENHANCEMENTS.md E8 - row_style()'s own former color
-    // ({160, 160, 160}), lighter than row_style()'s own new, darker
-    // ({100, 100, 100}) - still a plain outline, no fill, same as
-    // row_style().
+    // {160, 160, 160}, lighter than row_style()'s {100, 100, 100} - a
+    // plain outline, no fill, same as row_style().
     const ViewLayerData *boundary = view_layers.get(view_layers.boundary_view_layer());
     ASSERT_NE(boundary, nullptr);
 
@@ -129,9 +127,8 @@ TEST_F(ViewStyleFixture, RowsHasRowThenBoundaryThenPlacementThenOneRowPerPhysica
 {
     // ROW + BOUNDARY + PLACEMENT + 2 physical Layers (M1, M2) + GCELLGRID +
     // PLACEMENT_BLOCKAGE + REGION + DEBUG + FLIGHTLINE + PORT_MARKER = 11 rows - ROW then
-    // BOUNDARY then PLACEMENT first (BUGS_AND_ENHANCEMENTS.md E8/E13 - this
-    // declaration order is also the real draw z-order, see rows()'s own
-    // doc comment), everything else unchanged.
+    // BOUNDARY then PLACEMENT first (this declaration order is also the
+    // real draw z-order, see rows()'s own doc comment).
     const auto &rows = view_layers.rows();
     ASSERT_EQ(rows.size(), 11u);
     EXPECT_EQ(rows[0].name, "ROW");
@@ -144,7 +141,7 @@ TEST_F(ViewStyleFixture, RowsHasRowThenBoundaryThenPlacementThenOneRowPerPhysica
     EXPECT_EQ(rows[7].name, "REGION");
     EXPECT_EQ(rows[8].name, "DEBUG");      // last rasterized row, so debug output draws on top of everything
     EXPECT_EQ(rows[9].name, "FLIGHTLINE"); // an overlay (ComposeStage), not rasterized
-    EXPECT_EQ(rows[10].name, "PORT_MARKER"); // appended last so its purpose ordinal stays stable (item 28)
+    EXPECT_EQ(rows[10].name, "PORT_MARKER"); // appended last so earlier purpose ordinals stay stable
 }
 
 TEST_F(ViewStyleFixture, PhysicalLayerRowHasTerminalObstructionTrackRoutingBlockageAndRouteColumns)
@@ -227,8 +224,8 @@ TEST_F(ViewStyleFixture, TrackAndRoutingBlockageOfSameLayerShareItsColorButNotOb
 
 TEST_F(ViewStyleFixture, TrackAndGCellGridStylesAreDashedButRowAndRoutingBlockageAreNot)
 {
-    // BUGS_AND_ENHANCEMENTS.md E2 - tracks/gcellgrid lines are dashed
-    // scaffolding, distinct from solid real geometry.
+    // Tracks/gcellgrid lines are dashed scaffolding, distinct from solid
+    // real geometry.
     const ViewLayerData *track_preferred = view_layers.get(view_layers.find(m1, ViewLayerPurpose::TRACK_PREFERRED));
     const ViewLayerData *track_non_preferred = view_layers.get(view_layers.find(m1, ViewLayerPurpose::TRACK_NON_PREFERRED));
     const ViewLayerData *routing_blockage = view_layers.get(view_layers.find(m1, ViewLayerPurpose::ROUTING_BLOCKAGE));
@@ -284,8 +281,8 @@ TEST_F(ViewStyleFixture, BoundaryRowHasASingleBoundaryColumn)
 
 TEST_F(ViewStyleFixture, PlacementRowHasASingleColumnNoLayerAndIsOneShadeLighterThanBoundary)
 {
-    // One purpose for a placement's outline and name label (formerly
-    // PLACEMENT_NAME/PLACEMENT_BOUNDARY), one shade lighter than
+    // One purpose for a placement's outline and name label, one shade
+    // lighter than
     // boundary_style()'s own color (same "derives from the row above it,
     // one shade lighter" relation boundary_style() itself has to
     // row_style()), solid and unfilled.
@@ -355,8 +352,8 @@ TEST_F(ViewStyleFixture, RoutingAndPlacementBlockagesAreDistinctPurposesNotOneSh
 
 TEST_F(ViewStyleFixture, PurposesListsEachDistinctPurposeOnceInFirstEncounteredOrder)
 {
-    // ROW then BOUNDARY then PLACEMENT each contribute their own purpose first (BUGS_AND_ENHANCEMENTS.md
-    // E8/E13); M1's row then contributes TERMINAL/OBSTRUCTION/
+    // ROW then BOUNDARY then PLACEMENT each contribute their own purpose
+    // first; M1's row then contributes TERMINAL/OBSTRUCTION/
     // TRACK_PREFERRED/TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/
     // CUSTOM_SHAPE; M2's row repeats all seven (deduplicated, not appended
     // again); GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/FLIGHTLINE/PORT_MARKER each
@@ -479,10 +476,9 @@ TEST(ViewStylePalette, ColorCyclesWithMoreLayersThanPaletteEntries)
     EXPECT_EQ(first->style.outline_color.b, wrapped->style.outline_color.b);
 }
 
-// NEW_FEATURES_SEPT_2026.md item 17: the 18 routing/cut colors are all
-// distinct and bright enough to read on the black canvas - the old palette's
-// dark slots (maroon, navy, ...) landed on M7 and up - and run primaries
-// (M1-M3), then secondaries (M4-M6), then tertiaries.
+// The 18 routing/cut colors are all distinct and bright enough to read on
+// the black canvas, and run primaries (M1-M3), then secondaries (M4-M6),
+// then tertiaries.
 TEST(ViewStylePalette, EighteenRoutingLayersGetDistinctBrightColorsPrimariesFirst)
 {
     Root root;

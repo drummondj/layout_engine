@@ -16,7 +16,7 @@
 
 namespace le
 {
-    /// @brief Placement Move snapping (NEW_FEATURES_SEPT_2026.md item 2) -
+    /// @brief Placement Move snapping -
     /// what a moving Placement's own location (the lower-left of its
     /// placed bbox, DEF's own convention) snaps to. Values are the C API's
     /// own LE_PLACEMENT_SNAP_* numbering.

@@ -12,14 +12,14 @@ namespace le
     class Root;
 }
 
-// The native Layout Engine database file (.led) - NATIVE_FILE_FORMAT_RESEARCH.md.
+// The native Layout Engine database file (.led). Design: docs/NATIVE_FILE_FORMAT_RESEARCH.md.
 //
 // A self-describing, columnar, zstd-compressed container: the file embeds
 // the schema it was written with, and loading matches classes and fields
 // by name, so a file written by an older schema whose changes since were
 // only additions, removals or reorderings loads with no migration code.
 // Anything else (a renamed or retyped field, a removed enum value) is
-// reported as needing a migration (the migration chain is Phase 4).
+// reported as needing a migration (see migrations.hpp).
 //
 // Layout:
 //   header   "LEDB\r\n\x1a\n", u32 container version, u32 flags

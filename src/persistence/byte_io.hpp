@@ -8,7 +8,7 @@
 #include <vector>
 
 // Little-endian byte encoding for the native file format
-// (NATIVE_FILE_FORMAT_RESEARCH.md §3): fixed-width integers, LEB128
+// (docs/NATIVE_FILE_FORMAT_RESEARCH.md §3): fixed-width integers, LEB128
 // varints, zig-zag signed varints, and IEEE CRC-32.
 
 namespace le::persistence

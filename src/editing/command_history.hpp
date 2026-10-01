@@ -8,9 +8,8 @@
 
 namespace le::editing
 {
-    /// @brief Per-handle undo/redo stack plus the command-recall log
-    /// (UPDATES.md item 21, migrated from the Flutter Terminal's own
-    /// local `_commandHistory`). One LeHandle owns exactly one of these
+    /// @brief Per-handle undo/redo stack plus the command-recall log.
+    /// One LeHandle owns exactly one of these
     /// (see api.cpp's LeHandle struct).
     ///
     /// begin()/end() bracket a single recording transaction - every
@@ -35,8 +34,8 @@ namespace le::editing
         /// onto the undo stack (clearing the redo stack - a fresh edit
         /// invalidates old redo history, standard undo/redo convention)
         /// regardless of `succeeded`. The transaction's own label is
-        /// always appended to the recall log too, `succeeded` or not
-        /// (BUGS_AND_ENHANCEMENTS.md E5) - a failed command is exactly
+        /// always appended to the recall log too, `succeeded` or not -
+        /// a failed command is exactly
         /// the one a user most wants back, to recall and edit into a
         /// working one, rather than retyping it from scratch. `succeeded`
         /// is still accepted (not collapsed into a no-op parameter) since

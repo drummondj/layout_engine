@@ -9,7 +9,7 @@
 
 namespace le
 {
-    /// @brief A FinFET placement grid (NEW_FEATURES_SEPT_2026.md item 2) -
+    /// @brief A FinFET placement grid -
     /// grid lines at `offset + k * pitch` along Y for horizontal fins, or
     /// along X for vertical ones.
     struct FinGrid

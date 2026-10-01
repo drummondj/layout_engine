@@ -13,7 +13,7 @@
 #include <fstream>
 #include <functional>
 
-// The golden-file corpus (NATIVE_FILE_FORMAT_RESEARCH.md §4.6): every
+// The golden-file corpus (docs/NATIVE_FILE_FORMAT_RESEARCH.md §4.6): every
 // schema version's sample .led files, checked in under
 // golden/<schema version>/, must load with every later build. This is
 // what backs "a build can always read files written by any older

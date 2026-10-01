@@ -275,7 +275,7 @@ TEST(Geometry, LabelLocationOfEmptyShapeIsOrigin)
 
 TEST(Geometry, LabelLocationPicksTheLargestRectWhenShapeHasMultipleRects)
 {
-    // No fracturing needed for rects (UPDATES.md item 8.2) - the largest
+    // No fracturing needed for rects - the largest
     // one is used directly. Areas are deliberately not tied (100 vs 5000).
     Shape shape;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});

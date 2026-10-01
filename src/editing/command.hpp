@@ -4,7 +4,7 @@
 #include <functional>
 #include <utility>
 
-/// @brief Generic undo/redo command primitives (UPDATES.md item 21).
+/// @brief Generic undo/redo command primitives.
 /// Every generated Root::create_x/update_x/delete_x is uniform enough
 /// (Root::create_x(XxxData) -> XxxId, Root::delete_x(XxxId) -> bool, and
 /// an update reduced to one apply_<snake>_snapshot(Root&, XxxId, const

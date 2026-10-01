@@ -140,13 +140,13 @@ TEST(ShapeResize, SnapModesOfferedPerKind)
     EXPECT_TRUE(shape_snap_mode_applies(PieceKind::VIA, ShapeSnapMode::TRACKS));
     EXPECT_FALSE(shape_snap_mode_applies(PieceKind::VIA, ShapeSnapMode::FIN_GRID));
     EXPECT_TRUE(shape_snap_mode_applies(PieceKind::VIA_ITERATE, ShapeSnapMode::MANUFACTURING_GRID));
-    // Routing pieces share one snap mode (OVERNIGHT_REVIEW.md item 13 follow-up).
+    // Routing pieces share one snap mode.
     EXPECT_EQ(shape_snap_slot(PieceKind::VIA), PieceKind::PATH);
     EXPECT_EQ(shape_snap_slot(PieceKind::VIA_ITERATE), PieceKind::PATH);
     EXPECT_EQ(shape_snap_slot(PieceKind::RECT), PieceKind::RECT);
 }
 
-// NEW_FEATURES_SEPT_2026.md item 13: a moved path lands its first
+// A moved path lands its first
 // centerline point, and a moved via / via array its origin, on the snap
 // target; an axis the move doesn't change stays put.
 TEST(ShapeMoveSnap, APathsFirstPointLandsOnTheTargetFromTheRawDelta)

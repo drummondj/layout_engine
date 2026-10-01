@@ -54,8 +54,8 @@ namespace le
             return le::get_or_create_design(root, library_id, name, "");
         }
 
-        // NEW_FEATURES_SEPT_2026.md item 4 - each view can only be read once
-        // per design: every module declared in `trees` whose Design already
+        // Each view can only be read once per design: every module
+        // declared in `trees` whose Design already
         // has a Schematic is an error, reported (all of them) before the
         // read creates anything. Returns false if there was any.
         bool check_no_existing_schematics(const Root &root, const std::vector<std::shared_ptr<slang::syntax::SyntaxTree>> &trees,
@@ -140,7 +140,7 @@ namespace le
 
         // One bit of a multi-bit bus - named with the DEF-style bracketed
         // form directly ("address[7]"), so DEF hierarchical name matching
-        // (LINKING_STRATEGY_RESEARCH.md) needs zero bit-select-aware logic
+        // needs zero bit-select-aware logic
         // anywhere: it just resolves a Net/Net's own plain name like any
         // other. Reuses get_or_create_net/port's own plain by-name lookup
         // (a Pin connection to this same bit may have already created it
@@ -651,19 +651,14 @@ namespace le
 
         // Pin population for an undefined leaf cell (a standard cell like
         // BUF_X1, never defined in the files given to read_netlist - only
-        // LEF defines it physically). Was a deliberate, documented v1 gap
-        // until real usage showed it's needed: without this, a real
-        // synthesized gate-level netlist - composed almost entirely of
-        // undefined standard-cell instances, the common case this
-        // function's own caller already documents - produces zero
-        // internal Net objects at all (every Net today is discovered via
-        // Pin population), so Schematic<->Layout Route/Net linking
-        // (LINKING_STRATEGY_RESEARCH.md) had nothing to resolve against on
-        // any real design.
+        // LEF defines it physically). A synthesized gate-level netlist is
+        // almost entirely undefined standard-cell instances, and every Net
+        // is discovered via Pin population, so without this such a netlist
+        // has no internal Nets for Schematic<->Layout Route/Net linking to
+        // resolve against.
         //
-        // UninstantiatedDefSymbol::getPortConnections() - the obvious
-        // first thing to reach for - is a dead end, confirmed empirically
-        // rather than assumed: every connection's own elaborated
+        // UninstantiatedDefSymbol::getPortConnections() is a dead end:
+        // every connection's own elaborated
         // Expression comes back `bad()` with a zero-length source range
         // (slang can't type-check a connection to an unknown module's
         // port at all, so it doesn't bother retaining a usable
@@ -823,8 +818,7 @@ namespace le
                 // link_unresolved_instances() is solely responsible for
                 // resolving it later (e.g. once the corresponding LEF is
                 // read). Pins ARE populated here (see
-                // populate_pins_for_uninstantiated's own comment for why
-                // this used to be a deliberately deferred v1 gap) - this
+                // populate_pins_for_uninstantiated) - this
                 // is the only place any Net gets created for a real
                 // synthesized netlist's internal wires, since a leaf
                 // standard cell instance is the norm, not the exception,

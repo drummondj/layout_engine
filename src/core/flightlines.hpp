@@ -14,7 +14,7 @@
 
 namespace le
 {
-    /// @brief One flightline (NEW_FEATURES_SEPT_2026.md item 5) - a straight
+    /// @brief One flightline - a straight
     /// dbu-space segment between two connected pins.
     struct Flightline
     {

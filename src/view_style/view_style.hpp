@@ -19,23 +19,17 @@ namespace le
         TERMINAL,
         OBSTRUCTION,
         BOUNDARY,
-        // DEF TRACKS, split into two independently toggleable purposes
-        // (BUGS_AND_ENHANCEMENTS.md E2) rather than one shared TRACK
-        // purpose - a Track's own is_x compared against its Layer's own
-        // declared `direction` (RoutingDirection) decides which one a
-        // given track resolves to (see LayoutGeometryStage::
-        // append_track_shapes). Both still contribute into the named
-        // real Layer's own row, as two separate columns.
+        // DEF TRACKS, split into two independently toggleable purposes -
+        // a Track's own is_x compared against its Layer's declared
+        // `direction` (RoutingDirection) decides which one a given track
+        // resolves to (HierarchyResolverStage). Both contribute into the
+        // named real Layer's own row, as two separate columns.
         //
-        // NOTE: these occupy TRACK's old ordinal slot deliberately -
-        // le::ViewLayerPurpose's raw ordinal crosses the C API
-        // (le_purpose_at) with no C-side named enum; the Dart side
-        // re-declares its own hand-synced mirror (LeLayerPurpose in
-        // flutter_plugin/lib/layout_engine_plugin.dart) hardcoding the
-        // same ordinals. Both api.hpp's own doc comment and that Dart
-        // enum/switch were updated together with this change - if this
-        // enum's declaration order ever changes again, that Dart file
-        // must change with it.
+        // NOTE: the raw ordinals of this enum cross the C API
+        // (le_purpose_at) with no C-side named enum, and are mirrored by
+        // hand in layer_manager.cpp's kPurposeNames and le_tcl_procs.tcl's
+        // ::purpose_names. Append new purposes at the end; reordering
+        // means updating both mirrors.
         TRACK_PREFERRED,
         TRACK_NON_PREFERRED,
         ROUTING_BLOCKAGE,   // DEF BLOCKAGES LAYER - contributes into the named real Layer's own row
@@ -48,9 +42,7 @@ namespace le
                              // placement keep-out).
         ROUTE,              // DEF NETS/SPECIALNETS routed geometry (Route) - contributes
                              // into the named real Layer's own row, same as TRACK_PREFERRED/
-                             // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE (Migration Step 3 - Step 2's
-                             // own scope was explicitly rows/tracks/blockages, net routing
-                             // wasn't included)
+                             // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE
         REGION,             // DEF REGIONS - own pseudo-row, no Layer (Region has no color/
                              // style field of its own, same "no physical Layer" treatment as
                              // ROW/GCELLGRID)
@@ -59,11 +51,7 @@ namespace le
                              // pseudo-row, no Layer, same "no physical Layer" treatment as
                              // ROW/GCELLGRID/REGION. Kept apart from BOUNDARY so a placement's
                              // footprint can be toggled independently of a Design's own
-                             // boundary/diearea outline. Was two purposes (PLACEMENT_NAME/
-                             // PLACEMENT_BOUNDARY) until they were merged on request; this
-                             // keeps PLACEMENT_NAME's ordinal, and every later ordinal shifted
-                             // down by one (api.hpp's le_purpose_at comment, layer_manager.cpp's
-                             // kPurposeNames and le_tcl_procs.tcl's ::purpose_names changed with it).
+                             // boundary/diearea outline.
         CUSTOM_SHAPE,       // A free-standing Shape (Abstract/Layout.free_shapes - e.g. a shape_*
                              // TCL command's result) on a real Layer - contributes into that
                              // Layer's own row with its own color and fill, as its own column so
@@ -71,18 +59,17 @@ namespace le
         DEBUG,              // Shape.purpose == DEBUG (`-layer debug`) - own pseudo-row, no Layer,
                              // drawn on top of everything in a high-contrast color.
         FLIGHTLINE,         // Net connections between the selected placements' pins
-                             // (NEW_FEATURES_SEPT_2026.md item 5, core/flightlines.hpp) - own
+                             // (core/flightlines.hpp) - own
                              // pseudo-row, no Layer, hidden by default (LeHandle pre-seeds it
                              // invisible); drawn by ComposeStage as an overlay, not rasterized.
         PORT_MARKER,        // A direction triangle beside each PhysicalPort (DEF PIN) -
                              // pointing in for inputs, out for outputs, both ways for
-                             // inouts (NEW_FEATURES_SEPT_2026.md item 28,
-                             // pipelines/port_markers.hpp) - own pseudo-row, no Layer.
+                             // inouts (pipelines/port_markers.hpp) - own pseudo-row, no Layer.
     };
 
     /// @brief Whether anything drawn on `purpose` can ever be selected -
     /// false means its selectable toggle does nothing, so the Layers panel
-    /// shows no checkbox for it (NEW_FEATURES_SEPT_2026.md item 8). Must
+    /// shows no checkbox for it. Must
     /// match what hit-testing actually walks: TERMINAL/OBSTRUCTION
     /// (hit_test_abstract_*), ROUTE/TERMINAL (hit_test_layout_*, a
     /// PhysicalPort's own shapes draw as TERMINAL), PLACEMENT
@@ -132,10 +119,10 @@ namespace le
         Color outline_color;
         Color fill_color;
         FillPattern fill_pattern = FillPattern::NONE;
-        // Stroked (path/rect/polygon outline) drawing uses a dashed
-        // SkDashPathEffect instead of a solid line - see draw_group's own
-        // comment. TRACK_PREFERRED/TRACK_NON_PREFERRED/GCELLGRID
-        // (BUGS_AND_ENHANCEMENTS.md E2) are the only styles with this set.
+        // Stroked (path/rect/polygon outline) drawing uses a dashed line
+        // instead of a solid one (RasterizeBlend2DStage).
+        // TRACK_PREFERRED/TRACK_NON_PREFERRED/GCELLGRID are the only
+        // styles with this set.
         bool dashed = false;
     };
 
@@ -164,7 +151,7 @@ namespace le
     };
 
     /// @brief One row of a layer visibility/selectability widget ("one row
-    /// per layer, columns per purpose" - see UPDATES.md 2.2): a name plus
+    /// per layer, columns per purpose"): a name plus
     /// every purpose-column that belongs to it. Deliberately not keyed by
     /// LayerId - BOUNDARY is a row with a single column and no physical
     /// Layer behind it, and any future non-Technology-derived ("extra")
@@ -201,8 +188,8 @@ namespace le
             size_t other_index = 0;
             std::optional<Color> last_routing_color;
 
-            // ROW then BOUNDARY, both added before any physical Layer
-            // (BUGS_AND_ENHANCEMENTS.md E8) - draw (and rows()/purposes())
+            // ROW then BOUNDARY, both added before any physical Layer -
+            // draw (and rows()/purposes())
             // order follows insertion order (see rows()'s own doc comment
             // below), so this puts BOUNDARY between the two: above ROW's
             // own placement-row scaffolding, but below every real
@@ -271,12 +258,12 @@ namespace le
                 // not the same FillPattern - OBSTRUCTION always reads as
                 // BRICK regardless of layer type, so blockage regions are
                 // recognizable at a glance across every layer. TRACK/
-                // ROUTING_BLOCKAGE (DEF TRACKS/BLOCKAGES LAYER - Migration
-                // Step 2) and ROUTE (DEF NETS/SPECIALNETS - Migration Step
-                // 3) share that same per-Layer color too: TRACK_PREFERRED/
+                // ROUTING_BLOCKAGE (DEF TRACKS/BLOCKAGES LAYER) and ROUTE
+                // (DEF NETS/SPECIALNETS) share that same per-Layer color
+                // too: TRACK_PREFERRED/
                 // TRACK_NON_PREFERRED get a plain dashed outline (grid
                 // lines, not a filled region, so no FillPattern needed
-                // beyond NONE - see BUGS_AND_ENHANCEMENTS.md E2),
+                // beyond NONE),
                 // ROUTING_BLOCKAGE gets DOTS - a generic "keep-out" pattern
                 // distinct from OBSTRUCTION's own BRICK, reused (not shared
                 // as one purpose) by PLACEMENT_BLOCKAGE's own pseudo-row
@@ -325,10 +312,9 @@ namespace le
             // no-physical-layer treatment; a ROUTING blockage's own Shape,
             // unlike a PLACEMENT blockage's, does sit on a real Layer and
             // so gets its ROUTING_BLOCKAGE column in the per-Layer loop
-            // above instead, not here. Migration Step 2 only adds these
-            // pseudo/per-layer categorizations - nothing here yet walks a
-            // Layout's actual Track/GCellGrid/Blockage content into
-            // drawable shapes on them (Migration Step 3's own job).
+            // above instead, not here. This only declares the
+            // categories; HierarchyResolverStage turns a Layout's
+            // Track/GCellGrid/Blockage content into drawable shapes.
             const ViewLayerId gcellgrid_id = set.add("GCELLGRID", "GCELLGRID", ViewLayerPurpose::GCELLGRID, LayerId{}, gcellgrid_style());
             set.rows_.push_back(ViewLayerRow{
                 .name = "GCELLGRID",
@@ -409,8 +395,7 @@ namespace le
         /// @brief Every row of a layer visibility/selectability widget, in
         /// declaration order (ROW, then BOUNDARY, then PLACEMENT, then
         /// physical Layers in their LEF-declared bottom-up stacking order,
-        /// then GCELLGRID/PLACEMENT_BLOCKAGE/REGION -
-        /// BUGS_AND_ENHANCEMENTS.md E8/E13) - see ViewLayerRow's own
+        /// then GCELLGRID/PLACEMENT_BLOCKAGE/REGION) - see ViewLayerRow's own
         /// comment for why this is the API a caller should enumerate
         /// rather than going through Root's Technology directly. This
         /// declaration order is also literally the picture-building
@@ -428,7 +413,7 @@ namespace le
 
         /// @brief Recolors every ViewLayer of the row named `row_name` (a
         /// physical Layer's name, or a pseudo-row's like BOUNDARY) - the
-        /// Layers panel's color picker (NEW_FEATURES_SEPT_2026.md item 17).
+        /// Layers panel's color picker.
         /// Only the RGB changes: each outline/fill keeps its own alpha
         /// (so a TERMINAL's translucent fill stays translucent, a no-fill
         /// row stays unfilled) and its FillPattern/dashing. False (and no
@@ -518,10 +503,9 @@ namespace le
         // Bright, high-contrast palette for ROUTING/CUT layers - the
         // layers users actually route/edit on, so they need to stand out.
         // Ordered primaries -> secondaries -> tertiaries -> tints, so the
-        // lowest layers get the plainest colors (NEW_FEATURES_SEPT_2026.md
-        // item 17 - the old 30-color list's maroon/navy/olive/... slots
-        // 7-12 landed exactly on M7 and up, which then barely showed on
-        // the black canvas). Every entry is bright; "blue" is lifted to
+        // lowest layers get the plainest colors. No dark entries (maroon,
+        // navy, olive...) - they barely show on the black canvas. Every
+        // entry is bright; "blue" is lifted to
         // 100,100,255 since pure blue is too dark to read on black. The
         // first six keep their old order, so M1-M6 look the same. All
         // stay clear of the fixed debug/flightline light blues and the
@@ -611,8 +595,8 @@ namespace le
 
         // Dark gray outline, no fill - rows are background scaffolding
         // (DEF ROW), not something a user routes/edits, so kept visually
-        // recessive - darker than boundary_style()'s own color
-        // (BUGS_AND_ENHANCEMENTS.md E8) so the die/macro backdrop reads as
+        // recessive - darker than boundary_style()'s own color so the
+        // die/macro backdrop reads as
         // a lighter surface sitting on top of the row scaffolding beneath
         // it.
         static ViewLayerStyle row_style()
@@ -620,10 +604,9 @@ namespace le
             return ViewLayerStyle{.outline_color = {100, 100, 100, 255}, .fill_color = {0, 0, 0, 0}};
         }
 
-        // BUGS_AND_ENHANCEMENTS.md E8 - draws below every technology layer
-        // but above ROW (see build_for_technology's own insertion-order
-        // comment) - row_style()'s own former color ({160, 160, 160},
-        // lighter than row_style()'s own new darker one), so the die/macro
+        // Draws below every technology layer but above ROW (see
+        // build_for_technology's own insertion-order comment). Lighter
+        // than row_style(), so the die/macro
         // boundary outline reads as related to, but distinct from, the row
         // scaffolding beneath it. No fill (plain outline, same as
         // row_style()) - real technology-layer content draws over it
@@ -634,7 +617,7 @@ namespace le
             return ViewLayerStyle{.outline_color = {160, 160, 160, 255}, .fill_color = {0, 0, 0, 0}};
         }
 
-        // BUGS_AND_ENHANCEMENTS.md E13 - one shade lighter than
+        // One shade lighter than
         // boundary_style()'s own color (same "derives from the row above
         // it, one shade lighter" relation boundary_style() itself has to
         // row_style()), so a placement reads as related to, but distinct
@@ -648,9 +631,8 @@ namespace le
 
         // Faint translucent blue outline, no fill - DEF GCELLGRID is a
         // global-routing planning aid, meant to stay unobtrusive relative
-        // to real routing-layer content drawn on top of it. Dashed
-        // (BUGS_AND_ENHANCEMENTS.md E2), same reasoning as track_style
-        // above.
+        // to real routing-layer content drawn on top of it. Dashed, same
+        // reasoning as track_style above.
         static ViewLayerStyle gcellgrid_style()
         {
             return ViewLayerStyle{.outline_color = {100, 150, 220, 150}, .fill_color = {0, 0, 0, 0}, .dashed = true};
@@ -686,15 +668,14 @@ namespace le
             return ViewLayerStyle{.outline_color = {120, 220, 255, 255}, .fill_color = {120, 220, 255, 100}};
         }
 
-        // Solid light gray - the PhysicalPort direction markers
-        // (NEW_FEATURES_SEPT_2026.md item 28).
+        // Solid light gray - the PhysicalPort direction markers.
         static ViewLayerStyle port_marker_style()
         {
             return ViewLayerStyle{.outline_color = {200, 200, 200, 255}, .fill_color = {200, 200, 200, 255}};
         }
 
     public:
-        /// @brief Flightlines' light blue (NEW_FEATURES_SEPT_2026.md item 5) -
+        /// @brief Flightlines' light blue -
         /// public so ComposeStage's overlay and the Layers panel swatch share it.
         static ViewLayerStyle flightline_style()
         {

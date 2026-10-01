@@ -302,10 +302,8 @@ TEST(SVReader, UndefinedLeafCellStaysUnresolvedUntilLinked)
 }
 
 // A synthesizer-flattened unpacked-array element's connection uses a
-// Verilog escaped identifier (`\name`, terminated by whitespace) - found
-// while diagnosing why real synthesized-netlist DEF Route/Net linking
-// (LINKING_STRATEGY_RESEARCH.md) still failed on ~2300 routes even after
-// per-bit bus Nets existed: classify_simple_connection_text (used for
+// Verilog escaped identifier (`\name`, terminated by whitespace).
+// classify_simple_connection_text (used for
 // undefined leaf cells like BUFX1 here, same as real standard cells)
 // must recognize the escaped form and produce the same bracketed Net
 // name a plain bus bit-select would (see that function's own comment for

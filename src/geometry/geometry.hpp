@@ -161,7 +161,7 @@ namespace le
         }
 
         // Slices bg_polygon into approximating rects via a slab
-        // decomposition along its dominant axis (UPDATES.md item 8):
+        // decomposition along its dominant axis:
         // vertical cut lines (slabs along x, at each distinct vertex
         // x-coordinate) if its bbox is wider than tall, horizontal cut
         // lines (slabs along y) otherwise. Each slab is intersected
@@ -185,11 +185,10 @@ namespace le
         // `bbox` again - an exact simplification, not an approximation,
         // so this is folded into the same early return as the <2 case
         // rather than paying for a real bg::intersection call to
-        // rediscover it. Confirmed as the dominant cost of this function
-        // via `sample` profiling of BM_GenerateShapes on the 1M-shape
-        // stress design before this was added (see BENCHMARKS.md) - most
-        // real LEF POLYGON geometry and any straight buffered Path is
-        // already exactly its own bbox, hitting this path.
+        // rediscover it. Without this shortcut the intersection dominates
+        // this function's cost on large designs, and most real LEF
+        // POLYGON geometry and any straight buffered Path is already
+        // exactly its own bbox, hitting this path.
         static std::vector<Rect> fracture_into_rects(const bg::model::polygon<Point> &bg_polygon)
         {
             Rect bbox;
@@ -309,7 +308,7 @@ namespace le
         // translate_transformer like the Polygon overload above - a pure
         // integer offset of two corners/a wrapped polygon needs none of
         // that machinery. Used by Move's commit path and its ghost
-        // preview (UPDATES.md item 21, see draw_move_ghost).
+        // preview (see draw_move_ghost).
         static Rect transform(const Rect &rect, const Point &offset)
         {
             return Rect{
@@ -342,7 +341,7 @@ namespace le
         /// @brief The linear (rotate/mirror-only, about local (0,0)) part
         /// of one of the 8 standard LEF/DEF placement orientations:
         /// x' = a*x + b*y ; y' = c*x + d*y. Coefficients are always in
-        /// {-1,0,1} - Migration Step 3's own placement-instancing math
+        /// {-1,0,1} - placement-instancing math
         /// (instance_transform below) relies on this being exact (no
         /// rounding) even after being scaled to pixel space, since a
         /// {-1,0,1} coefficient commutes exactly with a uniform scalar
@@ -383,8 +382,8 @@ namespace le
 
         /// @brief The dbu-space transform (rotate/mirror + translate) that
         /// places one placed instance's own local content into its
-        /// parent's dbu space (Migration Step 3, Placement -> Design
-        /// rendering): `linear` is `orientation_linear(orientation)`;
+        /// parent's dbu space (Placement -> Design rendering): `linear`
+        /// is `orientation_linear(orientation)`;
         /// `translation` is derived, not `placement_location` directly -
         /// every corner of `local_bbox` is run through `linear`, the
         /// transformed bbox's own lower-left corner is found
@@ -437,11 +436,8 @@ namespace le
 
         /// @brief The world-space axis-aligned bbox `local_bbox` occupies
         /// once every corner is run through `t` ({linear, translation},
-        /// e.g. from instance_transform above) - useful both for sizing a
-        /// cached instance picture's own recorder bounds (InstanceRenderer,
-        /// src/instancing/) and, in the future, whole-placement hit-testing
-        /// (Migration Step 3's own locked-in "whole-placement only"
-        /// selection scope for instanced content).
+        /// e.g. from instance_transform above) - a placed instance's world
+        /// bbox, used for culling and whole-placement hit-testing.
         static Rect transform_bbox(const InstanceTransform &t, Rect local_bbox)
         {
             auto world = [&](Point p)
@@ -538,8 +534,8 @@ namespace le
             };
         }
 
-        /// @brief A DEF PIN's (or 5.7+ PORT's) placement as a transform
-        /// (NEW_FEATURES_SEPT_2026.md item 28): DEF gives pin geometry
+        /// @brief A DEF PIN's (or 5.7+ PORT's) placement as a transform:
+        /// DEF gives pin geometry
         /// relative to its PLACED point, rotated/mirrored by its
         /// orientation about that point - not realigned to a bbox the way
         /// instance_transform places a cell. Identity for an unplaced pin.
@@ -736,14 +732,12 @@ namespace le
         /// rects (used directly - no fracturing needed) and its
         /// polygons/paths (each fractured into approximating rects via
         /// fracture_into_rects - see its own comment), and returns that
-        /// rect's center (UPDATES.md item 8). Ties keep the
-        /// first-encountered candidate - deterministic, arbitrary but
-        /// documented, not load-bearing for correctness. {0,0} for a
-        /// shape with no geometry at all (matches the old algorithm's
-        /// own empty-shape fallback). Unlike the old union+grid-search
-        /// algorithm this replaces, the result can only land outside
-        /// `shape`'s own geometry when `shape` is empty - every
-        /// candidate rect's center is trivially inside that rect.
+        /// rect's center. Ties keep the first-encountered candidate -
+        /// deterministic, arbitrary but documented, not load-bearing for
+        /// correctness. {0,0} for a shape with no geometry at all. The
+        /// result can only land outside `shape`'s own geometry when
+        /// `shape` is empty - every candidate rect's center is trivially
+        /// inside that rect.
         template <typename ShapeLike>
         static Point get_label_location(const ShapeLike &shape)
         {
@@ -901,24 +895,18 @@ namespace le
         /// several rects/polygons/paths together (e.g. several RECT
         /// statements in one LEF PORT, or an OBS's array of rects), and
         /// click/hover hit-testing must identify only the one piece
-        /// actually under `point`, not the whole group (UPDATES.md 7.1 -
-        /// highlighting every rect in the group when only one was under
-        /// the cursor was a real reported bug). nullopt if no piece
-        /// contains `point`.
+        /// actually under `point`, not the whole group. nullopt if no
+        /// piece contains `point`.
         ///
         /// Polygons/paths are pre-checked against a cheap bbox (see
         /// point_in_rect above, and bbox_of for paths - already accounts
         /// for width) before the real `bg::within`/`path_to_polygons`
-        /// test - a real measured cost, not speculation: BM_HitTestPoint
-        /// (pipeline_benchmark.cpp) against the 1M-shape stress design
-        /// initially measured ~17ms/call without it (dominated by
-        /// path_to_polygons - a real Boost.Geometry buffer operation -
-        /// running on every visible path regardless of whether the query
-        /// point was anywhere near it), clearly too slow to run on every
-        /// pointer-move event (see le_set_mouse_position). With the
-        /// pre-check, most candidates are rejected by four integer
-        /// comparisons before any Boost.Geometry call - see
-        /// BENCHMARKS.md for the before/after numbers.
+        /// test. Without it a point hit-test on a 1M-shape design costs
+        /// ~17ms (dominated by path_to_polygons, a Boost.Geometry buffer
+        /// operation, running on every visible path), too slow for every
+        /// pointer-move event (see le_set_mouse_position). With it, most
+        /// candidates are rejected by four integer comparisons before any
+        /// Boost.Geometry call.
         static std::optional<HitPiece> find_hit_piece(const Shape &shape, const Point &point)
         {
             std::vector<HitPiece> hits = find_hit_pieces(shape, point, /*first_only=*/true);
@@ -1174,9 +1162,9 @@ namespace le
         /// leaving every other piece (including other entries of the
         /// same kind) untouched. A no-op if `index` is out of range for
         /// `kind` (see piece_in_range - check first if the caller needs
-        /// to know whether anything actually happened). UPDATES.md item
-        /// 21's per-piece Move uses this to move exactly the selected
-        /// piece, not the whole Shape.
+        /// to know whether anything actually happened). Per-piece Move
+        /// uses this to move exactly the selected piece, not the whole
+        /// Shape.
         static void transform_piece_in_place(Shape &data, PieceKind kind, size_t index, const Point &offset)
         {
             switch (kind)
@@ -1211,8 +1199,8 @@ namespace le
         }
 
         /// @brief True if `shape`'s bbox is entirely inside `container` -
-        /// used for rubber-band drag-select (UPDATES.md 7.1 item 5:
-        /// "completely enclosed by the selection rectangle"). Exact, not
+        /// used for rubber-band drag-select ("completely enclosed by the
+        /// selection rectangle"). Exact, not
         /// an approximation: for an axis-aligned rectangle, "every point
         /// of shape is inside container" and "shape's tightest bounding
         /// box is inside container" are equivalent - if the bbox fits, so
@@ -1240,8 +1228,7 @@ namespace le
         /// Needed because one Shape can bundle several rects/polygons/
         /// paths together (e.g. several RECT statements in one PORT) - a
         /// drag-select needs to know *which* of them individually
-        /// qualify, not just whether the bundle's own combined bbox does
-        /// (UPDATES.md 7.1 item 5's rule 5 rectangle-select).
+        /// qualify, not just whether the bundle's own combined bbox does.
         static std::vector<HitPiece> fully_enclosed_pieces(const Rect &container, const Shape &shape)
         {
             auto bbox_enclosed = [&](const Rect &bbox)
@@ -1447,8 +1434,8 @@ namespace le
         // boxes (bulk-loaded R-tree + union-find). Two components' contents
         // can never overlap or touch, so an overlay only ever needs to run
         // within one - Boost's own overlay is superlinear in how many
-        // polygons each operand holds (BENCHMARKS.md 2026-09-24: one union
-        // of two 2,500-polygon sets alone took ~1.45s).
+        // polygons each operand holds (one union of two 2,500-polygon
+        // sets alone takes ~1.45s).
         static std::vector<std::vector<size_t>> bbox_components(const std::vector<Rect> &boxes)
         {
             namespace bgi = bg::index;
@@ -1570,9 +1557,8 @@ namespace le
 
         // Balanced pairwise reduction, not a left fold: folding N parts one
         // at a time into an ever-growing accumulator costs roughly
-        // O(N * result size) - BENCHMARKS.md 2026-09-24 measured the left
-        // fold (Geometry::union_shapes) 51x slower at 1k rects and 182x
-        // slower at 10k.
+        // O(N * result size) - measured 51x slower than this at 1k rects
+        // and 182x slower at 10k.
         static BgArea union_balanced(std::vector<BgArea> parts)
         {
             if (parts.empty())
@@ -1693,9 +1679,8 @@ namespace le
         // the slab's inside intervals directly. Each interval merges into
         // the previous slab's rect with the same x-extent (two-pointer, both
         // sides in x order), so a plain rectangle comes back as one rect.
-        // Replaced intersecting every slab with the whole polygon, which
-        // costs (slabs x vertices) - 5.4s for 2,500 holes (BENCHMARKS.md
-        // 2026-09-24).
+        // Intersecting every slab with the whole polygon instead would
+        // cost (slabs x vertices) - 5.4s for 2,500 holes.
         static std::vector<Rect> fracture_rectilinear_horizontal(const std::vector<std::vector<Point>> &rings)
         {
             struct Edge
@@ -1891,8 +1876,7 @@ namespace le
         // already merged), and erosion never adds area, so no polygon's
         // result depends on any other's - one small complement each instead
         // of one plate-sized complement with a hole per polygon, whose
-        // overlays are superlinear in that hole count (BENCHMARKS.md
-        // 2026-09-24).
+        // overlays are superlinear in that hole count.
         static BgArea shrink_rectilinear(const BgArea &area, int64_t sx, int64_t sy)
         {
             BgArea result;

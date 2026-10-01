@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <vector>
 
-// Value encoding for the native file format (NATIVE_FILE_FORMAT_RESEARCH.md
+// Value encoding for the native file format (docs/NATIVE_FILE_FORMAT_RESEARCH.md
 // §3 "Value encoding"). One column per stored field; within a column, one
 // value per row, each encoded as:
 //

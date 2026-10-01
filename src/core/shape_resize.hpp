@@ -12,8 +12,8 @@
 
 namespace le
 {
-    /// @brief What a resized edge/segment snaps to (NEW_FEATURES_SEPT_2026.md
-    /// item 3) - values are the C API's own LE_SHAPE_SNAP_* numbering.
+    /// @brief What a resized edge/segment snaps to - values are the C
+    /// API's own LE_SHAPE_SNAP_* numbering.
     /// Rects and polygons offer NONE/USER_GRID/MANUFACTURING_GRID/FIN_GRID;
     /// paths offer NONE/USER_GRID/MANUFACTURING_GRID (their *edges* - the
     /// centerline +/- half the width - land on it)/TRACKS (the centerline
@@ -29,8 +29,7 @@ namespace le
 
     /// @brief Routing pieces - paths, vias and via arrays - share one snap
     /// setting (the PATH slot), so a Move of wires and vias together snaps
-    /// them all the same way (OVERNIGHT_REVIEW.md item 13 follow-up). The
-    /// VIA slot itself is unused.
+    /// them all the same way. The VIA slot itself is unused.
     inline PieceKind shape_snap_slot(PieceKind kind)
     {
         return kind == PieceKind::VIA || kind == PieceKind::VIA_ITERATE ? PieceKind::PATH : kind;
@@ -38,7 +37,7 @@ namespace le
 
     /// @brief Rects/polygons: NONE/USER_GRID/MANUFACTURING_GRID/FIN_GRID.
     /// Paths: NONE/USER_GRID/MANUFACTURING_GRID/TRACKS. Vias and via arrays
-    /// (Move only - item 13): NONE/USER_GRID/MANUFACTURING_GRID/TRACKS (the
+    /// (Move only): NONE/USER_GRID/MANUFACTURING_GRID/TRACKS (the
     /// origin lands on a track intersection of its Shape's layer).
     inline bool shape_snap_mode_applies(PieceKind kind, ShapeSnapMode mode)
     {
@@ -153,8 +152,8 @@ namespace le
         }
     };
 
-    /// @brief The delta a Move applies to one path, via or via array piece
-    /// (NEW_FEATURES_SEPT_2026.md item 13): `raw_delta` (the unsnapped,
+    /// @brief The delta a Move applies to one path, via or via array
+    /// piece: `raw_delta` (the unsnapped,
     /// axis-constrained mouse offset) adjusted so the piece's reference
     /// point lands on `snap`'s target - a path's first centerline point
     /// (snapped like a path centerline, so MANUFACTURING_GRID puts its
@@ -295,8 +294,8 @@ namespace le
         return best;
     }
 
-    /// @brief Which way a handle moves when dragged - for the hover cursor
-    /// (NEW_FEATURES_SEPT_2026.md item 3): across x (a vertical edge), across
+    /// @brief Which way a handle moves when dragged - for the hover
+    /// cursor: across x (a vertical edge), across
     /// y (a horizontal one), or both (a diagonal polygon edge/path segment).
     enum class ResizeAxis
     {

@@ -7,18 +7,11 @@ namespace le
     /// @brief A Row's own synthesized footprint bbox (site size tiled
     /// num_x/num_y times at step_x/step_y, falling back to the site's own
     /// size as the step when unset - the common case where sites sit
-    /// edge-to-edge) - Row has no stored Shape of its own (purely
-    /// parametric geometry, see Migration Step 2's own plan), so this is
-    /// the same computation GenerateLayoutShapesStage's own
-    /// append_row_shapes uses to synthesize its RenderedShape, factored
-    /// out here (E1, BUGS_AND_ENHANCEMENTS.md) so render's own
-    /// BuildSelectionOverlayPictureStage can resolve a selected RowId's
-    /// bbox too - `render` doesn't link `pipeline` (see CMakeLists.txt),
-    /// so this couldn't stay private to GenerateLayoutShapesStage the way
-    /// it used to; `core` sits below both. nullopt if the Row's own
+    /// edge-to-edge). Row has no stored Shape of its own (purely
+    /// parametric geometry), so rendering (HierarchyResolverStage) and
+    /// selection (api.cpp) both derive its bbox here. nullopt if the Row's
     /// site_name doesn't resolve, its Site has no stored size, or the Row
-    /// itself has no stored origin - the same skip conditions
-    /// append_row_shapes already applies.
+    /// itself has no stored origin.
     inline std::optional<Rect> row_footprint_bbox(const Root &root, RowId row_id)
     {
         const RowData *row = root.get_row(row_id);

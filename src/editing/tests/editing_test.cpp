@@ -184,8 +184,8 @@ TEST(CommandHistoryTest, EmptyTransactionNeverPushedOntoUndoStack)
 
 TEST(CommandHistoryTest, FailedCommandIsStillRecordedInRecallLog)
 {
-    // BUGS_AND_ENHANCEMENTS.md E5 - a failed command is exactly the one a
-    // user most wants back, to recall and edit into a working one.
+    // A failed command is exactly the one a user most wants back, to
+    // recall and edit into a working one.
     CommandHistory history;
     history.begin("bad_command");
     history.end(/*succeeded=*/false);

@@ -15,7 +15,7 @@
 #include <filesystem>
 #include <fstream>
 
-// NATIVE_FILE_FORMAT_RESEARCH.md - the native .led database file.
+// Tests for the native .led database file.
 
 namespace le::persistence
 {

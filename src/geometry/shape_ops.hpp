@@ -1,7 +1,7 @@
 #pragma once
 
-// Business logic for the shape_* TCL commands (NEW_FEATURES_SEPT_2026.md
-// item 1): resolves input Shapes, runs the matching Geometry operation,
+// Business logic for the shape_* TCL commands: resolves input Shapes,
+// runs the matching Geometry operation,
 // and persists each result as a new Shape. Takes a plain Root& and no
 // locks - api.cpp's le_shape_* functions call this from inside their own
 // HandleWriteLock and handle mutation-version bumping and undo recording,

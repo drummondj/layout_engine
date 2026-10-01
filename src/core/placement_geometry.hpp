@@ -10,34 +10,18 @@
 
 namespace le
 {
-    /// @brief A Placement's own world-space bbox, plus the free functions
-    /// (relocated from src/instancing/instance_renderer.hpp - see E1's own
-    /// plan) that compute it, and the E1 (BUGS_AND_ENHANCEMENTS.md)
-    /// top-level Placement hit-test built on top.
-    ///
-    /// Relocated out of InstanceRenderer specifically so both it and
-    /// render's own BuildSelectionOverlayPictureStage can call the exact
-    /// same implementation: `render` links `database geometry scene
-    /// view_style core skia`, not `pipeline`/`instancing` (see
-    /// CMakeLists.txt), so InstanceRenderer's own private statics -
-    /// living in `src/instancing/` - were structurally unreachable from
-    /// render's own selection-overlay stage. `core` sits below both, so
-    /// this is a pure extraction (every function here was already
-    /// `static`, no instance state) - InstanceRenderer calls these same
-    /// free functions now instead of its own private copies.
+    /// @brief Placement world-space bboxes and the hit-tests built on them:
+    /// top-level Placement hit-testing, and shape-piece hit-testing in the
+    /// Abstract and Layout views. Lives in `core` so both `api` (selection,
+    /// hover) and `pipelines` (HierarchyResolverStage) share one
+    /// implementation.
 
     /// The dispatch rule for design_id's own current view (Layout,
     /// recursed, if remaining_depth allows it; otherwise Abstract;
-    /// Kind::None if neither resolves) - the single source of truth
-    /// design_is_resolvable/resolved_local_bbox below are now thin
-    /// callers of, and HierarchyResolver's own node-key scheme
-    /// (hierarchy_resolver.hpp NodeKey/discover_layout_children) is built
-    /// on directly. Previously this exact if/else was hand-duplicated
-    /// three ways (build_design_picture, design_is_resolvable,
-    /// resolved_local_bbox) - a real drift risk; now three (four,
-    /// counting HierarchyResolver's own discovery) callers of one
-    /// function can never disagree about which view a given
-    /// {DesignId, remaining_depth} resolves to.
+    /// Kind::None if neither resolves). The single source of truth for
+    /// that choice: design_is_resolvable, resolved_local_bbox and
+    /// HierarchyResolverStage all call this, so they can never disagree
+    /// about which view a given {DesignId, remaining_depth} resolves to.
     struct DesignTarget
     {
         enum class Kind
@@ -143,17 +127,11 @@ namespace le
         return Geometry::transform_bbox(transform, child_local_bbox);
     }
 
-    /// E1 (BUGS_AND_ENHANCEMENTS.md) - top-level Placement hit-test, the
-    /// "separate, bbox-only mechanism" Pipeline::hit_test_point's own doc
-    /// comment already anticipated (a Placement never enters the
-    /// RenderedShape map at all, by design - see
-    /// GenerateLayoutShapesStage's own comment). Iterates
-    /// `layout_id`'s own direct placements **in reverse** - matches
-    /// BuildLayoutPictureStage::run's own draw order (own_shapes first,
-    /// then instances, so a placement is always topmost) - and returns
-    /// the first (topmost) one whose world bbox contains `dbu_point`.
-    /// Never recurses into a placement's own reference_design - E1's own
-    /// "top-level of hierarchy only" scope.
+    /// Top-level Placement hit-test, by world bbox. Iterates `layout_id`'s
+    /// direct placements **in reverse** (the newest is drawn last, so is
+    /// topmost) and returns the first one whose world bbox contains
+    /// `dbu_point`. Never recurses into a placement's reference_design:
+    /// only the top level of the hierarchy is selectable.
     inline std::optional<PlacementId> hit_test_placements_point(const Root &root, LayoutId layout_id, int remaining_depth, Point dbu_point)
     {
         const auto &placements = root.get_layout_placements(layout_id);
@@ -170,8 +148,8 @@ namespace le
     /// topmost first (hit_test_placements_point's own order) - for
     /// click-cycling through overlapping placements.
     ///
-    /// `candidates` (a LayoutSelectionIndex's placements_at, in id order),
-    /// when given, are the only placements tested - newest id first.
+    /// `candidates` (api.cpp's layout_candidates, in id order), when
+    /// given, are the only placements tested - newest id first.
     inline std::vector<PlacementId> hit_test_placements_point_all(const Root &root, LayoutId layout_id, int remaining_depth, Point dbu_point,
                                                                   const std::vector<PlacementId> *candidates = nullptr)
     {
@@ -188,8 +166,8 @@ namespace le
 
     /// Rubber-band counterpart to hit_test_placements_point above - every
     /// top-level placement whose own world bbox is fully enclosed by
-    /// `dbu_rect` (same "all layers, no topmost-only restriction"
-    /// semantics as Pipeline::hit_test_rect), in no particular order.
+    /// `dbu_rect` (all of them, not just the topmost), in no particular
+    /// order.
     inline std::vector<PlacementId> hit_test_placements_rect(const Root &root, LayoutId layout_id, int remaining_depth, Rect dbu_rect,
                                                              const std::vector<PlacementId> *candidates = nullptr)
     {
@@ -226,14 +204,12 @@ namespace le
 
     /// @brief True when `piece`'s own bbox is under 1 on-screen pixel in
     /// both dimensions at `scale` - the exact same "invisible, don't draw
-    /// it" test `draw_helpers.hpp`'s own `bbox_is_sub_pixel` applies at
-    /// render time (duplicated here, not shared, since that function
-    /// lives in `pipelines`, below `core` in this project's own layering -
-    /// see `CLAUDE.md`). A piece the renderer would skip entirely
-    /// must not be hit-testable either - `ApiFixture.
-    /// SubPixelShapeIsNotRenderedAndIsNotSelectable` is a real,
-    /// intentional test of exactly this: a click landing on a shape too
-    /// small to see must not select it.
+    /// it" test `draw_helpers.hpp`'s `bbox_is_sub_pixel` applies at
+    /// render time (duplicated rather than shared because draw_helpers
+    /// lives in `pipelines`, which `core` can't depend on). A piece the
+    /// renderer skips must not be hit-testable either: a click landing on
+    /// a shape too small to see must not select it
+    /// (`ApiFixture.SubPixelShapeIsNotRenderedAndIsNotSelectable`).
     inline bool abstract_piece_is_sub_pixel(const Shape &piece, double scale)
     {
         const std::optional<Rect> bbox = Geometry::bbox(piece);
@@ -284,26 +260,20 @@ namespace le
         return hits;
     }
 
-    /// @brief Abstract-view analog of hit_test_placements_point above -
-    /// the pre-restart `pipelines.old/hit_test.hpp`'s own
-    /// `hit_test_point`, rewritten directly against `Root`'s raw
-    /// Terminal-port/Obstruction `ShapeData` instead of pipeline-rendered
-    /// `RenderedShape` output: a piece a caller selects/moves must be
-    /// addressable in `Root` by `(shape_id, piece_kind, piece_index)` (a
-    /// Rasterize stage's own iterate-expanded geometry has more entries
-    /// than Root's raw rects/polygons/paths, so isn't always addressable
-    /// that way - the same reason the pre-restart design already
-    /// re-hit-tested against raw `ShapeData` for select/Move rather than
-    /// reusing its own `RenderedShape` hit). E1's own scope - only
-    /// Terminal/Obstruction pieces are selectable in an Abstract view, no
-    /// BOUNDARY shape (never has an `origin` the same way a pipeline-
-    /// rendered one wouldn't either).
+    /// @brief Abstract-view analog of hit_test_placements_point above.
+    /// Tests `Root`'s raw Terminal-port/Obstruction `ShapeData` rather than
+    /// rendered output: a piece a caller selects or moves must be
+    /// addressable in `Root` by `(shape_id, piece_kind, piece_index)`, and
+    /// the Rasterize stage's iterate-expanded geometry has more entries
+    /// than Root's raw rects/polygons/paths. Only Terminal/Obstruction
+    /// pieces are selectable in an Abstract view, never the BOUNDARY
+    /// shape.
     ///
     /// Topmost-selectable-ViewLayer-first (`view_layers.all()` is
     /// bottom-to-top insertion order - see that method's own doc comment -
     /// so reverse means topmost first), first-match-within-a-layer wins
-    /// for two overlapping shapes on the same layer - an accepted MVP
-    /// limitation, unchanged from the pre-restart version. Every
+    /// for two overlapping shapes on the same layer (an accepted
+    /// limitation). Every
     /// Terminal-port/Obstruction Shape always carries a real, valid
     /// `Shape.layer` (unlike a BOUNDARY/PLACEMENT_BLOCKAGE Shape, which
     /// resolves its own ViewLayer via `Shape.purpose` instead - see
@@ -352,8 +322,7 @@ namespace le
 
     /// @brief Rubber-band counterpart to hit_test_abstract_point above -
     /// every Terminal/Obstruction piece fully enclosed by `dbu_rect`,
-    /// scanning every selectable ViewLayer (no topmost-only restriction,
-    /// same "all layers" semantics as the pre-restart `hit_test_rect`),
+    /// scanning every selectable ViewLayer (no topmost-only restriction),
     /// in no particular order. One `AbstractHitPiece` per enclosed piece
     /// - a Shape bundling several rects/polygons/paths only reports the
     /// pieces actually enclosed, not the whole Shape.

@@ -12,12 +12,12 @@
 namespace le::editing
 {
     /// @brief One ordered group of ICommand steps recorded together and
-    /// undone/redone as a single unit (UPDATES.md item 21) - either every
+    /// undone/redone as a single unit - either every
     /// Root mutation a single typed Tcl command made (see
     /// CommandHistory::begin/end and le_repl_eval), or every ShapeId a
     /// single Move gesture translated. `label` is the typed command text
-    /// (or a synthesized label like "move") - what backs the migrated
-    /// Terminal command-recall list.
+    /// (or a synthesized label like "move") - what backs the Terminal's
+    /// command-recall list.
     ///
     /// Known limitation: id_cell_for() only resolves a reference to an id
     /// created/recreated *earlier in this same Transaction* - see
