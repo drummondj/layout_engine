@@ -164,6 +164,32 @@ namespace le::gui
             ImGui::PopID();
         }
 
+        // kPurposeNames ordinals with per-value filter rows beneath them.
+        constexpr int32_t kRoutePurpose = 9;
+        constexpr int32_t kPlacementPurpose = 11;
+
+        // A purpose's Placement.type/Route.use values, indented under its
+        // row - each hides or locks just the objects with that value.
+        void draw_filter_rows(GuiProvider &provider, int32_t filter, const std::vector<GuiProvider::FilterRow> &rows)
+        {
+            ImGui::PushID(filter);
+            for (const GuiProvider::FilterRow &row : rows)
+            {
+                draw_toggle_row(
+                    row.value.c_str(), [&]
+                    {
+                        ImGui::Indent();
+                        ImGui::TextUnformatted(row.value.c_str());
+                        ImGui::Unindent(); },
+                    row.visible, row.selectable,
+                    [&](bool value)
+                    { provider.set_object_filter_visible(filter, row.value, value); },
+                    [&](bool value)
+                    { provider.set_object_filter_selectable(filter, row.value, value); });
+            }
+            ImGui::PopID();
+        }
+
         // A blank spacer row between the "All"/Purposes/Layers sections. A real
         // separator line drawn *inside* one continuous table (needed so
         // every row's checkboxes still line up in the same two columns)
@@ -310,6 +336,10 @@ namespace le::gui
                 [&](bool value)
                 { provider.set_purpose_selectable(purpose_name(purpose.ordinal), value); },
                 purpose.has_selectable_objects);
+            if (purpose.ordinal == kPlacementPurpose)
+                draw_filter_rows(provider, LE_OBJECT_FILTER_PLACEMENT_TYPE, state.layer_manager.placement_types);
+            else if (purpose.ordinal == kRoutePurpose)
+                draw_filter_rows(provider, LE_OBJECT_FILTER_ROUTE_USE, state.layer_manager.route_uses);
         }
 
         draw_spacer_row();

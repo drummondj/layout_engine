@@ -1,5 +1,6 @@
 #include "../api.hpp"
 #include <algorithm>
+#include <set>
 #include <atomic>
 #include <cstring>
 #include <filesystem>
@@ -6736,4 +6737,130 @@ TEST_F(ApiFixture, SettingsLoadReadsTheOldSingleLabelSizeAsTheMax)
     ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
     EXPECT_DOUBLE_EQ(le_label_max_size(handle), 30.0);
     EXPECT_DOUBLE_EQ(le_label_min_size(handle), 12.0);
+}
+
+// --- Placement.type / Route.use filters ---
+// TESTCELL (CLASS CORE, 10x10 um) placed at (0,0) and a POWER route rect
+// (12,2)-(18,4) um on M1, viewed at 0.005 px/dbu over 100x100 px: device
+// (x, y) is dbu (200 x, 200 (100 - y)).
+namespace
+{
+    constexpr int32_t kOnPlacement[2] = {25, 75}; // (5,5) um
+    constexpr int32_t kOnRoute[2] = {75, 85};     // (15,3) um
+
+    void load_filter_layout(LeHandle *handle)
+    {
+        ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+        const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+        const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+        const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+        const LeLayoutId layout = le_create_layout(handle, top_design);
+        le_create_placement(handle, layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+        const LeRouteId route = le_create_route(handle, layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "VDD", /*is_special=*/1, 0, 0.0, 0, 0.0, "POWER");
+        const double rect_um[4] = {12.0, 2.0, 18.0, 4.0};
+        le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, route, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, named_layer(handle, "M1"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
+        ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+        le_set_viewport_size(handle, 100, 100);
+        le_zoom(handle, 0.005 - 1.0, 0, 100);
+    }
+
+    int32_t click_kind(LeHandle *handle, const int32_t at[2])
+    {
+        le_deselect_all(handle);
+        le_mouse_down(handle, at[0], at[1]);
+        le_mouse_up(handle, at[0], at[1]);
+        return le_selection_count(handle) == 0 ? -1 : le_selected_object_ref(handle, 0).kind;
+    }
+
+    // Kinds selected by a drag over the whole (0,0)-(20,20) um view.
+    std::multiset<int32_t> drag_all_kinds(LeHandle *handle)
+    {
+        le_deselect_all(handle);
+        le_mouse_down(handle, 0, 100);
+        le_mouse_up(handle, 100, 0);
+        std::multiset<int32_t> kinds;
+        for (int32_t i = 0; i < le_selection_count(handle); ++i)
+            kinds.insert(le_selected_object_ref(handle, i).kind);
+        return kinds;
+    }
+}
+
+TEST_F(ApiFixture, ObjectFilterValuesListPlacementTypesAndRouteUses)
+{
+    EXPECT_EQ(le_object_filter_value_count(nullptr, LE_OBJECT_FILTER_ROUTE_USE), 0);
+    EXPECT_EQ(le_object_filter_value_count(handle, 7), 0);
+    load_filter_layout(handle);
+
+    const int32_t uses = le_object_filter_value_count(handle, LE_OBJECT_FILTER_ROUTE_USE);
+    ASSERT_GT(uses, 1);
+    EXPECT_STREQ(le_object_filter_value_at(handle, LE_OBJECT_FILTER_ROUTE_USE, 0), "SIGNAL");
+    EXPECT_STREQ(le_object_filter_value_at(handle, LE_OBJECT_FILTER_ROUTE_USE, uses - 1), "UNSET");
+    EXPECT_EQ(le_object_filter_value_at(handle, LE_OBJECT_FILTER_ROUTE_USE, uses), nullptr);
+
+    // TESTCELL is CORE; TOP has no Abstract.
+    std::vector<std::string> types;
+    for (int32_t i = 0; i < le_object_filter_value_count(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE); ++i)
+        types.emplace_back(le_object_filter_value_at(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE, i));
+    EXPECT_EQ(types, (std::vector<std::string>{"CORE", "UNSET"}));
+}
+
+TEST_F(ApiFixture, ObjectFilterValuesAreVisibleAndSelectableByDefaultAndMatchCaseInsensitively)
+{
+    EXPECT_EQ(le_is_object_filter_value_visible(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE, "CORE"), 1);
+    EXPECT_EQ(le_is_object_filter_value_selectable(handle, LE_OBJECT_FILTER_ROUTE_USE, "POWER"), 1);
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE, "core", 0);
+    EXPECT_EQ(le_is_object_filter_value_visible(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE, "CORE"), 0);
+    EXPECT_EQ(le_is_object_filter_value_visible(handle, LE_OBJECT_FILTER_ROUTE_USE, "CORE"), 1); // the other filter
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE, "CORE", 1);
+    EXPECT_EQ(le_is_object_filter_value_visible(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE, "core"), 1);
+
+    le_set_object_filter_value_visible(nullptr, LE_OBJECT_FILTER_ROUTE_USE, "POWER", 0);
+    le_set_object_filter_value_selectable(handle, LE_OBJECT_FILTER_ROUTE_USE, nullptr, 0);
+    EXPECT_EQ(le_is_object_filter_value_visible(nullptr, LE_OBJECT_FILTER_ROUTE_USE, "POWER"), 1);
+}
+
+TEST_F(ApiFixture, AHiddenOrUnselectablePlacementTypeCannotBeClickedOrDragSelected)
+{
+    load_filter_layout(handle);
+    ASSERT_EQ(click_kind(handle, kOnPlacement), LE_OBJECT_KIND_PLACEMENT);
+
+    le_set_object_filter_value_selectable(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE, "CORE", 0);
+    EXPECT_EQ(click_kind(handle, kOnPlacement), -1);
+    EXPECT_EQ(drag_all_kinds(handle), std::multiset<int32_t>{LE_OBJECT_KIND_SHAPE}); // the route piece only
+
+    le_set_object_filter_value_selectable(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE, "CORE", 1);
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE, "CORE", 0);
+    EXPECT_EQ(click_kind(handle, kOnPlacement), -1);
+    EXPECT_EQ(drag_all_kinds(handle), std::multiset<int32_t>{LE_OBJECT_KIND_SHAPE});
+}
+
+TEST_F(ApiFixture, AHiddenOrUnselectableRouteUseCannotBeClickedOrDragSelected)
+{
+    load_filter_layout(handle);
+    ASSERT_EQ(click_kind(handle, kOnRoute), LE_OBJECT_KIND_SHAPE);
+
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_ROUTE_USE, "SIGNAL", 0); // not this route's use
+    EXPECT_EQ(click_kind(handle, kOnRoute), LE_OBJECT_KIND_SHAPE);
+
+    le_set_object_filter_value_selectable(handle, LE_OBJECT_FILTER_ROUTE_USE, "POWER", 0);
+    EXPECT_EQ(click_kind(handle, kOnRoute), -1);
+    EXPECT_EQ(drag_all_kinds(handle), std::multiset<int32_t>{LE_OBJECT_KIND_PLACEMENT});
+
+    le_set_object_filter_value_selectable(handle, LE_OBJECT_FILTER_ROUTE_USE, "POWER", 1);
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_ROUTE_USE, "POWER", 0);
+    EXPECT_EQ(click_kind(handle, kOnRoute), -1);
+    EXPECT_EQ(drag_all_kinds(handle), std::multiset<int32_t>{LE_OBJECT_KIND_PLACEMENT});
+}
+
+TEST_F(ApiFixture, HidingARouteUseRemovesItsShapesFromTheRender)
+{
+    load_filter_layout(handle);
+    LePixelBuffer shown = le_render_pixel_buffer(handle);
+    ASSERT_NE(shown.data, nullptr);
+    ASSERT_TRUE(region_has_opaque_pixel(shown, 62, 82, 88, 88)); // inside the route rect
+
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_ROUTE_USE, "POWER", 0);
+    LePixelBuffer hidden = le_render_pixel_buffer(handle);
+    ASSERT_NE(hidden.data, nullptr);
+    EXPECT_FALSE(region_has_opaque_pixel(hidden, 62, 82, 88, 88));
 }

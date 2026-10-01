@@ -943,6 +943,45 @@ extern "C"
     /// directly. A no-op if handle is null.
     void le_set_purpose_selectable(LeHandle *handle, int32_t purpose, int32_t selectable);
 
+    /// @brief A per-value filter under a purpose in the Layers panel: by
+    /// Placement.type (the reference design's Abstract.type, LEF MACRO
+    /// CLASS, under PLACEMENT) or by Route.use (DEF USE, under ROUTE).
+    /// Values are matched case-insensitively; an object whose field is
+    /// unset has the value "UNSET".
+    typedef enum LeObjectFilter
+    {
+        LE_OBJECT_FILTER_PLACEMENT_TYPE = 0,
+        LE_OBJECT_FILTER_ROUTE_USE = 1,
+    } LeObjectFilter;
+
+    /// @brief How many values `filter` offers: for PLACEMENT_TYPE every
+    /// distinct type a Design gives its placements (plus "UNSET" when any
+    /// has none); for ROUTE_USE the DEF USE keywords plus "UNSET". 0 for a
+    /// null handle or unknown filter.
+    int32_t le_object_filter_value_count(LeHandle *handle, int32_t filter);
+
+    /// @brief The `index`th value of `filter`, upper-case, or null if out of
+    /// range. Owned by `handle`; valid until the next database change.
+    const char *le_object_filter_value_at(LeHandle *handle, int32_t filter, int32_t index);
+
+    /// @brief Nonzero if objects with `value` are drawn and hit-tested
+    /// (visible by default). Returns nonzero for a null handle or value.
+    int32_t le_is_object_filter_value_visible(LeHandle *handle, int32_t filter, const char *value);
+
+    /// @brief Shows or hides every Placement/Route with `value` - its
+    /// outline, label and placed content for a Placement, its shapes and
+    /// vias for a Route. A no-op for a null handle or value.
+    void le_set_object_filter_value_visible(LeHandle *handle, int32_t filter, const char *value, int32_t visible);
+
+    /// @brief Nonzero if objects with `value` can be selected (selectable by
+    /// default). Returns nonzero for a null handle or value.
+    int32_t le_is_object_filter_value_selectable(LeHandle *handle, int32_t filter, const char *value);
+
+    /// @brief Sets whether every Placement/Route with `value` (and, for a
+    /// Route, its shapes and vias) can be selected. A no-op for a null
+    /// handle or value.
+    void le_set_object_filter_value_selectable(LeHandle *handle, int32_t filter, const char *value, int32_t selectable);
+
     /// @brief Zoom the viewport, keeping the dbu point under screen pixel
     /// (x, y) fixed on screen. `factor` is a signed fractional step applied
     /// to the current scale (new_scale = scale * (1 + factor)) - positive

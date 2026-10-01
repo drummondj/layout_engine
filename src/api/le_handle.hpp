@@ -3,6 +3,7 @@
 #include "api.hpp"
 
 #include "../core/flightlines.hpp"
+#include "../core/object_filters.hpp"
 #include "../core/placement_move.hpp"
 #include "../core/shape_resize.hpp"
 #include "../database/database.hpp"
@@ -1394,6 +1395,58 @@ struct LeHandle
             return is_layer_name_selectable(layer_name) && is_purpose_selectable(purpose);
         }
 
+        // --- Placement.type / Route.use filters (LeObjectFilter) ---
+        // Per-value visibility and selectability, on top of the purpose
+        // axes above: a Placement or Route draws only if its purpose and
+        // its value are both visible. Values are matched upper-case
+        // (le::to_filter_value); everything is visible and selectable by
+        // default. Hiding a value bumps visibility_version_.
+        void set_object_filter_visible(int32_t filter, const std::string &value, bool visible)
+        {
+            if (std::set<std::string> *values = filter_values(hidden_objects_, filter))
+            {
+                set_membership(*values, le::to_filter_value(value), !visible);
+                ++visibility_version_;
+            }
+        }
+
+        bool is_object_filter_visible(int32_t filter, const std::string &value) const
+        {
+            const std::set<std::string> *values = filter_values(hidden_objects_, filter);
+            return !values || !values->contains(le::to_filter_value(value));
+        }
+
+        void set_object_filter_selectable(int32_t filter, const std::string &value, bool selectable)
+        {
+            if (std::set<std::string> *values = filter_values(unselectable_objects_, filter))
+                set_membership(*values, le::to_filter_value(value), !selectable);
+        }
+
+        bool is_object_filter_selectable(int32_t filter, const std::string &value) const
+        {
+            const std::set<std::string> *values = filter_values(unselectable_objects_, filter);
+            return !values || !values->contains(le::to_filter_value(value));
+        }
+
+        // Hidden values (rendering and selection) and unselectable ones
+        // (selection only).
+        const le::ObjectFilterSets &hidden_objects() const { return hidden_objects_; }
+        const le::ObjectFilterSets &unselectable_objects() const { return unselectable_objects_; }
+
+        // le_object_filter_value_count/_at's LE_OBJECT_FILTER_PLACEMENT_TYPE
+        // list, rebuilt when Root has changed since. Read under a shared
+        // lock, so it has a mutex of its own.
+        const std::vector<std::string> &placement_type_values() const
+        {
+            std::lock_guard<std::mutex> lock(placement_type_values_mutex_);
+            if (placement_type_values_version_ != root.mutation_version())
+            {
+                placement_type_values_ = le::placement_type_values(root);
+                placement_type_values_version_ = root.mutation_version();
+            }
+            return placement_type_values_;
+        }
+
         // --- Selection ---
         // ComposeStage draws a white outline around every selected piece -
         // selection_version_ lets its cache know when the
@@ -1581,6 +1634,30 @@ struct LeHandle
             {le::ViewLayerPurpose::GCELLGRID, false},
             {le::ViewLayerPurpose::FLIGHTLINE, false}, // an overlay, never hit-tested
         };
+        le::ObjectFilterSets hidden_objects_;
+        le::ObjectFilterSets unselectable_objects_;
+        mutable std::mutex placement_type_values_mutex_;
+        mutable std::vector<std::string> placement_type_values_;
+        mutable uint64_t placement_type_values_version_ = std::numeric_limits<uint64_t>::max();
+
+        // `sets`' value set for an LeObjectFilter; nullptr for an unknown one.
+        template <typename Sets>
+        static auto filter_values(Sets &sets, int32_t filter) -> decltype(&sets.placement_types)
+        {
+            if (filter == LE_OBJECT_FILTER_PLACEMENT_TYPE)
+                return &sets.placement_types;
+            if (filter == LE_OBJECT_FILTER_ROUTE_USE)
+                return &sets.route_uses;
+            return nullptr;
+        }
+        static void set_membership(std::set<std::string> &values, std::string value, bool member)
+        {
+            if (member)
+                values.insert(std::move(value));
+            else
+                values.erase(value);
+        }
+
         std::vector<SelectedObject> selection_;
         // signature (piece_signature) -> index into selection_ - see
         // select()'s own comment for why this exists.

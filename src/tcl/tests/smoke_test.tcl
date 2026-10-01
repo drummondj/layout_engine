@@ -88,6 +88,23 @@ check "set_purpose_selectable false round-trips" 0 [get_purpose_selectable termi
 set_purpose_selectable terminal 1
 check "set_purpose_selectable true round-trips" 1 [get_purpose_selectable terminal]
 
+check "placement type visible by default" 1 [get_placement_type_visible CORE]
+set_placement_type_visible {core spacer} 0
+check "set_placement_type_visible matches case-insensitively" 0 [get_placement_type_visible {CORE SPACER}]
+set_placement_type_visible {CORE SPACER} 1
+check "set_placement_type_visible true round-trips" 1 [get_placement_type_visible {CORE SPACER}]
+set_placement_type_selectable PAD 0
+check "set_placement_type_selectable false round-trips" 0 [get_placement_type_selectable PAD]
+check "a placement type filter leaves route uses alone" 1 [get_route_use_selectable PAD]
+set_route_use_visible POWER 0
+check "set_route_use_visible false round-trips" 0 [get_route_use_visible POWER]
+set_route_use_selectable UNSET 0
+check "set_route_use_selectable false round-trips" 0 [get_route_use_selectable unset]
+set_placement_type_selectable PAD 1
+set_route_use_visible POWER 1
+set_route_use_selectable UNSET 1
+check "set_route_use_visible wrong arity errors" 1 [catch {set_route_use_visible POWER}]
+
 if {[catch {set_purpose_visible not_a_real_purpose 1} err]} {
     puts "ok: set_purpose_visible rejects an unknown purpose keyword ($err)"
 } else {

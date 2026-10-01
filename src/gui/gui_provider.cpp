@@ -108,6 +108,19 @@ namespace le::gui
             const bool selectable = le_is_purpose_selectable(handle_, ordinal) != 0;
             state_.layer_manager.purposes.push_back(PurposeRow{ordinal, visible, selectable, le_purpose_has_selectable_objects(ordinal) != 0});
         }
+
+        const auto refresh_filter = [this](int32_t filter, std::vector<FilterRow> &rows)
+        {
+            rows.clear();
+            const int32_t count = le_object_filter_value_count(handle_, filter);
+            rows.reserve(static_cast<size_t>(count));
+            for (int32_t i = 0; i < count; ++i)
+                if (const char *value = le_object_filter_value_at(handle_, filter, i))
+                    rows.push_back(FilterRow{value, le_is_object_filter_value_visible(handle_, filter, value) != 0,
+                                             le_is_object_filter_value_selectable(handle_, filter, value) != 0});
+        };
+        refresh_filter(LE_OBJECT_FILTER_PLACEMENT_TYPE, state_.layer_manager.placement_types);
+        refresh_filter(LE_OBJECT_FILTER_ROUTE_USE, state_.layer_manager.route_uses);
     }
 
     LeObjectRef GuiProvider::object_parent(LeObjectRef ref) const
@@ -480,6 +493,24 @@ namespace le::gui
     void GuiProvider::set_purpose_selectable(const std::string &purpose_name, bool value)
     {
         run_tcl_command("set_purpose_selectable " + purpose_name + " " + (value ? "1" : "0"));
+    }
+
+    namespace
+    {
+        const char *object_filter_command_noun(int32_t filter)
+        {
+            return filter == LE_OBJECT_FILTER_PLACEMENT_TYPE ? "placement_type" : "route_use";
+        }
+    }
+
+    void GuiProvider::set_object_filter_visible(int32_t filter, const std::string &value, bool visible)
+    {
+        run_tcl_command(std::string("set_") + object_filter_command_noun(filter) + "_visible {" + value + "} " + (visible ? "1" : "0"));
+    }
+
+    void GuiProvider::set_object_filter_selectable(int32_t filter, const std::string &value, bool selectable)
+    {
+        run_tcl_command(std::string("set_") + object_filter_command_noun(filter) + "_selectable {" + value + "} " + (selectable ? "1" : "0"));
     }
 
     void GuiProvider::run_tcl_command(const std::string &script)

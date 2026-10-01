@@ -1874,6 +1874,26 @@ Returns the Pin objects matching the given names and filters, as tokens. Pin: Lo
 
 Returns the placement snap mode: site, fin, manufacturing or none.
 
+## get_placement_type_selectable
+
+`get_placement_type_selectable <type> [-help]`
+
+Returns 1 if placements whose type (the placed cell's LEF MACRO CLASS) is <type> can be selected, 0 otherwise - see set_placement_type_selectable.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
+
+## get_placement_type_visible
+
+`get_placement_type_visible <type> [-help]`
+
+Returns 1 if placements whose type (the placed cell's LEF MACRO CLASS) is <type> are visible, 0 otherwise - see set_placement_type_visible.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
+
 ## get_placements
 
 `get_placements [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
@@ -1974,6 +1994,26 @@ Returns the Region objects matching the given names and filters, as tokens. Regi
 | `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+## get_route_use_selectable
+
+`get_route_use_selectable <use> [-help]`
+
+Returns 1 if routes whose DEF USE is <use> can be selected, 0 otherwise - see set_route_use_selectable.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND, CLOCK, or UNSET |
+
+## get_route_use_visible
+
+`get_route_use_visible <use> [-help]`
+
+Returns 1 if routes whose DEF USE is <use> are visible, 0 otherwise - see set_route_use_visible.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND, CLOCK, or UNSET |
 
 ## get_routes
 
@@ -2471,6 +2511,28 @@ Sets what a moved placement snaps to: site (the default - a core cell snaps to t
 | --- | --- | --- | --- |
 | `<mode>` | `str` | yes | One of site, fin, manufacturing, none |
 
+## set_placement_type_selectable
+
+`set_placement_type_selectable <type> <selectable> [-help]`
+
+Sets whether placements whose type (the placed cell's LEF MACRO CLASS) is <type> can be selected. Everything is selectable by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
+| `<selectable>` | `bool` | yes | 0/1 or true/false |
+
+## set_placement_type_visible
+
+`set_placement_type_visible <type> <visible> [-help]`
+
+Shows or hides placements whose type (the placed cell's LEF MACRO CLASS) is <type> - their outline, name and content. Everything is visible by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
+| `<visible>` | `bool` | yes | 0/1 or true/false |
+
 ## set_purpose_selectable
 
 `set_purpose_selectable <purpose> <selectable> [-help]`
@@ -2492,6 +2554,28 @@ Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> i
 | --- | --- | --- | --- |
 | `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
 | `<visible>` | `bool` | yes | 0/1 or true/false - hide/show |
+
+## set_route_use_selectable
+
+`set_route_use_selectable <use> <selectable> [-help]`
+
+Sets whether routes whose DEF USE is <use> can be selected. Everything is selectable by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND, CLOCK, or UNSET |
+| `<selectable>` | `bool` | yes | 0/1 or true/false |
+
+## set_route_use_visible
+
+`set_route_use_visible <use> <visible> [-help]`
+
+Shows or hides routes whose DEF USE is <use> - their shapes and vias. Everything is visible by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND, CLOCK, or UNSET |
+| `<visible>` | `bool` | yes | 0/1 or true/false |
 
 ## set_ruler_label_size
 

@@ -55,7 +55,8 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   Move planning and snapping: SITE rows for CORE cells, fin grid,
   manufacturing grid), `shape_resize.hpp` (Resize handles and snapping;
   also how Move snaps paths/vias), `flightlines.hpp` (net connections of the
-  selected placements).
+  selected placements), `object_filters.hpp` (the Layers panel's
+  Placement.type/Route.use value filters).
 - `src/pipelines/` — the render pipeline, one oneTBB `flow::graph`
   (`ViewRenderPipeline`, design in `docs/PIPELINE_REFACTOR.md`):
   `LayerGenerationStage` -> `HierarchyResolverStage` -> `ViewportCullStage`
@@ -71,6 +72,8 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
     `ViewShapeChunk`s (a Layout's fixed chunks plus spatial tiles of ~2000
     routes/placements), and only touched chunks rebuild; anything it can't
     place falls back to a full resolve (`last_compute_was_incremental()`).
+    Hidden Placement.type/Route.use values (`hidden_objects`) are left out
+    here; changing them re-resolves everything.
     Chunks carry `ChunkSources` so Layout-view selection queries the last
     resolved render tree (`ViewRenderPipeline::resolved_output()`, api.cpp's
     `layout_candidates`) instead of scanning the Layout.

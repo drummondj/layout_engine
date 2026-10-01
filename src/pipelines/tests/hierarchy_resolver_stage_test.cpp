@@ -841,3 +841,72 @@ TEST_F(HierarchyResolverStageFixture, ChunkSourcesNameTheObjectBehindEverySelect
     ASSERT_EQ(placements.size(), 1u);
     EXPECT_EQ(placements[0], root.get_layout_placements(top_layout).front());
 }
+
+namespace
+{
+    std::size_t route_shape_count(const ViewData &data, const ViewLayerSet &view_layers, LayerId layer)
+    {
+        const ViewLayerShapes shapes = merged_shapes(data);
+        const auto it = shapes.find(view_layers.find(layer, ViewLayerPurpose::ROUTE));
+        return it == shapes.end() ? 0 : it->second.size();
+    }
+
+    ViewRenderOptions with_hidden(ViewRenderOptions options, ObjectFilterSets hidden)
+    {
+        options.hidden_objects = std::move(hidden);
+        return options;
+    }
+}
+
+TEST_F(IncrementalFixture, AHiddenRouteUseLeavesItsRoutesOut)
+{
+    const RouteId power = root.create_route(RouteData{.layout = top_layout, .name = "VDD", .use = std::string("power")});
+    root.create_shape(ShapeData{.route = power, .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
+    const RouteId signal = root.create_route(RouteData{.layout = top_layout, .name = "n1"});
+    root.create_shape(ShapeData{.route = signal, .layer = m1, .rects = {Rect{.ll = Point{0, 10}, .ur = Point{50, 15}}}});
+
+    const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 0);
+    EXPECT_EQ(route_shape_count(runner.run(view_layers_handle, 0, options).view_data.at(HierarchyId{top_layout}), view_layers, m1), 2u);
+
+    const HierarchyResolverOutput &hidden = runner.run(view_layers_handle, 0, with_hidden(options, {.route_uses = {"POWER"}}));
+    EXPECT_FALSE(runner.stage().last_compute_was_incremental()); // a filter change resolves everything
+    EXPECT_EQ(route_shape_count(hidden.view_data.at(HierarchyId{top_layout}), view_layers, m1), 1u);
+
+    const HierarchyResolverOutput &unset_hidden = runner.run(view_layers_handle, 0, with_hidden(options, {.route_uses = {"POWER", "UNSET"}}));
+    EXPECT_EQ(route_shape_count(unset_hidden.view_data.at(HierarchyId{top_layout}), view_layers, m1), 0u);
+}
+
+TEST_F(IncrementalFixture, AHiddenPlacementTypeLeavesOutThePlacementAndWhatItPlaces)
+{
+    root.get_abstract(leaf_abstract)->type = "CORE";
+    const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 2);
+    ASSERT_EQ(placements_of(runner.run(view_layers_handle, 0, options).view_data.at(HierarchyId{block_layout})).size(), 2u);
+
+    const HierarchyResolverOutput &hidden = runner.run(view_layers_handle, 0, with_hidden(options, {.placement_types = {"CORE"}}));
+    EXPECT_TRUE(placements_of(hidden.view_data.at(HierarchyId{block_layout})).empty());
+    EXPECT_FALSE(hidden.view_data.contains(HierarchyId{leaf_abstract}));
+    EXPECT_EQ(merged_shapes(hidden.view_data.at(HierarchyId{block_layout})).count(view_layers.placement_view_layer()), 0u); // no outlines or labels
+    EXPECT_EQ(placements_of(hidden.view_data.at(HierarchyId{top_layout})).size(), 1u);                                      // BLOCK is untyped
+}
+
+TEST_F(IncrementalFixture, EditsUnderAFilterStayIncrementalAndMatchAFullResolve)
+{
+    const ObjectFilterSets filter{.placement_types = {"CORE"}, .route_uses = {"POWER"}};
+    const ViewRenderOptions options = with_hidden(options_for(HierarchyId{top_layout}, 2), filter);
+    runner.run(view_layers_handle, 0, options);
+
+    // Typing LEAF as CORE hides both of its placements; a POWER route stays out.
+    root.get_abstract(leaf_abstract)->type = "CORE";
+    root.note_abstract_changed(leaf_abstract);
+    const RouteId power = root.create_route(RouteData{.layout = top_layout, .name = "VDD", .use = std::string("POWER")});
+    root.create_shape(ShapeData{.route = power, .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
+    root.bump_mutation_version();
+
+    const ViewRenderOptions edited = with_hidden(options_for(HierarchyId{top_layout}, 2), filter);
+    const HierarchyResolverOutput &updated = runner.run(view_layers_handle, 0, edited);
+    EXPECT_TRUE(runner.stage().last_compute_was_incremental());
+    EXPECT_TRUE(placements_of(updated.view_data.at(HierarchyId{block_layout})).empty());
+    EXPECT_EQ(route_shape_count(updated.view_data.at(HierarchyId{top_layout}), view_layers, m1), 0u);
+    HierarchyResolverRunner fresh{"fresh"};
+    expect_same_output(updated, fresh.run(view_layers_handle, 0, edited));
+}

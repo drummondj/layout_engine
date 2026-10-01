@@ -850,6 +850,26 @@ bool get_purpose_selectable_cmd(int32_t purpose)
     return le_is_purpose_selectable(session(), purpose);
 }
 
+void set_object_filter_visible_cmd(int32_t filter, const char *value, bool visible)
+{
+    le_set_object_filter_value_visible(session(), filter, value, visible);
+}
+
+bool get_object_filter_visible_cmd(int32_t filter, const char *value)
+{
+    return le_is_object_filter_value_visible(session(), filter, value);
+}
+
+void set_object_filter_selectable_cmd(int32_t filter, const char *value, bool selectable)
+{
+    le_set_object_filter_value_selectable(session(), filter, value, selectable);
+}
+
+bool get_object_filter_selectable_cmd(int32_t filter, const char *value)
+{
+    return le_is_object_filter_value_selectable(session(), filter, value);
+}
+
 void set_mode_cmd(int32_t mode)
 {
     le_set_mode(session(), mode);

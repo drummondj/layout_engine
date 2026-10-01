@@ -306,6 +306,22 @@ void set_purpose_selectable_cmd(int32_t purpose, bool selectable);
 /// mirrors le_is_purpose_selectable directly.
 bool get_purpose_selectable_cmd(int32_t purpose);
 
+/// @brief Backing for `set_placement_type_visible`/`set_route_use_visible` -
+/// mirrors le_set_object_filter_value_visible. `filter` is an LeObjectFilter.
+void set_object_filter_visible_cmd(int32_t filter, const char *value, bool visible);
+
+/// @brief Backing for `get_placement_type_visible`/`get_route_use_visible` -
+/// mirrors le_is_object_filter_value_visible.
+bool get_object_filter_visible_cmd(int32_t filter, const char *value);
+
+/// @brief Backing for `set_placement_type_selectable`/
+/// `set_route_use_selectable` - mirrors le_set_object_filter_value_selectable.
+void set_object_filter_selectable_cmd(int32_t filter, const char *value, bool selectable);
+
+/// @brief Backing for `get_placement_type_selectable`/
+/// `get_route_use_selectable` - mirrors le_is_object_filter_value_selectable.
+bool get_object_filter_selectable_cmd(int32_t filter, const char *value);
+
 /// @brief Backing for the `set_mode <mode>` Tcl command - mirrors
 /// le_set_mode directly. `mode` is LeMode's own raw ordinal (0=SELECT,
 /// 1=EDIT, 2=RULER) - le_tcl_procs.tcl's own set_mode wrapper resolves a
