@@ -217,7 +217,7 @@ namespace
             int num_x = 0, num_y = 0;
             int64_t space_x = 0, space_y = 0;
             // The enclosing path's own current_width at this via's own
-            // point (BUGS_AND_ENHANCEMENTS.md B3 follow-up) - the routing-
+            // point - the routing-
             // width context via_shapes.hpp's own VIARULE GENERATE fit
             // algorithm needs when a via reference resolves only to a
             // top-level GENERATE rule, with no explicit CUTSIZE/ROWCOL
@@ -389,15 +389,14 @@ namespace le
     {
         auto reader = static_cast<DEFReader *>(user_data);
 
-        // NEW_FEATURES_SEPT_2026.md item 4 - the named library, created if
+        // The named library, created if
         // needed; the design by (global) name, created in that library if
         // new - see get_or_create_design's own comment.
         reader->library_id_ = get_or_create_library(*reader->root_, reader->library_name_);
         reader->design_id_ = get_or_create_design(*reader->root_, reader->library_id_, name, "read_def");
 
         // Each view can only be read once per design - a real error that
-        // aborts the read (it used to log and carry on with no Layout,
-        // silently dropping everything after DESIGN).
+        // aborts the read.
         if (reader->root_->get_design_layout(reader->design_id_).valid())
         {
             log_error("read_def: design {} already has a Layout view - each view can only be read once per design.", name);
@@ -411,7 +410,7 @@ namespace le
     {
         // Not yet validated against a minimum supported DEF version (no
         // known version-obsolescence gap like LEF's own >= 5.4 requirement
-        // has surfaced for DEF yet) - revisit if LEFDEF_BUGS.md gains one.
+        // has surfaced for DEF yet) - revisit if docs/LEFDEF_BUGS.md gains one.
         return 0;
     }
 
@@ -698,8 +697,8 @@ namespace le
                 if (!fill_pin_like_placement(port, pin->pinName(), reader->unit_scale_, segment_data.location, segment_data.orientation))
                     return 0;
                 // DEF gives a PORT's geometry relative to its own placement;
-                // stored in design coordinates (NEW_FEATURES_SEPT_2026.md item
-                // 28), so everything that draws, hit-tests, selects or moves it
+                // stored in design coordinates, so everything that draws,
+                // hit-tests, selects or moves it
                 // needs no pin transform - DEFWriter converts back.
                 const Geometry::InstanceTransform to_design = Geometry::pin_transform(segment_data.location, segment_data.orientation);
                 const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(std::move(segment_data));
@@ -875,7 +874,7 @@ namespace le
                 .bot_enclosure = Point{.x = scale_dbu(x_bot_enc, reader->unit_scale_), .y = scale_dbu(y_bot_enc, reader->unit_scale_)},
                 .top_enclosure = Point{.x = scale_dbu(x_top_enc, reader->unit_scale_), .y = scale_dbu(y_top_enc, reader->unit_scale_)},
             };
-            // ROWCOL (BUGS_AND_ENHANCEMENTS.md B3) - DEF VIAS VIARULE's
+            // ROWCOL - DEF VIAS VIARULE's
             // own mirror of LEF's ROWCOL clause, same "a real via array"
             // meaning - see lef_reader.cpp's own matching comment.
             if (via->hasRowCol())
@@ -886,7 +885,7 @@ namespace le
                 via_rule_data.num_cut_rows = num_cut_rows;
                 via_rule_data.num_cut_cols = num_cut_cols;
             }
-            // ORIGIN/OFFSET/PATTERN (B3 follow-up) - DEF VIAS VIARULE's
+            // ORIGIN/OFFSET/PATTERN - DEF VIAS VIARULE's
             // own mirror of LEF's ORIGIN/OFFSET/PATTERN clauses, same
             // meaning - see lef_reader.cpp's own matching comment.
             if (via->hasOrigin())

@@ -34,7 +34,7 @@ namespace le
         }
     }
 
-    // NEW_FEATURES_SEPT_2026.md item 28: a pin's geometry is stored in design
+    // A pin's geometry is stored in design
     // coordinates - DEF's relative rect run through the PIN's rotated
     // placement - and written back relative to it, unchanged.
     TEST(DEFWriterPinPlacement, RotatedPinGeometryReadsIntoDesignCoordinatesAndWritesBackRelative)
@@ -162,15 +162,13 @@ namespace le
         EXPECT_EQ(written_root.get_layout_placements(written_layout_id).size(), original_root.get_layout_placements(original_layout_id).size());
     }
 
-    // BUGS_AND_ENHANCEMENTS.md B8 - DEFWriter::write_placements used to pass
-    // placement->weight.value_or(-1.0) as defwComponentStr's own weight
-    // argument. The vendored writer's own header comment claims -1.0 is the
-    // "omit this field" sentinel, but its real implementation
-    // (defwWriter.cpp) gates the WEIGHT line on a plain `if (weight)` - true
-    // for -1.0 (any non-zero value), so a component with no weight at all
-    // still got a literal "WEIGHT -1" written every time. 0.0 is the only
+    // defwComponentStr's weight argument: the vendored writer's header
+    // comment claims -1.0 is the "omit this field" sentinel, but its real
+    // implementation (defwWriter.cpp) gates the WEIGHT line on a plain
+    // `if (weight)` - true for -1.0, which would write a literal
+    // "WEIGHT -1" for every component with no weight. 0.0 is the only
     // value `if (weight)` treats as false, so it's the real sentinel - see
-    // LEFDEF_BUGS.md's DEF writer section for the fuller writeup (including
+    // docs/LEFDEF_BUGS.md's DEF writer section for the fuller writeup (including
     // the one real consequence: a component whose real weight IS zero can
     // never round-trip through this writer, a vendored-writer limitation,
     // not a bug in this project's own code).
@@ -234,8 +232,8 @@ namespace le
         // vacuously true if the component itself failed to write), but
         // WEIGHT must never appear anywhere on its own line - checked via
         // the re-read round trip below for the semantic side, this checks
-        // the raw text directly for the literal symptom reported in B8
-        // ("WEIGHT -1" showing up for a component that never had one).
+        // the raw text directly for the literal symptom ("WEIGHT -1"
+        // showing up for a component that never had one).
         EXPECT_NE(written_text.find("INST_NO_WEIGHT"), std::string::npos);
         EXPECT_EQ(written_text.find("WEIGHT -1"), std::string::npos);
 
@@ -256,19 +254,13 @@ namespace le
         EXPECT_DOUBLE_EQ(*placement->weight, 3.0);
     }
 
-    // BUGS_AND_ENHANCEMENTS.md B9 - the actual root cause of the reported
-    // "missing vias"/malformed-looking VIAS section after a write_def then
-    // read_def round trip: DEFWriter::write_vias never wrote
-    // num_cut_rows/num_cut_cols/origin/bot_offset/top_offset at all (see
-    // this fix's own comment in def_writer.cpp), so a real via *array*
-    // (ROWCOL numRows > 1) always collapsed to a single cut on write - a
-    // ViaRuleReference with no ROWCOL clause means exactly that, per its
-    // own schema.py doc comment - which read back as a design with far
-    // fewer actual cut rects than the original at every one of that via's
-    // placements. Reuses via_rule_reference.def (same fixture
-    // DEFReaderViaRuleReferenceFixture, def_reader_test.cpp, already reads
-    // for the B3 follow-up reader-side coverage) - VIA_ARRAY_1 has
-    // ROWCOL + ORIGIN + OFFSET together.
+    // DEFWriter::write_vias must write num_cut_rows/num_cut_cols/origin/
+    // bot_offset/top_offset, or a real via *array* (ROWCOL numRows > 1)
+    // collapses to a single cut on write - a ViaRuleReference with no
+    // ROWCOL clause means exactly that, per its own schema.py doc comment.
+    // Reuses via_rule_reference.def (the same fixture
+    // DEFReaderViaRuleReferenceFixture, def_reader_test.cpp, reads) -
+    // VIA_ARRAY_1 has ROWCOL + ORIGIN + OFFSET together.
     class DEFWriterViaRuleReferenceRoundtripFixture : public ::testing::Test
     {
     protected:
@@ -348,24 +340,19 @@ namespace le
         EXPECT_EQ(original->top_offset->y, written->top_offset->y);
     }
 
-    // BUGS_AND_ENHANCEMENTS.md B9 follow-up - a real-world regression found
-    // reading a full ISPD22 benchmark (AES_1 + NangateOpenCellLibrary.lef,
-    // reported directly): write_net_path used to attach a Shape's own
-    // ShapeVia entries onto whatever *unrelated* shape's own path segment
-    // happened to still be open (a via-only Shape - real geometry has
-    // them - has no path segment of its own at all), producing a bare via
-    // token with no layer/point context. net_via_no_path.def's own NET1/
+    // A via-only Shape (real geometry has them) has no path segment of its
+    // own, so write_net_path must not attach its ShapeVia entries onto
+    // whatever *unrelated* shape's path segment happens to still be open -
+    // that would produce a bare via token with no layer/point context.
+    // net_via_no_path.def's own NET1/
     // SNET1 each have exactly this shape: a real metal1 path segment,
     // then a metal2 "NEW ... ( x y ) VIA1" with only ONE point and no
     // second point to form a real path (Path requires >= 2 points, see
     // append_shapes_from_path's own current_points.size() >= 2 gate) -
-    // metal2 ends up a via-only Shape. The SPECIALNETS half also caught a
-    // second, real bug in this fix's own first attempt: a via-only
-    // segment needs its own WIDTH token too (SPECIALNETS' own "+ ROUTED/
-    // NEW layerName routeWidth routingPoints" grammar requires one,
-    // unlike regular NETS) - missing it produced a real DEF parse error
-    // reading the fix's own output back (confirmed directly against the
-    // real 20MB AES_1 output before this was caught and fixed).
+    // metal2 ends up a via-only Shape. The SPECIALNETS half also checks
+    // that a via-only segment gets its own WIDTH token (SPECIALNETS' own
+    // "+ ROUTED/NEW layerName routeWidth routingPoints" grammar requires
+    // one, unlike regular NETS) - without it the output doesn't re-parse.
     class DEFWriterViaOnlyShapeRoundtripFixture : public ::testing::Test
     {
     protected:
@@ -579,8 +566,8 @@ namespace le
     // - a real signal the written DEF is valid, not just "didn't crash").
     // Unlike LEFWriterLefdiffFidelity (lef_writer_test.cpp), this does NOT
     // additionally assert the two dumps are line-for-line identical:
-    // DEFWriter's own scope (see def_writer.hpp's class comment,
-    // PROJECT_MIGRATION.md) is deliberately narrower than everything
+    // DEFWriter's own scope (see def_writer.hpp's class comment) is
+    // deliberately narrower than everything
     // complete.5.8.def exercises - net *connectivity*, PROPERTY/
     // PROPERTYDEFINITIONS, GROUPS/SLOTS/FILLS/PINPROPERTIES/SCANCHAINS,
     // COMPONENTMASKSHIFT, Placement's HALO/ROUTEHALO/EEQMASTER/GENERATE/

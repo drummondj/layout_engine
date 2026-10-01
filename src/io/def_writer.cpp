@@ -164,7 +164,7 @@ namespace le
             if (!track)
                 continue;
 
-            // KNOWN VENDORED-WRITER GAP (see LEFDEF_BUGS.md): DEF's own
+            // KNOWN VENDORED-WRITER GAP (see docs/LEFDEF_BUGS.md): DEF's own
             // TRACKS grammar has an optional LAYER clause (confirmed
             // against complete.5.8.def itself, e.g. "TRACKS Y 52 DO 857
             // STEP 104 MASK 1 ;" with no LAYER at all), but
@@ -254,19 +254,13 @@ namespace le
                 if (status)
                     return status;
 
-                // BUGS_AND_ENHANCEMENTS.md B9 - the actual root cause of
-                // the reported "missing vias" after a write_def/read_def
-                // round trip: num_cut_rows/num_cut_cols/origin/bot_offset/
-                // top_offset are all real schema fields (B3 follow-up) but
-                // were never written here - every via array silently
-                // collapsed to a single cut on write, since a
-                // ViaRuleReference with no ROWCOL means exactly that (see
+                // ROWCOL/ORIGIN/OFFSET must be written, or a via array
+                // collapses to a single cut on read-back (a
+                // ViaRuleReference with no ROWCOL means exactly that - see
                 // its own schema.py doc comment). defwViaViaruleRowCol/
                 // Origin/Offset can each only be called once, immediately
                 // after defwViaViarule (see their own header comments) -
-                // same gap, same fix shape as LEFWriter::write_vias' own
-                // sibling code (lef_writer.cpp), found and fixed alongside
-                // this one.
+                // same shape as LEFWriter::write_vias (lef_writer.cpp).
                 if (vr->num_cut_rows.has_value() && vr->num_cut_cols.has_value())
                 {
                     status = defwViaViaruleRowCol(*vr->num_cut_rows, *vr->num_cut_cols);
@@ -312,7 +306,7 @@ namespace le
         if (rule_ids.empty())
             return 0;
 
-        // KNOWN VENDORED-WRITER GAP (see LEFDEF_BUGS.md): unlike every
+        // KNOWN VENDORED-WRITER GAP (see docs/LEFDEF_BUGS.md): unlike every
         // other DEF geometry statement (raw database-unit integers - see
         // def_writer.hpp's own class comment), NONDEFAULTRULES LAYER
         // WIDTH/DIAGWIDTH/SPACING/WIREEXT are written as real MICRON
@@ -529,12 +523,10 @@ namespace le
                 // LAYER/geometry before FIXED|COVER|PLACED, matching
                 // complete.5.8.def's own real PORT ordering (e.g. PIN P0)
                 // - DEF's own pin_port grammar is order-sensitive here,
-                // unlike some other sections (confirmed the hard way: the
-                // reverse order re-parses with a syntax error at the next
-                // LAYER token).
-                // Pin shapes are stored in design coordinates
-                // (NEW_FEATURES_SEPT_2026.md item 28 - DEFReader converts on
-                // read); DEF wants them relative to the PORT's placement, or
+                // unlike some other sections (the reverse order re-parses
+                // with a syntax error at the next LAYER token).
+                // Pin shapes are stored in design coordinates (DEFReader
+                // converts on read); DEF wants them relative to the PORT's placement, or
                 // the PIN's for a simple pin - the inverse of DEFReader's.
                 const Geometry::InstanceTransform to_pin = Geometry::invert(
                     has_port_wrapper ? Geometry::pin_transform(segment->location, segment->orientation)
@@ -779,52 +771,24 @@ namespace le
                     return status;
             }
 
-            // BUGS_AND_ENHANCEMENTS.md B9 follow-up, REVISED 2026-09-04 -
-            // the previous version of this block wrote every ShapeVia/
-            // ShapeViaIterate this shape owns into ONE shared NEW segment
-            // as a sequence of (point, via, point, via, ...) pairs,
-            // reasoning that this was cosmetically different from but
-            // geometrically equivalent to giving each via its own
-            // segment. That reasoning was wrong: DEF's own routingPoints
-            // grammar treats every *consecutive* point within one path/
-            // NEW segment's own point list as directly wire-connected -
-            // that's the real, load-bearing meaning of a multi-point
-            // jogged wire spec like "(pt1)(pt2)(pt3)" elsewhere in this
-            // same file. Sharing one segment across several unrelated
-            // vias (merged into this one Shape only because they sit on
-            // the same layer - see DEFReader::append_shapes_from_path's
-            // own per-layer grouping) therefore emitted a real, phantom
-            // wire connecting each pair of via origins - almost always
-            // diagonal, since two vias merged this way rarely share an x
-            // or y coordinate. This was the actual root cause of the
-            // "chaotic diagonal routing" visual corruption found
-            // 2026-09-04 comparing a tiled AES_1 DEF's rendering against
-            // the original (confirmed via a byte-identical zero-
-            // translation 1x1 "tiling" reproducing it, ruling out
-            // generate_tiled_design.cpp, then tracing the corrupted
-            // output's own repeated-point/via runs back to this exact
-            // code path).
+            // Every via/via_iterate gets its own isolated single-point NEW
+            // segment (a degenerate "+ NEW layer (x y) via_name" path -
+            // valid DEF: def.y's `path` rule requires only one point,
+            // `path_pt`, before an optional via/point item list). Vias must
+            // not share one segment: DEF treats every *consecutive* point
+            // within one path/NEW segment as wire-connected, so several
+            // unrelated vias (merged into this one Shape only because they
+            // sit on the same layer - see DEFReader::append_shapes_from_path)
+            // would gain phantom, usually diagonal, wires between their
+            // origins.
             //
-            // Fixed by giving every via/via_iterate its own isolated
-            // single-point NEW segment (a degenerate "+ NEW layer (x y)
-            // via_name" path - valid DEF, `path`'s own grammar
-            // (def.y's `path` rule) requires only one point, `path_pt`,
-            // before an optional via/point item list) - restoring the
-            // *first*-abandoned "one fresh NEW per via" design (see this
-            // comment's own prior revision, preserved in git history),
-            // which was abandoned only because *PathStart resets the
-            // vendored writer's own internal defwLineItemCounter to 0
-            // every time it's called, starving that counter's own
-            // periodic-newline heuristic and producing one giant
-            // unwrapped physical line for a real power-strap SPECIALNET
-            // with thousands of via taps - long enough to overflow the
-            // vendored *reader*'s own fixed-size line buffer on
-            // read-back (a real parse failure). Fixed here too, by
-            // calling `defwNewLine()` (a raw fprintf, confirmed
-            // independent of defwLineItemCounter) directly after every
-            // via - correctness (no phantom wire segments) doesn't need
-            // to trade away line-wrapping once wrapping is driven
-            // independently of it.
+            // *PathStart resets the vendored writer's defwLineItemCounter
+            // to 0 on every call, which starves its periodic-newline
+            // heuristic; a power-strap SPECIALNET with thousands of via
+            // taps would become one physical line long enough to overflow
+            // the vendored reader's fixed-size line buffer. So
+            // `defwNewLine()` (a raw fprintf, independent of
+            // defwLineItemCounter) is called directly after every via.
             for (const ShapeVia &via : shape->vias)
             {
                 status = is_special ? defwSpecialNetPathStart("NEW") : defwNetPathStart("NEW");
@@ -875,7 +839,7 @@ namespace le
 
             // ShapeViaIterate (an arrayed VIA placement, "VIA DO n BY m
             // STEP x y", within a routed path). KNOWN VENDORED-WRITER GAP
-            // (see LEFDEF_BUGS.md): defwSpecialNetPathViaData exists for
+            // (see docs/LEFDEF_BUGS.md): defwSpecialNetPathViaData exists for
             // SPECIALNETS (called right after defwSpecialNetPathVia,
             // same "DO n BY m STEP x y" suffix DEF's own grammar
             // expects), but no defwNetPathViaData-equivalent exists for
@@ -1078,7 +1042,7 @@ namespace le
         const TechnologyId technology_id = technology_ids.empty() ? TechnologyId{} : technology_ids.front();
         const TechnologyData *technology = technology_id.valid() ? root.get_technology(technology_id) : nullptr;
 
-        // KNOWN VENDORED-WRITER GAP (see LEFDEF_BUGS.md): defwInit's own
+        // KNOWN VENDORED-WRITER GAP (see docs/LEFDEF_BUGS.md): defwInit's own
         // vers1/vers2 parameter writes "VERSION x.y ;" to the file
         // directly, but never updates the writer's internal defVersionNum
         // (confirmed against defwWriter.cpp - only defwVersion() itself

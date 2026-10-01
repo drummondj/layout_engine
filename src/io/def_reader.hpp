@@ -8,10 +8,9 @@
 
 namespace le
 {
-    // First-pass DEFReader (migration Step 1): DESIGN/VERSION/UNITS/DIEAREA/
-    // ROW/TRACKS/GCELLGRID/COMPONENTS/PINS/BLOCKAGES/VIAS/REGIONS/NETS/
-    // SPECIALNETS/NONDEFAULTRULES - the full Step 1 reader scope (see
-    // PROJECT_MIGRATION.md and this project's own plan history). Mirrors
+    // DEFReader: DESIGN/VERSION/UNITS/DIEAREA/ROW/TRACKS/GCELLGRID/
+    // COMPONENTS/PINS/BLOCKAGES/VIAS/REGIONS/NETS/SPECIALNETS/
+    // NONDEFAULTRULES. Mirrors
     // LEFReader's own shape (callback-registration-then-defrRead driver,
     // instance-held parser-scratch state, thread_local message-bridging for
     // the no-userData log callbacks) as closely as the two vendored parsers'

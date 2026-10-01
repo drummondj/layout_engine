@@ -11,43 +11,38 @@ namespace le
     /// src/lefdef/lef/lefwrite/lefwrite.cpp, not the alternate callback-
     /// registration lefwWriterCalls.h API).
     ///
-    /// UPDATES.md item 12 Phase 1 scope: UNITS (database_units_microns
-    /// only), LAYER (the basic scalar properties LEFReader reads - type,
-    /// direction, width, pitch, offset, area, spacing, resistance,
-    /// capacitance, height, thickness, wire_extension, shrinkage,
-    /// cap_multiplier, edge_cap, antenna_area, antenna_length - see
-    /// lef_reader.cpp's lefrLayerCbkFn for the exact set and why it stops
-    /// there), and MACRO/PIN/PORT/OBS (class, foreigns, size, origin,
-    /// symmetry, site, geometry including RECT/PATH/POLYGON ITERATE).
-    /// Phase 2 scope: VIA (layers, resistance, foreign, the 5.6
-    /// VIARULE-inside-VIA reference) and VIARULE (GENERATE and
-    /// non-GENERATE). Phase 3 scope: LAYER spacing/cut-rule completeness
-    /// (MINIMUMCUT/MINSTEP/SPACINGTABLE/multi-SPACING), SITE, and
-    /// NONDEFAULTRULE. Phase 4 scope: PROPERTYDEFINITIONS and per-instance
-    /// PROPERTY (readable everywhere; writable on LAYER/VIA/non-GENERATE
-    /// VIARULE/MACRO/PIN - the vendored writer's generic property
-    /// functions don't accept NONDEFAULTRULE/SITE/GENERATE-VIARULE write
-    /// state, see write_via_rules/write_sites/write_non_default_rules's
-    /// own comments). Phase 5 scope: LAYER ANTENNAMODEL (OXIDE1-4, both
-    /// ROUTING and CUT layers) and PIN ANTENNA* fields (flat pre-5.5 plus
-    /// 5.5 oxide-scoped). Phase 6 scope: the remaining LAYER scalar/table
-    /// fields (MASK, two-value PITCH/OFFSET/DIAGPITCH, DIAGSPACING/WIDTH/
+    /// Scope:
+    /// - UNITS (database_units_microns only).
+    /// - LAYER: the scalar properties LEFReader reads (see lef_reader.cpp's
+    ///   lefrLayerCbkFn for the exact set); spacing/cut rules
+    ///   (MINIMUMCUT/MINSTEP/SPACINGTABLE/multi-SPACING); ANTENNAMODEL
+    ///   (OXIDE1-4, both ROUTING and CUT layers); and the table fields
+    ///   (MASK, two-value PITCH/OFFSET/DIAGPITCH, DIAGSPACING/WIDTH/
     /// MINEDGELENGTH, MAXWIDTH/MINWIDTH/MINSIZE/MINENCLOSEDAREA/
     /// PROTRUSIONWIDTH, ARRAYCUTS/ARRAYSPACING, SPACINGTABLE TWOWIDTHS,
     /// PREFERENCLOSURE, SPLITWIREWIDTH (read-only)/MINIMUMDENSITY/
     /// MAXIMUMDENSITY/DENSITYCHECKSTEP/DENSITYCHECKWINDOW/
     /// FILLACTIVESPACING, AC/DC CURRENTDENSITY, and DIRECTION DIAG45/
     /// DIAG135) plus SPACING's NOTCHLENGTH/ENDOFNOTCHWIDTH (read-only).
-    /// RECT/POLYGON MASK color on VIA and the top-level ARRAY section are
-    /// still out of scope (deferred to a later phase, see its own plan).
+    /// - VIA (layers, resistance, foreign, the 5.6 VIARULE-inside-VIA
+    ///   reference) and VIARULE (GENERATE and non-GENERATE).
+    /// - SITE and NONDEFAULTRULE.
+    /// - PROPERTYDEFINITIONS and per-instance PROPERTY (readable
+    ///   everywhere; writable on LAYER/VIA/non-GENERATE VIARULE/MACRO/PIN -
+    ///   the vendored writer's generic property functions don't accept
+    ///   NONDEFAULTRULE/SITE/GENERATE-VIARULE write state, see
+    ///   write_via_rules/write_sites/write_non_default_rules).
+    /// - MACRO/PIN/PORT/OBS (class, foreigns, size, origin, symmetry, site,
+    ///   geometry including RECT/PATH/POLYGON ITERATE), and PIN ANTENNA*
+    ///   fields (flat pre-5.5 plus 5.5 oxide-scoped).
+    /// Not supported: RECT/POLYGON MASK color on VIA, and the top-level
+    /// ARRAY section.
     class LEFWriter
     {
     public:
         /// @brief What to write about the Technology's layers, alongside
-        /// (or instead of) `abstract_id`'s own MACRO content - mirrors
-        /// UPDATES.md item 12 step 1's own wording ("an option to choose
-        /// whether to include Technology layers or not, or just write out
-        /// Technology layers").
+        /// (or instead of) `abstract_id`'s own MACRO content: with or
+        /// without the Technology layers, or the layers alone.
         enum class LayerWriteMode
         {
             /// Don't write any LAYER statements - just `abstract_id`'s MACRO.
@@ -66,7 +61,7 @@ namespace le
         /// opened) otherwise. Writes one MACRO per entry in `abstract_ids`,
         /// in order, all into the same file (LEF's own MACRO grammar is a
         /// repeatable top-level statement - this is how a real multi-MACRO
-        /// library LEF file is shaped, see BUGS_AND_ENHANCEMENTS.md E28.b).
+        /// library LEF file is shaped).
         /// An unknown/invalid entry (with a LayerWriteMode that would write
         /// a MACRO) writes nothing for that one entry rather than failing -
         /// Root's own lookups already degrade gracefully for that, matching
@@ -107,7 +102,7 @@ namespace le
         // NONDEFAULTRULE-embedded VIA) - lefwViaForeignStr's own xl/yl/
         // orient are each independently optional(0.0)/optional("") (see
         // its own lefwWriter.hpp doc comment), matching Foreign.origin/
-        // orient now being genuinely optional (UPDATES.md item 12 - LEF's
+        // orient being genuinely optional (LEF's
         // own FOREIGN grammar allows a bare "FOREIGN name ;" with no point,
         // and a point with no orientation) - passes 0.0/"" through exactly
         // when unset, real converted values otherwise.

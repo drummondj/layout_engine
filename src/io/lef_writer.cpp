@@ -11,8 +11,8 @@
 // lef_reader.cpp resolves the equivalent reader-side names the same way
 // (see its own include of lefrReader.hpp). Using the plain C header
 // (lefwWriter.h) instead would pull in lefiTypedefs.h's unconditional
-// `#define bool int`, which corrupts any C++ header included afterward -
-// confirmed the hard way: it broke fmt/format.h's own template code.
+// `#define bool int`, which corrupts any C++ header included afterward
+// (fmt/format.h's template code, for one).
 USE_LEFDEF_PARSER_NAMESPACE
 
 namespace
@@ -425,7 +425,7 @@ namespace le
             if (!layer)
                 continue;
 
-            // Moved to pooled classes (Phase 2) - materialized into plain
+            // Pooled classes - materialized into plain
             // local vectors once here (both the ROUTING and CUT branches
             // below read the same layer, so this avoids re-materializing
             // per branch), rather than reading layer->field directly.
@@ -592,11 +592,8 @@ namespace le
                     // separate pair from hasSpacingRange()/spacingRangeMin()/
                     // Max() used by the plain "SPACING d RANGE min max ...;"
                     // construct below, even though lefwLayerRoutingSpacingLengthThreshold
-                    // also happens to print its own min/max as "RANGE %g %g"
-                    // text - confirmed the hard way (a length_threshold_range_min/
-                    // max of exactly 0/0.1 silently wrote no RANGE clause at
-                    // all when this branch was still reading range_min/
-                    // range_max instead of its own dedicated fields).
+                    // text - reading range_min/range_max here instead would
+                    // silently drop the RANGE clause (e.g. for 0/0.1).
                     if (rule.length_threshold)
                     {
                         status = lefwLayerRoutingSpacingLengthThreshold(to_microns(*rule.length_threshold, dbu_per_micron),
@@ -1181,7 +1178,7 @@ namespace le
             // above). Not called here - ViaLayer.polygons is read-only
             // for VIA geometry with this vendored writer version, same
             // "skip the call, mark read-only" treatment as this file's
-            // other unparseable-output bugs (see LEFDEF_BUGS.md).
+            // other unparseable-output bugs (see docs/LEFDEF_BUGS.md).
             // ViaLayer.polygon_masks is read (see via_layers_from_parser)
             // for the same reason rects/rect_masks both are - the database
             // shouldn't lose information the reader can hand it just
@@ -1227,9 +1224,8 @@ namespace le
             if (status)
                 return status;
 
-            // foreign/via_rule/layers moved to pooled classes (Phase 2) -
-            // materialized from the pool here rather than read as plain
-            // fields on via.
+            // foreign/via_rule/layers are pooled classes - materialized
+            // from the pool here rather than read as plain fields on via.
             const ForeignId foreign_id = root.get_via_foreign(via_id);
             const ForeignData *foreign = root.get_foreign(foreign_id);
             if (foreign)
@@ -1276,12 +1272,9 @@ namespace le
                     if (status)
                         return status;
 
-                    // BUGS_AND_ENHANCEMENTS.md B3 follow-up added
                     // num_cut_rows/num_cut_cols/origin/bot_offset/top_offset
-                    // to the schema plus the reader/renderer, but missed
-                    // both writers - found investigating B9's own DEF
-                    // writer report, and the same gap exists here
-                    // verbatim. lefwViaViaruleRowCol/Origin/Offset can each
+                    // must be written, or a via array collapses to a single
+                    // cut on read-back. lefwViaViaruleRowCol/Origin/Offset can each
                     // only be called once, immediately after
                     // lefwViaViarule (see their own header comments).
                     if (vr.num_cut_rows.has_value() && vr.num_cut_cols.has_value())
@@ -1417,7 +1410,7 @@ namespace le
             }
             else
             {
-                // KNOWN VENDORED-LIBRARY DEAD END (see LEFDEF_BUGS.md): a
+                // KNOWN VENDORED-LIBRARY DEAD END (see docs/LEFDEF_BUGS.md): a
                 // non-GENERATE VIARULE's LAYER requires exactly 2 LAYER
                 // sub-statements (lef.y's own grammar - an empty VIARULE is
                 // a fatal LEFPARS-1), each requiring a DIRECTION construct
@@ -1669,9 +1662,9 @@ namespace le
         }
         else if (shape.design_rule_width)
         {
-            // KNOWN VENDORED-WRITER GAP (see LEFDEF_BUGS.md): even though
+            // KNOWN VENDORED-WRITER GAP (see docs/LEFDEF_BUGS.md): even though
             // Shape.design_rule_width now correctly distinguishes "unset"
-            // from "explicitly 0" (UPDATES.md item 12 - 0 is a real,
+            // from "explicitly 0" (0 is a real,
             // meaningful DESIGNRULEWIDTH, not a sentinel - complete.5.8.lef
             // has one: "LAYER a1sig DESIGNRULEWIDTH 0"), the vendored
             // lefwMacroPinPortDesignRuleWidth/lefwMacroObsDesignRuleWidth
@@ -1901,7 +1894,7 @@ namespace le
         // version check), and lef.y's own grammar action for every one of
         // those only calls its setter when versionNum < 5.4, so the
         // vendored reader itself can never populate them for a file this
-        // project would accept. See LEFDEF_BUGS.md's "Reader-side:
+        // project would accept. See docs/LEFDEF_BUGS.md's "Reader-side:
         // intentional version-obsolescence".
         // terminal->max_delay (MAXDELAY) is deliberately never written -
         // no lefwMacroPinMaxdelay exists in lefwWriter.hpp/.cpp at all

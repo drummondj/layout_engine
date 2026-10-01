@@ -130,10 +130,9 @@ namespace le
         // handle). Checked once at the end of read_lef, same
         // not-aborted-mid-parse convention as
         // used_dbu_before_units_declared_ above - this project only
-        // supports LEF >= 5.4 (see UPDATES.md item 12 - a deliberate
-        // decision not to carry read/write support for the pre-5.4
-        // PIN electrical-characteristics fields lef.y itself obsoletes
-        // at >= 5.4 anyway).
+        // supports LEF >= 5.4 (no read/write support for the pre-5.4 PIN
+        // electrical-characteristics fields lef.y itself obsoletes at
+        // >= 5.4 anyway).
         double version_ = 0.0;
     };
 }

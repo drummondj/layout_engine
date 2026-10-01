@@ -299,7 +299,7 @@ namespace le
         EXPECT_EQ(root.get_layer(segment0_shape->layer)->name, "M2");
         ASSERT_EQ(segment0_shape->rects.size(), 1u);
         // DEF's ( 0 0 ) ( 30 135 ), relative to the PORT's FIXED ( 45 -2160 ) N,
-        // stored in design coordinates (NEW_FEATURES_SEPT_2026.md item 28).
+        // stored in design coordinates.
         EXPECT_EQ(segment0_shape->rects[0].ll.x, 45);
         EXPECT_EQ(segment0_shape->rects[0].ll.y, -2160);
         EXPECT_EQ(segment0_shape->rects[0].ur.x, 75);
@@ -796,14 +796,12 @@ namespace le
         EXPECT_TRUE(saw_precision_warning) << "expected a precision warning since DEF units (500) < technology units (1000)";
     }
 
-    // Regression: append_shapes_from_path (def_reader.cpp) used to leave
-    // every routed Path's own width at 0 whenever the DEF text itself
-    // never carried an explicit PATHWIDTH token - the common case for
-    // ordinary routing (most real DEF writers rely entirely on the
-    // LAYER's own default LEF WIDTH instead), which rendered as a
-    // hairline stroke instead of the real trace width. route_default_width.def
+    // A routed Path with no explicit PATHWIDTH token - the common case for
+    // ordinary routing (most real DEF writers rely entirely on the LAYER's
+    // own default LEF WIDTH instead) - takes the layer's width, not 0
+    // (which would render as a hairline). route_default_width.def
     // has two nets on the same M1 layer - one with no PATHWIDTH at all,
-    // one with an explicit override - proving both the new default AND
+    // one with an explicit override - proving both the default AND
     // that an explicit width still wins.
     TEST(DEFReaderRouteWidth, DefaultsToLayerWidthWhenPathwidthOmittedButExplicitOverrideStillWins)
     {
@@ -847,7 +845,7 @@ namespace le
         EXPECT_EQ(*with_width, 50); // explicit PATHWIDTH still overrides the default
     }
 
-    // BUGS_AND_ENHANCEMENTS.md B3 follow-up - DEF's own mirror of
+    // DEF's own mirror of
     // lef_reader_test.cpp's LEFReaderViaRuleReferenceFixture tests:
     // ROWCOL/ORIGIN/OFFSET/PATTERN on a DEF VIAS VIARULE entry, plus
     // ShapeVia.width capture from a routed path's own current width at

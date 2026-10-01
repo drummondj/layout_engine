@@ -78,8 +78,8 @@ TEST_F(LEFReaderCompleteFixture, ReadsBasicScalarLayerProperties)
     // LAYER M1: TYPE ROUTING ; WIDTH 1 ; WIREEXTENSION 7 ; PITCH 1.8 ;
     // DIRECTION HORIZONTAL ; RESISTANCE RPERSQ 0.103 ;
     // CAPACITANCE CPERSQDIST 0.000156 ; - no OFFSET/AREA/SPACING/HEIGHT/
-    // THICKNESS statements, so those stay nullopt (UPDATES.md 12 Phase 1's
-    // has*()-guarded basic scalar LAYER coverage).
+    // THICKNESS statements, so those stay nullopt (every LAYER scalar is
+    // has*()-guarded).
     LayerId m1_id = root.get_layer_by_name("M1");
     ASSERT_TRUE(m1_id.valid());
     const LayerData *m1 = root.get_layer(m1_id);
@@ -247,9 +247,9 @@ TEST_F(LEFReaderCompleteFixture, ObstructionCollectsRectsAndPathsButIgnoresVias)
     // MACRO INV's OBS block on LAYER M1: 1 RECT, a 2x1 RECT ITERATE, a 1x2
     // PATH ITERATE, 2 more PATHs, 4 VIAs (unsupported, must be ignored - not
     // counted as rects/paths/iterates), then a final RECT. Width 0.1um.
-    // ITERATE statements are stored raw (UPDATES.md 12 Phase 1's ITERATE
-    // rework), not pre-expanded - see rect_iterates/path_iterates below,
-    // and Pipeline::generate_shapes for where they're expanded.
+    // ITERATE statements are stored raw, not pre-expanded - see
+    // rect_iterates/path_iterates below, and Geometry::expand_iterates for
+    // where they're expanded.
     DesignId design_id = root.get_design_by_name("INV");
     AbstractId abstract_id = root.get_design_abstract(design_id);
 
@@ -316,8 +316,8 @@ TEST(LEFReaderForeignIndex, EachForeignKeepsItsOwnOriginAndOrient)
     ASSERT_TRUE(f1.origin.has_value());
     EXPECT_EQ(f1.origin->x, 3000);
     EXPECT_EQ(f1.origin->y, 4000);
-    // UPDATES.md item 12: no orient specified in the LEF source means
-    // genuinely unset now, not defaulted to N - a real ORIENT N and "no
+    // No orient specified in the LEF source means genuinely unset, not
+    // defaulted to N - a real ORIENT N and "no
     // ORIENT at all" must stay distinguishable.
     EXPECT_FALSE(f1.orient.has_value());
 
@@ -392,8 +392,8 @@ TEST(LEFReaderErrors, MalformedFileReturnsTwo)
 }
 
 // LEFReader::messages() - the queue api.cpp's le_read_lef drains into a
-// persistent, ever-growing handle-owned list for the GUI (UPDATES.md
-// item 3). A distinct suite from LEFReaderErrors above since these
+// persistent, ever-growing handle-owned list for the GUI. A distinct
+// suite from LEFReaderErrors above since these
 // tests are about message *content*, not read_lef's own return code.
 TEST(LEFReaderMessages, SuccessfulReadWithNoDiagnosticsLeavesMessagesEmpty)
 {
@@ -463,7 +463,7 @@ TEST(LEFReaderErrors, DuplicateLayerNameIsIgnored)
     ASSERT_TRUE(m1_id.valid());
     EXPECT_EQ(root.get_layer(m1_id)->direction, RoutingDirection::H);
 
-    // log_warning (UPDATES.md item 3) - internal diagnostics, not just
+    // log_warning - internal diagnostics, not just
     // the vendored parser's own, reach messages() too.
     ASSERT_FALSE(reader.messages().empty());
     EXPECT_NE(reader.messages().front().find("WARNING"), std::string::npos);
@@ -532,9 +532,9 @@ TEST(LEFReaderErrors, GeometryBeforeDatabaseMicronsEverDeclaredIsAnError)
 
 TEST(LEFReaderErrors, VersionBelow5_4IsAnError)
 {
-    // UPDATES.md item 12: this project only supports LEF >= 5.4 - several
+    // This project only supports LEF >= 5.4 - several
     // PIN-level statements (POWER/LEAKAGE/CAPACITANCE/etc., not modeled at
-    // all - see LEFDEF_BUGS.md's "Reader-side: intentional version-
+    // all - see docs/LEFDEF_BUGS.md's "Reader-side: intentional version-
     // obsolescence") are silently discarded by the vendored reader itself
     // at >= 5.4, so accepting an older file would mean this project's own
     // database silently disagrees with what a real pre-5.4-reading tool
@@ -574,7 +574,7 @@ TEST(LEFReaderErrors, DuplicateMacroNameIsRejected)
     EXPECT_EQ(reader.read_lef(fixture_path("duplicate_macro.lef"), root, "test_lib"), 2);
     EXPECT_EQ(root.get_design_ids().size(), 1u);
 
-    // log_error (UPDATES.md item 3) - this failure comes from our own
+    // log_error - this failure comes from our own
     // lefrMacroBeginCbkFn, not the vendored parser's own log callback,
     // and still reaches messages().
     ASSERT_FALSE(reader.messages().empty());
@@ -582,7 +582,7 @@ TEST(LEFReaderErrors, DuplicateMacroNameIsRejected)
     EXPECT_NE(reader.messages().front().find("DUPTEST"), std::string::npos);
 }
 
-// UPDATES.md 12 Phase 2 (VIA/VIARULE) - writer_roundtrip.lef (shared with
+// VIA/VIARULE - writer_roundtrip.lef (shared with
 // lef_writer_test.cpp) exercises a plain VIA (rects on M1/V1 + RESISTANCE),
 // a GENERATE VIARULE (2 M1 layers + a V1 cut layer with RECT/SPACING/
 // RESISTANCE), a non-GENERATE VIARULE (2 M1 layers + a VIA name list), and
@@ -764,15 +764,15 @@ TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAViaReferencingAViaRuleWithCutGeom
     EXPECT_EQ(vr.top_enclosure->x, 10);
     EXPECT_EQ(vr.top_enclosure->y, 50);
 
-    // VIA2 has no ROWCOL clause at all - BUGS_AND_ENHANCEMENTS.md B3's
-    // own "no ROWCOL means a single cut, not nothing to draw" case
+    // VIA2 has no ROWCOL clause at all - the "no ROWCOL means a single
+    // cut, not nothing to draw" case
     // (via_shapes.hpp) relies on this staying unset here, not some
     // implicit 0/0 or 1/1 default.
     EXPECT_FALSE(vr.num_cut_rows.has_value());
     EXPECT_FALSE(vr.num_cut_cols.has_value());
 }
 
-// BUGS_AND_ENHANCEMENTS.md B3 - a real via *array*: same VIARULE-inside-VIA
+// A real via *array*: same VIARULE-inside-VIA
 // shape as VIA2 above, plus a ROWCOL clause.
 TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAViaWithARowColClauseAsARealArray)
 {
@@ -787,8 +787,7 @@ TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAViaWithARowColClauseAsARealArray)
     EXPECT_EQ(*vr_ptr->num_cut_cols, 3);
 }
 
-// BUGS_AND_ENHANCEMENTS.md B3 follow-up - ORIGIN/OFFSET on a
-// VIARULE-inside-VIA.
+// ORIGIN/OFFSET on a VIARULE-inside-VIA.
 TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAViaWithOriginAndOffsetClauses)
 {
     const ViaId via_id = root.get_via_by_name("VIA4");
@@ -826,7 +825,7 @@ TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAViaWithNoOriginOrOffsetClausesAsU
     EXPECT_FALSE(vr_ptr->top_offset.has_value());
 }
 
-// BUGS_AND_ENHANCEMENTS.md B3 follow-up - PATTERN isn't modeled (see
+// PATTERN isn't modeled (see
 // ViaRuleReference's own doc comment); this confirms reading a VIA with
 // one doesn't crash or corrupt the rest of that VIA's own fields (the
 // reader logs a warning - see lef_reader.cpp's own lefrViaCbkFn - not
@@ -843,7 +842,7 @@ TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAViaWithAPatternClauseWithoutCrash
     EXPECT_EQ(*vr_ptr->num_cut_cols, 3);
 }
 
-// BUGS_AND_ENHANCEMENTS.md B3 follow-up - a top-level VIARULE ... GENERATE
+// A top-level VIARULE ... GENERATE
 // rule (via_shapes.hpp's own tier-3 resolution target), distinct from
 // VIARULE2's own non-GENERATE via-name-list form above.
 TEST_F(LEFReaderViaRuleReferenceFixture, ReadsAGenerateViaRuleWithLayerEnclosureAndCutSpacing)
@@ -948,7 +947,7 @@ TEST_F(LEFReaderViaFixture, ReadsANonDefaultRuleWithHardspacingLayerOverridesAnE
     ASSERT_EQ(nd_via_layer_ids.size(), 2u);
     EXPECT_EQ(root.get_via_layer(nd_via_layer_ids[0])->layer_name, "M1");
     EXPECT_EQ(root.get_via_layer(nd_via_layer_ids[1])->layer_name, "V1");
-    // UPDATES.md 12 Phase 7 - PROPERTY on a NONDEFAULTRULE-embedded VIA
+    // PROPERTY on a NONDEFAULTRULE-embedded VIA
     // (same LefProperty mechanism as the already-working top-level Via).
     ASSERT_EQ(via.properties.size(), 1u);
     EXPECT_EQ(via.properties[0].name, "vip");
@@ -1026,16 +1025,14 @@ TEST_F(LEFReaderViaFixture, ReadsPropertyDefinitionsAndPerConstructPropertyAttac
     EXPECT_EQ(pin_a->properties[0].string_value, "signal");
 }
 
-// UPDATES.md 12 Phase 5 (antenna modeling) - a dedicated fixture file
-// rather than reusing writer_roundtrip.lef: this vendored parser's
-// use5_3/use5_4 flags (see lef.y's VERSION rule) are set once for the
-// WHOLE FILE, not per-LAYER/PIN - M1's own ANTENNALENGTHFACTOR (5.3
-// syntax, Phase 1) would make ANY 5.4+ ANTENNAMODEL/ANTENNAAREARATIO/etc.
-// anywhere else in that same file a hard parse error ("has both old and
-// new ANTENNAMODEL syntax"), confirmed by direct reader.messages()
-// inspection when this was first attempted against writer_roundtrip.lef.
-// Phase 6 (LAYER field completeness) reuses this same fixture/class for
-// the same reason - its own new fields (MASK, two-value PITCH/OFFSET/
+// Antenna modeling - a dedicated fixture file rather than reusing
+// writer_roundtrip.lef: this vendored parser's use5_3/use5_4 flags (see
+// lef.y's VERSION rule) are set once for the WHOLE FILE, not per-LAYER/PIN
+// - M1's own ANTENNALENGTHFACTOR (5.3 syntax) would make ANY 5.4+
+// ANTENNAMODEL/ANTENNAAREARATIO/etc. anywhere else in that same file a
+// hard parse error ("has both old and new ANTENNAMODEL syntax").
+// The LAYER field-completeness tests reuse this same fixture/class - their
+// fields (MASK, two-value PITCH/OFFSET/
 // DIAGPITCH, MINSIZE, TWOWIDTHS, AC/DC CURRENTDENSITY, CUT-layer
 // ENCLOSURE/ARRAYSPACING/PREFERENCLOSURE, ...) have no such syntax
 // conflict with writer_roundtrip.lef, but keeping everything in one

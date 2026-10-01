@@ -11,15 +11,13 @@ namespace le
     /// vendored writer APIs allow (fully static, no instance state, walks
     /// Root via the get_x_ids(parent_id) -> get_x(id) idiom).
     ///
-    /// Migration Step 1 scope (see PROJECT_MIGRATION.md and this project's
-    /// own plan history): DESIGN/VERSION/UNITS/DIEAREA/ROW/TRACKS/
+    /// Scope: DESIGN/VERSION/UNITS/DIEAREA/ROW/TRACKS/
     /// GCELLGRID/COMPONENTS/PINS/BLOCKAGES/VIAS/REGIONS/NETS/SPECIALNETS/
     /// NONDEFAULTRULES - the mirror image of DEFReader's own scope. Net
     /// *connectivity* is out of scope (Route only holds routed geometry,
-    /// not which component pins it connects) - same deferral DEFReader
-    /// itself already made. GROUPS/STYLES/SLOTS/FILLS/PINPROPERTIES/
-    /// SCANCHAINS/CANPLACE/CANNOTOCCUPY/HISTORY are also out of scope, per
-    /// the original migration plan.
+    /// not which component pins it connects), same as DEFReader.
+    /// GROUPS/STYLES/SLOTS/FILLS/PINPROPERTIES/SCANCHAINS/CANPLACE/
+    /// CANNOTOCCUPY/HISTORY are also out of scope.
     class DEFWriter
     {
     public:

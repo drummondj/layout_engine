@@ -13,7 +13,7 @@ using namespace le;
 // functions for comparison here - they call std::optional::value()
 // unconditionally on every is_optional field (confirmed by reading
 // generated/layer.hpp), so they'd throw on any layer that leaves one of
-// Phase 1's new optional LAYER properties unset (e.g. V1 below, which has
+// the optional LAYER properties unset (e.g. V1 below, which has
 // no PITCH/OFFSET/AREA/RESISTANCE/...). Direct field comparisons avoid
 // that and give a clearer failure message anyway.
 namespace
@@ -405,12 +405,9 @@ TEST_F(LEFWriterRoundtripFixture, RoundTripsAPlainViaWithLayerGeometryAndResista
     }
 }
 
-// BUGS_AND_ENHANCEMENTS.md B9 investigation - LEFWriter::write_vias had the
-// exact same gap DEFWriter::write_vias turned out to have (found fixing
-// B9's own DEF report): num_cut_rows/num_cut_cols/origin/bot_offset/
-// top_offset (BUGS_AND_ENHANCEMENTS.md B3 follow-up) were never passed to
-// lefwViaViaruleRowCol/Origin/Offset at all, so a via array silently
-// collapsed to a single cut on write. via_rule_reference.lef's own VIA4
+// LEFWriter::write_vias must pass num_cut_rows/num_cut_cols/origin/
+// bot_offset/top_offset to lefwViaViaruleRowCol/Origin/Offset, or a via
+// array collapses to a single cut on write. via_rule_reference.lef's own VIA4
 // has ROWCOL + ORIGIN + OFFSET together (VIA3 has ROWCOL alone, VIA5 has
 // ROWCOL + PATTERN - PATTERN is deliberately unmodeled, see
 // ViaRuleReference's own schema.py doc comment, not exercised here).
@@ -590,7 +587,7 @@ TEST_F(LEFWriterRoundtripFixture, RoundTripsANonDefaultRuleWithAnEmbeddedViaAndU
     ASSERT_TRUE(written_via.resistance.has_value());
     EXPECT_DOUBLE_EQ(*original_via.resistance, *written_via.resistance);
     ASSERT_EQ(original_root.get_non_default_rule_via_layers(original_via_id).size(), written_root.get_non_default_rule_via_layers(written_via_id).size());
-    // UPDATES.md 12 Phase 7 - PROPERTY on a NONDEFAULTRULE-embedded VIA.
+    // PROPERTY on a NONDEFAULTRULE-embedded VIA.
     ASSERT_EQ(original_via.properties.size(), written_via.properties.size());
     ASSERT_EQ(original_via.properties.size(), 1u);
     EXPECT_EQ(original_via.properties[0].name, written_via.properties[0].name);
@@ -686,12 +683,11 @@ TEST_F(LEFWriterRoundtripFixture, RoundTripsPropertyDefinitionsAndPerConstructPr
     EXPECT_EQ(original_pin->properties[0].string_value, written_pin->properties[0].string_value);
 }
 
-// UPDATES.md 12 Phase 5 (antenna modeling) - a dedicated fixture file,
-// same reasoning as LEFAntennaFixture in lef_reader_test.cpp: the vendored
-// parser's use5_3 flag is set once for the WHOLE FILE (see lef.y's VERSION
-// rule), so writer_roundtrip.lef's own M1 ANTENNALENGTHFACTOR (5.3 syntax,
-// Phase 1) can't coexist in the same file as this phase's 5.4+
-// ANTENNAMODEL/ANTENNAAREARATIO/etc.
+// Antenna modeling - a dedicated fixture file, same reasoning as
+// LEFAntennaFixture in lef_reader_test.cpp: the vendored parser's use5_3
+// flag is set once for the WHOLE FILE (see lef.y's VERSION rule), so
+// writer_roundtrip.lef's own M1 ANTENNALENGTHFACTOR (5.3 syntax) can't
+// coexist in the same file as 5.4+ ANTENNAMODEL/ANTENNAAREARATIO/etc.
 class LEFAntennaRoundtripFixture : public ::testing::Test
 {
 protected:
@@ -1295,15 +1291,11 @@ namespace
     }
 }
 
-// This is the actual UPDATES.md item 12 verification loop, automated: read
-// a LEF file, write it back out via LEFWriter, and confirm the vendored
-// lefdiff tool's own normalized dumps of the two files match - i.e. the
-// round trip lost nothing lefdiff itself can see. writer_roundtrip.lef is
-// deliberately scoped to exactly what Phase 1 supports (see its own
-// comment/the fixture file), so this is expected to pass cleanly today;
-// it's the harness later phases reuse to verify their own added coverage
-// (each new construct added to writer_roundtrip.lef either round-trips
-// clean or shows up here as a real, specific diff).
+// Read a LEF file, write it back out via LEFWriter, and confirm the
+// vendored lefdiff tool's normalized dumps of the two files match - i.e.
+// the round trip lost nothing lefdiff itself can see. Each construct added
+// to writer_roundtrip.lef either round-trips clean or shows up here as a
+// real, specific diff.
 TEST(LEFWriterLefdiffFidelity, WriterRoundtripFixtureMatchesTheOriginalPerLefdiff)
 {
     Root root;

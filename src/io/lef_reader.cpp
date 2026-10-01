@@ -182,11 +182,11 @@ namespace le
 
         // Checked once here, same not-aborted-mid-parse convention as
         // used_dbu_before_units_declared_ below - this project only
-        // supports LEF >= 5.4 (UPDATES.md item 12), so a version below
+        // supports LEF >= 5.4, so a version below
         // that is a real error, not a silent downgrade to reading it
         // partially (the vendored parser itself would already be
         // discarding several PIN-level statements at >= 5.4 that it
-        // wouldn't at, say, 5.3 - see LEFDEF_BUGS.md's "Reader-side:
+        // wouldn't at, say, 5.3 - see docs/LEFDEF_BUGS.md's "Reader-side:
         // intentional version-obsolescence" - accepting < 5.4 input would
         // just mean this project's own database silently disagrees with
         // what a real 5.3-reading tool would see).
@@ -312,11 +312,7 @@ namespace le
         // and never resets fields between them, so a layer that omits a given
         // property would otherwise silently inherit whichever prior layer
         // last set it - every field below is has*()-guarded for exactly that
-        // reason (UPDATES.md 12 Phase 1: basic scalar LAYER properties only -
-        // multi-value SPACING beyond the first entry, SPACINGTABLE,
-        // ENCLOSURE, ANTENNAMODEL, MINSTEP and other nested sub-rules are
-        // deferred to a later iteration, per this task's own diff-driven
-        // process).
+        // reason.
         LayerData layer{
             .technology = reader->technology_id_,
             .name = layer_name,
@@ -385,9 +381,9 @@ namespace le
                 .spacing = reader->microns_to_dbu(lef_layer->arraySpacing(i)),
             });
         }
-        // The following fields moved to pooled classes (Phase 2 - see
-        // schema.py) - LayerData no longer has data members for them, so
-        // each is staged into a local "pending_*" collection here and
+        // The following fields are pooled classes (see schema.py), not
+        // LayerData members, so each is staged into a local "pending_*"
+        // collection here and
         // attached via root_->create_X() once layer_id exists (below),
         // rather than assigned directly onto `layer`.
         std::optional<ArraySpacingData> pending_array_spacing;
@@ -564,7 +560,7 @@ namespace le
                     rule.adjacent_except_same_pg_net = true;
             }
             if (lef_layer->hasSpacingArea(i))
-                rule.area = reader->microns_squared_to_dbu(lef_layer->spacingArea(i)); // an area (square microns) - item 27
+                rule.area = reader->microns_squared_to_dbu(lef_layer->spacingArea(i)); // an area (square microns)
             // Read-only (see write_technology_layers's own comment on the
             // vendored writer bug - these are never written back out).
             if (lef_layer->hasSpacingNotchLength(i))
@@ -1026,8 +1022,8 @@ namespace le
         if (lef_via->hasResistance())
             via.resistance = lef_via->resistance();
 
-        // foreign/layers/via_rule moved to pooled classes (Phase 2) -
-        // staged here, attached via root_->create_X() once via_id exists
+        // foreign/layers/via_rule are pooled classes - staged here,
+        // attached via root_->create_X() once via_id exists
         // (below), same pattern as lefrLayerCbkFn's own pending_* locals.
         std::optional<ForeignData> pending_foreign;
         if (lef_via->hasForeign())
@@ -1078,7 +1074,7 @@ namespace le
                     .y = reader->microns_to_dbu(lef_via->yTopEnc()),
                 },
             };
-            // ROWCOL (BUGS_AND_ENHANCEMENTS.md B3) - a real via *array*,
+            // ROWCOL - a real via *array*,
             // as opposed to a single cut at cut_size - left unset (no
             // ROWCOL clause on this via) when hasRowCol() is false,
             // matching every other is_optional field here.
@@ -1087,7 +1083,7 @@ namespace le
                 pending_via_rule->num_cut_rows = lef_via->numCutRows();
                 pending_via_rule->num_cut_cols = lef_via->numCutCols();
             }
-            // ORIGIN/OFFSET (B3 follow-up) - lefiVia's own accessor names
+            // ORIGIN/OFFSET - lefiVia's own accessor names
             // (xOffset/yOffset for ORIGIN; xBotOffset/yBotOffset/xTopOffset/
             // yTopOffset for OFFSET) don't match the LEF keyword names
             // directly - ORIGIN shifts the cut array's own center, OFFSET
@@ -1161,8 +1157,8 @@ namespace le
             .is_default = static_cast<bool>(lef_via_rule->hasDefault()),
         };
 
-        // layers moved to a pooled class (Phase 2) - staged here, attached
-        // via root_->create_via_rule_layer() once via_rule_id exists
+        // layers are a pooled class - staged here, attached via
+        // root_->create_via_rule_layer() once via_rule_id exists
         // (below). 2 layers (non-GENERATE) or 3 (GENERATE, the 3rd being
         // the cut layer) - see lefiViaRule.hpp's own numLayers()/layer()
         // comment.
@@ -1325,8 +1321,8 @@ namespace le
             .hard_spacing = static_cast<bool>(lef_non_default->hasHardspacing()),
         };
 
-        // layers/vias moved to pooled classes (Phase 2) - staged here,
-        // attached via root_->create_X() once rule_id exists (below).
+        // layers/vias are pooled classes - staged here, attached via
+        // root_->create_X() once rule_id exists (below).
         // Each pending via also carries its own nested foreign/layers
         // (also pooled, parented to the via itself, not the rule) -
         // those need the via's own id, so they wait for a second,
@@ -1470,7 +1466,7 @@ namespace le
 
         auto reader = static_cast<LEFReader *>(user_data);
 
-        // The named library (NEW_FEATURES_SEPT_2026.md item 4), created on
+        // The named library, created on
         // first use - lazily, at the first MACRO, so a tech-only LEF never
         // leaves an empty library behind.
         if (!reader->library_id_.valid())
@@ -1502,8 +1498,8 @@ namespace le
         if (lef_macro->hasClass())
             reader->abstract_data_.type = lef_macro->macroClass();
 
-        // foreigns moved to a pooled class (Phase 2) - reader->abstract_id_
-        // already exists at this point (created in lefrMacroBeginCbkFn),
+        // foreigns are a pooled class - reader->abstract_id_ already
+        // exists at this point (created in lefrMacroBeginCbkFn),
         // so each Foreign is created directly here rather than staged.
         for (int i = 0; i < lef_macro->numForeigns(); i++)
         {
@@ -1551,8 +1547,8 @@ namespace le
         // Distinct, mutually-exclusive grammar alternative from the
         // singular hasSiteName()/siteName() above - a macro uses one form
         // or the other (lefiMacro's own setSiteName vs setSitePattern).
-        // Also moved to a pooled class (Phase 2) - created directly here,
-        // same reasoning as foreigns above.
+        // Also a pooled class - created directly here, same reasoning as
+        // foreigns above.
         for (int i = 0; i < lef_macro->numSitePattern(); i++)
         {
             lefiSitePattern *pattern = lef_macro->sitePattern(i);
@@ -1670,7 +1666,7 @@ namespace le
         // calls the matching setter when versionNum < 5.4; this project
         // only supports LEF >= 5.4 (see read_lef's own version check), so
         // the vendored reader itself would always discard these before
-        // this callback ever runs. See LEFDEF_BUGS.md's "Reader-side:
+        // this callback ever runs. See docs/LEFDEF_BUGS.md's "Reader-side:
         // intentional version-obsolescence".
         if (lef_pin->hasMaxdelay())
             terminal.max_delay = lef_pin->maxdelay();
@@ -1719,7 +1715,7 @@ namespace le
 
         // 5.5 oxide-scoped antenna models - a distinct, narrower
         // lefiPinAntennaModel class from lefiLayer's own lefiAntennaModel.
-        // Moved to a pooled class (Phase 2) - staged here, attached via
+        // A pooled class - staged here, attached via
         // root_->create_pin_antenna_model() once terminal_id exists
         // (below), same pattern as lefrLayerCbkFn's own pending_* locals.
         std::vector<PinAntennaModelData> pending_antenna_models;
@@ -1805,11 +1801,10 @@ namespace le
         auto reader = static_cast<LEFReader *>(user_data);
 
         // Fires between MacroBeginCbk and MacroCbk (same lifecycle as
-        // Pin/Obstruction) - densities moved to a pooled class (Phase 2),
-        // so like Pin/Obstruction it's now created directly here via
+        // Pin/Obstruction) - densities are a pooled class, so like
+        // Pin/Obstruction they're created directly here via
         // create_macro_density_layer() (reader->abstract_id_ already
-        // exists, created in lefrMacroBeginCbkFn) rather than accumulated
-        // on abstract_data_ for lefrMacroCbkFn's final sync to commit.
+        // exists, created in lefrMacroBeginCbkFn).
         for (int i = 0; i < lef_density->numLayer(); i++)
         {
             MacroDensityLayerData layer{.abstract = reader->abstract_id_, .layer_name = lef_density->layerName(i)};
@@ -2051,9 +2046,9 @@ namespace le
                     break;
                 }
                 auto lef_rect_iter = geometries->getRectIter(j);
-                // Stored raw (UPDATES.md 12 Phase 1's ITERATE rework) rather
-                // than expanded here - see Pipeline::generate_shapes for the
-                // expansion, and LEFReader::safe_iteration_count's own
+                // Stored raw rather than expanded here - see
+                // Geometry::expand_iterates for the expansion, and
+                // LEFReader::safe_iteration_count's own
                 // comment for why xStart/yStart (LEF-file-controlled
                 // doubles, despite the misleading name they're iteration
                 // counts, not start coordinates) need bounds-checking before
