@@ -5,15 +5,11 @@
 
 namespace le
 {
-    // Shape used to be a plain (non-pooled) value type - Geometry/Pipeline
-    // still construct/copy/mutate "a shape" as an ordinary value (Pipeline
-    // synthesizes many ephemeral ones per render call via RECT/PATH/POLYGON
-    // ITERATE expansion, never persisted to Root), even though Shape is now
-    // pooled/addressable (TCL_EXPLORATION.md Phase 3) for TerminalPort/
-    // Obstruction ownership and stable-id shape CRUD. This alias keeps
-    // every existing Shape-typed signature (Geometry::bbox,
-    // RenderedShape::shape, ...) compiling unchanged - ShapeData and Shape
-    // are the exact same type, just two names for two different purposes
+    // Geometry and the pipelines construct/copy/mutate "a shape" as an
+    // ordinary value (e.g. the ephemeral shapes RECT/PATH/POLYGON ITERATE
+    // expansion produces, never persisted to Root), while Root stores
+    // Shapes in a pool for stable-id ownership and CRUD. ShapeData and
+    // Shape are the exact same type, just two names for two different purposes
     // (Root-addressed storage vs. a plain in-memory value with no
     // database identity).
     using Shape = ShapeData;

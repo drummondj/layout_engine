@@ -925,10 +925,10 @@ schema = Schema(
         # ROWCOL (num_cut_rows/num_cut_cols below) is modeled - a via
         # *array* is exactly a ROWCOL clause with more than one row/col of
         # cuts, synthesized into concrete cut rects by via_shapes.hpp at
-        # render time rather than stored as one rect per cut
-        # (BUGS_AND_ENHANCEMENTS.md B3). ORIGIN/OFFSET (origin/bot_offset/
-        # top_offset below) are also modeled (B3 follow-up) - real
-        # caller-supplied overrides for where the cut array's own center
+        # render time rather than stored as one rect per cut.
+        # ORIGIN/OFFSET (origin/bot_offset/top_offset below) are also
+        # modeled - real caller-supplied overrides for where the cut
+        # array's own center
         # (ORIGIN) and each metal layer's own enclosure-rect center
         # (OFFSET) land, relative to the via's own placement point, used
         # e.g. when a via needs to sit off-center from its own connection
@@ -1330,8 +1330,8 @@ schema = Schema(
             description="A path",
             has_pool=False,
             fields=[
-                # width declared before polygon (BUGS_AND_ENHANCEMENTS.md
-                # E21) so every generated surface that walks a Klass's own
+                # width declared before polygon so every generated surface
+                # that walks a Klass's own
                 # fields in declaration order - property-table display
                 # (get_properties/report_properties/Property Viewer) in
                 # particular - shows {width {points}}, matching the
@@ -2237,8 +2237,7 @@ schema = Schema(
             # "Current view" anchor for get_instances/get_ports/get_nets'
             # own default (-of omitted) scope - see
             # codegen/codegen/tcl_scope.py. Populated by the SystemVerilog/
-            # Verilog reader (src/sv/) - see SCHEMA.md's "SystemVerilog
-            # Reading Flow" note.
+            # Verilog reader (src/sv/).
             has_current_access=True,
             fields=[
                 Field(
@@ -2372,7 +2371,7 @@ schema = Schema(
         # own - it's fully replaced by one Port per bit (see Port.bus/
         # .bit_index below), each named with the DEF-style bracketed form
         # ("address[7]") so DEF PhysicalPort/Route hierarchical name
-        # matching (LINKING_STRATEGY_RESEARCH.md) finds it directly, with
+        # matching finds it directly, with
         # zero bit-select-aware logic anywhere in that matching code.
         # PortBus is purely the grouping/introspection record (msb/lsb,
         # and the bus's own bit-Ports found by querying Port.bus == this
@@ -2707,9 +2706,8 @@ schema = Schema(
             ],
         ),
         # Named Placement (not Component, DEF's own section name) to
-        # mirror Net/Route's own logical-vs-physical naming split - see
-        # SCHEMA.md. `instance`/`physical_only` are the Schematic-linking
-        # fields LINKING_STRATEGY_RESEARCH.md's own section 1 designs -
+        # mirror Net/Route's own logical-vs-physical naming split.
+        # `instance`/`physical_only` are the Schematic-linking fields,
         # populated by `link` (SVReader::link_unresolved_instances'
         # own sibling pass, not this reader): a Placement whose DEF name
         # doesn't resolve to any Instance in the sibling Schematic is
@@ -2739,16 +2737,15 @@ schema = Schema(
         # each PORT of a multi-port pin be placed independently
         # (setPortPlacement, distinct from the pin's own top-level
         # setPlacement), and in DEF its LAYER/POLYGON coordinates are
-        # relative to that placement, not the parent PhysicalPort's -
-        # confirmed against complete.5.8.def's own PIN P0 (3 PORTs, 3
-        # different placements). Unset for the synthetic single segment a
+        # relative to that placement, not the parent PhysicalPort's (e.g.
+        # complete.5.8.def's PIN P0: 3 PORTs, 3 different placements).
+        # Unset for the synthetic single segment a
         # pre-5.7 simple (no-PORT-wrapper) pin gets - that case's
         # placement lives on the parent PhysicalPort instead. The Shapes
         # themselves are stored in design coordinates (DEFReader runs
         # them through Geometry::pin_transform of the governing
-        # placement; DEFWriter inverts it) - NEW_FEATURES_SEPT_2026.md
-        # item 28 - so drawing, hit-testing, selection and Move need no
-        # pin transform.
+        # placement; DEFWriter inverts it), so drawing, hit-testing,
+        # selection and Move need no pin transform.
         Klass(
             name="PhysicalPortSegment",
             description="One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins).",
@@ -2761,17 +2758,16 @@ schema = Schema(
             ],
         ),
         # Named PhysicalPort (not Pin, DEF's own section name) since
-        # SCHEMA.md reserves Pin for a different concept (a logical pin on
+        # Pin is reserved for a different concept (a logical pin on
         # a Schematic Instance, i.e. a Verilog instance pin). `net_name`
         # stays the raw string as read (DEF PINS NET); `net` is the
         # resolved link `link` populates against it, same
         # resolved-alongside-the-raw-string convention Instance's own
         # reference_name/reference_design pair already uses. Unlike
         # Route.net (an ERROR when unresolved), an unresolved
-        # PhysicalPort.net only logs a WARNING - see
-        # LINKING_STRATEGY_RESEARCH.md section 2 for why (boundary
-        # power/ground pins legitimately lack a netlist-level Net far
-        # more often than a real signal Route does).
+        # PhysicalPort.net only logs a WARNING (boundary power/ground pins
+        # legitimately lack a netlist-level Net far more often than a real
+        # signal Route does).
         Klass(
             name="PhysicalPort",
             description="A chip-boundary I/O pin (DEF PINS).",
@@ -2819,8 +2815,7 @@ schema = Schema(
             # future Schematic/SystemVerilog netlist connectivity klass -
             # this klass only holds physical routed geometry, not
             # connectivity. `name` stays the raw string as read; `net` is
-            # the resolved link `link` populates against it (see
-            # LINKING_STRATEGY_RESEARCH.md section 2) - unlike
+            # the resolved link `link` populates against it - unlike
             # PhysicalPort.net, an unresolved Route.net is always an
             # ERROR, since a Route with no logical Net is orphaned
             # physical routing geometry with no meaning.

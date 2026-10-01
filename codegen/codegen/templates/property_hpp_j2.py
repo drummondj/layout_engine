@@ -22,8 +22,7 @@ namespace {{schema.namespace}}
         // What an INT value measures - DBU (a length in database units) or
         // DBU2 (an area in database units squared) marks a raw dbu value
         // from get_field(), so a consumer working in microns (-filter,
-        // chained property paths) can convert it (NEW_FEATURES_SEPT_2026.md
-        // item 27). NONE for everything else.
+        // chained property paths) can convert it. NONE for everything else.
         enum class Unit
         {
             NONE,

@@ -33,7 +33,7 @@ int32_t le_get_{{klass.tcl_plural_snake_case()}}(LeHandle *handle{% for op in sc
     {{ render_of_check_cpp(scope) | indent(4) }}
 
     handle->{{klass.to_snake_case()}}_search_results.clear();
-    // -filter compares lengths/areas in microns (NEW_FEATURES_SEPT_2026.md item 27).
+    // -filter compares lengths/areas in microns.
     const double filter_dbu_per_um = display_dbu_per_um(handle->root);
     for (const le::{{klass.name}}Id id : candidates)
     {

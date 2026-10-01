@@ -7,8 +7,7 @@
 namespace le
 {
     /// @brief The Library named `name`, created if none exists yet - the
-    /// read_lef/read_def/read_verilog `-library` target
-    /// (NEW_FEATURES_SEPT_2026.md item 4).
+    /// read_lef/read_def/read_verilog `-library` target.
     inline LibraryId get_or_create_library(Root &root, const std::string &name)
     {
         const LibraryId existing = root.get_library_by_name(name);

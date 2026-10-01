@@ -50,9 +50,7 @@ TYPEMAP = {
     # count/int without guessing from the C++ type name.
     "dbu": ("int64_t", int),
     # An area in database units squared (LEF AREA, MINENCLOSEDAREA) - stored
-    # like "dbu", but converted with the *square* of the dbu-per-micron scale
-    # (NEW_FEATURES_SEPT_2026.md item 27: a linear conversion showed an AREA
-    # 0.000666um^2 as 0.666).
+    # like "dbu", but converted with the *square* of the dbu-per-micron scale.
     "dbu2": ("int64_t", int),
 }
 
@@ -74,7 +72,7 @@ def tcl_help_description(field: "Field") -> str:
     """
     `field`'s description as the TCL help shows it. The schema describes
     storage ("in database units"), but every dbu/dbu2 value crosses the TCL
-    layer in microns/square microns (NEW_FEATURES_SEPT_2026.md item 27), so
+    layer in microns/square microns, so
     for a field that converts (cmd_uses_dbu()) the units are restated.
     """
     text = field.description
@@ -625,7 +623,7 @@ class Klass:
 
     def is_composed_of_records(self) -> Optional[List["Field"]]:
         """
-        BUGS_AND_ENHANCEMENTS.md E21: whether this embedded_scalar_leaves()-
+        Whether this embedded_scalar_leaves()-
         eligible Klass's own *direct* fields are themselves each a
         flattenable record (e.g. Rect -> [ll: Point, ur: Point]), as
         opposed to being direct scalar leaves itself (e.g. Point -> [x:
@@ -960,7 +958,7 @@ class Klass:
 
         add("handle->root.bump_mutation_version();")
         add()
-        add("// UPDATES.md item 21 - record this mutation into whatever")
+        add("// Record this mutation into whatever")
         add("// transaction is currently recording (a typed Tcl command via")
         add("// le_repl_eval, or a GUI edit like Move), so Ctrl-Z can undo it.")
         add("if (handle->command_history.is_recording())")
@@ -1137,7 +1135,7 @@ class Klass:
         create_<type> - even a class with zero non-parent create fields
         (Obstruction, Schematic) still has a real, useful reparent-only
         update_<type> (every pool class has at least a parent field or a
-        create field, confirmed by inspection - never neither).
+        create field, never neither).
         """
         parts = [f"Le{self.name}Id id"]
         parent_fields = self.get_parent_fields()
@@ -1241,7 +1239,7 @@ class Klass:
             parts.extend(f.cmd_tcl_call_args("update"))
         return " ".join(parts)
 
-    # --- Help system (UPDATES.md item 20) - create_<type>/update_<type>
+    # --- Help system - create_<type>/update_<type>
     # only. get_<type>'s own usage/options depend on external SearchScope
     # data (tcl_scope.py's -of param computation, not knowable from a
     # Klass alone), so that string is still built inline in
@@ -1491,7 +1489,7 @@ class Klass:
         add("    return 1;")
         add("}")
         add()
-        add("// UPDATES.md item 21 - snapshotted before the mutation below,")
+        add("// Snapshotted before the mutation below,")
         add("// so a currently-recording transaction can undo back to this")
         add("// exact state (see the record_update call further down).")
         add(f"const le::{self.name}Data before_{snake} = *existing_{snake};")
@@ -1597,7 +1595,7 @@ class Klass:
 
         add("handle->root.bump_mutation_version();")
         add()
-        add("// UPDATES.md item 21 - see create_api_body()'s own comment.")
+        add("// See create_api_body()'s own comment.")
         add("if (handle->command_history.is_recording())")
         add("{")
         add(f"    const le::{self.name}Data after_{snake} = *handle->root.get_{snake}(typed_id);")
@@ -1817,12 +1815,8 @@ class Klass:
         deletes every descendant reachable through tcl_child_list_fields(),
         however many levels deep this class's own schema subtree actually
         goes (e.g. Technology's own non_default_rules -> vias -> layers
-        chain is 3 levels deep; the formerly hand-written
-        le_delete_terminal was only ever written 1 level deep - cascading
-        to each TerminalPort but never that port's own Shapes - a real bug
-        this generator fixes by construction, not just reproduces, since it
-        expands the *actual* schema graph rather than a hand-copied slice
-        of it).
+        chain is 3 levels deep). It expands the *actual* schema graph, so
+        no level can be missed.
 
         The recursion happens at *Python codegen time*
         (see the nested plan_edge() closure below), not runtime C++ - each
@@ -1840,7 +1834,7 @@ class Klass:
         the right parent-pointing field on that child, without needing to
         re-derive which parent it came from.
 
-        UPDATES.md item 21: every cascaded descendant (deepest first) plus
+        Every cascaded descendant (deepest first) plus
         this object itself (last) is recorded via Transaction::record_delete,
         the same primitive create_api_body()/update_api_body() already use
         for their own single-object mutation. *Order* matters here
@@ -1853,13 +1847,9 @@ class Klass:
         Transaction::id_cell_for(id) memoizes by id value - captured once
         per parent object while it was still being collected as a "child"
         one level up, well before it (or any of its own ancestors) is
-        actually deleted. This is exactly the pattern the 4 formerly
-        hand-written cascading deletes (le_delete_terminal/_terminal_port/
-        _obstruction, api.cpp - now deleted, superseded by this method)
-        already established for their own single level; this generalizes
-        it to however many levels deep a given class's own schema subtree
-        actually goes, computed once per class from tcl_child_list_fields()
-        rather than hand-copied per class.
+        actually deleted. This works to however many levels deep a given
+        class's own schema subtree actually goes, computed once per class
+        from tcl_child_list_fields().
 
         A class with no tcl_child_list_fields() at all (most of the ~35 -
         e.g. Shape, most technology-reference leaf classes) gets the
@@ -1893,7 +1883,7 @@ class Klass:
             add(f"const bool deleted = handle->root.delete_{snake}({snake}_id);")
             add("handle->root.bump_mutation_version();")
             add()
-            add("// UPDATES.md item 21 - a leaf delete (no tcl_child_list_fields()),")
+            add("// A leaf delete (no tcl_child_list_fields()),")
             add("// so no id-cell indirection is needed the way a cascading delete")
             add("// needs it below - this object's own parent field(s), if any, aren't")
             add("// touched by this call, so the snapshot above stays valid regardless")
@@ -2003,7 +1993,7 @@ class Klass:
         add("handle->root.bump_mutation_version();")
 
         add()
-        add("// UPDATES.md item 21 - same deepest-first/self-last recording order")
+        add("// Same deepest-first/self-last recording order")
         add("// as the deletion pass above (see this method's own docstring for why).")
         add("if (txn)")
         add("{")
@@ -2593,8 +2583,7 @@ class Field:
         list_compound_kind() field (e.g. Shape.rects -> "Rect...") since
         its flag actually takes a Tcl list of several such records.
         """
-        # dbu/dbu2 values cross the TCL layer in microns / square microns
-        # (NEW_FEATURES_SEPT_2026.md item 27).
+        # dbu/dbu2 values cross the TCL layer in microns / square microns.
         label = {"dbu": "um", "dbu2": "um2"}.get(self.type, self.type)
         return f"{label}..." if self.is_list else label
 
@@ -2639,7 +2628,7 @@ class Field:
           Rect always exactly 4 scalar leaves) - every record has the
           same fixed arity, so the Tcl wire format needs no per-record
           length prefix, just `{{{ll_x ll_y} {ur_x ur_y}} ...}`
-          (BUGS_AND_ENHANCEMENTS.md E21 - one bracketed point per Rect's
+          (one bracketed point per Rect's
           own direct ll/ur field, matching Klass.is_composed_of_records()'s
           same nesting the single-struct case already uses for -bbox).
         - "points": the element Klass is itself a point-list wrapper
@@ -2908,8 +2897,7 @@ class Field:
             add("            i += 2;", d)
             add("        }", d)
             # Built in element_klass's own declaration order (e.g. Path's
-            # width before polygon - BUGS_AND_ENHANCEMENTS.md E21's own
-            # display-convention reason for that order), not
+            # width before polygon - the display convention), not
             # point-field-first - C++20 designated initializers must
             # appear in declaration order, and GCC (unlike Clang, which
             # accepts out-of-order designators as a silent extension)
@@ -3290,7 +3278,7 @@ class Field:
         field(s) first, in declaration order) - see list_compound_kind()'s
         own docstring for the full per-kind wire format.
 
-        BUGS_AND_ENHANCEMENTS.md E21: each entry's own coordinates are
+        Each entry's own coordinates are
         nested one level per point (e.g. a Rect entry is
         {{llx lly} {urx ury}}, a Polygon/Path entry's own point list is
         {{x0 y0} {x1 y1} ...}) - matching Klass.is_composed_of_records()'s
@@ -3411,7 +3399,7 @@ class Field:
         message name the actual command.
 
         The "numeric" branch (Point/Rect/DensityCheckWindow) itself
-        splits in two, per Klass.is_composed_of_records() (E21): a plain
+        splits in two, per Klass.is_composed_of_records(): a plain
         record of scalar leaves (Point, DensityCheckWindow) still parses
         one flat lassign (e.g. -size {x y}); a record composed of further
         records (Rect -> ll/ur, each a Point) parses one bracketed
@@ -3435,7 +3423,7 @@ class Field:
         if ck.compound_leaf_kind() == "numeric":
             record_fields = ck.is_composed_of_records()
             if record_fields is not None:
-                # BUGS_AND_ENHANCEMENTS.md E21 - e.g. Rect: one bracketed
+                # E.g. Rect: one bracketed
                 # sub-list per direct field (-bbox {{llx lly} {urx ury}}),
                 # not one flat lassign - see Klass.is_composed_of_records()'s
                 # own doc comment.
@@ -3830,8 +3818,7 @@ class Field:
             return f'{namespace}::PropertyValue::make_double("{name}", static_cast<double>({value}))'
         if self.type in DBU_TYPES:
             # Still the raw value, but tagged so -filter and chained
-            # property paths can work in microns (NEW_FEATURES_SEPT_2026.md
-            # item 27) - see filter.hpp.
+            # property paths can work in microns - see filter.hpp.
             unit = "DBU2" if self.type == "dbu2" else "DBU"
             return f'{namespace}::PropertyValue::make_int("{name}", static_cast<int64_t>({value}), {namespace}::PropertyValue::Unit::{unit})'
         return f'{namespace}::PropertyValue::make_int("{name}", static_cast<int64_t>({value}))'  # int/bool/etc.
@@ -3846,13 +3833,8 @@ class Field:
         PropertyValue::INT, and every recursive to_property_string()/
         to_property_list_string() call threads `dbu_var` through so a
         `dbu` field nested inside an embedded struct (e.g. Point.x via
-        Rect.ll) converts too. This is the fix for every non-Shape type's
-        embedded Rect/Point/Polygon/Path fields having shown raw-dbu,
-        debug-style `Rect{ll=Point{x=...}}` text while Shape's own
-        rects/polygons/paths were hand-patched (in api.cpp) to show
-        clean microns - see src/api/api.cpp's now-deleted
-        replace_shape_geometry_properties for the override this
-        generalizes and replaces.
+        Rect.ll) converts too, so every type's embedded
+        Rect/Point/Polygon/Path fields show clean microns.
         """
         name = self.name
         if self.is_list:

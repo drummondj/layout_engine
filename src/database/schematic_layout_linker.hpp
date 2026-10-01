@@ -1,7 +1,7 @@
 #pragma once
 
 // Cross-view physical<->logical linking - the physical half of the `link`
-// step (LINKING_STRATEGY_RESEARCH.md sections 1, 2), run after
+// step (design: docs/LINKING_STRATEGY_RESEARCH.md), run after
 // SVReader::link_unresolved_instances has already resolved every
 // Instance.reference_design it can. Header-only, like
 // hierarchical_resolver.hpp (which this builds on) - avoids a whole new
@@ -29,20 +29,19 @@ namespace le
         size_t physical_ports_linked = 0;
         /// @brief WARNING:/ERROR: prefixed messages, same convention as
         /// LEFReader/DEFReader/SVReader's own messages(): a Placement
-        /// with no matching Instance is a WARNING (LINKING_STRATEGY.md
-        /// scenario 1 - still a legitimate physical-only cell); a Route
-        /// with no resolvable Net is an ERROR (scenario 2); a
-        /// PhysicalPort with no resolvable Net is a WARNING (boundary
-        /// power/ground pins legitimately lack one far more often - see
-        /// LINKING_STRATEGY_RESEARCH.md section 2).
+        /// with no matching Instance is a WARNING (still a legitimate
+        /// physical-only cell); a Route with no resolvable Net is an
+        /// ERROR; a PhysicalPort with no resolvable Net is a WARNING
+        /// (boundary power/ground pins legitimately lack one far more
+        /// often).
         std::vector<std::string> messages;
     };
 
     namespace physical_link_detail
     {
         /// @brief Matches every un-linked Placement in `layout_id`
-        /// against `top_schematic` by name (LINKING_STRATEGY_RESEARCH.md
-        /// section 1). Populates `linked_instances` with every Instance
+        /// against `top_schematic` by name. Populates `linked_instances`
+        /// with every Instance
         /// that has *any* linked Placement, old or new - not just ones
         /// resolved in this call - since create_default_placements()
         /// below needs that full picture to stay idempotent across
@@ -109,12 +108,10 @@ namespace le
         }
 
         /// @brief Recursively walks every Instance reachable from
-        /// `schematic`, creating a default Placement
-        /// (LINKING_STRATEGY.md scenario 3) for any whose id isn't in
+        /// `schematic`, creating a default Placement for any whose id isn't in
         /// `linked_instances`. `path_prefix` accumulates the same
-        /// "/"-joined full path a real DEF Placement.name would use
-        /// (LINKING_STRATEGY_RESEARCH.md section 1's confirmed naming
-        /// rule), so a later `link` re-run - or a real DEF later placing
+        /// "/"-joined full path a real DEF Placement.name would use, so a
+        /// later `link` re-run - or a real DEF later placing
         /// this same instance - naturally lines up by name too, not just
         /// by id.
         inline void create_default_placements(Root &root, LayoutId layout_id, SchematicId schematic,
@@ -151,8 +148,7 @@ namespace le
         }
 
         /// @brief Matches every un-linked Route/PhysicalPort in
-        /// `layout_id` against `top_schematic` by name
-        /// (LINKING_STRATEGY_RESEARCH.md section 2).
+        /// `layout_id` against `top_schematic` by name.
         inline void link_routes_and_physical_ports(Root &root, LayoutId layout_id, SchematicId top_schematic,
                                                      PhysicalLinkResult &result)
         {
@@ -205,8 +201,7 @@ namespace le
         }
     }
 
-    /// @brief The physical-side half of the `link` step
-    /// (LINKING_STRATEGY_RESEARCH.md sections 1/2): for every Layout,
+    /// @brief The physical-side half of the `link` step: for every Layout,
     /// matches its Placements/Routes/PhysicalPorts against the sibling
     /// Schematic reached via `Layout.design -> Design.schematic`, using
     /// the shared hierarchical resolver (hierarchical_resolver.hpp) in
@@ -216,8 +211,7 @@ namespace le
     /// SVReader::link_unresolved_instances has already resolved
     /// Instance.reference_design to a fixed point - an Instance whose own
     /// reference_design is still unresolved can't be reached by the
-    /// resolver's own descent (LINKING_STRATEGY_RESEARCH.md section 6's
-    /// "ordering dependency"). Re-runnable, same convention as
+    /// resolver's own descent. Re-runnable, same convention as
     /// link_unresolved_instances: a row that's genuinely, permanently
     /// resolved (Placement.instance/Route.net/PhysicalPort.net already
     /// valid) is never re-processed or re-mutated, and

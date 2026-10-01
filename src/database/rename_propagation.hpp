@@ -1,7 +1,7 @@
 #pragma once
 
-// Rename-propagation side effects for the Schematic<->Layout link
-// (LINKING_STRATEGY_RESEARCH.md section 5c): when an Instance renames,
+// Rename-propagation side effects for the Schematic<->Layout link (design:
+// docs/LINKING_STRATEGY_RESEARCH.md): when an Instance renames,
 // every DEF-style hierarchical name that embeds its own path segment -
 // its own linked Placement (the renamed segment is the trailing
 // component) and every descendant Instance/Net's linked
@@ -14,9 +14,8 @@
 // Deliberately real id-based graph traversal (walking Instance/Net
 // objects and looking up their *linked* Placement/Route/PhysicalPort via
 // a request-scoped reverse map built once), never string-prefix matching
-// against existing names - LINKING_STRATEGY_RESEARCH.md section 6 flags
-// prefix matching as a real bug risk (e.g. renaming "top/a/b" incorrectly
-// also touching a sibling "top/a/b2").
+// against existing names - prefix matching would wrongly touch siblings
+// (renaming "top/a/b" would also hit "top/a/b2").
 //
 // Every mutation callback below is a template parameter, not a direct
 // dependency on src/editing/ (Transaction) - src/editing/transaction.hpp

@@ -105,7 +105,7 @@ namespace {{schema.namespace}} {
         /// change tracking. Mirrors LeHandle::selection_version()'s existing
         /// pattern (see api/le_handle.hpp) for the same reason: a hand-written,
         /// domain-specific mutation site (e.g. api.cpp's own CRUD
-        /// functions - see TCL_EXPLORATION.md) calls bump_mutation_version()
+        /// functions) calls bump_mutation_version()
         /// explicitly, since not every mutation goes through a generated
         /// create_x/delete_x/set_x_<field> (e.g. appending to a plain list
         /// field via a mutable get_x() pointer never does) - this Root
@@ -361,8 +361,7 @@ namespace {{schema.namespace}} {
 
         /// @brief Collect every {{klass.name}}Id whose data satisfies
         /// `predicate(root, id, data) -> bool`. A linear scan - no
-        /// index-fast-path, correctness first (see TCL_EXPLORATION.md's
-        /// "Filter-expression architecture" for why). Not domain-specific:
+        /// index-fast-path, correctness first. Not domain-specific:
         /// filter-expression parsing/evaluation is hand-written elsewhere
         /// (get_{{klass.to_snake_case()}}_field()/match_{{klass.to_snake_case()}}_hop() in
         /// {{klass.to_snake_case()}}.hpp supply the per-field metadata that

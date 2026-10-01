@@ -16,8 +16,7 @@ namespace le
         POLYGON,
         PATH,
         VIA,         // a plain via instance (Shape.vias - a named via at an origin).
-                     // NEW_FEATURES_SEPT_2026.md item 6.
         VIA_ITERATE, // a whole via array (Shape.via_iterates - DO n BY m STEP x y),
-                     // selected and moved as one unit. NEW_FEATURES_SEPT_2026.md item 12.
+                     // selected and moved as one unit.
     };
 }

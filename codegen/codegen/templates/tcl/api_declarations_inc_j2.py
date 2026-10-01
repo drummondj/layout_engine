@@ -87,7 +87,7 @@ Le{{klass.name}}Id le_search_result_{{klass.to_snake_case()}}_at(LeHandle *handl
 // also gets its own flag, exploded into a fixed set of C slots or a
 // single flat (const double*, int32_t count) pair respectively; a
 // non-flattenable embedded struct or an is_child relationship stays out
-// of scope (a future add_X/set_X round - see TCL_EXPLORATION.md). A dbu
+// of scope. A dbu
 // field (plain or nested inside a compound/list_compound one) crosses
 // this C boundary in microns (`<field>_um`, converted via
 // database_units_microns()/to_dbu()). An optional numeric field

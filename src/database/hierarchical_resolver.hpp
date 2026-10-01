@@ -1,7 +1,8 @@
 #pragma once
 
-// The shared hierarchical-path resolver LINKING_STRATEGY_RESEARCH.md section 3
-// designs: walks a "/"-delimited path down the logical Instance hierarchy
+// The shared hierarchical-path resolver (design:
+// docs/LINKING_STRATEGY_RESEARCH.md): walks a "/"-delimited path down the
+// logical Instance hierarchy
 // starting from a Schematic, resolving every segment but the last through
 // Instance.reference_design -> Design.schematic, then resolving the final
 // segment against whichever leaf klass the caller wants (Instance, Net,
@@ -27,8 +28,7 @@
 // A path segment resolving to an Instance whose own Design has no
 // Schematic (a hard macro/pure physical leaf cell) is a normal stopping
 // point, not an error - it simply drops out of the frontier and
-// contributes no results past that point (see LINKING_STRATEGY_RESEARCH.md
-// section 6's "leaf recursion stopping condition").
+// contributes no results past that point.
 
 #include "database.hpp"
 #include "filter.hpp"
@@ -56,9 +56,7 @@ namespace le::hierarchy
     /// NamedValueExpression::symbol.name already gives the clean,
     /// unescaped identifier text directly (Verilog's escaped-identifier
     /// syntax is stripped at the lexer level, never stored on the
-    /// symbol), confirmed empirically rather than assumed while
-    /// diagnosing exactly this mismatch on real synthesized-netlist DEF
-    /// data. So a `\` immediately preceding any other character removes
+    /// symbol). So a `\` immediately preceding any other character removes
     /// the backslash and keeps that character literally (matching DEF's
     /// own per-character escaping convention - not Verilog's own
     /// whole-token `\name ` syntax, which slang has already resolved by

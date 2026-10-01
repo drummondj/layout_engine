@@ -1,5 +1,5 @@
 """
-Schema migrations (NATIVE_FILE_FORMAT_RESEARCH.md §4).
+Schema migrations (docs/NATIVE_FILE_FORMAT_RESEARCH.md §4).
 
 A migration file describes how data shaped like schema version N-1 becomes
 data shaped like version N, as an ordered list of typed ops:

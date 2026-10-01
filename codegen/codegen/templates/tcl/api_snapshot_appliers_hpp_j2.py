@@ -1,7 +1,7 @@
 TEMPLATE = """#pragma once
 // GENERATED - do not edit by hand. Regenerate via the regen-tcl skill
 // (codegen --target tcl). #include'd once from api.cpp, alongside the
-// other generated_tcl/*.inc includes (UPDATES.md item 21) - a real
+// other generated_tcl/*.inc includes - a real
 // standalone header (not a .inc fragment spliced into an existing scope
 // like every other generated_tcl/ file), since these free functions need
 // to be callable from anywhere that already has a <Klass>Data value in

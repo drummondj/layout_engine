@@ -8,8 +8,8 @@ TEMPLATE = """# GENERATED - do not edit by hand. Regenerate via the regen-tcl sk
 # this file directly, regenerate via the regen-tcl skill instead.
 # parse_get_args/check_of_prefixes/default_to_unset (le_tcl_procs.tcl)
 # are shared, class-agnostic helpers this file calls into, not generated
-# here. register_command_help/::command_help (UPDATES.md item 20's help
-# system) are likewise defined in le_tcl_procs.tcl, sourced before this
+# here. register_command_help/::command_help (the help system) are
+# likewise defined in le_tcl_procs.tcl, sourced before this
 # file - every proc below registers itself right after its own
 # definition, so help/man/complete_command see the full generated
 # surface with no extra wiring.
@@ -27,8 +27,8 @@ proc property_accessors_for_token {token} {
     error "get_properties: unrecognized token \\"$token\\" - expected a friendly id ({% for klass in readable_classes %}{{klass.to_snake_case()}}:{% if not loop.last %}/{% endif %}{% endfor %})"
 }
 
-# Dot-path completion tables (UPDATES.md item 20 point 3,
-# complete_command in le_tcl_procs.tcl) - one entry per TCL-readable
+# Dot-path completion tables (for complete_command in
+# le_tcl_procs.tcl) - one entry per TCL-readable
 # class, keyed the same way property_accessors_for_token dispatches
 # (klass.to_snake_case()). ::property_scalars holds this class's own
 # leaf property names; ::property_hops holds {hop_name target_key} pairs
@@ -169,7 +169,7 @@ register_command_help get_{{plural}} "{{usage_line}}" "Returns the {{klass.name}
 # parent flags to resolve (after that default is applied), checked here
 # before calling down - same "exactly one" rule create_<type>_cmd's own
 # C++ body re-checks (defense in depth, not redundant: a caller could
-# reach the *_cmd form directly). `-help` (UPDATES.md item 20) is checked
+# reach the *_cmd form directly). `-help` is checked
 # before the unknown-flag loop below, since it never receives a paired
 # value the way every other flag does. ---
 {% for klass in classes %}
@@ -232,7 +232,7 @@ register_command_help create_{{snake}} "{{klass.create_tcl_usage()}}" "Creates a
 # -terminal_port/-obstruction to update_shape is an "unknown flag"
 # error, same as any other flag this class doesn't have. Returns the
 # (possibly-changed, e.g. after a rename) friendly id token. `-help`
-# (UPDATES.md item 20) is checked before the "at least one flag"
+# is checked before the "at least one flag"
 # requirement below, so `update_<type> <id> -help` works even with no
 # other flags given - and also checked against `id` itself, not just
 # `args`: `update_<type>` takes a *mandatory* leading positional (`id`),
@@ -280,13 +280,9 @@ register_command_help update_{{snake}} "{{klass.update_tcl_usage()}}" "Changes t
 # is just an argument-count check. `-help` is checked the same way
 # create_<type>'s own is (before the argument-count check, so
 # `delete_<type> -help` works with no real id supplied at all). Returns 0
-# on success (raises a Tcl error otherwise) - matches the plain SWIG-bound
-# `int` return value the 4 formerly hand-written delete_X commands this
-# replaces (le_tcl_shim.cpp/le_api.i) already returned directly with no
-# Tcl-level wrapper proc at all, so existing callers checking `delete_X
-# $id == 0` keep working unchanged even though every delete_<type> now
-# goes through a real Tcl proc (needed for -help/register_command_help,
-# neither of which a bare SWIG binding can provide). ---
+# on success (raises a Tcl error otherwise), so callers can check
+# `delete_X $id == 0`. A real Tcl proc rather than a bare SWIG binding,
+# since -help/register_command_help need one. ---
 {% for klass in classes %}
 {%- set snake = klass.to_snake_case() %}
 proc delete_{{snake}} {args} {

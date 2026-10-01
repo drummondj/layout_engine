@@ -210,8 +210,8 @@ TEST(Database, UpdateTerminalOnNonExistentIdReturnsFalse)
                                        std::nullopt, std::nullopt));
 }
 
-// get_field()/match_hop() (codegen's generic filter-expression metadata,
-// TCL_EXPLORATION.md Phase 1) are Jinja-templated C++ function templates,
+// get_field()/match_hop() (codegen's generic filter-expression metadata)
+// are Jinja-templated C++ function templates,
 // overloaded once per generated class so a generic caller can invoke
 // get_field(data, name)/match_hop(root, id, data, hop, matcher) without
 // knowing which concrete class `data` is - they parse cleanly whether or
@@ -344,12 +344,10 @@ TEST(FilterMetadata, MatchTechnologyHopIteratesChildLayersExistentially)
 
 TEST(FilterMetadata, GetShapeFieldReturnsExceptPgNetLeafNotListFields)
 {
-    // Shape.layer used to be this test's own plain scalar (str) field, but
-    // is now a reference-to-Layer field - get_filterable_scalar_fields()
-    // deliberately excludes any reference-to-non-enum-klass field (only
-    // reachable via a hop, e.g. ".layer.name"), so it can no longer stand
-    // in for "a plain scalar leaf" here - except_pg_net (bool) does the
-    // same job.
+    // Shape.layer is a reference-to-Layer field, which
+    // get_filterable_scalar_fields() deliberately excludes (only reachable
+    // via a hop, e.g. ".layer.name"), so except_pg_net (bool) stands in
+    // for "a plain scalar leaf" here.
     Shape shape;
     shape.except_pg_net = true;
 
@@ -405,7 +403,7 @@ TEST(FilterMetadata, MatchShapeHopIteratesEmbeddedRects)
 {
     // Shape has several other hop fields too (paths, polygons, texts, ...) -
     // rect_ur_y_equals must (and does) compile against all of them. Shape
-    // is pooled (TCL_EXPLORATION.md Phase 3), so this is the (root, id,
+    // is pooled, so this is the (root, id,
     // data, ...) form - see MatchRectHopWalksScalarPointsWithoutRootOrId
     // below for a genuinely non-pooled example of the other form.
     Root root;
@@ -451,7 +449,7 @@ TEST(FilterMetadata, MatchObstructionHopCoversParentWalkAndEmbeddedListExistenti
     // Parent-scalar hop (Obstruction.abstract -> Abstract).
     EXPECT_TRUE(match_hop(root, obstruction_id, *data, "abstract", design_id_equals(design_id)));
 
-    // Child-list hop (Obstruction.shapes -> Shape, now pooled - TCL_EXPLORATION.md Phase 3).
+    // Child-list hop (Obstruction.shapes -> Shape, pooled).
     EXPECT_TRUE(match_hop(root, obstruction_id, *data, "shapes", layer_equals(m4)));
     EXPECT_FALSE(match_hop(root, obstruction_id, *data, "shapes", layer_equals(m9)));
     EXPECT_FALSE(match_hop(root, obstruction_id, *data, "does_not_exist", layer_equals(m4)));
@@ -533,8 +531,8 @@ TEST(FilterMetadata, SearchLayerCollectsIdsMatchingAGenericPredicate)
     LayerId m2 = root.create_layer(LayerData{.technology = tech_id, .name = "M2", .type = "ROUTING"});
     root.create_layer(LayerData{.technology = tech_id, .name = "V1", .type = "CUT"});
 
-    // A stand-in for what the hand-written filter-expression evaluator
-    // (Phase 2) will eventually plug in: a predicate over (root, id, data).
+    // A stand-in for the filter-expression evaluator (filter.hpp): a
+    // predicate over (root, id, data).
     auto is_routing = [](const Root &, LayerId, const LayerData &d)
     { return d.type == "ROUTING"; };
 
