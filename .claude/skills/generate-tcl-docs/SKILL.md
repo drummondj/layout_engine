@@ -1,6 +1,6 @@
 ---
 name: generate-tcl-docs
-description: Regenerate TCL_COMMANDS.md, the Markdown reference for every TCL command (get_<type>/create_<type>/update_<type> plus the hand-written commands), from the ::command_help registry (UPDATES.md item 20). Use after any TCL command's usage/description/options changes, or when TCL_COMMANDS.md looks stale.
+description: Regenerate TCL_COMMANDS.md, the Markdown reference for every TCL command (get_<type>/create_<type>/update_<type> plus the hand-written commands), from the ::command_help registry. Use after any TCL command's usage/description/options changes, or when TCL_COMMANDS.md looks stale.
 user-invocable: true
 allowed-tools:
   - Bash

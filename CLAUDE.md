@@ -1,14 +1,12 @@
-# Layout Engine MVP — Backend
+# Layout Engine
 
-C++23 backend that reads LEF/DEF and SystemVerilog EDA data into an in-memory
-database, then renders it through a layer-based, Blend2D-backed pipeline into
-pixel buffers displayed by `le_shell`'s own GUI. This is an MVP/proof-of-concept:
-the goal right now is finding the right architecture for editing hierarchical designs with
-millions of objects, not shipping features. See `README.md` for the full
-brief and the live plan checklist; see `BENCHMARKS.md` for benchmark history
-and design-decision writeups; see `LEFDEF_BUGS.md` for confirmed bugs in
-the vendored LEF/DEF parser/writer and how `src/io/` works around each —
-none of these are duplicated here.
+C++23 EDA layout tool: reads LEF/DEF and SystemVerilog into an in-memory
+database, renders it through a layer-based, Blend2D-backed pipeline, and
+edits it from a Tcl shell (`le_shell`) with a Dear ImGui window. The goal is
+an architecture for editing hierarchical designs with millions of objects.
+Design docs, research and benchmark history live in `docs/`
+(`docs/LEFDEF_BUGS.md` lists the vendored LEF/DEF parser/writer bugs and how
+`src/io/` works around each).
 
 ## Requirements (non-negotiable)
 
@@ -16,1109 +14,210 @@ none of these are duplicated here.
 - Tests are written alongside the code they cover, not after.
 - Performance decisions must be backed by a benchmark, not intuition.
 - C++23. Keep abstractions minimal and justified by present, not hypothetical, needs.
-- Keep responses and docs concise — this repo's own README asks for that explicitly.
+- Keep responses and docs concise.
 
 ## Layout
 
+Each module's tests live beside it in `tests/` (hand-written GTest).
+
 - `src/database/` — the object-pool database. `schema.py` is the source of
-  truth (a `codegen.Schema` of `Klass`/`Field` definitions); `generated/` is
-  produced from it and must never be hand-edited (see Database codegen below).
-  `database.hpp` is the single public include (`#include "generated/root.hpp"`).
-- `src/geometry/` — `Geometry`, a Boost.Geometry-backed wrapper (bbox, overlap,
-  transform, polygon union/buffer, label placement, overlap-merging) over the
-  database's `Point`/`Rect`/`Polygon`/`Path`/`Shape` types. Fully covered by
-  `geometry_test.cpp`. Also the shape boolean/conversion operations behind
-  the `shape_*` TCL commands (NEW_FEATURES_SEPT_2026.md item 1 —
-  `boolean_shapes`/`shape_to_rects`/`shape_to_polygons`/`size_shape`/
-  `shape_outline_paths`), each working on a Shape's merged area with holes
-  preserved: `Polygon` can't hold a hole, so a holed result is emitted as
-  exact rects. `shape_ops.hpp` (header-only, `Root&`, no locking — same
-  split as `verilog_stub_writer.hpp`) persists their results as new Shapes;
-  `api.cpp`'s `le_shape_*` add locking, `bump_mutation_version` and undo
-  recording. Results default to the current Abstract/Layout's
-  `free_shapes` (`Shape.in_abstract`/`in_layout`) — never written by
-  `write_lef`/`write_def`, which only walk named relationships.
-  `HierarchyResolverStage`'s `append_free_shapes` draws one on a real
-  Layer on that Layer's own `CUSTOM_SHAPE` column (its color and fill,
-  own Layers-panel toggle), a `ShapePurpose::DEBUG` one (`-layer debug`)
-  on the light-blue, always-on-top `DEBUG` pseudo-row, and skips any other
-  layer-less one; an Abstract's free shapes show in every placement of
-  it. Not yet selectable (the hit-tests only walk terminals/
-  obstructions/routes/etc.). `shape_change_layer` sets `layer`/`purpose` directly
-  (`shape_ops::set_layer_or_purpose`) with its own exact undo: the
-  generated `update_shape`/`apply_shape_snapshot` can set an optional
-  field but never clear one. `create_shape` with no parent flag also
-  makes a free shape: the generator never defaults a parent flag whose
-  owner holds a single child (`Layout.diearea`, `Abstract.boundary`)
-  when a list-owning one (`free_shapes`) exists — that default used to
-  silently replace the die area. `create_shape -layer debug` is a
-  schema alias (`Field.tcl_create_aliases`) for `-purpose DEBUG`, and
-  every generated `create_`/`update_<type>` rejects a reference token
-  that doesn't resolve (`<type>_token_resolves`) instead of leaving it
-  unset; a failed `create_<type>` raises a Tcl error.
-- `src/view_style/` — `ViewLayerSet`/`ViewLayer`: the rendering-purpose layer
-  concept distinct from the LEF/DEF-mirroring `database`. `ViewLayerPurpose`
-  (a closed, application-owned enum, not a LEF/DEF vocabulary term) has 8
-  members: `TERMINAL`/`OBSTRUCTION`/`TRACK`/`ROUTING_BLOCKAGE` (one
-  `ViewLayer` of each per physical `Layer`) and `BOUNDARY`/`ROW`/
-  `GCELLGRID`/`PLACEMENT_BLOCKAGE` (each its own single `ViewLayer`/row not
-  tied to any physical `Layer` — `Row`/`GCellGrid` have no `Layer`
-  association at all, and a PLACEMENT blockage's own `Shape` uses
-  `Shape.purpose = ShapePurpose::PLACEMENT_BLOCKAGE` instead of a real
-  `Shape.layer` for the same reason `Abstract.boundary`/`Layout.diearea`
-  do — see `Shape.layer`/`.purpose`'s own `schema.py` comments).
-  `ROUTING_BLOCKAGE` and `PLACEMENT_BLOCKAGE` are deliberately two separate
-  purposes, not one shared `BLOCKAGE` purpose, so a user can toggle
-  visibility/selectability of each independently (they serve very
-  different purposes for a user - routing keep-out vs. placement
-  keep-out) — the same "never merge across LEF/DEF-distinct kinds" choice
-  `TERMINAL`/`OBSTRUCTION` of the same physical `Layer` already make.
-  `ViewLayerSet::build_for_technology` builds the full set for a
-  `Technology` once, shared/global. Each physical `Layer` gets one color
-  from a default palette, shared by all 4 of that Layer's `ViewLayer`s;
-  `FillPattern` (a separate, per-purpose visual treatment — `BRICK` for
-  `OBSTRUCTION`, `DOTS` for `ROUTING_BLOCKAGE`/`PLACEMENT_BLOCKAGE`, plain
-  outline for `TRACK`/`ROW`/`GCELLGRID`) is what actually distinguishes
-  same-color `ViewLayer`s from each other; see the class's own doc
-  comments for the palette/wraparound details (18 bright ROUTING/CUT
-  colors - primaries, then secondaries, tertiaries and tints - a via
-  sharing the metal below it - NEW_FEATURES_SEPT_2026.md
-  item 17). A user-picked color (`set_layer_color`, the Layers panel's
-  swatch picker) is `LeHandle::layer_color_overrides`, applied with
-  `ViewLayerSet::set_row_color` both by api.cpp's `rebuild_view_layers`
-  and by the render graph's `LayerGenerationStage`
-  (`ViewRenderOptions::layer_color_overrides`), and saved in the settings
-  file's `layer_colors`. `TRACK`/`ROUTING_BLOCKAGE`/
-  `ROW`/`GCELLGRID`/`PLACEMENT_BLOCKAGE` (Migration Step 2) plus `ROUTE`/
-  `REGION` (Step 3 Phase A) are the purposes `LayoutGeometryStage`
-  (`src/pipelines/stages/`) walks a `Layout`'s own direct content onto —
-  see that module's own bullet below. Fully covered by `view_style_test.cpp`.
-- `src/core/` — header-only generic building blocks: `placement_geometry.hpp`
-  (a Placement's own world-space bbox plus the E1 top-level Placement
-  hit-test built on it, used by `api.cpp`'s Layout-view selection and by
-  the pipelines module) and `row_geometry.hpp` (a Row's own synthesized
-  footprint bbox, Row having no stored `Shape` of its own).
-  `placement_move.hpp`/`fin_grid.hpp` (NEW_FEATURES_SEPT_2026.md item 2):
-  `plan_placement_move` applies an orientation change (keeping the bbox
-  center fixed), the delta, and per-placement snapping
-  (`PlacementSnapMode`: SITE only for a CORE-class Abstract, onto rows of
-  its own SITE, forcing an orientation in `row_allowed_orientations` —
-  the row's own closed under the ops the row Site's SYMMETRY permits —
-  else the manufacturing grid; FIN_GRID; MANUFACTURING_GRID; NONE).
-  `PlacementSnapper::permits` gates the immediate rotate/flip
-  (`le_apply_placement_orientation_op`) on that same Site symmetry, under
-  SITE snapping only. The FinFET grid is a LIBRARY `LEF58_FINFET`
-  PROPERTYDEFINITIONS default string, overridden by
-  `Technology.fin_pitch`/`fin_offset`/`fin_direction` (`update_technology`).
-  Covered by `core/tests/placement_move_test.cpp`.
-  `flightlines.hpp` (NEW_FEATURES_SEPT_2026.md item 5): the selected
-  placements' net connections — `NetEndpointIndex` (net -> placed pins and
-  top-level PhysicalPorts, built from `link`'s Placement.instance/Pin.net)
-  plus `placement_flightlines` (a star from each selected pin, skipping
-  nets whose fanout exceeds `LeHandle::flightline_max_fanout()` - 10 by
-  default, 0 = no limit, set under Hierarchy Depth in the Layers panel or
-  via `set_flightline_max_fanout`). Drawn by
-  `ComposeStage` as an overlay on the `FLIGHTLINE` purpose (hidden by
-  default); api.cpp caches the index per Root mutation and the lines per
-  selection (`LeHandle::flightline_cache`, see BENCHMARKS.md 2026-09-25).
-  `shape_resize.hpp` (NEW_FEATURES_SEPT_2026.md item 3): the Resize tool's
-  geometry — `find_resize_handle` (a rect edge, polygon edge or path
-  segment near a point) and `resize_piece` (drag it by a delta, snapped
-  per `ShapeSnapContext`: user/manufacturing/FinFET grid, path edges on
-  the manufacturing grid, path centerline on `layer_track_grids`).
-  `LeHandle::ResizeState` is the armed tool, the hover target and the
-  current grab. Two clicks, like Move: api.cpp's `le_set_mouse_position`
-  keeps the hover indicator current (ComposeStage's
-  `draw_resize_hover_overlay`, plus `le_resize_hover_axis` for the GUI's
-  resize cursor), `resize_click_unlocked` grabs on the first click and
-  commits one undoable "resize" on the second; Escape cancels a grab. The
-  ghost reuses the Move ghost overlay. Move (item 13) snaps each selected
-  path, via or via array on its own - `snap_moved_piece_delta` lands a
-  path's first centerline point or a via's origin on the snap target
-  (paths, vias and via arrays share one routing setting, also Resize's
-  path setting - `shape_snap_slot` - shown as one "Routing:" group while
-  moving), from the raw mouse offset - via api.cpp's
-  `moving_piece_deltas_unlocked`, shared by ghost and commit; rects and
-  polygons still move by the user-grid-snapped offset. Move refuses a
-  selection mixing Placements with anything else (`arm_move_unlocked`;
-  the Move button is disabled to match), like Resize with any Placement.
-  `RenderedShape`/
-  `TinyShapeDot`/`VersionedStage`/`ShapeGenerationStage` (the pre-restart
-  `pipeline` module's own shape-generation output/render-input types and
-  memoization primitive) were removed with the rest of `pipelines.old` -
-  `pipelines`' own `MemoizingStage` (`src/pipelines/tbb_core.hpp`) is the
-  current oneTBB-flow-graph memoization primitive every stage uses instead.
-- `src/pipelines/` — the render pipeline, built on oneTBB's `flow::graph`
-  (`ONETBB_INTEGRATION.md`'s migration; replaced the earlier
-  hand-rolled `src/pipeline`/`src/render`/`src/instancing` split, whose
-  own module docs are preserved in git history, not duplicated here).
-  `tbb_core.hpp` defines the two reusable primitives every stage builds
-  on: `MemoizingStage<InputData, OutputData, PipelineOptions>` (a
-  `tbb::flow::function_node` wrapper, Template Method pattern — a
-  subclass implements `compute()`, `MemoizingStage::execute()` calls it
-  only when `data_version` or, per an optional `options_did_change()`
-  override, `PipelineOptions` actually changed since the last
-  invocation, else returns the cached result; also emits a Tracy
-  `ZoneScoped`/`ZoneName` per real recompute) and `FanInCollectStage`
-  (a versioned parallel fan-in accumulator — since 2026-08-30, used by
-  `HierarchyResolver`'s own `HierarchyLayoutNodeStage::wire_fan_in` to
-  gather a Layout node's variable-arity (0 to 1,000,000), runtime-
-  determined placement count, which `join_node`/`indexer_node`'s
-  compile-time-fixed arity can't express; still otherwise unused
-  elsewhere, kept generic for a future per-`ViewLayerId` parallelism
-  pass too).
-  `PipelineOptions` (`pipeline_options.hpp`) is the one options type every
-  stage in the module shares — `PipelineContext` (raw, non-owning
-  `Root`/`ViewLayerSet`/`Scene` pointers), `FrameEpoch`
-  (`root_mutation_version`/`view_layers_generation`), `ViewportOptions`
-  (`viewport_version`/`visibility_version`/`scale`), `InteractionOptions`
-  (`mouse_version`/`selection_version`/`ruler_version`) — a stage's
-  `options_did_change` compares only the sub-fields it actually depends
-  on. `stages/*.hpp` are the per-file stage classes (`AbstractGeometryStage`/
-  `LayoutGeometryStage`, `ViewportFilterStage`/`LayerVisibilityFilterStage`
-  and their `Tiny*` siblings, `PixelTransformStage`/`TinyPixelTransformStage`,
-  `BuildDesignPictureStage`/`BuildTinyDotsPictureStage`/
-  `BuildLayoutPictureStage`, `RasterizePictureStage`, `MouseOverlayStage`/
-  `SelectionOverlayStage`/`RulerOverlayStage`, `ComposeStage`) — each a
-  near-verbatim port of the equivalent pre-migration stage's `compute()`
-  body, only the caching mechanism changed; each stage class's own doc
-  comment names which pre-migration stage it ports and its exact
-  recompute triggers. `via_shapes.hpp` (via-geometry expansion, shared by
-  `AbstractGeometryStage`/`LayoutGeometryStage`), `draw_helpers.hpp`
-  (style constants and free Skia drawing helpers — `draw_grid`,
-  `draw_group`, `pattern_shader`, `default_typeface()`'s own declaration,
-  etc.) and `pixel_types.hpp` (`PixelShape`/`PixelBuffer`/`RasterizedFrame`/
-  etc., pixel-space mirrors of `core`'s dbu-space types) are shared
-  support headers, not stages themselves.
-  Four `tbb::flow::graph`-owning pipeline classes wire stages together via
-  `make_edge`, each exposing a synchronous `run()`-style surface
-  (`try_put` + `wait_for_all` + read the sink) rather than requiring a
-  caller to drive the graph directly: `AbstractShapePipeline`/
-  `LayoutShapePipeline` (shape generation + viewport/size/layer
-  filtering — `run()`/`run_tiny_shapes()`; `AbstractShapePipeline` also
-  exposes `run_generate_shapes()`, the unfiltered `AbstractGeometryStage`
-  output alone, for fit-to-content/select-all callers that would
-  otherwise wrongly lose off-screen/tiny content to viewport/sub-pixel
-  culling), `DesignRenderPipeline` (pixel-transform → build-picture →
-  rasterize, design and tiny-shapes chains), `MouseTargetLayerPipeline`/
-  `SelectionGhostLayerPipeline` (the overlay/ghost layers), and
-  `FrameRenderPipeline` (top-level orchestrator combining the previous
-  three plus its own `ComposeStage` — mirrors the old `Renderer::render()`'s
-  own call order). `SynchronousStageRunner<Stage, InputData, OutputData>`
-  (`synchronous_stage_runner.hpp`) is the same synchronous-wrapper pattern
-  factored out standalone, for a caller that needs one stage's own cached
-  result without a full pipeline graph around it (`HierarchyResolver`'s
-  own persistent shape-generation/overlay stages; `api.cpp`'s few
-  standalone-filter call sites). `SynchronousStageChain<Stage1, InputData1,
-  Mid, Stage2, OutputData>` (same file) is the two-stage sibling — wires
-  `stage1 → stage2` via a real `make_edge` so the second stage's own
-  `data_version` is always exactly the first stage's own bumped
-  `version()`, never a value a caller threads through by hand (an
-  internal adapter node still lets the two stages take genuinely
-  different `PipelineOptions`, e.g. `record_local_picture`'s own
-  `ViewportThenLayerVisibilityChain` — `hierarchy_stage_support.hpp` —
-  needs a throwaway enclosing-viewport `Scene` for culling but the real
-  `Scene` for layer visibility). Added after a real bug
-  (BUGS_AND_ENHANCEMENTS.md B3's own postmortem): two independent
-  `SynchronousStageRunner`s called back to back, fed the same upstream
-  `data_version` by hand instead of chaining through `.last_version()`,
-  let a sub-pixel cull decision go stale across a live scale change and
-  never recover. `hit_test.hpp`'s `hit_test_point`/
-  `hit_test_rect` are plain free functions (not stages — the query point/
-  rect changes every call, nothing to memoize), ported verbatim from the
-  original `Pipeline` class's own static methods.
-  `HierarchyResolver` (`hierarchy_resolver.hpp`) is the
-  `Placement → Design` hierarchical-instance resolver — same design as
-  the original `InstanceRenderer` it replaced (same "local pixel space"
-  cached-`SkPicture` convention; same `ViewportFilterStage`/
-  `LayerVisibilityFilterStage`-per-node load-bearing correctness fix,
-  now *permanent, per-node-instance* members rather than fresh-per-call
-  locals — see the class's own doc comment for why that's *strictly
-  safer* than the original fresh-per-call rule, not merely still-safe:
-  each node is permanently bound to one id for its whole lifetime, so
-  the original rule's own aliasing hazard — a shared runner reused
-  across many different ids in one frame — can't occur by construction).
-  As of 2026-08-30 it *is* built on `MemoizingStage`/`flow::graph`,
-  reversing the original design's own decision to avoid that — see git
-  history for the pre-2026-08-30 version and its own "data-dependent
-  topology, 1,000,000-placement/frame frequency, reentrancy hazard"
-  rationale, which this design resolves differently rather than
-  ignoring: a single-threaded discovery pass
-  (`ensure_node_built`/`discover_layout_children`) walks the database
-  first, deciding the graph's own shape — one node per distinct
-  `NodeKey` (`Kind::Abstract` keyed on `AbstractId` alone, since an
-  Abstract's content never depends on `remaining_depth`; `Kind::Layout`
-  keyed `{LayoutId, remaining_depth}`, mirroring the old
-  `design_pictures_`/`layout_pictures_` map keys exactly) — *before* any
-  node ever executes, incrementally extending one persistent,
-  epoch-scoped `flow_graph` as new keys are discovered rather than
-  rebuilding a fixed topology per call. No node's own `compute()` ever
-  calls `try_put`/`wait_for_all` back into its own enclosing graph — the
-  original reentrancy hazard — since topology is decided by the
-  discovery pass, not by nodes recursing into each other. A Layout
-  node's own placement count (0 to 1,000,000 in the stress fixture) is
-  handled by `FanInCollectStage` (`join_node`/`indexer_node` need
-  compile-time-fixed arity), one fan-in edge per *placement*, so a
-  design placed N times is still resolved once and its single picture
-  broadcast to all N. Node lifetime within one epoch is bounded by
-  generation-stamped, reachability-based pruning
-  (`HierarchyNodeBase::last_touched_generation`/`touch_children`/
-  `sweep_stale_nodes` — needed since a `scene.hierarchy_depth()` change
-  alone doesn't bump `Epoch`, and each node now carries three permanent
-  private nested-graph runners, not just an `sk_sp<SkPicture>`); pruning
-  is two-pass (unwire every stale node's own incoming edges before
-  destroying any of them) since TBB `flow::graph` nodes don't
-  self-deregister from a predecessor's/successor's edge list on
-  destruction. `run_pending()`'s own `wait_for_all()` runs
-  *unconditionally* on every top-level call, even with nothing in its
-  explicit trigger lists — `HierarchyLayoutNodeStage::wire_fan_in`'s
-  "already computed" shortcut (an already-settled child shared by a
-  second top-level request within the same epoch, fed into the new
-  parent's fan-in via a direct `try_put`) seeds real async TBB work
-  untracked by those lists; skipping `wait_for_all()` in that case raced
-  `node->last_picture()` and `sweep_stale_nodes()`'s own destruction
-  against a still-in-flight `compute()` task — a real bug found while
-  building this (flaky recompute counts, a null picture, a "Pure
-  virtual function called" abort at teardown), not a theoretical one —
-  and costs nothing extra once fixed, since `wait_for_all()` on an
-  already-quiescent graph returns immediately. `top_layout_picture_stage_`
-  (the top-level `render_layout_frame` cache) stays a plain
-  `core::VersionedStage`, now a thin cache *in front of* the epoch's
-  graph rather than a node inside it (a graph node would force a rebuild
-  on every pan tick, defeating "rebuild only on epoch change"). See
-  `BENCHMARKS.md`'s 2026-08-30 entry for a same-fixture before/after
-  against the numbers below — a genuinely mixed, not-yet-fully-explained
-  result (`BuildLayoutPicture`'s own cold-resolve got faster;
-  `RenderLayoutFrame`'s own cold-full-depth case got slower) on a
-  fixture with only 3 distinct nodes despite 4,000,000 placements, so it
-  says little yet about this design's actual concurrent-node payoff case
-  — a wider fixture is still needed (that entry's own "Deferred" note).
-  `render_layout_frame` (what `api.cpp`'s
-  `le_render_pixel_buffer` calls when `Scene::current_layout()` is
-  active) shares `FrameRenderPipeline`'s own `RasterizePictureStage`/
-  `ComposeStage` instances with the Abstract-view path via
-  `run_design_rasterize`/`run_selection_rasterize`/etc., keeping the two
-  domains' version numbers disjoint with a `kLayoutVersionDomainTag`
-  high bit — the same trick `InstanceRenderer` used to fix a real bug
-  (two unrelated pictures landing on the same small version number).
-  `pipelines.cpp` is the module's one compiled TU (`add_library(pipelines
-  STATIC ...)`, not header-only) — isolates `SkFontMgr_mac_ct.h`/
-  `ApplicationServices.h` (legacy Carbon `Rect`/`Point`/`Polygon`
-  typedefs collide with `le::` types under `using namespace le`) to this
-  one file, which defines a free `default_typeface()` (declared in
-  `draw_helpers.hpp`); don't change this back to `INTERFACE`. Every
-  individual stage class is fully covered by `tests/pipelines_test.cpp`/
-  `render_pipelines_test.cpp`/`hierarchy_resolver_test.cpp` (real Skia
-  rasterize-and-sample assertions, cache hit/miss/invalidation behavior —
-  not just "didn't crash"); `benchmarks/` (`pipeline_benchmark.cpp`,
-  `render_preview.cpp`, `stress_data.hpp`/`layout_stress_data.hpp` — the
-  1,000,000-shape and 1,000,000-instance stress fixtures, `layout_stress_data.hpp`'s
-  own comment has the exact fixture shape) mirrors the old modules'
-  benchmark coverage; see `BENCHMARKS.md` for numbers and history.
-  Single-threaded internally — see README's Threading open design
-  question. After an edit, `HierarchyResolverStage` updates its previous
-  output incrementally from the Root change log (see Database codegen): a
-  node's shapes are split into immutable, shared `ViewShapeChunk`s (a
-  Layout's three fixed `LayoutChunk`s - diearea/blockages, ports/free
-  shapes, rows/tracks/gcells/regions - then its route tiles and placement
-  tiles, a grid of about 2000 routes/placements each; an Abstract's one),
-  and only the touched ones are rebuilt; anything it can't place
-  precisely falls back to the full resolve
-  (`last_compute_was_incremental()`). `ViewData::placement_tiles` are
-  shared immutable `ViewPlacementTile`s too, so `ViewportCullStage`'s
-  per-tile index and `RasterizeBlend2DStage`'s per-chunk route-outline
-  cache survive edits that don't touch them. Chunks with selectable
-  content (route tiles, PORTS, placement tiles) carry `ChunkSources` - the
-  ShapeId behind each render shape (a via's owning Shape), the PlacementId
-  behind each batched placement rect - so Layout-view click and
-  rubber-band selection (api.cpp's `layout_candidates`) query the render
-  tree of the last resolver output (`ViewRenderPipeline::resolved_output()`)
-  plus anything edited since it, then exact-test only those candidates;
-  with no matching render (or edits that could move objects unlogged) they
-  scan the whole Layout (BENCHMARKS.md 2026-09-27).
-  A nested node's image covers its `ViewData::extent` (declared
-  diearea/boundary grown to everything it draws, placements included —
-  `HierarchyResolverStage::assign_extents`), not just its boundary, so a
-  cell's overhanging pins/obstructions still draw one level up;
-  `ViewportCullStage` culls placements by `ViewPlacementData::extent` too. No external, machine-specific checkout to provision — Blend2D
-  is fetched and statically built via CMake `FetchContent` (see the Open
-  Gaps entry below for the Skia checkout this once required).
-- `src/io/` — format readers/writers. `lef_reader.{hpp,cpp}`/
-  `lef_writer.{hpp,cpp}` drive the vendored `lefr*`/`lefw*` LEF-parser C
-  API and populate/walk `Root` via the generated create/get API. Tested
-  against `src/lefdef/lef/TEST/complete.5.8.lef` (the vendored parser's
-  own regression fixture) plus small hand-written `.lef` files under
-  `src/io/tests/fixtures/` for cases that fixture doesn't hit. `LEFReader`
-  only supports a subset of LEF; extend the tests as more constructs get
-  support. `orientation_from_parser`/`routing_direction_from_parser`/
-  `signal_direction_from_parser` are `public` (unlike the rest of
-  `LEFReader`) so they can be unit-tested directly — pure, no
-  parser/instance state.
-  `def_reader.{hpp,cpp}` mirrors `LEFReader`'s own shape for the vendored
-  `defr*` DEF-parser C API, populating `Layout`/`Row`/`Track`/`GCellGrid`/
-  `Placement`/`PhysicalPort`/`PhysicalPortSegment`/`Blockage`/`LayoutVia`/
-  `Region`/`Route`/`NonDefaultRule` (`schema.py`) — the full Step 1 reader
-  scope (DESIGN/VERSION/UNITS/DIEAREA/ROW/TRACKS/GCELLGRID/COMPONENTS/
-  PINS/BLOCKAGES/VIAS/REGIONS/NETS/SPECIALNETS/NONDEFAULTRULES). NETS/
-  SPECIALNETS cover routing *geometry* only, not connectivity — see
-  `Route`'s own `schema.py` comment.
-  PINS geometry is stored in design coordinates (NEW_FEATURES_SEPT_2026.md
-  item 28): DEF gives it relative to the pin's (or 5.7+ PORT's) PLACED
-  point and orientation, so `DEFReader` applies `Geometry::pin_transform`
-  and `DEFWriter` inverts it on write. Hit-testing, selection and
-  `HierarchyResolverStage::append_physical_port_shapes` (shapes on
-  TERMINAL, the port name as a label, and a light-gray direction triangle
-  on the `PORT_MARKER` pseudo-row — `pipelines/port_markers.hpp`; the
-  rasterizer grows each port's marker to at least 3x3 px about the port's
-  outer-edge midpoint, `enlarged_port_marker`) all use the stored shapes
-  directly. Via geometry in a rotated pin is placed but
-  not rotated.
-  `def_writer.{hpp,cpp}` mirrors `LEFWriter`'s own shape for the direct
-  (non-callback) `defwWriter.hpp` API, covering the mirror image of
-  `DEFReader`'s scope. Unlike LEF, DEF coordinates need no
-  `microns_to_dbu()`-style conversion at write time either (see the DBU
-  paragraph below) — the one exception, NONDEFAULTRULES LAYER WIDTH/etc,
-  is real vendored-writer gap (see `LEFDEF_BUGS.md`'s "DEF writer" section:
-  `defwNonDefaultRuleLayer` only accepts a plain `int`, so this loses
-  sub-micron precision on write, same asymmetric-precision shape as the
-  reader-side finding). `write_def` uses `defwInitCbk()`, not `defwInit()`
-  — also documented in `LEFDEF_BUGS.md` (a state-machine gap: `defwInit()`
-  writes `VERSION` as text but never updates the internal version-gate
-  variable later calls like `defwTracks`' `MASK` check against, and the
-  "proper" fix, calling `defwVersion()` after, requires a `defwState` only
-  `defwInitCbk()` leaves behind). Tested the same way as `DEFReader`
-  (`def_writer_test.cpp`, reusing `complete.5.8.def` for a
-  read→write→re-read round trip per construct, plus a `defdiff`-based
-  `DEFWriterLefdiffFidelity` test — deliberately narrower than LEF's own
-  analogous `LEFWriterLefdiffFidelity`, since `DEFWriter`'s own scope
-  (mirroring `DEFReader`'s) excludes far more of `complete.5.8.def`'s
-  content than `LEFWriter` excludes of `complete.5.8.lef`'s — see that
-  test's own comment for the full excluded-construct list).
-  Most DEF coordinate/dimension values (ROW/TRACKS/GCELLGRID/DIEAREA/
-  COMPONENTS placement, routed-path points, etc.) are already expressed
-  directly in database units in the file itself, unlike LEF (fully
-  micron-based, every value needing `microns_to_dbu()`) — confirmed
-  against `complete.5.8.def`'s own fixture data, `DEFReader` casts these
-  directly to `int64_t`/`int`, scaled through `scale_dbu()`/
-  `DEFReader::unit_scale_` (see below) rather than passed through
-  unconverted. The one confirmed exception is NONDEFAULTRULES LAYER
-  WIDTH/SPACING/WIREEXT/DIAGWIDTH, written in real microns —
-  `defiNonDefault`'s own `layerWidthVal()`-style accessors looked like
-  the DBU-converted form but actually just truncate the raw micron double
-  to an int (found by testing against real fixture values: `10.1` came
-  back as `10`, not `10100`) — real conversion needs the plain micron
-  accessor times the shared `Technology`'s own `database_units_microns`,
-  same as every LEF conversion (this one is unaffected by `unit_scale_` -
-  it's derived from real microns directly, not from this DEF's own raw
-  dbu integers, so there's nothing to rescale). `DEFReader` only
-  resolves/creates that shared `Technology` (mirroring `LEFReader`'s own
-  reuse-or-create), and `defrUnitsCbkFn` writes `database_units_microns`
-  from DEF's own `UNITS DISTANCE MICRONS` the same way LEF's own units
-  callback does - **only** when the Technology didn't already have one
-  (e.g. from an earlier LEF read). When this DEF's own UNITS instead
-  *disagrees* with an already-established Technology scale,
-  `defrUnitsCbkFn` leaves `database_units_microns` alone (every
-  already-created Shape assumed that original scale) and instead sets
-  `unit_scale_ = technology->database_units_microns / units`, which every
-  later raw-value conversion site (`scale_dbu()`, threaded through
-  `polygon_from_die_area`/`shapes_from_pin_like`/
-  `append_shapes_from_path`/every other geometry callback) multiplies
-  through - a real, previously-missing conversion (the old code logged an
-  error and left the DEF's raw values unconverted, silently misreading
-  them at the wrong grid resolution). Logs a `WARNING` (not an `ERROR` -
-  matches `LEFReader::lefrUnitsCbkFn`'s own tone for the same situation,
-  which doesn't need this scaling at all since LEF geometry is always
-  real microns re-derived through the Technology's scale regardless of
-  what the file's own UNITS said) either way; when this DEF's own units
-  are coarser than the technology's (`units < database_units_microns`),
-  the message calls out that the scaled-up geometry still can't carry
-  more precision than its own coarser original grid had.
-  `Shape.layer` (both readers) and `Placement.reference_design` (`DEFReader`
-  only) are resolved references, not stored names/strings — every reader
-  callsite resolves the LEF/DEF-declared name against the shared
-  `Technology`/`Library` (`get_layer_by_name`/`get_design_by_name`) at
-  creation time and logs an error + skips creating that Shape/Placement
-  if it doesn't resolve, rather than storing an unresolved name that could
-  later go stale (e.g. if the referenced Layer/Design is renamed). This
-  requires the real Technology (tech LEF) to always be read before a DEF
-  that references its layers, and the referenced macro/cell Designs to
-  already exist before the DEF that instantiates them — the normal real-
-  world read order anyway. `Shape.layer` is `Optional[Layer]`, not
-  required, though: a Shape that isn't real LEF/DEF routing/terminal/
-  obstruction/routing-blockage geometry (`Abstract.boundary`/
-  `Layout.diearea`, a DEF PLACEMENT blockage's own region - unlike a
-  ROUTING blockage, which sits on a real routing Layer like any other
-  real geometry) has no physical layer at all, so it sets `Shape.purpose`
-  (`ShapePurpose::BOUNDARY`/`PLACEMENT_BLOCKAGE`) instead - see `Shape.
-  layer`/`.purpose`'s own schema.py comments for why exactly one of the
-  two is ever set (documented convention, not database-enforced, same as
-  e.g. `Blockage.spacing`/`design_rule_width`'s own precedent) rather
-  than a fake Technology `Layer` standing in for a non-physical-layer
-  concept, which would pollute `Technology.layers` (a real LEF/DEF
-  stack) for every consumer that walks it. `ViewLayerSet` (`src/
-  view_style/`) builds the `BOUNDARY` `ViewLayer`/row directly off this
-  closed enum, independent of `Technology.layers`, the same way
-  `ViewLayerPurpose` (a parallel, rendering-only enum) already keeps
-  the "what kind of object drew this" concept separate from LEF
-  vocabulary; `ShapePurpose::PLACEMENT_BLOCKAGE` has no `ViewLayer`
-  resolution yet - Layout/DEF content isn't rendered at all yet (Step
-  2/3 of the migration plan), so there's no consumer for one until that
-  lands. See `codegen/codegen/schema.py`'s `Field.
-  is_plain_reference_field()`/`Klass.get_reference_create_fields()` for
-  the small, separate codegen mechanism giving a plain (non-parent)
-  reference field like `Shape.layer` its own resolved-by-token
-  `create_<type>`/`update_<type>` flag (required or optional - an
-  omitted optional one follows the same "invalid/default id means
-  unset" convention a parent field's own token already does, no
-  has-flag needed at create time, though `update_<type>` still gets one
-  there since nothing is ever required to update), deliberately kept
-  apart from `get_parent_fields()` (which several structural concerns -
-  `is_child` enumeration, delete cascade, `tcl_scope`'s current-instance-
-  anchor algorithm - depend on and must not see a field like this as a
-  parent/ownership relationship).
-  Tested against `src/lefdef/def/TEST/complete.5.8.def` (`def_reader_test.cpp`)
-  — that fixture has no companion LEF of its own (a grammar-coverage
-  fixture, not a real design), so `DEFReaderCompleteFixture`'s own
-  `SetUp()` pre-populates the Technology/Library with exactly the layer
-  names/macro names it references, playing the role a real LEF read
-  would otherwise.
-- `src/sv/` — `sv_reader.{hpp,cpp}`, `SVReader`: reads SystemVerilog/
-  Verilog into the logical connectivity model (`Schematic`/`Port`/`Net`/
-  `Instance`/`Pin` — see `SCHEMA.md`'s "SystemVerilog Reading Flow"),
-  using the vendored [slang](https://sv-lang.com) frontend (fetched via
-  CMake `FetchContent`, pinned to the `v11.0` tag — see `CMakeLists.txt`'s
-  own `slang` block for the real fmt/spdlog/Boost version-collision fixes
-  that took to get it linking cleanly into this project's own dependency
-  graph, not just a plain `add_subdirectory`). Two entry points, mirroring
-  `LEFReader`/`DEFReader`'s one-function-per-reading-mode convention
-  rather than a single flag-driven call: `read_netlist` (full
-  `slang::ast::Compilation` elaboration — accurate parameter/generate-
-  block resolution, for a real gate-level netlist, but does not tolerate
-  errors in a module's own structural content) and `read_rtl`
-  (`slang::syntax::SyntaxTree` only, no elaboration — tolerant of invalid
-  or unsupported content, storing it directly on an `Instance` rather
-  than a separate klass — see `Instance.rtl_text`'s own schema.py
-  comment). Both flavors share a get-or-create-Design/Schematic helper
-  (mirroring `LEFReader::lefrMacroBeginCbkFn`'s own reuse-or-create
-  pattern) and end by calling `link_unresolved_instances` — a standalone,
-  re-runnable static method that resolves any `Instance` whose
-  `reference_name` doesn't yet have a matching `Design` (the common case
-  for a netlist referencing standard cells not yet read via LEF), so it
-  can pick up a `Design` created by a *later* read on the same `Root`
-  too. A connection's value (net vs. a bus bit-select vs. an
-  unstructured raw expression, see `Pin.net`/`.net_bit_index`/
-  `.raw_expression`) is classified from a real elaborated `Expression` in
-  the netlist flavor, but from the connection's own verbatim source text
-  in the RTL flavor (no elaborated `Expression` exists to classify — RTL
-  flavor also doesn't evaluate bit widths at all, unlike the netlist
-  flavor's use of the elaborated `Type`, so its own `Port.msb`/`.lsb`
-  always come back unset regardless of the real declared width). Fully
-  covered by `sv_reader_test.cpp`, including a spike-turned-permanent
-  test fixture (`rtl_invalid_body.sv`) confirming slang's own diagnostic-
-  location filtering behaves as the RTL flavor's per-construct fallback
-  design assumes. `src/tcl/tests/sv_test.tcl` (`le_tcl_sv` ctest target)
-  exercises the same reader through `read_verilog -netlist|-rtl` and the
-  generated TCL `get_<type>` surface (`link` — the TCL-facing name for
-  `link_unresolved_instances` — isn't itself exercised there yet) —
-  originally unverified end-to-end (`le_tcl` couldn't build at all without
-  a Skia checkout this environment lacked), now confirmed passing via a
-  real `ctest -R le_tcl_sv` run once Skia was removed from the build
-  entirely (see the Open Gaps entry below).
-- `src/api/` — `api.hpp`/`api.cpp`, the C API surface a Flutter plugin's
-  Dart FFI binds to: an opaque `LeHandle` (`le_create`/`le_destroy`)
-  wrapping one `Root`/`ViewLayerSet` plus the pipelines module's own
-  `ViewRenderPipeline` per handle (reused across calls, not reconstructed
-  per call); `le_read_lef` (callable multiple times on one handle — e.g.
-  tech file then macro file(s)); every read (`le_read_lef`/`_def`/
-  `_verilog`, TCL `-library`) takes a required library name
-  (NEW_FEATURES_SEPT_2026.md item 4 — `database/library_helpers.hpp`:
-  the library is get-or-created by name; a Design is matched by its
-  global name and only a new one lands in that library; re-reading a
-  view a Design already has is an error that fails the read); `le_read_verilog`/
-  `le_link_unresolved_instances` (`SVReader`, `src/sv/`'s own bullet
-  above); `le_design_count`/`le_design_name`/
-  `le_set_current_design`; `le_set_pan`/`le_set_scale`/
-  `le_set_viewport_size`; and `le_render_pixel_buffer`. `api.hpp` must
-  stay plain C — no `std::` types, default arguments, or overloads in any
-  public declaration — so it parses cleanly for `ffigen`/Dart FFI;
-  `LeHandle`'s real definition lives in `api/le_handle.hpp` (included
-  only by `api.cpp` and its own tests, never by `api.hpp`). Every
-  function null-checks its handle and degrades gracefully rather than
-  crashing. Fully covered by `api_test.cpp`, using a small hand-written
-  `.lef` fixture; `le_handle_test.cpp` covers `LeHandle` itself in
-  isolation (constructed directly, no C API layer). Depends on
-  `database`, `geometry`, `editing`, `view_style`, `pipelines`, `io`.
+  truth; `generated/` is produced from it and never hand-edited (see
+  Database codegen). `database.hpp` is the single public include. Also
+  hand-written helpers: `filter.hpp` (the `-filter` expression parser/
+  evaluator and property-path resolver), `library_helpers.hpp`
+  (get-or-create Library/Design by name for every reader),
+  `hierarchical_resolver.hpp`/`schematic_layout_linker.hpp`/
+  `rename_propagation.hpp` (Schematic<->Layout linking, design in
+  `docs/LINKING_STRATEGY_RESEARCH.md`).
+- `src/geometry/` — `Geometry`, a Boost.Geometry wrapper (bbox, overlap,
+  transforms, union/buffer, label placement, piece hit-tests,
+  ITERATE expansion) over the database's `Point`/`Rect`/`Polygon`/`Path`/
+  `Shape`. `shape_ops.hpp` backs the `shape_*` Tcl commands (boolean ops,
+  conversions, sizing) on a Shape's merged area; a holed result is emitted
+  as exact rects since `Polygon` can't hold a hole. Results go to the
+  current Abstract/Layout's `free_shapes` unless `-parent` says otherwise -
+  never written by `write_lef`/`write_def`.
+- `src/view_style/` — `ViewLayerSet`/`ViewLayer`: the rendering-layer
+  concept, distinct from LEF/DEF layers. `ViewLayerPurpose` is a closed,
+  application-owned enum: per physical Layer `TERMINAL`/`OBSTRUCTION`/
+  `TRACK_PREFERRED`/`TRACK_NON_PREFERRED`/`ROUTING_BLOCKAGE`/`ROUTE`/
+  `CUSTOM_SHAPE`, plus pseudo-rows with no Layer (`ROW`, `BOUNDARY`,
+  `PLACEMENT`, `GCELLGRID`, `PLACEMENT_BLOCKAGE`, `REGION`, `DEBUG`,
+  `FLIGHTLINE`, `PORT_MARKER`). Its raw ordinals cross the C API and are
+  mirrored by hand in `layer_manager.cpp` and `le_tcl_procs.tcl` - append,
+  don't reorder. Each Layer gets one palette color shared by its columns;
+  `FillPattern` distinguishes them. User-picked colors
+  (`LeHandle::layer_color_overrides`) are applied on top.
+- `src/core/` — header-only editing/hit-test geometry shared by `api` and
+  `pipelines`: `placement_geometry.hpp` (placement world bboxes; Placement,
+  Abstract-view and Layout-view hit-tests), `row_geometry.hpp` (a Row's
+  synthesized footprint), `placement_move.hpp`/`fin_grid.hpp` (Placement
+  Move planning and snapping: SITE rows for CORE cells, fin grid,
+  manufacturing grid), `shape_resize.hpp` (Resize handles and snapping;
+  also how Move snaps paths/vias), `flightlines.hpp` (net connections of the
+  selected placements).
+- `src/pipelines/` — the render pipeline, one oneTBB `flow::graph`
+  (`ViewRenderPipeline`, design in `docs/PIPELINE_REFACTOR.md`):
+  `LayerGenerationStage` -> `HierarchyResolverStage` -> `ViewportCullStage`
+  -> `RasterizeBlend2DStage` -> `ComposeStage`. Every stage is a
+  `MemoizingStage` (`tbb_core.hpp`) that recomputes only when its input
+  version or the options it reads (`options_did_change`) change;
+  `ViewRenderOptions` (`pipeline_options.hpp`) is the one shared options
+  type. A stage's dependencies travel in `data`, not `options`.
+  - `HierarchyResolverStage` walks `Placement -> Design` from the top level,
+    one hop per unit of `hierarchy_depth`, resolving each Abstract/Layout
+    once however often it's placed. After an edit it updates incrementally
+    from the Root change log: a node's shapes are immutable shared
+    `ViewShapeChunk`s (a Layout's fixed chunks plus spatial tiles of ~2000
+    routes/placements), and only touched chunks rebuild; anything it can't
+    place falls back to a full resolve (`last_compute_was_incremental()`).
+    Chunks carry `ChunkSources` so Layout-view selection queries the last
+    resolved render tree (`ViewRenderPipeline::resolved_output()`, api.cpp's
+    `layout_candidates`) instead of scanning the Layout.
+  - `ViewportCullStage` prunes to the viewport with per-node spatial
+    indexes; sub-pixel placements are culled whole.
+  - `RasterizeBlend2DStage` rasterizes each node's own shapes to a
+    `BLImage` (fill patterns, labels via a cached monospace glyph atlas,
+    port markers, the background grid for the top level); `ComposeStage`
+    composites children and draws the overlays (selection, flightlines,
+    Move ghost, Resize hover, cursor box, rulers, drag rectangle).
+  - `via_shapes.hpp` expands vias/via arrays at render time;
+    `draw_helpers.hpp` holds style constants and shared drawing helpers.
+  - `pipelines.cpp` is the module's one compiled TU
+    (`default_blend2d_font_face()`, loading the bundled font from
+    `LE_FONT_DIR` = `assets/fonts/`).
+- `src/io/` — `LEFReader`/`LEFWriter`/`DEFReader`/`DEFWriter` over the
+  vendored `lefr*`/`lefw*`/`defr*`/`defw*` APIs. See "LEF/DEF notes" below.
+- `src/sv/` — `SVReader`: SystemVerilog/Verilog into the logical model
+  (`Schematic`/`Port`/`Net`/`Instance`/`Pin`) via the slang frontend.
+  `read_netlist` elaborates (accurate, intolerant of errors); `read_rtl` is
+  syntax-only and stores unsupported content on `Instance.rtl_text`. Both
+  end with `link_unresolved_instances`, which is re-runnable so a later
+  LEF read can resolve standard cells.
+- `src/persistence/` — the native `.led` database file (`write_db`/
+  `read_db`), columnar and zstd-compressed, driven by codegen's
+  `native_tables.hpp`; loads older schema versions by name plus the
+  migration chain. Design in `docs/NATIVE_FILE_FORMAT_RESEARCH.md`.
+- `src/editing/` — undo/redo: `CommandHistory` (one per handle),
+  `Transaction`, `ICommand`. Every generated create/update/delete records
+  itself into the recording transaction; `le_repl_eval` and GUI edits
+  (Move, Resize, Delete) bracket one.
+- `src/api/` — `api.hpp`/`api.cpp`, the plain-C API every front end calls
+  (no `std::` types, default arguments or overloads in public
+  declarations). `LeHandle` (`le_handle.hpp`, never included by `api.hpp`)
+  owns one `Root`, `ViewLayerSet`, `ViewRenderPipeline`, `CommandHistory`,
+  and all view/interaction state: current Abstract *or* Layout (mutually
+  exclusive by convention), pan/scale, visibility/selectability, selection
+  (`SelectedObject` = `std::variant<ShapePiece, RowId, PlacementId,
+  RegionId>`), rulers, Move/Resize state, mode (`SELECT`/`EDIT`/`RULER`;
+  only Select changes the selection). Every function null-checks its
+  handle. Read-only calls take the handle's `shared_mutex` shared so the
+  GUI stays live during a render; mutations take it exclusive. Vias and
+  via arrays are selectable pieces hit-tested in api.cpp (their geometry
+  comes from `pipelines/via_shapes.hpp`, which `core` can't depend on).
+- `src/tcl/` — the Tcl surface: `le_api.i` (SWIG) wraps `le_tcl_shim` into
+  `le_tcl.so`; `le_tcl_procs.tcl` parses `-flag value` syntax and builds
+  dicts/lists. Domain-verb command names, no visible handle, friendly ids
+  (`terminal:IN0`, `shape:12`). Property reading, `get_<type>`,
+  `create_<type>`, `update_<type>` and `delete_<type>` are generated for
+  every readable class (see TCL codegen). `le_repl_eval` is the bracket
+  point that makes a typed command undoable and recallable. `le_shell.cpp`
+  is the shell: readline console on a spawned thread, the GUI loop on the
+  main thread (GLFW requires it on macOS), one shared `LeHandle` injected
+  via `set_session_handle`.
+- `src/gui/` — the Dear ImGui GUI (`le_gui.cpp`, `gui_provider.*`,
+  `components/`). `GuiProvider` is its only contact with the C API.
+  Rendering runs on a background thread woken by
+  `le_wait_for_render_needed`; panels read under the shared lock so they
+  never block on a render. Actions that should appear in command history
+  (layer visibility, hierarchy depth, ...) are queued as Tcl commands
+  (`le_enqueue_tcl_command`) for le_shell's console thread to run. Settings
+  persist to `~/.layout_engine/settings.json` (loaded in interactive mode
+  only), the dock layout to `~/.layout_engine/window_layout.ini`. No
+  automated coverage of the render/input loop itself.
+- `src/lefdef/` — vendored Si2 LEF/DEF 6.0.62-p004 parser source, built by
+  its own Makefiles via `ExternalProject_Add` (`lef_lib`/`def_lib`). Never
+  hand-edit.
 
-  `LeHandle` also owns every piece of per-handle mutable view/interaction
-  state (formerly a separate `le::Scene` class, folded directly onto
-  `LeHandle` since there's exactly one such state object per handle, not
-  two): currently displayed `AbstractId` *and*, independently, `LayoutId`
-  (Migration Step 3 Phase C — `current_abstract()`/`current_layout()` are
-  mutually exclusive by convention, enforced by every `api.cpp` caller
-  that changes the view, not by `LeHandle` itself), a `hierarchy_depth()`
-  (how many further `Placement → Design` levels a Layout view recurses
-  into before falling back to a placed instance's own Abstract — see
-  `src/pipelines/`'s own `HierarchyResolver` bullet), pan/scale/viewport-
-  size transform, per-`ViewLayer` visibility, selection, rulers,
-  Move-drag state, and interaction mode. A Move with Placements selected
-  (`moving_placements()`) is planned per frame against Root by api.cpp's
-  `plan_moving_placements_unlocked` — shared by the ghost and the commit —
-  from the raw (not user-grid-snapped) mouse delta and
-  `placement_snap_mode()`. Layer visibility is keyed by
-  `ViewLayerId`, not `LayerId` — a physical layer has independently
-  toggleable `TERMINAL`/`OBSTRUCTION` visibility. Selection
-  (`LeHandle::SelectedObject`) is `std::variant<ShapePiece, RowId,
-  PlacementId, RegionId>` (E1) — extend the variant as more selectable
-  kinds need it rather than generalizing early. A via instance
-  (`Shape.vias`) is a `ShapePiece` of `PieceKind::VIA`
-  (NEW_FEATURES_SEPT_2026.md item 6): api.cpp hit-tests vias itself
-  (`hit_test_via_point_all`/`hit_test_via_rect` - its geometry comes from
-  `pipelines/via_shapes.hpp`, which `core` can't depend on), a via comes
-  first under a click, and Move moves its origin. A plain Select-mode
-  click cycles through everything under the mouse
-  (`objects_under_point_unlocked`: vias, then shape pieces topmost layer
-  first, then placements): with the one previously-selected object among
-  them, the next is selected; shift-click adds the first one not yet
-  selected (so repeated shift-clicks add a stack one object at a time). There is no
-  hover highlight (removed on request) - only the Resize tool's own
-  edge indicator. The generated
-  `update_shape`/`apply_shape_snapshot` don't carry `vias`/`via_iterates`,
-  so Shape edits record `apply_shape_snapshot_with_vias` for undo.
-  `le_delete_selected_pieces` (NEW_FEATURES_SEPT_2026.md item 29 - the
-  Edit-mode toolbar's Delete button, the Del key in Edit mode,
-  `delete_selected_pieces` in Tcl) removes just the selected pieces from
-  their Shapes (and their index-parallel DEF masks), deleting a Shape left
-  with no geometry but never its owner, as one undoable step. A via
-  array (`Shape.via_iterates`) is one `PieceKind::VIA_ITERATE` piece
-  (item 12): its hit box is its first instance's stretched over every
-  step, a click anywhere in it picks the whole array, and Move moves its
-  origin. `LeHandle::Mode`
-  (`SELECT`/`EDIT`/`RULER`, UPDATES.md items 11/13) is Select by default —
-  Select is the only mode where `le_mouse_up` changes the current
-  selection; Edit mode restricts mouse interaction to editing whatever is
-  already selected.
-- `src/tcl/` — `le_api.i` (SWIG), `le_tcl_shim.hpp`/`.cpp`, `le_tcl_procs.tcl`:
-  a Tcl-facing scripting surface wrapping `api.hpp` (see TCL_EXPLORATION.md),
-  distinct from `src/api/`'s Dart-FFI-facing one — domain verb command
-  names, no visible handle, friendly string ids (`"terminal:NAME"`/
-  `"layer:M1"`/`"shape:3"`, name-based or numeric depending on the class -
-  see `le_tcl_shim.hpp`'s own "IDs" comment) instead of raw `Le*Id` structs.
-  `le_shell` (Tcl_Main-based) and any `tclsh` can both load `le_tcl.so` and
-  source `le_tcl_procs.tcl`. Property *reading* (property tables,
-  friendly-id resolution, `is_child` enumeration), `get_<type>` search,
-  `create_<type>`, `update_<type>`, and `delete_<type>` are all generated
-  uniformly for every TCL-readable class — see "TCL codegen" below.
-  `update_<type>` is the *only* way any field is ever mutated after
-  creation — there is no generated or hand-written per-field setter
-  reachable from TCL (a narrower, pre-existing generated
-  `Root::set_<klass>_<field>()` still exists at the C++ `Root` layer for
-  fields with `.parent`/`.index` set, but nothing calls it — see "Database
-  codegen" below). `delete_<type>` cascades to every owned pool-backed
-  child reachable through `Klass.tcl_child_list_fields()`, however many
-  schema-graph levels deep that goes for a given class (recursively
-  expanded at Python codegen time, not a runtime-recursive C++ helper —
-  see `Klass.delete_api_body()`'s own docstring, `codegen/codegen/schema.py`);
-  a class with no such fields (most of the ~35) gets a trivial,
-  non-cascading delete instead. `delete_<type>` used to be the last
-  hand-written CRUD surface, for `Terminal`/`TerminalPort`/`Obstruction`/
-  `Shape` — the classes this MVP actually edits at all beyond creation —
-  but is generated uniformly now too, including for read-only LEF
-  technology reference data (`Technology`/`Layer`/`Via`/...), which
-  nonetheless still gets a generated `create_<type>`/`update_<type>`/
-  `delete_<type>` triple like every other class (nothing calls any of the
-  three for those classes today, but it costs nothing extra to generate
-  uniformly). `create_<type>`/`update_<type>` also cover a *list* of
-  flattenable embedded structs (`Field.list_compound_kind()`, e.g.
-  `Shape.rects`/`.polygons`/`.paths` — a `-rects {{{ll_x ll_y} {ur_x ur_y}}
-  ...}`-shaped flag per field, brace-nested per point since
-  BUGS_AND_ENHANCEMENTS.md E21, matching the same convention
-  `get_properties`'s own display already used), not just a single one — the former
-  hand-written `add_shape_rect`/`_polygon`/`_path` are gone, superseded by
-  `create_shape`/`update_shape`'s own generated flags (`update_shape`'s
-  own flag replaces the *whole* list, it doesn't append — a script
-  updating one entry among several reads the current list via
-  `get_properties`/`shape_rects` etc. and passes the full replacement).
-  `remove_shape_rect`/`_polygon`/`_path` (remove one entry by index) are
-  the sole remaining hand-written CRUD-ish leftover, since removing one
-  geometry entry by index isn't per-class flag-driven CRUD in the same
-  sense `delete_<type>` is. `Abstract.boundary`/`Layout.diearea` are each
-  a real child `Shape` (not a bare polygon list) — reusing `Shape`'s own
-  proven create/update machinery instead of adding bespoke single/list-
-  Polygon-field support, since no other field in the schema has that
-  shape — see `Field.create_excluded` in `codegen/codegen/schema.py`
-  for fields still deliberately deferred. Fully covered by
-  `src/tcl/tests/smoke_test.tcl`/`crud_test.tcl`/`shell_test.tcl` (run via
-  `tclsh8.6`, not the generic `tclsh` — see the `build-test` skill).
-- `src/gui/` — Dear ImGui prototype: `le_gui.hpp`'s one public function,
-  `run_main_thread_loop(LeHandle*)`, opens a GLFW + Dear ImGui window on
-  `show_gui` (a Tcl command, `le_tcl_procs.tcl`), rendering the handle's
-  own `le_render_pixel_buffer` output into a GL texture each frame and
-  translating GLFW/ImGui mouse/keyboard input into the same `le_*` calls
-  a script's own zoom/pan/select/mode commands would use — replacing
-  Flutter for a CPU-only-Linux-VM deploy target Flutter's own GPU-
-  oriented rendering performs poorly on. Depends only on `api` plus GLFW/
-  Dear ImGui (unconditional, always fetched/built — not an optional
-  build feature; same for readline, below) — no Tcl/SWIG dependency, and
-  no knowledge that `le_shell` (its only caller) exists.
-  `le_shell.cpp` is the only place Tcl and `gui` meet: its own `main()`
-  creates one `LeHandle`, spawns the interactive Tcl console on a
-  background thread (injecting that same handle via
-  `set_session_handle`, the same mechanism the Flutter plugin's own
-  `LeTclBridge` uses), and calls `le::gui::run_main_thread_loop` on the
-  process's own true main thread — required there since GLFW only
-  allows window/context creation on the main thread on macOS (harmless
-  on Linux, which has no such restriction); this is also why the console
-  can no longer run directly on the process's own main thread the way it
-  did before this existed. `show_gui`'s own signal
-  (`LeHandle::gui_show_requested_`/`le_request_show_gui`/
-  `le_take_show_gui_request`, `api.hpp`) is a one-shot atomic flag,
-  mirroring `is_rendering_`/`le_is_rendering`'s own established shape —
-  the Tcl console thread sets it and returns immediately, the GUI
-  thread's own idle loop polls and consumes it. No GL loader dependency
-  (glad/gl3w/GLEW): every GL call this module makes directly (texture
-  upload) is OpenGL 1.1 core, declared by the system GL headers on both
-  target platforms without one, and Dear ImGui's own opengl3 backend
-  bundles its own minimal loader for its internal GL 3.2 core-profile
-  calls. `le_shell`'s own interactive prompt also links GNU readline
-  unconditionally (real line editing, recall history, Tab completion via
-  `complete_command` — see this file's `src/tcl/` bullet) — both this
-  and the GUI window are mandatory dependencies now, since `le_shell` is
-  the only user-facing way to run Tcl commands or open a design window;
-  a machine missing either fails configure with a clear CMake error
-  rather than silently degrading (e.g. the Rocky Linux 8 bootstrap
-  effort, see Open gaps below, needs to provision both, not route around
-  them). `components/secondary_toolbar.cpp` is the tool-options row
-  under ModeToolbar (the placement toolbar: Move snap mode plus
-  immediately-committed rotate/flip, disabled once a Move's first click
-  has anchored it; Resize's per-kind snap groups; Move's path/via snap
-  groups, item 13 - a group that won't fit wraps onto another line);
-  le_gui.cpp overlays it on the design view's top edge rather than
-  inserting a row, so showing it never resizes the viewport (its height
-  auto-sizes to the wrapped lines). `components/info_panel.cpp` (item 15)
-  is the Info window docked along the bottom of the right sidebar: the
-  current mode's instructions (`le_tooltip_message`), wrapped - they used
-  to be the status bar's middle column, which clipped long text; the
-  status bar now shows only the mode and the coordinates/selection count.
-  Closing the window (item 18) opens a dialog instead of closing:
-  "Close window" (le_shell keeps running; `close_gui` does this with no
-  prompt), "Exit le_shell", or Cancel, listing anything unsaved first -
-  `le_has_unsaved_database_changes` (Root's mutation version vs
-  `LeHandle::saved_mutation_version`, set by a successful write_def/
-  write_lef and by a read that started clean - reading isn't an edit;
-  every le_read_*/le_link_unresolved_instances bumps the version itself,
-  since the readers create through Root directly, which doesn't - item
-  19: the render graph's LayerGenerationStage otherwise kept an empty
-  layer set from a frame rendered before the first read_lef)
-  and `le_has_unsaved_settings` (`settings_to_json` vs the snapshot taken
-  at creation/save/load/clean read). "Exit" calls `le::gui::set_exit_handler`'s
-  handler: interactively le_shell's Tcl thread exits from readline's idle
-  hook (restoring the terminal); a batch script exits at once.
-  Interactively, `exit` and Ctrl-D ask y/N first when something is
-  unsaved (the real exit is `::le_shell_builtin_exit`).
-  The dock layout and the window's size persist in
-  `~/.layout_engine/window_layout.ini` (item 25) - ImGui's own ini file
-  (`io.IniFilename`, saved automatically, not by save_settings) plus a
-  `[LayoutEngine][Window]` section from `add_window_size_settings_handler`;
-  the default split is built only when that file has no `DockSpace`, or
-  on the Settings panel's "Reset window layout".
-  `components/settings_panel.cpp` is
-  the right sidebar's Settings tab (item 9): grid spacing (um, with a
-  button setting minor to the manufacturing grid and major to 10x it),
-  ruler font size, min/max label font sizes (labels scale with their
-  shapes between the two), hierarchy depth and flightline fanout limit
-  (via `committed_field.hpp`'s fields, committed on Enter, Tab or
-  clicking away), plus Save/Save As/Load
-  of the JSON settings file - api.cpp's `le_save_settings`/
-  `le_load_settings` (nlohmann/json, fetched as a pinned single header),
-  default `~/.layout_engine/settings.json`, which `le_shell` loads at
-  startup in interactive mode only (batch scripts stay reproducible).
-  Grid spacing is stored in um; loaded before any Technology exists it
-  waits on `LeHandle::pending_*_grid_um` until le_read_lef/le_read_def
-  can convert it. The file dialogs are portable-file-dialogs (pinned
-  header) - zenity/kdialog on Linux at runtime, no build dependency -
-  falling back to an in-app path prompt when neither is installed. No
-  automated test coverage of the render/input loop itself
-  (inherently interactive/visual) — verified manually only, on macOS, as
-  of this writing; Linux packaging is done for the two Docker paths
-  (`Dockerfile.linux-ci`/`Dockerfile.linux-release` both provision GLFW's
-  X11 dev headers + `readline-devel`) but not yet for the rootless Rocky
-  Linux 8 bootstrap (`scripts/rocky8-bootstrap.sh` only stages
-  `mesa-*-devel` so far, not the X11/readline packages `le_gui`/`le_shell`
-  also need — see `BUILD.md`'s own step 5 note) — see Open gaps below.
-- `src/lefdef/` — vendored LEF/DEF 6.0.62-p004 C parser source (Si2 distribution).
-  Both `lef/` and `def/` are built by their own `Makefile`s via separate
-  `ExternalProject_Add` steps (`lef_lib`/`def_lib`) in the top-level
-  `CMakeLists.txt`, each producing a static archive (`liblef.a`/`libdef.a`)
-  linked into `io`. Never hand-edit — it's third-party source, license in
-  `src/lefdef/{lef,def}/LICENSE.TXT`.
-- Each module's tests live alongside it in a `tests/` subdirectory (e.g.
-  `src/database/tests/database_test.cpp`), hand-written GTest.
+## LEF/DEF notes
 
-## Database codegen (codegen)
+- `LEFReader` supports a subset of LEF >= 5.4, tested against
+  `src/lefdef/lef/TEST/complete.5.8.lef` plus small fixtures in
+  `src/io/tests/fixtures/`. The vendored parser reuses one scratch struct
+  per callback and never resets fields - always check the matching
+  `has*()` guard before trusting a getter.
+- `DEFReader`/`DEFWriter` cover DESIGN/VERSION/UNITS/DIEAREA/ROW/TRACKS/
+  GCELLGRID/COMPONENTS/PINS/BLOCKAGES/VIAS/REGIONS/NETS/SPECIALNETS/
+  NONDEFAULTRULES. NETS/SPECIALNETS carry routing geometry only;
+  connectivity comes from `link` against a netlist.
+- DEF values are already in database units; `DEFReader` rescales them
+  (`unit_scale_`) when the file's UNITS disagree with the Technology's.
+  NONDEFAULTRULES LAYER WIDTH/SPACING/... are real microns (the vendored
+  int accessors truncate them).
+- PINS geometry is stored in design coordinates: `DEFReader` applies
+  `Geometry::pin_transform`, `DEFWriter` inverts it.
+- `Shape.layer` and `Placement.reference_design` are resolved references:
+  the tech LEF must be read before a DEF using its layers, and cells
+  before the DEF placing them. A Shape with no physical layer
+  (boundary, diearea, placement blockage) sets `Shape.purpose` instead.
 
-Generated code follows the **INDEXED_POOLS** export style, produced by this
-project's own `codegen` fork (repo root: `codegen/` — a project-specific
-fork of [cmg](https://github.com/johndru-astrophysics/cmg), which stays
-generic/reusable; `codegen` owns this project's own display/formatting
-conventions instead, e.g. the `dbu` field type and its LEF/DEF unit-conversion
-formatting — see `codegen/codegen/schema.py`'s `TYPEMAP` and
-`Field.wrap_with_to_property*`). Every `Klass` in `schema.py` becomes:
+## Database codegen
 
-- `XxxData` — a plain data struct.
-- `XxxId` — a `{index, generation}` handle (see `generated/ids.hpp`), not a
-  pointer, fully ordered (usable as a `std::map` key with no custom comparator).
-- Storage in a `Pool<XxxData, XxxId>` (`generated/pool.hpp`) — a generational
-  slot array, so erased objects can't alias a reused slot.
-- `Root` (`generated/root.hpp`) owns every pool plus an `index_` for
-  parent→children and lookup-by-field indices, and exposes
-  `create_x`/`get_x`/`get_x_ids`/`for_each_x_id`/`clear_x`/`get_x_size` per
-  class, plus `update_x` (see `Klass.update_root_body()`,
-  `codegen/codegen/schema.py`) — the *only* place a pool-backed class's
-  fields are ever mutated after creation. Every parameter beyond the id
-  (and, for a single-parent class, the parent) is `std::optional<T>`;
-  `has_value()` means "apply this field", omitted means "leave unchanged" —
-  the opposite of `create_x`'s own "omitted means unset" `XxxData`
-  convention. A single-parent class's `update_x` can also reassign the
-  parent (with correct index maintenance, including moving a
-  `unique_per_parent` field's own sibling bucket to the new parent — a gap
-  the older, narrower `set_x_<field>` below has always had); a
-  multi-parent class (`Shape`, `ViaLayer`, `Foreign`,
-  `LayerDensityEntry`) gets no parent parameter at all, since reassigning
-  one parent field alone would violate its "exactly one parent set"
-  invariant.
+`codegen/` is this project's fork of
+[cmg](https://github.com/johndru-astrophysics/cmg) (INDEXED_POOLS export
+style). Every `Klass` in `schema.py` becomes an `XxxData` struct, an
+`XxxId` `{index, generation}` handle, and a generational
+`Pool<XxxData, XxxId>`. `Root` (`generated/root.hpp`) owns every pool and
+index and exposes `create_x`/`get_x`/`update_x`/`delete_x` per class.
+`update_x` is the only way a pooled field changes after creation (each
+parameter is `std::optional`: present means apply). A `Klass` is pooled
+unless `has_pool=False` (an embedded value type like `Point`/`Rect`).
 
-A field's `has_pool` defaults `True` — a `Klass` is embedded (a plain value
-type inline in its owner's `XxxData`, e.g. `Point`/`Rect`/`Symmetry`) only by
-explicitly setting `has_pool=False`. Converting an embedded struct to pooled
-(add a back-reference `parent=` `Field` on it per owner relationship, mark
-the owner's own field `is_child=True`) needs no template changes — every
-pool-backed `Klass` gets the same `create_x`/`get_x`/`get_<owner>_<field>()`
-surface uniformly, whether it's one of the ~15 originally-pooled top-level
-classes (`Layer`/`Via`/`Terminal`/...) or one of the ~20 former embedded
-structs pooled in a later round specifically so they'd also get their own
-generated property table and (see below) `create_<type>` command.
-
-`Field.unique_per_parent` (paired with `index=True`) makes `create_x`
-fallible for that `Klass`: it builds a per-parent-scoped index (nested by the
-owning `Klass`'s own parent field) instead of the default flat/global one a
-plain `index=True` field gets, and returns an invalid id — without
-inserting — if a sibling under the same parent already has that value,
-instead of always succeeding. `Terminal.name` is the only field using this
-today (a Terminal's name only needs to be unique within its own Abstract,
-not globally — real LEF libraries reuse pin names like VDD/IN0 across
-different Abstracts) — see `Field.unique_per_parent`'s own docstring in
-`codegen/codegen/schema.py` for the full mechanism (nested index shape,
-`create_x`/`set_x_<field>`/`delete_x` bookkeeping, the `get_x_by_<field>`
-accessor's parent-scoped signature). `set_x_<field>` here is the older,
-narrower per-field setter still generated for any field with `.parent`/
-`.index` set (`root_hpp_j2.py`'s own `{%- if field.parent or field.index
-%}` gate) — nothing calls it anymore (superseded by `update_x` above,
-which alone handles reparenting *and* a `unique_per_parent` rename
-correctly together in one call); it stays generated, untouched, purely as
-a documented characteristic of this codegen fork, not a mutation path
-this project's own code still uses.
-
-A class pair may have more than one parent/`is_child` relationship
-(`Shape.abstract`↔`Abstract.boundary` and `Shape.in_abstract`↔
-`Abstract.free_shapes`; `LayerDensityEntry`'s `ac_layer`/`dc_layer`):
-`Klass.link()` pairs each `is_child` field with the parent field whose
-`parent=` names it, not merely the first one of the right type, and
-`tcl_scope.py` uses that pairing (`Field._parent_field`) directly.
-Matching by type alone used to silently mis-pair `Layer.dc_current_density`
-with `ac_layer` (wrong delete-undo restore) and drop
-`get_layer_density_entries`'s `-of` flags.
-
-`Root` also keeps a change log (`change_log()`, a fixed-capacity ring of
-`ChangeLogEntry`s addressed by sequence number): every generated create_/
-update_/delete_/set_ records the object and its owner at the time (an
-update that reparents records both owners), so a consumer can update
-incrementally instead of recomputing. An edit made through a mutable
-`get_<klass>()` pointer is invisible to it - call `note_<klass>_changed(id)`
-after one. A bulk operation (every LEF/DEF/Verilog read and link, via
-`SaturateChangeLogOnExit`) or a wrapped ring saturates it, which tells
-consumers to treat everything as changed.
+- `Field.unique_per_parent` (with `index=True`) makes `create_x` fail on a
+  sibling name clash (e.g. `Terminal.name` within its Abstract).
+- A class pair may have several parent/`is_child` relationships;
+  `Klass.link()` pairs each `is_child` field with the parent field whose
+  `parent=` names it.
+- `Root` keeps a change log (`change_log()`, a fixed ring): every
+  generated create/update/delete records the object and its owner(s), so
+  consumers update incrementally. An edit through a mutable `get_x()`
+  pointer is invisible to it - call `note_<klass>_changed(id)`. Bulk
+  operations (every read and `link`) saturate it, meaning "everything
+  changed".
 
 To change the schema: edit `src/database/schema.py`, bump `Schema.version`
-(only needed for a real field/class shape change, not a pure codegen-side
-formatting change), then regenerate with the `regen-database` skill rather
-than editing `generated/` by hand. codegen enforces the bump: it
-fingerprints the schema's data shape (`codegen/codegen/descriptor.py`) and
-compares it with the committed snapshots in `src/database/schema_history/`
-(one `<version>.json` per schema version, the groundwork for the native file
-format's migrations - NATIVE_FILE_FORMAT_RESEARCH.md §4). A changed shape
-under an existing version fails generation; a new version writes a new
-snapshot, which must be committed with the schema change - together with
-its migration (`src/database/migrations/NNNN_*.py`, drafted by
-`codegen --target makemigration`; generation fails until the chain of
-migrations replays the oldest snapshot into the current schema, see
-`codegen/codegen/migration.py`) and its golden files
-(`src/persistence/tests/golden/<version>/`). The generated
-`schema_version.hpp` exposes `le::schema_info::kVersion`/`kFingerprint`/
-`kDescriptorJson`; `native_tables.hpp` and `migrations.hpp` feed the
-native `.led` file format (`src/persistence/`, `write_db`/`read_db`). Real test coverage lives in each module's
-own `tests/` directory, not `generated/` — codegen doesn't emit test files.
+for a real shape change, and regenerate with the `regen-database` skill.
+codegen fingerprints the schema and compares it with
+`src/database/schema_history/`; a new version needs its snapshot, a
+migration (`src/database/migrations/`, drafted by
+`codegen --target makemigration`) and golden files
+(`src/persistence/tests/golden/<version>/`), all committed together.
 
-## TCL codegen (codegen, `--target tcl`)
+## TCL codegen
 
-A separate generation target from the database one above (`regen-tcl`
-skill, not `regen-database`) — covers `src/tcl/`'s property-*reading*,
-`get_<type>` *search*, and `create_<type>` surface: `src/api/generated_tcl/`
-(`ids.inc`/`declarations.inc`/`handle_fields.inc`/
-`property_accessors_internal.inc`/`property_accessors_public.inc`/
-`filter_tables.inc`/`search.inc`, `#include`d from `api.hpp`/`api.cpp`) and
-`src/tcl/generated/` (`le_tcl_shim_generated.hpp`/`.inc`,
-`le_api_generated.i`, `le_tcl_procs_generated.tcl`,
-`#include`d/`%include`d/`source`d from
-`le_tcl_shim.hpp`/`.cpp`/`le_api.i`/`le_tcl_procs.tcl`). Every pool-backed
-`Klass` gets a generated property table, friendly-id resolution,
-`is_child`-field enumeration, a `get_<type>` search command, and a
-`create_<type>`/`update_<type>`/`delete_<type>` triple by default
-(`Klass.tcl_readable`/`Klass.tcl_id_field` in `codegen/codegen/schema.py`
-— see the `regen-tcl` skill for the opt-out/override mechanics and the
-full list of injection points) — uniformly across all ~35 classes today,
-including `Terminal`/`TerminalPort`/`Obstruction`/`Shape`, whose
-`create_X`/per-field setters/`delete_X` (and `Shape`'s own former
-`add_shape_rect`/`_polygon`/`_path`) all used to be hand-written and are
-now fully generated too, superseded by `create_<type>`/`update_<type>`/
-`delete_<type>`, see below. `Shape`'s own `remove_shape_rect`/`_polygon`/
-`_path` (removing one geometry entry by index) is the sole remaining
-hand-written CRUD-ish surface — not per-class flag-driven CRUD in the
-same sense.
-`Klass.has_current_access = True` (`Technology`/`Abstract`/`Schematic`) marks
-a class with a generated "current instance" concept — one command,
-`current_X ?id?` (with no argument, reads it back; given a friendly-id
-token, selects it first, then returns it) — that every *other* readable
-class's `get_<type>` default scope (`-of` omitted) derives from
-automatically, purely from schema graph structure — see
-`codegen/codegen/tcl_scope.py`'s own module docstring for the algorithm, and
-the `regen-tcl` skill for the full injection-point list. `le_set_current_design`/
-`le_set_current_design_by_id` (`api.cpp`) also move this alongside
-`LeHandle::current_abstract()` (the separate GUI-rendering "current view"),
-so selecting a Design means the same thing whether it came from a
-Dart-driven GUI or a TCL script's `open_design`; a script that builds an
-`Abstract` from scratch and calls `current_abstract <id>` directly (no
-`Design` to `open_design` into at all) still only touches this generated
-state, never `LeHandle::current_abstract()`.
+A separate target (`codegen --target tcl`, the `regen-tcl` skill)
+generating `src/api/generated_tcl/` and `src/tcl/generated/`. Every
+readable `Klass` gets a property table, friendly-id resolution, `is_child`
+enumeration, `get_<type>`, and `create_<type>`/`update_<type>`/
+`delete_<type>`.
 
-`create_<type>` covers one flag per scalar field (`str`/`int`/`double`/
-`dbu`/`bool`/enum — a `dbu` field on `Technology` itself converts through
-that Technology's own `database_units_microns`, `Klass._owns_dbu_scale()`),
-one flag per *flattenable* embedded-struct field
-(`Point`/`Rect`/`Symmetry`/`DensityCheckWindow`/... — see
-`Klass.embedded_scalar_leaves()`; the one embedded struct that isn't
-flattenable, `ParallelRunLengthSpacingTable`, a genuine variable-size
-table, stays out of scope), and one flag per *list* of a flattenable
-embedded struct (`Field.list_compound_kind()` — e.g. `Shape.rects`:
-`List[Rect]`, `.polygons`: `List[Polygon]`, `.paths`: `List[Path]`; see
-its own docstring for the three recognized element shapes — "flat" (a
-fixed-arity record like `Rect`), "points" (a variable-length list of
-points, like `Polygon`), "points_plus_scalars" (one point-list field
-plus sibling scalars, like `Path`'s `polygon`/`width`) — and
-`Field.create_excluded` for fields that structurally qualify but are
-deliberately deferred, e.g. `Layer.min_sizes`).
-`is_child` fields stay out of scope entirely (an `add_X`/`set_X`
-relationship concern, not a value one). A flag is required iff
-`Field.create_required()` (mirrors
-`is_optional`, except `bool` and compound fields are always optional —
-`false` is already a zero-cost "not specified" default for `bool`, and a
-compound field's own `is_optional` is frequently just a scoping accident
-from an earlier round, not a deliberate LEF-syntax judgment; requiring
-either would be pure noise); an *omitted* optional flag ends up genuinely
-unset (`std::nullopt`), not a zero-value default — a `str`/enum field passes
-`nullptr` through the C layer (Tcl can't produce a null `const char*`
-directly, so an empty string is treated as "omitted", the same convention
-this codebase's hand-written `-flag` parsing already used before this
-generator existed), a numeric or compound field gets a companion
-`has_<field>` int32. `dbu` fields (plain or nested inside a compound one)
-cross the C boundary in microns (`<field>_um`, converted via
-`database_units_microns()`/`to_dbu()`) - and `dbu2` fields (areas, stored
-in database units squared) in square microns via `to_dbu2()`/`to_um2()`;
-every TCL value is in microns (NEW_FEATURES_SEPT_2026.md item 27), help
-labels them `um`/`um2`, and `get_field()` tags the raw value
-`PropertyValue::Unit::DBU`/`DBU2` so `-filter` (filter.hpp, given the
-scale by the generated search) and chained `get_properties` paths
-(`display_path_value`) convert too - and an enum field crosses as its
-`to_string()`/`from_string()` spelling (e.g. `"INPUT"`, parsed via the
-matching generated `<enum>_from_string()` — see `enum_hpp_j2.py` — not a raw
-numeric code). A single-struct compound field explodes into one C slot
-per scalar leaf (`Point` → 2 doubles, `Rect` → 4, `Symmetry` → 3
-`int32_t` flags), each individually arity-checked in Tcl before the
-`_cmd` call — a wrong-arity flag (`-size {1 2 3}`) then fails with a
-real, flag-naming Tcl error instead of deep inside C++ with no context;
-a `Symmetry`-shaped field instead takes a case-insensitive keyword set
-(`-symmetry {X Y R90}`, mirroring LEF's own `SYMMETRY X Y R90 ;`
-grammar). A *list*-of-struct compound field (`Field.list_compound_kind()`)
-instead flattens its whole nested Tcl list into a single `(const
-double*, int32_t count)` pair, reusing the existing `POINTS_ARRAY_UM`
-typemap (`le_api.i`) under its own `<field>_flat_um`/`<field>_flat_count`
-parameter names (`Klass.list_compound_swig_applies()` emits one `%apply`
-line per such field) — a "flat" element (`Rect`) needs no length prefix
-(fixed arity, arity-checked the same way a single-struct field is), a
-"points"/"points_plus_scalars" element (`Polygon`/`Path`) prefixes the
-whole flag with a record count and each record with its own point count,
-since each record's own length varies (`Field.list_compound_parse_lines()`
-parses this back apart api.cpp-side, with `count == 0` handled as a
-genuinely valid "no records" input, not a malformed one). `Klass.
-cmd_tcl_preamble(mode)` generates all of this Tcl-side flattening/arity
-checking (shared between `create_<type>` and `update_<type>`); `Field.
-cmd_param_slots(mode)` is the single place "one field → one or more C
-slots" is defined, so a signature can't drift from a call site. A
-multi-parent class (`Shape.terminal_port`/`.obstruction`, `ViaLayer`,
-`Foreign`, `LayerDensityEntry`'s `ac_layer`/`dc_layer`) takes one
-`Le<Parent>Id`/token flag per parent field, generically validated to require
-*exactly one* resolving (not zero, not both) — this is what unified the
-formerly hand-written `create_terminal_port_shape`/`create_obstruction_shape`
-split into one generated `create_shape -terminal_port|-obstruction`. All of
-this construction logic (per-field validation, the exactly-one-parent check,
-the `<Klass>Data{...}` initializer) is built as one Python string in
-`Klass.create_api_body()` (`codegen/codegen/schema.py`), not deeply nested
-Jinja — the per-field-type/optionality branching reads far more clearly as
-real Python control flow.
-
-A *plain* (non-parent, non-child) reference-to-pooled-klass field —
-`Shape.layer`, `Placement.reference_design` — gets the same token-
-resolved treatment as a parent field (one `Le<Type>Id`/token flag,
-`resolve_<type>_id()` in the shim), but via a small, deliberately separate
-mechanism (`Field.is_plain_reference_field()`/`Klass.
-get_reference_create_fields()`), not a broadening of `get_parent_fields()`
-itself — several other structural concerns (`is_child` enumeration, the
-delete cascade, `tcl_scope`'s current-instance-anchor algorithm) depend on
-`get_parent_fields()`/`has_parent()` meaning a real ownership relationship,
-which a field like this isn't. Both required and `is_optional=True` are
-supported (e.g. `Shape.layer`, unset when `Shape.purpose` is set instead)
-- an omitted optional one follows the same "invalid/default id means
-unset" convention a parent field's own token already does at the API
-layer, and the same "empty token means unset" convention a str/enum
-field already does at the shim layer - no `has_<field>` companion needed
-at create time (unlike a compound/numeric optional field), though
-`update_<type>` still gets one there, same as every other field, since
-nothing is ever required to update. Unlike a parent field, it needs no
-`Root`-level index bookkeeping at all — `Root::create_<klass>`/
-`update_<klass>` just carry it as a bare `<Type>Id` (never
-`std::optional<...>`-wrapped, whether or not `is_optional` - "unset" is
-just the id's own default-invalid value, matching a parent field's own
-convention), alongside every other create field. A generated property
-table still shows it via the *reference* branch of `wrap_with_to_property()`/
-`wrap_with_to_display_property()` (`to_string(id)` — a bare
-`Id{index=.., generation=..}` debug string, not a friendly name, since
-`to_properties()` has no `Root` to resolve one from) — a real, known
-display gap shared with `Instance.reference_design` (same shape, never
-surfaced since nothing populates `Instance` yet); a caller wanting the
-resolved name uses a hand-written accessor (`le_shape_layer_name`) or a
-filter/`get_properties` *hop* through the field instead (`.layer.name`,
-walking to the referenced object's own plain `name` property, unaffected
-by this gap since hops resolve through the target's own fields). Note
-`Field._optional_value_needs_unwrap()` guards every `is_optional`-driven
-`.value_or(...)` in these four `wrap_with_*` methods specifically to
-exclude this field kind - get_cpp_type()'s own bare-id storage (never
-`std::optional`-wrapped) means calling `.value_or(...)` on one would be a
-compile error, not just wrong output; a plain enum field (also
-technically `is_reference()`, just enum rather than pooled) still needs
-the unwrap, so this checks the exact `has_pool`-and-not-`is_enum`
-condition, not merely "is a reference".
-
-`update_<type>` mirrors `create_<type>`'s own flag set field-for-field
-(`Klass.update_api_body()`/`update_root_body()`), but every flag's own
-meaning flips: omitted means *leave unchanged*, not *unset* — so every
-field gets a `has_<field>`-shaped "was this provided" signal here (even
-`bool`, which doesn't need one in `create_<type>`), and nothing is ever
-required. A single-parent class also accepts an optional parent flag to
-reassign it (a multi-parent class gets none at all — see "Database
-codegen" above for why); a `unique_per_parent` field can be renamed and
-reparented in the same call, with the reparent applied first so the
-rename's own sibling-collision check already reflects the new parent.
-`update_<type>` is the *only* way any field is ever mutated after
-creation — see the `src/tcl/` bullet above for the "no per-field setters
-anywhere" constraint this enforces. A `list_compound_kind()` field's own
-flag *replaces* the whole list when provided (matching every other
-field's "provide it, apply it" semantics), not appends — a caller adding
-one entry among several already-present ones reads the current list
-first (`get_properties`/`shape_rects` etc.) and passes the full
-replacement.
-
-`delete_<type>` (`Klass.delete_api_body()`) needs no flags at all — just
-the object's own friendly id — but does the most work of the three:
-every owned pool-backed child reachable through
-`Klass.tcl_child_list_fields()` is deleted along with it, cascading
-however many schema-graph levels deep that goes for a given class (e.g.
-`Technology`'s own `non_default_rules` → `vias` → `layers` chain is 3
-levels deep). The cascade is planned recursively at *Python codegen
-time* (one flat, unrolled loop per schema-graph depth level in the
-emitted C++, not a generic recursive C++ helper — this codebase's own
-"flat generated code" aesthetic), and every cascaded object is recorded
-into a currently-recording transaction (UPDATES.md item 21) deepest-first,
-this object itself last — the reverse of `Transaction::undo_all`'s own
-replay order, so undo recreates the top-level object before its
-descendants, and each descendant's own undo-recreate lambda can then read
-its immediate parent's already-recreated live id back out of a shared
-`IdCellPtr` captured while it was still being collected as a "child" one
-level up (see `Transaction::id_cell_for`, `src/editing/transaction.hpp`).
-A class with no `tcl_child_list_fields()` at all (most of the ~35) gets a
-trivial, non-cascading delete instead — snapshot, erase, record, nothing
-else. `Field.create_excluded` fields (`Layer.min_sizes`, ...) stay a
-separate, not-yet-enabled effort for `create_<type>`/`update_<type>` —
-deferred by explicit opt-out, not
-because the mechanism can't reach them; this has no bearing on
-`delete_<type>`, which doesn't touch individual fields at all.
-
-## Open gaps (tracked in README's Plan checklist)
-
-- Migration Step 1 (DEF reader/writer + `Layout` klass) is done —
-  `DEFReader`/`DEFWriter` both cover the full scope described in their own
-  `src/io/` bullet above. NETS/SPECIALNETS connectivity (as opposed to
-  routing geometry), per-layer WIDTH overrides, direct net-level RECT/
-  POLYGON/VIA forms, SHIELD nets, and STYLE/SHAPE/TAPERRULE metadata
-  remain deferred within that scope. Migration Step 2 (layer/purpose
-  generation for DEF's Row/Track/GCellGrid/Blockage constructs) is also
-  done — see `src/view_style/`'s own bullet above for the resulting
-  `ViewLayerPurpose` members. Migration Step 3 (render pipeline updates -
-  walking a `Layout`'s own content into drawable shapes, hierarchical
-  `Placement`-instance rendering with per-instance picture caching, the
-  1M-instance stress test) is also done — see `src/pipelines/`'s own
-  bullet (`LayoutGeometryStage` for Phase A; `HierarchyResolver` for
-  Phases B/C), and `BENCHMARKS.md`'s 2026-08-23 entry (Phase D, the real
-  performance numbers, measured pre-migration against `InstanceRenderer`
-  but still representative of `HierarchyResolver`'s own equivalent
-  design). Deep per-shape selection into instanced content (as opposed
-  to whole-placement selection) remains deliberately out of scope - a
-  real, documented deferral, not a gap found later; per-instance culling
-  (skipping an off-screen instance's own draw call before it reaches
-  viewport culling) was also deliberately not added - the Phase D
-  benchmark numbers are the ones to revisit before deciding whether it's
-  actually needed.
-- ~~Skia isn't vendored/built by this project~~ — resolved by removing
-  Skia entirely. Blend2D (`src/pipelines/`'s only Rasterize/Compose
-  backend now) is fetched and statically built via CMake `FetchContent`
-  (see `CMakeLists.txt`'s own Blend2D block), so there's no external
-  pre-built checkout to provision on any platform anymore.
-- ~~Linux build needs a fontconfig/FreeType-backed `SkFontMgr`~~ — done
-  (Docker/Ubuntu Linux CI session), then revised again, then superseded
-  entirely by the Skia removal above: `pipelines.cpp`'s
-  `default_blend2d_font_face()` (`blend2d_font.hpp`) loads its one
-  bundled font file directly (`LE_FONT_DIR` — defaults to
-  `assets/fonts/`, committed to the repo) rather than any system font
-  manager — Blend2D has no font-manager abstraction to fall back on the
-  way Skia's CoreText path did on macOS. Bundled-font-file loading was
-  always the point here (a locked-down rootless-build target machine,
-  see the Rocky 8 bullet below, can't be assumed to have any fonts
-  installed or fontconfig configured at all), so this behavior carried
-  over unchanged, just under a new function/mechanism name.
-- **Rootless Rocky Linux 8 build** (no root, no system package installs,
-  no Docker) — `scripts/rocky8-bootstrap.sh`/`rocky8-env.sh`
-  assemble a toolchain (gcc-toolset-13, CMake/Ninja/Boost/SWIG, GTK3 +
-  closure) entirely via rootless RPM extraction (`rpm2cpio`/`cpio`, no
-  `dnf install`) and upstream release tarballs into
-  `~/.local/layout_engine_toolchain`. Unverified
-  against a real Rocky 8 machine as of this writing — expect real
-  iteration, same as the Docker/Ubuntu path needed. Its own GTK3
-  provisioning predates `le_gui` (GLFW-based, no GTK dependency at all)
-  and is now dead weight from the since-removed Flutter frontend; it also
-  doesn't yet stage the X11 dev packages (`libX11`/`libXrandr`/
-  `libXinerama`/`libXcursor`/`libXi`) or `readline` `le_gui`/`le_shell`
-  need, nor oneTBB (`api`'s own hard `find_package(TBB REQUIRED CONFIG)`
-  dependency, see `CMakeLists.txt`'s own TBB comment) — all real,
-  not-yet-done follow-ups, same shape as the Docker paths' own
-  X11/readline/TBB additions but not done here yet.
+- `Klass.has_current_access` (`Technology`/`Abstract`/`Schematic`) adds a
+  `current_X ?id?` command; every other `get_<type>`'s default scope (no
+  `-of`) derives from these (`codegen/codegen/tcl_scope.py`). Opening a
+  Design moves both this and the GUI's `LeHandle::current_abstract()`.
+- `create_<type>` has one flag per scalar, per flattenable embedded
+  struct, and per list of one (`Field.list_compound_kind()`, e.g.
+  `-rects {{{llx lly} {urx ury}} ...}`); `Field.create_excluded` opts a
+  field out. An omitted optional flag means unset. Lengths cross in
+  microns and areas in square microns; enums by name.
+- `update_<type>` mirrors those flags but omitted means unchanged; a list
+  flag replaces the whole list. A single-parent class can be reparented.
+- `delete_<type>` cascades through `Klass.tcl_child_list_fields()`,
+  unrolled at codegen time, recording deepest-first for undo.
+- Plain (non-parent) references like `Shape.layer` take a token flag via
+  `Field.is_plain_reference_field()`, deliberately separate from
+  `get_parent_fields()` (ownership).
+- The only hand-written CRUD left is `remove_shape_rect/_polygon/_path`.
 
 ## Build
 
@@ -1128,100 +227,56 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-A second tree, `build_release` (`-DCMAKE_BUILD_TYPE=Release`), is also
-expected to exist and be kept up to date alongside `build` — `le_shell`
-(the real user-facing binary, `Dockerfile.linux-release`'s own `export`
-stage bundles its Release build for every GitHub Release) needs actual
-optimized performance, not debug-build timings, so it's a persistent
-tree, not a throwaway benchmarking artifact. See the `build-test` skill.
+Keep a second tree, `build_release` (Release), up to date too - it's what
+`le_shell` users and benchmarks run. See the `build-test` skill and
+`BUILD.md` (rootless Rocky Linux 8 build). Docker: `docker compose run --rm
+ci` (`Dockerfile.linux-ci`); releases come from `Dockerfile.linux-release`.
 
-Dependencies: `spdlog`, `fmt`, `Boost` (headers only, for `geometry`) via
-`find_package` — installed on this dev machine via Homebrew, falling back to
-`FetchContent` for `spdlog`/`fmt` when no system install is found (needed for
-the rootless Rocky 8 build below, where neither ships by default); GoogleTest
-and GoogleBenchmark via `FetchContent` (no system install needed).
-`src/lefdef/lef` is built as an `ExternalProject_Add` step that shells out to
-its own vendored `Makefile`. For a rootless Linux build with no system
-package installs available at all (e.g. a locked-down Rocky Linux 8
-machine), see `scripts/rocky8-bootstrap.sh`/`rocky8-env.sh` and the Open
-gaps entry above.
+Dependencies: spdlog/fmt/Boost (headers) via `find_package` with
+`FetchContent` fallbacks; oneTBB required; Blend2D, slang, Dear ImGui,
+GLFW (fallback), GoogleTest/Benchmark and others via `FetchContent`.
 
-**Gotcha:** that vendored Makefile's `all: install release` target is not
-safe under a parallel/inherited `make` jobserver — both traversals touch the
-same bison-generated `lef.tab.c`/`liblef.a`, so running it under `-j` races
-and fails. The `lef_lib` `ExternalProject_Add` step already forces
-`--unset=MAKEFLAGS make -j1` — don't remove that when touching the build.
+Gotchas:
+- The vendored LEF/DEF Makefiles race under a parallel jobserver; the
+  `ExternalProject_Add` steps force `make -j1` with `MAKEFLAGS` unset.
+- They build in-source (`src/lefdef/{lef,def}/`) and trust timestamps, so
+  stale objects from another toolchain (or a missing `include/` beside old
+  `.o` files) break the build - delete the lefdef build output the way
+  `Dockerfile.linux-ci`'s CMD does.
+- `ENABLE_COVERAGE` is a cached option and forces `-O0`; pass
+  `-DENABLE_COVERAGE=OFF` explicitly (or use a fresh tree) for real
+  numbers.
 
-### Coverage (line + branch)
+Coverage: `-DENABLE_COVERAGE=ON`, then `cmake --build build --target
+coverage` (Clang source-based; report in `build/coverage/`).
 
-Off by default (instrumentation has a real perf cost, and this project's
-own rule is benchmark first). Opt in at configure time:
+Benchmarks (Release builds only): `pipeline_benchmarks` (per-stage, over
+the `aes_scaling_*` tiling fixture in `test_data/`), `pipeline_stage_benchmark`
+(+ `scripts/pipeline_stage_benchmark.py`), `resolver_profile`
+(+ `scripts/resolver_profile.py`), `selection_profile`,
+`native_format_profile`, `spatial_index_benchmark`; tools
+`generate_tiled_design` and `lef_roundtrip_diff`. Use
+`--benchmark_repetitions=5 --benchmark_report_aggregates_only=true` when
+comparing. Results history: `docs/BENCHMARKS.md`,
+`docs/PIPELINE_REFACTOR_BENCHMARK_RESULTS.md`.
 
-```
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON
-cmake --build build --target coverage
-```
+## Known gaps
 
-Rebuilds `io`/`backend_tests` with Clang source-based coverage, runs the
-tests, and prints a `llvm-cov report --show-branch-summary` table (also
-written to `build/coverage/report.txt` and `build/coverage/lcov.info`).
-Requires Clang and `llvm-profdata`/`llvm-cov` — resolved via `xcrun`
-automatically on macOS.
+- Layout view: Blockage/Row/Region own shapes aren't hit-tested yet;
+  selection into instanced content is whole-placement only.
+- Free-standing shapes (`free_shapes`) aren't selectable.
+- `scripts/rocky8-bootstrap.sh` is unverified on a real Rocky 8 machine,
+  still stages GTK3 (unused), and doesn't yet provision X11 dev packages,
+  readline or oneTBB.
+- Some tests are skipped with `GTEST_SKIP` pending root cause (see each
+  skip's comment).
 
-**Gotcha:** `ENABLE_COVERAGE` is a _cached_ option — reconfiguring with e.g.
-`-DCMAKE_BUILD_TYPE=Release` alone does **not** reset a previously-set-ON
-value back to OFF, and coverage instrumentation forces `-O0` regardless of
-`CMAKE_BUILD_TYPE`. Always pass `-DENABLE_COVERAGE=OFF` explicitly (or use a
-fresh `build/`) to get back to a normal, uninstrumented build — this
-silently produced ~15-20x-inflated benchmark numbers once already.
-
-### Benchmarks
-
-```
-cmake --build build --target pipeline_benchmarks
-./build/pipeline_benchmarks
-```
-
-Build in `-DCMAKE_BUILD_TYPE=Release` for real numbers — Debug timings
-aren't meaningful. `src/pipelines/benchmarks/stress_data.hpp` generates a
-deliberately unrealistic 1M-shape single-macro LEF file and builds the
-`Scene` used to view it; `pipeline_benchmark.cpp` times each pipelines-module
-stage in isolation (via a fresh `SynchronousStageRunner` per iteration,
-forcing a real cache miss) plus the full `AbstractShapePipeline`/
-`FrameRenderPipeline`/`HierarchyResolver` chains under several call
-patterns. See `BENCHMARKS.md` for current numbers and full history. Add
-`--benchmark_repetitions=5 --benchmark_report_aggregates_only=true` for
-stable numbers when comparing two approaches, and
-`--benchmark_filter=<regex>` to run a subset.
-
-`src/pipelines/benchmarks/resolver_profile.cpp` (target `resolver_profile`,
-Release) profiles one real `test_data/aes_scaling_<label>.def` per process:
-the cold `HierarchyResolverStage` split by phase (its opt-in
-`ResolverPhaseProfile` hook), output size, peak RSS, and the first
-ViewportCull/Rasterize run after a resolve vs a warm one.
-`scripts/resolver_profile.py 1x1 2x1 ...` runs a matrix into a Markdown
-table (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md has the 1x1-8x8 results).
-
-`src/pipelines/benchmarks/render_preview.cpp` (target `render_preview`) is a
-dev-only tool, not a benchmark: `./build/render_preview a.lef [b.lef ...]`
-reads every given LEF file into one shared `Root` and writes one PNG per
-Design (`preview/<library-name>__<design-name>.png`) via the real
-`FrameRenderPipeline` path, so real LEF renders can be visually
-sanity-checked without waiting for Flutter texture wiring. Not run by
-`ctest` or the `coverage` target.
-
-## Conventions observed in existing code
+## Conventions
 
 - Everything lives in `namespace le`.
-- Doxygen-style `/// @brief` one-liners on generated public methods — match
-  this on hand-written public API.
-- No exceptions for expected-missing-data paths — pool lookups return
-  nullable pointers (`get(id)` → `T*`) or use `std::optional`/`std::expected`.
-- The vendored LEF parser reuses one scratch struct per callback type across
-  the whole file and does **not** reset fields to a neutral default between
-  calls — always check the matching `has*()` guard (e.g.
-  `lefiLayer::hasDirection()`) before trusting a getter, or a value can leak
-  forward from a previous element that happened to set it.
+- Doxygen-style `/// @brief` one-liners on public methods.
+- No exceptions for expected-missing-data paths - pool lookups return
+  nullable pointers (`get(id)` -> `T*`) or `std::optional`/`std::expected`.
 
 ## Comments
 
@@ -1245,20 +300,13 @@ Bugs and features are GitHub issues (`gh issue list`, `gh issue view N`).
 Reference the issue in the commit (`Fixes #N`). Long-lived designs and
 research live in `docs/`.
 
-## Related prior art
-
-`../../layout_engine/backend` (sibling repo, same author) is an earlier,
-more complete implementation of the same idea. This MVP deliberately
-restarts the pipeline/rendering architecture decisions rather than
-importing that one — treat it as reference/lessons-learned, not code to
-copy wholesale.
-
 ## Skills
 
-- `regen-database` — regenerate `src/database/generated/` from `schema.py` via the local `codegen` fork.
-- `regen-tcl` — regenerate `src/tcl`'s generated property-reading surface from `schema.py` via the local `codegen` fork's `tcl` target.
-- `build-test` — configure/build/test the CMake project once one exists.
-- `cpp-review` — review pending changes for missing test coverage, unnecessary
-  allocations/copies/moves, memory safety, and other issues; reports via
-  `ReportFindings`, doesn't apply fixes. Named to avoid colliding with the
-  built-in, billed `/code-review ultra`.
+- `build-test` — configure, build and test (`build` and `build_release`).
+- `regen-database` — regenerate `src/database/generated/` from `schema.py`.
+- `regen-tcl` — regenerate the generated Tcl/API surface.
+- `generate-tcl-docs` — regenerate `TCL_COMMANDS.md`.
+- `cpp-review` — local review of pending changes (tests, allocations,
+  memory safety); reports via `ReportFindings`, doesn't fix.
+- `overnight-review` — unattended pass over GitHub issues labelled
+  `overnight`.
