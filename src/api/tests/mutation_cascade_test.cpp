@@ -1,4 +1,4 @@
-// Phase 5 mutation side-effects (LINKING_STRATEGY_RESEARCH.md section 5):
+// Schematic<->Layout link mutation side-effects:
 // le_delete_net_cascade/le_rename_net_propagate/le_rename_instance_propagate
 // (api.hpp). Built directly against LeHandle (like le_handle_test.cpp -
 // "constructed directly, no C API layer" for the *setup* side, since
@@ -55,8 +55,8 @@ TEST(MutationCascade, DeleteNetCascadesToRouteDeleteAndClearsDanglingReferences)
     EXPECT_FALSE(port_after->net.valid());
 
     // PhysicalPort itself is *not* deleted - only its own .net link is
-    // cleared (LINKING_STRATEGY_RESEARCH.md section 5a: a chip-boundary
-    // pin can legitimately remain without a netlist-level Net).
+    // cleared (a chip-boundary pin can legitimately remain without a
+    // netlist-level Net).
     const PhysicalPortData *port_data_after = root.get_physical_port(physical_port);
     ASSERT_NE(port_data_after, nullptr);
     EXPECT_FALSE(port_data_after->net.valid());

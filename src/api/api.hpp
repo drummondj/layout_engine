@@ -2,26 +2,21 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// The C API surface a Flutter plugin's Dart FFI binds to (see README's
-// `api` module entry and "Recommended build order" step 5 - the minimal
-// slice: init/destroy, load-file, render_pixel_buffer only, before
-// zoom/pan/selection grow into a real events module). Deliberately plain
-// C (not C++) in every public declaration - no std:: types, no default
-// arguments, no overloads - so this header parses cleanly for Dart's
-// ffigen (or any other C FFI generator) and so LeHandle/LePixelBuffer have
-// a stable, toolchain-independent ABI between this project's macOS dev
-// machine and its Linux deployment target.
+// Layout Engine's C API - the one surface every front end calls: the
+// Dear ImGui GUI (src/gui/, via GuiProvider) and the Tcl shim
+// (src/tcl/le_tcl_shim.cpp). Deliberately plain C (not C++) in every
+// public declaration - no std:: types, no default arguments, no
+// overloads - so LeHandle/LePixelBuffer have a stable,
+// toolchain-independent ABI and any C FFI generator can parse this
+// header.
 //
 // Thread safety: every function below is safe to call concurrently from
 // multiple threads on the *same* LeHandle, except le_destroy() (see its
 // own doc comment) - each internally locks a mutex owned by the handle.
-// This isn't defensive-but-unneeded caution: Flutter's own external-
-// texture API calls le_render_pixel_buffer() from a dedicated raster
-// thread once per frame, while ordinary pointer/FFI calls
-// (le_set_mouse_position(), le_mouse_down()/up(), le_zoom(), ...) run on
-// the platform thread - both reach the same handle. A real crash
-// (concurrent, unsynchronized std::map mutation inside Pipeline) shipped
-// before this was added.
+// This is needed, not defensive: le_shell's GUI renders on a background
+// thread (le_render_pixel_buffer()) while the GUI thread forwards input
+// (le_set_mouse_position(), le_mouse_down()/up(), le_zoom(), ...) and the
+// Tcl console thread runs commands - all on the same handle.
 
 #ifdef __cplusplus
 extern "C"
@@ -32,8 +27,7 @@ extern "C"
     /// ViewLayerSet, the pipelines module's own ViewRenderPipeline, and
     /// every piece of per-handle mutable view/interaction state (current
     /// Abstract/Layout, pan/zoom, layer visibility, selection, hover,
-    /// rulers, Move-drag state, interaction mode - formerly a separate
-    /// `le::Scene` class, since folded directly onto this struct), all
+    /// rulers, Move-drag state, interaction mode), all
     /// reused across repeated calls rather than reconstructed per call -
     /// a fresh ViewRenderPipeline per call would defeat its own internal
     /// MemoizingStage caching entirely. Opaque so this header stays
@@ -43,15 +37,16 @@ extern "C"
 
 #include "generated_tcl/ids.inc"
 
-    /// @brief Raw RGBA8888 pixel buffer, mirroring render::PixelBuffer but
-    /// using explicit fixed-width types (not `int`/`size_t`, whose width
-    /// isn't guaranteed identical across toolchains) for a stable FFI ABI.
-    /// `data` points into memory owned by the LeHandle's Renderer - valid
+    /// @brief Raw RGBA8888 pixel buffer, mirroring le::PixelBuffer
+    /// (compose_stage.hpp) but using explicit fixed-width types (not
+    /// `int`/`size_t`, whose width isn't guaranteed identical across
+    /// toolchains) for a stable ABI. `data` points into memory owned by
+    /// the LeHandle - valid
     /// only until the next le_render_pixel_buffer() call on the same
     /// handle (or le_destroy()), never owned by the caller and never to be
     /// freed by it. Premultiplied alpha, row-major, top-to-bottom; row_bytes
     /// may exceed width * 4 - always index by it, never assume a tight
-    /// stride (see render.hpp's PixelBuffer for the full format contract).
+    /// stride.
     typedef struct LePixelBuffer
     {
         const uint8_t *data;
@@ -82,8 +77,8 @@ extern "C"
         LeAbstractId abstract_id;
         /// Invalid (index == UINT32_MAX) if this Design has no Layout
         /// view - a DEF-defined Design (le_read_def()) has one; a plain
-        /// LEF macro (le_read_lef() only) does not (BUGS_AND_ENHANCEMENTS.md
-        /// E15 - a Design can have either, both, or neither of these two
+        /// LEF macro (le_read_lef() only) does not (a Design can have
+        /// either, both, or neither of these two
         /// independent views, same as Root::get_design_abstract/
         /// get_design_layout's own "may return an invalid id" contract).
         LeLayoutId layout_id;
@@ -122,7 +117,7 @@ extern "C"
         /// le_purpose_count()/le_purpose_at()'s own listing, so showing
         /// it *again* here as if it were a whole extra layer is a
         /// redundant, confusing duplicate for a layer-widget UI, not
-        /// useful extra information (BUGS_AND_ENHANCEMENTS.md E12) -
+        /// useful extra information -
         /// toggling either one already changes the exact same underlying
         /// visibility/selectability flag, since a pseudo-row has exactly
         /// one column.
@@ -131,7 +126,7 @@ extern "C"
 
     /// @brief Result of le_snapped_mouse_position(): the current mouse
     /// position's coordinates, snapped to the minor grid (mirrors
-    /// LeHandle::snapped_mouse_position - see UPDATES.md 5.3) and converted
+    /// LeHandle::snapped_mouse_position) and converted
     /// from dbu to microns via the Root's Technology::database_units_microns
     /// (e.g. 1000 dbu/um -> 3 decimal digits of representable precision;
     /// dividing the already-integral snapped dbu value by this is exact to
@@ -166,8 +161,8 @@ extern "C"
     void le_destroy(LeHandle *handle);
 
     /// @brief Read a LEF file into this handle's shared Root, its MACROs
-    /// into the Library named `library_name` (required - NEW_FEATURES_SEPT_2026.md
-    /// item 4; created at the first MACRO if it doesn't exist yet). A
+    /// into the Library named `library_name` (required; created at the
+    /// first MACRO if it doesn't exist yet). A
     /// MACRO whose Design (matched by name) already has an Abstract view
     /// is an error that fails the read. Safe to call multiple times on
     /// the same handle - e.g. a tech file (LAYER definitions, no macros)
@@ -253,7 +248,7 @@ extern "C"
     int32_t le_link_unresolved_instances(LeHandle *handle);
 
     /// @brief Deletes a Net and clears every dangling reference to it
-    /// left behind (LINKING_STRATEGY_RESEARCH.md section 5a): deletes
+    /// left behind: deletes
     /// every linked Route in the Net's own sibling Layout (an orphaned
     /// Route has no meaning without its Net), clears (does not delete)
     /// every linked PhysicalPort's own `.net` in that same Layout, and
@@ -268,8 +263,8 @@ extern "C"
     int le_delete_net_cascade(LeHandle *handle, LeNetId id);
 
     /// @brief Renames a Net and propagates the rename to its own linked
-    /// Route/PhysicalPort, if any (LINKING_STRATEGY_RESEARCH.md section
-    /// 5b) - a simple 1:1 follow-on rename, since a Net has no
+    /// Route/PhysicalPort, if any - a simple 1:1 follow-on rename, since
+    /// a Net has no
     /// descendants of its own. Batched into one undo/redo transaction.
     /// Superset of the generated update_net (which only renames the Net
     /// itself); this is what the TCL `update_net` command routes to when
@@ -282,10 +277,9 @@ extern "C"
     /// Placement/Route/PhysicalPort whose own DEF-style hierarchical
     /// name embeds its path segment - both the Instance's own linked
     /// Placement and every descendant Instance/Net's own linked
-    /// Placement/Route/PhysicalPort (LINKING_STRATEGY_RESEARCH.md
-    /// section 5c) - using real id-based graph traversal (never string-
-    /// prefix matching, which has a real sibling-name-collision bug -
-    /// see that section). Batched into one undo/redo transaction.
+    /// Placement/Route/PhysicalPort - using real id-based graph traversal
+    /// (never string-prefix matching, which would also hit siblings like
+    /// "a/b2" when renaming "a/b"). Batched into one undo/redo transaction.
     /// Superset of the generated update_instance (which only renames the
     /// Instance itself); this is what the TCL `update_instance` command
     /// routes to when its own `-name` flag is present (see
@@ -310,9 +304,8 @@ extern "C"
     } LeLefLayerWriteMode;
 
     /// @brief Writes a LEF file for one or more Abstracts via LEFWriter -
-    /// see that class's own doc comment for exact scope/phase coverage.
-    /// BUGS_AND_ENHANCEMENTS.md E28.b - one call can now write a whole
-    /// Library's worth of MACROs into a single file, not just one, per this
+    /// see that class's own doc comment for exact scope. One call can
+    /// write a whole Library's worth of MACROs into a single file, per this
     /// resolution order:
     ///   1. `abstract_id_count > 0` - write exactly those Abstracts, in
     ///      order (their own owning Library is irrelevant here - an
@@ -322,7 +315,7 @@ extern "C"
     ///      _INCLUDE_WITH_ABSTRACT only - a Library with no Abstracts yet
     ///      writes zero MACROs, not an error).
     ///   3. Else, `le_current_abstract(handle)` is valid - write just that
-    ///      one (the original E28 single-Abstract convenience, unchanged).
+    ///      one.
     ///   4. Else - fails with an ERROR message rather than silently writing
     ///      an empty MACRO-less file.
     /// All four steps are skipped entirely when `layer_write_mode` is
@@ -348,10 +341,10 @@ extern "C"
     int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id);
 
     /// @brief Saves the whole database to a native Layout Engine database
-    /// file (.led - NATIVE_FILE_FORMAT_RESEARCH.md). Written via a
+    /// file (.led - see docs/NATIVE_FILE_FORMAT_RESEARCH.md). Written via a
     /// temporary file and a rename, so a failed save never damages an
     /// existing file. On success the database counts as saved (the exit
-    /// dialog's unsaved-changes check, item 18). Returns 0 on success;
+    /// dialog's unsaved-changes check). Returns 0 on success;
     /// errors are logged via spdlog.
     int le_write_db(LeHandle *handle, const char *path);
 
@@ -447,8 +440,8 @@ extern "C"
     /// success, nonzero if handle is null or index is out of range - the
     /// current selection is left unchanged on failure. Once selected,
     /// le_render_pixel_buffer() renders this Layout's own content plus its
-    /// placed instances, recursed le_hierarchy_depth() levels deep
-    /// (Migration Step 3) - see le_set_hierarchy_depth()'s own comment.
+    /// placed instances, recursed le_hierarchy_depth() levels deep - see
+    /// le_set_hierarchy_depth()'s own comment.
     int le_set_current_design_layout(LeHandle *handle, int32_t index);
 
     /// @brief Same as le_set_current_design_layout, but addressed by
@@ -458,8 +451,8 @@ extern "C"
 
     /// @brief How many further levels of Placement -> Design a Layout view
     /// recurses into before a placed instance falls back to its own
-    /// Abstract, rather than recursing into its own nested Layout
-    /// (Migration Step 3 Phase C) - 0 (the default) means every placement
+    /// Abstract, rather than recursing into its own nested Layout - 0
+    /// (the default) means every placement
     /// falls back straight to its Abstract. 0 if handle is null.
     int32_t le_hierarchy_depth(LeHandle *handle);
 
@@ -508,7 +501,7 @@ extern "C"
     /// PLACEMENT, then TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
     /// TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE from the first physical
     /// Layer row, then GCELLGRID/PLACEMENT_BLOCKAGE/REGION's own
-    /// pseudo-rows - BUGS_AND_ENHANCEMENTS.md E8/E13) - a caller must
+    /// pseudo-rows) - a caller must
     /// always pass `le_purpose_at`'s own return value back into
     /// `le_is_purpose_visible`/`le_set_purpose_visible`, never assume
     /// index equals ordinal.
@@ -538,23 +531,15 @@ extern "C"
     /// @brief Set the visibility of every ViewLayer whose LeLayerRow::name
     /// is `layer_name` - e.g. a layer-visibility widget's row-header
     /// checkbox. Mirrors LeHandle::set_layer_name_visible directly (affects
-    /// rendering - see Pipeline::filter_by_layer_visibility). A no-op if
+    /// rendering). A no-op if
     /// handle or layer_name is null.
     void le_set_layer_name_visible(LeHandle *handle, const char *layer_name, bool visible);
 
-    /// @brief Whether fill/stroke geometry paints antialias their own
-    /// edges (LeHandle::antialiasing_enabled()) - this also covers
-    /// per-shape/per-placement design-content text (terminal/route labels,
-    /// placement name labels, and their own small anchor-point cross
-    /// markers - draw_group/draw_placement_labels, BUGS_AND_ENHANCEMENTS.md
-    /// E19) and their own hairline-mode paints, since those can appear
-    /// as often as real geometry in a dense design. Fixed, small-count
-    /// interactive chrome (the background grid, cursor/hover/selection
-    /// overlays, ruler labels, the Abstract origin marker) is unaffected,
-    /// always antialiased - drawn once or a handful of times per frame
-    /// regardless of design size, not a meaningful cost either way. Off
-    /// by default, matching most commercial EDA tools' own default.
-    /// Returns false if handle is null.
+    /// @brief The design-content antialiasing setting
+    /// (LeHandle::antialiasing_enabled()). Stored and passed to the
+    /// render (ViewRenderOptions::antialiasing_enabled), but Blend2D
+    /// always antialiases, so it currently has no visual effect. Off by
+    /// default. Returns false if handle is null.
     bool le_is_antialiasing_enabled(LeHandle *handle);
 
     /// @brief Toggle antialiasing - e.g. a view-options checkbox. Mirrors
@@ -563,7 +548,7 @@ extern "C"
     void le_set_antialiasing_enabled(LeHandle *handle, bool enabled);
 
     /// @brief Max number of threads this handle's oneTBB-backed pipelines
-    /// (BUGS_AND_ENHANCEMENTS.md E10) may use at once - a process-wide
+    /// may use at once - a process-wide
     /// oneapi::tbb::global_control cap, not a per-pipeline setting, since
     /// every pipeline/HierarchyResolver graph shares the same implicit
     /// default TBB arena. Defaults to 8. Returns 0 if handle is null.
@@ -593,14 +578,14 @@ extern "C"
     /// (affects rendering). A no-op if handle is null.
     void le_set_purpose_visible(LeHandle *handle, int32_t purpose, int32_t visible);
 
-    /// @brief The current interaction mode (UPDATES.md item 11). Select
-    /// is the only mode where le_mouse_up's mouse clicks/drags change the
-    /// current selection - Edit mode restricts mouse interaction to
-    /// editing whatever is already selected (behavior TBD, a later item).
-    /// Ruler mode (UPDATES.md item 13) is where le_mouse_up's clicks
-    /// place ruler points instead - see le_finish_ruler/le_clear_rulers.
-    /// Switched either via LE_KEY_SELECT_MODE/LE_KEY_EDIT_MODE/
-    /// LE_KEY_RULER_MODE (keyboard) or le_set_mode (a Flutter UI event) -
+    /// @brief The current interaction mode. Select is the only mode where
+    /// le_mouse_up's mouse clicks/drags change the current selection -
+    /// Edit mode restricts mouse interaction to editing whatever is
+    /// already selected (Move, Resize, Delete). Ruler mode is where
+    /// le_mouse_up's clicks place ruler points instead - see
+    /// le_finish_ruler/le_clear_rulers. Switched either via
+    /// LE_KEY_SELECT_MODE/LE_KEY_EDIT_MODE/LE_KEY_RULER_MODE (keyboard)
+    /// or le_set_mode (a UI action) -
     /// both paths converge on the same LeHandle::Mode state. Switching to
     /// LE_MODE_RULER either way always finishes whatever ruler was
     /// already in progress first (LeHandle::reset_ruler_mode), including
@@ -621,7 +606,7 @@ extern "C"
     /// if handle is null.
     void le_set_mode(LeHandle *handle, int32_t mode);
 
-    /// @brief One ruler point, in microns (UPDATES.md item 13) - see
+    /// @brief One ruler point, in microns - see
     /// le_ruler_point_at.
     typedef struct LeRulerPoint
     {
@@ -629,7 +614,7 @@ extern "C"
         double y_um;
     } LeRulerPoint;
 
-    /// @brief Number of rulers (UPDATES.md item 13) - multiple can exist
+    /// @brief Number of rulers - multiple can exist
     /// at once, since starting a new one never clears an existing one.
     /// Indexes le_ruler_point_count()/le_ruler_point_at()'s own
     /// `ruler_index` parameter, 0..this-1, in the order each ruler was
@@ -653,16 +638,14 @@ extern "C"
     /// appending to this one, subject to LeHandle::add_ruler_point's own
     /// minimum-distance guard against restarting too close to the point
     /// this call just finished at. Called by the frontend on a
-    /// double-click (UPDATES.md item 13) - see flutter_plugin's
-    /// LeEditor.registerClickAndCheckDoubleClick. A no-op if handle is
-    /// null or there's no active ruler.
+    /// double-click. A no-op if handle is null or there's no active ruler.
     void le_finish_ruler(LeHandle *handle);
 
     /// @brief Removes every ruler (finished or not). A no-op if handle
     /// is null.
     void le_clear_rulers(LeHandle *handle);
 
-    // --- Editing / undo-redo (UPDATES.md item 21) ---
+    // --- Editing / undo-redo ---
     // A command-pattern undo/redo stack (le::editing::CommandHistory, one
     // per LeHandle) that every generated le_create_X/le_update_X/le_delete_X
     // function records itself into whenever a transaction is currently
@@ -683,11 +666,12 @@ extern "C"
 
     /// @brief Ends the transaction started by le_begin_command(). If it
     /// recorded at least one step, pushes it onto the undo stack
-    /// (clearing the redo stack) regardless of `succeeded`; if
-    /// `succeeded` is nonzero, `label` is also appended to the
-    /// command-recall log (le_command_history_count/_at) - so a
-    /// zero-step command (e.g. a pure read) that still ran successfully
-    /// is recallable even though there's nothing to undo. A no-op if
+    /// (clearing the redo stack) regardless of `succeeded`. `label` is
+    /// always appended to the command-recall log
+    /// (le_command_history_count/_at), `succeeded` or not - so a
+    /// zero-step command (e.g. a pure read) is recallable even though
+    /// there's nothing to undo, and a failed one can be recalled and
+    /// fixed. A no-op if
     /// handle is null or no transaction is currently recording.
     void le_end_command(LeHandle *handle, int32_t succeeded);
 
@@ -709,10 +693,9 @@ extern "C"
     /// Returns 0 if handle is null.
     int32_t le_can_redo(LeHandle *handle);
 
-    /// @brief Number of recorded command-recall entries (migrated from
-    /// the Flutter Terminal's own local `_commandHistory` list) - only
-    /// successfully (le_end_command(..., 1)) executed commands are
-    /// recorded, in submission order. Indexes le_command_history_at()'s
+    /// @brief Number of recorded command-recall entries - every command
+    /// passed to le_end_command, successful or not, in submission order.
+    /// Indexes le_command_history_at()'s
     /// own `index` parameter. Returns 0 if handle is null.
     int32_t le_command_history_count(LeHandle *handle);
 
@@ -726,7 +709,7 @@ extern "C"
     /// Abstract (same underlying behavior as LE_KEY_SELECT_ALL while
     /// LE_KEY_CTRL is held - see its own doc comment for the 10,000-object
     /// cap and capped-selection warning message), but callable directly -
-    /// for the Select-mode toolbox button (UPDATES.md item 21), which has
+    /// for the Select-mode toolbox button, which has
     /// no natural "Ctrl held" precondition of its own the way the keyboard
     /// shortcut does. A no-op if handle is null.
     void le_select_all(LeHandle *handle);
@@ -736,7 +719,7 @@ extern "C"
     /// see le_select_all's own comment. A no-op if handle is null.
     void le_deselect_all(LeHandle *handle);
 
-    /// @brief Arms Move (UPDATES.md item 21) - equivalent to Ctrl-M or
+    /// @brief Arms Move - equivalent to Ctrl-M or
     /// clicking the Move toolbox button. Only meaningful in Edit mode
     /// with a non-empty selection; a no-op otherwise (including if
     /// handle is null). The next two le_mouse_up() clicks in Edit mode
@@ -751,8 +734,8 @@ extern "C"
     /// @brief Deletes every selected shape piece - a rect, polygon, path,
     /// via or via array - from its Shape; a Shape left with no geometry is
     /// deleted too. Owners (a Route, a Terminal port, ...) and every other
-    /// selected object stay (NEW_FEATURES_SEPT_2026.md item 29; the
-    /// Edit-mode toolbar's Delete button and the Del key). One undoable
+    /// selected object stay (the Edit-mode toolbar's Delete button and
+    /// the Del key). One undoable
     /// "delete" transaction (undo recreates a deleted Shape whole);
     /// the deleted pieces leave the selection. Cancels an armed Move or
     /// Resize first (their ghosts would name deleted pieces). Returns how
@@ -781,7 +764,7 @@ extern "C"
     int32_t le_is_move_anchored(LeHandle *handle);
 
     /// @brief What a moving Placement's location snaps to
-    /// (NEW_FEATURES_SEPT_2026.md item 2 - le::PlacementSnapMode). SITE
+    /// (le::PlacementSnapMode). SITE
     /// snaps a CORE-class Abstract's placement to the nearest row's site
     /// grid (rows of its own SITE, if it declares one) and forces an
     /// orientation that row allows; any other placement falls back to
@@ -821,8 +804,8 @@ extern "C"
         LE_ORIENTATION_OP_FLIP_VERTICAL = 2,
     } LeOrientationOp;
 
-    /// @brief Sets the flightline fanout limit (NEW_FEATURES_SEPT_2026.md
-    /// item 5): a net with more than `max_fanout` endpoints besides the
+    /// @brief Sets the flightline fanout limit: a net with more than
+    /// `max_fanout` endpoints besides the
     /// selected pin draws no flightlines; 0 means no limit. 10 by default.
     /// Ignores a negative value, or a null handle.
     void le_set_flightline_max_fanout(LeHandle *handle, int32_t max_fanout);
@@ -859,12 +842,12 @@ extern "C"
         LE_PIECE_KIND_RECT = 0,
         LE_PIECE_KIND_POLYGON = 1,
         LE_PIECE_KIND_PATH = 2,
-        LE_PIECE_KIND_VIA = 3,         // a via instance (NEW_FEATURES_SEPT_2026.md item 6) - shares LE_PIECE_KIND_PATH's snap mode
-        LE_PIECE_KIND_VIA_ITERATE = 4, // a via array (item 12) - shares LE_PIECE_KIND_PATH's snap mode
+        LE_PIECE_KIND_VIA = 3,         // a via instance - shares LE_PIECE_KIND_PATH's snap mode
+        LE_PIECE_KIND_VIA_ITERATE = 4, // a via array - shares LE_PIECE_KIND_PATH's snap mode
     } LePieceKind;
 
-    /// @brief What a resized edge/segment snaps to (NEW_FEATURES_SEPT_2026.md
-    /// item 3, le::ShapeSnapMode), chosen per LePieceKind. Rects and
+    /// @brief What a resized edge/segment snaps to (le::ShapeSnapMode),
+    /// chosen per LePieceKind. Rects and
     /// polygons take NONE/USER_GRID/MANUFACTURING_GRID/FIN_GRID; paths take
     /// NONE/USER_GRID/MANUFACTURING_GRID (the path's edges land on it)/
     /// TRACKS (its centerline lands on a routing track of its layer - the
@@ -882,9 +865,9 @@ extern "C"
         LE_SHAPE_SNAP_TRACKS = 4,
     } LeShapeSnapMode;
 
-    /// @brief Arms the Resize tool (NEW_FEATURES_SEPT_2026.md item 3) - Edit
-    /// mode with at least one selected rect/polygon/path piece and no
-    /// selected placement (item 14), a no-op otherwise. Disarms Move (and arming Move disarms Resize). Then, like
+    /// @brief Arms the Resize tool - Edit mode with at least one selected
+    /// rect/polygon/path piece and no selected placement, a no-op
+    /// otherwise. Disarms Move (and arming Move disarms Resize). Then, like
     /// Move, two clicks (le_mouse_up clicks): hovering a selected piece's
     /// edge (rect, polygon) or anywhere on a path segment highlights it
     /// (le_resize_hover_axis); the first click grabs it and a ghost follows
@@ -936,7 +919,7 @@ extern "C"
     int32_t le_selected_piece_kinds(LeHandle *handle);
 
     /// @brief Which LePieceKinds in the current selection Move snaps one by
-    /// one (NEW_FEATURES_SEPT_2026.md item 13), as a bitmask: 1 <<
+    /// one, as a bitmask: 1 <<
     /// LE_PIECE_KIND_PATH when any path, via or via array is selected -
     /// they share one routing snap mode, so the Move toolbar shows a
     /// single group for them. 0 if handle is null.
@@ -980,7 +963,7 @@ extern "C"
     /// ignored, same guard as LeHandle::set_scale. `x`/`y` are in the same
     /// pixel space as le_render_pixel_buffer()'s output image - top-left
     /// origin, y increasing downward (see api.hpp's LePixelBuffer) - not
-    /// Renderer's own pre-Y-flip pixel space, since this is meant to be fed
+    /// the rasterizer's pre-Y-flip pixel space, since this is meant to be fed
     /// straight from a pointer/tap event on the rendered image. A no-op if
     /// handle is null. Backend now owns pan/scale entirely - there is no
     /// direct pan/scale setter; use le_fit_scene() to reset to a known view.
@@ -1003,10 +986,10 @@ extern "C"
     /// Design's content bbox: uniform scale (no stretch) so the content
     /// fills the viewport set via le_set_viewport_size() with `padding_px`
     /// of margin on every side, pan centering it. Mirrors
-    /// LeHandle::fit_to_content, using Pipeline::generate_shapes' output for
-    /// the bbox (same shapes le_render_pixel_buffer() would draw). A no-op
-    /// if handle is null; degrades to scale 1.0 / pan (0, 0) if no Design
-    /// is selected or its Abstract has no shapes, rather than crashing.
+    /// LeHandle::fit_to_content, using the view's declared bbox (a
+    /// Layout's DIEAREA, or abstract_declared_bbox for an Abstract). A
+    /// no-op if handle is null; degrades to scale 1.0 / pan (0, 0) if no
+    /// Design is selected or it has no declared size, rather than crashing.
     void le_fit_scene(LeHandle *handle, int32_t padding_px);
 
     /// @brief Fit the viewport's pan/scale to an arbitrary caller-supplied
@@ -1032,7 +1015,7 @@ extern "C"
     void le_fit_rect(LeHandle *handle, double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int32_t padding_px);
 
     /// @brief Spacing (dbu) between minor grid dots, drawn behind the
-    /// design by le_render_pixel_buffer() - see Renderer::draw_grid.
+    /// design by le_render_pixel_buffer().
     /// Mirrors LeHandle::minor_grid_spacing directly. Defaults to 5 (dbu),
     /// matching a 5nm minor grid under the common "1 dbu = 1nm" Technology
     /// convention. Returns 0 if handle is null.
@@ -1045,7 +1028,7 @@ extern "C"
     void le_set_minor_grid_spacing(LeHandle *handle, int64_t dbu);
 
     /// @brief Spacing (dbu) between major grid dots (drawn bolder than
-    /// minor ones - see Renderer::draw_grid). Mirrors
+    /// minor ones). Mirrors
     /// LeHandle::major_grid_spacing directly. Defaults to 50 (dbu), matching
     /// a 50nm major grid under the common "1 dbu = 1nm" Technology
     /// convention. Returns 0 if handle is null.
@@ -1058,7 +1041,7 @@ extern "C"
 
     /// @brief On-screen text size (px) for every ruler label - tick
     /// values, each segment's own point-to-point distance, and a
-    /// ruler's running total (UPDATES.md item 13). Mirrors
+    /// ruler's running total. Mirrors
     /// LeHandle::ruler_label_size_px directly. Defaults to 11.0. Returns 0
     /// if handle is null.
     double le_ruler_label_size(LeHandle *handle);
@@ -1071,7 +1054,7 @@ extern "C"
 
     /// @brief Smallest on-screen size (px) a shape or placement label is
     /// drawn at - the Settings panel's min label font size
-    /// (NEW_FEATURES_SEPT_2026.md item 9). Labels scale with their geometry
+    /// Labels scale with their geometry
     /// between this and le_label_max_size; a min above the max yields to
     /// the max. Defaults to 12. 0 if handle is null.
     double le_label_min_size(LeHandle *handle);
@@ -1092,7 +1075,7 @@ extern "C"
     /// @brief Sets the color (0-255 each) of every purpose of the Layers
     /// panel row `layer_name` - a Layer's name, or a pseudo-row's like
     /// BOUNDARY - replacing its default palette color
-    /// (NEW_FEATURES_SEPT_2026.md item 17). Saved by le_save_settings. A
+    /// Saved by le_save_settings. A
     /// name with no row yet is kept and applies once one exists (e.g. a
     /// settings file loaded before the LEF). Returns 0, or 1 (and changes
     /// nothing) for a null handle/name or a component outside 0-255.
@@ -1131,7 +1114,7 @@ extern "C"
     /// $HOME/.layout_engine/settings.json ("" if HOME isn't set). Never null.
     const char *le_default_settings_path(void);
 
-    /// @brief Writes the current settings (item 9) as JSON to `path` (null
+    /// @brief Writes the current settings as JSON to `path` (null
     /// or "" - le_default_settings_path), creating its directory if needed:
     /// grid spacing (um), ruler and label font sizes (px), hierarchy depth,
     /// flightline fanout limit, and the placement/shape snap modes. Returns
@@ -1147,7 +1130,7 @@ extern "C"
 
     /// @brief 1 if the design has changed since it was last written out
     /// (write_def/write_lef) - the exit confirmation's "unsaved design"
-    /// (NEW_FEATURES_SEPT_2026.md item 18). Reading a LEF/DEF/Verilog
+    /// Reading a LEF/DEF/Verilog
     /// isn't a change. Any successful write_def/write_lef counts as saving,
     /// whichever Layout/Abstracts it wrote. 0 otherwise, or if handle is
     /// null.
@@ -1163,11 +1146,10 @@ extern "C"
     /// le_render_pixel_buffer()'s output image (top-left origin, y
     /// increasing downward) and le_zoom()'s x/y - meant to be fed straight
     /// from a pointer-move event. Drives the grid-snap indicator box drawn
-    /// by le_render_pixel_buffer() (see Renderer::draw_cursor), and - with
-    /// Resize armed - the Resize hover indicator (le_arm_resize). A no-op
-    /// if handle is null. Never invalidates the (potentially design-sized)
-    /// rasterized design cache - only the small overlay picture, see
-    /// Renderer::compose_with_overlays.
+    /// by le_render_pixel_buffer(), and - with Resize armed - the Resize
+    /// hover indicator (le_arm_resize). A no-op if handle is null. Never
+    /// invalidates the (potentially design-sized) rasterized images - only
+    /// ComposeStage's cheap overlay pass redraws.
     void le_set_mouse_position(LeHandle *handle, int32_t x, int32_t y);
 
     /// @brief Clear the current mouse position (e.g. on a pointer-leave
@@ -1176,27 +1158,26 @@ extern "C"
     void le_clear_mouse_position(LeHandle *handle);
 
     /// @brief The current mouse position's coordinates in microns, snapped
-    /// to the minor grid (UPDATES.md 5.3) - the same point the grid-snap
-    /// indicator box drawn by le_render_pixel_buffer() is centered on (see
-    /// Renderer::draw_cursor), for a Flutter UI to display as coordinate
-    /// text. See LeSnappedMousePosition's own comment for the dbu-to-micron
+    /// to the minor grid - the same point the grid-snap indicator box
+    /// drawn by le_render_pixel_buffer() is centered on (ComposeStage's
+    /// draw_cursor_overlay), for a UI to display as coordinate text. See
+    /// LeSnappedMousePosition's own comment for the dbu-to-micron
     /// conversion and its degrade-gracefully cases (null handle, no mouse
     /// position set, no Technology read yet).
     LeSnappedMousePosition le_snapped_mouse_position(LeHandle *handle);
 
     /// @brief Named logical keys this API tracks the held/released state
     /// of via le_key_down()/le_key_up() - stable across platforms, so
-    /// this API's meaning doesn't depend on OS/Flutter scan codes; the
+    /// this API's meaning doesn't depend on OS/toolkit scan codes; the
     /// frontend maps its own key values to these before calling in.
-    /// Extend as future commands need to know about more keys (UPDATES.md
-    /// 7's other interaction modes will need their own shortcuts).
+    /// Extend as future commands need to know about more keys.
     ///
     /// LE_KEY_ZOOM/LE_KEY_FIT/LE_KEY_PAN_* are canvas-navigation
     /// commands, not modifiers - le_key_down() triggers the
     /// corresponding action immediately (see its own doc comment) rather
     /// than only recording held state. Frontends map a single physical
     /// key to each regardless of shift (e.g. both "z" and "Z" - the same
-    /// LogicalKeyboardKey.keyZ in Flutter - map to LE_KEY_ZOOM); shift's
+    /// physical key - map to LE_KEY_ZOOM); shift's
     /// own held state (LE_KEY_SHIFT, tracked exactly like any other key)
     /// decides zoom in vs. out, the same "backend reads modifier state
     /// rather than the frontend pre-deciding" split as le_mouse_up's
@@ -1212,18 +1193,17 @@ extern "C"
         LE_KEY_PAN_DOWN = 7,
         /// A pure modifier, tracked exactly like LE_KEY_SHIFT - held
         /// state only, no immediate action of its own. Read by
-        /// LE_KEY_SELECT_ALL (UPDATES.md 9.1), LE_KEY_DESELECT_ALL
-        /// (UPDATES.md 9.5), LE_KEY_FIT (UPDATES.md 9.6), and
-        /// LE_KEY_1..LE_KEY_9 (UPDATES.md 9.7).
+        /// LE_KEY_SELECT_ALL, LE_KEY_DESELECT_ALL, LE_KEY_FIT, and
+        /// LE_KEY_1..LE_KEY_9.
         LE_KEY_CTRL = 8,
-        /// Select-all (UPDATES.md 9.1) - an "action" code like
+        /// Select-all - an "action" code like
         /// LE_KEY_ZOOM/LE_KEY_FIT/LE_KEY_PAN_*, but only actually does
         /// anything while LE_KEY_CTRL is currently held (see le_key_down's
         /// own doc comment) - a bare "a" press with Ctrl not held is a
         /// deliberate no-op, not "select nothing."
         LE_KEY_SELECT_ALL = 9,
-        /// Digit keys 1-9 toggle a ROUTING layer's visibility (UPDATES.md
-        /// 9.4/9.7) - which one depends on LE_KEY_CTRL's held state (the
+        /// Digit keys 1-9 toggle a ROUTING layer's visibility - which one
+        /// depends on LE_KEY_CTRL's held state (the
         /// same "backend reads modifier state" split LE_KEY_ZOOM/
         /// LE_KEY_FIT already use): with Ctrl not held, LE_KEY_1 is the
         /// first ROUTING layer in the current Technology's own
@@ -1243,19 +1223,19 @@ extern "C"
         LE_KEY_7 = 16,
         LE_KEY_8 = 17,
         LE_KEY_9 = 18,
-        /// Deselect-all (UPDATES.md 9.5) - same "action code, gated on
+        /// Deselect-all - same "action code, gated on
         /// LE_KEY_CTRL" shape as LE_KEY_SELECT_ALL, but simply clears the
         /// current selection rather than building a new one; a bare "d"
         /// press with Ctrl not held is a deliberate no-op, same reasoning
         /// as LE_KEY_SELECT_ALL's own comment.
         LE_KEY_DESELECT_ALL = 19,
-        /// Toggles the tenth ROUTING layer's visibility (UPDATES.md 9.7) -
+        /// Toggles the tenth ROUTING layer's visibility -
         /// not Ctrl-gated, unlike LE_KEY_1..LE_KEY_9's own Ctrl-held
         /// branch, since "0" has no bare-digit slot left below it to
         /// double up on (LE_KEY_1..LE_KEY_9 already cover the first
         /// nine). Same VIA-pairing behavior as LE_KEY_1..LE_KEY_9.
         LE_KEY_0 = 20,
-        /// Switch to Select mode (UPDATES.md item 11) - an "action" code
+        /// Switch to Select mode - an "action" code
         /// like LE_KEY_ZOOM/LE_KEY_FIT: le_key_down() calls
         /// LeHandle::set_mode(LeHandle::Mode::SELECT) immediately, every call
         /// (including key-repeat - idempotent, so no special one-shot
@@ -1263,17 +1243,17 @@ extern "C"
         /// LE_KEY_CTRL nor LE_KEY_SHIFT is currently held, so e.g. a
         /// Ctrl-S keystroke intended for something else doesn't also
         /// switch modes as a side effect. See le_get_mode/le_set_mode for
-        /// the non-keyboard (Flutter UI event) path to the same state,
+        /// the non-keyboard (UI action) path to the same state,
         /// which is not modifier-gated (there's no physical key to
         /// collide with there).
         LE_KEY_SELECT_MODE = 21,
-        /// Switch to Edit mode (UPDATES.md item 11) - same shape as
+        /// Switch to Edit mode - same shape as
         /// LE_KEY_SELECT_MODE, including the bare-only modifier gating,
         /// calling LeHandle::set_mode(LeHandle::Mode::EDIT). While in Edit
         /// mode, le_mouse_up no longer changes the current selection -
         /// see its own doc comment.
         LE_KEY_EDIT_MODE = 22,
-        /// Switch to Ruler mode (UPDATES.md item 13) - same idempotent,
+        /// Switch to Ruler mode - same idempotent,
         /// bare-only action-code shape as LE_KEY_SELECT_MODE/
         /// LE_KEY_EDIT_MODE, but calls LeHandle::reset_ruler_mode() rather
         /// than a plain set_mode(): every call - including when already
@@ -1283,20 +1263,20 @@ extern "C"
         /// mode, le_mouse_up's clicks place ruler points instead of
         /// changing the selection - see le_finish_ruler/le_clear_rulers.
         /// With Ctrl held (and not Shift) the same key arms Resize instead
-        /// (Ctrl-R, NEW_FEATURES_SEPT_2026.md item 3 - see le_arm_resize) -
+        /// (Ctrl-R - see le_arm_resize) -
         /// branching inside this code, like Ctrl-Z inside LE_KEY_ZOOM,
         /// since the frontend sends every "r" press as this code.
         LE_KEY_RULER_MODE = 23,
-        /// Finishes the active ruler, if any (UPDATES.md item 13, see
-        /// le_finish_ruler) - the Esc key. Idempotent/safe to fire on
+        /// Finishes the active ruler, if any (see le_finish_ruler) - the
+        /// Esc key. Idempotent/safe to fire on
         /// every call including key-repeat, same as every other action
         /// code here: LeHandle::finish_active_ruler() is already a no-op
         /// once there's nothing active to finish, and there's no active
         /// ruler at all outside Ruler mode (leaving it already finishes
         /// whatever was in progress - see LeHandle::set_mode), so this
         /// never needs mode-gating at the call site either. Also cancels
-        /// an in-progress (not yet committed) Move, if any (UPDATES.md
-        /// item 21, le_cancel_move) - same "always safe to fire" reasoning,
+        /// an in-progress (not yet committed) Move, if any
+        /// (le_cancel_move) - same "always safe to fire" reasoning,
         /// LeHandle::end_move() is a no-op once there's nothing to cancel.
         /// Deliberately *not* modifier-gated, unlike every bare-only key
         /// above - Escape is a pure cancel/finish gesture, and a real
@@ -1306,7 +1286,7 @@ extern "C"
         /// would make "finish the ruler" unreliable in exactly the
         /// workflow that uses Shift the most.
         LE_KEY_FINISH_RULER = 24,
-        /// Arms Move (UPDATES.md item 21, Ctrl-M) - see le_arm_move's own
+        /// Arms Move (Ctrl-M) - see le_arm_move's own
         /// doc comment. Fires only while Ctrl is held and Shift is not,
         /// at the le_key_down call site, same shape as
         /// LE_KEY_SELECT_ALL/LE_KEY_DESELECT_ALL, even though the Move
@@ -1318,8 +1298,8 @@ extern "C"
         /// "z" press as LE_KEY_ZOOM regardless of modifiers, the same way
         /// every other canvas-navigation code already works.
         LE_KEY_MOVE = 25,
-        /// Deletes the selected shape pieces (NEW_FEATURES_SEPT_2026.md
-        /// item 29, the Del key) - see le_delete_selected_pieces. Edit mode
+        /// Deletes the selected shape pieces (the Del key) - see
+        /// le_delete_selected_pieces. Edit mode
         /// only, bare only (a no-op with LE_KEY_CTRL or LE_KEY_SHIFT held).
         LE_KEY_DELETE = 26,
     };
@@ -1336,8 +1316,8 @@ extern "C"
     ///
     /// - LE_KEY_ZOOM: while LE_KEY_CTRL is currently held, undoes
     ///   (le_undo) or, if LE_KEY_SHIFT is also held, redoes (le_redo) the
-    ///   most recent transaction instead of zooming (UPDATES.md item 21,
-    ///   Ctrl-Z/Ctrl-Shift-Z) - the frontend's key-to-code map already
+    ///   most recent transaction instead of zooming (Ctrl-Z/Ctrl-Shift-Z)
+    ///   - the frontend's key-to-code map already
     ///   sends every "z" press as LE_KEY_ZOOM regardless of modifiers, so
     ///   this branches here rather than needing its own key code.
     ///   Otherwise: le_zoom() by a fixed factor, anchored at the
@@ -1345,8 +1325,8 @@ extern "C"
     ///   wherever le_set_mouse_position was last called for); zooms in,
     ///   or out if LE_KEY_SHIFT is currently held (le_is_key_held).
     /// - LE_KEY_FIT: le_fit_scene() with a fixed padding - or, if
-    ///   LE_KEY_CTRL is currently held (UPDATES.md 9.6, "Ctrl-F fit
-    ///   selected"), fits the viewport to the current selection's own
+    ///   LE_KEY_CTRL is currently held ("Ctrl-F fit selected"), fits the
+    ///   viewport to the current selection's own
     ///   combined bbox instead (same fixed padding, one Shape's own bbox
     ///   per selection entry - see api.cpp's fit_selected_unlocked),
     ///   leaving the view unchanged if nothing is selected rather than
@@ -1356,21 +1336,21 @@ extern "C"
     /// - LE_KEY_PAN_LEFT/RIGHT/UP/DOWN: le_pan() by a fixed
     ///   viewport-fraction step in the corresponding direction. Bare
     ///   only - a no-op while either LE_KEY_CTRL or LE_KEY_SHIFT is held.
-    /// - LE_KEY_SELECT_ALL (UPDATES.md 9.1): only while LE_KEY_CTRL is
+    /// - LE_KEY_SELECT_ALL: only while LE_KEY_CTRL is
     ///   currently held, LE_KEY_SHIFT is *not*, and the current mode is
-    ///   LE_MODE_SELECT (UPDATES.md item 21 - Select-mode selection
+    ///   LE_MODE_SELECT (Select-mode selection
     ///   shortcuts are disabled in Edit/Ruler mode; switch back to
     ///   Select mode to change the selection there) - clears the current
     ///   selection, then selects every piece of every currently
     ///   selectable shape in the current Abstract regardless of viewport
     ///   (not just what's on screen), up to a fixed cap of 10,000
-    ///   objects (pieces, not whole shapes - UPDATES.md item 21). If the
+    ///   objects (pieces, not whole shapes). If the
     ///   design has more selectable pieces than that, the selection
     ///   stops at the cap and a "WARNING: Selection capped..." message
     ///   is logged via spdlog::warn - there's no separate "was it
     ///   capped" return value, this is the same mechanism any other
     ///   backend-originated message uses.
-    /// - LE_KEY_1..LE_KEY_9 (UPDATES.md 9.4/9.7): toggles a ROUTING
+    /// - LE_KEY_1..LE_KEY_9: toggles a ROUTING
     ///   layer's visibility - the 1st..9th if LE_KEY_CTRL is not
     ///   currently held, the 11th..19th if it is (a no-op if there's no
     ///   ROUTING layer at that position); LE_KEY_SHIFT held at all (with
@@ -1381,24 +1361,24 @@ extern "C"
     ///   layer between them (LEF has no distinct "VIA" layer type - vias
     ///   are TYPE CUT layers - see this header's own LeKeyCode comment)
     ///   becomes visible too; if not, those CUT layers become invisible.
-    /// - LE_KEY_0 (UPDATES.md 9.7): toggles the 10th ROUTING layer's
+    /// - LE_KEY_0: toggles the 10th ROUTING layer's
     ///   visibility - bare only (a no-op while either LE_KEY_CTRL or
     ///   LE_KEY_SHIFT is held; there's no digit slot left over for Ctrl
     ///   to double up on the way LE_KEY_1..LE_KEY_9 do) - same
     ///   VIA-pairing re-check as LE_KEY_1..LE_KEY_9 above.
-    /// - LE_KEY_DESELECT_ALL (UPDATES.md 9.5): only while LE_KEY_CTRL is
+    /// - LE_KEY_DESELECT_ALL: only while LE_KEY_CTRL is
     ///   currently held, LE_KEY_SHIFT is not, and the current mode is
-    ///   LE_MODE_SELECT (same mode-gating as LE_KEY_SELECT_ALL above,
-    ///   UPDATES.md item 21) - clears the current selection. A no-op
+    ///   LE_MODE_SELECT (same mode-gating as LE_KEY_SELECT_ALL above)
+    ///   - clears the current selection. A no-op
     ///   (not an error) if the selection was already empty.
-    /// - LE_KEY_MOVE (UPDATES.md item 21): only while LE_KEY_CTRL is
+    /// - LE_KEY_MOVE: only while LE_KEY_CTRL is
     ///   currently held and LE_KEY_SHIFT is not - equivalent to
     ///   le_arm_move(); a no-op outside Edit mode or with an empty
     ///   selection, same as that function.
-    /// - LE_KEY_DELETE (NEW_FEATURES_SEPT_2026.md item 29): Edit mode and
+    /// - LE_KEY_DELETE: Edit mode and
     ///   bare only - le_delete_selected_pieces().
     /// - LE_KEY_SELECT_MODE/LE_KEY_EDIT_MODE/LE_KEY_RULER_MODE
-    ///   (UPDATES.md item 11/13): bare only - a no-op while either
+    ///   bare only - a no-op while either
     ///   LE_KEY_CTRL or LE_KEY_SHIFT is held, so e.g. a Ctrl-S keystroke
     ///   meant for something else doesn't also switch modes.
     /// - LE_KEY_FINISH_RULER: unconditional regardless of any modifier -
@@ -1417,8 +1397,7 @@ extern "C"
     int32_t le_is_key_held(LeHandle *handle, int32_t key_code);
 
     /// @brief Clear every currently-held key at once - call when the
-    /// widget/window receiving key events loses focus (e.g. a Flutter
-    /// `Focus` widget's `onFocusChange(false)`). A key's matching
+    /// widget/window receiving key events loses focus. A key's matching
     /// key-up event is not guaranteed to still reach a widget that no
     /// longer has focus by the time the physical key is released, so
     /// without calling this on a focus loss, a modifier (e.g. shift)
@@ -1434,13 +1413,13 @@ extern "C"
     /// e.g. on a pointer-down event. Records the gesture's anchor point;
     /// le_mouse_up() later decides whether the gesture was a click or a
     /// rubber-band drag-select by comparing the down/up pixel distance
-    /// against a small threshold (UPDATES.md 7.1 items 2-6). A no-op if
+    /// against a small threshold. A no-op if
     /// handle is null.
     void le_mouse_down(LeHandle *handle, int32_t x, int32_t y);
 
     /// @brief Like le_mouse_down(), but begins a rectangle-*zoom* gesture
-    /// instead of a drag-*select* one (UPDATES.md 9.3 - e.g. on a
-    /// right-button pointer-down event) - le_mouse_up() is still the one
+    /// instead of a drag-*select* one (e.g. on a right-button
+    /// pointer-down event) - le_mouse_up() is still the one
     /// call that ends either kind, deciding which behavior to run from
     /// which of le_mouse_down()/le_zoom_drag_down() started it (see its
     /// own doc comment). A no-op if handle is null.
@@ -1449,7 +1428,7 @@ extern "C"
     /// @brief End a mouse gesture at the given pixel position, e.g. on a
     /// pointer-up event - the single shared endpoint for both
     /// le_mouse_down()'s drag-select gesture and
-    /// le_zoom_drag_down()'s drag-zoom gesture (UPDATES.md 9.3); which
+    /// le_zoom_drag_down()'s drag-zoom gesture; which
     /// one runs depends entirely on which of those two started the
     /// in-progress gesture, not on which mouse button this call itself
     /// corresponds to (a real up-event's own "which button" state isn't
@@ -1460,7 +1439,7 @@ extern "C"
     /// stray/duplicate mouse-up).
     ///
     /// **Started by le_mouse_down()** - two outcomes, both subject to
-    /// Pipeline::hit_test_point/hit_test_rect's own topmost-layer-first
+    /// the hit-tests' (core/placement_geometry.hpp) topmost-layer-first
     /// (click) / all-layers (drag) and layer-selectability rules, and
     /// both consulting LE_KEY_SHIFT's current held state (see
     /// le_key_down) rather than taking it as a parameter here:
@@ -1476,7 +1455,7 @@ extern "C"
     ///   replaces the current selection with the results; with shift
     ///   held, adds them to it.
     ///
-    /// Selection is piece-granular (UPDATES.md item 21): a Shape that
+    /// Selection is piece-granular: a Shape that
     /// bundles several rects/polygons/paths together (e.g. several RECT
     /// statements under one LEF PORT/OBS LAYER line) selects only the
     /// one piece actually clicked, or the individual pieces actually
@@ -1488,8 +1467,8 @@ extern "C"
     /// only the selection outline and Move (le_arm_move) act on the
     /// specific piece.
     ///
-    /// **In Edit mode with Move armed** (UPDATES.md item 21, see
-    /// le_arm_move) - a click (not a drag; a drag's up-event is treated
+    /// **In Edit mode with Move armed** (see le_arm_move) - a click (not
+    /// a drag; a drag's up-event is treated
     /// the same as a click here, Move has no rubber-band behavior of its
     /// own) does one of two things depending on whether the move already
     /// has an anchor: with no anchor yet, this click sets it (the move's
@@ -1509,7 +1488,7 @@ extern "C"
     /// with Move *not* armed, this is a no-op (selection changes are
     /// Select-mode-only - see LE_KEY_SELECT_ALL's own comment).
     ///
-    /// **Started by le_zoom_drag_down()** (UPDATES.md 9.3): a click-sized
+    /// **Started by le_zoom_drag_down()**: a click-sized
     /// release (same threshold as above) is a no-op - fitting to a
     /// near-zero-size rectangle would produce an absurd scale; otherwise
     /// fits the viewport to the rectangle between the down and up points
@@ -1524,7 +1503,7 @@ extern "C"
 
     /// @brief Ends an in-progress le_mouse_down/le_zoom_drag_down gesture
     /// without acting on it - no selection, no zoom
-    /// (NEW_FEATURES_SEPT_2026.md item 22: the GUI calls this on Escape, or
+    /// (the GUI calls this on Escape, or
     /// when the button's release went to another window). Escape
     /// (LE_KEY_FINISH_RULER) does the same while a drag is in progress. A
     /// no-op with no drag in progress, or a null handle.
@@ -1532,12 +1511,10 @@ extern "C"
 
     /// @brief Instructional text describing which mouse gestures and
     /// keyboard modifiers are currently available, for display in the
-    /// GUI's status bar below the texture (UPDATES.md item 7.3) - e.g.
-    /// "Left click to select. Shift for multi-select. Left click and
-    /// drag for rectangle multi-select." for the current (and, for now,
-    /// only) interaction mode, Select - see UPDATES.md item 7's own
-    /// intro for the other modes this will eventually distinguish
-    /// between. Unlike every other `const char*`-returning function in
+    /// GUI's Info panel - one fixed message per interaction mode
+    /// (Select/Edit/Ruler), e.g. "Left click to select. Shift for
+    /// multi-select. Left click and drag for rectangle multi-select." for
+    /// Select. Unlike every other `const char*`-returning function in
     /// this header, the returned pointer refers to static, process-
     /// lifetime storage - not owned by `handle`, never invalidated, safe
     /// to hold indefinitely. Null only if `handle` is null.
@@ -1556,7 +1533,7 @@ extern "C"
     /// since it last checked, without re-fetching le_selection_count()/
     /// le_selected_object_ref() for every selected object on every call
     /// (e.g. every mouse-move event - a real, measured cost that scales
-    /// with selection size otherwise, see BENCHMARKS.md). Returns 0 if
+    /// with selection size otherwise). Returns 0 if
     /// handle is null - a real handle's version is never observably 0
     /// forever (any interaction eventually changes it), so a caller
     /// comparing against a sentinel it initialized to a negative value on
@@ -1592,15 +1569,13 @@ extern "C"
         double double_value;
     } LeProperty;
 
-    /// @brief Which database class an LeObjectRef names - originally the
-    /// seven classes get_properties/the friendly-id convention already
-    /// distinguish (le_tcl_shim.cpp's library:/design:/abstract:/
-    /// terminal:/terminal_port:/obstruction:/shape: prefixes), just typed
-    /// instead of stringly-typed, for the GUI's Property Viewer (UPDATES.md
-    /// 7.2's later database-hierarchy redesign). Extended (E1,
-    /// BUGS_AND_ENHANCEMENTS.md) with the six top-level Layout-view kinds
-    /// LeHandle::SelectedObject's own variant grew - le_selected_object_ref()
-    /// dispatches each selected object to its own kind here so the
+    /// @brief Which database class an LeObjectRef names - the classes the
+    /// friendly-id convention distinguishes (le_tcl_shim.cpp's library:/
+    /// design:/abstract:/terminal:/... prefixes), typed instead of
+    /// stringly-typed, for the GUI's Property Viewer. Includes the
+    /// top-level Layout-view kinds LeHandle::SelectedObject's variant
+    /// covers - le_selected_object_ref() dispatches each selected object
+    /// to its own kind here so the
     /// Property Viewer shows real properties for a selected Row/
     /// Placement/Blockage/Route/PhysicalPort/Region, not just a Shape.
     typedef enum LeObjectKind
@@ -1622,16 +1597,11 @@ extern "C"
         // - never itself a mouse-click selection result, only reached via
         // le_object_parent() from a Shape belonging to a PhysicalPort).
         LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT = 13,
-        // Another intermediate parent-hop node - originally deferred
-        // ("no current consumer needs one", see object_ref_parent's own
-        // history) until the Property Viewer's own breadcrumb tree
-        // (walking le_object_parent() all the way to LE_OBJECT_KIND_LIBRARY)
-        // turned out to be exactly that consumer: without this, every
-        // Layout-view selection's own parent chain dead-ended at
-        // LE_OBJECT_KIND_ROW/_PLACEMENT/etc. instead of continuing
-        // Layout -> Design -> Library the way an Abstract-view
-        // selection's own Terminal -> Abstract -> Design -> Library
-        // chain already does.
+        // Another intermediate parent-hop node, so the Property Viewer's
+        // breadcrumb tree (walking le_object_parent() all the way to
+        // LE_OBJECT_KIND_LIBRARY) continues Row/Placement/... -> Layout ->
+        // Design -> Library, the way an Abstract-view selection's
+        // Terminal -> Abstract -> Design -> Library chain does.
         LE_OBJECT_KIND_LAYOUT = 14,
     } LeObjectKind;
 
@@ -1708,14 +1678,14 @@ extern "C"
     /// ShapePiece selection (Terminal/Obstruction/Blockage/Route/
     /// PhysicalPort - see LeHandle::SelectedObject's own comment), or the
     /// matching whole-object kind (LE_OBJECT_KIND_ROW/_PLACEMENT/_REGION)
-    /// for E1's bare-id alternatives. Read-only: never mutates
+    /// for the bare-id alternatives. Read-only: never mutates
     /// LeHandle::selection() or bumps selection_version(). Returns
     /// le_object_invalid_ref() if handle is null or selection_index is
     /// out of range.
     LeObjectRef le_selected_object_ref(LeHandle *handle, int32_t selection_index);
 
     /// @brief Adds the object `ref` refers to to the current selection
-    /// (BUGS_AND_ENHANCEMENTS.md E30) - the script-driven counterpart to
+    /// - the script-driven counterpart to
     /// le_mouse_up's own hit-test-driven selection.
     /// LE_OBJECT_KIND_SHAPE/_ROUTE/_PHYSICAL_PORT/_ROW/_PLACEMENT/_REGION
     /// are supported - any other kind, or a ref that doesn't resolve, is
@@ -1745,11 +1715,11 @@ extern "C"
     /// selected Design and viewport, returning the resulting pixel
     /// buffer - including the grid-snap indicator box at the current
     /// mouse position, if one has been set (see le_set_mouse_position).
-    /// Each stage is cached internally (see Pipeline/Renderer) - calling
+    /// Each stage is cached internally (ViewRenderPipeline) - calling
     /// this again with nothing changed since the last call is close to
     /// free; only viewport/selection/mouse-position changes actually
-    /// recompute, and a mouse-position-only change is itself cheap (see
-    /// Renderer::compose_with_overlays), not proportional to design size.
+    /// recompute, and a mouse-position-only change is itself cheap (only
+    /// ComposeStage's overlay pass reruns), not proportional to design size.
     /// Returns an all-zero/null LePixelBuffer if handle is null. No
     /// Design selected (le_set_current_design_abstract was never called) degrades
     /// gracefully to an empty (but correctly-sized, non-null) buffer
@@ -1758,9 +1728,8 @@ extern "C"
     LePixelBuffer le_render_pixel_buffer(LeHandle *handle);
 
     /// @brief Whether le_render_pixel_buffer() is doing real work on this
-    /// handle right now, on whatever thread called it (BUGS_AND_ENHANCEMENTS.md
-    /// E17 - a status-bar spinner also driven by interactive zoom/pan, not
-    /// just a running Tcl command like the existing one). Meant to be
+    /// handle right now, on whatever thread called it (drives the GUI's
+    /// "rendering..." indicator). Meant to be
     /// polled from a different thread than the one calling
     /// le_render_pixel_buffer() itself - deliberately does NOT take the
     /// same lock le_render_pixel_buffer() holds for its own entire
@@ -1826,7 +1795,7 @@ extern "C"
 
     /// @brief Asks the GUI window (if one is open) to close, leaving
     /// le_shell running - the `close_gui` Tcl command
-    /// (NEW_FEATURES_SEPT_2026.md item 18). No confirmation: closing the
+    /// No confirmation: closing the
     /// window loses nothing, show_gui reopens it. Lock-free, same shape as
     /// le_request_show_gui. A no-op if handle is null.
     void le_request_close_gui(LeHandle *handle);
@@ -1846,12 +1815,9 @@ extern "C"
     /// interpreter of its own to evaluate a command directly (src/gui/'s
     /// components - see le_gui.hpp's own doc comment for why that
     /// module has no Tcl/SWIG dependency at all) but still wants an
-    /// action to leave the same command-history trail a typed command
-    /// would, for the specific subset of actions the Flutter frontend's
-    /// own LeProvider already routes through a Tcl command instead of a
-    /// direct FFI call (see le_provider.dart's own runTclCommand call
-    /// sites) - mouse/keyboard interaction stays a direct le_* call
-    /// either way, same as LeEditorInput's own shape. Thread-safe,
+    /// action (e.g. a layer-visibility toggle) to leave the same
+    /// command-history trail a typed command would - mouse/keyboard
+    /// interaction stays a direct le_* call. Thread-safe,
     /// fire-and-forget: queues and returns immediately, not evaluated
     /// synchronously by this call. A no-op if handle or command is null.
     void le_enqueue_tcl_command(LeHandle *handle, const char *command);
@@ -1867,15 +1833,13 @@ extern "C"
     /// own console thread).
     const char *le_take_next_pending_tcl_command(LeHandle *handle);
 
-    // --- CRUD + filter-search (UPDATES.md item 15 / TCL_EXPLORATION.md
-    // Phase 4) - Terminal only so far; TerminalPort/Obstruction/Abstract-
-    // boundary follow the same shape in a later pass. Layered on top of
-    // Root's Phase 1/2 primitives (create_x/delete_x/set_x_<field>,
-    // get_field()/match_hop()/search_x, src/database/filter.hpp's
-    // parser+evaluator) - see TCL_EXPLORATION.md for the full design.
-    // Every id here is addressed directly, not through the current GUI
-    // selection (though le_object_property_count/_at, added later, can
-    // address these same ids generically too - see LeObjectRef) - the
+    // --- CRUD + filter-search - layered on top of Root's primitives
+    // (create_x/delete_x/set_x_<field>, get_field()/match_hop()/search_x,
+    // src/database/filter.hpp's parser+evaluator); most per-class CRUD is
+    // generated (generated_tcl/declarations.inc). Every id here is
+    // addressed directly, not through the current GUI selection
+    // (le_object_property_count/_at can address these same ids
+    // generically too - see LeObjectRef) - the
     // natural fit for a TCL caller that isn't driving the GUI at all. ---
 
     /// @brief Mirrors le::SignalDirection (generated/signal_direction.hpp)
@@ -1896,7 +1860,7 @@ extern "C"
     /// currently selected Abstract (le_set_current_abstract/
     /// le_current_abstract's own handle->current_abstract_id - same
     /// current-view scoping le_get_terminals' own default scope already
-    /// uses; deliberately *not* handle->scene.current_abstract(), a
+    /// uses; deliberately *not* handle->current_abstract(), a
     /// separate GUI-rendering "current view" only ever moved as a side
     /// effect of selecting a Design, e.g. le_set_current_design_abstract_by_id -
     /// a script that builds an Abstract from scratch and calls
@@ -1967,7 +1931,7 @@ extern "C"
     const char *le_net_bus_name(LeHandle *handle, LeNetBusId id);
 
     /// @brief Hierarchical-path variants of le_get_instances/le_get_nets/
-    /// le_get_ports (LINKING_STRATEGY_RESEARCH.md sections 3/4) - `path`
+    /// le_get_ports - `path`
     /// is a "/"-delimited path down the Instance hierarchy (each segment
     /// may be a plain literal, a single-level glob, or "**" recursive
     /// descent - see hierarchical_resolver.hpp), anchored at `of_schematic`
@@ -2010,8 +1974,8 @@ extern "C"
     LeProperty le_terminal_property_at(LeHandle *handle, LeTerminalId id, int32_t index);
 
     /// @brief Resolve a dotted property path against the Terminal at
-    /// `id` (UPDATES.md item 19.2's `get_properties`/`report_properties`
-    /// dot-notation, e.g. `.name`, or chained through a hop like
+    /// `id` (`get_properties`/`report_properties` dot-notation, e.g.
+    /// `.name`, or chained through a hop like
     /// `.ports.port_class`) - see `src/database/filter.hpp`'s
     /// `parse_property_path`/`resolve_property_path` for the grammar and
     /// resolution semantics (same `match_hop`/`get_field` machinery
@@ -2029,8 +1993,8 @@ extern "C"
     /// pushes no message, unlike a parse/validation failure.
     LeProperty le_terminal_property_path(LeHandle *handle, LeTerminalId id, const char *path);
 
-    // --- Library/Design/Abstract/Shape property rows (UPDATES.md item
-    // 19.2's get_properties/report_properties) - same by-id shape as
+    // --- Library/Design/Abstract/Shape property rows (for
+    // get_properties/report_properties) - same by-id shape as
     // le_terminal_property_count/_at above, one pair per type. Unlike
     // Terminal's own "port_count" (or TerminalPort/Obstruction's
     // "shapes_count", further below), none of these four add a derived
@@ -2097,7 +2061,7 @@ extern "C"
     LeProperty le_abstract_property_path(LeHandle *handle, LeAbstractId id, const char *path);
 
     /// @brief Search every Terminal on this handle for
-    /// `filter_expression` (UPDATES.md item 15's `-filter {...}`, e.g.
+    /// `filter_expression` (`-filter {...}`, e.g.
     /// ".name =~ IN*" - see src/database/filter.hpp for the full
     /// grammar). Returns the number of matches (0 if handle or
     /// filter_expression is null, or if nothing matched), or -1 if
@@ -2116,14 +2080,13 @@ extern "C"
     /// handle is null or index is out of range.
     LeTerminalId le_search_result_terminal_at(LeHandle *handle, int32_t index);
 
-    /// @brief Search Terminals (UPDATES.md item 19.1 - supersedes item
-    /// 17's own single-filter-string `le_get_terminals`, this is the
-    /// general contract every other le_get_* function in this API
-    /// follows too). Three independent, each-optional axes:
+    /// @brief Search Terminals - the general contract every other
+    /// le_get_* function in this API follows too. Three independent,
+    /// each-optional axes:
     ///   - `of_abstract` scopes to one Abstract's own Terminals (see
     ///     le_get_abstracts) - pass an invalid id (e.g. a
     ///     default-constructed LeAbstractId) to use the default scope
-    ///     instead: the currently selected Design's Abstract (item 17's
+    ///     instead: the currently selected Design's Abstract (the
     ///     "current view" - le_set_current_design_abstract/
     ///     le_set_current_design_abstract_by_id), or none if no Design is
     ///     selected.
@@ -2133,8 +2096,7 @@ extern "C"
     ///   - `filter_expression` (see src/database/filter.hpp) -
     ///     pass null or "" to skip this axis. Only field/hop names this
     ///     API recognizes as valid for Terminal are accepted - an
-    ///     unrecognized one is a validation error (item 19.1's own
-    ///     error-checking requirement), not silent no-match.
+    ///     unrecognized one is a validation error, not silent no-match.
     /// A Terminal matches iff it satisfies every given axis. Shares
     /// le_search_terminal's result buffer - read results back via
     /// le_search_result_terminal_at. Returns the match count (0 if handle
@@ -2143,7 +2105,7 @@ extern "C"
     /// via spdlog::error).
     int32_t le_get_terminals(LeHandle *handle, LeAbstractId of_abstract, const char *name_expression, const char *filter_expression);
 
-    // --- TerminalPort/Obstruction filter-search (Phase 4, continued) ---
+    // --- TerminalPort/Obstruction filter-search ---
     //
     // le_create_terminal_port/le_create_obstruction (an empty parent
     // only - no layer, no geometry) and le_create_shape/le_update_shape
@@ -2181,8 +2143,7 @@ extern "C"
     /// `filter_expression` - see le_search_terminal's own comment for the
     /// full contract (grammar, error/caching behavior); identical here,
     /// just scoped to TerminalPort (e.g. ".terminal.name =~ IN*" or
-    /// ".shapes.layer_name == M4", both straight from UPDATES.md item
-    /// 15's own example). Returns the match count, or -1 on a parse
+    /// ".shapes.layer_name == M4"). Returns the match count, or -1 on a parse
     /// error.
     int32_t le_search_terminal_port(LeHandle *handle, const char *filter_expression);
 
@@ -2242,18 +2203,17 @@ extern "C"
     /// parse/validation error.
     int32_t le_get_obstructions(LeHandle *handle, LeAbstractId of_abstract, const char *filter_expression);
 
-    // --- Shape CRUD, addressed by a stable id (TCL_EXPLORATION.md Phase 3:
-    // `Shape` was pooled specifically so a single existing shape - attached
-    // to either a TerminalPort or an Obstruction - could be read/updated/
-    // deleted independently of its parent). A shape's own id doesn't say
+    // --- Shape CRUD, addressed by a stable id (`Shape` is pooled so a
+    // single existing shape - attached to either a TerminalPort or an
+    // Obstruction - can be read/updated/deleted independently of its
+    // parent). A shape's own id doesn't say
     // which kind of parent it belongs to - le_terminal_port_shape_at/
     // le_obstruction_shape_at are how a caller discovers a LeShapeId in
     // the first place (enumerating a specific parent's shapes) or the
     // generated le_create_shape (generated_tcl/declarations.inc, below -
     // takes both a LeTerminalPortId and a LeObstructionId, exactly one of
-    // which must resolve, replacing this API's own former
-    // le_create_terminal_port_shape/le_create_obstruction_shape split)
-    // returns one directly; after that, every le_shape_*/le_remove_shape_*
+    // which must resolve) returns one directly; after that, every
+    // le_shape_*/le_remove_shape_*
     // call below, and the generated le_delete_shape (generated_tcl/
     // declarations.inc), only needs the LeShapeId itself.
     //
@@ -2265,12 +2225,10 @@ extern "C"
     // independently of the Shape it's part of). Coordinates are always a
     // flat microns array (converted to/from dbu via the same shared/
     // global Technology::database_units_microns every other coordinate
-    // in this API uses) - a real coordinate-list typemap, so a caller
-    // doesn't have to pre-flatten into a raw double*, is Phase 5's job
-    // (see TCL_EXPLORATION.md); this is the plain-C building block it
-    // wraps. Texts aren't included - see TCL_EXPLORATION.md for why
-    // (they're a Pipeline-computed render-time label, never LEF-authored
-    // data, so there's nothing for a caller to create/read here). ---
+    // in this API uses) - le_api.i's coordinate-list typemap wraps these
+    // so a Tcl caller doesn't have to pre-flatten. Texts aren't included
+    // (they're a computed render-time label, never LEF-authored data, so
+    // there's nothing for a caller to create/read here). ---
 
 
     /// @brief One point, in microns - `le_shape_polygon_point_at`'s and
@@ -2296,9 +2254,9 @@ extern "C"
     /// call - see le_search_result_library_at's own contract.
     LeShapeId le_search_result_shape_at(LeHandle *handle, int32_t index);
 
-    /// @brief Number of property rows for the Shape at `id` (UPDATES.md
-    /// item 19.2 - same by-id shape as le_terminal_property_count/_at and
-    /// its Library/Design/Abstract siblings above). Rows: every plain
+    /// @brief Number of property rows for the Shape at `id` (same by-id
+    /// shape as le_terminal_property_count/_at and its
+    /// Library/Design/Abstract siblings above). Rows: every plain
     /// Shape field from codegen's generated to_properties() ("layer_name",
     /// "spacing", ..., plus its own list-field "_count" rows like
     /// "rects_count"). Shape has no children (the leaf of the
@@ -2438,7 +2396,7 @@ extern "C"
     /// this handle, or path_index is out of range.
     int le_remove_shape_path(LeHandle *handle, LeShapeId id, int32_t path_index);
 
-    // --- shape_* operations (NEW_FEATURES_SEPT_2026.md item 1) ---
+    // --- shape_* operations ---
     //
     // Each creates new Shapes from existing ones (src/geometry/
     // shape_ops.hpp) and returns how many it created (>= 0, possibly 0 for

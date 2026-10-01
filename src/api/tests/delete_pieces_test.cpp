@@ -3,7 +3,7 @@
 
 #include <string>
 
-// NEW_FEATURES_SEPT_2026.md item 29 - deleting selected shape pieces (the
+// Deleting selected shape pieces (the
 // Edit-mode Delete button, the Del key, `delete_selected_pieces`): only the
 // selected rects/polygons/paths/vias/via arrays go (and a shape left with
 // no geometry) - never owners or other selected objects - as one undoable

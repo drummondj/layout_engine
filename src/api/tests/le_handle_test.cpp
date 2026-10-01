@@ -214,7 +214,7 @@ TEST(LeHandle, SelectDedupsCorrectlyAcrossManyDistinctShapes)
     // because le_mouse_up's drag-select branch (api.cpp) calls select()
     // once per enclosed piece, and a real design can put hundreds of
     // thousands of pieces under one shared Obstruction's OBS block (see
-    // BENCHMARKS.md). Mixes distinct new ids with re-selecting already-
+    // docs/BENCHMARKS.md). Mixes distinct new ids with re-selecting already-
     // selected ones (in original and reverse order) and checks the exact
     // resulting count/version.
     LeHandle handle;
@@ -252,7 +252,7 @@ TEST(LeHandle, DeselectRemovesAnEntry)
     EXPECT_TRUE(handle.selection().empty());
 }
 
-// E1 (BUGS_AND_ENHANCEMENTS.md) - Row/Placement/Region are bare-id
+// Row/Placement/Region are bare-id
 // LeHandle::SelectedObject alternatives (no backing Shape - see LeHandle::ShapePiece's own
 // comment), so they get their own select()/deselect()/is_selected()
 // overload set rather than riding the ShapeId+piece one. Same dedup/
@@ -392,7 +392,7 @@ TEST(LeHandle, GridSpacingIgnoresNonPositiveValues)
 
 TEST(LeHandle, GridSpacingSettersBumpVisibilityVersion)
 {
-    // The grid is part of the rendered picture (see Renderer::draw_grid),
+    // The grid is part of the rendered picture (RasterizeBlend2DStage),
     // so changing its spacing must invalidate the same render cache
     // layer visibility does - unlike selectability, which doesn't.
     LeHandle handle;
@@ -460,10 +460,10 @@ TEST(LeHandle, MousePositionDefaultsToUnset)
 
 TEST(LeHandle, SetMousePositionBumpsMouseVersionNotViewportOrVisibilityVersion)
 {
-    // A mouse move must invalidate only the cheap overlay-picture cache
-    // (see Renderer::build_overlay_picture/compose_with_overlays), not the
-    // expensive design rasterize cache keyed on viewport/visibility
-    // version - see handle.hpp's own comment on mouse_version_.
+    // A mouse move must invalidate only the cheap overlay pass
+    // (ComposeStage), not the expensive design rasterize cache keyed on
+    // viewport/visibility version - see le_handle.hpp's own comment on
+    // mouse_version_.
     LeHandle handle;
     handle.set_pan(Point{0, 0});
     handle.set_viewport_size(100, 100);
@@ -575,9 +575,8 @@ TEST(LeHandle, BeginDragSetsStateAndBumpsMouseVersionNotViewportOrVisibilityVers
 
 TEST(LeHandle, BeginDragDefaultsToSelectKind)
 {
-    // Regression guard for the defaulted third parameter (UPDATES.md
-    // 9.3) - the existing le_mouse_down call site (begin_drag(x, y), no
-    // third argument) must keep behaving exactly as before.
+    // The defaulted third parameter: le_mouse_down's call site
+    // (begin_drag(x, y), no third argument) must start a select drag.
     LeHandle handle;
     handle.begin_drag(10, 20);
     EXPECT_EQ(handle.drag_kind(), LeHandle::DragKind::SELECT);
@@ -725,7 +724,7 @@ TEST(LeHandle, PurposeVisibilityDefaultsToTrueUntilSet)
 
 TEST(LeHandle, TrackRowAndGCellGridDefaultToInvisibleUnlikeEveryOtherPurpose)
 {
-    // BUGS_AND_ENHANCEMENTS.md E2 - these four are pre-seeded false
+    // These four are pre-seeded false
     // (everything else keeps the ordinary "unknown key -> visible"
     // default PurposeVisibilityDefaultsToTrueUntilSet above covers).
     LeHandle handle;
@@ -738,8 +737,8 @@ TEST(LeHandle, TrackRowAndGCellGridDefaultToInvisibleUnlikeEveryOtherPurpose)
     handle.set_purpose_visible(ViewLayerPurpose::TRACK_PREFERRED, true);
     EXPECT_TRUE(handle.is_purpose_visible(ViewLayerPurpose::TRACK_PREFERRED));
     // TRACK_NON_PREFERRED is unaffected by TRACK_PREFERRED's own toggle -
-    // that's the whole point of splitting them (E2's "toggled by
-    // preferred and non-preferred routing direction" independently).
+    // that's the whole point of splitting them (toggled independently by
+    // preferred and non-preferred routing direction).
     EXPECT_FALSE(handle.is_purpose_visible(ViewLayerPurpose::TRACK_NON_PREFERRED));
 }
 
@@ -816,13 +815,10 @@ TEST(LeHandle, PurposeSelectabilityDefaultsToTrueUntilSet)
 
 TEST(LeHandle, TrackAndGCellGridDefaultToNonSelectableButRowStaysSelectable)
 {
-    // BUGS_AND_ENHANCEMENTS.md E2 ("not selectable") - hit_test_point/
-    // hit_test_rect already skip these regardless (no `origin` set on a
-    // track/gcellgrid RenderedShape - see LayoutGeometryStage::
-    // append_track_shapes/append_gcell_grid_shapes), this just keeps the
-    // visibility widget's own selectable-checkbox default consistent
-    // with that. ROW stays selectable by default (E1 - rows are meant to
-    // be selectable), unlike its own visibility default above.
+    // Hit-testing never returns tracks or gcell grids anyway; this keeps
+    // the Layers panel's selectable-checkbox default consistent with
+    // that. ROW stays selectable by default (rows are meant to be
+    // selectable), unlike its own visibility default above.
     LeHandle handle;
     EXPECT_FALSE(handle.is_purpose_selectable(ViewLayerPurpose::TRACK_PREFERRED));
     EXPECT_FALSE(handle.is_purpose_selectable(ViewLayerPurpose::TRACK_NON_PREFERRED));
@@ -845,7 +841,7 @@ TEST(LeHandle, IsViewLayerSelectableIsTheAndOfBothAxes)
 
 TEST(LeHandle, SetLayerNameSelectableAndSetPurposeSelectableDoNotBumpVisibilityVersion)
 {
-    // Selectability isn't consumed by Pipeline/Renderer caching (unlike
+    // Selectability isn't consumed by render caching (unlike
     // visibility) - it must not bump visibility_version(), or every
     // selectability toggle would force an unnecessary re-render.
     LeHandle handle;
@@ -886,7 +882,7 @@ TEST(LeHandle, SetModeOnlyBumpsMouseVersionOnAnActualChange)
     EXPECT_NE(handle.mouse_version(), baseline);
 }
 
-// --- Rulers (UPDATES.md item 13) ---
+// --- Rulers ---
 
 TEST(LeHandle, RulerModeDefaultsToNoRulers)
 {

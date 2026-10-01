@@ -32,42 +32,27 @@
 #include <vector>
 
 // The real, C++-only definition behind the opaque LeHandle - never exposed
-// in api.hpp. Owns everything needed to load a LEF file and render it: one
-// each of the oneTBB-based pipelines module's own owner objects per handle
-// (not one per call), matching the "reuse across repeated calls" lifetime
-// their own internal MemoizingStage caching is designed around
-// (ONETBB_INTEGRATION.md migration, Phase 5 cutover - replaces the
-// former Pipeline/Renderer/InstanceRenderer trio) - plus every piece of
+// in api.hpp. Owns everything needed to load a design and render it: the
+// pipelines module's ViewRenderPipeline (one per handle, not one per call,
+// so its MemoizingStage caching works across calls) plus every piece of
 // per-handle mutable view/interaction state (current Abstract/Layout, pan/
 // zoom, layer visibility, selection, rulers, Move-drag state,
-// interaction mode) that used to live in a separate `le::Scene` class
-// (`src/scene/`, since removed) - folded directly onto this struct rather
-// than composed from it, so there's exactly one per-handle state object,
-// not two. `le::Root`/`le::ViewLayerSet` stay separate members (the
-// persistent database and its rendering-layer view respectively) - this
-// struct owns the mutable *view* of them, not their own content.
-//
-// Given a real header now (rather than defined privately inside api.cpp,
-// this struct's own former convention when it composed a separate `Scene`
-// member) so `api/tests/le_handle_test.cpp` can construct/exercise it
-// directly, the same way `scene/tests/scene_test.cpp` used to construct a
-// standalone `Scene` - every other consumer (api.cpp) is unaffected by
-// this, `LeHandle` itself was always C++-only, never exposed through
-// api.hpp's plain-C surface.
+// interaction mode). `le::Root`/`le::ViewLayerSet` are separate members
+// (the persistent database and its rendering-layer view respectively) -
+// this struct owns the mutable *view* of them, not their own content.
+// It has its own header (rather than living privately in api.cpp) so
+// `api/tests/le_handle_test.cpp` can construct and exercise it directly.
 //
 // `mutex_` exists because this handle genuinely is called from more than
-// one thread today, not as defensive-but-unnecessary caution: le_gui.cpp's
-// own background render thread invokes le_render_pixel_buffer in a tight
-// loop (a single call can run for seconds to over a minute on a large
-// design - BENCHMARKS.md), while the GUI's own main thread and the Tcl
-// console thread both reach the same pipelines/Root/view state via
-// ordinary pointer/FFI calls (le_set_mouse_position, le_mouse_down/up,
-// le_get_mode, ...) - the same three-thread shape a Flutter frontend's own
-// raster/platform-thread split predates.
+// one thread: le_gui.cpp's background render thread invokes
+// le_render_pixel_buffer (a single call can run for seconds on a large
+// design), while the GUI's main thread and the Tcl console thread both
+// reach the same pipelines/Root/view state via ordinary calls
+// (le_set_mouse_position, le_mouse_down/up, le_get_mode, ...).
 //
 // A std::shared_mutex, not a plain std::mutex - le_render_pixel_buffer
-// itself and every genuinely read-only le_* function (confirmed by
-// direct audit: reads handle->root/view_layers/etc. and mutates nothing
+// itself and every genuinely read-only le_* function (one that reads
+// handle->root/view_layers/etc. and mutates nothing
 // reachable by another caller - le_render_pixel_buffer specifically only
 // touches its own private view_render_pipeline, which no other exported
 // function ever references) take a shared (reader) lock via
@@ -75,15 +60,13 @@
 // library/design listing, selection count, mouse position, tooltip) can
 // run concurrently with an in-progress render instead of blocking behind
 // it for however long it takes - this is what le_gui.cpp's own per-frame
-// panel reads rely on to stay live and unblocked during a slow render,
-// replacing an earlier, real bug where every one of those reads had to be
-// skipped outright while rendering (see le_gui.cpp's own git history).
+// panel reads rely on to stay live and unblocked during a slow render.
 // Every function that actually *mutates* handle/Root state - every
 // generated le_create_X/le_update_X/le_delete_X, le_set_*, le_mouse_*,
 // le_key_*, le_read_lef/_def/_verilog, le_link_unresolved_instances, ... -
 // still takes a std::unique_lock (exclusive), so a real edit still
 // correctly waits for an in-progress render to finish rather than racing
-// it, exactly as a plain mutex already ensured.
+// it.
 //
 // A handful of functions look read-only but secretly rebuild a lazily-
 // cached value on the handle (ensure_view_layers_current()'s own
@@ -109,7 +92,7 @@ struct LeHandle
     le::Root root;
     le::ViewLayerSet view_layers;
 
-    // Flightlines (NEW_FEATURES_SEPT_2026.md item 5) - api.cpp's
+    // Flightlines - api.cpp's
     // flightlines_for fills this from le_render_pixel_buffer's
     // shared-lock read path, hence `mutable` plus its own mutex. Two
     // levels: the whole-Layout net endpoint index is rebuilt only when
@@ -136,26 +119,21 @@ struct LeHandle
     // tests. Only touched under the handle's write lock.
     mutable std::uint64_t render_tree_selections = 0;
     // root.mutation_version() as of the most recent view_layers rebuild -
-    // see api.cpp's own ensure_view_layers_current() for why this exists
-    // (view_layers used to only ever get rebuilt inside le_read_lef,
-    // silently going stale after e.g. a plain le_create_layer call).
+    // see api.cpp's own ensure_view_layers_current() (view_layers must be
+    // rebuilt after any technology change, e.g. a plain le_create_layer
+    // call, not only after le_read_lef).
     // UINT64_MAX (never a real mutation_version(), which starts at 0 and
     // only increases) rather than 0, so "never built yet" can't
     // accidentally alias a real, already-current version.
     uint64_t view_layers_built_at_version = UINT64_MAX;
 
-    // Blend2D-backed (PIPELINE_REFACTOR_BENCHMARK_RESULTS.md) - the
-    // earlier Skia-based RasterizeStage/ViewRenderPipelineImpl backend-
-    // swappable template, benchmarked against this one as a side
-    // experiment, is gone now that ComposeStage itself also composites
-    // BLImages natively; Blend2D's single-threaded rasterizer already
-    // beat Skia's by 1.35-2.9x with zero tuning even before that. Text
-    // (Shape.texts - both terminal/route labels and truncated, bottom-
+    // Blend2D-backed. Text (Shape.texts - both terminal/route labels and
+    // truncated, bottom-
     // left-anchored placement-name labels) is drawn via a monospace font
     // (rasterize_blend2d_stage.hpp).
     le::ViewRenderPipeline view_render_pipeline;
 
-    // Undo/redo stack + command-recall log (UPDATES.md item 21) - every
+    // Undo/redo stack + command-recall log - every
     // generated le_create_X/le_update_X/le_delete_X function records
     // itself into whatever transaction is currently recording (see
     // command_history.is_recording()); Move
@@ -165,10 +143,9 @@ struct LeHandle
     le::editing::CommandHistory command_history;
     std::shared_mutex mutex_;
 
-    // BUGS_AND_ENHANCEMENTS.md E17 - whether le_render_pixel_buffer is
-    // currently doing real work on this handle, for a caller (a Dart-side
-    // poll driving the status bar's own spinner) that wants to know
-    // without blocking behind the render itself. Deliberately a plain
+    // Whether le_render_pixel_buffer is currently doing real work on this
+    // handle, for a caller (the GUI's "rendering..." indicator) that
+    // wants to know without blocking behind the render itself. Deliberately a plain
     // std::atomic<bool>, read/written with no lock - le_is_rendering()
     // must NOT take mutex_ (that's the exact mutex the render itself
     // holds for its own entire duration - see mutex_'s own doc comment -
@@ -181,21 +158,11 @@ struct LeHandle
     // arbitrary lock-free readers".
     std::atomic<bool> is_rendering_{false};
 
-    // Replaces le_gui.cpp's own former render_thread_loop, which used to
-    // call le_render_pixel_buffer back-to-back forever on a fixed sleep
-    // interval, re-checking whether anything had actually changed on
-    // every single iteration (confirmed by direct instrumentation to run
-    // thousands of times a minute even at total idle, almost all of them
-    // a no-op - see le_gui.cpp's own git history for the measurement).
-    // That shape had two real problems: it burned a CPU core's worth of
-    // continuous wake-ups for no benefit while idle, and its own fixed
-    // sleep interval was exactly the kind of machine/load-specific tuning
-    // knob this project's own owner has explicitly said not to rely on
-    // (le_gui.cpp's own show_loading_overlay history). This is the
-    // event-driven replacement: a render thread calls
-    // le_wait_for_render_needed(handle) (api.hpp) instead of sleeping,
-    // which blocks with zero CPU cost until render_needed_ is true, then
-    // clears it and returns - "cause and effect" instead of polling.
+    // Event-driven render wake-up: a render thread calls
+    // le_wait_for_render_needed(handle) (api.hpp) rather than polling on
+    // a fixed sleep interval (which burns CPU at idle and needs
+    // machine-specific tuning). It blocks with zero CPU cost until
+    // render_needed_ is true, then clears it and returns.
     // render_needed_ is a level, not an edge - notify_render_needed() only
     // ever sets it (never toggles/clears it itself), and a waiter only
     // ever clears it right before acting on it, under the same
@@ -254,12 +221,11 @@ struct LeHandle
         render_needed_ = false;
     }
 
-    // BUGS_AND_ENHANCEMENTS.md E10 - process-wide cap on how many threads
+    // Process-wide cap on how many threads
     // oneTBB's default arena may use for this handle's pipeline flow
-    // graphs (AbstractShapePipeline/LayoutShapePipeline/FrameRenderPipeline/
-    // HierarchyResolver each own their own private tbb::flow::graph - see
-    // their own class comments - but all of them run on the SAME implicit
-    // default TBB arena unless told otherwise, so one process-wide
+    // graph (ViewRenderPipeline, plus any stage-internal parallelism) -
+    // all of it runs on the SAME implicit default TBB arena unless told
+    // otherwise, so one process-wide
     // oneapi::tbb::global_control is enough to cap every one of them
     // without threading a reference through each pipeline). global_control
     // has no setter of its own - only construction/destruction sets its
@@ -269,42 +235,34 @@ struct LeHandle
     // possible. max_concurrency_ mirrors the limit currently in effect so
     // le_max_concurrency() doesn't need to ask oneapi::tbb::global_control
     // (which has no public getter) what it's currently set to. Defaults
-    // to 8, the user's own requested default.
+    // to 8.
     int32_t max_concurrency_ = 8;
     std::optional<oneapi::tbb::global_control> concurrency_control_{
         std::in_place, oneapi::tbb::global_control::max_allowed_parallelism, 8};
 
-    // BUGS_AND_ENHANCEMENTS.md "Dear ImGui prototype" - a Tcl console's
-    // own `show_gui` command sets this to signal the process's dedicated
+    // A Tcl console's own `show_gui` command sets this to signal the process's dedicated
     // GUI-owning thread (see src/gui/le_gui.hpp) that it should open its
     // window now, then returns immediately so the console prompt keeps
     // working - the console thread and the GUI thread are two different
-    // OS threads sharing this same LeHandle, exactly the split
-    // is_rendering_ above already documents (Flutter's raster thread vs
-    // platform thread), just with `show_gui`'s own request as the payload
-    // instead of a render-in-progress bit. Same reasoning for staying a
+    // OS threads sharing this same LeHandle, like the split is_rendering_
+    // above documents. Same reasoning for staying a
     // lock-free std::atomic<bool>, test-and-cleared by
     // le_take_show_gui_request rather than read via a separate getter -
     // a request is a one-shot edge, not a level, so whichever thread
     // observes it first (there's only ever one GUI-thread reader) should
     // consume it, not leave it for a second poll to see stale.
     std::atomic<bool> gui_show_requested_{false};
-    // `close_gui`'s request (NEW_FEATURES_SEPT_2026.md item 18) - same
+    // `close_gui`'s request - same
     // one-shot, test-and-cleared shape as gui_show_requested_ above.
     std::atomic<bool> gui_close_requested_{false};
 
     // GUI components (src/gui/components/) mutate state two different
-    // ways: a direct le_* call (mouse pan/zoom/select/move - the same
-    // shape layout_engine_plugin.dart's own LeEditorInput uses, and the
-    // right choice for anything needing per-frame responsiveness), or -
-    // for the subset of actions the Flutter frontend's own LeProvider
-    // routes through a Tcl command instead of a direct FFI call (layer/
-    // purpose visibility+selectability, hierarchy depth - see
-    // le_provider.dart's own runTclCommand call sites) - a *queued* Tcl
-    // command string instead, so the action leaves the same command-
-    // history trail a typed command would (this codebase's whole reason
-    // those particular actions go through Tcl at all - see
-    // BUGS_AND_ENHANCEMENTS.md). The GUI thread has no Tcl interpreter of
+    // ways: a direct le_* call (mouse pan/zoom/select/move - the right
+    // choice for anything needing per-frame responsiveness), or - for
+    // actions that should appear in the command history (layer/purpose
+    // visibility+selectability, hierarchy depth) - a *queued* Tcl command
+    // string, so the action leaves the same command-history trail a typed
+    // command would. The GUI thread has no Tcl interpreter of
     // its own to evaluate one directly (src/gui/ deliberately has no
     // Tcl/SWIG dependency - see le_gui.hpp's own doc comment), so it can
     // only leave the command here for whichever thread *does* own one -
@@ -332,8 +290,8 @@ struct LeHandle
     LeObjectRef cached_object_property_ref{.kind = -1, .index = UINT32_MAX, .generation = 0};
     std::vector<le::PropertyValue> cached_object_properties;
 
-    // Backs every le_X_property_path function (UPDATES.md item 19.2's
-    // dot-notation/chaining follow-up). le::PropertyValue owns its own
+    // Backs every le_X_property_path function (get_properties dot-path
+    // lookups). le::PropertyValue owns its own
     // std::string storage, and the LeProperty handed back to the caller
     // is just raw c_str() pointers into that storage (same convention as
     // every to_c(PropertyValue) call in this file) - those pointers must
@@ -341,13 +299,9 @@ struct LeHandle
     // std::optional<PropertyValue>/vector that gets destroyed the moment
     // le_X_property_path returns. This single slot is that backing
     // store, "valid until the next call" like every other single-slot
-    // cache above - confirmed the hard way: a resolved value short
-    // enough for std::string's small-string optimization ("IN0") kept
-    // "working" by accident (its bytes were still sitting, unclobbered,
-    // in the just-freed stack slot), while a longer one (a formatted
-    // rects/polygons/paths coordinate list, heap-allocated) came back
-    // corrupted, since libc++ actually reused/overwrote that freed heap
-    // block before the caller read it.
+    // cache above. (A short, small-string-optimized value can appear to
+    // survive in a freed local by luck; a longer heap-allocated one comes
+    // back corrupted.)
     le::PropertyValue cached_property_path_value;
 
     // Set by every le_X_property_path function right before it logs a
@@ -361,11 +315,9 @@ struct LeHandle
     // le_property_path_failed's own api.hpp comment.
     bool last_property_path_failed = false;
 
-    // === Per-handle view/interaction state (formerly `le::Scene`) ===
+    // === Per-handle view/interaction state ===
     //
-    /// @brief One selected piece (UPDATES.md item 21 - piece-granular;
-    /// originally shape-level per an earlier property-viewer redesign,
-    /// UPDATES.md 7) - the exact rect/polygon/path that was clicked/
+    /// @brief One selected piece - the exact rect/polygon/path that was clicked/
     /// dragged to select it, identified by its owning Shape's id plus
     /// which entry of that Shape's own rects/polygons/paths it is
     /// (`piece_kind`/`piece_index` - see Geometry::HitPiece, which
@@ -373,21 +325,17 @@ struct LeHandle
     /// Viewer still resolves "the selected object" to the *owning Shape*
     /// (le_object_property_at/le_selected_object_ref in api.cpp only
     /// ever read `shape_id`, ignoring which piece) - properties are
-    /// per-Shape, not per-piece, so that deliberately didn't change; only
-    /// rendering the selection outline and Move (UPDATES.md item 21) care
-    /// which specific piece this is. Geometry itself is looked up on
-    /// demand (from Root for Move, from the Pipeline's generated shapes
-    /// for rendering the highlight - see BuildSelectionOverlayPictureStage)
-    /// rather than stored here.
+    /// per-Shape, not per-piece; only rendering the selection outline
+    /// and Move care which specific piece this is. Geometry itself is
+    /// looked up on demand from Root (api.cpp's view_render_options_for
+    /// resolves it for the outline) rather than stored here.
     ///
-    /// Named ShapePiece (not SelectedObject, its name before E1) now that
-    /// it's only one alternative of SelectedObject's own variant below -
-    /// every Terminal/Obstruction selection (Abstract view) and every
-    /// Blockage/Route/PhysicalPort selection (Layout view, E1) rides this
-    /// exact alternative unchanged, since all six already have a real
-    /// backing Shape; only Row/Placement/Region (E1, no backing Shape at
-    /// all - see their own schema.py comments) needed a bare-id
-    /// alternative instead.
+    /// One alternative of SelectedObject's variant below - every
+    /// Terminal/Obstruction selection (Abstract view) and every
+    /// Blockage/Route/PhysicalPort selection (Layout view) is a ShapePiece,
+    /// since each has a real backing Shape; Row/Placement/Region (no
+    /// backing Shape at all - see their own schema.py comments) use a
+    /// bare-id alternative instead.
     struct ShapePiece
     {
         le::ShapeId shape_id;
@@ -397,14 +345,14 @@ struct LeHandle
         friend auto operator<=>(const ShapePiece &, const ShapePiece &) = default;
     };
 
-    /// @brief One selected top-level object (E1) - a ShapePiece for
+    /// @brief One selected top-level object - a ShapePiece for
     /// anything with real backing Shape geometry (Terminal/Obstruction/
     /// Blockage/Route/PhysicalPort), or a bare id for a kind with none
-    /// (RowId/RegionId - synthesized geometry; PlacementId - no geometry
-    /// at all in this map, see SelectionRef's own comment for why). A
-    /// std::variant, not ShapePiece with more optional fields, so "which
-    /// kind is this" is never ambiguous and every consumer (select/
-    /// deselect/BuildSelectionOverlayPictureStage/le_selected_object_ref)
+    /// (RowId/RegionId - synthesized geometry; PlacementId - its own
+    /// geometry is its reference design's). A std::variant, not
+    /// ShapePiece with more optional fields, so "which kind is this" is
+    /// never ambiguous and every consumer (select/deselect/
+    /// view_render_options_for/le_selected_object_ref)
     /// is forced to handle every alternative explicitly (std::visit)
     /// rather than silently ignoring an unset field. Every alternative
     /// already has operator<=> (Id<Tag> generated, ShapePiece defaulted
@@ -424,7 +372,7 @@ struct LeHandle
         // Obstructions across all Abstracts share the same underlying
         // Pool - happens to collide with an unrelated object's reused
         // pool slot in the new one, highlighting/selecting the wrong
-        // shape entirely. Rulers (UPDATES.md item 13) are plain dbu
+        // shape entirely. Rulers are plain dbu
         // Points with no Abstract scoping at all - left uncleared they'd
         // just go on being drawn, at the same raw coordinates, over
         // whatever design happens to occupy that part of the new
@@ -442,13 +390,11 @@ struct LeHandle
         }
         le::AbstractId current_abstract() const { return current_abstract_; }
 
-        // --- Currently displayed Layout (Migration Step 3 Phase C) ---
+        // --- Currently displayed Layout ---
         // A second, independent "current view" tracker mirroring
         // current_abstract_'s own shape exactly (same selection/
-        // ruler-clearing reasoning applies - Layout content isn't
-        // selectable yet, but clearing keeps this consistent with the
-        // Abstract path rather than leaving stale state around for when
-        // it is). Deliberately NOT the same field as this handle's own
+        // ruler-clearing reasoning applies). Deliberately NOT the same
+        // field as this handle's own
         // current_layout_id (below) - that one is the generated TCL
         // surface's own default-scope tracker (what get_rows/get_placements/
         // etc. read), a genuinely separate concept from this GUI-rendering
@@ -466,7 +412,7 @@ struct LeHandle
         }
         le::LayoutId current_layout() const { return current_layout_id_; }
 
-        // --- Flightline fanout limit (NEW_FEATURES_SEPT_2026.md item 5) ---
+        // --- Flightline fanout limit ---
         // A net with more than this many endpoints besides the selected
         // pin (a high-fanout clock/reset net) draws no flightlines; 0 means
         // no limit. Negative values are ignored, like set_hierarchy_depth.
@@ -478,11 +424,11 @@ struct LeHandle
         }
         int flightline_max_fanout() const { return flightline_max_fanout_; }
 
-        // --- Hierarchy depth (Migration Step 3 Phase C) ---
+        // --- Hierarchy depth ---
         // How many further levels of Placement -> Design a Layout view
         // recurses into before falling back to a placed instance's own
-        // Abstract - see InstanceRenderer::render_layout_frame's own
-        // comment for the exact recursion rule. 0 (the default) means
+        // Abstract - see HierarchyResolverStage's own doc comment for the
+        // exact recursion rule. 0 (the default) means
         // every placement falls back straight to its Abstract - the
         // cheapest, always-safe starting point for a freshly opened
         // Layout view. Negative values are rejected (same "ignore invalid
@@ -569,7 +515,7 @@ struct LeHandle
             if (!std::isfinite(scale) || scale <= 0.0)
                 scale = 1.0;
 
-            // Renderer's pixel transform maps (dbu - pan) * scale to pixel
+            // The rasterizer's pixel transform maps (dbu - pan) * scale to pixel
             // space, i.e. pan is the dbu point that lands at pixel (0, 0) -
             // not the viewport center. To center the content, pan is offset
             // from the bbox's own lower-left corner by half of the leftover
@@ -592,8 +538,9 @@ struct LeHandle
         // Technology with different units should set explicit dbu values.
         // Non-positive values are rejected (keeps the last valid spacing),
         // same guard as set_scale, and setters bump visibility_version()
-        // since the grid is part of the rendered picture (see
-        // Renderer::draw_grid) - unlike layer selectability below, this
+        // since the grid is part of the rendered picture
+        // (RasterizeBlend2DStage's draw_grid_blend2d) - unlike layer
+        // selectability below, this
         // does need to invalidate the render cache.
         void set_minor_grid_spacing(int64_t dbu)
         {
@@ -618,27 +565,19 @@ struct LeHandle
         // --- Mouse position (screen pixels) + grid-snapped dbu position ---
         // Set by the frontend on every pointer move (see le_set_mouse_position)
         // - screen/image pixel space (top-left origin, y down, matching
-        // le_render_pixel_buffer()'s output and le_zoom's x/y), not
-        // Renderer's own pre-Y-flip pixel space. Deliberately its own
+        // le_render_pixel_buffer()'s output and le_zoom's x/y), not the
+        // rasterizer's pre-Y-flip pixel space. Deliberately its own
         // version counter, not visibility_version - a mouse move must not
-        // invalidate Renderer's (expensive, design-sized) rasterized
-        // picture cache; see Renderer::compose_with_overlays for how the
-        // mouse overlay stays cheap to redraw independently of it.
+        // invalidate the expensive, design-sized rasterized images; only
+        // ComposeStage's cheap overlay pass redraws.
         // Dedups (only bumps mouse_version_ on an actual change) the same
         // way set_ruler_free_form's own comment describes - le_gui.cpp's
         // own forward_mouse_input calls this unconditionally every single
         // GUI frame the mouse merely sits over the layout view, not only
         // on an actual move (ImGui reports the same MousePos every frame
         // between real OS pointer events). Without this dedup, a
-        // perfectly still mouse produced a genuine, real mutation every
-        // frame forever - confirmed by direct instrumentation, not
-        // theoretical: on the event-driven render thread (render_thread_loop,
-        // le_gui.cpp) this alone kept it waking and recomputing roughly
-        // every 35-40ms indefinitely, each such recompute only a couple of
-        // milliseconds - far too short for the GUI thread's own polling of
-        // is_rendering() to ever reliably catch, which is exactly what made
-        // a genuinely fast *real* render (e.g. a warm-cache fit) indistinguishable
-        // from this constant background noise and just as invisible.
+        // perfectly still mouse would wake the event-driven render thread
+        // (le_gui.cpp) and recompute every frame forever.
         void set_mouse_position(int32_t x_px, int32_t y_px)
         {
             if (has_mouse_position_ && mouse_x_px_ == x_px && mouse_y_px_ == y_px)
@@ -676,11 +615,10 @@ struct LeHandle
 
         // Converts a screen/image pixel coordinate (top-left origin, y
         // down - same convention as set_mouse_position) to dbu space,
-        // undoing rasterize()'s Y-flip the same way le_zoom's own
-        // pixel->dbu conversion does - see render.hpp's PixelShape/
-        // Renderer::rasterize comments for why pan/scale describe the
-        // pre-flip transform while a screen pixel coordinate is
-        // post-flip. scale_ is always positive by construction
+        // undoing the rasterizer's Y-flip the same way le_zoom's own
+        // pixel->dbu conversion does - pan/scale describe the pre-flip
+        // transform while a screen pixel coordinate is post-flip. scale_
+        // is always positive by construction
         // (set_scale rejects non-positive values), so no divide-by-zero
         // guard is needed here. Shared by mouse_dbu_position() (the
         // currently stored mouse position) and click/drag-select
@@ -722,7 +660,7 @@ struct LeHandle
             return le::Point{snap(dbu->x), snap(dbu->y)};
         }
 
-        // --- Drag-select / drag-zoom gesture (UPDATES.md 7.1 items 5-6, 9.3) ---
+        // --- Drag-select / drag-zoom gesture ---
         // Which high-level action a drag gesture should perform once it
         // ends - this handle itself doesn't interpret this, it's purely a
         // label the caller (le_mouse_down/le_zoom_drag_down, and later
@@ -754,7 +692,7 @@ struct LeHandle
             drag_start_x_px_ = x_px;
             drag_start_y_px_ = y_px;
             drag_kind_ = kind;
-            ++mouse_version_; // so the drag-rect overlay (Renderer, see UPDATES.md 7.1 item 5's live rectangle) starts showing immediately
+            ++mouse_version_; // so the drag-rect overlay (ComposeStage) starts showing immediately
         }
 
         void end_drag()
@@ -789,14 +727,12 @@ struct LeHandle
             };
         }
 
-        // --- Mode (UPDATES.md item 11) ---
+        // --- Mode ---
         // Select mode is the only mode where mouse interaction (le_mouse_up)
         // changes the current selection; Edit mode restricts mouse
-        // interaction to editing whatever is already selected (behavior
-        // TBD - UPDATES.md item 11's own "Details of how objects are
-        // edited to follow"), so the selection can only change back in
-        // Select mode. Ruler mode (UPDATES.md item 13) is documented in
-        // the Rulers section below.
+        // interaction to editing whatever is already selected (Move,
+        // Resize, Delete), so the selection can only change back in
+        // Select mode. Ruler mode is documented in the Rulers section below.
         enum class Mode
         {
             SELECT,
@@ -809,8 +745,8 @@ struct LeHandle
         // in Ruler mode" an invariant callers (render, tests) can rely on
         // rather than a coincidence. Bumps mouse_version_ on
         // an actual mode change only - the ghost-ruler overlay's content
-        // is mode-dependent (BuildOverlayPictureStage) and needs to
-        // invalidate on mode switch.
+        // is mode-dependent (ComposeStage) and needs to invalidate on
+        // mode switch.
         void set_mode(Mode mode)
         {
             if (mode == mode_)
@@ -827,13 +763,12 @@ struct LeHandle
         }
         Mode mode() const { return mode_; }
 
-        // --- Rulers (UPDATES.md item 13) ---
+        // --- Rulers ---
         // A ruler is a polyline of already-committed (grid-snapped)
         // points; `finished` is set once the user presses Esc to stop
         // adding to it (see le_finish_ruler) or leaves Ruler mode (see
         // set_mode above). Multiple rulers can exist at once - starting
-        // a new one never clears an existing one (resolved design
-        // decision, UPDATES.md item 13). The *last* entry is "the active
+        // a new one never clears an existing one. The *last* entry is "the active
         // ruler" new clicks append to, if and only if it exists and
         // isn't finished - this struct maintains that as an invariant
         // rather than something callers have to check for themselves.
@@ -843,7 +778,7 @@ struct LeHandle
             bool finished = false;
         };
 
-        // --- Move (UPDATES.md item 21) ---
+        // --- Move ---
         // Transient, uncommitted drag state for the two-click Move
         // gesture in Edit mode - the direct analog of Ruler above (armed/
         // anchored/free-form flag instead of a committed polyline), see
@@ -851,8 +786,8 @@ struct LeHandle
         // itself mutates Root - a committed Move is recorded as an
         // ordinary editing::Transaction of per-piece update steps by the
         // caller (see api.cpp's le_mouse_up EDIT-mode branch), once the
-        // second click lands. Piece-granular (UPDATES.md item 21's
-        // follow-up): `moving_pieces` is a direct copy of `selection_` at
+        // second click lands. Piece-granular: `moving_pieces` is a direct
+        // copy of `selection_` at
         // arm time, so Move moves exactly whichever pieces are selected,
         // not necessarily every piece of their owning Shapes.
         // `moving_geometry` is a snapshot of each moving *piece's* own
@@ -860,10 +795,9 @@ struct LeHandle
         // to `moving_pieces`, taken once at arm_move()/re-arm time (Move
         // never changes *which* pieces are moving mid-gesture, only the
         // offset) - this keeps the render-side ghost overlay
-        // (BuildOverlayPictureStage) Root-agnostic, the same reason it
-        // doesn't take a Root reference anywhere else.
+        // (ComposeStage) Root-agnostic.
         //
-        // Placement moves (NEW_FEATURES_SEPT_2026.md item 2) ride the same
+        // Placement moves ride the same
         // state: `anchor_raw` is the anchor's own unsnapped dbu position
         // (a Placement's delta comes from the raw mouse - its own
         // snapping, placement_snap_mode(), replaces the user-grid snap).
@@ -906,8 +840,8 @@ struct LeHandle
         // unlike arm_move(), which also resets the anchor and rebuilds
         // moving_pieces from the current selection. For when something
         // *other* than Move itself changed the moving pieces' geometry
-        // while a move is still armed - namely undo/redo (UPDATES.md
-        // item 21): committing move A stays armed for a follow-up move,
+        // while a move is still armed - namely undo/redo: committing move
+        // A stays armed for a follow-up move,
         // but if the user then undoes move A instead, the armed move's
         // own moving_geometry snapshot (taken at arm/re-arm time) still
         // reflects move A's *result*, not the reverted state - a
@@ -972,7 +906,7 @@ struct LeHandle
             return ids;
         }
 
-        // --- Resize (NEW_FEATURES_SEPT_2026.md item 3) ---
+        // --- Resize ---
         // A tool like Move, armed in Edit mode (arm_resize - one of the two
         // at a time), then driven by two clicks, like Move: while nothing is
         // grabbed, `hover` is the selected piece's edge/segment under the
@@ -1056,7 +990,7 @@ struct LeHandle
         // default (always available). Bumps mouse_version_ on a real
         // change so a live ghost re-snaps immediately.
         // Vias and via arrays share the path slot (le::shape_snap_slot) -
-        // they snap only when moved (NEW_FEATURES_SEPT_2026.md item 13).
+        // they snap only when moved.
         void set_shape_snap_mode(le::PieceKind kind, le::ShapeSnapMode mode)
         {
             le::ShapeSnapMode &slot = shape_snap_modes_[static_cast<size_t>(le::shape_snap_slot(kind))];
@@ -1139,8 +1073,8 @@ struct LeHandle
         // then unless `free_form` or there's no active ruler with a
         // prior committed point, constrained to whichever axis has the
         // larger delta from that point (the other axis pinned to it
-        // exactly) - UPDATES.md item 13's "orthogonal by default, shift
-        // for non-orthogonal". `free_form` is passed in rather than read
+        // exactly) - "orthogonal by default, shift for non-orthogonal".
+        // `free_form` is passed in rather than read
         // from held keys internally - see set_ruler_free_form's own
         // comment for why this handle stays agnostic of api.hpp's
         // LE_KEY_SHIFT value.
@@ -1277,10 +1211,8 @@ struct LeHandle
         // since legible label size varies with display/preferences.
         // Bumps visibility_version_ (not a dedicated counter), the same
         // signal set_minor_grid_spacing/set_major_grid_spacing already
-        // use for "affects rendered content" - both ruler overlay stages
-        // (BuildOverlayPictureStage/BuildRulerOverlayPictureStage) already
-        // key on visibility_version() alongside ruler_version(), so this
-        // invalidates them correctly with no new plumbing. Non-positive
+        // use for "affects rendered content", so ruler overlays redraw
+        // with no new plumbing. Non-positive
         // values are rejected (keeps the last valid size), same guard as
         // set_minor_grid_spacing.
         void set_ruler_label_size_px(double px)
@@ -1295,8 +1227,7 @@ struct LeHandle
 
         // Smallest / largest on-screen size (px) a shape or placement label
         // is drawn at - labels scale with their geometry between the two
-        // (the Settings panel's min/max label font sizes,
-        // NEW_FEATURES_SEPT_2026.md item 9). Same visibility_version_
+        // (the Settings panel's min/max label font sizes). Same visibility_version_
         // signal and non-positive guard as set_ruler_label_size_px. Not
         // cross-checked against each other (setting them in either order
         // must work) - a min above the max yields to it at draw time.
@@ -1319,8 +1250,8 @@ struct LeHandle
         }
         double label_max_size_px() const { return label_max_size_px_; }
 
-        // Colors picked in the Layers panel (NEW_FEATURES_SEPT_2026.md item
-        // 17), by row name (a Layer's name, or a pseudo-row's) - applied
+        // Colors picked in the Layers panel, by row name (a Layer's name,
+        // or a pseudo-row's) - applied
         // on top of the default palette by every view_layers rebuild
         // (api.cpp's rebuild_view_layers) and by the render graph's own
         // LayerGenerationStage (ViewRenderOptions::layer_color_overrides).
@@ -1340,11 +1271,11 @@ struct LeHandle
 
         // Grid spacing (um) from a settings file read before any
         // Technology existed to convert it to dbu - applied by api.cpp once
-        // one does (NEW_FEATURES_SEPT_2026.md item 9).
+        // one does.
         std::optional<double> pending_minor_grid_um;
         std::optional<double> pending_major_grid_um;
 
-        // --- Held keys (UPDATES.md 7) ---
+        // --- Held keys ---
         // A generic set of currently-held key codes, set by the frontend
         // via press_key/release_key (see le_key_down/le_key_up) on every
         // key-down/key-up event - decoupled from any specific gesture
@@ -1373,7 +1304,7 @@ struct LeHandle
 
         // --- Layer visibility (defaults to visible until toggled, except
         // TRACK_PREFERRED/TRACK_NON_PREFERRED/ROW/GCELLGRID, pre-seeded
-        // invisible below - BUGS_AND_ENHANCEMENTS.md E2) ---
+        // invisible below) ---
         // Two independent axes, deliberately *not* per-ViewLayerId: by
         // layer name (every purpose-column of that ViewLayerRow, e.g.
         // toggling "M1" off hides both M1/TERMINAL and M1/OBSTRUCTION) and
@@ -1407,8 +1338,8 @@ struct LeHandle
             return it == purpose_visible_.end() ? true : it->second;
         }
 
-        // The actual per-ViewLayer question Pipeline::filter_by_layer_visibility
-        // filters on: visible only if both its layer-name axis and its
+        // The actual per-ViewLayer visibility question rendering asks:
+        // visible only if both its layer-name axis and its
         // purpose axis are visible.
         bool is_view_layer_visible(const std::string &layer_name, le::ViewLayerPurpose purpose) const
         {
@@ -1429,21 +1360,10 @@ struct LeHandle
         // comparing both maps (or this flag) by value.
         uint64_t visibility_version() const { return visibility_version_; }
 
-        // --- Design-content anti-aliasing (draw_group's own fill/stroke
-        // paints, plus its own per-shape/per-placement text paints -
-        // terminal/route/placement labels and their own anchor-point
-        // cross markers, BUGS_AND_ENHANCEMENTS.md E19 - since those can
-        // appear as often as real geometry in a dense design, not the
-        // low-volume category below. Fixed, small-count interactive
-        // chrome - grid, cursor, selection/hover/move-ghost outlines,
-        // ruler labels, the Abstract origin marker - stays AA'd
-        // regardless, drawn once or a handful of times per frame
-        // regardless of design size, where turning it off would just
-        // look worse for no real cost saved). Off by default, matching
-        // commercial EDA tool convention - real IC layout content is
-        // overwhelmingly Manhattan/orthogonal, so AA buys little
-        // visually there while costing real rasterization time at
-        // scale; a user who wants it can turn it back on. Reuses
+        // --- Design-content anti-aliasing - passed to the render as
+        // ViewRenderOptions::antialiasing_enabled, but Blend2D always
+        // antialiases, so it currently has no visual effect. Off by
+        // default. Reuses
         // visibility_version_ rather than a dedicated counter, same "a
         // render-config change" category set_layer_name_visible/
         // set_purpose_visible already are, not a separate concern.
@@ -1456,12 +1376,11 @@ struct LeHandle
 
         // --- Layer selectability (defaults to selectable until toggled,
         // except TRACK_PREFERRED/TRACK_NON_PREFERRED/GCELLGRID, pre-seeded
-        // non-selectable below - BUGS_AND_ENHANCEMENTS.md E2) ---
+        // non-selectable below) ---
         // Same two-axis shape as visibility above, but deliberately doesn't
-        // bump any version counter: unlike visibility, nothing here caches
-        // on it yet - it's consulted by a future hit-testing/click-to-select
-        // path (not implemented yet), not by Pipeline/Renderer, so there's
-        // no cache to invalidate.
+        // bump any version counter: it's consulted only by hit-testing
+        // (is_view_layer_selectable), never by rendering, so there's no
+        // cache to invalidate.
         void set_layer_name_selectable(std::string layer_name, bool selectable)
         {
             layer_name_selectable_[std::move(layer_name)] = selectable;
@@ -1490,22 +1409,19 @@ struct LeHandle
         }
 
         // --- Selection ---
-        // Renderer draws a white outline around every selected shape (see
-        // Renderer::build_picture/build_overlay_picture,
-        // draw_selection_outline/draw_selected_piece_outline) -
-        // selection_version_ lets build_picture's (and, since piece
-        // tracking, build_overlay_picture's) cache know when the
+        // ComposeStage draws a white outline around every selected piece -
+        // selection_version_ lets its cache know when the
         // selection changes, decoupled from viewport_version_/
         // visibility_version_ (selection is neither a viewport nor a
         // layer-visibility concern). Only bumped on an actual change, not
         // a redundant no-op call (matches clear_mouse_position's own
-        // convention) - a no-op bump would invalidate the design picture
-        // cache for nothing.
+        // convention) - a no-op bump would invalidate the composed frame
+        // for nothing.
         //
         // Dedup is by SelectedObject identity (selected_keys_, an ordered
         // std::set<SelectedObject> - every alternative already has
         // operator<=>, so no custom hash/tuple wrapper is needed) -
-        // UPDATES.md item 21's piece-granular selection: two different
+        // piece-granular selection: two different
         // pieces of the same Shape are two independent selected entries,
         // not deduped against each other, but re-selecting the exact same
         // piece (or the same whole Row/Placement/Region) twice (e.g.
@@ -1519,7 +1435,7 @@ struct LeHandle
             select_object(SelectedObject{ShapePiece{.shape_id = shape_id, .piece_kind = piece_kind, .piece_index = piece_index}});
         }
 
-        // E1 - whole-object selection for a kind with no piece concept
+        // Whole-object selection for a kind with no piece concept
         // (no backing Shape to address a rect/polygon/path within - see
         // SelectedObject's own comment). One overload per bare-id
         // alternative rather than a single templated `select(auto)`: the
@@ -1563,7 +1479,7 @@ struct LeHandle
                 return piece && piece->shape_id == shape_id; });
         }
 
-        // E1 - whole-object selected query, one overload per bare-id
+        // Whole-object selected query, one overload per bare-id
         // alternative, same reasoning as the select() overload set above.
         bool is_selected(le::RowId row_id) const { return selected_keys_.contains(SelectedObject{row_id}); }
         bool is_selected(le::PlacementId placement_id) const { return selected_keys_.contains(SelectedObject{placement_id}); }
@@ -1631,7 +1547,7 @@ struct LeHandle
         std::map<std::string, le::Color> layer_color_overrides_;
 
     public:
-        // NEW_FEATURES_SEPT_2026.md item 18 - what "saved" means for the exit
+        // What "saved" means for the exit
         // confirmation. The design is unsaved once root's mutation version
         // moves past saved_mutation_version (set by a successful write_def/
         // write_lef, and by a read that starts from a clean state - reading
@@ -1655,8 +1571,7 @@ struct LeHandle
         std::unordered_set<int32_t> held_keys_;
         std::unordered_map<std::string, bool> layer_name_visible_;
         // Pre-seeded false for TRACK_PREFERRED/TRACK_NON_PREFERRED/ROW/
-        // GCELLGRID (BUGS_AND_ENHANCEMENTS.md E2 - "invisible by
-        // default") and FLIGHTLINE (NEW_FEATURES_SEPT_2026.md item 5) -
+        // GCELLGRID (scaffolding, invisible by default) and FLIGHTLINE -
         // every other purpose still falls back to is_purpose_visible()'s
         // own "unknown key -> visible" default.
         std::unordered_map<le::ViewLayerPurpose, bool> purpose_visible_{
@@ -1670,14 +1585,11 @@ struct LeHandle
         bool antialiasing_enabled_ = false;
         std::unordered_map<std::string, bool> layer_name_selectable_;
         // Pre-seeded false for TRACK_PREFERRED/TRACK_NON_PREFERRED/
-        // GCELLGRID (BUGS_AND_ENHANCEMENTS.md E2 - "not selectable") -
-        // hit_test_point/hit_test_rect (pipelines/hit_test.hpp) already
-        // skip these regardless, since LayoutGeometryStage never sets an
-        // `origin` on a track/gcellgrid RenderedShape; this just keeps
-        // the visibility widget's own selectable-checkbox default
-        // consistent with that rather than showing an active-looking
-        // no-op. ROW stays selectable by default (BUGS_AND_ENHANCEMENTS.md
-        // E1 - rows are meant to be selectable).
+        // GCELLGRID - hit-testing never returns tracks or gcell grids
+        // anyway; this keeps the Layers panel's selectable-checkbox
+        // default consistent with that rather than showing an
+        // active-looking no-op. ROW stays selectable by default - rows
+        // are meant to be selectable.
         std::unordered_map<le::ViewLayerPurpose, bool> purpose_selectable_{
             {le::ViewLayerPurpose::TRACK_PREFERRED, false},
             {le::ViewLayerPurpose::TRACK_NON_PREFERRED, false},

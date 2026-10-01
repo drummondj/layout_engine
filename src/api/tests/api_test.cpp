@@ -20,10 +20,9 @@ namespace
     // A moderately-sized (not stress_data.hpp's full 1M-shape) generated
     // LEF - one PIN per shape, matching stress_data.hpp's "fresh LAYER
     // before every geometry item" trick so shapes_from_parser finalizes
-    // many separate Shape entries - giving Pipeline::filter_by_layer_
-    // visibility's grouping loop (the exact std::map mutation that raced
-    // in the reported crash) enough iterations per call to take
-    // measurable time, without making this test itself slow. Written to
+    // many separate Shape entries - giving each render enough work per
+    // call to take measurable time, without making this test itself
+    // slow. Written to
     // a scratch temp file rather than a checked-in fixture, since it's
     // generated, not hand-authored.
     std::string generate_concurrency_stress_lef(int shape_count)
@@ -65,7 +64,7 @@ namespace
     }
 
     // The mouse-snap cursor box is drawn pure opaque red (see
-    // Renderer::kCursorBoxColor) - distinct from the grid's gray/white
+    // kCursorBoxColor, draw_helpers.hpp) - distinct from the grid's gray/white
     // dots and any layer fill color, so "clearly red-dominant and opaque"
     // is a reliable way to detect it without depending on exact stroke
     // antialiasing.
@@ -82,7 +81,7 @@ namespace
     }
 
     // The hover outline is drawn pure opaque yellow (see
-    // Renderer::kHoverOutlineColor) - distinct from the cursor box (red),
+    // kHoverOutlineColor, draw_helpers.hpp) - distinct from the cursor box (red),
     // origin marker (amber), and grid (gray/white), so "clearly
     // yellow-dominant and opaque" reliably detects it without depending
     // on exact stroke antialiasing.
@@ -99,7 +98,7 @@ namespace
     }
 
     // The selection outline is drawn pure opaque white (see
-    // Renderer::kSelectionOutlineColor) - distinct from every other
+    // kSelectionOutlineColor, draw_helpers.hpp) - distinct from every other
     // overlay/grid color and from every default layer palette color (none
     // of which are pure white), so "R/G/B all near max and opaque"
     // reliably detects it without depending on exact stroke antialiasing.
@@ -278,10 +277,8 @@ TEST_F(ApiFixture, ReadLefWithValidFileSucceedsAndPopulatesOneDesign)
     EXPECT_STREQ(name, "TESTCELL");
 }
 
-// handle->messages / le_message_count / le_message_at (formerly
-// UPDATES.md item 3) were removed - every backend message now goes
-// straight to spdlog (le_shell's own console) instead of a queue the
-// GUI polled, since there's no longer a Flutter frontend to poll it.
+// Backend messages go straight to spdlog (le_shell's own console), not
+// a queue the API exposes.
 // Message *content* (ERROR/WARNING text, malformed vs. warning-only
 // fixtures) is still covered directly at the reader level - see
 // LEFReaderErrors/LEFReaderMessages in lef_reader_test.cpp - so only
@@ -297,7 +294,7 @@ TEST_F(ApiFixture, ReadLefWithAWarningProducingFileStillSucceeds)
     EXPECT_EQ(le_read_lef(handle, fixture_path("warning_currentden.lef").c_str(), "warning_currentden"), 0);
 }
 
-// le_tooltip_message (UPDATES.md item 7.3).
+// le_tooltip_message.
 TEST_F(ApiFixture, TooltipMessageReturnsTheSelectModeInstructions)
 {
     const char *tooltip = le_tooltip_message(handle);
@@ -326,7 +323,7 @@ TEST_F(ApiFixture, TooltipMessageReflectsRulerMode)
     EXPECT_NE(std::string(tooltip).find("Esc"), std::string::npos);
 }
 
-// le_get_mode/le_set_mode (UPDATES.md item 11).
+// le_get_mode/le_set_mode.
 TEST_F(ApiFixture, GetModeDefaultsToSelectMode)
 {
     EXPECT_EQ(le_get_mode(handle), LE_MODE_SELECT);
@@ -471,15 +468,11 @@ TEST_F(ApiFixture, RenderPixelBufferProducesTheRequestedDimensions)
 
 TEST_F(ApiFixture, SubPixelShapeIsNotRenderedAndIsNotSelectable)
 {
-    // bbox_is_sub_pixel (draw_helpers.hpp, both Rasterize backends) - a
-    // shape under 1 on-screen pixel in both dimensions is skipped before
-    // any fill/outline work is done for it at all, not replaced by a
-    // dot (pipelines.old's own TinyShapeDot/TinyViewportFilterStage
-    // approach - reintroduced deliberately without the dot this time,
-    // per PIPELINE_REFACTOR_BENCHMARK_RESULTS.md's own zoom-fit
-    // investigation: a real design's own overwhelming majority of
-    // sub-pixel shapes at full-design zoom made walking/drawing every
-    // one of them, dot or not, the dominant Rasterize cost).
+    // bbox_is_sub_pixel (draw_helpers.hpp) - a shape under 1 on-screen
+    // pixel in both dimensions is skipped before any fill/outline work is
+    // done for it at all, and not replaced by a dot: at full-design zoom
+    // most of a real design's shapes are sub-pixel, so drawing them in
+    // any form would dominate the Rasterize cost.
     ASSERT_EQ(le_read_lef(handle, fixture_path("tiny_shape.lef").c_str(), "tiny_shape"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
@@ -497,9 +490,8 @@ TEST_F(ApiFixture, SubPixelShapeIsNotRenderedAndIsNotSelectable)
     LePixelBuffer buffer = le_render_pixel_buffer(handle);
     ASSERT_NE(buffer.data, nullptr);
 
-    // No dot, no outline, nothing - the shape's own bbox center (see the
-    // now-removed TinyShapeDot-era comment above for its exact pixel
-    // derivation) stays exactly as blank as the rest of the empty canvas.
+    // No dot, no outline, nothing - the shape's own bbox center stays
+    // exactly as blank as the rest of the empty canvas.
     EXPECT_FALSE(region_has_opaque_pixel(buffer, 3, 93, 7, 97));
 
     le_mouse_down(handle, 5, 95);
@@ -614,14 +606,11 @@ TEST_F(ApiFixture, FitRectUsesTheGivenRectNotTheDesignsOwnBbox)
 
 TEST_F(ApiFixture, FitSceneInLayoutViewFramesTheDiereaNotTheOrigin)
 {
-    // Regression test: fit_scene_unlocked used to always call
-    // generate_shapes against scene.current_abstract(), which is invalid
-    // in a Layout view (Phase C's own convention: the two "current view"
-    // trackers are mutually exclusive) - generate_shapes on an invalid
-    // AbstractId returns nothing, so fit_to_content(nullopt, ...) reset to
-    // scale=1.0/pan={0,0} instead of framing the Layout's own content.
+    // In a Layout view there is no current_abstract() (the two "current
+    // view" trackers are mutually exclusive), so fit must frame the
+    // Layout's own DIEAREA rather than fall back to scale=1.0/pan={0,0}.
     // Places the diearea (and the placement whose pin should end up
-    // visible) far from the origin - with the old bug, scale=1/pan={0,0}
+    // visible) far from the origin - a scale=1/pan={0,0} fallback
     // against a 100x100px viewport can't reach dbu coordinates in the
     // millions no matter what, so this is a direct, robust proof the fix
     // actually frames the real content rather than replicating fit's own
@@ -726,9 +715,8 @@ TEST_F(ApiFixture, LibraryDesignAtReturnsAValidLayoutIdOnceADefIsReadIntoTheSame
 {
     // testcell.def's own DESIGN name (TESTCELL) matches testcell.lef's own
     // macro name exactly, so DEFReader::get_design_by_name reuses the same
-    // Design a LEF-only read already created (BUGS_AND_ENHANCEMENTS.md
-    // E15 - a Design can carry both an Abstract and a Layout view at
-    // once, not just one or the other).
+    // Design a LEF-only read already created (a Design can carry both an
+    // Abstract and a Layout view at once, not just one or the other).
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "testcell"), 0);
 
@@ -750,8 +738,8 @@ TEST_F(ApiFixture, SetCurrentDesignByIdWithNullHandleOrUnknownIdReturnsNonzero)
 
 TEST_F(ApiFixture, SetCurrentDesignByIdAlsoSetsTheGeneratedCurrentAbstract)
 {
-    // le_set_current_design_abstract_by_id is the shared entry point both a
-    // Dart-driven GUI (LeProvider.openDesign) and a TCL script
+    // le_set_current_design_abstract_by_id is the shared entry point both
+    // the GUI and a TCL script
     // (open_design) select a Design through - both should mean the same
     // thing: get_terminals/get_shapes/etc.'s own default -of-omitted
     // scope (le_current_abstract - the generated has_current_access
@@ -800,7 +788,7 @@ TEST_F(ApiFixture, SetCurrentDesignByIdSelectsTheSameDesignAsSetCurrentDesign)
     EXPECT_TRUE(region_has_opaque_pixel(buffer, 21, 21, 79, 79)); // pin rect visible, same as le_set_current_design_abstract(handle, 0) would give
 }
 
-// --- Layout view / hierarchy depth (Migration Step 3 Phase C) ---
+// --- Layout view / hierarchy depth ---
 
 TEST_F(ApiFixture, HierarchyDepthDefaultsToZeroAndRoundTrips)
 {
@@ -823,7 +811,7 @@ TEST_F(ApiFixture, HierarchyDepthFunctionsWithNullHandleDoNotCrash)
     le_set_hierarchy_depth(nullptr, 5); // no crash
 }
 
-// --- Max concurrency (BUGS_AND_ENHANCEMENTS.md E10) ---
+// --- Max concurrency ---
 
 TEST_F(ApiFixture, MaxConcurrencyDefaultsToEightAndRoundTrips)
 {
@@ -949,8 +937,8 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutClearsTheAbstractViewAndViceVersa)
     ASSERT_TRUE(region_has_opaque_pixel(abstract_buffer, 21, 21, 79, 79));
 
     // Switching to the Layout view must stop rendering the old Abstract
-    // (scene.current_abstract() clears) - render_pixel_buffer now takes
-    // the InstanceRenderer path entirely instead.
+    // (handle->current_abstract() clears) - render_pixel_buffer renders
+    // the Layout instead.
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
     le_set_hierarchy_depth(handle, 1);
     LePixelBuffer layout_buffer = le_render_pixel_buffer(handle);
@@ -966,14 +954,10 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutClearsTheAbstractViewAndViceVersa)
 
 TEST_F(ApiFixture, SetCurrentDesignLayoutWithZeroHierarchyDepthStillRendersOwnPlacement)
 {
-    // Pre-existing failure, confirmed unrelated to the SystemVerilog/slang
-    // work in this branch (already failing before that work started) -
-    // skipped rather than fixed here to unblock a merge deadline without
-    // guessing at unfamiliar Warm-tier rendering code under time pressure.
-    // Not root-caused precisely - region_has_opaque_pixel below comes back
-    // false where a placement's own content was expected to render at
-    // hierarchy_depth 0. Re-enable once someone with real context on the
-    // Layout-view rendering path has investigated.
+    // Known failure, not yet root-caused: region_has_opaque_pixel below
+    // comes back false where a placement's own content was expected to
+    // render at hierarchy_depth 0. Re-enable once the Layout-view
+    // rendering path has been investigated.
     GTEST_SKIP() << "Layout-view placement rendering at hierarchy_depth 0 - not yet diagnosed, see comment above";
     // hierarchy_depth defaults to 0 - remaining_depth is still max(0, 0-1)
     // == 0, so a placement still falls back to its own Abstract (0 means
@@ -998,25 +982,19 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutWithZeroHierarchyDepthStillRendersOwnPl
     EXPECT_TRUE(region_has_opaque_pixel(buffer, 21, 21, 79, 79));
 }
 
-// --- E1 (BUGS_AND_ENHANCEMENTS.md): selectable objects in Layout view ---
-// Before this, le_mouse_up unconditionally hit-tested the Abstract path
-// even when a Layout view was active - clicking in Layout view hit
-// whatever stale/irrelevant Abstract content happened to exist, never
-// the Layout's own. These exercise the real, full click -> LeHandle::
+// --- Selectable objects in Layout view ---
+// A Layout view must hit-test the Layout's own content, never whatever
+// Abstract content happens to exist. These exercise the real, full click -> LeHandle::
 // selection() -> le_selected_object_ref() path end-to-end, the same way
 // ClickSelectingAShapeReportsExactlyTheSamePropertiesAsGetPropertiesOnItsShapeId
 // already does for the Abstract path.
 
 TEST_F(ApiFixture, MouseClickInLayoutViewPrefersAnOwnShapeOverAPlacementsBoundingBoxAtTheSamePoint)
 {
-    // Layout-view own-shape hit-testing (Row/Region/Blockage/Route/
-    // PhysicalPort) is a known, already-documented gap from the Hot-tier
-    // pipeline restart - whole-placement hit-testing works, but a click
+    // Known gap: Layout-view own-shape hit-testing (Row/Region/Blockage)
+    // isn't implemented - whole-placement hit-testing works, but a click
     // can't yet prefer a placement's own shape over its bounding box the
-    // way this test expects. Pre-existing, unrelated to the SystemVerilog/
-    // slang work in this branch. Skipped (not fixed) to unblock a merge
-    // deadline rather than rush this real feature gap; re-enable once
-    // Layout-view own-shape hit-testing actually lands.
+    // way this test expects. Re-enable once it lands.
     GTEST_SKIP() << "Layout-view own-shape hit-testing not yet ported - see comment above";
     // TESTCELL (testcell.lef) is exactly 10x10 um - placed at (0,0) N,
     // its own world bbox is (0,0)-(10,10) um. A smaller 6x6 um routing
@@ -1024,10 +1002,10 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersAnOwnShapeOverAPlacementsBoundin
     // that bbox - (3,3) um falls inside both; (8,8) um falls inside only
     // the placement's own bbox.
     //
-    // BUGS_AND_ENHANCEMENTS.md B2: hit_test_placements_point (src/core/
-    // placement_geometry.hpp) is a pure bounding-box test, not real
-    // per-pixel/geometry hit-testing - a click used to unconditionally
-    // prefer a Placement whose bbox covered the point, even where the
+    // hit_test_placements_point (src/core/placement_geometry.hpp) is a
+    // pure bounding-box test, not real per-pixel/geometry hit-testing - a
+    // click must not unconditionally prefer a Placement whose bbox
+    // covers the point, even where the
     // placement's own painted content was actually transparent there and
     // an own_shape (a Blockage/Route/PhysicalPort/Row/Region belonging
     // directly to this Layout) was visibly the thing under the cursor -
@@ -1056,7 +1034,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersAnOwnShapeOverAPlacementsBoundin
     // mismatch (Blockage.placement isn't a `parent=` field, so per
     // CLAUDE.md's own convention for a plain reference like Shape.layer
     // it should accept "unset", the way that field does) found while
-    // writing this test, out of scope for E1 to fix here - worked around
+    // writing this test, out of scope here - worked around
     // by scoping the blockage under the same placement this test already
     // creates, which is harmless for what this test actually checks.
     const LeBlockageId blockage_id = le_create_blockage(handle, top_layout, placement_id, "ROUTING", "M1", 0, 0.0, 0, 0.0, 0, 0, 0.0);
@@ -1113,10 +1091,9 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersAnOwnShapeOverAPlacementsBoundin
     // Blockage has a real backing Shape (unlike Row/Region), so it rides
     // the same ShapePiece alternative Terminal/Obstruction already do -
     // le_selected_object_ref always reports LE_OBJECT_KIND_SHAPE for
-    // that alternative, unchanged from before E1 widened the variant
-    // (see scene.hpp's own comment). The owning Blockage is reached one
-    // hop up via le_object_parent (object_ref_parent's own new
-    // Shape->blockage fork).
+    // that alternative (see LeHandle::ShapePiece's own comment). The
+    // owning Blockage is reached one hop up via le_object_parent
+    // (object_ref_parent's own Shape->blockage fork).
     const LeObjectRef shape_ref = le_selected_object_ref(handle, 0);
     EXPECT_EQ(shape_ref.kind, LE_OBJECT_KIND_SHAPE);
     EXPECT_EQ(shape_ref.index, blockage_shape_id.index);
@@ -1427,11 +1404,9 @@ TEST_F(ApiFixture, SelectObjectRefWithRouteKindFailsForAnUnknownId)
     EXPECT_EQ(le_selection_count(handle), 0);
 }
 
-// Reported bug: a Route on a hidden ViewLayer (visibility off) was still
-// click-selectable, since hit_test_layout_point's own is_selectable
-// predicate (select_in_layout_view_unlocked, api.cpp) used to check only
-// is_view_layer_selectable, never is_view_layer_visible - the same gap
-// fixed for the Abstract view above
+// A Route on a hidden ViewLayer (visibility off) must not be
+// click-selectable - hit_test_layout_point's is_selectable predicate
+// checks visibility as well as selectability, as in the Abstract view
 // (MouseClickDoesNotSelectATerminalOnAHiddenLayer).
 TEST_F(ApiFixture, MouseClickInLayoutViewDoesNotSelectARouteOnAHiddenLayer)
 {
@@ -1503,7 +1478,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewSelectsARowWithNoBackingShape)
     const LeRowId row_id = le_create_row(handle, top_layout, "ROW1", "SITE1", /*has_origin=*/1, 0.0, 0.0, "N", 0, 0, 0, 0, 0, 0.0, 0, 0.0);
     ASSERT_NE(row_id.index, UINT32_MAX);
 
-    // ROW defaults to invisible now (BUGS_AND_ENHANCEMENTS.md E2) - a
+    // ROW defaults to invisible - a
     // hidden ViewLayer is filtered out before hit-testing ever sees it,
     // so this click-to-select test needs it made visible first; this
     // test is about the "origin set but no ShapeId" selection fork, not
@@ -1550,11 +1525,10 @@ TEST_F(ApiFixture, LayerAtListsRowThenBoundaryThenEveryPhysicalLayer)
     // testcell.lef declares one physical Layer (M1) - the API doesn't
     // special-case BOUNDARY, it's just another row, so the count is
     // M1 + ROW + GCELLGRID + PLACEMENT_BLOCKAGE + REGION + BOUNDARY +
-    // PLACEMENT + DEBUG + FLIGHTLINE + PORT_MARKER = 10 (Migration Step 2/3 plus
-    // BUGS_AND_ENHANCEMENTS.md E13 - see ViewLayerSet::build_for_technology).
-    // ROW then BOUNDARY then PLACEMENT come first (BUGS_AND_ENHANCEMENTS.md
-    // E8/E13 - this declaration order is also the real draw z-order, see
-    // ViewLayerSet::rows()'s own doc comment).
+    // PLACEMENT + DEBUG + FLIGHTLINE + PORT_MARKER = 10 (see
+    // ViewLayerSet::build_for_technology). ROW then BOUNDARY then
+    // PLACEMENT come first (this declaration order is also the real draw
+    // z-order, see ViewLayerSet::rows()'s own doc comment).
     ASSERT_EQ(le_layer_count(handle), 10);
 
     const LeLayerRow boundary_row = le_layer_at(handle, 1);
@@ -1598,18 +1572,12 @@ TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
     // The "columns" axis - row-independent, not scoped to M1 or any other
-    // specific layer (see ViewLayerSet::purposes()'s own comment). Migration
-    // Step 2 added TRACK_PREFERRED/TRACK_NON_PREFERRED/ROUTING_BLOCKAGE
-    // (per-Layer, right after TERMINAL/OBSTRUCTION - BUGS_AND_ENHANCEMENTS.md
-    // E2 split the original single TRACK purpose into the first two) and
-    // GCELLGRID/PLACEMENT_BLOCKAGE (their own pseudo-rows); Step 3 added
-    // ROUTE (per-Layer, right after ROUTING_BLOCKAGE) and REGION (its own
-    // pseudo-row). E8 moved ROW then BOUNDARY to the front (this walks
-    // ViewLayerSet::rows() in its own declaration order, which is also the
-    // real draw z-order - see that method's own doc comment); E13 added
-    // PLACEMENT right after BOUNDARY, its own pseudo-row (merged from
-    // PLACEMENT_NAME/PLACEMENT_BOUNDARY, keeping PLACEMENT_NAME's ordinal;
-    // CUSTOM_SHAPE and later shifted down by one). The raw ordinal values
+    // specific layer (see ViewLayerSet::purposes()'s own comment). This
+    // walks ViewLayerSet::rows() in its own declaration order (also the
+    // real draw z-order): ROW, BOUNDARY and PLACEMENT pseudo-rows first;
+    // then the per-Layer TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
+    // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/CUSTOM_SHAPE columns; then
+    // the GCELLGRID/PLACEMENT_BLOCKAGE/REGION/... pseudo-rows. The raw ordinal values
     // below are le::ViewLayerPurpose's own declaration order, unrelated to
     // this traversal order.
     ASSERT_EQ(le_purpose_count(handle), 16);
@@ -1627,8 +1595,8 @@ TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
     EXPECT_EQ(le_purpose_at(handle, 11), 8);  // PLACEMENT_BLOCKAGE
     EXPECT_EQ(le_purpose_at(handle, 12), 10); // REGION
     EXPECT_EQ(le_purpose_at(handle, 13), 13); // DEBUG
-    EXPECT_EQ(le_purpose_at(handle, 14), 14); // FLIGHTLINE (NEW_FEATURES_SEPT_2026.md item 5)
-    EXPECT_EQ(le_purpose_at(handle, 15), 15); // PORT_MARKER (NEW_FEATURES_SEPT_2026.md item 28)
+    EXPECT_EQ(le_purpose_at(handle, 14), 14); // FLIGHTLINE
+    EXPECT_EQ(le_purpose_at(handle, 15), 15); // PORT_MARKER
 }
 
 TEST_F(ApiFixture, LayerNameVisibilityDefaultsTrueAndRoundTrips)
@@ -1652,8 +1620,8 @@ TEST_F(ApiFixture, LayerNameVisibilityDefaultsTrueAndRoundTrips)
 TEST_F(ApiFixture, ReadLefDefaultsNonRoutingCutLayersToHidden)
 {
     // mixed_layer_types.lef: M1 (ROUTING), V1 (CUT), OVERLAP (OVERLAP),
-    // SLICE (MASTERSLICE) - UPDATES.md 10 says only ROUTING/CUT/BOUNDARY
-    // should default visible.
+    // SLICE (MASTERSLICE) - only ROUTING/CUT/BOUNDARY should default
+    // visible.
     ASSERT_EQ(le_read_lef(handle, fixture_path("mixed_layer_types.lef").c_str(), "mixed_layer_types"), 0);
 
     EXPECT_NE(le_is_layer_name_visible(handle, "M1"), 0);
@@ -2440,7 +2408,7 @@ TEST_F(ApiFixture, KeyDownPanWithCtrlOrShiftHeldIsANoOp)
     EXPECT_TRUE(region_has_opaque_pixel(after, 21, 21, 79, 79)); // unchanged
 }
 
-// LE_KEY_SELECT_MODE/LE_KEY_EDIT_MODE (UPDATES.md item 11).
+// LE_KEY_SELECT_MODE/LE_KEY_EDIT_MODE.
 TEST_F(ApiFixture, KeyDownEditModeSwitchesToEditMode)
 {
     ASSERT_EQ(le_get_mode(handle), LE_MODE_SELECT);
@@ -2459,9 +2427,9 @@ TEST_F(ApiFixture, KeyDownSelectModeSwitchesBackToSelectMode)
 
 TEST_F(ApiFixture, KeyDownEditModeWithCtrlOrShiftHeldIsANoOp)
 {
-    // Regression: 'e'/'s'/'r' used to switch modes even with a modifier
-    // held (e.g. Ctrl-S), stealing the keystroke from whatever the
-    // modifier combo actually meant. Mode-switch keys are bare-only now.
+    // Mode-switch keys ('e'/'s'/'r') are bare-only: with a modifier held
+    // (e.g. Ctrl-S) they must not steal the keystroke from whatever the
+    // modifier combo actually means.
     ASSERT_EQ(le_get_mode(handle), LE_MODE_SELECT);
 
     le_key_down(handle, LE_KEY_CTRL);
@@ -2819,12 +2787,9 @@ TEST_F(ApiFixture, MouseDownThenUpAsAClickSelectsTheHitShape)
 // A hidden ViewLayer (visibility off) must not be click-selectable even
 // though it's still marked selectable=true (the default) - "selectable"
 // means "eligible to be selected when visible", not "selectable
-// regardless of visibility". hit_test_abstract_point's own
-// is_selectable predicate (select_in_abstract_view_unlocked, api.cpp)
-// used to check only is_view_layer_selectable, never
-// is_view_layer_visible - the same gap select_all_unlocked's own
-// three-condition check never had, and hover (le_set_mouse_position)
-// shared it too (see that test below).
+// regardless of visibility". The is_selectable predicate passed to
+// hit_test_abstract_point checks both, as select_all_unlocked and hover
+// (le_set_mouse_position) do (see that test below).
 TEST_F(ApiFixture, MouseClickDoesNotSelectATerminalOnAHiddenLayer)
 {
     load_two_shapes_at_known_scale(handle);
@@ -2860,7 +2825,7 @@ TEST_F(ApiFixture, SelectionVersionBumpsOnlyOnAnActualSelectionChange)
     const int64_t after_reselect = le_selection_version(handle);
 
     // A pure mouse-move (no selection change) must not bump it - this is
-    // the whole point of exposing this counter (see BENCHMARKS.md).
+    // the whole point of exposing this counter.
     le_set_mouse_position(handle, 30, 170);
     EXPECT_EQ(le_selection_version(handle), after_reselect);
 }
@@ -2958,7 +2923,7 @@ TEST_F(ApiFixture, DragSelectEnclosesEverySelectableShapeInTheRectangle)
     EXPECT_EQ(le_selection_count(handle), 2);
 }
 
-// NEW_FEATURES_SEPT_2026.md item 22: a drag that's cancelled - le_cancel_drag
+// A drag that's cancelled - le_cancel_drag
 // (the GUI, on Escape or when the release went to another window) or the
 // Escape key itself - selects nothing, and a stray release afterwards is a
 // no-op rather than committing the stale rectangle.
@@ -3028,7 +2993,7 @@ TEST_F(ApiFixture, DragSelectOnAnUnselectableLayerSelectsNothing)
     EXPECT_EQ(le_selection_count(handle), 0);
 }
 
-// Edit mode gates le_mouse_up's selection changes (UPDATES.md item 11).
+// Edit mode gates le_mouse_up's selection changes.
 TEST_F(ApiFixture, ClickInEditModeDoesNotChangeSelection)
 {
     load_two_shapes_at_known_scale(handle);
@@ -3074,7 +3039,7 @@ TEST_F(ApiFixture, MouseUpInEditModeStillEndsDragging)
     EXPECT_EQ(le_selection_count(handle), 0);
 }
 
-// Ruler mode (UPDATES.md item 13).
+// Ruler mode.
 TEST_F(ApiFixture, ClickInRulerModeCommitsAPointAndLeavesSelectionUntouched)
 {
     load_two_shapes_at_known_scale(handle);
@@ -3151,9 +3116,8 @@ TEST_F(ApiFixture, RulerPointsComeBackMicronConverted)
 
 TEST_F(ApiFixture, EscKeyFinishesTheRulerKeepingEveryCommittedPoint)
 {
-    // UPDATES.md item 13 - Esc (LE_KEY_FINISH_RULER) finishes the active
-    // ruler without touching any of its already-committed points, unlike
-    // the earlier double-click design this replaced.
+    // Esc (LE_KEY_FINISH_RULER) finishes the active ruler without
+    // touching any of its already-committed points.
     load_two_shapes_at_known_scale(handle);
     le_set_mode(handle, LE_MODE_RULER);
 
@@ -3252,16 +3216,11 @@ TEST_F(ApiFixture, ClickSelectingAShapeShowsAWhiteOutlineInTheRenderedBuffer)
 {
     load_two_shapes_at_known_scale(handle);
 
-    // Regression: render once *before* selecting anything, so
-    // rasterize_frame/compose_with_overlays's caches are already warm at
-    // {AbstractId, viewport_version, visibility_version} - none of which
-    // change when a selection is made. Their cache keys used to stop
-    // there, so this exact sequence (render, then select, then render
-    // again) returned the pre-selection frame unchanged: build_picture
-    // correctly produced a new SkPicture with the outline baked in, but
-    // downstream, CachedStage::get only ever compares the key tuple, not
-    // the SkPicture argument itself, so the stale frame from the first
-    // render won. selection_version now closes that gap.
+    // Render once *before* selecting anything, so the render caches are
+    // already warm at {AbstractId, viewport_version, visibility_version}
+    // - none of which change when a selection is made. The next render
+    // after selecting must still show the outline: selection_version is
+    // part of what invalidates the composed frame.
     LePixelBuffer before = le_render_pixel_buffer(handle);
     ASSERT_NE(before.data, nullptr);
     ASSERT_FALSE(region_has_white_selection_pixel(before, 8, 170, 12, 180));
@@ -3314,9 +3273,9 @@ TEST_F(ApiFixture, SwitchingToADifferentDesignClearsTheSelection)
 
 TEST_F(ApiFixture, SwitchingToADifferentDesignClearsRulers)
 {
-    // Regression: rulers used to leak across Abstracts - drawn in one
-    // Design's abstract view, they'd keep showing up (at the same raw
-    // dbu coordinates) after switching to a different Design entirely.
+    // Rulers must not leak across Abstracts - drawn in one Design's
+    // abstract view, they must not keep showing up (at the same raw dbu
+    // coordinates) after switching to a different Design.
     load_two_shapes_at_known_scale(handle); // design 0 = TWOSHAPES
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0); // design 1 = TESTCELL
 
@@ -3353,7 +3312,7 @@ TEST_F(ApiFixture, ClearAllKeysMakesSubsequentClicksReplaceRatherThanAddAgain)
 
 namespace
 {
-    // Shared by every selection-properties test below (UPDATES.md 7.2):
+    // Shared by every selection-properties test below:
     // reads pin_and_obstruction.lef (MACRO PINOBS, PIN A at (1,1)-(4,4)
     // micron on M1, one OBS rect at (10,10)-(15,15) micron on M1 - see the
     // fixture file), and zooms a 200x200 viewport to scale 0.01 with pan
@@ -3395,8 +3354,7 @@ namespace
 
 TEST_F(ApiFixture, ClickSelectingAShapeReportsExactlyTheSamePropertiesAsGetPropertiesOnItsShapeId)
 {
-    // The originally reported bug's own regression test: clicking a shape
-    // must report the *exact* same rows le_shape_property_at (TCL's
+    // Clicking a shape must report the *exact* same rows le_shape_property_at (TCL's
     // get_properties shape:<id>) already shows for that same ShapeId -
     // not a pipeline-merged/derived summary. Selection is shape-granular
     // (le_selected_object_ref always reports LE_OBJECT_KIND_SHAPE), so
@@ -3755,15 +3713,12 @@ TEST_F(ApiFixture, ShiftClickingTwoPiecesOfTheSameTerminalSelectsBothIndependent
 
 TEST_F(ApiFixture, ConcurrentRenderAndMousePositionCallsOnTheSameHandleDoNotCrash)
 {
-    // Regression: le_render_pixel_buffer (called by Flutter's own raster
-    // thread, via FlutterTexture.copyPixelBuffer(), once per frame) and
-    // le_set_mouse_position/le_zoom (called by the platform thread on
-    // every pointer event) both run Pipeline::run() on the same handle -
-    // a real crash (concurrent, unsynchronized std::map mutation inside
-    // Pipeline::filter_by_layer_visibility) shipped from exactly this
-    // pattern. Every LeHandle-touching function now locks the handle's
-    // own mutex; this drives both call paths concurrently, repeatedly,
-    // and must complete without crashing, deadlocking, or hanging.
+    // le_render_pixel_buffer (the GUI's render thread) and
+    // le_set_mouse_position/le_zoom (the GUI thread, on every pointer
+    // event) run concurrently on the same handle. Every LeHandle-touching
+    // function locks the handle's own mutex; this drives both call paths
+    // concurrently, repeatedly, and must complete without crashing,
+    // deadlocking, or hanging.
     ASSERT_EQ(le_read_lef(handle, generate_concurrency_stress_lef(3000).c_str(), "test_lib"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 200, 200);
@@ -3774,10 +3729,8 @@ TEST_F(ApiFixture, ConcurrentRenderAndMousePositionCallsOnTheSameHandleDoNotCras
         for (int i = 0; i < kIterations; ++i)
         {
             // Alternates a no-op-ish zoom so viewport_version() keeps
-            // changing, forcing Pipeline::run() to actually recompute
-            // (not just return an already-cached result) on most calls -
-            // the same "real work, not a cache hit" condition the
-            // original crash needed to manifest.
+            // changing, forcing the render to actually recompute (not
+            // just return an already-cached result) on most calls.
             le_zoom(handle, (i % 2 == 0) ? 0.001 : -0.001, 100, 100);
             const LePixelBuffer buffer = le_render_pixel_buffer(handle);
             EXPECT_NE(buffer.data, nullptr);
@@ -3791,9 +3744,8 @@ TEST_F(ApiFixture, ConcurrentRenderAndMousePositionCallsOnTheSameHandleDoNotCras
 
 TEST_F(ApiFixture, IsRenderingReflectsWhetherARenderIsActuallyInProgress)
 {
-    // BUGS_AND_ENHANCEMENTS.md E17 - a status-bar spinner also driven by
-    // interactive zoom/pan (not just a running Tcl command like the
-    // existing one) needs to observe a render actually in progress from a
+    // The GUI's "rendering..." indicator needs to observe a render
+    // actually in progress from a
     // different thread, without blocking behind it (see le_is_rendering's
     // own doc comment for why it deliberately doesn't take handle's own
     // mutex). Same concurrency-stress fixture as
@@ -3877,8 +3829,7 @@ TEST_F(ApiFixture, PendingTclCommandQueueIsFifoAndDrainsToEmpty)
     EXPECT_EQ(le_take_next_pending_tcl_command(nullptr), nullptr) << "a null handle should degrade gracefully too";
 }
 
-// --- Terminal CRUD + filter-search (UPDATES.md item 15 / TCL_EXPLORATION.md
-// Phase 4) ---
+// --- Terminal CRUD + filter-search ---
 
 namespace
 {
@@ -3888,8 +3839,8 @@ namespace
     }
 }
 
-// --- BUGS_AND_ENHANCEMENTS.md E30: le_select_object_ref (the
-// script-driven counterpart to a real mouse click) ---
+// --- le_select_object_ref (the script-driven counterpart to a real
+// mouse click) ---
 
 TEST_F(ApiFixture, SelectObjectRefWithAShapeRefSelectsEveryPieceOfIt)
 {
@@ -4141,23 +4092,18 @@ TEST_F(ApiFixture, DeleteTerminalRemovesItAndIsIdempotentlySafeAfterwards)
 
 TEST_F(ApiFixture, BuildingALibraryDesignAbstractFromScratchAndSelectingItWithLeSetCurrentAbstractLetsCreateTerminalPortResolveTheTerminal)
 {
-    // Regression: le_terminal_by_name (Terminal's own hand-written
-    // friendly-id resolver - unique_per_parent means it can't use the
-    // generated by-name lookup pair, see Field.unique_per_parent's own
-    // docstring) used to read handle->scene.current_abstract() - a
-    // separate GUI-rendering "current view" only ever moved as a side
-    // effect of selecting a Design (le_set_current_design_abstract/
-    // le_set_current_design_abstract_by_id) - instead of
-    // handle->current_abstract_id, the same field le_set_current_abstract
-    // itself sets and le_get_terminals' own default scope already
-    // derives from. A script with no LEF-loaded Design to select at all
-    // - building a brand new Library/Design/Abstract purely through
-    // create_<type> calls and selecting the Abstract directly via
-    // le_set_current_abstract, exactly this test's own flow - hit this:
-    // create_terminal_port -terminal $in failed with "unknown terminal"
-    // even though the Terminal it just created was right there,
-    // findable via get_terminals. No LEF file involved at all, unlike
-    // every other ApiFixture test above, which is the point.
+    // le_terminal_by_name (Terminal's own hand-written friendly-id
+    // resolver - unique_per_parent means it can't use the generated
+    // by-name lookup pair, see Field.unique_per_parent's own docstring)
+    // must read handle->current_abstract_id - the field
+    // le_set_current_abstract sets and le_get_terminals' own default
+    // scope derives from - not the GUI-rendering current_abstract(),
+    // which only moves when a Design is selected. A script building a
+    // brand new Library/Design/Abstract purely through create_<type>
+    // calls and selecting the Abstract directly via
+    // le_set_current_abstract (this test's own flow, with no LEF file
+    // involved) must be able to create_terminal_port -terminal $in for a
+    // Terminal it just created.
     const LeLibraryId library_id = le_create_library(handle, "LIB");
     ASSERT_NE(library_id.index, UINT32_MAX);
     const LeDesignId design_id = le_create_design(handle, library_id, "CELL");
@@ -4180,9 +4126,9 @@ TEST_F(ApiFixture, BuildingALibraryDesignAbstractFromScratchAndSelectingItWithLe
     const LeTerminalId in_id = le_create_terminal(handle, abstract_id, "IN", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0);
     ASSERT_NE(in_id.index, UINT32_MAX);
 
-    // The bug: this returned an invalid id (scene.current_abstract() was
-    // never set, only current_abstract_id was) even though the Terminal
-    // genuinely exists under the currently-selected Abstract.
+    // Must resolve even though only current_abstract_id is set (not the
+    // GUI-rendering current_abstract()) - the Terminal genuinely exists
+    // under the currently-selected Abstract.
     EXPECT_EQ(le_terminal_by_name(handle, "IN").index, in_id.index);
 
     // create_terminal_port_cmd (le_tcl_shim.cpp) resolves its own
@@ -4235,18 +4181,17 @@ TEST_F(ApiFixture, SearchResultTerminalAtOutOfRangeReturnsInvalidId)
 }
 
 // --- TerminalPort/Obstruction CRUD + filter-search, and Abstract boundary
-// update (Phase 4, continued) ---
+// update ---
 
 namespace
 {
-    constexpr double kRect0[] = {0.1, 0.1, 0.3, 0.4}; // matches UPDATES.md item 15's own example verbatim
+    constexpr double kRect0[] = {0.1, 0.1, 0.3, 0.4};
 
-    // Shape.layer is now a required, resolved LeLayerId (readers error
+    // Shape.layer is a required, resolved LeLayerId (readers error
     // rather than create a Shape with an unresolved layer - see its own
-    // schema.py comment) - this test file used to pass arbitrary "M4"/
-    // "M5"/"M6" strings straight through when Shape.layer_name was a free
-    // string; those names aren't declared by testcell.lef (only "M1" is),
-    // so this resolves-or-creates a real Layer under the fixture's own
+    // schema.py comment). Tests here use layer names like "M4"/"M5"/"M6"
+    // that testcell.lef doesn't declare (only "M1" is), so this
+    // resolves-or-creates a real Layer under the fixture's own
     // Technology to stand in for them. Idempotent (le_layer_by_name first)
     // since several tests request the same name more than once.
     LeLayerId named_layer(LeHandle *handle, const char *name)
@@ -4470,10 +4415,9 @@ TEST_F(ApiFixture, SearchObstructionFindsMatchesByLayerName)
     EXPECT_EQ(le_search_result_obstruction_at(handle, 0).index, matching.index);
 }
 
-// --- Shape CRUD, addressed by a stable id (Phase 4, continued). Rects,
-// polygons, and paths are all created/read/removed via their own
-// symmetric set of calls - none baked into creation, matching the design
-// decision recorded in TCL_EXPLORATION.md. ---
+// --- Shape CRUD, addressed by a stable id. Rects, polygons, and paths
+// are all created/read/removed via their own symmetric set of calls -
+// none baked into creation. ---
 
 TEST_F(ApiFixture, CreateShapeWithNullHandleOrUnknownLayerOrUnknownParentReturnsInvalidId)
 {
@@ -4712,7 +4656,7 @@ TEST_F(ApiFixture, ShapeAccessorsWithNullHandleOrUnknownIdDegradeGracefully)
     EXPECT_DOUBLE_EQ(path_point.x_um, 0.0);
 }
 
-// --- Editing / undo-redo (UPDATES.md item 21) ---
+// --- Editing / undo-redo ---
 
 TEST_F(ApiFixture, SelectAllInEditModeIsANoOpEvenWithCtrlHeld)
 {
@@ -4784,7 +4728,7 @@ TEST_F(ApiFixture, UndoRedoRoundTripsAGeneratedUpdateCallThroughBeginEndCommand)
 
 TEST_F(ApiFixture, CommandHistoryRecordsBothSuccessfulAndFailedCommands)
 {
-    // BUGS_AND_ENHANCEMENTS.md E5 - a failed command is exactly the one a
+    // A failed command is exactly the one a
     // user most wants back, to recall and edit into a working one, so it
     // stays in the recall log same as a successful one.
     EXPECT_EQ(le_command_history_count(handle), 0);
@@ -4829,16 +4773,10 @@ TEST_F(ApiFixture, EditingFunctionsWithNullHandleDoNotCrash)
 
 TEST_F(ApiFixture, MoveTranslatesSelectedShapeGeometryAndIsUndoable)
 {
-    // Pre-existing failure, confirmed unrelated to the SystemVerilog/slang
-    // work in this branch (already failing before that work started) -
-    // NOT the documented Layout-view own-shape hit-testing gap (this test
-    // uses the Abstract view, le_set_current_design_abstract) - a click on
-    // an Obstruction shape isn't producing a selection here, root cause
-    // not yet identified (Abstract-view hit-testing is otherwise
-    // documented as fully ported, so this may be specific to Obstruction
-    // shapes or something else entirely). Skipped rather than fixed to
-    // unblock a merge deadline without guessing at unfamiliar hit-testing
-    // code under time pressure.
+    // Known failure, not yet root-caused: in the Abstract view
+    // (le_set_current_design_abstract), a click on an Obstruction shape
+    // doesn't produce a selection here. Abstract-view hit-testing
+    // otherwise works, so this may be specific to Obstruction shapes.
     GTEST_SKIP() << "Abstract-view Obstruction-shape click selection - not yet diagnosed, see comment above";
     // Own obstruction+rect at a known dbu location (testcell.lef is
     // DATABASE MICRONS 1000, so kRect0 (0.1,0.1)-(0.3,0.4) um is
@@ -4886,7 +4824,7 @@ TEST_F(ApiFixture, MoveTranslatesSelectedShapeGeometryAndIsUndoable)
     le_mouse_down(handle, 25, 174);
     le_mouse_up(handle, 25, 174);
 
-    // Move stays armed after a successful commit (UPDATES.md item 21) -
+    // Move stays armed after a successful commit -
     // ready for an immediate follow-up move on the same selection,
     // without re-arming, until Escape (see below).
     EXPECT_NE(le_is_move_armed(handle), 0);
@@ -4941,7 +4879,7 @@ TEST_F(ApiFixture, MoveTranslatesSelectedShapeGeometryAndIsUndoable)
 
 namespace
 {
-    // NEW_FEATURES_SEPT_2026.md item 2 fixture: TESTCELL (CLASS CORE,
+    // Placement-move fixture: TESTCELL (CLASS CORE,
     // 10x10um) placed N as U1 at (2,0) in ROW0 (N, y=0), with ROW1 (FS) at
     // y=10, both built from a 1x10um CORE site of the given SYMMETRY. U1 is
     // selected and the handle is in Edit mode, Move not armed, at 200
@@ -5322,11 +5260,10 @@ TEST_F(ApiFixture, ClickSelectsAndMovesOnlyOneRectOfATwoRectShapeNotBothOrTheWro
 {
     // Same Abstract-view Obstruction-shape click-selection gap as
     // MoveTranslatesSelectedShapeGeometryAndIsUndoable above - see that
-    // test's own comment. Pre-existing, unrelated to the SystemVerilog/
-    // slang work in this branch.
+    // test's own comment.
     GTEST_SKIP() << "Abstract-view Obstruction-shape click selection - not yet diagnosed, see comment above";
-    // Regression: selection/Move are piece-granular (UPDATES.md item
-    // 21) - clicking one rect of a Shape that bundles 2+ rects together
+    // Selection/Move are piece-granular - clicking one rect of a Shape
+    // that bundles 2+ rects together
     // (e.g. several RECT statements under one LEF OBS LAYER line) must
     // select and move only that raw piece, at its real stored index, not
     // the whole Shape or the wrong sibling.
@@ -5378,7 +5315,7 @@ TEST_F(ApiFixture, ClickSelectsAndMovesOnlyOneRectOfATwoRectShapeNotBothOrTheWro
 
 TEST_F(ApiFixture, DragSelectEnclosingTwoPiecesOfTheSameShapeSelectsBothAsSeparateEntries)
 {
-    // Selection is piece-granular (UPDATES.md item 21) - a drag enclosing
+    // Selection is piece-granular - a drag enclosing
     // two rects that happen to belong to the same Shape must select both
     // as independent entries, not dedup down to one whole-shape entry.
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
@@ -5402,7 +5339,7 @@ TEST_F(ApiFixture, DragSelectEnclosingTwoPiecesOfTheSameShapeSelectsBothAsSepara
     EXPECT_EQ(le_selection_count(handle), 2);
 }
 
-// --- le_write_lef/le_write_def (BUGS_AND_ENHANCEMENTS.md E28) ---
+// --- le_write_lef/le_write_def ---
 
 namespace
 {
@@ -5456,8 +5393,7 @@ TEST_F(ApiFixture, WriteLefWithNoAbstractOrLibraryGivenAndNoCurrentAbstractSetFa
 
 TEST_F(ApiFixture, WriteLefFallsBackToTheCurrentAbstractWhenNoneIsGiven)
 {
-    // The exact scenario BUGS_AND_ENHANCEMENTS.md E28 itself asks for:
-    // "uses current_abstract" when -abstract is omitted.
+    // With -abstract omitted, write_lef uses current_abstract.
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     const LeDesignInfo design = le_library_design_at(handle, 0, 0);
     ASSERT_EQ(le_set_current_design_abstract_by_id(handle, design.id), 0);
@@ -5481,8 +5417,7 @@ TEST_F(ApiFixture, WriteLefTechnologyOnlyModeSucceedsWithNoAbstractAndNoCurrentA
     EXPECT_TRUE(file_is_nonempty(out_path));
 }
 
-// --- BUGS_AND_ENHANCEMENTS.md E28.b: -library/-abstracts (multiple
-// MACROs in one file) ---
+// --- -library/-abstracts (multiple MACROs in one file) ---
 
 TEST_F(ApiFixture, WriteLefWithALibraryWritesAMacroForEveryAbstractInEveryDesign)
 {
@@ -5642,7 +5577,7 @@ TEST_F(ApiFixture, FreeShapeOnALayerRendersAndHidesWithTheCustomShapePurpose)
     EXPECT_FALSE(region_has_colored_pixel(le_render_pixel_buffer(handle), 50, 50, 150, 150));
 }
 
-// --- NEW_FEATURES_SEPT_2026.md item 4: custom library naming ---
+// --- Custom library naming ---
 
 TEST_F(ApiFixture, ReadRequiresALibraryName)
 {
@@ -5715,7 +5650,7 @@ TEST_F(ApiFixture, NewDesignsGoIntoTheNamedLibrary)
         EXPECT_EQ(le_library_design_count(handle, i), 1);
 }
 
-// --- NEW_FEATURES_SEPT_2026.md item 5: flightlines ---
+// --- Flightlines ---
 
 namespace
 {
@@ -5795,7 +5730,7 @@ TEST_F(ApiFixture, SelectedPlacementDrawsFlightlinesOnlyWhenTheFlightlinePurpose
     EXPECT_FALSE(region_has_flightline_pixel(buffer, 30, 87, 50, 93));
 }
 
-// --- NEW_FEATURES_SEPT_2026.md item 3: shape resizing ---
+// --- Shape resizing ---
 
 namespace
 {
@@ -5999,7 +5934,7 @@ TEST_F(ApiFixture, CtrlRArmsResizeWhileBareRStillSwitchesToRulerMode)
     EXPECT_EQ(le_is_resize_armed(handle), 0); // leaving Edit mode disarms
 }
 
-// NEW_FEATURES_SEPT_2026.md item 14: Resize won't arm while a placement
+// Resize won't arm while a placement
 // is selected, even alongside a resizable shape.
 TEST_F(ApiFixture, ResizeDoesNotArmWhileAPlacementIsSelected)
 {
@@ -6028,7 +5963,7 @@ TEST_F(ApiFixture, ResizeDoesNotArmWhileAPlacementIsSelected)
     EXPECT_NE(le_is_resize_armed(handle), 0);
 }
 
-// OVERNIGHT_REVIEW.md item 13 follow-up: placements snap to sites/rows and
+// Placements snap to sites/rows and
 // shapes to their own grids, so Move refuses the two selected together -
 // but still arms for either on its own.
 TEST_F(ApiFixture, MoveDoesNotArmWithPlacementsAndOtherObjectsSelectedTogether)
@@ -6090,7 +6025,7 @@ TEST_F(ApiFixture, FlightlineMaxFanoutDefaultsToTenAndRejectsNegativeValues)
     EXPECT_EQ(le_flightline_max_fanout(nullptr), 0);
 }
 
-// --- NEW_FEATURES_SEPT_2026.md item 6: selecting and moving vias ---
+// --- Selecting and moving vias ---
 
 namespace
 {
@@ -6183,7 +6118,7 @@ TEST_F(ApiFixture, MovingASelectedViaMovesItsOriginAndIsUndoable)
     EXPECT_EQ(le_selection_count(handle), 1);
 }
 
-// --- NEW_FEATURES_SEPT_2026.md item 12: selecting and moving via arrays ---
+// --- Selecting and moving via arrays ---
 // via_array_cell.lef: the same cell and 50 dbu/px view as open_via_cell,
 // with a 2x2 VIA12 array (instances at (5,5)..(7,7)um) instead of the single
 // via - its box is (4.5,4.5)-(7.5,7.5)um = pixels x 90..150, y 50..110.
@@ -6295,7 +6230,7 @@ TEST_F(ApiFixture, ARoutesViaIsSelectableAndMovableInTheLayoutView)
     EXPECT_TRUE(region_has_white_selection_pixel(buffer, 128, 95, 132, 105));
 }
 
-// --- NEW_FEATURES_SEPT_2026.md item 13: Move snaps routes and vias ---
+// --- Move snaps routes and vias ---
 
 namespace
 {
@@ -6494,7 +6429,7 @@ TEST_F(ApiFixture, ClickCyclingInTheLayoutViewStartsWithTheViaAndVisitsEachObjec
     EXPECT_TRUE(via_selected());
 }
 
-// --- NEW_FEATURES_SEPT_2026.md item 9: settings ---
+// --- Settings ---
 
 namespace
 {
@@ -6520,7 +6455,7 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsEverySetting)
     le_set_label_max_size(handle, 18.0);
     le_set_hierarchy_depth(handle, 3);
     le_set_flightline_max_fanout(handle, 7);
-    le_set_max_concurrency(handle, 5); // item 21 - the Settings panel's "CPUs"
+    le_set_max_concurrency(handle, 5); // the Settings panel's "CPUs"
     le_set_placement_snap_mode(handle, LE_PLACEMENT_SNAP_MANUFACTURING_GRID);
     le_set_shape_snap_mode(handle, LE_PIECE_KIND_POLYGON, LE_SHAPE_SNAP_NONE);
     le_set_shape_snap_mode(handle, LE_PIECE_KIND_PATH, LE_SHAPE_SNAP_TRACKS);
@@ -6663,7 +6598,7 @@ TEST_F(ApiFixture, ManufacturingGridUmIsTheLefValueOrZero)
     EXPECT_DOUBLE_EQ(le_manufacturing_grid_um(handle), 0.005);
 }
 
-// NEW_FEATURES_SEPT_2026.md item 17: a layer's picked color replaces its
+// A layer's picked color replaces its
 // default everywhere - the Layers panel row and the rendered image - and
 // reset_layer_color brings the default back. One picked before the LEF is
 // read applies once it is.
@@ -6719,7 +6654,7 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsLayerColors)
     le_destroy(other);
 }
 
-// NEW_FEATURES_SEPT_2026.md item 18: what the exit confirmation counts as
+// What the exit confirmation counts as
 // unsaved. Reading files isn't a change; an edit is until write_def/write_lef;
 // a setting is until save_settings/load_settings.
 TEST_F(ApiFixture, UnsavedChangesTrackEditsWritesAndSettings)
@@ -6770,7 +6705,7 @@ TEST_F(ApiFixture, CloseGuiRequestIsTakenOnce)
     EXPECT_EQ(le_take_close_gui_request(nullptr), 0);
 }
 
-// NEW_FEATURES_SEPT_2026.md item 19: a render with nothing loaded yet (the
+// A render with nothing loaded yet (the
 // GUI opened by show_gui before any read_lef) must not leave the view
 // blank once a design is loaded and opened.
 TEST_F(ApiFixture, RenderingBeforeAnythingIsLoadedDoesNotBlankLaterRenders)
