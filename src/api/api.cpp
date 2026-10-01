@@ -16,7 +16,7 @@
 #include "../io/def_writer.hpp"
 #include "../io/native_format.hpp"
 #include "../database/generated/schema_version.hpp"
-#include "../view_style/view_style.hpp"
+#include "../pipelines/view_style.hpp"
 #include "../pipelines/view_render_pipeline.hpp"
 #include "../pipelines/pipeline_options.hpp"
 #include "../pipelines/via_shapes.hpp"

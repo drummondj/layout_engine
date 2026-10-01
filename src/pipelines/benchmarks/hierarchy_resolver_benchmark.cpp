@@ -1,4 +1,4 @@
-#include "../../view_style/view_style.hpp"
+#include "../view_style.hpp"
 #include "../pipeline_options.hpp"
 #include "../stages/hierarchy_resolver_stage.hpp"
 #include "../tests/synchronous_stage_runner.hpp"

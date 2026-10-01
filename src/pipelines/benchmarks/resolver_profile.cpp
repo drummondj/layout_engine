@@ -22,7 +22,7 @@
 // Not run by ctest.
 
 #include "../../core/placement_geometry.hpp"
-#include "../../view_style/view_style.hpp"
+#include "../view_style.hpp"
 #include "../pipeline_options.hpp"
 #include "../stages/hierarchy_resolver_stage.hpp"
 #include "../stages/rasterize_blend2d_stage.hpp"

@@ -37,17 +37,6 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   as exact rects since `Polygon` can't hold a hole. Results go to the
   current Abstract/Layout's `free_shapes` unless `-parent` says otherwise -
   never written by `write_lef`/`write_def`.
-- `src/view_style/` — `ViewLayerSet`/`ViewLayer`: the rendering-layer
-  concept, distinct from LEF/DEF layers. `ViewLayerPurpose` is a closed,
-  application-owned enum: per physical Layer `TERMINAL`/`OBSTRUCTION`/
-  `TRACK_PREFERRED`/`TRACK_NON_PREFERRED`/`ROUTING_BLOCKAGE`/`ROUTE`/
-  `CUSTOM_SHAPE`, plus pseudo-rows with no Layer (`ROW`, `BOUNDARY`,
-  `PLACEMENT`, `GCELLGRID`, `PLACEMENT_BLOCKAGE`, `REGION`, `DEBUG`,
-  `FLIGHTLINE`, `PORT_MARKER`). Its raw ordinals cross the C API and are
-  mirrored by hand in `layer_manager.cpp` and `le_tcl_procs.tcl` - append,
-  don't reorder. Each Layer gets one palette color shared by its columns;
-  `FillPattern` distinguishes them. User-picked colors
-  (`LeHandle::layer_color_overrides`) are applied on top.
 - `src/core/` — header-only editing/hit-test geometry shared by `api` and
   `pipelines`: `placement_geometry.hpp` (placement world bboxes; Placement,
   Abstract-view and Layout-view hit-tests), `row_geometry.hpp` (a Row's
@@ -89,6 +78,17 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
     Move ghost, Resize hover, cursor box, rulers, drag rectangle).
   - `via_shapes.hpp` expands vias/via arrays at render time;
     `draw_helpers.hpp` holds style constants and shared drawing helpers.
+  - `view_style.hpp` — `ViewLayerSet`/`ViewLayer`: the rendering-layer
+    concept, distinct from LEF/DEF layers. `ViewLayerPurpose` is a closed,
+    application-owned enum: per physical Layer `TERMINAL`/`OBSTRUCTION`/
+    `TRACK_PREFERRED`/`TRACK_NON_PREFERRED`/`ROUTING_BLOCKAGE`/`ROUTE`/
+    `CUSTOM_SHAPE`, plus pseudo-rows with no Layer (`ROW`, `BOUNDARY`,
+    `PLACEMENT`, `GCELLGRID`, `PLACEMENT_BLOCKAGE`, `REGION`, `DEBUG`,
+    `FLIGHTLINE`, `PORT_MARKER`). Its raw ordinals cross the C API and are
+    mirrored by hand in `layer_manager.cpp` and `le_tcl_procs.tcl` -
+    append, don't reorder. Each Layer gets one palette color shared by its
+    columns; `FillPattern` distinguishes them. User-picked colors
+    (`LeHandle::layer_color_overrides`) are applied on top.
   - `pipelines.cpp` is the module's one compiled TU
     (`default_blend2d_font_face()`, loading the bundled font from
     `LE_FONT_DIR` = `assets/fonts/`).

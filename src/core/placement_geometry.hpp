@@ -1,7 +1,7 @@
 #pragma once
 #include "../database/database.hpp"
 #include "../geometry/geometry.hpp"
-#include "../view_style/view_style.hpp"
+#include "../pipelines/view_style.hpp"
 #include <functional>
 #include <optional>
 #include <string>

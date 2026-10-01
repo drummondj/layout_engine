@@ -515,12 +515,6 @@ add_library(geometry INTERFACE)
 target_include_directories(geometry INTERFACE src ${Boost_INCLUDE_DIRS})
 target_link_libraries(geometry INTERFACE database)
 
-# --- view_style: header-only ViewLayer/purpose/color config, distinct from
-# the LEF-mirroring database - see CLAUDE.md for why these aren't schema/codegen-generated ---
-add_library(view_style INTERFACE)
-target_include_directories(view_style INTERFACE src)
-target_link_libraries(view_style INTERFACE database)
-
 # --- editing: header-only undo/redo command recording ---
 add_library(editing INTERFACE)
 target_include_directories(editing INTERFACE src)
@@ -528,10 +522,12 @@ target_link_libraries(editing INTERFACE database)
 
 # --- core: header-only editing/hit-test geometry (placement bboxes and
 # hit-tests, Move/Resize snapping, fin grids, flightlines) shared by
-# `api` and `pipelines`. ---
+# `api` and `pipelines`. placement_geometry.hpp's hit-tests read
+# pipelines' header-only view_style.hpp through the shared `src` include
+# root. ---
 add_library(core INTERFACE)
 target_include_directories(core INTERFACE src)
-target_link_libraries(core INTERFACE database view_style)
+target_link_libraries(core INTERFACE database)
 
 # --- pipelines: the Cold/Warm/Hot ViewRenderPipeline
 # (docs/PIPELINE_REFACTOR.md), built on oneTBB's flow::graph
@@ -541,7 +537,7 @@ target_link_libraries(core INTERFACE database view_style)
 add_library(pipelines STATIC src/pipelines/pipelines.cpp)
 target_include_directories(pipelines PUBLIC src)
 
-target_link_libraries(pipelines PUBLIC database view_style core blend2d::blend2d fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
+target_link_libraries(pipelines PUBLIC database core blend2d::blend2d fmt::fmt spdlog::spdlog TBB::tbb TracyClient)
 
 # LE_FONT_DIR: default_blend2d_font_face() (pipelines.cpp/blend2d_font.hpp)
 # loads its font from this bundled directory rather than system
@@ -588,7 +584,7 @@ le_enable_coverage_instrumentation(io)
 # comment. ---
 add_library(api STATIC src/api/api.cpp)
 target_include_directories(api PUBLIC src/api)
-target_link_libraries(api PRIVATE database geometry editing view_style pipelines io)
+target_link_libraries(api PRIVATE database geometry editing pipelines io)
 target_include_directories(api PRIVATE ${nlohmann_json_header_SOURCE_DIR})
 le_enable_coverage_instrumentation(api)
 
@@ -973,7 +969,6 @@ add_executable(backend_tests
     src/database/tests/schema_version_test.cpp
     src/geometry/tests/geometry_test.cpp
     src/geometry/tests/shape_ops_test.cpp
-    src/view_style/tests/view_style_test.cpp
     src/editing/tests/editing_test.cpp
     src/io/tests/lef_reader_test.cpp
     src/io/tests/lef_reader_utils_test.cpp
@@ -999,7 +994,7 @@ add_executable(backend_tests
     src/gui/gui_provider.cpp
     src/gui/tests/gui_provider_test.cpp
 )
-target_link_libraries(backend_tests PRIVATE database geometry view_style editing pipelines io api fmt::fmt GTest::gtest_main)
+target_link_libraries(backend_tests PRIVATE database geometry editing pipelines io api fmt::fmt GTest::gtest_main)
 target_include_directories(backend_tests PRIVATE ${nlohmann_json_header_SOURCE_DIR})
 target_compile_definitions(backend_tests PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
@@ -1015,8 +1010,8 @@ le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
 
 # --- pipelines_tests: the pipelines module's own test binary, separate
-# from backend_tests so the stages can be tested standalone against
-# database/view_style. ---
+# from backend_tests so the stages and view_style can be tested
+# standalone against database. ---
 add_executable(pipelines_tests
     src/pipelines/tests/layer_generation_stage_test.cpp
     src/pipelines/tests/hierarchy_resolver_stage_test.cpp
@@ -1026,13 +1021,14 @@ add_executable(pipelines_tests
     src/pipelines/tests/viewport_cull_stage_test.cpp
     src/pipelines/tests/rasterize_blend2d_stage_test.cpp
     src/pipelines/tests/compose_stage_test.cpp
+    src/pipelines/tests/view_style_test.cpp
 )
-target_link_libraries(pipelines_tests PRIVATE database geometry view_style pipelines blend2d::blend2d GTest::gtest_main)
+target_link_libraries(pipelines_tests PRIVATE database geometry pipelines blend2d::blend2d GTest::gtest_main)
 gtest_discover_tests(pipelines_tests)
 
 # --- benchmarks ---
 # --- pipeline_benchmarks: per-stage benchmarks, standalone against
-# database/view_style/io - see aes_scaling_fixture.hpp for the shared
+# database/pipelines/io - see aes_scaling_fixture.hpp for the shared
 # 1x1/2x1/2x2/3x2/3x3 tiling fixture every stage benchmark uses
 # (docs/PIPELINE_REFACTOR.md's "Benchmarking" section). No `api`
 # dependency. ---
@@ -1047,7 +1043,7 @@ add_executable(pipeline_benchmarks
     src/pipelines/benchmarks/shape_ops_benchmark.cpp
     src/pipelines/benchmarks/flightline_benchmark.cpp
 )
-target_link_libraries(pipeline_benchmarks PRIVATE database geometry view_style pipelines io benchmark::benchmark)
+target_link_libraries(pipeline_benchmarks PRIVATE database geometry pipelines io benchmark::benchmark)
 target_compile_definitions(pipeline_benchmarks PRIVATE
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test_data"
 )
@@ -1084,7 +1080,7 @@ le_enable_coverage_instrumentation(generate_tiled_design)
 # unlike generate_tiled_design/spatial_index_benchmark below. Not run by
 # ctest or the coverage target.
 add_executable(pipeline_stage_benchmark src/pipelines/benchmarks/pipeline_stage_benchmark.cpp)
-target_link_libraries(pipeline_stage_benchmark PRIVATE api pipelines database geometry view_style io)
+target_link_libraries(pipeline_stage_benchmark PRIVATE api pipelines database geometry io)
 le_enable_coverage_instrumentation(pipeline_stage_benchmark)
 
 # --- resolver_profile: dev-only tool (incremental HierarchyResolver plan,
@@ -1093,7 +1089,7 @@ le_enable_coverage_instrumentation(pipeline_stage_benchmark)
 # RSS). scripts/resolver_profile.py runs it across the matrix.
 # Not run by ctest or the coverage target. ---
 add_executable(resolver_profile src/pipelines/benchmarks/resolver_profile.cpp)
-target_link_libraries(resolver_profile PRIVATE database geometry view_style pipelines io)
+target_link_libraries(resolver_profile PRIVATE database geometry pipelines io)
 target_compile_definitions(resolver_profile PRIVATE
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test_data"
 )

@@ -3,7 +3,7 @@
 #include "../core/flightlines.hpp"
 #include "../core/object_filters.hpp"
 #include "../database/database.hpp"
-#include "../view_style/view_style.hpp"
+#include "view_style.hpp"
 
 #include <array>
 #include <cstdint>

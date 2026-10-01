@@ -9,7 +9,7 @@
 #include "../database/database.hpp"
 #include "../editing/editing.hpp"
 #include "../pipelines/view_render_pipeline.hpp"
-#include "../view_style/view_style.hpp"
+#include "../pipelines/view_style.hpp"
 
 #include <oneapi/tbb/global_control.h>
 

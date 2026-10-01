@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../../database/database.hpp"
-#include "../../view_style/view_style.hpp"
+#include "../view_style.hpp"
 #include "../pipeline_options.hpp"
 #include "../tbb_core.hpp"
 

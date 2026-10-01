@@ -65,7 +65,7 @@ Layout Engine is a closed world today: there are no extension points anywhere. R
 
 **Rendering and settings**
 - Overlays are a fixed list of `draw_*_overlay` calls in `ComposeStage::compute` (`src/pipelines/stages/compose_stage.hpp:134-139`).
-- `ViewLayerPurpose` is a closed enum (`src/view_style/view_style.hpp:17`), mirrored by hand in `layer_manager.cpp` and `le_tcl_procs.tcl`.
+- `ViewLayerPurpose` is a closed enum (`src/pipelines/view_style.hpp:17`), mirrored by hand in `layer_manager.cpp` and `le_tcl_procs.tcl`.
 - Settings are fixed JSON keys (`src/api/api.cpp:707`, `settings_to_json`).
 - Window state is saved in imgui.ini, using a custom `ImGuiSettingsHandler` (`le_gui.cpp:689`). That same mechanism would work for extensions.
 
