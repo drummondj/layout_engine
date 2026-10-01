@@ -76,14 +76,6 @@ namespace le
         /// doc comment.
         double scale = 1.0;
 
-        /// @brief Whether the render antialiases. Compared in
-        /// RasterizeBlend2DStage::options_did_change so a live toggle
-        /// still forces a recompute, but currently unused by
-        /// draw_view_shapes_blend2d's own draw calls: Blend2D has exactly
-        /// one BLRenderingQuality value (BL_RENDERING_QUALITY_ANTIALIAS,
-        /// always on, rasterize_blend2d_stage.hpp's own comment).
-        bool antialiasing_enabled = false;
-
         /// @brief Per-layer-name and per-purpose visibility toggles - a
         /// ViewLayer draws only if BOTH its own layer-name entry (if any)
         /// and its own purpose entry (if any) say visible; an unset key

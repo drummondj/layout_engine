@@ -535,18 +535,6 @@ extern "C"
     /// handle or layer_name is null.
     void le_set_layer_name_visible(LeHandle *handle, const char *layer_name, bool visible);
 
-    /// @brief The design-content antialiasing setting
-    /// (LeHandle::antialiasing_enabled()). Stored and passed to the
-    /// render (ViewRenderOptions::antialiasing_enabled), but Blend2D
-    /// always antialiases, so it currently has no visual effect. Off by
-    /// default. Returns false if handle is null.
-    bool le_is_antialiasing_enabled(LeHandle *handle);
-
-    /// @brief Toggle antialiasing - e.g. a view-options checkbox. Mirrors
-    /// LeHandle::set_antialiasing_enabled directly (affects rendering). A
-    /// no-op if handle is null.
-    void le_set_antialiasing_enabled(LeHandle *handle, bool enabled);
-
     /// @brief Max number of threads this handle's oneTBB-backed pipelines
     /// may use at once - a process-wide
     /// oneapi::tbb::global_control cap, not a per-pipeline setting, since

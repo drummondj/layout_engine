@@ -1027,7 +1027,6 @@ namespace le
                 last.viewport.ll.y != current.viewport.ll.y ||
                 last.viewport.ur.x != current.viewport.ur.x ||
                 last.viewport.ur.y != current.viewport.ur.y ||
-                last.antialiasing_enabled != current.antialiasing_enabled ||
                 last.layer_name_visible != current.layer_name_visible ||
                 last.purpose_visible != current.purpose_visible ||
                 last.minor_grid_spacing_dbu != current.minor_grid_spacing_dbu ||

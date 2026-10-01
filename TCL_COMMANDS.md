@@ -1487,12 +1487,6 @@ Returns the AntennaModel objects matching the given names and filters, as tokens
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_antialiasing_enabled
-
-`get_antialiasing_enabled [-help]`
-
-Returns 1 if shapes are drawn antialiased, 0 otherwise.
-
 ## get_array_spacings
 
 `get_array_spacings [-of <token>...] [-filter <expr>] [-help]`
@@ -2362,16 +2356,6 @@ Adds each token to the selection, keeping what's already selected (use deselect_
 `select_all [-help]`
 
 Selects every selectable shape in the current view.
-
-## set_antialiasing_enabled
-
-`set_antialiasing_enabled <enabled> [-help]`
-
-Turns antialiasing of shapes and their labels on or off. Off by default, which is faster on large designs; the grid, rulers and highlights are always antialiased.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<enabled>` | `bool` | yes | 0/1 or true/false |
 
 ## set_flightline_max_fanout
 
