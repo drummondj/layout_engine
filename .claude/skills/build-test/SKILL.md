@@ -13,8 +13,11 @@ allowed-tools:
 
    ```
    cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-   cmake --build build -j3
+   cmake --build build -j4
    ```
+
+   Keep `-j4`: a higher or unbounded `-j` runs out of memory (`cc1plus` gets
+   killed).
 
 2. **Run tests via ctest:**
 
@@ -31,7 +34,7 @@ allowed-tools:
 
    ```
    cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release
-   cmake --build build_release --target api pipelines io le_shell le_tcl -j3
+   cmake --build build_release --target api pipelines io le_shell le_tcl -j4
    ```
 
    Rebuild both trees after any backend source change that touches

@@ -223,7 +223,7 @@ enumeration, `get_<type>`, and `create_<type>`/`update_<type>`/
 
 ```
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build -j
+cmake --build build -j4
 ctest --test-dir build --output-on-failure
 ```
 
