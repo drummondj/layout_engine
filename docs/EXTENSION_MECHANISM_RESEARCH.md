@@ -22,6 +22,7 @@ Their code must live **completely outside** the layout_engine tree, yet be **com
 | C++ | A narrow `le::extension_sdk` interface target containing `le/extension.hpp` (`ExtensionContext`). The contract is the source API; ABI is not a concern because everything is compiled together. |
 | TCL | The same three layers as core: shim, SWIG `.i`, and a procs `.tcl` file that calls `register_command_help`. The extension's `.i` files are `%include`d into `le_tcl`, and its procs are sourced after the core procs. |
 | GUI | Extensions register their windows in the registry, and the core windows move onto the same list. Also: a new main menu bar, toolbar/key/overlay hooks, and extension-owned sections in both settings files. |
+| Rendering | **Codegen-driven.** A `render=Render(...)` declaration on a `Klass` generates its purposes, render-tree chunk, hit-testing and property-viewer entry; core's closed purpose/object-kind lists become generated tables (§8). A C++ `emit` hook is added only for synthesized geometry. |
 | Stability | A version check on `LE_EXTENSION_API_VERSION` (`static_assert`), plus an in-tree `examples/extensions/hello_ext` that CI builds. |
 
 **Rejected:**
@@ -39,7 +40,7 @@ Layout Engine is a closed world today: there are no extension points anywhere. R
 - `codegen` (`../codegen/codegen/cli.py`) accepts a single `--schema` and two targets, `database` and `tcl`. It loads the schema with `SourceFileLoader(...).load_module()` (`../codegen/codegen/generator.py:23`). Because that is plain Python, a schema file can already `import` another schema and append to it.
 - Generated code (`src/database/generated/`, `src/api/generated_tcl/`, `src/tcl/generated/`) is **not** committed: it is `.gitignore`d and each developer regenerates it by hand (the `regen-database` / `regen-tcl` skills). CMake never runs codegen; `add_library(database INTERFACE)` is at `CMakeLists.txt:504`.
 - Codegen produces a single `class Root` (`generated/root.hpp:223`) with one `Pool` per class, plus a closed `enum class ChangeKlass` (`root.hpp:93`). The undo/redo templates in `src/editing/command.hpp` and the TCL CRUD surface are also generated per class.
-- There is **no native persistence format**. Data comes in and goes out only through LEF, DEF and Verilog.
+- The native `.led` format (`src/persistence/`, `write_db`/`read_db`) is driven by codegen's `native_tables.hpp`, so classes merged into the schema are persisted without hand-written code.
 
 **Build**
 - The top-level `CMakeLists.txt` is flat. It has no `add_subdirectory` of project code, no install/export rules, and no `LE_EXTRA_*` options.
@@ -259,12 +260,7 @@ This is substantially more engineering, and every cost lands on the parts of the
 
 ### Open issue: persistence
 
-Layout Engine has no native database file today; everything goes out through DEF and Verilog. Extension objects will therefore **not survive a save/load round-trip** unless:
-- (a) the extension writes its own sidecar file, or
-- (b) a TCL "dump" produces a script of `create_acme_*` commands, or
-- (c) core grows a native format. If it does, it should be schema-driven so that extension classes are included automatically.
-
-This is a core decision worth taking before customers depend on the mechanism. **See [NATIVE_FILE_FORMAT_RESEARCH.md](NATIVE_FILE_FORMAT_RESEARCH.md)** for a proposed option (c).
+The native `.led` format is schema-driven (codegen's `native_tables.hpp`), so classes merged in by `extend()` are written and read like core classes. What remains open is the extension migration chain below; see [NATIVE_FILE_FORMAT_RESEARCH.md](NATIVE_FILE_FORMAT_RESEARCH.md).
 
 ### Extension schema migrations
 
@@ -375,20 +371,131 @@ There is no menu bar today. Add one, with:
 
 ---
 
-## 8. Drawing extension objects in the layout view
+## 8. Drawing, selecting and inspecting extension objects
 
-**Near term: compose overlays.**
-- `ComposeStage::compute` draws a fixed list of overlays today (`compose_stage.hpp:134-139`). After those, it would loop over `registry.overlays()`.
-- Each overlay callback receives the Blend2D context, the view transform (DBU to pixel) and a `ReadView`.
-- Stages recompute only when their options change, so `ViewRenderOptions` gains an `extension_overlay_version`. The extension bumps it through `ExtensionContext`.
+The goal: an extension adds a `Klass` that owns geometry (e.g. `AcmeRouteGuide` with a `shapes` list), and its objects:
 
-**Later: extension layers and purposes.** Extension objects could render like core shapes, with layer colours, visibility toggles and selection. To get there:
-- `ViewLayerPurpose` must stop being a closed enum. That means a table-driven purpose registry that replaces the three hand-maintained mirrors.
-- `HierarchyResolverStage` needs a hook for emitting extension shapes into the render tree.
+1. render in the Layout/Abstract view,
+2. on purposes of the extension's own (per physical layer or as a pseudo-row),
+3. can be clicked and drag-selected,
+4. show their fields in the property viewer,
 
-This is the largest GUI-side change and should come last.
+with **no hand edit to core layout_engine code**.
 
-**Available today without any work.** Extensions can create free shapes on the `CUSTOM_SHAPE` or `DEBUG` purposes through the existing `create_shape` / `shape_*` commands. That is good enough for prototypes.
+### 8.1 What blocks this today
+
+Every one of the four is a closed, hand-maintained list:
+
+| Concern | Where it's closed | Mirrors |
+|---|---|---|
+| Purposes | `enum class ViewLayerPurpose` (`view_style.hpp`); `purpose_has_selectable_objects`; `ViewLayerSet::build_for_technology` adds each column/pseudo-row | `kPurposeNames` (`layer_manager.cpp`), `::purpose_names` (`le_tcl_procs.tcl`), defaults in `LeHandle::purpose_visible_`/`purpose_selectable_` |
+| Rendering | `HierarchyResolverStage`: `LayoutChunk` (4 fixed chunks) and `collect_layout_chunk` name each owner (blockages, ports, free shapes, rows...); routes/placements are tiled separately; `collect_abstract_content` for Abstracts | `collect_dirty` maps each `ChangeKlass` to the chunk it dirties |
+| Selection | `for_each_layout_hit_shape`/`hit_test_abstract_*` (`core/placement_geometry.hpp`) walk named owners; `LeHandle::SelectedObject` is a fixed `std::variant`; whole-object kinds (Row/Placement/Region) each have their own hit-test | `purpose_has_selectable_objects` |
+| Properties | `LeObjectKind` (`api.hpp`) and the `build_object_properties`/`le_object_parent` switches (`api.cpp`) | Property *content* is already generated (`to_properties`) |
+
+Geometry storage is the other constraint. `Shape` has one parent field per owner (`terminal_port`, `obstruction`, `route`, `blockage`, ...). An extension `Klass` with `Field(type="Shape", is_list=True, is_child=True)` needs a matching parent field on core `Shape`, because `Klass.link()` pairs the two.
+
+### 8.2 Options
+
+**A. Free shapes (works today, no core change).**
+The extension mirrors its geometry into `Layout.free_shapes` on `CUSTOM_SHAPE`/`DEBUG`.
+- Pros: zero work.
+- Cons:
+  - The extension's object has no identity on screen: a click selects a `Shape`, not an `AcmeRouteGuide`, and the property viewer shows Shape fields.
+  - There are no purposes of its own.
+  - The extension must keep two copies of the data in sync, including through undo.
+
+Good for prototypes only.
+
+**B. Compose overlay (the earlier near-term proposal).**
+A registered callback draws with Blend2D after the built-in overlays.
+- Pros:
+  - small core change (one loop in `ComposeStage`)
+  - arbitrary drawing
+- Cons:
+  - Redrawn every frame, so there's no render-tree caching, culling index or per-node rasterization. Fine for hundreds of objects; not for millions.
+  - Not selectable, no purposes, no property viewer.
+
+Right for transient visualisation (congestion maps, highlights), not for objects.
+
+**C. C++ render hooks per extension.**
+`Registry` gains `add_render_source({.klass, .purpose_names, .emit, .hit_test, .properties, .dirty})`. The resolver calls `emit(root, owner, ShapeSink&)` for each Layout/Abstract node, `api.cpp` calls `hit_test`, and the property viewer calls `properties`.
+- Pros:
+  - Full flexibility, including synthesized geometry (like Row's footprint) and custom labels.
+  - No codegen work.
+- Cons:
+  - Resolver internals (chunks, `ChunkSources`, change-log dirtiness) become public API, and they are the most performance-sensitive and most frequently refactored code in the tree.
+  - Every extension re-implements the same boilerplate (walk my objects, emit shapes, hit-test them, list properties), and it is easy to get incrementality wrong. A missed `dirty` mapping shows stale geometry after an edit.
+  - It doesn't remove the closed purpose enum; that still needs the registry described under D.
+
+**D. Codegen-driven rendering (recommended).**
+The schema declares *what* renders; codegen generates the glue that is hand-written today. An extension writes only `schema_ext.py`:
+
+```python
+Klass(
+    name="AcmeRouteGuide",
+    fields=[
+        Field(name="layout", type="Layout", parent="acme_route_guides"),
+        Field(name="name",   type="str", index=True),
+        Field(name="shapes", type="Shape", is_list=True, is_child=True),
+        Field(name="weight", type="double", is_optional=True),
+    ],
+    render=Render(
+        purpose="ACME_GUIDE",      # new purpose, declared by the extension
+        per_layer=True,            # a column under each Shape.layer's row; False = own pseudo-row
+        selectable=True,           # click/drag selects the AcmeRouteGuide, not the Shape
+        label_field="name",        # optional text label
+        visible_by_default=True,
+        tiled=False,               # True: spatially tiled like routes, for large counts
+    ),
+)
+```
+
+What codegen generates from `render=`, replacing each closed list in 8.1:
+
+1. **Purpose registry.** `ViewLayerPurpose` becomes generated. Core purposes move into `schema.py` as `Purpose(...)` declarations (name, `per_layer`, default visibility/selectability, selectable-objects flag), and extensions append theirs. Codegen emits the enum, `purpose_has_selectable_objects`, the defaults, and a name table. The C API gains `le_purpose_name(ordinal)`, so `layer_manager.cpp` and the Tcl `::purpose_names` read names at runtime instead of mirroring them. This deletes three hand-synced copies even without extensions.
+2. **Shape ownership.** For each `Klass` with a `shapes` child list, codegen synthesizes the back-reference on `Shape` (`Shape.acme_route_guide`, `parent="shapes"`), so the extension never writes a core field. Delete cascades, undo and the change log follow from the existing machinery. Classes that keep geometry as embedded `Rect`s (like `Region.rects`) are supported too, with whole-object selection.
+3. **Render tree.** A generated `renderable_classes.inc` lists, per renderable class: how to enumerate a Layout's/Abstract's instances (the class's nearest Layout/Abstract ancestor is known from the parent graph, the same climb `collect_dirty` does by hand), its purpose and its label field. `HierarchyResolverStage` gets one generic chunk per renderable class after its fixed chunks, or tiles for `tiled=True`. The core is written once, against the generated list. `collect_dirty` maps the class's `ChangeKlass` to that chunk through the same table, so incremental updates work without extension code.
+4. **Selection.** `for_each_layout_hit_shape`/`hit_test_abstract_*` iterate the generated list as well as the core owners. `SelectedObject` stays `ShapePiece | ...`: a piece of an extension-owned Shape is selectable as it is today. With `selectable=True` the property viewer resolves the piece to its owning object through the generated parent table (`le_object_parent` already climbs Shape -> owner).
+5. **Properties.** `LeObjectKind` and the `build_object_properties`/`le_object_parent` switches become generated from the `Klass` list (property content is already generated), so an extension class appears in the property viewer and in `le_select_object_ref` automatically.
+
+- Pros:
+  - No core hand edits per extension, matching the "no core change" requirement.
+  - Incremental updates, culling, per-node rasterization, visibility/selectability toggles, Tcl `set_purpose_*` commands and the Layers panel all work for extension objects for free, because they ride the same path as routes.
+  - Removes three hand-maintained mirrors in core today, which pays for part of the refactor on its own.
+  - Declarative, so it is reviewable and versioned with the schema; `codegen` validates it (purpose name collisions, `per_layer` objects without a `layer` on their shapes).
+- Cons:
+  - A one-time core refactor: purposes, `LeObjectKind` and the resolver's chunk list move to generated tables. It touches the render hot path, so it needs before/after numbers from `resolver_profile` and `pipeline_benchmarks`.
+  - Only stored geometry is supported. Synthesized geometry (Row-style footprints, track grids) still needs a C++ hook, as in C.
+  - Purpose ordinals depend on which extensions are built in. Anything persisted by ordinal must persist by name instead: settings, and `LeHandle` visibility maps if they're ever saved. The C API already passes ordinals only within one process, so this is just a rule to follow.
+  - Codegen learns a rendering concept (`Render`), so the `database` target is no longer purely about storage. The generated tables can live in a separate `render` codegen target to keep that boundary.
+
+**E. D plus a C++ escape hatch (the recommendation in full).**
+Implement D for the declarative case. Add C's `add_render_source` hook only when a real extension needs synthesized geometry, restricted to `emit` plus a `dirty_on` list of `ChangeKlass` values; hit-testing and properties still come from D's tables. Until that need exists, B covers transient drawing.
+
+### 8.3 Comparison
+
+| | A free shapes | B overlay | C C++ hooks | D codegen |
+|---|---|---|---|---|
+| Core change per extension | none | none | none | none |
+| One-time core change | none | small | medium | large |
+| Extension code to write | sync logic | draw callback | emit + hit-test + properties + dirty | schema only |
+| Own purposes / Layers panel | no | no | needs D's registry | yes |
+| Selectable as its own object | no | no | yes | yes |
+| Property viewer | Shape only | no | yes | yes |
+| Scales to millions | yes | no | if done right | yes (tiled) |
+| Incremental after edits | yes | n/a | extension's job | yes |
+| Synthesized geometry | no | yes | yes | no (needs E) |
+
+### 8.4 Suggested order
+
+1. Generated purpose registry plus `le_purpose_name`. Removes the hand mirrors and is independently useful.
+2. Generated `LeObjectKind`/property and parent dispatch.
+3. Shape back-reference synthesis plus generic renderable-class chunks and hit-testing (`render=` without `tiled`), benchmarked against `aes_scaling_*`.
+4. `tiled=True`.
+5. The C++ `emit` hook, when an extension needs it.
+
+Steps 1 and 2 are pure refactors of existing core behaviour, with no extension API yet, so they can land and be benchmarked before anything is promised to customers.
 
 ---
 
@@ -418,13 +525,16 @@ Each phase is independently useful:
 | 4 | Codegen `--extension`, CMake-driven codegen into the build dir when extensions declare schemas, prefix and collision validation | Customer schema objects |
 | 5 | Compose overlays, toolbar/key/font hooks, settings sections | Richer GUI integration |
 | 6 | `hello_ext` example and CI job, extension-SDK changelog | Upgrade safety |
-| later | Table-driven purposes; native, schema-driven persistence with extension migration chains (NATIVE_FILE_FORMAT_RESEARCH.md §10) | Full first-class rendering and save/load |
+| 7 | Generated purpose registry and `LeObjectKind` dispatch (§8.4 steps 1-2) | Removes core's hand mirrors; prerequisite for extension rendering |
+| 8 | `render=` declarations: Shape back-references, renderable-class chunks, hit-testing, then `tiled=True` (§8.4 steps 3-4) | Extension objects drawn, selectable and inspectable |
+| later | C++ `emit` hook for synthesized geometry; extension migration chains (NATIVE_FILE_FORMAT_RESEARCH.md §10) | Custom geometry; upgrade-safe extension data |
 
 ---
 
 ## 11. Open questions
 
-1. **Persistence.** Adopt the native format and migration chain in NATIVE_FILE_FORMAT_RESEARCH.md, or keep extension data in sidecar files? The native format is recommended, since it gives extensions migrations for free.
+1. **Extension migrations.** The native format already stores merged classes; the open part is the extension migration chain in NATIVE_FILE_FORMAT_RESEARCH.md §4.8.
 2. **Core-class fields.** Should extensions be allowed to add fields to core classes, with a warning, or be restricted to owning objects of their own?
 3. **Multiple vendors.** Must extensions from different vendors coexist in one build? If yes, the prefix rule becomes mandatory, and cross-extension dependencies (`DEPENDS acme_router`) need ordering in `le_add_extension`.
 4. **Binary distribution.** Will a customer ever need to ship its extension *without* source to a third party? If so, a prebuilt static library plus headers still works under this design, but only against the exact layout_engine version it was built with.
+5. **Purpose identity.** With generated purposes, ordinals depend on the set of extensions built in. Settings that store visibility must key purposes by name (§8.2 D).
