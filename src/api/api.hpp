@@ -1498,11 +1498,12 @@ extern "C"
     void le_cancel_drag(LeHandle *handle);
 
     /// @brief Instructional text describing which mouse gestures and
-    /// keyboard modifiers are currently available, for display in the
+    /// keyboard shortcuts are currently available, for display in the
     /// GUI's Info panel - one fixed message per interaction mode
     /// (Select/Edit/Ruler), e.g. "Left click to select. Shift for
     /// multi-select. Left click and drag for rectangle multi-select." for
-    /// Select. Unlike every other `const char*`-returning function in
+    /// Select. May contain '\n' line breaks (Edit mode lists one
+    /// shortcut per line). Unlike every other `const char*`-returning function in
     /// this header, the returned pointer refers to static, process-
     /// lifetime storage - not owned by `handle`, never invalidated, safe
     /// to hold indefinitely. Null only if `handle` is null.

@@ -1312,15 +1312,23 @@ namespace
     // over it, still scales with however many objects are in it).
     constexpr int32_t kMaxSelectAllCount = 10000;
 
-    // le_tooltip_message's own text, one constant
-    // per LeHandle::Mode - le_tooltip_message branches
-    // on the current mode rather than returning a single fixed string.
+    // le_tooltip_message's text, one per LeHandle::Mode. Lines are
+    // separated by '\n'; the Info panel wraps each to its width. Edit
+    // mode lists every key le_key_down acts on in that mode.
     constexpr const char *kSelectModeTooltip =
         "Left click to select. Shift for multi-select. Left click and drag for rectangle multi-select.";
-    // Describes the Move flow.
     constexpr const char *kEditModeTooltip =
-        "Ctrl-M or the Move button to arm a move. Click to set the start point, move the mouse, click again "
-        "to commit - stays armed for another move until Esc. Shift for free-form (non-orthogonal).";
+        "Edits the current selection (S switches to Select mode to change it).\n"
+        "Ctrl-M: arm Move. Click to set the start point, move the mouse, click again to commit. Stays armed until Esc.\n"
+        "Shift (held while moving): free-form, non-orthogonal move.\n"
+        "Ctrl-R: arm Resize. Click an edge or path segment of a selected shape, then click again to place it. "
+        "Stays armed until Esc.\n"
+        "Delete: delete the selected shapes.\n"
+        "Esc: cancel the move or resize in progress, or disarm it.\n"
+        "Ctrl-Z / Ctrl-Shift-Z: undo / redo.\n"
+        "Z / Shift-Z: zoom in / out at the mouse. F: fit the design. Ctrl-F: fit the selection. Arrows: pan.\n"
+        "1-9, 0: show/hide routing layers 1-10 (Ctrl-1..9 for 11-19).\n"
+        "S / R: switch to Select / Ruler mode.";
     constexpr const char *kRulerModeTooltip =
         "Click to add a ruler point. Shift for a non-orthogonal segment. Esc to finish the ruler.";
 
