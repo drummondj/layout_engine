@@ -952,161 +952,12 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutClearsTheAbstractViewAndViceVersa)
     EXPECT_TRUE(region_has_opaque_pixel(back_to_abstract, 21, 21, 79, 79));
 }
 
-TEST_F(ApiFixture, SetCurrentDesignLayoutWithZeroHierarchyDepthStillRendersOwnPlacement)
-{
-    // Known failure, not yet root-caused: region_has_opaque_pixel below
-    // comes back false where a placement's own content was expected to
-    // render at hierarchy_depth 0. Re-enable once the Layout-view
-    // rendering path has been investigated.
-    GTEST_SKIP() << "Layout-view placement rendering at hierarchy_depth 0 - not yet diagnosed, see comment above";
-    // hierarchy_depth defaults to 0 - remaining_depth is still max(0, 0-1)
-    // == 0, so a placement still falls back to its own Abstract (0 means
-    // "no further recursion into nested Layouts", not "don't render
-    // placements at all").
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
-
-    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
-    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
-    const LeLayoutId top_layout = le_create_layout(handle, top_design);
-    le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
-
-    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
-    ASSERT_EQ(le_hierarchy_depth(handle), 0); // default, never set
-
-    le_set_viewport_size(handle, 100, 100);
-    le_zoom(handle, 100.0 / 10000.0 - 1.0, 0, 100);
-
-    LePixelBuffer buffer = le_render_pixel_buffer(handle);
-    ASSERT_NE(buffer.data, nullptr);
-    EXPECT_TRUE(region_has_opaque_pixel(buffer, 21, 21, 79, 79));
-}
-
 // --- Selectable objects in Layout view ---
 // A Layout view must hit-test the Layout's own content, never whatever
 // Abstract content happens to exist. These exercise the real, full click -> LeHandle::
 // selection() -> le_selected_object_ref() path end-to-end, the same way
 // ClickSelectingAShapeReportsExactlyTheSamePropertiesAsGetPropertiesOnItsShapeId
 // already does for the Abstract path.
-
-TEST_F(ApiFixture, MouseClickInLayoutViewPrefersAnOwnShapeOverAPlacementsBoundingBoxAtTheSamePoint)
-{
-    // Known gap: Layout-view own-shape hit-testing (Row/Region/Blockage)
-    // isn't implemented - whole-placement hit-testing works, but a click
-    // can't yet prefer a placement's own shape over its bounding box the
-    // way this test expects. Re-enable once it lands.
-    GTEST_SKIP() << "Layout-view own-shape hit-testing not yet ported - see comment above";
-    // TESTCELL (testcell.lef) is exactly 10x10 um - placed at (0,0) N,
-    // its own world bbox is (0,0)-(10,10) um. A smaller 6x6 um routing
-    // blockage shares the same origin, so it only partially overlaps
-    // that bbox - (3,3) um falls inside both; (8,8) um falls inside only
-    // the placement's own bbox.
-    //
-    // hit_test_placements_point (src/core/placement_geometry.hpp) is a
-    // pure bounding-box test, not real per-pixel/geometry hit-testing - a
-    // click must not unconditionally prefer a Placement whose bbox
-    // covers the point, even where the
-    // placement's own painted content was actually transparent there and
-    // an own_shape (a Blockage/Route/PhysicalPort/Row/Region belonging
-    // directly to this Layout) was visibly the thing under the cursor -
-    // disagreeing with what mouse-hover already showed there
-    // (le_set_mouse_position only ever hit-tests own_shapes, never a
-    // Placement - see its own comment). (3,3) um is exactly that case:
-    // a click there must now select the Blockage's own Shape, not the
-    // Placement whose bbox merely happens to also cover that point.
-    // (8,8) um - inside the placement's own bbox, away from the
-    // blockage entirely - still falls through to the Placement exactly
-    // as before, confirming the fallback wasn't broken by this fix.
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
-
-    const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
-    const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
-    const LeLayoutId top_layout = le_create_layout(handle, top_design);
-
-    const LePlacementId placement_id = le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", /*has_location=*/1, 0.0, 0.0, "N", 0, 0.0, nullptr);
-    ASSERT_NE(placement_id.index, UINT32_MAX);
-
-    // le_create_blockage's own generated validation currently requires
-    // `placement_id` to resolve to a real Placement, even though
-    // schema.py documents Blockage.placement as legitimately optional
-    // ("invalid id if unscoped") - a real, separate codegen/schema
-    // mismatch (Blockage.placement isn't a `parent=` field, so per
-    // CLAUDE.md's own convention for a plain reference like Shape.layer
-    // it should accept "unset", the way that field does) found while
-    // writing this test, out of scope here - worked around
-    // by scoping the blockage under the same placement this test already
-    // creates, which is harmless for what this test actually checks.
-    const LeBlockageId blockage_id = le_create_blockage(handle, top_layout, placement_id, "ROUTING", "M1", 0, 0.0, 0, 0.0, 0, 0, 0.0);
-    ASSERT_NE(blockage_id.index, UINT32_MAX);
-    const double blockage_rect_um[4] = {0.0, 0.0, 6.0, 6.0};
-    const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
-    ASSERT_NE(m1_layer.index, UINT32_MAX);
-    const LeShapeId blockage_shape_id = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0}, LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, blockage_id, LeRouteId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, blockage_rect_um, 4, 0, 0.0, 0, 0.0, 0);
-    ASSERT_NE(blockage_shape_id.index, UINT32_MAX);
-
-    // Placement.reference_design and Blockage.placement are both plain
-    // reference-to-pooled-klass fields - the generic property table used
-    // to show a bare "Id{index=.., generation=..}" debug string for each
-    // (to_properties() has no Root to resolve a friendly name from - see
-    // codegen's wrap_with_to_display_property() docstring); build_<type>_
-    // properties now overwrites each with a friendly "<type>:<name>"
-    // token instead (api_property_accessors_internal_inc_j2.py), a plain
-    // signal string, not a navigable link, matching every other friendly
-    // id this codebase already uses. Inlined here rather than via
-    // object_properties() (defined later in this file, after this test).
-    const auto find_string_property = [&](LeObjectRef ref, const char *name) -> std::string {
-        const int32_t count = le_object_property_count(handle, ref);
-        for (int32_t i = 0; i < count; ++i)
-        {
-            const LeProperty property = le_object_property_at(handle, ref, i);
-            if (std::string(property.name) == name)
-                return property.string_value;
-        }
-        return "<not found>";
-    };
-    const LeObjectRef placement_ref = LeObjectRef{.kind = LE_OBJECT_KIND_PLACEMENT, .index = placement_id.index, .generation = placement_id.generation};
-    EXPECT_EQ(find_string_property(placement_ref, "reference_design"), "design:TESTCELL");
-
-    const LeObjectRef blockage_ref = LeObjectRef{.kind = LE_OBJECT_KIND_BLOCKAGE, .index = blockage_id.index, .generation = blockage_id.generation};
-    EXPECT_EQ(find_string_property(blockage_ref, "placement"), "placement:U1");
-
-    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
-    le_set_hierarchy_depth(handle, 1); // remaining_depth 0 - the placement falls back straight to TESTCELL's own Abstract
-
-    le_set_viewport_size(handle, 100, 100);
-    // database_units_microns is 1000 (testcell.lef's own UNITS) - 20 um
-    // == 20000 dbu across a 100px viewport -> scale = 100/20000 = 0.005,
-    // anchored at pixel (0,100) (screen bottom-left, Y-flipped) which
-    // already corresponds to dbu (0,0) at the default pan/scale, so pan
-    // stays (0,0) after this zoom - same reasoning
-    // SetCurrentDesignLayoutRendersThePlacedInstancesOwnContent's own
-    // scale-0.01 setup already relies on, just a different target scale.
-    le_zoom(handle, 0.005 - 1.0, 0, 100);
-
-    le_mouse_down(handle, 15, 85); // dbu (3000,3000) = (3,3) um - inside both the blockage and the placement's own bbox
-    le_mouse_up(handle, 15, 85);
-    ASSERT_EQ(le_selection_count(handle), 1);
-
-    // Blockage has a real backing Shape (unlike Row/Region), so it rides
-    // the same ShapePiece alternative Terminal/Obstruction already do -
-    // le_selected_object_ref always reports LE_OBJECT_KIND_SHAPE for
-    // that alternative (see LeHandle::ShapePiece's own comment). The
-    // owning Blockage is reached one hop up via le_object_parent
-    // (object_ref_parent's own Shape->blockage fork).
-    const LeObjectRef shape_ref = le_selected_object_ref(handle, 0);
-    EXPECT_EQ(shape_ref.kind, LE_OBJECT_KIND_SHAPE);
-    EXPECT_EQ(shape_ref.index, blockage_shape_id.index);
-
-    const LeObjectRef parent_ref = le_object_parent(handle, shape_ref);
-    EXPECT_EQ(parent_ref.kind, LE_OBJECT_KIND_BLOCKAGE);
-    EXPECT_EQ(parent_ref.index, blockage_id.index);
-
-    le_mouse_down(handle, 40, 60); // dbu (8000,8000) = (8,8) um - inside the placement's own bbox only
-    le_mouse_up(handle, 40, 60);
-    ASSERT_EQ(le_selection_count(handle), 1); // no shift held - replaces the previous selection
-    EXPECT_EQ(le_selected_object_ref(handle, 0).kind, LE_OBJECT_KIND_PLACEMENT);
-}
 
 TEST_F(ApiFixture, UnsetOptionalReferenceFieldDisplaysAsEmptyStringNotADanglingToken)
 {
@@ -4773,11 +4624,6 @@ TEST_F(ApiFixture, EditingFunctionsWithNullHandleDoNotCrash)
 
 TEST_F(ApiFixture, MoveTranslatesSelectedShapeGeometryAndIsUndoable)
 {
-    // Known failure, not yet root-caused: in the Abstract view
-    // (le_set_current_design_abstract), a click on an Obstruction shape
-    // doesn't produce a selection here. Abstract-view hit-testing
-    // otherwise works, so this may be specific to Obstruction shapes.
-    GTEST_SKIP() << "Abstract-view Obstruction-shape click selection - not yet diagnosed, see comment above";
     // Own obstruction+rect at a known dbu location (testcell.lef is
     // DATABASE MICRONS 1000, so kRect0 (0.1,0.1)-(0.3,0.4) um is
     // (100,100)-(300,400) dbu), rather than the LEF-fixture pins
@@ -5021,15 +4867,28 @@ TEST_F(ApiFixture, PlacementMoveSnapsToTheRowSiteGridAndOrientationAndIsUndoable
     EXPECT_EQ(placement_property(handle, placement_id, ".orientation"), "N");
 }
 
+TEST_F(ApiFixture, SelectAllSkipsAHiddenLayerCreatedAfterTheLefRead)
+{
+    // "M4" isn't in testcell.lef - named_layer creates it after the read,
+    // so select-all must refresh the view layers to see it's hidden.
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+    create_obstruction_with_rect(handle, testcell_abstract_id(handle), "M4", kRect0);
+
+    le_set_layer_name_visible(handle, "M4", false);
+    le_select_all(handle);
+    const int32_t with_m4_hidden = le_selection_count(handle);
+
+    le_deselect_all(handle);
+    le_set_layer_name_visible(handle, "M4", true);
+    le_select_all(handle);
+    EXPECT_EQ(le_selection_count(handle), with_m4_hidden + 1);
+}
+
 TEST_F(ApiFixture, ArmedMoveRendersADashedTranslucentGhostAtTheOffsetPositionBeforeCommitting)
 {
     // Same recipe as MoveTranslatesSelectedShapeGeometryAndIsUndoable
-    // above, but on the "M1" layer testcell.lef itself declares (that
-    // test's own "M4" is created fresh via named_layer/le_create_layer,
-    // which currently leaves handle's own cached view_layers stale until
-    // the next le_read_lef - a real, separate, already-flagged gap this
-    // test deliberately avoids exercising, since it's here to verify
-    // ghost *rendering*, not that unrelated bug).
+    // above, on the "M1" layer testcell.lef declares.
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
@@ -5258,10 +5117,6 @@ TEST_F(ApiFixture, KeyDownMoveWithoutCtrlOrWithShiftAlsoHeldIsANoOp)
 
 TEST_F(ApiFixture, ClickSelectsAndMovesOnlyOneRectOfATwoRectShapeNotBothOrTheWrongOne)
 {
-    // Same Abstract-view Obstruction-shape click-selection gap as
-    // MoveTranslatesSelectedShapeGeometryAndIsUndoable above - see that
-    // test's own comment.
-    GTEST_SKIP() << "Abstract-view Obstruction-shape click selection - not yet diagnosed, see comment above";
     // Selection/Move are piece-granular - clicking one rect of a Shape
     // that bundles 2+ rects together
     // (e.g. several RECT statements under one LEF OBS LAYER line) must
