@@ -42,13 +42,8 @@ namespace le::gui
             }
         }
 
-        // Lucide equivalents of mode_selector.dart's own HugeIcons -
-        // ICON_LC_MOUSE_POINTER_SQUARE_DASHED (a marquee-selection
-        // cursor) for strokeRoundedCursorRectangleSelection01,
-        // ICON_LC_PENCIL for strokeRoundedCursorEdit01, ICON_LC_RULER
-        // for strokeRoundedRuler - Lucide has no exact 1:1 match for any
-        // of these (a different icon set entirely), picked for closest
-        // visual/semantic fit.
+        // Mode icons: a marquee-selection cursor for Select, a pencil for
+        // Edit, a ruler for Ruler.
         const char *mode_icon(int32_t mode)
         {
             switch (mode)
@@ -109,9 +104,8 @@ namespace le::gui
             // would otherwise trip a real ImGui centering bug and render
             // the icon visibly right-of-center.
             const bool clicked = icon_button(mode_icon(mode), std::string("mode_") + mode_keyword(mode), kIconButtonSize);
-            // Clicking the already-active mode is a no-op, matching
-            // ModeButton's own `onPressed: selected ? null : onPressed`
-            // in mode_selector.dart - guarded here with a plain `!selected`
+            // Clicking the already-active mode is a no-op - guarded with
+            // a plain `!selected`
             // check rather than wrapping the button in BeginDisabled(selected)
             // (the more obvious-looking way to express "already active,
             // ignore clicks"), because BeginDisabled also multiplies

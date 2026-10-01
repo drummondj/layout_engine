@@ -28,10 +28,8 @@ namespace le::gui
     // A 2-column table (mode | coordinates+selection) - the stretching
     // first column pushes the fixed-width second one flush against the
     // table's own right edge (`width`, matching the outer table size
-    // passed below), the same way status_bar.dart's own trailing Row items
-    // sit at its right edge. The mode's instructions that used to sit
-    // between the two are in the Info panel now (info_panel.hpp,
-    // NEW_FEATURES_SEPT_2026.md item 15) - a long one was clipped here.
+    // passed below). The mode's instructions are shown in the Info panel
+    // (info_panel.hpp), where a long one isn't clipped.
     void draw_status_bar(GuiProvider &provider, float width)
     {
         const GuiProvider::State &state = provider.state();
@@ -58,13 +56,9 @@ namespace le::gui
 
         ImGui::TableSetColumnIndex(0);
         ImGui::Text("Mode: %s", mode_label(state.mode));
-        // status_bar.dart's own isRunning||isRendering spinner has no
-        // ImGui equivalent here - a text marker toggling in and out
-        // every render (rather than a real animated spinner) read as
-        // distracting flicker rather than useful feedback, so this was
-        // dropped rather than kept as a text stand-in; le_gui.cpp's own
-        // "rendering..." corner overlay on the design view itself still
-        // covers the same signal.
+        // No render-in-progress marker here - a text marker toggling every
+        // render reads as flicker; le_gui.cpp's "rendering..." corner
+        // overlay on the design view covers that signal.
 
         ImGui::TableSetColumnIndex(1);
         const LeSnappedMousePosition &pos = state.status_bar.snapped_mouse_position;

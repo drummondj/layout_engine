@@ -10,9 +10,7 @@
 namespace le::gui
 {
     // A number setting as a "commit when done editing" field with a label -
-    // the Settings panel's rows (settings_panel.cpp; moved here from
-    // layer_manager.cpp with Hierarchy Depth and the flightline fanout
-    // limit, NEW_FEATURES_SEPT_2026.md item 9). An edit is committed when
+    // the Settings panel's rows (settings_panel.cpp). An edit is committed when
     // the field loses focus by any route - Enter, Tab or clicking elsewhere
     // (ImGui::IsItemDeactivatedAfterEdit) - not just Enter; Escape reverts
     // it (the value is then unchanged, so nothing is sent). Submitting a

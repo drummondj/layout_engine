@@ -21,9 +21,8 @@
 #include "imgui.h"
 // DockBuilder* (imgui_internal.h, "internal" API - not exported from
 // imgui.h) is the standard, documented way to script a *default* dock
-// layout the first time a window opens (left/center/right, mirroring
-// the Flutter frontend's own default docking layout in home.dart's
-// _buildDefaultLayout) - see setup_default_dock_layout below. Everything
+// layout the first time a window opens (left/center/right) - see
+// draw_dockspace_and_default_layout below. Everything
 // else this file uses comes from imgui.h alone.
 #include "imgui_internal.h"
 #include "imgui_impl_glfw.h"
@@ -325,7 +324,7 @@ namespace le::gui
             {ImGuiKey_R, LE_KEY_RULER_MODE},
             {ImGuiKey_Escape, LE_KEY_FINISH_RULER},
             {ImGuiKey_M, LE_KEY_MOVE},
-            {ImGuiKey_Delete, LE_KEY_DELETE}, // NEW_FEATURES_SEPT_2026.md item 29
+            {ImGuiKey_Delete, LE_KEY_DELETE},
         };
 
         // Forwards every currently-pressed/released/held key this frame
@@ -337,7 +336,7 @@ namespace le::gui
         // codes (zoom/fit/pan keep re-triggering while held, same as a
         // real keyboard's own repeat).
         //
-        // `active` (BUGS_AND_ENHANCEMENTS.md B7) - the caller passes
+        // `active` - the caller passes
         // `layout view hovered && !io.WantTextInput`, so this only
         // forwards while the mouse is actually over the layout/design
         // view AND no ImGui text-editing widget currently has focus.
@@ -363,7 +362,7 @@ namespace le::gui
         // this a modifier could stay "held" from the backend's own point
         // of view indefinitely (le_clear_all_keys's own doc comment).
         // `skip_escape` - forward_mouse_input already spent this frame's
-        // Escape cancelling a drag (NEW_FEATURES_SEPT_2026.md item 22), so
+        // Escape cancelling a drag, so
         // it mustn't also finish a ruler/cancel a Move here.
         void forward_keyboard_input(GuiProvider &provider, bool active, bool skip_escape)
         {
@@ -435,7 +434,7 @@ namespace le::gui
         // framebuffer-pixel units) - they differ on a HiDPI/Retina
         // display, where the framebuffer has more real pixels than
         // logical points. Returns `hovered` - the caller also gates
-        // forward_keyboard_input on it (BUGS_AND_ENHANCEMENTS.md B7).
+        // forward_keyboard_input on it.
         bool forward_mouse_input(GuiProvider &provider, ActiveGesture &gesture, float scale_x, float scale_y, bool &escape_consumed)
         {
             const bool hovered = ImGui::IsItemHovered();
@@ -470,7 +469,7 @@ namespace le::gui
             }
             else if (gesture != ActiveGesture::kNone)
             {
-                // NEW_FEATURES_SEPT_2026.md item 22. Escape cancels the
+                // Escape cancels the
                 // gesture (hovered or not). And if the button is no longer
                 // down but no release reached us, the release went to
                 // another window - switching away clears ImGui's mouse
@@ -494,7 +493,7 @@ namespace le::gui
             // A signed fractional step per wheel tick, matching le_zoom's
             // own "positive zooms in, negative zooms out" convention -
             // smaller than the GUI toolbar's own fixed 0.3-per-keypress
-            // step (UPDATES.md's zoom command doc), since a scroll
+            // step, since a scroll
             // gesture delivers many ticks in quick succession.
             constexpr float kZoomStepPerWheelTick = 0.15f;
             const float wheel = ImGui::GetIO().MouseWheel;
@@ -507,25 +506,14 @@ namespace le::gui
         }
 
         // Upper bound (seconds) on how long the main loop's own
-        // glfwWaitEventsTimeout() below blocks before redrawing anyway -
-        // a real, reported bug: the main loop used to call the
-        // non-blocking glfwPollEvents() and then unconditionally redraw
-        // the whole ImGui frame + do a full GL render every single
-        // iteration, with no idle throttling at all. glfwSwapInterval(1)
-        // (vsync) doesn't reliably cap this on a machine with no real
-        // GPU (confirmed via `top -H` on a live le_shell: dozens of Mesa
-        // "llvmpipe" software-rasterizer threads, one per CPU core, each
-        // sitting at ~18-27% CPU continuously, even with the mouse
-        // untouched and nothing on screen changing) - llvmpipe's own
-        // software swap path has no real display refresh signal to sync
-        // to, so the loop just free-spins, re-rasterizing the entire
-        // (unchanged) UI in software as fast as it possibly can.
-        // glfwWaitEventsTimeout() blocks (genuinely sleeping, not
-        // polling) until either a real input event arrives - identical
-        // responsiveness to glfwPollEvents() for actual interaction,
-        // since any real event wakes it immediately - or this timeout
-        // elapses, which is what now bounds the idle redraw rate instead
-        // of leaving it unbounded. 33ms (~30Hz) matches
+        // glfwWaitEventsTimeout() below blocks before redrawing anyway.
+        // Polling and redrawing every iteration isn't capped by
+        // glfwSwapInterval(1) (vsync) on a machine with no real GPU:
+        // Mesa's llvmpipe software swap has no display refresh to sync
+        // to, so the loop would free-spin, re-rasterizing the unchanged UI
+        // on every core. glfwWaitEventsTimeout() sleeps until either a
+        // real input event arrives (same responsiveness as polling) or
+        // this timeout elapses, bounding the idle redraw rate. 33ms (~30Hz) matches
         // kRenderThreadIdleInterval above, both existing for the same
         // reason: cheap enough to never feel laggy, short enough that a
         // background render-thread frame (le_is_rendering()'s own
@@ -536,17 +524,13 @@ namespace le::gui
 
         // Logical (window/point, not framebuffer-pixel) height reserved
         // at the bottom of the window for draw_status_bar
-        // (components/status_bar.hpp) - the ImGui port of
-        // frontend/lib/components/status_bar.dart, which sits directly
-        // below the design view the same way in home.dart's own layout.
+        // (components/status_bar.hpp), directly below the design view.
         // Computed from the style rather than measured (ImGui only
         // reports an item's size after drawing it): the ItemSpacing gap
         // after the design image, the 1px Separator, the ItemSpacing gap
         // after it, the one-line table row (text plus CellPadding top and
         // bottom), and then one more ItemSpacing so the space under the
-        // text matches the space above it (NEW_FEATURES_SEPT_2026.md item
-        // 23 - the old fixed 36px left the text ~1px off the bottom edge,
-        // against ~13px above it). Call inside a frame.
+        // text matches the space above it. Call inside a frame.
         float status_bar_height()
         {
             const ImGuiStyle &style = ImGui::GetStyle();
@@ -556,11 +540,9 @@ namespace le::gui
         // The one slot a background render thread publishes into and the
         // main/GUI thread reads from - decouples le_render_pixel_buffer()
         // (which can take anywhere from microseconds to over a second for
-        // a real design on a scale change - see BENCHMARKS.md's own
-        // RenderLayoutFrame entries) from GLFW's own event loop and
-        // window repaint, mirroring the same raster-thread/platform-
-        // thread split Flutter's own texture pull already used (see
-        // is_rendering_'s own doc comment, api.cpp) - without this, a
+        // a real design on a scale change) from GLFW's own event loop and
+        // window repaint (see is_rendering_'s own doc comment, api.cpp) -
+        // without this, a
         // single slow render call blocks *everything* on the thread that
         // also owns polling input and drawing the window, freezing the
         // whole app for its own full duration instead of just delaying
@@ -612,15 +594,13 @@ namespace le::gui
                     std::lock_guard<std::mutex> lock(mailbox.mutex);
                     mailbox.pixels.resize(byte_count);
                     std::memcpy(mailbox.pixels.data(), buffer.data, byte_count);
-                    // NEW_FEATURES_SEPT_2026.md item 20 - the frame is
-                    // premultiplied RGBA that's still translucent wherever
-                    // only translucent content (grid dots, shape fills) was
-                    // drawn (ComposeStage starts from transparent black, so
-                    // dump_png keeps a transparent background). ImGui draws
-                    // textures with straight-alpha blending, which darkened
-                    // those pixels a second time - the minor grid showed at
-                    // ~1/4 of its intended brightness, except under the drag
-                    // rectangle, whose fill raised the alpha. The design view
+                    // The frame is premultiplied RGBA that's still
+                    // translucent wherever only translucent content (grid
+                    // dots, shape fills) was drawn (ComposeStage starts
+                    // from transparent black, so dump_png keeps a
+                    // transparent background). ImGui draws textures with
+                    // straight-alpha blending, which would darken those
+                    // pixels a second time. The design view
                     // is always on black, and premultiplied color over black
                     // is the color itself, so making every pixel opaque is
                     // the exact composite.
@@ -644,14 +624,14 @@ namespace le::gui
         constexpr const char *kInfoWindowTitle = "Info";
         constexpr const char *kLayoutWindowTitle = "Layout";
 
-        // NEW_FEATURES_SEPT_2026.md item 16 - the dark gray line separating
+        // The dark gray line separating
         // the mode selector (right edge) and the mode/secondary toolbars
         // (bottom edge) from the design view. Call from inside the child,
         // before EndChild: drawn on the child's own draw list, since the
         // parent's would be painted over by the child's opaque background.
         // The child's default clip rect stops short of its own edges (by
         // half its WindowPadding), so the whole window rect is pushed first.
-        // NEW_FEATURES_SEPT_2026.md item 25 - the window layout (panel
+        // The window layout (panel
         // arrangement plus the window's own size) lives in ImGui's ini
         // file, next to the settings file: ~/.layout_engine/window_layout.ini.
         // Saved automatically (ImGui writes it a few seconds after a change,
@@ -709,7 +689,7 @@ namespace le::gui
             ImGui::AddSettingsHandler(&handler);
         }
 
-        // NEW_FEATURES_SEPT_2026.md item 18 - how the window is closing.
+        // How the window is closing.
         enum class CloseChoice
         {
             NONE,
@@ -802,17 +782,12 @@ namespace le::gui
         // dockspace every frame (cheap - ImGui's own recommended
         // "DockSpace over main viewport" pattern, see imgui_demo.cpp's
         // ShowExampleAppDockSpace), and - only when there's no saved
-        // layout to restore (window_layout.ini, NEW_FEATURES_SEPT_2026.md
-        // item 25), or on "Reset window layout" - programmatically splits it into a
-        // left/center/right layout mirroring the Flutter frontend's own
-        // default docking layout (home.dart's _buildDefaultLayout:
-        // browser/file on the left, layout+console in the center,
-        // layers/properties on the right) - minus the console (this
-        // prototype's Tcl console is le_shell's own terminal now, not a
-        // panel of its own - see this file's own header comment) and
-        // collapsed to one placeholder tab per side rather than
-        // per-panel tabs, since there's no real content to split between
-        // multiple tabs yet. `dockspace_built` is owned by (and reset
+        // layout to restore (window_layout.ini), or on "Reset window
+        // layout" - programmatically splits it into a left/center/right
+        // layout: Browser on the left, the design view in the center,
+        // Properties/Layers/Settings tabs plus Info on the right (the Tcl
+        // console is le_shell's own terminal, not a panel).
+        // `dockspace_built` is owned by (and reset
         // once per) open_and_run_window's own window-open/close cycle,
         // not a function-static - a fresh ImGui context (and so a fresh,
         // empty dock layout) is created every time show_gui reopens the
@@ -859,7 +834,7 @@ namespace le::gui
                 ImGuiID center_id = dockspace_id;
                 const ImGuiID left_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Left, 0.22f, nullptr, &center_id);
                 ImGuiID right_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Right, 0.28f, nullptr, &center_id);
-                // NEW_FEATURES_SEPT_2026.md item 15 - the Info panel gets
+                // The Info panel gets
                 // its own strip along the bottom of the right sidebar,
                 // below the Properties/Layers/Settings tabs.
                 const ImGuiID info_id = ImGui::DockBuilderSplitNode(right_id, ImGuiDir_Down, 0.15f, nullptr, &right_id);
@@ -871,9 +846,7 @@ namespace le::gui
                 // separate windows docked into the same node still show
                 // as tabs of one panel by default while staying fully
                 // dockable - the user can drag "Layers" out to its own
-                // split/area, matching home.dart's own DockingTabs
-                // grouping (a real docking construct there too, not a
-                // fixed in-panel tab strip).
+                // split/area.
                 ImGui::DockBuilderDockWindow(kPropertiesWindowTitle, right_id);
                 ImGui::DockBuilderDockWindow(kLayersWindowTitle, right_id);
                 ImGui::DockBuilderDockWindow(kSettingsWindowTitle, right_id);
@@ -935,22 +908,12 @@ namespace le::gui
             // arrow-key cursor movement regardless of this flag - that's
             // ImGui's ordinary text-editing behavior, unrelated to Nav.
             io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-            // Nothing worth persisting yet - every open_and_run_window()
-            // call rebuilds the same default left/center/right split from
-            // scratch (setup_default_dock_layout below) rather than
-            // restoring a user's own rearranged layout, the ImGui-side
-            // equivalent of Flutter's own docking_layout_v1 SharedPreferences
-            // persistence (home.dart) - without this, ImGui writes an
-            // "imgui.ini" into whatever directory le_shell happens to be
-            // run from by default. Worth revisiting once real panel
-            // content (not placeholders) makes a stable layout worth
-            // keeping across window close/reopen.
-            // NEW_FEATURES_SEPT_2026.md item 25 - persisted to
+            // The layout is persisted to
             // ~/.layout_engine/window_layout.ini (window_layout_path) rather
             // than ImGui's default "imgui.ini" in whatever directory
             // le_shell was run from. `ini_path` outlives the ImGui context
             // (both end with this function). With no HOME, nothing is saved
-            // and every window opens with the default layout, as before.
+            // and every window opens with the default layout.
             const std::string ini_path = window_layout_path();
             if (!ini_path.empty())
             {
@@ -1024,7 +987,7 @@ namespace le::gui
                 // source of the reported ~1px residual right-bias).
                 large_icon_font() = io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 32.0f, nullptr, icon_ranges);
                 // components/icon_font.hpp's small_icon_font() - the
-                // secondary toolbar's icons (NEW_FEATURES_SEPT_2026.md item 16).
+                // secondary toolbar's icons.
                 small_icon_font() = io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 20.0f, nullptr, icon_ranges);
             }
 
@@ -1039,34 +1002,21 @@ namespace le::gui
             int uploaded_width = 0;
             int uploaded_height = 0;
 
-            // The render thread below is deliberately *not* started here
-            // (unlike before docking existed, when the whole window was
-            // the design view and its size was known immediately) - it
-            // isn't spawned until the main loop has computed a real,
+            // The render thread below is deliberately *not* started here -
+            // it isn't spawned until the main loop has computed a real,
             // dock-panel-aware viewport size (see dock_layout_just_built
-            // below), not a guess. A guessed bootstrap size used to be
-            // needed here (le_render_pixel_buffer() degrades gracefully
-            // to an empty buffer for an unset/0x0 viewport, but at least
-            // one rasterize stage caches a "nothing to rasterize" result
-            // keyed on a constant that never changes for a Layout view,
-            // so a 0x0 *first-ever* call would cache that forever - see
-            // BUGS_AND_ENHANCEMENTS.md's own history of this bug) only
-            // because the render thread used to start immediately, before
-            // anything else had a chance to set a real size; deferring
-            // its start instead sidesteps that bug more directly (the
-            // very first call this thread ever makes now already has a
-            // correct size) and also avoids wasting a real, potentially
-            // multi-second synchronous cold rasterize (BENCHMARKS.md) on
-            // a guessed size about to be immediately superseded once
-            // docking's own geometry settles a frame or two later.
+            // below), so its very first render already has the correct
+            // size. That avoids a potentially multi-second cold rasterize
+            // on a guessed size about to be superseded once docking's own
+            // geometry settles a frame or two later.
             int last_viewport_width = 0;
             int last_viewport_height = 0;
-            // BUGS_AND_ENHANCEMENTS.md B5 - dragging a dock splitter
+            // Dragging a dock splitter
             // (resizing a sidebar) changes this panel's own content
             // region *every single frame* for the whole drag, and acting
             // on each one immediately would mean a full synchronous
             // rasterize per frame (le_set_viewport_size's own cost - a
-            // real design can take seconds cold, see BENCHMARKS.md),
+            // real design can take seconds cold),
             // stalling the drag itself rather than just following it.
             // pending_viewport_width/height/pending_viewport_change_time
             // debounce this: a still-changing size keeps resetting the
@@ -1077,7 +1027,7 @@ namespace le::gui
             int pending_viewport_width = 0;
             int pending_viewport_height = 0;
             double pending_viewport_change_time = 0.0;
-            // A saved layout (item 25) is restored by ImGui itself on the
+            // A saved layout is restored by ImGui itself on the
             // first NewFrame - don't build the default split over it.
             bool dockspace_built = has_saved_dock_layout(ini_path);
             bool first_frame = true;
@@ -1089,7 +1039,7 @@ namespace le::gui
             uint64_t displayed_generation = 0;
             bool have_content = false;
 
-            // NEW_FEATURES_SEPT_2026.md item 18 - the close button asks
+            // The close button asks
             // (draw_close_dialog) rather than closing; close_gui closes
             // without asking. A close_gui made while no window was open is
             // dropped here, not left to close this one.
@@ -1163,25 +1113,12 @@ namespace le::gui
                 // for however long a slow render took, including window
                 // drag/resize.
                 //
-                // A *debounced* version of this flag (only trust it
-                // after reading true continuously for some threshold,
-                // to smooth over brief steady-state cache-recheck
-                // blips - CLAUDE.md's own HierarchyResolver bullet:
-                // run_pending()'s own wait_for_all() runs
-                // unconditionally on *every* top-level call, so even a
-                // full cache hit isn't free at scale) was tried and
-                // reverted - a real, confirmed-by-instrumentation bug,
-                // not just a theoretical concern: on the very first
-                // frame after a real slow render starts, the debounced
-                // value is *still* false (the threshold hasn't elapsed
-                // yet), so gating on it let that same frame go ahead
-                // and make a locked call anyway - which then blocked
-                // for the render's entire remaining duration, since the
-                // lock was already held. The loop never got to run
-                // again long enough for the debounce to ever resolve,
-                // so the "busy" UI (and the spinner) never appeared at
-                // all for a genuinely long render - worse than the
-                // flicker it was meant to fix. Whether a call is safe
+                // This flag must not be debounced: on the very first
+                // frame after a slow render starts, a debounced value
+                // would still be false, so that frame would make a locked
+                // call anyway and block for the render's entire remaining
+                // duration - the "busy" UI would never appear at all for
+                // a genuinely long render. Whether a call is safe
                 // to make can only ever be judged from the *current*
                 // instant, never a delayed/smoothed view of it -
                 // there's no gap in which it's fine to guess.
@@ -1213,15 +1150,15 @@ namespace le::gui
                 // true/false pulse - nothing left to smooth.
                 const bool show_loading_overlay = is_rendering;
 
-                // BUGS_AND_ENHANCEMENTS.md B7 - set once the layout
+                // Set once the layout
                 // view's own hover state is known (forward_mouse_input,
                 // below, only runs once the image is actually drawn);
                 // forward_keyboard_input is called unconditionally after
                 // that, once per frame, using whatever this ends up as.
                 bool layout_view_hovered = false;
-                bool escape_consumed = false; // item 22 - see forward_keyboard_input
+                bool escape_consumed = false; // see forward_keyboard_input
 
-                // The Settings panel's "Reset window layout" (item 25) -
+                // The Settings panel's "Reset window layout" -
                 // rebuild the default split this frame.
                 if (provider.take_window_layout_reset_request())
                     dockspace_built = false;
@@ -1231,22 +1168,14 @@ namespace le::gui
                 const bool dock_layout_just_built = draw_dockspace_and_default_layout(dockspace_built) || first_frame;
                 first_frame = false;
 
-                // Left sidebar - components/library_browser.hpp, the
-                // ImGui port of frontend/lib/components/library_browser.dart.
+                // Left sidebar - components/library_browser.hpp.
                 // Called unconditionally, even while is_rendering - every
                 // le_* function it calls (le_library_count/_at/
                 // _design_count/_at) takes only a std::shared_lock now
                 // (le_handle.hpp's own mutex_ doc comment), so it runs
                 // concurrently with an in-progress render instead of
-                // blocking behind it. This panel (like Properties/Layers/
-                // the mode selector+toolbar/status bar below) used to be
-                // skipped outright while rendering, a real, reported
-                // regression in its own right - the user wanted these
-                // panels to never change at all during a render, not show
-                // a placeholder or go blank, which a client-side skip
-                // could never actually deliver alongside "and never
-                // block either" at the same time. Fixed at the actual
-                // source of the conflict instead: handle->mutex_ itself.
+                // blocking behind it - panels must neither go blank nor
+                // block during a render.
                 ImGui::Begin(kBrowserWindowTitle);
                 draw_library_browser(provider);
                 ImGui::End();
@@ -1254,11 +1183,8 @@ namespace le::gui
                 // Right sidebar - two separate dockable panels docked
                 // into the same node by default (see
                 // draw_dockspace_and_default_layout's own comment on
-                // why not a single BeginTabBar/BeginTabItem pair),
-                // mirroring home.dart's own DockingTabs([layers,
-                // properties]) grouping: property_viewer.hpp
-                // (frontend/lib/components/property_viewer.dart) and
-                // layer_manager.hpp (frontend/lib/components/layer_manager.dart).
+                // why not a single BeginTabBar/BeginTabItem pair):
+                // property_viewer.hpp and layer_manager.hpp.
                 // Called unconditionally - kBrowserWindowTitle's own
                 // comment above. GuiProvider::object_children
                 // (gui_provider.cpp) has one narrow, documented
@@ -1274,15 +1200,12 @@ namespace le::gui
                 draw_layer_manager(provider);
                 ImGui::End();
 
-                // NEW_FEATURES_SEPT_2026.md item 9 - a third tab in the
-                // same right-hand dock node.
+                // A third tab in the same right-hand dock node.
                 ImGui::Begin(kSettingsWindowTitle);
                 draw_settings_panel(provider);
                 ImGui::End();
 
-                // NEW_FEATURES_SEPT_2026.md item 15 - the current mode's
-                // instructions, below the tabs above (it replaced the
-                // status bar's middle column).
+                // The current mode's instructions, below the tabs above.
                 ImGui::Begin(kInfoWindowTitle);
                 draw_info_panel(provider);
                 ImGui::End();
@@ -1323,10 +1246,10 @@ namespace le::gui
                 const float full_panel_height = full_panel_avail.y > 1.0f ? full_panel_avail.y : 1.0f;
 
                 // ModeSelector (mode_selector.hpp) - a fixed-width column
-                // to the left of everything else, matching home.dart's
-                // own Row(ModeSelector, Column(ModeToolbar, LayoutEngine,
-                // StatusBar)) layout: it's a plain child of this same
-                // "Layout" panel, not a separate dock panel of its own,
+                // to the left of everything else (Row(ModeSelector,
+                // Column(ModeToolbar, design view, StatusBar))): it's a
+                // plain child of this same "Layout" panel, not a separate
+                // dock panel of its own,
                 // so it moves/resizes with the design view rather than
                 // being independently dockable like Browser/Properties/
                 // Layers.
@@ -1416,13 +1339,13 @@ namespace le::gui
                 // handle's render pipeline does a full synchronous
                 // rasterize of whatever's currently loaded on every
                 // viewport-size change (a real design can take seconds
-                // cold, see BENCHMARKS.md), so acting on a known-wrong
+                // cold), so acting on a known-wrong
                 // width here would burn a real render on a size that's
                 // about to be thrown away one frame later anyway.
                 if (!dock_layout_just_built &&
                     (viewport_width != last_viewport_width || viewport_height != last_viewport_height))
                 {
-                    // BUGS_AND_ENHANCEMENTS.md B5 - debounced (see
+                    // Debounced (see
                     // pending_viewport_width's own declaration comment
                     // above), except for the very first-ever apply (the
                     // render thread hasn't started yet - this is initial
@@ -1496,7 +1419,7 @@ namespace le::gui
                     }
                 }
 
-                // is_rendering (E17's own spinner signal, le_is_rendering)
+                // is_rendering (the spinner signal, le_is_rendering)
                 // covers the very first, potentially multi-second cold
                 // render just as much as any later one - computed once,
                 // up at the top of this frame (this function's own
@@ -1544,8 +1467,8 @@ namespace le::gui
                         layout_view_hovered = forward_mouse_input(provider, gesture, scale_x, scale_y, escape_consumed);
                         over_layout_content = layout_view_hovered;
 
-                        // NEW_FEATURES_SEPT_2026.md item 3 - with Resize
-                        // armed, a resize cursor over a selected shape's
+                        // With Resize armed, a resize cursor over a
+                        // selected shape's
                         // grabbable edge/segment, pointing the way it moves
                         // (state is refreshed at the top of each frame, so
                         // this trails the mouse by one frame - unnoticeable).
@@ -1670,8 +1593,8 @@ namespace le::gui
                 // itself just as locked. Whatever was held down when
                 // rendering started stays "held" from the backend's own
                 // point of view until this resumes running once the
-                // render finishes - BUGS_AND_ENHANCEMENTS.md B7 - see
-                // forward_keyboard_input's own doc comment for why
+                // render finishes - see forward_keyboard_input's own doc
+                // comment for why
                 // io.WantTextInput, not io.WantCaptureKeyboard, is the
                 // right flag here.
                 if (!is_rendering)
@@ -1715,15 +1638,12 @@ namespace le::gui
             // for the render thread to actually exit, not after - it
             // never touches any of them (only le_render_pixel_buffer()
             // on `handle` and its own mailbox, under mailbox.mutex), so
-            // there's no ordering hazard in destroying them first.
-            // Joining first was a real, reproduced bug: the render
-            // thread's own last in-flight le_render_pixel_buffer() call
-            // can take several real seconds for a large design
-            // (BENCHMARKS.md) - blocking here *before* the window was
-            // destroyed left a live window on screen that stopped
-            // responding to window-server events for that whole
-            // duration, which macOS reports as "Application Not
-            // Responding" (the spinning beachball cursor). Destroying
+            // there's no ordering hazard in destroying them first. The
+            // render thread's last in-flight le_render_pixel_buffer()
+            // call can take several seconds for a large design; joining
+            // first would leave a live window on screen that stops
+            // responding to window-server events for that whole duration
+            // (macOS's "Application Not Responding"). Destroying
             // the window first makes it disappear immediately regardless
             // of how long the trailing render still has left to run.
             glDeleteTextures(1, &texture_id);
@@ -1757,15 +1677,11 @@ namespace le::gui
     // main() relies on that (see its own comment on tcl_thread, detached
     // not joined: the whole process exits from inside that thread's own
     // std::exit() call, and main() falling through to `return 0` while
-    // it's still mid-flight is a real, reproduced race/segfault, not a
-    // theoretical one). glfwInit() failing (e.g. no DISPLAY - a real
-    // case on a headless CI/Docker container with no Xvfb, confirmed by
-    // hitting this in Dockerfile.linux-ci's own `ctest` run) used to
-    // return here instead, breaking that invariant for exactly this one
-    // case; idling forever below keeps it true unconditionally, so
-    // show_gui simply never opens a window on such a machine (the
-    // originally-intended degraded behavior) rather than the process
-    // racing its own teardown.
+    // it's still mid-flight would race/segfault). If glfwInit() fails
+    // (e.g. no DISPLAY on a headless CI/Docker container with no Xvfb),
+    // this still idles forever below rather than returning, keeping that
+    // invariant: show_gui simply never opens a window on such a machine
+    // rather than the process racing its own teardown.
     void run_main_thread_loop(LeHandle *handle)
     {
         if (!glfwInit())

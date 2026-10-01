@@ -48,13 +48,11 @@ namespace le::gui
             return std::string(prefix) + ":" + buf;
         }
 
-        // [ref]'s own TCL-style friendly-id token (property_viewer.dart's
-        // own _tokenFor) - name-keyed for the classes that have a real
-        // name field, numeric-packed (generation<<32 | index) for the
-        // ones that don't. Purely a display string here - never actually
-        // round-tripped through TCL, matching the Dart original's own
-        // "no TCL round trip needed, LeObjectRef already carries the same
-        // index/generation shape" reasoning.
+        // [ref]'s own TCL-style friendly-id token - name-keyed for the
+        // classes that have a real name field, numeric-packed
+        // (generation<<32 | index) for the ones that don't. Purely a
+        // display string - never round-tripped through TCL, since
+        // LeObjectRef already carries the same index/generation shape.
         std::string token_for(const GuiProvider &provider, const LeObjectRef &ref)
         {
             if (!ref_is_valid(ref))
@@ -159,8 +157,7 @@ namespace le::gui
 
         // A read-only, click-and-drag-selectable, Ctrl+C-copyable text
         // field - ImGui's own idiom for this (there's no plain-text
-        // "selectable label" widget), matching property_viewer.dart's
-        // own SelectableText for each property name/value cell. `id`
+        // "selectable label" widget), for each property name/value cell. `id`
         // must be unique per call (e.g. "##prop_name_3") - ImGui widgets
         // are identified by id, not position. A `std::vector<char>`
         // sized to `text`'s own length (not a fixed-size stack buffer)
@@ -174,8 +171,7 @@ namespace le::gui
             // own filled/bordered look (blue by default) reads as an
             // editable field sitting inside a property table, not
             // selectable text; the table's own row striping shows
-            // through instead, closer to how SelectableText looked
-            // against DataTable's own row background in property_viewer.dart.
+            // through instead.
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
             ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
             ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
@@ -184,8 +180,8 @@ namespace le::gui
         }
 
         // Rebuilds `hierarchy` as `ref`'s own ancestor chain (root first)
-        // and makes `ref` the currently-displayed node - property_viewer.dart's
-        // own _jumpTo, called both when the outer selection/pager changes
+        // and makes `ref` the currently-displayed node - called both when
+        // the outer selection/pager changes
         // and from a "children" row's own click (re-anchoring onto that
         // child without touching canvas selection at all).
         void jump_to(const GuiProvider &provider, const LeObjectRef &ref, std::vector<LeObjectRef> &hierarchy, LeObjectRef &current_ref)
@@ -245,8 +241,7 @@ namespace le::gui
         }
 
         // `current_ref`'s own property table, plus one extra row per
-        // child kind at the bottom (property_viewer.dart's own
-        // ObjectDetail) - clicking a child token re-anchors the
+        // child kind at the bottom - clicking a child token re-anchors the
         // hierarchy tree above onto it via jump_to.
         void draw_object_detail(
             GuiProvider &provider, LeObjectRef &current_ref, const char *filter, bool show_hidden,
@@ -392,8 +387,7 @@ namespace le::gui
         {
             ImGui::TextDisabled("No selection");
             // Reset so a later selection starts fresh instead of showing
-            // a stale hierarchy from before everything was deselected -
-            // mirrors _syncHierarchy's own reset in property_viewer.dart.
+            // a stale hierarchy from before everything was deselected.
             hierarchy.clear();
             current_ref = provider.invalid_ref();
             last_selected.clear();

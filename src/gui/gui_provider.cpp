@@ -86,13 +86,11 @@ namespace le::gui
         for (int32_t i = 0; i < layer_count; ++i)
         {
             const LeLayerRow row = le_layer_at(handle_, i);
-            // Technology layers only (BUGS_AND_ENHANCEMENTS.md E12): a
-            // pseudo-row with no physical Layer (ROW, BOUNDARY, DEBUG,
-            // FLIGHTLINE, ...) has exactly one purpose column, already
-            // listed in `purposes` below - listing it here too would be a
-            // duplicate checkbox for the same flag. Dropped once before,
-            // when this loop moved here from layer_manager.cpp - see
-            // gui_provider_test.cpp's regression test.
+            // Technology layers only: a pseudo-row with no physical Layer
+            // (ROW, BOUNDARY, DEBUG, FLIGHTLINE, ...) has exactly one
+            // purpose column, already listed in `purposes` below - listing
+            // it here too would be a duplicate checkbox for the same flag
+            // (see gui_provider_test.cpp's regression test).
             if (row.name == nullptr || !row.has_physical_layer)
                 continue;
             const bool visible = le_is_layer_name_visible(handle_, row.name);

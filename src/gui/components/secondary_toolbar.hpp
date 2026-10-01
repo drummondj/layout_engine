@@ -4,12 +4,12 @@ namespace le::gui
 {
     class GuiProvider;
 
-    // The secondary toolbar (NEW_FEATURES_SEPT_2026.md item 2): a
-    // tool-specific row of options shown directly under ModeToolbar only
-    // while a tool that has options is active - currently just the
-    // placement toolbar (Edit mode with placements selected: the Move
-    // snap mode, plus rotate/flip, which commit immediately). Future tools (e.g. shape
-    // resize, item 3) add their own row to draw_secondary_toolbar's
+    // The secondary toolbar: a tool-specific row of options shown
+    // directly under ModeToolbar only while a tool that has options is
+    // active - Resize's snap modes while armed; the placement toolbar
+    // (Edit mode with placements selected: the Move snap mode, plus
+    // rotate/flip, which commit immediately); or Move's routing snap mode
+    // while armed. A new tool adds its own row to draw_secondary_toolbar's
     // dispatch and to has_secondary_toolbar.
     //
     // le_gui.cpp overlays it on the top edge of the design view rather

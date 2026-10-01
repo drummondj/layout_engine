@@ -159,7 +159,7 @@ namespace le::gui
         draw_committed_double_field("##ruler_label_size", "Ruler font size (px)", "%.3g", settings.ruler_label_size_px, ruler_field,
                                     [&](double px)
                                     { provider.set_ruler_label_size(px); });
-        // Labels scale with their shapes between the two (item 9).
+        // Labels scale with their shapes between the two.
         static CommittedField<double> label_min_field;
         draw_committed_double_field("##label_min_size", "Min label font size (px)", "%.3g", settings.label_min_size_px, label_min_field,
                                     [&](double px)
@@ -185,7 +185,7 @@ namespace le::gui
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Nets connecting more pins than this (besides the selected one) draw no flightlines - 0 for no limit");
 
-        // NEW_FEATURES_SEPT_2026.md item 21 - set_max_concurrency.
+        // set_max_concurrency.
         section("Performance");
         static CommittedField<int32_t> cpus_field;
         draw_committed_int_field("##max_concurrency", "CPUs", settings.max_concurrency, cpus_field,
@@ -217,7 +217,6 @@ namespace le::gui
         if (ImGui::Button("Load..."))
             start_file_request(request, false);
         ImGui::EndDisabled();
-        // NEW_FEATURES_SEPT_2026.md item 25.
         if (ImGui::Button("Reset window layout"))
             provider.request_window_layout_reset();
         if (ImGui::IsItemHovered())

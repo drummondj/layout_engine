@@ -31,7 +31,7 @@ namespace le::gui
             {LE_PLACEMENT_SNAP_NONE, "None", "No snapping"},
         };
 
-        // NEW_FEATURES_SEPT_2026.md item 3's own per-kind option lists.
+        // Resize's per-kind option lists.
         constexpr SnapChoice kRectPolygonSnapChoices[] = {
             {LE_SHAPE_SNAP_USER_GRID, "User grid", "Snap the dragged edge to the user grid"},
             {LE_SHAPE_SNAP_MANUFACTURING_GRID, "Mfg grid", "Snap the dragged edge to the manufacturing grid"},
@@ -44,7 +44,7 @@ namespace le::gui
             {LE_SHAPE_SNAP_USER_GRID, "User grid", "Snap the segment's centerline to the user grid"},
             {LE_SHAPE_SNAP_NONE, "None", "No snapping"},
         };
-        // Move's single group for every routing piece (item 13) - paths,
+        // Move's single group for every routing piece - paths,
         // vias and via arrays share one mode (le::shape_snap_slot).
         constexpr SnapChoice kRoutingSnapChoices[] = {
             {LE_SHAPE_SNAP_TRACKS, "Tracks", "Snap wire centerlines and via origins to routing tracks of their layer"},
@@ -147,7 +147,7 @@ namespace le::gui
         {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
             ImGui::BeginDisabled(disabled_reason != nullptr);
-            const bool clicked = icon_button(icon, id, kButtonSize, small_icon_font()); // item 16 - text-button scale
+            const bool clicked = icon_button(icon, id, kButtonSize, small_icon_font()); // text-button scale
             ImGui::EndDisabled();
             ImGui::PopStyleColor();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -197,8 +197,8 @@ namespace le::gui
         }
 
         // One snap group per kind of shape piece in `kinds` (a 1 <<
-        // LePieceKind mask) - Resize's rects/polygons/paths (item 3), or,
-        // `for_move`, Move's single routing group (item 13: paths, vias and
+        // LePieceKind mask) - Resize's rects/polygons/paths, or,
+        // `for_move`, Move's single routing group (paths, vias and
         // via arrays share the PATH setting, which Resize's paths use too,
         // so one pending state per kind serves both tools).
         void draw_shape_snap_toolbar(GuiProvider &provider, int32_t kinds, bool for_move)
@@ -271,7 +271,7 @@ namespace le::gui
     void draw_secondary_toolbar(GuiProvider &provider)
     {
         // Resize, while armed, owns the row; otherwise placements' options;
-        // otherwise, while Move is armed, its routing snapping (item 13).
+        // otherwise, while Move is armed, its routing snapping.
         const GuiProvider::State &state = provider.state();
         if (state.is_resize_armed && state.resize.selected_piece_kinds != 0)
             draw_shape_snap_toolbar(provider, state.resize.selected_piece_kinds, /*for_move=*/false);

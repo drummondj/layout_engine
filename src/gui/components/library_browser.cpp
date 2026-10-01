@@ -73,9 +73,8 @@ namespace le::gui
         }
 
         // One Design row - a tree node (if it has at least one real leaf
-        // to show) or a plain leaf itself otherwise, matching
-        // library_browser.dart's own designNode.children shape (0, 1, or
-        // both of "Abstract"/"Layout" - one leaf per view the Design
+        // to show) or a plain leaf itself otherwise - 0, 1, or
+        // both of "Abstract"/"Layout" (one leaf per view the Design
         // actually has, see LeDesignInfo's own abstract_id/layout_id doc
         // comments for when either can be invalid). Clicking the design
         // row itself only expands/collapses its own view list - opening
@@ -117,7 +116,7 @@ namespace le::gui
     {
         static char filter_buf[256] = "";
         ImGui::SetNextItemWidth(-1.0f);
-        // Libraries start collapsed (NEW_FEATURES_SEPT_2026.md item 10).
+        // Libraries start collapsed.
         // Editing the filter opens every library still shown (so its
         // matches are visible) or, once cleared, collapses them again -
         // only on the frame the text changes, so a library can still be
@@ -142,8 +141,7 @@ namespace le::gui
             const bool library_name_matches = contains_ignore_case(library.name, filter_buf);
 
             // A library is shown if its own name matches, or at least
-            // one of its designs does - matching library_browser.dart's
-            // own getChildren() filtering (an ancestor stays reachable
+            // one of its designs does (an ancestor stays reachable
             // whenever any descendant still matches, even if the
             // ancestor's own title doesn't).
             bool library_visible = library_name_matches;

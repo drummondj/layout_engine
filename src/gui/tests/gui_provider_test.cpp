@@ -27,12 +27,10 @@ namespace
     };
 }
 
-// Regression test (BUGS_AND_ENHANCEMENTS.md E12, NEW_FEATURES_SEPT_2026.md
-// item 7): the Layers panel lists technology layers only. Pseudo-rows with
+// The Layers panel lists technology layers only. Pseudo-rows with
 // no physical Layer (ROW, BOUNDARY, PLACEMENT,
 // GCELLGRID, PLACEMENT_BLOCKAGE, REGION, DEBUG, FLIGHTLINE, ...) have only a
-// purpose, and are listed once, under purposes. The filter lived in the old
-// Flutter frontend and was lost when GuiProvider::refresh took over the loop.
+// purpose, and are listed once, under purposes.
 TEST_F(GuiProviderFixture, LayersListsOnlyTechnologyLayersAndPseudoRowsOnlyAsPurposes)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
@@ -59,7 +57,7 @@ TEST_F(GuiProviderFixture, LayersListsOnlyTechnologyLayersAndPseudoRowsOnlyAsPur
     EXPECT_EQ(provider.state().layer_manager.layers.size(), 1u);
 }
 
-// NEW_FEATURES_SEPT_2026.md item 8: only purposes something can actually
+// Only purposes something can actually
 // be selected on get a selectable checkbox in the Layers panel.
 TEST_F(GuiProviderFixture, OnlyPurposesWithSelectableObjectsOfferASelectableToggle)
 {
@@ -101,7 +99,7 @@ TEST_F(GuiProviderFixture, EveryTechnologyLayerIsListedInDeclarationOrder)
 // handle's write lock while a render holds its shared lock - it froze the
 // window for the whole render, so the progress spinner never showed. A
 // database change first (here, creating a library) makes the layer list
-// stale, the case that used to need the write lock.
+// stale, the case that could need the write lock.
 TEST_F(GuiProviderFixture, RefreshDoesNotBlockWhileARenderHoldsTheHandle)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);

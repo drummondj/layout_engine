@@ -56,11 +56,9 @@ namespace le::gui
             return value ? "1" : "0";
         }
 
-        // Layer/purpose visibility+selectability and hierarchy depth are
-        // exactly the actions the Flutter frontend's own LeProvider
-        // routes through a Tcl command instead of a direct FFI call -
-        // see GuiProvider::run_tcl_command's own doc comment
-        // (gui_provider.hpp).
+        // Layer/purpose visibility+selectability changes go through a Tcl
+        // command rather than a direct C API call - see
+        // GuiProvider::run_tcl_command's own doc comment (gui_provider.hpp).
 
         // A checkbox bound to a value this GUI doesn't own the truth
         // for - `backend_value` is only current as of the *last* frame's
@@ -106,8 +104,8 @@ namespace le::gui
             ImGui::PopID();
         }
 
-        // The swatch's color picker popup (NEW_FEATURES_SEPT_2026.md item
-        // 17), opened by a click on it - call right after the swatch, in
+        // The swatch's color picker popup, opened by a click on it - call
+        // right after the swatch, in
         // its row's ID scope. The picked color is applied when a drag or
         // the hex field is finished (applying every frame of a drag would
         // queue a Tcl command per frame); "Default" drops it again.
@@ -146,8 +144,7 @@ namespace le::gui
         // first column (plain text for a purpose/aggregate row, a color
         // swatch + text for a layer row). `id` must be unique per row.
         // `has_selectable` false leaves the S cell empty - a purpose
-        // nothing on which can ever be selected (NEW_FEATURES_SEPT_2026.md
-        // item 8).
+        // nothing on which can ever be selected.
         template <typename DrawName, typename OnVisible, typename OnSelectable>
         void draw_toggle_row(
             const char *id, DrawName &&draw_name, bool visible, bool selectable, OnVisible &&on_visible,
@@ -167,8 +164,7 @@ namespace le::gui
             ImGui::PopID();
         }
 
-        // A blank spacer row - stands in for layer_manager.dart's own
-        // Divider() between the "All"/Purposes/Layers sections. A real
+        // A blank spacer row between the "All"/Purposes/Layers sections. A real
         // separator line drawn *inside* one continuous table (needed so
         // every row's checkboxes still line up in the same two columns)
         // would need its own manual draw-list line rather than a plain
@@ -194,7 +190,7 @@ namespace le::gui
         // (has_physical_layer, gui_provider_test.cpp) - each already has
         // its own single-purpose entry below, showing it again as if it
         // were a whole extra layer would be a redundant, confusing
-        // duplicate (BUGS_AND_ENHANCEMENTS.md E12).
+        // duplicate.
         const std::vector<GuiProvider::LayerRow> &layers = state.layer_manager.layers;
         bool all_layers_visible = true;
         bool all_layers_selectable = true;
@@ -227,10 +223,8 @@ namespace le::gui
 
         // Every row/aggregate below is queued as *one* semicolon-joined
         // Tcl command when it covers more than one row (via
-        // provider.run_tcl_command) - le_provider.dart's own
-        // setAllLayersVisible/etc. batch the exact same way (one
-        // command-history entry per user action, not one per row/dozens
-        // for a big design's own "All" click - see their own comment).
+        // provider.run_tcl_command) - one command-history entry per user
+        // action, not one per row (dozens for a big design's "All" click).
         draw_toggle_row(
             "all", []
             { ImGui::TextUnformatted("All"); }, all_layers_visible && all_purposes_visible,
@@ -356,8 +350,8 @@ namespace le::gui
                     const ImVec4 color(
                         static_cast<float>(layer.row.color_r) / 255.0f, static_cast<float>(layer.row.color_g) / 255.0f,
                         static_cast<float>(layer.row.color_b) / 255.0f, 1.0f);
-                    // NEW_FEATURES_SEPT_2026.md item 17 - clicking the
-                    // swatch opens a color picker; the choice is saved
+                    // Clicking the swatch opens a color picker; the choice
+                    // is saved
                     // with the settings file.
                     if (ImGui::ColorButton(
                             "##swatch", color,

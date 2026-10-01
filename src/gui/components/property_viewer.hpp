@@ -4,7 +4,7 @@ namespace le::gui
 {
     class GuiProvider;
 
-    // ImGui port of frontend/lib/components/property_viewer.dart - shows
+    // The Property Viewer - shows
     // every property of whichever database object is currently selected
     // on the canvas, with a pager for a multi-object selection, an
     // ancestor-chain hierarchy tree (Library -> ... -> the selected

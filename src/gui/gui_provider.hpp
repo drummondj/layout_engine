@@ -11,16 +11,9 @@ namespace le::gui
     // The single point of contact between this whole module (le_gui.cpp's
     // own per-frame loop and every src/gui/components/*.cpp file) and the
     // C API (api.hpp)/LeHandle - no other file in src/gui/ may call a
-    // le_* function or touch a LeHandle directly once a component has
-    // been migrated to take a GuiProvider& instead (see each component's
-    // own git history for the "before" shape). Mirrors the pre-existing
-    // Flutter frontend's own LeProvider (frontend/lib/providers/le_provider.dart,
-    // recoverable via `git show afbafa1:frontend/lib/providers/le_provider.dart`
-    // - afbafa1 is the last commit before that frontend's removal in
-    // 9f1fd76), adapted for Dear ImGui's immediate-mode redraw-every-frame
-    // model rather than Flutter's retained-mode notifyListeners() one -
-    // see State's own doc comment for exactly what that adaptation means
-    // and why only *some* of what LeProvider cached belongs in State here.
+    // le_* function or touch a LeHandle directly. Fits Dear ImGui's
+    // immediate-mode redraw-every-frame model - see State's own doc
+    // comment for what is cached per frame and what isn't.
     //
     // Wraps a single non-owning LeHandle* - never copyable or movable
     // (constructed once per open_and_run_window() call, in le_gui.cpp,
@@ -39,11 +32,8 @@ namespace le::gui
         GuiProvider(GuiProvider &&) = delete;
         GuiProvider &operator=(GuiProvider &&) = delete;
 
-        // One row of State::LayerManager::layers/purposes - the same
-        // shape layer_manager.cpp's own local LayerEntry/PurposeEntry
-        // structs held before this class existed, just relocated here so
-        // refresh() can build them once per frame instead of that
-        // component rebuilding them itself every frame.
+        // One row of State::LayerManager::layers/purposes - built once
+        // per frame by refresh(), read by layer_manager.cpp.
         struct LayerRow
         {
             LeLayerRow row;
@@ -77,7 +67,7 @@ namespace le::gui
             bool is_move_armed = false;
             bool is_resize_armed = false;
             // Selected shape pieces - the Edit-mode Delete button's targets
-            // (NEW_FEATURES_SEPT_2026.md item 29). Refreshed in Edit mode only.
+            // Refreshed in Edit mode only.
             int32_t selected_shape_piece_count = 0;
 
             struct StatusBar
@@ -93,8 +83,8 @@ namespace le::gui
                 std::vector<PurposeRow> purposes;
             } layer_manager;
 
-            // settings_panel.cpp (NEW_FEATURES_SEPT_2026.md item 9). Grid
-            // spacing is in um, -1 while unknown (no Technology yet).
+            // settings_panel.cpp. Grid spacing is in um, -1 while unknown
+            // (no Technology yet).
             struct Settings
             {
                 double minor_grid_um = -1.0;
@@ -105,11 +95,10 @@ namespace le::gui
                 double label_max_size_px = 0.0;
                 int32_t hierarchy_depth = 0;
                 int32_t flightline_max_fanout = 0;
-                int32_t max_concurrency = 0; // NEW_FEATURES_SEPT_2026.md item 21 - "CPUs"
+                int32_t max_concurrency = 0; // "CPUs"
             } settings;
 
-            // secondary_toolbar.cpp's placement toolbar
-            // (NEW_FEATURES_SEPT_2026.md item 2) - shown in Edit mode
+            // secondary_toolbar.cpp's placement toolbar - shown in Edit mode
             // while selected_count > 0; the rest is only refreshed then.
             // snap_available is LePlacementSnapMode-indexed,
             // orientation_ops_enabled a (1 << LeOrientationOp) bitmask.
@@ -122,9 +111,9 @@ namespace le::gui
                 bool is_move_anchored = false;
             } placement_move;
 
-            // secondary_toolbar.cpp's resize toolbar (NEW_FEATURES_SEPT_2026.md
-            // item 3) - shown while Resize is armed - and Move's path/via
-            // snap toolbar (item 13), shown while Move is armed with paths
+            // secondary_toolbar.cpp's resize toolbar - shown while Resize
+            // is armed - and Move's path/via snap toolbar, shown while
+            // Move is armed with paths
             // or vias selected; the snap settings are only refreshed then.
             // Arrays are LePieceKind-indexed, RECT..VIA (then
             // LeShapeSnapMode-indexed).
@@ -155,10 +144,8 @@ namespace le::gui
         LeObjectRef selected_object_ref(int32_t selection_index) const;
         int32_t object_property_count(LeObjectRef ref) const;
         LeProperty object_property_at(LeObjectRef ref, int32_t index) const;
-        // Every child of `ref`, one call covering whatever LeObjectKind
-        // switch used to live in property_viewer.cpp's own object_children
-        // free function - moved here verbatim, including its one
-        // remaining exception (LE_OBJECT_KIND_DESIGN, still on the older
+        // Every child of `ref`, one call covering every LeObjectKind,
+        // with one exception (LE_OBJECT_KIND_DESIGN, still on the older
         // le_get_abstracts/le_search_result_abstract_at search surface
         // pending a generated is_child accessor, gated on state().is_rendering
         // directly rather than would_block_property_lookup() since it
@@ -187,8 +174,7 @@ namespace le::gui
 
         // Opens design_id's Abstract/Layout view - each a direct,
         // low-latency call (not routed through Tcl, unlike most actions
-        // below), matching the Flutter frontend's own LeProvider.openDesign/
-        // openDesignLayout. Each bundles a set-current-design call with an
+        // below). Each bundles a set-current-design call with an
         // immediate le_fit_scene(10) so the newly opened view starts
         // framed on its own content.
         void open_design_abstract(LeDesignId design_id);
@@ -210,7 +196,7 @@ namespace le::gui
         void clear_rulers();
         void set_hierarchy_depth(int32_t depth);
         void set_flightline_max_fanout(int32_t max_fanout);
-        // Settings panel (item 9) - a spacing <= 0 is left unchanged; a
+        // Settings panel - a spacing <= 0 is left unchanged; a
         // null/empty path means the default settings file.
         void set_grid_spacing_um(double minor_um, double major_um);
         void set_ruler_label_size(double px);
@@ -218,13 +204,13 @@ namespace le::gui
         void set_label_min_size(double px);
         void set_label_max_size(double px);
         void save_settings(const std::string &path);
-        // NEW_FEATURES_SEPT_2026.md item 18 - the close dialog. Direct calls,
+        // The close dialog. Direct calls,
         // not queued Tcl commands: the dialog needs the answer this frame,
         // and a batch-mode le_shell never drains that queue.
         bool has_unsaved_design() const;
         bool has_unsaved_settings() const;
         bool save_settings_now();
-        // NEW_FEATURES_SEPT_2026.md item 25 - the Settings panel's "Reset
+        // The Settings panel's "Reset
         // window layout" asks le_gui.cpp (a GUI-only concern, no backend
         // state) to rebuild the default dock layout next frame.
         void request_window_layout_reset() { window_layout_reset_requested_ = true; }
@@ -232,7 +218,7 @@ namespace le::gui
         void load_settings(const std::string &path);
         void set_layer_visible(const std::string &layer_name, bool value);
         void set_layer_selectable(const std::string &layer_name, bool value);
-        // NEW_FEATURES_SEPT_2026.md item 17 - the Layers panel's color picker.
+        // The Layers panel's color picker.
         void set_layer_color(const std::string &layer_name, uint8_t r, uint8_t g, uint8_t b);
         void reset_layer_color(const std::string &layer_name);
         void set_purpose_visible(const std::string &purpose_name, bool value);
@@ -244,20 +230,15 @@ namespace le::gui
         // internally. Also exposed publicly as a deliberate, narrow
         // escape hatch for layer_manager.cpp's own "All ..." aggregate-
         // row toggles, which build one semicolon-joined multi-statement
-        // script covering every row client-side (unchanged) so a bulk
-        // toggle still lands as one command-history entry, not one per
-        // row - mirrors the Flutter frontend's own LeProvider.setAllLayersVisible/
-        // etc., the only LeProvider action methods that called
-        // runTclCommand directly instead of a narrower wrapper.
+        // script covering every row client-side so a bulk toggle still
+        // lands as one command-history entry, not one per row.
         void run_tcl_command(const std::string &script);
 
         // --- App-shell / input forwarding - one-shot commands, not
         // state, called every frame from le_gui.cpp's own main loop
         // (mouse/keyboard forwarding, viewport resize) - included here
-        // (not left as direct le_* calls) to match the Flutter frontend's
-        // own LeProvider.handlePointerEvent/handleKeyEvent/resize, which
-        // wrapped the exact same calls on the Provider itself, not just
-        // widget-level state. le_wait_for_render_needed/le_render_pixel_buffer/
+        // rather than left as direct le_* calls, so this class stays the
+        // single point of contact. le_wait_for_render_needed/le_render_pixel_buffer/
         // le_cancel_render_wait (le_gui.cpp's own background render
         // thread) and le_take_show_gui_request (run_main_thread_loop's
         // idle poll, before a GuiProvider even exists) are deliberately
@@ -269,7 +250,7 @@ namespace le::gui
         void clear_mouse_position();
         void mouse_down(int32_t x, int32_t y);
         void mouse_up(int32_t x, int32_t y);
-        void cancel_drag(); // NEW_FEATURES_SEPT_2026.md item 22
+        void cancel_drag(); // Escape during a drag
         void zoom(double factor, int32_t x, int32_t y);
         void zoom_drag_down(int32_t x, int32_t y);
         void key_down(int32_t key_code);

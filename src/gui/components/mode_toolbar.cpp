@@ -18,9 +18,7 @@ namespace le::gui
         constexpr float kIconButtonSize = 48.0f;
 
         // `icon` is one of the ICON_LC_* constants (IconsLucide.h) -
-        // see mode_selector.cpp's own comment on why Lucide, and that
-        // there's no exact 1:1 match for every one of mode_toolbar.dart's
-        // own HugeIcons. No resting background (matching mode_selector.cpp's
+        // the same icon font as mode_selector.cpp. No resting background (matching mode_selector.cpp's
         // own unselected-button treatment) - every button here is a
         // momentary action, never a "currently selected" one, so
         // ButtonHovered/ButtonActive alone (still themed) give it a
@@ -108,8 +106,7 @@ namespace le::gui
         {
             static ToolButtonState move_state;
             // le_arm_move refuses placements selected alongside anything
-            // else - they snap differently (OVERNIGHT_REVIEW.md item 13
-            // follow-up).
+            // else - they snap differently.
             const int32_t placement_count = provider.state().placement_move.selected_count;
             const bool mixed_selection = placement_count > 0 && provider.state().status_bar.selection_count > placement_count;
             draw_tool_button(ICON_LC_MOVE, "move", "Move (ctrl-m)", provider.state().is_move_armed, move_state,
@@ -117,19 +114,19 @@ namespace le::gui
                              { provider.arm_move(); },
                              mixed_selection ? "Move - not available with placements and other objects selected together" : nullptr);
             ImGui::SameLine();
-            // NEW_FEATURES_SEPT_2026.md item 3 - drag a selected shape's
-            // edges/segments; its snap options appear in the secondary
+            // Resize: drag a selected shape's edges/segments; its snap
+            // options appear in the secondary
             // toolbar while armed.
             static ToolButtonState resize_state;
             draw_tool_button(ICON_LC_SCALING, "resize", "Resize (ctrl-r) - click an edge of a selected shape, then click again to place it", provider.state().is_resize_armed, resize_state,
                              [&]
                              { provider.arm_resize(); },
-                             // NEW_FEATURES_SEPT_2026.md item 14 - le_arm_resize
-                             // refuses a selection with a placement in it.
+                             // le_arm_resize refuses a selection with a
+                             // placement in it.
                              provider.state().placement_move.selected_count > 0 ? "Resize - not available while a placement is selected" : nullptr);
 
-            // NEW_FEATURES_SEPT_2026.md item 29 - deletes the selected shape
-            // pieces (and any shape left empty), never their owners.
+            // Delete: removes the selected shape pieces (and any shape left
+            // empty), never their owners.
             ImGui::SameLine();
             {
                 const bool nothing_to_delete = provider.state().selected_shape_piece_count == 0;
@@ -145,9 +142,7 @@ namespace le::gui
                     provider.delete_selected_pieces();
             }
 
-            // mode_toolbar.dart's own Rotate/Align buttons are still no-ops
-            // there too (`onPressed: () => {}`) - left unported here rather
-            // than wiring up dead buttons; add them once the feature exists.
+            // No Rotate/Align buttons until those features exist.
             ImGui::SameLine();
             if (draw_button(ICON_LC_UNDO_2, "Undo", "ctrl-z"))
                 provider.undo();
