@@ -2625,7 +2625,7 @@ schema = Schema(
                 Field(name="PLACEMENT", description="A placement blockage (DEF BLOCKAGES PLACEMENT)", type="int", value=1),
             ],
         ),
-        # Mirrors src/view_style's own ViewLayerPurpose (the rendering-layer
+        # Mirrors src/pipelines/view_style.hpp's ViewLayerPurpose (the rendering-layer
         # concept), but persisted here on Shape.purpose itself rather than
         # derived at render time. Exactly one of Shape.layer/Shape.purpose
         # is ever set on a given Shape - documented convention, not

@@ -3,7 +3,7 @@
 #include "../../core/placement_geometry.hpp"
 #include "../../database/database.hpp"
 #include "../../geometry/geometry.hpp"
-#include "../../view_style/view_style.hpp"
+#include "../view_style.hpp"
 #include "../blend2d_font.hpp"
 #include "../draw_helpers.hpp"
 #include "../pipeline_options.hpp"

@@ -4,7 +4,7 @@
 #include "../../core/row_geometry.hpp"
 #include "../../database/database.hpp"
 #include "../../geometry/geometry.hpp"
-#include "../../view_style/view_style.hpp"
+#include "../view_style.hpp"
 #include "../draw_helpers.hpp"
 #include "../pipeline_options.hpp"
 #include "../render_shape.hpp"
