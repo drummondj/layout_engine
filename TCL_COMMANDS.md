@@ -26,7 +26,7 @@ Removes every ruler, finished or not.
 
 `close_gui [-help]`
 
-Closes the window show_gui opened, without asking - nothing is lost, and show_gui reopens it. The window's own close button instead asks whether to close the window or exit.
+Closes the window show_gui opened, without asking - nothing is lost, and show_gui reopens it. The window's own close button instead asks whether to close the window or exit. Interactive le_shell only - an error in a batch script.
 
 ## command_history
 
@@ -2779,7 +2779,7 @@ Creates one new rect-only Shape per input shape, fracturing its merged area into
 
 `show_gui [-help]`
 
-Opens a window showing the session's current view. It shares the session - the mouse and keyboard there act on the same design as the console. Returns at once.
+Opens a window showing the session's current view. It shares the session - the mouse and keyboard there act on the same design as the console. Returns at once. Interactive le_shell only - an error in a batch script.
 
 ## source
 

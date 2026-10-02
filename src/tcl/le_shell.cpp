@@ -14,8 +14,9 @@
 // log, and truncated for display - with GNU readline for line editing,
 // history and Tab completion (see CMakeLists.txt for why not libedit).
 //
-// `show_gui` (le_tcl_procs.tcl) opens a Dear ImGui window
-// (src/gui/le_gui.hpp) sharing this process's session state. A blocking
+// In interactive mode, `show_gui` (le_tcl_procs.tcl) opens a Dear ImGui
+// window (src/gui/le_gui.hpp) sharing this process's session state. A
+// batch script can't open one and runs on the main thread. A blocking
 // stdin-reading loop and a native GUI's event loop can't share one
 // thread, and GLFW requires window/context creation on the true main
 // thread on macOS, so the main thread runs le::gui::run_main_thread_loop()
@@ -67,16 +68,23 @@ namespace
     // letting readline restore the terminal.
     std::atomic<bool> g_gui_exit_requested{false};
 
-    // Ends the process from this Tcl thread: the main thread closes any
-    // `show_gui` window and calls std::exit, so static destructors never
-    // run under a live window. This thread parks until then. Tcl's own
-    // finalization is skipped, so its buffered std channels are flushed
-    // here.
+    // Interactive mode only: the main thread runs the GUI loop and Tcl
+    // runs on a spawned thread. A batch script runs on the main thread
+    // and can't open a window.
+    bool g_gui_loop_running = false;
+
+    // Ends the process. With the GUI loop running, the main thread closes
+    // any `show_gui` window and calls std::exit, so static destructors
+    // never run under a live window; this thread parks until then. Tcl's
+    // own finalization is skipped, so its buffered std channels are
+    // flushed here.
     [[noreturn]] void exit_process(int status)
     {
         for (const int type : {TCL_STDOUT, TCL_STDERR})
             if (Tcl_Channel channel = Tcl_GetStdChannel(type))
                 Tcl_Flush(channel);
+        if (!g_gui_loop_running)
+            std::exit(status);
         le::gui::request_exit(status);
         for (;;)
             std::this_thread::sleep_for(std::chrono::hours(1));
@@ -522,6 +530,8 @@ namespace
             }
             Tcl_SetVar2Ex(interp, "argv", nullptr, script_args, TCL_GLOBAL_ONLY);
             Tcl_SetVar(interp, "argc", std::to_string(args.size() - 2).c_str(), TCL_GLOBAL_ONLY);
+            // show_gui/close_gui refuse to run (le_tcl_procs.tcl).
+            Tcl_SetVar(interp, "le_shell_batch", "1", TCL_GLOBAL_ONLY);
 
             if (Tcl_EvalFile(interp, args[1]) != TCL_OK)
             {
@@ -604,26 +614,30 @@ int main(int argc, char **argv)
             le_load_settings(g_injected_handle, settings_path);
     }
 
-    // run_shell() never returns: once the script (batch mode) or the
-    // interactive loop (EOF/`exit`) ends, it asks this main thread to end
-    // the process (exit_process) and parks. It runs on its own thread
-    // because le::gui::run_main_thread_loop() below needs this one (see
-    // this file's header comment). `remaining` is captured by value; its
+    // A batch script runs right here and never opens a window.
+    // run_shell() never returns.
+    if (remaining.size() > 1)
+        run_shell(remaining);
+
+    // Interactively, run_shell() runs on its own thread because
+    // le::gui::run_main_thread_loop() below needs this one (see this
+    // file's header comment). It never returns: when the interactive
+    // loop (EOF/`exit`) ends, it asks this main thread to end the process
+    // (exit_process) and parks. `remaining` is captured by value; its
     // pointers are into argv, which outlives the process.
     //
     // Detached, not joined: joining stops show_gui from opening a window
     // at all (for reasons not understood - std::thread's join/detach state
     // shouldn't affect GLFW, but it does).
+    g_gui_loop_running = true;
     std::thread tcl_thread([remaining]() mutable
                             { run_shell(remaining); });
     tcl_thread.detach();
 
-    // Interactively, the close dialog's
-    // "Exit" hands off to the Tcl thread (so readline restores the
-    // terminal); a batch script keeps le_gui's default immediate exit.
-    if (remaining.size() == 1)
-        le::gui::set_exit_handler([]
-                                  { g_gui_exit_requested.store(true, std::memory_order_relaxed); });
+    // The close dialog's "Exit" hands off to the Tcl thread, so readline
+    // restores the terminal.
+    le::gui::set_exit_handler([]
+                              { g_gui_exit_requested.store(true, std::memory_order_relaxed); });
     le::gui::run_main_thread_loop(g_injected_handle);
     return 0;
 }

@@ -45,9 +45,8 @@ namespace le::gui
     /// the tool) - called on the GUI
     /// thread once the window is torn down. The default flushes stdio and
     /// ends the process at once (std::_Exit - no static destructors racing
-    /// the Tcl thread), right for a batch script; le_shell's interactive
-    /// mode instead asks its Tcl thread to exit, so readline can restore
-    /// the terminal first. Set before run_main_thread_loop.
+    /// the Tcl thread); le_shell instead asks its Tcl thread to exit, so
+    /// readline can restore the terminal first. Set before run_main_thread_loop.
     using ExitHandler = void (*)();
     void set_exit_handler(ExitHandler handler);
 }
