@@ -3768,6 +3768,16 @@ TEST_F(ApiFixture, RenderWaitIsHeldUntilTheCommandEnds)
     waiter.join();
 }
 
+TEST_F(ApiFixture, IsCommandRunningIsTrueBetweenBeginAndEndCommand)
+{
+    EXPECT_EQ(le_is_command_running(handle), 0);
+    le_begin_command(handle, "running");
+    EXPECT_EQ(le_is_command_running(handle), 1);
+    le_end_command(handle, 1);
+    EXPECT_EQ(le_is_command_running(handle), 0);
+    EXPECT_EQ(le_is_command_running(nullptr), 0);
+}
+
 // Window teardown cancels the wait to stop its render thread; that must
 // work mid-command too, since a typed `exit` never reaches le_end_command.
 TEST_F(ApiFixture, CancelRenderWaitWakesTheWaiterWhileACommandHoldsRenders)

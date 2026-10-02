@@ -184,8 +184,9 @@ struct LeHandle
     bool render_needed_ = false;
     // Set between le_begin_command and le_end_command: a Tcl command
     // (e.g. a loop of deletes) renders once when it ends, not after each
-    // mutation it makes. Under render_needed_mutex_.
-    bool renders_held_ = false;
+    // mutation it makes. Written under render_needed_mutex_; read
+    // lock-free by renders_held().
+    std::atomic<bool> renders_held_{false};
     // Set by cancel_render_wait; wakes a waiter even while renders are
     // held, so window teardown never waits on a command that won't end
     // (a typed `exit` never reaches le_end_command). Under
@@ -260,6 +261,8 @@ struct LeHandle
         }
         render_needed_cv_.notify_one();
     }
+
+    bool renders_held() const { return renders_held_.load(std::memory_order_relaxed); }
 
     // Process-wide cap on how many threads
     // oneTBB's default arena may use for this handle's pipeline flow

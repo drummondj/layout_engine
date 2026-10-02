@@ -139,3 +139,20 @@ TEST_F(GuiProviderFixture, RefreshDoesNotBlockWhileARenderHoldsTheHandle)
     refreshed.wait();
     EXPECT_EQ(provider.state().layer_manager.layers.size(), 1u);
 }
+
+// The design view shows "running..." and stops forwarding input while a
+// Tcl command runs - refresh() is where it learns that.
+TEST_F(GuiProviderFixture, RefreshReportsARunningCommand)
+{
+    le::gui::GuiProvider provider(handle);
+    provider.refresh();
+    EXPECT_FALSE(provider.state().is_command_running);
+
+    le_begin_command(handle, "running");
+    provider.refresh();
+    EXPECT_TRUE(provider.state().is_command_running);
+
+    le_end_command(handle, 1);
+    provider.refresh();
+    EXPECT_FALSE(provider.state().is_command_running);
+}

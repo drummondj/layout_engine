@@ -6184,6 +6184,13 @@ extern "C"
         return handle->is_rendering_.load(std::memory_order_relaxed) ? 1 : 0;
     }
 
+    int32_t le_is_command_running(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        return handle->renders_held() ? 1 : 0;
+    }
+
     void le_wait_for_render_needed(LeHandle *handle)
     {
         if (!handle)

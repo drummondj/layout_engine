@@ -1774,6 +1774,12 @@ extern "C"
     /// rendering) if handle is null.
     int32_t le_is_rendering(LeHandle *handle);
 
+    /// @brief 1 between le_begin_command() and le_end_command(): a Tcl
+    /// command is running and the view won't re-render until it ends.
+    /// Lock-free like le_is_rendering(), so the GUI can poll it every
+    /// frame. Returns 0 if handle is null.
+    int32_t le_is_command_running(LeHandle *handle);
+
     /// @brief Blocks the calling thread until a mutation has been made to
     /// this handle (any call that takes HandleWriteLock, le_handle.hpp -
     /// every le_create_X/le_update_X/le_delete_X/le_set_*/le_mouse_*/
