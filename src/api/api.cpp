@@ -3783,6 +3783,7 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         handle->command_history.begin(label);
+        handle->hold_renders();
     }
 
     void le_end_command(LeHandle *handle, int32_t succeeded)
@@ -3791,6 +3792,7 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         handle->command_history.end(succeeded != 0);
+        handle->release_renders();
     }
 
     int32_t le_undo(LeHandle *handle)
@@ -6193,7 +6195,7 @@ extern "C"
     {
         if (!handle)
             return;
-        handle->notify_render_needed();
+        handle->cancel_render_wait();
     }
 
     void le_request_show_gui(LeHandle *handle)
