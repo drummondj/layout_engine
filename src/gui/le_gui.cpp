@@ -697,6 +697,15 @@ namespace le::gui
             EXIT,         // exit le_shell
         };
 
+        // request_exit's status; written before g_exit_requested is set.
+        std::atomic<int> g_exit_status{0};
+        std::atomic<bool> g_exit_requested{false};
+
+        bool exit_requested()
+        {
+            return g_exit_requested.load(std::memory_order_acquire);
+        }
+
         ExitHandler &exit_handler()
         {
             static ExitHandler handler = []
@@ -1048,7 +1057,7 @@ namespace le::gui
             le_take_close_gui_request(handle);
             for (;;)
             {
-                if (le_take_close_gui_request(handle))
+                if (le_take_close_gui_request(handle) || exit_requested())
                     close_choice = CloseChoice::CLOSE_WINDOW;
                 if (close_choice != CloseChoice::NONE)
                     break;
@@ -1673,34 +1682,38 @@ namespace le::gui
         exit_handler() = handler;
     }
 
-    // Never returns, deliberately, in every case - le_shell.cpp's own
-    // main() relies on that (see its own comment on tcl_thread, detached
-    // not joined: the whole process exits from inside that thread's own
-    // std::exit() call, and main() falling through to `return 0` while
-    // it's still mid-flight would race/segfault). If glfwInit() fails
+    void request_exit(int status)
+    {
+        g_exit_status.store(status, std::memory_order_relaxed);
+        g_exit_requested.store(true, std::memory_order_release);
+    }
+
+    // Never returns: le_shell.cpp's main() would otherwise fall through to
+    // `return 0` while its Tcl thread is still running. If glfwInit() fails
     // (e.g. no DISPLAY on a headless CI/Docker container with no Xvfb),
-    // this still idles forever below rather than returning, keeping that
-    // invariant: show_gui simply never opens a window on such a machine
-    // rather than the process racing its own teardown.
+    // show_gui requests are dropped and this still idles until
+    // request_exit().
     void run_main_thread_loop(LeHandle *handle)
     {
-        if (!glfwInit())
-        {
+        const bool have_glfw = glfwInit();
+        if (!have_glfw)
             std::fprintf(stderr, "gui: glfwInit failed - show_gui will never be able to open a window\n");
-            for (;;)
-            {
-                std::this_thread::sleep_for(kIdlePollInterval);
-            }
-        }
 
         for (;;)
         {
-            while (!le_take_show_gui_request(handle))
+            if (exit_requested())
             {
-                std::this_thread::sleep_for(kIdlePollInterval);
+                if (have_glfw)
+                    glfwTerminate();
+                std::exit(g_exit_status.load(std::memory_order_relaxed));
             }
-            if (open_and_run_window(handle))
-                exit_handler()();
+            if (le_take_show_gui_request(handle))
+            {
+                if (have_glfw && open_and_run_window(handle))
+                    exit_handler()();
+                continue;
+            }
+            std::this_thread::sleep_for(kIdlePollInterval);
         }
     }
 }

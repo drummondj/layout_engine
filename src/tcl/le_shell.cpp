@@ -38,6 +38,8 @@
 
 #include <atomic>
 #include <cerrno>
+#include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -64,6 +66,28 @@ namespace
     // this Tcl thread, then exits the way a typed `exit` would, after
     // letting readline restore the terminal.
     std::atomic<bool> g_gui_exit_requested{false};
+
+    // Ends the process from this Tcl thread: the main thread closes any
+    // `show_gui` window and calls std::exit, so static destructors never
+    // run under a live window. This thread parks until then. Tcl's own
+    // finalization is skipped, so its buffered std channels are flushed
+    // here.
+    [[noreturn]] void exit_process(int status)
+    {
+        for (const int type : {TCL_STDOUT, TCL_STDERR})
+            if (Tcl_Channel channel = Tcl_GetStdChannel(type))
+                Tcl_Flush(channel);
+        le::gui::request_exit(status);
+        for (;;)
+            std::this_thread::sleep_for(std::chrono::hours(1));
+    }
+
+    // Tcl_SetExitProc's hook: a script's or a typed `exit` lands here
+    // instead of the platform exit().
+    [[noreturn]] void tcl_exit_proc(ClientData status)
+    {
+        exit_process(static_cast<int>(reinterpret_cast<intptr_t>(status)));
+    }
 
     // Before an interactive `exit`/Ctrl-D: with nothing unsaved, true at
     // once; otherwise says what's unsaved and asks. The GUI's own exit
@@ -338,7 +362,7 @@ namespace
         {
             rl_deprep_terminal();
             std::fputc('\n', stdout);
-            std::exit(0);
+            exit_process(0);
         }
         for (;;)
         {
@@ -479,12 +503,13 @@ namespace
     void run_shell(std::vector<char *> &args)
     {
         Tcl_FindExecutable(args[0]);
+        Tcl_SetExitProc(tcl_exit_proc);
         Tcl_Interp *interp = Tcl_CreateInterp();
 
         if (app_init(interp) != TCL_OK)
         {
             std::fprintf(stderr, "le_shell: initialization failed: %s\n", Tcl_GetStringResult(interp));
-            std::exit(1);
+            exit_process(1);
         }
 
         if (args.size() > 1)
@@ -501,9 +526,9 @@ namespace
             if (Tcl_EvalFile(interp, args[1]) != TCL_OK)
             {
                 std::fprintf(stderr, "%s\n", Tcl_GetStringResult(interp));
-                std::exit(1);
+                exit_process(1);
             }
-            std::exit(0);
+            exit_process(0);
         }
 
         Tcl_SetVar(interp, "argv0", args[0], TCL_GLOBAL_ONLY);
@@ -511,7 +536,7 @@ namespace
         Tcl_SetVar(interp, "argc", "0", TCL_GLOBAL_ONLY);
 
         run_interactive(interp);
-        std::exit(0);
+        exit_process(0);
     }
 }
 
@@ -579,23 +604,16 @@ int main(int argc, char **argv)
             le_load_settings(g_injected_handle, settings_path);
     }
 
-    // run_shell() "never returns" (calls std::exit() itself once the
-    // script (batch mode) or the interactive loop (EOF/`exit`) ends) -
-    // runs on its own thread here instead of this process's main one,
-    // which le::gui::run_main_thread_loop() below needs for itself (see
-    // this file's own header comment). Detached, not joined: the whole
-    // process exits from inside this thread's own call, so there's no
-    // normal path where joining it would ever return either - `remaining`
-    // is captured by value (a cheap copy of a vector of pointers into
-    // argv's own persistent strings) so this thread's own copy stays
-    // valid regardless of main()'s local variables, even though main()
-    // also never returns before process exit here.
+    // run_shell() never returns: once the script (batch mode) or the
+    // interactive loop (EOF/`exit`) ends, it asks this main thread to end
+    // the process (exit_process) and parks. It runs on its own thread
+    // because le::gui::run_main_thread_loop() below needs this one (see
+    // this file's header comment). `remaining` is captured by value; its
+    // pointers are into argv, which outlives the process.
     //
     // Detached, not joined: joining stops show_gui from opening a window
     // at all (for reasons not understood - std::thread's join/detach state
-    // shouldn't affect GLFW, but it does). The glfwInit()-failure race is
-    // handled on the other side instead: run_main_thread_loop never
-    // returns, even on glfwInit failure.
+    // shouldn't affect GLFW, but it does).
     std::thread tcl_thread([remaining]() mutable
                             { run_shell(remaining); });
     tcl_thread.detach();

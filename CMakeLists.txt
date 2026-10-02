@@ -938,6 +938,20 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/testcell.lef
     )
 
+    # Exiting while `show_gui`'s window is opening or open must close it
+    # and end the process with the script's status - not hang or crash.
+    add_test(
+        NAME le_tcl_shell_gui_exit
+        COMMAND ${CMAKE_COMMAND}
+            -DLE_SHELL=$<TARGET_FILE:le_shell>
+            -DLE_TCL_MODULE=$<TARGET_FILE:le_tcl>
+            -DLE_TCL_PROCS=${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
+            -DSCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/shell_gui_exit_test.tcl
+            -DITERATIONS=20
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/shell_gui_exit_test.cmake
+    )
+    set_tests_properties(le_tcl_shell_gui_exit PROPERTIES TIMEOUT 300)
+
     # Session-handle regression check (src/tcl/tests/session_handle_test.cpp) -
     # a plain GTest binary, not a Tcl script: proves set_session_handle()
     # actually redirects le_tcl_shim.cpp's session() to an externally-
