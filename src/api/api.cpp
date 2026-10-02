@@ -1312,22 +1312,25 @@ namespace
     // over it, still scales with however many objects are in it).
     constexpr int32_t kMaxSelectAllCount = 10000;
 
-    // le_tooltip_message's text, one per LeHandle::Mode. Lines are
-    // separated by '\n'; the Info panel wraps each to its width. Edit
-    // mode lists every key le_key_down acts on in that mode.
+    // le_tooltip_message's text, one per LeHandle::Mode. Edit mode lists
+    // every key le_key_down acts on in that mode, separated by a blank
+    // line ("\n\n"); the Info panel wraps each to its width.
     constexpr const char *kSelectModeTooltip =
         "Left click to select. Shift for multi-select. Left click and drag for rectangle multi-select.";
     constexpr const char *kEditModeTooltip =
-        "Edits the current selection (S switches to Select mode to change it).\n"
-        "Ctrl-M: arm Move. Click to set the start point, move the mouse, click again to commit. Stays armed until Esc.\n"
-        "Shift (held while moving): free-form, non-orthogonal move.\n"
+        "Edits the current selection (S switches to Select mode to change it).\n\n"
+        "Ctrl-M: arm Move. Click to set the start point, move the mouse, click again to commit. Stays armed until Esc.\n\n"
+        "Shift (held while moving): free-form, non-orthogonal move.\n\n"
         "Ctrl-R: arm Resize. Click an edge or path segment of a selected shape, then click again to place it. "
-        "Stays armed until Esc.\n"
-        "Delete: delete the selected shapes.\n"
-        "Esc: cancel the move or resize in progress, or disarm it.\n"
-        "Ctrl-Z / Ctrl-Shift-Z: undo / redo.\n"
-        "Z / Shift-Z: zoom in / out at the mouse. F: fit the design. Ctrl-F: fit the selection. Arrows: pan.\n"
-        "1-9, 0: show/hide routing layers 1-10 (Ctrl-1..9 for 11-19).\n"
+        "Stays armed until Esc.\n\n"
+        "Delete: delete the selected shapes.\n\n"
+        "Esc: cancel the move or resize in progress, or disarm it.\n\n"
+        "Ctrl-Z / Ctrl-Shift-Z: undo / redo.\n\n"
+        "Z / Shift-Z: zoom in / out at the mouse.\n\n"
+        "F: fit the design.\n\n"
+        "Ctrl-F: fit the selection.\n\n"
+        "Arrows: pan.\n\n"
+        "1-9, 0: show/hide routing layers 1-10 (Ctrl-1..9 for 11-19).\n\n"
         "S / R: switch to Select / Ruler mode.";
     constexpr const char *kRulerModeTooltip =
         "Click to add a ruler point. Shift for a non-orthogonal segment. Esc to finish the ruler.";
