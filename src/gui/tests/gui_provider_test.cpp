@@ -73,6 +73,31 @@ TEST_F(GuiProviderFixture, OnlyPurposesWithSelectableObjectsOfferASelectableTogg
     EXPECT_EQ(with_toggle, (std::vector<int32_t>{0 /* TERMINAL */, 1 /* OBSTRUCTION */, 6 /* ROW */, 9 /* ROUTE */, 11 /* PLACEMENT */}));
 }
 
+// The Layers panel's indented Placement.type/Route.use rows, with each
+// value's current visibility and selectability.
+TEST_F(GuiProviderFixture, LayerManagerListsPlacementTypesAndRouteUsesWithTheirState)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0); // TESTCELL is CLASS CORE
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE, "CORE", 0);
+    le_set_object_filter_value_selectable(handle, LE_OBJECT_FILTER_ROUTE_USE, "POWER", 0);
+
+    le::gui::GuiProvider provider(handle);
+    provider.refresh();
+    const auto &types = provider.state().layer_manager.placement_types;
+    ASSERT_EQ(types.size(), 1u);
+    EXPECT_EQ(types[0].value, "CORE");
+    EXPECT_FALSE(types[0].visible);
+    EXPECT_TRUE(types[0].selectable);
+
+    const auto &uses = provider.state().layer_manager.route_uses;
+    const auto power = std::ranges::find_if(uses, [](const auto &row)
+                                            { return row.value == "POWER"; });
+    ASSERT_NE(power, uses.end());
+    EXPECT_TRUE(power->visible);
+    EXPECT_FALSE(power->selectable);
+    EXPECT_EQ(uses.front().value, "SIGNAL");
+}
+
 TEST_F(GuiProviderFixture, EveryTechnologyLayerIsListedInDeclarationOrder)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("many_routing_layers.lef").c_str(), "many"), 0);

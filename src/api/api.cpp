@@ -303,6 +303,37 @@ namespace
                handle->is_view_layer_selectable("PLACEMENT", le::ViewLayerPurpose::PLACEMENT);
     }
 
+    // Whether `object` survives the Placement.type/Route.use filters - its
+    // value is neither hidden nor unselectable. A Route's shape pieces and
+    // vias carry the Route's use; everything else passes.
+    bool passes_object_filters(const LeHandle *handle, const LeHandle::SelectedObject &object)
+    {
+        const le::ObjectFilterSets &hidden = handle->hidden_objects();
+        const le::ObjectFilterSets &unselectable = handle->unselectable_objects();
+        if (const auto *piece = std::get_if<LeHandle::ShapePiece>(&object))
+        {
+            if (hidden.route_uses.empty() && unselectable.route_uses.empty())
+                return true;
+            const le::Shape *shape = handle->root.get_shape(piece->shape_id);
+            const le::RouteData *route = shape ? handle->root.get_route(shape->route) : nullptr;
+            if (!route)
+                return true;
+            const std::string use = le::route_use(*route);
+            return !hidden.route_uses.contains(use) && !unselectable.route_uses.contains(use);
+        }
+        if (const auto *placement_id = std::get_if<le::PlacementId>(&object))
+        {
+            if (hidden.placement_types.empty() && unselectable.placement_types.empty())
+                return true;
+            const le::PlacementData *placement = handle->root.get_placement(*placement_id);
+            if (!placement)
+                return true;
+            const std::string type = le::placement_type(handle->root, placement->reference_design);
+            return !hidden.placement_types.contains(type) && !unselectable.placement_types.contains(type);
+        }
+        return true;
+    }
+
     bool rows_selectable(const LeHandle *handle)
     {
         return handle->is_view_layer_visible("ROW", le::ViewLayerPurpose::ROW) &&
@@ -1181,6 +1212,7 @@ namespace
         options.scale = handle->scale();
         options.layer_name_visible = handle->layer_name_visibility();
         options.purpose_visible = handle->purpose_visibility();
+        options.hidden_objects = handle->hidden_objects();
         options.layer_color_overrides = handle->layer_color_overrides();
 
         options.selection_version = handle->selection_version();
@@ -4108,6 +4140,63 @@ extern "C"
         handle->set_purpose_selectable(static_cast<le::ViewLayerPurpose>(purpose), selectable != 0);
     }
 
+    int32_t le_object_filter_value_count(LeHandle *handle, int32_t filter)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        if (filter == LE_OBJECT_FILTER_PLACEMENT_TYPE)
+            return static_cast<int32_t>(handle->placement_type_values().size());
+        if (filter == LE_OBJECT_FILTER_ROUTE_USE)
+            return static_cast<int32_t>(le::route_use_values().size());
+        return 0;
+    }
+
+    const char *le_object_filter_value_at(LeHandle *handle, int32_t filter, int32_t index)
+    {
+        if (!handle || index < 0)
+            return nullptr;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        const std::vector<std::string> *values = filter == LE_OBJECT_FILTER_PLACEMENT_TYPE ? &handle->placement_type_values()
+                                                 : filter == LE_OBJECT_FILTER_ROUTE_USE    ? &le::route_use_values()
+                                                                                           : nullptr;
+        if (!values || static_cast<size_t>(index) >= values->size())
+            return nullptr;
+        return (*values)[static_cast<size_t>(index)].c_str();
+    }
+
+    int32_t le_is_object_filter_value_visible(LeHandle *handle, int32_t filter, const char *value)
+    {
+        if (!handle || !value)
+            return 1;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->is_object_filter_visible(filter, value) ? 1 : 0;
+    }
+
+    void le_set_object_filter_value_visible(LeHandle *handle, int32_t filter, const char *value, int32_t visible)
+    {
+        if (!handle || !value)
+            return;
+        HandleWriteLock lock(handle);
+        handle->set_object_filter_visible(filter, value, visible != 0);
+    }
+
+    int32_t le_is_object_filter_value_selectable(LeHandle *handle, int32_t filter, const char *value)
+    {
+        if (!handle || !value)
+            return 1;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->is_object_filter_selectable(filter, value) ? 1 : 0;
+    }
+
+    void le_set_object_filter_value_selectable(LeHandle *handle, int32_t filter, const char *value, int32_t selectable)
+    {
+        if (!handle || !value)
+            return;
+        HandleWriteLock lock(handle);
+        handle->set_object_filter_selectable(filter, value, selectable != 0);
+    }
+
     void le_zoom(LeHandle *handle, double factor, int32_t x, int32_t y)
     {
         if (!handle)
@@ -4674,6 +4763,8 @@ extern "C"
         }
         else
             add_pieces(le::hit_test_abstract_point_all(handle->root, handle->view_layers, handle->current_abstract(), p, handle->scale(), is_selectable));
+        std::erase_if(objects, [handle](const LeHandle::SelectedObject &object)
+                      { return !passes_object_filters(handle, object); });
         return objects;
     }
 
@@ -4769,12 +4860,18 @@ extern "C"
             if (placements_selectable(handle))
                 for (le::PlacementId placement_id : le::hit_test_placements_rect(handle->root, layout_id, remaining_depth, drag_rect,
                                                                                  candidates ? &candidates->placements : nullptr))
-                    handle->select(placement_id);
+                    if (passes_object_filters(handle, placement_id))
+                        handle->select(placement_id);
 
             for (const le::AbstractHitPiece &hit : le::hit_test_layout_rect(handle->root, handle->view_layers, layout_id, drag_rect, handle->scale(), is_selectable, shape_candidates))
-                handle->select(hit.shape_id, hit.piece_kind, hit.piece_index);
+            {
+                const LeHandle::ShapePiece piece{.shape_id = hit.shape_id, .piece_kind = hit.piece_kind, .piece_index = hit.piece_index};
+                if (passes_object_filters(handle, piece))
+                    handle->select_any(piece);
+            }
             for (const LeHandle::ShapePiece &via : hit_test_via_rect(handle, drag_rect, shape_candidates))
-                handle->select(via.shape_id, via.piece_kind, via.piece_index);
+                if (passes_object_filters(handle, via))
+                    handle->select_any(via);
             if (rows_selectable(handle))
                 for (const le::RowId row_id : le::hit_test_rows_rect(handle->root, layout_id, drag_rect))
                     handle->select(row_id);

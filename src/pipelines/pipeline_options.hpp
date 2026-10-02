@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../core/flightlines.hpp"
+#include "../core/object_filters.hpp"
 #include "../database/database.hpp"
 #include "../view_style/view_style.hpp"
 
@@ -100,6 +101,12 @@ namespace le
         /// in here directly (api.cpp's own view_render_options_for).
         std::unordered_map<std::string, bool> layer_name_visible;
         std::unordered_map<ViewLayerPurpose, bool> purpose_visible;
+        /// @brief Placement.type/Route.use values whose objects are hidden
+        /// (the Layers panel's per-value filters). Applied by
+        /// ViewportCullStage (hidden placements aren't descended into;
+        /// per-chunk masks for RasterizeBlend2DStage) - the resolved tree
+        /// doesn't depend on it, so a toggle never re-resolves.
+        ObjectFilterSets hidden_objects;
 
         /// @brief The user's per-layer colors (LeHandle::layer_color_overrides,
         /// the Layers panel's color picker), applied by LayerGenerationStage

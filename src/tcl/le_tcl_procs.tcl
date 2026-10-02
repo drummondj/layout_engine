@@ -1011,6 +1011,144 @@ register_command_help get_purpose_selectable \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+# --- Placement.type / Route.use filters (backed by set_object_filter_visible_cmd/
+# get_object_filter_visible_cmd/set_object_filter_selectable_cmd/
+# get_object_filter_selectable_cmd -> le_*_object_filter_value_*). The
+# second argument of each _cmd is an LeObjectFilter: 0 placement type, 1
+# route use. Values match case-insensitively.
+
+proc set_placement_type_visible { type args } {
+    if {$type eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_placement_type_visible <type> <visible> \[-help\] - Sets one placement type's visibility"
+    }
+    if {[llength $args] != 1} {
+        error "set_placement_type_visible: expected exactly 2 arguments (type, visible), got [expr {1 + [llength $args]}]"
+    }
+    set_object_filter_visible_cmd 0 $type [lindex $args 0]
+    return ""
+}
+register_command_help set_placement_type_visible \
+    "set_placement_type_visible <type> <visible> \[-help\]" \
+    "Shows or hides placements whose type (the placed cell's LEF MACRO CLASS) is <type> - their outline, name and content. Everything is visible by default." \
+    {
+        {<type> {type str required 1 description {Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET}}}
+        {<visible> {type bool required 1 description {0/1 or true/false}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_placement_type_visible { type } {
+    if {$type eq "-help"} {
+        return "get_placement_type_visible <type> \[-help\] - Returns one placement type's visibility"
+    }
+    return [get_object_filter_visible_cmd 0 $type]
+}
+register_command_help get_placement_type_visible \
+    "get_placement_type_visible <type> \[-help\]" \
+    "Returns 1 if placements whose type (the placed cell's LEF MACRO CLASS) is <type> are visible, 0 otherwise - see set_placement_type_visible." \
+    {
+        {<type> {type str required 1 description {Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_placement_type_selectable { type args } {
+    if {$type eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_placement_type_selectable <type> <selectable> \[-help\] - Sets one placement type's selectability"
+    }
+    if {[llength $args] != 1} {
+        error "set_placement_type_selectable: expected exactly 2 arguments (type, selectable), got [expr {1 + [llength $args]}]"
+    }
+    set_object_filter_selectable_cmd 0 $type [lindex $args 0]
+    return ""
+}
+register_command_help set_placement_type_selectable \
+    "set_placement_type_selectable <type> <selectable> \[-help\]" \
+    "Sets whether placements whose type (the placed cell's LEF MACRO CLASS) is <type> can be selected. Everything is selectable by default." \
+    {
+        {<type> {type str required 1 description {Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET}}}
+        {<selectable> {type bool required 1 description {0/1 or true/false}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_placement_type_selectable { type } {
+    if {$type eq "-help"} {
+        return "get_placement_type_selectable <type> \[-help\] - Returns one placement type's selectability"
+    }
+    return [get_object_filter_selectable_cmd 0 $type]
+}
+register_command_help get_placement_type_selectable \
+    "get_placement_type_selectable <type> \[-help\]" \
+    "Returns 1 if placements whose type (the placed cell's LEF MACRO CLASS) is <type> can be selected, 0 otherwise - see set_placement_type_selectable." \
+    {
+        {<type> {type str required 1 description {Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_route_use_visible { use args } {
+    if {$use eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_route_use_visible <use> <visible> \[-help\] - Sets one route use's visibility"
+    }
+    if {[llength $args] != 1} {
+        error "set_route_use_visible: expected exactly 2 arguments (use, visible), got [expr {1 + [llength $args]}]"
+    }
+    set_object_filter_visible_cmd 1 $use [lindex $args 0]
+    return ""
+}
+register_command_help set_route_use_visible \
+    "set_route_use_visible <use> <visible> \[-help\]" \
+    "Shows or hides routes whose DEF USE is <use> - their shapes and vias. Everything is visible by default." \
+    {
+        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
+        {<visible> {type bool required 1 description {0/1 or true/false}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_route_use_visible { use } {
+    if {$use eq "-help"} {
+        return "get_route_use_visible <use> \[-help\] - Returns one route use's visibility"
+    }
+    return [get_object_filter_visible_cmd 1 $use]
+}
+register_command_help get_route_use_visible \
+    "get_route_use_visible <use> \[-help\]" \
+    "Returns 1 if routes whose DEF USE is <use> are visible, 0 otherwise - see set_route_use_visible." \
+    {
+        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_route_use_selectable { use args } {
+    if {$use eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_route_use_selectable <use> <selectable> \[-help\] - Sets one route use's selectability"
+    }
+    if {[llength $args] != 1} {
+        error "set_route_use_selectable: expected exactly 2 arguments (use, selectable), got [expr {1 + [llength $args]}]"
+    }
+    set_object_filter_selectable_cmd 1 $use [lindex $args 0]
+    return ""
+}
+register_command_help set_route_use_selectable \
+    "set_route_use_selectable <use> <selectable> \[-help\]" \
+    "Sets whether routes whose DEF USE is <use> can be selected. Everything is selectable by default." \
+    {
+        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
+        {<selectable> {type bool required 1 description {0/1 or true/false}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_route_use_selectable { use } {
+    if {$use eq "-help"} {
+        return "get_route_use_selectable <use> \[-help\] - Returns one route use's selectability"
+    }
+    return [get_object_filter_selectable_cmd 1 $use]
+}
+register_command_help get_route_use_selectable \
+    "get_route_use_selectable <use> \[-help\]" \
+    "Returns 1 if routes whose DEF USE is <use> can be selected, 0 otherwise - see set_route_use_selectable." \
+    {
+        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 # --- mode (backed by set_mode_cmd/get_mode_cmd -> le_set_mode/le_get_mode).
 # Takes/returns a friendly keyword, not LeMode's own raw ordinal - mirrors
 # open_design's own -view abstract|layout keyword style.

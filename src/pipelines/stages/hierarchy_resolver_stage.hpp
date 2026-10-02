@@ -289,6 +289,20 @@ namespace le
     };
     using ViewPlacements = std::shared_ptr<const ViewPlacementTile>;
 
+    /// @brief Which of one chunk's objects are hidden by the Placement.type/
+    /// Route.use filters (ViewRenderOptions::hidden_objects) - set bits are
+    /// hidden. `hidden_shapes[layer][i]` is parallel to
+    /// `chunk.shapes->at(layer)` (a layer with nothing hidden is absent);
+    /// `hidden_placements[i]` to `chunk.sources->placements` - rect and
+    /// label `i` of the chunk's batched PLACEMENT shape. Built by
+    /// ViewportCullStage, read by RasterizeBlend2DStage.
+    struct ChunkVisibility
+    {
+        std::unordered_map<ViewLayerId, std::vector<bool>> hidden_shapes;
+        std::vector<bool> hidden_placements;
+    };
+    using ChunkVisibilityHandle = std::shared_ptr<const ChunkVisibility>;
+
     struct ViewData
     {
         /// @brief The node's direct shapes: for a Layout its fixed chunks
@@ -307,6 +321,15 @@ namespace le
         /// @brief The hierarchy depth budget this node was resolved with
         /// (HierarchyResolverStage re-resolves its placements with it).
         int remaining_depth = 0;
+        /// @brief Index in `chunks` of placement tile 0's chunk: placement
+        /// tile `t`'s rects/labels and sources are `chunks[offset + t]`,
+        /// whose `sources->placements[j]` is `placement_tiles[t]`'s
+        /// placement `j` when the node has depth left.
+        std::size_t placement_chunk_offset = 0;
+        /// @brief Per-chunk hidden masks, parallel to `chunks` - set only
+        /// in ViewportCullStage's output; empty, or a null entry, means
+        /// nothing in that chunk is hidden.
+        std::vector<ChunkVisibilityHandle> chunk_visibility;
     };
 
     /// @brief Calls `fn(const ViewPlacementData &)` for every placement of `data`.
@@ -983,6 +1006,7 @@ namespace le
         {
             LayoutTiling &tiling = tilings_[layout_id] = make_tiling(root, layout_id);
             data.chunks.assign(kFixedLayoutChunkCount + tiling.routes.grid.count() + tiling.placements.grid.count(), ViewShapeChunk{});
+            data.placement_chunk_offset = tiling.placement_chunk(0);
             for (std::size_t c = 0; c < kFixedLayoutChunkCount; ++c)
                 data.chunks[c] = build_fixed_chunk(root, view_layers, layout_id, static_cast<LayoutChunk>(c));
             for (std::size_t t = 0; t < tiling.routes.grid.count(); ++t)

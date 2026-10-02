@@ -841,3 +841,24 @@ TEST_F(HierarchyResolverStageFixture, ChunkSourcesNameTheObjectBehindEverySelect
     ASSERT_EQ(placements.size(), 1u);
     EXPECT_EQ(placements[0], root.get_layout_placements(top_layout).front());
 }
+
+TEST_F(IncrementalFixture, ChangingTheObjectFiltersDoesNotReResolve)
+{
+    const ViewRenderOptions options = options_for(HierarchyId{top_layout}, 2);
+    const HierarchyResolverOutput *before = &runner.run(view_layers_handle, 0, options);
+
+    ViewRenderOptions filtered = options;
+    filtered.hidden_objects = ObjectFilterSets{.placement_types = {"CORE"}, .route_uses = {"POWER"}};
+    EXPECT_EQ(&runner.run(view_layers_handle, 0, filtered), before); // memoized - same output, no compute
+}
+
+TEST_F(HierarchyResolverStageFixture, PlacementChunkOffsetPointsAtTheFirstPlacementTilesChunk)
+{
+    const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
+    const ViewData &block = output.view_data.at(HierarchyId{block_layout});
+    ASSERT_LT(block.placement_chunk_offset, block.chunks.size());
+    const ViewShapeChunk &chunk = block.chunks[block.placement_chunk_offset];
+    ASSERT_TRUE(chunk.sources);
+    EXPECT_EQ(chunk.sources->placements.size(), block.placement_tiles.front()->placements.size()); // leaf0, leaf1
+    EXPECT_EQ(chunk.sources->placements.size(), 2u);
+}

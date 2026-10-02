@@ -47,6 +47,14 @@ namespace le::gui
             bool selectable;
             bool has_selectable_objects; // false - no selectable checkbox (le_purpose_has_selectable_objects)
         };
+        // One Placement.type or Route.use value under its purpose row
+        // (le_object_filter_value_at).
+        struct FilterRow
+        {
+            std::string value;
+            bool visible;
+            bool selectable;
+        };
 
         // Ambient state - read in full, unconditionally, by one or more
         // components every frame today regardless of any expand/collapse
@@ -81,6 +89,8 @@ namespace le::gui
             {
                 std::vector<LayerRow> layers;
                 std::vector<PurposeRow> purposes;
+                std::vector<FilterRow> placement_types; // LE_OBJECT_FILTER_PLACEMENT_TYPE, under PLACEMENT
+                std::vector<FilterRow> route_uses;      // LE_OBJECT_FILTER_ROUTE_USE, under ROUTE
             } layer_manager;
 
             // settings_panel.cpp. Grid spacing is in um, -1 while unknown
@@ -223,6 +233,9 @@ namespace le::gui
         void reset_layer_color(const std::string &layer_name);
         void set_purpose_visible(const std::string &purpose_name, bool value);
         void set_purpose_selectable(const std::string &purpose_name, bool value);
+        // `filter` is an LeObjectFilter.
+        void set_object_filter_visible(int32_t filter, const std::string &value, bool visible);
+        void set_object_filter_selectable(int32_t filter, const std::string &value, bool selectable);
 
         // The single call site for le_enqueue_tcl_command anywhere in
         // this module - every named action method above that goes

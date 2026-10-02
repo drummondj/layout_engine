@@ -55,7 +55,8 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   Move planning and snapping: SITE rows for CORE cells, fin grid,
   manufacturing grid), `shape_resize.hpp` (Resize handles and snapping;
   also how Move snaps paths/vias), `flightlines.hpp` (net connections of the
-  selected placements).
+  selected placements), `object_filters.hpp` (the Layers panel's
+  Placement.type/Route.use value filters).
 - `src/pipelines/` — the render pipeline, one oneTBB `flow::graph`
   (`ViewRenderPipeline`, design in `docs/PIPELINE_REFACTOR.md`):
   `LayerGenerationStage` -> `HierarchyResolverStage` -> `ViewportCullStage`
@@ -76,6 +77,11 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
     `layout_candidates`) instead of scanning the Layout.
   - `ViewportCullStage` prunes to the viewport with per-node spatial
     indexes; sub-pixel placements are culled whole.
+    It also applies the Placement.type/Route.use filters (`hidden_objects`):
+    hidden placements aren't descended into, and per-chunk
+    `ChunkVisibility` masks (cached per chunk, from `ChunkSources`) tell
+    Rasterize which route shapes and placement rects to skip - a toggle
+    never re-resolves.
   - `RasterizeBlend2DStage` rasterizes each node's own shapes to a
     `BLImage` (fill patterns, labels via a cached monospace glyph atlas,
     port markers, the background grid for the top level); `ComposeStage`
