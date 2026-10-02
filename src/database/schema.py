@@ -2236,7 +2236,7 @@ schema = Schema(
             # "Current view" anchor for get_instances/get_ports/get_nets'
             # own default (-of omitted) scope - see
             # codegen/codegen/tcl_scope.py. Populated by the SystemVerilog/
-            # Verilog reader (src/sv/).
+            # Verilog reader (src/io/sv_reader.cpp).
             has_current_access=True,
             fields=[
                 Field(

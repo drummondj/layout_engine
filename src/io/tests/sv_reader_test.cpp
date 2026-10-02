@@ -15,7 +15,7 @@ namespace
 {
     std::string fixture_path(const std::string &name)
     {
-        return std::string(SV_TEST_FIXTURES_DIR) + "/" + name;
+        return std::string(IO_TEST_FIXTURES_DIR) + "/" + name;
     }
 }
 

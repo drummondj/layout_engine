@@ -325,7 +325,7 @@ namespace le::persistence
         for (const char *name : {"A", "B", "CHK3A"})
             original.create_design(DesignData{.library = def_library, .name = name});
         ASSERT_EQ(DEFReader().read_def(std::string(DEF_TEST_DIR) + "/complete.5.8.def", original, "def_lib"), 0);
-        ASSERT_EQ(SVReader().read_netlist({std::string(SV_TEST_FIXTURES_DIR) + "/gate_netlist_clean.v"}, original, "sv_lib"), 0);
+        ASSERT_EQ(SVReader().read_netlist({std::string(IO_TEST_FIXTURES_DIR) + "/gate_netlist_clean.v"}, original, "sv_lib"), 0);
 
         const auto first = dir.file("first.led");
         const SaveReport saved = save_native(original, first.string());

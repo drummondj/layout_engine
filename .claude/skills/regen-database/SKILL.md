@@ -65,7 +65,7 @@ field type.
 
    A new version also needs its **golden files** - sample native database
    files every later build must keep loading
-   (`src/persistence/tests/golden/<version>/`). After rebuilding
+   (`src/io/tests/golden/<version>/`). After rebuilding
    (step 5), write them and commit them with the schema change:
 
    ```

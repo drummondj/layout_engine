@@ -34,7 +34,7 @@ namespace le::persistence
     {
         namespace fs = std::filesystem;
 
-        const fs::path kGoldenDir = fs::path(PERSISTENCE_GOLDEN_DIR);
+        const fs::path kGoldenDir = fs::path(NATIVE_FORMAT_GOLDEN_DIR);
 
         std::vector<uint8_t> read_bytes(const fs::path &path)
         {
@@ -69,7 +69,7 @@ namespace le::persistence
                      ASSERT_EQ(DEFReader().read_def(std::string(API_TEST_FIXTURES_DIR) + "/testcell.def", root, "testcell"), 0);
                  }},
                 {"netlist",
-                 [](Root &root) { ASSERT_EQ(SVReader().read_netlist({std::string(SV_TEST_FIXTURES_DIR) + "/gate_netlist_clean.v"}, root, "sv_lib"), 0); }},
+                 [](Root &root) { ASSERT_EQ(SVReader().read_netlist({std::string(IO_TEST_FIXTURES_DIR) + "/gate_netlist_clean.v"}, root, "sv_lib"), 0); }},
             };
         }
 

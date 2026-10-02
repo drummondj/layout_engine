@@ -5,7 +5,7 @@
 // and persists each result as a new Shape. Takes a plain Root& and no
 // locks - api.cpp's le_shape_* functions call this from inside their own
 // HandleWriteLock and handle mutation-version bumping and undo recording,
-// the same split generate_verilog_stubs (src/sv/verilog_stub_writer.hpp)
+// the same split generate_verilog_stubs (src/io/verilog_stub_writer.hpp)
 // already uses.
 
 #include "geometry.hpp"

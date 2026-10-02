@@ -21,12 +21,12 @@ All file:line references are relative to the repo root unless stated otherwise.
   (`src/io/def_reader.cpp:591`), `Route.name = net->name()` (`:952`) — no `/` hierarchy
   splitting happens anywhere in the codebase today.
 - `Instance.name` itself is only ever one Schematic-local segment (e.g. `"u_inv"`, or a
-  generate-disambiguated `"gen_inv[0].u_inv"` using `.` — `src/sv/sv_reader.cpp:106`).
+  generate-disambiguated `"gen_inv[0].u_inv"` using `.` — `src/io/sv_reader.cpp:106`).
   There is no stored full top-to-leaf path anywhere; reaching a nested Instance N levels
   down means walking level-by-level: `get_instance_by_name(schematic_id, segment) →
   Instance.reference_design → Root::get_design_schematic(design_id)` → repeat.
 - The only existing lazy-resolution precedent is `SVReader::link_unresolved_instances`
-  (`src/sv/sv_reader.cpp:704`, exposed as the TCL `link` command,
+  (`src/io/sv_reader.cpp:704`, exposed as the TCL `link` command,
   `src/tcl/le_tcl_procs.tcl:1318`): re-runnable, collects ids into a vector before
   mutating (avoids iterator invalidation), matches by name via a global `Design.name`
   index.

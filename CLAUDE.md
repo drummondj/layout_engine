@@ -92,18 +92,19 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   - `pipelines.cpp` is the module's one compiled TU
     (`default_blend2d_font_face()`, loading the bundled font from
     `LE_FONT_DIR` = `assets/fonts/`).
-- `src/io/` — `LEFReader`/`LEFWriter`/`DEFReader`/`DEFWriter` over the
-  vendored `lefr*`/`lefw*`/`defr*`/`defw*` APIs. See "LEF/DEF notes" below.
-- `src/sv/` — `SVReader`: SystemVerilog/Verilog into the logical model
-  (`Schematic`/`Port`/`Net`/`Instance`/`Pin`) via the slang frontend.
-  `read_netlist` elaborates (accurate, intolerant of errors); `read_rtl` is
-  syntax-only and stores unsupported content on `Instance.rtl_text`. Both
-  end with `link_unresolved_instances`, which is re-runnable so a later
-  LEF read can resolve standard cells.
-- `src/persistence/` — the native `.led` database file (`write_db`/
-  `read_db`), columnar and zstd-compressed, driven by codegen's
-  `native_tables.hpp`; loads older schema versions by name plus the
-  migration chain. Design in `docs/NATIVE_FILE_FORMAT_RESEARCH.md`.
+- `src/io/` — every file format:
+  - `LEFReader`/`LEFWriter`/`DEFReader`/`DEFWriter` over the vendored
+    `lefr*`/`lefw*`/`defr*`/`defw*` APIs. See "LEF/DEF notes" below.
+  - `SVReader`: SystemVerilog/Verilog into the logical model
+    (`Schematic`/`Port`/`Net`/`Instance`/`Pin`) via the slang frontend.
+    `read_netlist` elaborates (accurate, intolerant of errors); `read_rtl`
+    is syntax-only and stores unsupported content on `Instance.rtl_text`.
+    Both end with `link_unresolved_instances`, which is re-runnable so a
+    later LEF read can resolve standard cells.
+  - `native_format.*`: the native `.led` database file (`write_db`/
+    `read_db`), columnar and zstd-compressed, driven by codegen's
+    `native_tables.hpp`; loads older schema versions by name plus the
+    migration chain. Design in `docs/NATIVE_FILE_FORMAT_RESEARCH.md`.
 - `src/editing/` — undo/redo: `CommandHistory` (one per handle),
   `Transaction`, `ICommand`. Every generated create/update/delete records
   itself into the recording transaction; `le_repl_eval` and GUI edits
@@ -197,7 +198,7 @@ codegen fingerprints the schema and compares it with
 `src/database/schema_history/`; a new version needs its snapshot, a
 migration (`src/database/migrations/`, drafted by
 `codegen --target makemigration`) and golden files
-(`src/persistence/tests/golden/<version>/`), all committed together.
+(`src/io/tests/golden/<version>/`), all committed together.
 
 ## TCL codegen
 
