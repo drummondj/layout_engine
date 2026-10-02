@@ -6,8 +6,8 @@
 #include "../editing/editing.hpp"
 #include "../geometry/geometry.hpp"
 #include "../geometry/shape_ops.hpp"
-#include "../core/placement_geometry.hpp"
-#include "../core/row_geometry.hpp"
+#include "hit_test.hpp"
+#include "../geometry/row_geometry.hpp"
 #include "../io/lef_reader.hpp"
 #include "../io/def_reader.hpp"
 #include "../io/sv_reader.hpp"
@@ -1668,7 +1668,7 @@ namespace
         // A Layout view has no current_abstract() (the two "current view"
         // trackers are mutually exclusive). Uses the Layout's own declared
         // diearea bbox (same "declared size" convention as
-        // layout_declared_bbox in core/placement_geometry.hpp) rather than
+        // layout_declared_bbox in geometry/placement_geometry.hpp) rather than
         // unioning every Placement's own transformed bbox - O(1) instead of
         // O(placement count), and diearea is the DEF-standard bound of
         // everything in it anyway.
@@ -1681,7 +1681,7 @@ namespace
 
         // Same "declared size, not a union of every generated shape"
         // convention as the Layout branch above - abstract_declared_bbox
-        // (core/placement_geometry.hpp) is the exact bbox a *parent*
+        // (geometry/placement_geometry.hpp) is the exact bbox a *parent*
         // already uses to size its own placement of this Abstract, so
         // it's the right "whole content" bound here too, and O(1)
         // regardless of how many Terminal/Obstruction shapes it has.
@@ -4809,7 +4809,7 @@ extern "C"
     // click goes through click_select_unlocked). Called with
     // handle->mutex_ already held, `x`/`y` the release point le_mouse_up
     // received. Hit-tests Root's raw ShapeData directly
-    // (core/placement_geometry.hpp's hit_test_abstract_rect) rather than
+    // (hit_test.hpp's hit_test_abstract_rect) rather than
     // rendered output - a drag is a rare, one-off query, not a per-frame
     // cost.
     void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y)

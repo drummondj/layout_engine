@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../core/placement_geometry.hpp"
-#include "../../core/row_geometry.hpp"
+#include "../../geometry/placement_geometry.hpp"
+#include "../../geometry/row_geometry.hpp"
 #include "../../database/database.hpp"
 #include "../../geometry/geometry.hpp"
 #include "../view_style.hpp"
@@ -86,7 +86,7 @@ namespace le
 
     /// @brief Which further Abstract or Layout a Placement resolves to
     /// (also HierarchyResolverOutput's own map key). See
-    /// resolve_design_target (core/placement_geometry.hpp)
+    /// resolve_design_target (geometry/placement_geometry.hpp)
     /// for the single source of truth on Layout-vs-Abstract dispatch.
     using HierarchyId = std::variant<AbstractId, LayoutId>;
 
@@ -137,7 +137,7 @@ namespace le
     ///     right (e.g. a Hot-tier inspector showing a placement's nominal
     ///     origin) independent of the derived `bbox`/`transform`, and
     ///     `location`/`bbox.ll` only coincide today because
-    ///     AbstractData.origin isn't applied yet (core/placement_geometry.hpp's
+    ///     AbstractData.origin isn't applied yet (geometry/placement_geometry.hpp's
     ///     own resolved_local_bbox comment) - once it is, they can
     ///     genuinely differ.
     struct ViewPlacementData
@@ -536,7 +536,7 @@ namespace le
     /// this Layout's own direct content, not about what a placement
     /// resolves to. This deliberately departs from
     /// resolve_design_target's "fall back to the Abstract regardless of
-    /// remaining depth" convention (core/placement_geometry.hpp), which
+    /// remaining depth" convention (geometry/placement_geometry.hpp), which
     /// is still used here for sizing a placement's own placeholder
     /// rect/ViewPlacementData::bbox and by every other caller
     /// (hit-testing, LeHandle::hierarchy_depth()'s documented semantics):
@@ -552,7 +552,7 @@ namespace le
     /// its ViewLayerId. Also expands RECT/PATH/POLYGON ITERATE, places
     /// Terminal name labels, and expands vias (via_shapes.hpp). Shapes
     /// carry no ShapeId - hit-testing works against Root directly
-    /// (core/placement_geometry.hpp).
+    /// (geometry/placement_geometry.hpp).
     ///
     /// Traversal is breadth-first, one worklist entry per discovered
     /// {id, remaining_depth}, deduplicating by `id` alone - not by

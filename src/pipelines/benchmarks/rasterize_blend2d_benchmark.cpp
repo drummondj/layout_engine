@@ -1,4 +1,4 @@
-#include "../../core/placement_geometry.hpp"
+#include "../../geometry/placement_geometry.hpp"
 #include "../view_style.hpp"
 #include "../pipeline_options.hpp"
 #include "../stages/hierarchy_resolver_stage.hpp"

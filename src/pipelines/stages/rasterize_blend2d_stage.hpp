@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../core/placement_geometry.hpp"
+#include "../../geometry/placement_geometry.hpp"
 #include "../../database/database.hpp"
 #include "../../geometry/geometry.hpp"
 #include "../view_style.hpp"

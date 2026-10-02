@@ -14,7 +14,7 @@
 //    in every placement of that cell), through HierarchyResolverStage's
 //    cold collect and a warm-tier pan frame.
 
-#include "../../core/placement_geometry.hpp"
+#include "../../geometry/placement_geometry.hpp"
 #include "../../geometry/geometry.hpp"
 #include "../view_style.hpp"
 #include "../pipeline_options.hpp"

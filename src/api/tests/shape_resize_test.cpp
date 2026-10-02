@@ -1,4 +1,4 @@
-#include "core/shape_resize.hpp"
+#include "api/shape_resize.hpp"
 
 #include <gtest/gtest.h>
 

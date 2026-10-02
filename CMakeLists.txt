@@ -520,14 +520,12 @@ add_library(editing INTERFACE)
 target_include_directories(editing INTERFACE src)
 target_link_libraries(editing INTERFACE database)
 
-# --- core: header-only editing/hit-test geometry (placement bboxes and
-# hit-tests, Move/Resize snapping, fin grids, flightlines) shared by
-# `api` and `pipelines`. placement_geometry.hpp's hit-tests read
-# pipelines' header-only view_style.hpp through the shared `src` include
-# root. ---
+# --- core: header-only code that `api` and `pipelines` both need and
+# that isn't geometry (flightlines). Code only one module uses lives in
+# that module. ---
 add_library(core INTERFACE)
 target_include_directories(core INTERFACE src)
-target_link_libraries(core INTERFACE database)
+target_link_libraries(core INTERFACE database geometry)
 
 # --- pipelines: the Cold/Warm/Hot ViewRenderPipeline
 # (docs/PIPELINE_REFACTOR.md), built on oneTBB's flow::graph
@@ -986,11 +984,11 @@ add_executable(backend_tests
     src/api/tests/power_grid_port_markers_test.cpp
     src/api/tests/delete_pieces_test.cpp
     src/api/tests/mutation_cascade_test.cpp
-    src/core/tests/placement_move_test.cpp
+    src/api/tests/placement_move_test.cpp
     src/core/tests/flightlines_test.cpp
-    src/core/tests/shape_resize_test.cpp
+    src/api/tests/shape_resize_test.cpp
     src/core/tests/object_filters_test.cpp
-    src/core/tests/row_geometry_test.cpp
+    src/geometry/tests/row_geometry_test.cpp
     src/gui/gui_provider.cpp
     src/gui/tests/gui_provider_test.cpp
 )
