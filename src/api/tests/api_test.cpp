@@ -6881,7 +6881,7 @@ TEST_F(ApiFixture, ObjectFilterValuesListPlacementTypesAndRouteUses)
     const int32_t uses = le_object_filter_value_count(handle, LE_OBJECT_FILTER_ROUTE_USE);
     ASSERT_GT(uses, 1);
     EXPECT_STREQ(le_object_filter_value_at(handle, LE_OBJECT_FILTER_ROUTE_USE, 0), "SIGNAL");
-    EXPECT_STREQ(le_object_filter_value_at(handle, LE_OBJECT_FILTER_ROUTE_USE, uses - 1), "UNSET");
+    EXPECT_STREQ(le_object_filter_value_at(handle, LE_OBJECT_FILTER_ROUTE_USE, uses - 1), "RESET");
     EXPECT_EQ(le_object_filter_value_at(handle, LE_OBJECT_FILTER_ROUTE_USE, uses), nullptr);
 
     // TESTCELL is CORE; TOP has no Abstract.

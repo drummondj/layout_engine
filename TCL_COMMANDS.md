@@ -2003,7 +2003,7 @@ Returns 1 if routes whose DEF USE is <use> can be selected, 0 otherwise - see se
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND, CLOCK, or UNSET |
+| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
 
 ## get_route_use_visible
 
@@ -2013,7 +2013,7 @@ Returns 1 if routes whose DEF USE is <use> are visible, 0 otherwise - see set_ro
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND, CLOCK, or UNSET |
+| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
 
 ## get_routes
 
@@ -2563,7 +2563,7 @@ Sets whether routes whose DEF USE is <use> can be selected. Everything is select
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND, CLOCK, or UNSET |
+| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
 | `<selectable>` | `bool` | yes | 0/1 or true/false |
 
 ## set_route_use_visible
@@ -2574,7 +2574,7 @@ Shows or hides routes whose DEF USE is <use> - their shapes and vias. Everything
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND, CLOCK, or UNSET |
+| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
 | `<visible>` | `bool` | yes | 0/1 or true/false |
 
 ## set_ruler_label_size

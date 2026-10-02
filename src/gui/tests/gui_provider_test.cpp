@@ -95,7 +95,7 @@ TEST_F(GuiProviderFixture, LayerManagerListsPlacementTypesAndRouteUsesWithTheirS
     ASSERT_NE(power, uses.end());
     EXPECT_TRUE(power->visible);
     EXPECT_FALSE(power->selectable);
-    EXPECT_EQ(uses.back().value, "UNSET");
+    EXPECT_EQ(uses.front().value, "SIGNAL");
 }
 
 TEST_F(GuiProviderFixture, EveryTechnologyLayerIsListedInDeclarationOrder)

@@ -290,7 +290,7 @@ TEST_F(ViewportCullStageFixture, AHiddenRouteUseMasksExactlyItsRoutesShapes)
     const HierarchyResolverOutput &power_hidden = cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, with_hidden(everything, {.route_uses = {"POWER"}}));
     EXPECT_EQ(hidden_counts(power_hidden.view_data.at(HierarchyId{top_layout})), (std::pair<std::size_t, std::size_t>{2, 0}));
 
-    const HierarchyResolverOutput &unset_hidden = cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, with_hidden(everything, {.route_uses = {"UNSET"}}));
+    const HierarchyResolverOutput &unset_hidden = cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, with_hidden(everything, {.route_uses = {"SIGNAL"}})); // n1 has no USE
     EXPECT_EQ(hidden_counts(unset_hidden.view_data.at(HierarchyId{top_layout})), (std::pair<std::size_t, std::size_t>{1, 0}));
 }
 

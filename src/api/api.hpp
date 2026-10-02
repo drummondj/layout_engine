@@ -946,8 +946,9 @@ extern "C"
     /// @brief A per-value filter under a purpose in the Layers panel: by
     /// Placement.type (the reference design's Abstract.type, LEF MACRO
     /// CLASS, under PLACEMENT) or by Route.use (DEF USE, under ROUTE).
-    /// Values are matched case-insensitively; an object whose field is
-    /// unset has the value "UNSET".
+    /// Values are matched case-insensitively; a Placement whose cell has no
+    /// type has the value "UNSET", and a Route with no use is "SIGNAL"
+    /// (DEF's default).
     typedef enum LeObjectFilter
     {
         LE_OBJECT_FILTER_PLACEMENT_TYPE = 0,
@@ -956,7 +957,7 @@ extern "C"
 
     /// @brief How many values `filter` offers: for PLACEMENT_TYPE every
     /// distinct type a Design gives its placements (plus "UNSET" when any
-    /// has none); for ROUTE_USE the DEF USE keywords plus "UNSET". 0 for a
+    /// has none); for ROUTE_USE the DEF USE keywords. 0 for a
     /// null handle or unknown filter.
     int32_t le_object_filter_value_count(LeHandle *handle, int32_t filter);
 

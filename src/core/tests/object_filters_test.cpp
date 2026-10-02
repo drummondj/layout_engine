@@ -58,11 +58,13 @@ TEST_F(ObjectFiltersFixture, DesignsOfPlacementTypesMatchesWholeTypeStrings)
     EXPECT_TRUE(designs_of_placement_types(root, {}).empty());
 }
 
-TEST(ObjectFilters, RouteUseValuesEndWithUnset)
+TEST(ObjectFilters, RouteUsesDefaultToSignalAndHaveNoUnsetValue)
 {
     const std::vector<std::string> &values = route_use_values();
     ASSERT_FALSE(values.empty());
     EXPECT_EQ(values.front(), "SIGNAL");
-    EXPECT_EQ(values.back(), kUnsetFilterValue);
+    EXPECT_EQ(std::ranges::find(values, std::string(kUnsetFilterValue)), values.end());
     EXPECT_EQ(route_use(RouteData{.use = std::string("clock")}), "CLOCK");
+    EXPECT_EQ(route_use(RouteData{}), "SIGNAL");
+    EXPECT_EQ(route_use(RouteData{.use = std::string()}), "SIGNAL");
 }

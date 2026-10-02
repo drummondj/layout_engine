@@ -1097,7 +1097,7 @@ register_command_help set_route_use_visible \
     "set_route_use_visible <use> <visible> \[-help\]" \
     "Shows or hides routes whose DEF USE is <use> - their shapes and vias. Everything is visible by default." \
     {
-        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND, CLOCK, or UNSET}}}
+        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
         {<visible> {type bool required 1 description {0/1 or true/false}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
@@ -1112,7 +1112,7 @@ register_command_help get_route_use_visible \
     "get_route_use_visible <use> \[-help\]" \
     "Returns 1 if routes whose DEF USE is <use> are visible, 0 otherwise - see set_route_use_visible." \
     {
-        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND, CLOCK, or UNSET}}}
+        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
@@ -1130,7 +1130,7 @@ register_command_help set_route_use_selectable \
     "set_route_use_selectable <use> <selectable> \[-help\]" \
     "Sets whether routes whose DEF USE is <use> can be selected. Everything is selectable by default." \
     {
-        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND, CLOCK, or UNSET}}}
+        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
         {<selectable> {type bool required 1 description {0/1 or true/false}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
@@ -1145,7 +1145,7 @@ register_command_help get_route_use_selectable \
     "get_route_use_selectable <use> \[-help\]" \
     "Returns 1 if routes whose DEF USE is <use> can be selected, 0 otherwise - see set_route_use_selectable." \
     {
-        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND, CLOCK, or UNSET}}}
+        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 

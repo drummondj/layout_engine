@@ -98,11 +98,11 @@ check "set_placement_type_selectable false round-trips" 0 [get_placement_type_se
 check "a placement type filter leaves route uses alone" 1 [get_route_use_selectable PAD]
 set_route_use_visible POWER 0
 check "set_route_use_visible false round-trips" 0 [get_route_use_visible POWER]
-set_route_use_selectable UNSET 0
-check "set_route_use_selectable false round-trips" 0 [get_route_use_selectable unset]
+set_route_use_selectable SIGNAL 0
+check "set_route_use_selectable false round-trips" 0 [get_route_use_selectable signal]
 set_placement_type_selectable PAD 1
 set_route_use_visible POWER 1
-set_route_use_selectable UNSET 1
+set_route_use_selectable SIGNAL 1
 check "set_route_use_visible wrong arity errors" 1 [catch {set_route_use_visible POWER}]
 
 if {[catch {set_purpose_visible not_a_real_purpose 1} err]} {

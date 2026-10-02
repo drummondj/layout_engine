@@ -11,8 +11,8 @@
 
 namespace le
 {
-    /// @brief The filter value of an object whose Abstract.type/Route.use
-    /// is unset (or that has no Abstract at all).
+    /// @brief The filter value of a Placement whose reference design has no
+    /// Abstract.type (or no Abstract at all).
     inline constexpr std::string_view kUnsetFilterValue = "UNSET";
 
     /// @brief Placement.type and Route.use values to filter out, upper-case.
@@ -48,13 +48,17 @@ namespace le
         return to_filter_value(abstract ? abstract->type : std::nullopt);
     }
 
-    inline std::string route_use(const RouteData &route) { return to_filter_value(route.use); }
+    /// @brief A Route's use; unset means SIGNAL, DEF's default USE.
+    inline std::string route_use(const RouteData &route)
+    {
+        return route.use && !route.use->empty() ? to_filter_value(route.use) : std::string("SIGNAL");
+    }
 
     /// @brief Every Route.use value the Layers panel offers: DEF NETS/
-    /// SPECIALNETS USE, then kUnsetFilterValue.
+    /// SPECIALNETS USE.
     inline const std::vector<std::string> &route_use_values()
     {
-        static const std::vector<std::string> values{"SIGNAL", "POWER", "GROUND", "CLOCK", "TIEOFF", "ANALOG", "SCAN", "RESET", std::string(kUnsetFilterValue)};
+        static const std::vector<std::string> values{"SIGNAL", "POWER", "GROUND", "CLOCK", "TIEOFF", "ANALOG", "SCAN", "RESET"};
         return values;
     }
 
