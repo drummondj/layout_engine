@@ -1,4 +1,4 @@
-#include "core/row_geometry.hpp"
+#include "geometry/row_geometry.hpp"
 
 #include <gtest/gtest.h>
 

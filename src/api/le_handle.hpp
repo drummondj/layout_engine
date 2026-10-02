@@ -4,8 +4,8 @@
 
 #include "../core/flightlines.hpp"
 #include "../core/object_filters.hpp"
-#include "../core/placement_move.hpp"
-#include "../core/shape_resize.hpp"
+#include "placement_move.hpp"
+#include "shape_resize.hpp"
 #include "../database/database.hpp"
 #include "../editing/editing.hpp"
 #include "../pipelines/view_render_pipeline.hpp"

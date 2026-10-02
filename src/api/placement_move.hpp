@@ -2,8 +2,8 @@
 #include "../database/database.hpp"
 #include "../geometry/geometry.hpp"
 #include "fin_grid.hpp"
-#include "placement_geometry.hpp"
-#include "row_geometry.hpp"
+#include "../geometry/placement_geometry.hpp"
+#include "../geometry/row_geometry.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cmath>

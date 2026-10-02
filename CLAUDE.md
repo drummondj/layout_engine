@@ -36,16 +36,14 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   conversions, sizing) on a Shape's merged area; a holed result is emitted
   as exact rects since `Polygon` can't hold a hole. Results go to the
   current Abstract/Layout's `free_shapes` unless `-parent` says otherwise -
-  never written by `write_lef`/`write_def`.
-- `src/core/` — header-only editing/hit-test geometry shared by `api` and
-  `pipelines`: `placement_geometry.hpp` (placement world bboxes; Placement,
-  Abstract-view and Layout-view hit-tests), `row_geometry.hpp` (a Row's
-  synthesized footprint), `placement_move.hpp`/`fin_grid.hpp` (Placement
-  Move planning and snapping: SITE rows for CORE cells, fin grid,
-  manufacturing grid), `shape_resize.hpp` (Resize handles and snapping;
-  also how Move snaps paths/vias), `flightlines.hpp` (net connections of the
-  selected placements), `object_filters.hpp` (the Layers panel's
-  Placement.type/Route.use value filters).
+  never written by `write_lef`/`write_def`. `placement_geometry.hpp`
+  (which view a placed Design resolves to; placement world bboxes) and
+  `row_geometry.hpp` (a Row's synthesized footprint) serve both `api` and
+  `pipelines`.
+- `src/core/` — header-only code needed by more than one other module
+  that isn't geometry: `flightlines.hpp` (net connections of the selected
+  placements), `object_filters.hpp` (the Layers panel's Placement.type/
+  Route.use value filters). Code only one module uses lives in that module.
 - `src/pipelines/` — the render pipeline, one oneTBB `flow::graph`
   (`ViewRenderPipeline`, design in `docs/PIPELINE_REFACTOR.md`):
   `LayerGenerationStage` -> `HierarchyResolverStage` -> `ViewportCullStage`
@@ -109,9 +107,13 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   `Transaction`, `ICommand`. Every generated create/update/delete records
   itself into the recording transaction; `le_repl_eval` and GUI edits
   (Move, Resize, Delete) bracket one.
-- `src/api/` — `api.hpp`/`api.cpp`, the plain-C API every front end calls
-  (no `std::` types, default arguments or overloads in public
-  declarations). `LeHandle` (`le_handle.hpp`, never included by `api.hpp`)
+- `src/api/` — `api.hpp`/`api.cpp`, the plain-C API every front end calls.
+  Its header-only helpers: `hit_test.hpp` (Placement, Abstract-view and
+  Layout-view hit-tests), `placement_move.hpp`/`fin_grid.hpp` (Placement
+  Move planning and snapping: SITE rows for CORE cells, fin grid,
+  manufacturing grid), `shape_resize.hpp` (Resize handles and snapping;
+  also how Move snaps paths/vias). The C API has no `std::` types,
+  default arguments or overloads in public declarations. `LeHandle` (`le_handle.hpp`, never included by `api.hpp`)
   owns one `Root`, `ViewLayerSet`, `ViewRenderPipeline`, `CommandHistory`,
   and all view/interaction state: current Abstract *or* Layout (mutually
   exclusive by convention), pan/scale, visibility/selectability, selection

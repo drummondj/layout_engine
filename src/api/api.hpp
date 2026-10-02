@@ -1467,7 +1467,7 @@ extern "C"
     /// stray/duplicate mouse-up).
     ///
     /// **Started by le_mouse_down()** - two outcomes, both subject to
-    /// the hit-tests' (core/placement_geometry.hpp) topmost-layer-first
+    /// the hit-tests' (hit_test.hpp) topmost-layer-first
     /// (click) / all-layers (drag) and layer-selectability rules, and
     /// both consulting LE_KEY_SHIFT's current held state (see
     /// le_key_down) rather than taking it as a parameter here:

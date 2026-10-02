@@ -1,4 +1,4 @@
-#include "../../core/placement_geometry.hpp"
+#include "../../geometry/placement_geometry.hpp"
 #include "../pipeline_options.hpp"
 #include "../view_render_pipeline.hpp"
 #include "aes_scaling_fixture.hpp"
