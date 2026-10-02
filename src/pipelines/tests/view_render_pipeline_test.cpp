@@ -150,3 +150,21 @@ TEST_F(ViewRenderPipelineFixture, PlacedCellContentOutsideItsBoundaryStillDraws)
         }
     EXPECT_TRUE(found_red);
 }
+
+// A Placement.type/Route.use filter toggle redraws from the cull down -
+// positions don't change, so the resolved tree is reused, not re-resolved.
+TEST_F(ViewRenderPipelineFixture, TogglingAnObjectFilterReCullsButDoesNotReResolve)
+{
+    root.get_abstract(leaf_abstract)->type = "CORE";
+    const ViewRenderOptions shown = warm_options_for(1);
+    const ViewRenderPipeline::WarmOutput before = pipeline.run(&root, shown);
+
+    ViewRenderOptions hidden = shown;
+    hidden.hidden_objects = ObjectFilterSets{.placement_types = {"CORE"}};
+    const ViewRenderPipeline::WarmOutput after = pipeline.run(&root, hidden);
+
+    EXPECT_FALSE(pipeline.hierarchy_resolver_stage().last_call_recomputed());
+    EXPECT_TRUE(pipeline.viewport_cull_stage().last_call_recomputed());
+    EXPECT_TRUE(pipeline.rasterize_stage().last_call_recomputed());
+    EXPECT_NE(before.frame, after.frame);
+}

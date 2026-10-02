@@ -498,7 +498,8 @@ namespace le
         const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
         std::unordered_map<int, MonospaceFontEntry> &monospace_font_cache,
         std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> &glyph_bitmap_cache,
-        double requested_min_label_px = kMinLabelPixelSize, double max_label_px = kMaxLabelPixelSize)
+        double requested_min_label_px = kMinLabelPixelSize, double max_label_px = kMaxLabelPixelSize,
+        const std::vector<ChunkVisibilityHandle> *chunk_visibility = nullptr)
     {
         // The Settings panel's min/max label font sizes
         // (ViewRenderOptions::label_min_size_px/label_max_size_px):
@@ -703,8 +704,13 @@ namespace le
                 ctx.set_stroke_style(fill_color);
             }
 
-            auto draw_one_shape = [&](const RenderShape &shape)
+            // `hidden_parts`, for a batched PLACEMENT shape, marks the
+            // placements (rect and label `i`) hidden by the Placement.type
+            // filter (ChunkVisibility::hidden_placements).
+            auto draw_one_shape = [&](const RenderShape &shape, const std::vector<bool> *hidden_parts)
             {
+                const auto part_hidden = [hidden_parts](std::size_t i)
+                { return hidden_parts && i < hidden_parts->size() && (*hidden_parts)[i]; };
                 // Tracks whether ANY of this shape's own rects/polygons/paths
                 // actually survived their own sub-pixel cull below - if none
                 // did, this shape's own text (drawn further down) is skipped
@@ -715,9 +721,10 @@ namespace le
                 // geometry backing it, which reads as a rendering bug.
                 bool any_geometry_drawn = false;
 
-                for (const Rect &r : shape.rects)
+                for (std::size_t ri = 0; ri < shape.rects.size(); ++ri)
                 {
-                    if (bbox_is_sub_pixel(r.ur.x - r.ll.x, r.ur.y - r.ll.y, scale))
+                    const Rect &r = shape.rects[ri];
+                    if (part_hidden(ri) || bbox_is_sub_pixel(r.ur.x - r.ll.x, r.ur.y - r.ll.y, scale))
                         continue;
                     any_geometry_drawn = true;
                     const BLRect rect(static_cast<double>(r.ll.x), static_cast<double>(r.ll.y),
@@ -831,7 +838,7 @@ namespace le
                     {
                         const Text &text = shape.texts[i];
                         const double pixel_size = std::clamp(text.size * scale, min_label_px, max_label_px);
-                        if (i >= shape.rects.size())
+                        if (i >= shape.rects.size() || part_hidden(i))
                             continue;
                         const double width_px = static_cast<double>(shape.rects[i].ur.x - shape.rects[i].ll.x) * scale;
                         const double available_width_px = width_px - 2.0 * kPlacementLabelPaddingPx;
@@ -897,6 +904,24 @@ namespace le
                     continue;
                 path_outline_cache = path_outline_caches[c];
 
+                // This chunk's Placement.type/Route.use hidden masks, if any.
+                const ChunkVisibility *visibility = chunk_visibility && c < chunk_visibility->size() ? (*chunk_visibility)[c].get() : nullptr;
+                const std::vector<bool> *hidden_shapes = nullptr;
+                const std::vector<bool> *hidden_parts = nullptr;
+                if (visibility)
+                {
+                    if (const auto it = visibility->hidden_shapes.find(view_layer_id); it != visibility->hidden_shapes.end())
+                        hidden_shapes = &it->second;
+                    if (is_placement_layer && !visibility->hidden_placements.empty())
+                        hidden_parts = &visibility->hidden_placements;
+                }
+                const auto draw_unless_hidden = [&](std::size_t i, const RenderShape &shape)
+                {
+                    if (hidden_shapes && i < hidden_shapes->size() && (*hidden_shapes)[i])
+                        return;
+                    draw_one_shape(shape, hidden_parts);
+                };
+
                 const std::vector<RenderShape> &shapes = group_it->second;
                 const auto &shapes_index = chunk.shapes_index;
                 const auto layer_index_it = shapes_index ? shapes_index->find(view_layer_id) : ViewLayerShapeIndex::const_iterator{};
@@ -905,12 +930,12 @@ namespace le
                     std::vector<ShapeIndexEntry> hits;
                     layer_index_it->second.query(bgi::intersects(query_bbox), std::back_inserter(hits));
                     for (const ShapeIndexEntry &hit : hits)
-                        draw_one_shape(shapes[hit.second]);
+                        draw_unless_hidden(hit.second, shapes[hit.second]);
                 }
                 else
                 {
-                    for (const RenderShape &shape : shapes)
-                        draw_one_shape(shape);
+                    for (std::size_t i = 0; i < shapes.size(); ++i)
+                        draw_unless_hidden(i, shapes[i]);
                 }
             }
         }
@@ -1006,7 +1031,7 @@ namespace le
                 draw_view_shapes_blend2d(
                     ctx, data.chunks, outline_caches, local_bbox, view_layers, options.scale,
                     options.layer_name_visible, options.purpose_visible,
-                    monospace_font_cache_, glyph_bitmap_cache_, options.label_min_size_px, options.label_max_size_px);
+                    monospace_font_cache_, glyph_bitmap_cache_, options.label_min_size_px, options.label_max_size_px, &data.chunk_visibility);
 
                 ctx.end();
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../core/object_filters.hpp"
 #include "../../geometry/geometry.hpp"
 #include "../draw_helpers.hpp"
 #include "../pipeline_options.hpp"
@@ -10,8 +11,10 @@
 
 #include <cstddef>
 #include <deque>
+#include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -108,6 +111,16 @@ namespace le
     ///     off that node's placement vector (a shared_ptr, held here to
     ///     guarantee no other allocation can reuse its address while this
     ///     cache still names it) - see spatial_index_for()'s own comment.
+    ///
+    /// Placement.type/Route.use filters (ViewRenderOptions::hidden_objects)
+    /// are applied here, not by HierarchyResolverStage, so a toggle never
+    /// re-resolves: positions don't change, only what's drawn. A hidden
+    /// placement is skipped like an off-screen one (its subtree isn't
+    /// visited), and each reached node's `chunk_visibility` marks the
+    /// hidden route shapes and placement rects/labels of its chunks for
+    /// RasterizeBlend2DStage. The masks come from the chunks'
+    /// ChunkSources and are cached per chunk, so a pan reuses them and an
+    /// edit only builds masks for the chunks the resolver rebuilt.
     class ViewportCullStage : public MemoizingStage<HierarchyResolverStage::OutputHandle, HierarchyResolverOutput, ViewRenderOptions>
     {
     public:
@@ -125,6 +138,7 @@ namespace le
             // Drop indices whose placement tile is gone.
             std::erase_if(spatial_indices_, [](const auto &entry)
                           { return entry.second.tile.expired(); });
+            update_filter(options);
 
             struct WorkItem
             {
@@ -150,6 +164,13 @@ namespace le
                 ViewData data;
                 data.chunks = source_data.chunks;
                 data.extent = source_data.extent;
+                data.placement_chunk_offset = source_data.placement_chunk_offset;
+                if (filter_.active)
+                {
+                    data.chunk_visibility.reserve(data.chunks.size());
+                    for (const ViewShapeChunk &chunk : data.chunks)
+                        data.chunk_visibility.push_back(visibility_for(chunk, *options.root));
+                }
 
                 // One Rect transform per node, not one per placement -
                 // see the class's own doc comment.
@@ -157,14 +178,21 @@ namespace le
 
                 ViewPlacementTile culled;
                 std::vector<IndexEntry> candidates;
-                for (const ViewPlacements &tile : source_data.placement_tiles)
+                for (std::size_t t = 0; t < source_data.placement_tiles.size(); ++t)
                 {
+                    const ViewPlacements &tile = source_data.placement_tiles[t];
                     if (tile->placements.empty() || !bg::intersects(tile->extent, local_viewport))
                         continue; // the whole tile is off-screen - don't even build its index
+                    // The tile's chunk's placement mask is parallel to its placements.
+                    const std::size_t chunk = source_data.placement_chunk_offset + t;
+                    const ChunkVisibility *visibility = chunk < data.chunk_visibility.size() ? data.chunk_visibility[chunk].get() : nullptr;
+                    const std::vector<bool> *hidden = visibility && !visibility->hidden_placements.empty() ? &visibility->hidden_placements : nullptr;
                     candidates.clear();
                     spatial_index_for(tile).query(bgi::intersects(local_viewport), std::back_inserter(candidates));
                     for (const IndexEntry &entry : candidates)
                     {
+                        if (hidden && entry.second < hidden->size() && (*hidden)[entry.second])
+                            continue; // its Placement.type is hidden - neither drawn nor descended into
                         const ViewPlacementData &placement = tile->placements[entry.second];
                         // See this class's own doc comment - a placement
                         // whose own bbox is sub-pixel at options.scale is
@@ -200,7 +228,8 @@ namespace le
                    // implies the two change together, but not guaranteed
                    // by this struct itself) would otherwise return a
                    // stale, un-recomputed result.
-                   last.scale != current.scale;
+                   last.scale != current.scale ||
+                   last.hidden_objects != current.hidden_objects;
         }
 
         // pipeline_stage_benchmark cache-stat hooks (tbb_core.hpp) - same
@@ -254,13 +283,121 @@ namespace le
             return cached.index;
         }
 
+        // The Placement.type/Route.use filter, resolved against Root: the
+        // Designs whose placements are hidden, and a hidden flag per Route
+        // pool index. Rebuilt when the filter or Root changes (it's
+        // per-Design and per-Route, not per-shape). The mask cache is
+        // dropped when the filter or the hidden Designs change; a Route's
+        // use changing needs nothing extra - the resolver rebuilds that
+        // Route's tile, so its chunk (and mask) is new.
+        void update_filter(const ViewRenderOptions &options)
+        {
+            std::erase_if(visibility_cache_, [](const auto &entry)
+                          { return entry.second.source.expired(); });
+            if (!options.root || options.hidden_objects.empty())
+            {
+                filter_ = FilterContext{};
+                visibility_cache_.clear();
+                return;
+            }
+            if (filter_.active && filter_.filter == options.hidden_objects && filter_.root == options.root &&
+                filter_.root_mutation_version == options.root_mutation_version)
+                return;
+
+            const Root &root = *options.root;
+            FilterContext next{.active = true, .filter = options.hidden_objects, .root = options.root,
+                               .root_mutation_version = options.root_mutation_version,
+                               .hidden_designs = designs_of_placement_types(root, options.hidden_objects.placement_types)};
+            if (!options.hidden_objects.route_uses.empty())
+                for (const RouteId route_id : root.get_route_ids())
+                    if (const RouteData *route = root.get_route(route_id); route && options.hidden_objects.route_uses.contains(route_use(*route)))
+                    {
+                        if (next.hidden_routes.size() <= route_id.index)
+                            next.hidden_routes.resize(route_id.index + 1);
+                        next.hidden_routes[route_id.index] = true;
+                    }
+            if (!filter_.active || filter_.filter != next.filter || filter_.root != next.root || filter_.hidden_designs != next.hidden_designs)
+                visibility_cache_.clear();
+            filter_ = std::move(next);
+        }
+
+        // `chunk`'s hidden masks under the current filter_ - null when it
+        // hides nothing (or has no sources: nothing in it is a Route's or
+        // Placement's). Cached per chunk.
+        ChunkVisibilityHandle visibility_for(const ViewShapeChunk &chunk, const Root &root)
+        {
+            if (!chunk.sources || !chunk.shapes)
+                return nullptr;
+            CachedVisibility &cached = visibility_cache_[chunk.shapes.get()];
+            if (cached.source.lock() == chunk.shapes)
+                return cached.visibility;
+
+            ChunkVisibility visibility;
+            if (!filter_.hidden_routes.empty())
+                for (const auto &[layer, shape_ids] : chunk.sources->shapes)
+                {
+                    std::vector<bool> hidden(shape_ids.size());
+                    bool any = false;
+                    for (std::size_t i = 0; i < shape_ids.size(); ++i)
+                        if (const ShapeData *shape = root.get_shape(shape_ids[i]);
+                            shape && shape->route.valid() && shape->route.index < filter_.hidden_routes.size() && filter_.hidden_routes[shape->route.index])
+                            hidden[i] = any = true;
+                    if (any)
+                        visibility.hidden_shapes.emplace(layer, std::move(hidden));
+                }
+            if (!filter_.hidden_designs.empty())
+            {
+                const std::vector<PlacementId> &placements = chunk.sources->placements;
+                std::vector<bool> hidden(placements.size());
+                bool any = false;
+                for (std::size_t i = 0; i < placements.size(); ++i)
+                    if (const PlacementData *placement = root.get_placement(placements[i]);
+                        placement && filter_.hidden_designs.contains(placement->reference_design))
+                        hidden[i] = any = true;
+                if (any)
+                    visibility.hidden_placements = std::move(hidden);
+            }
+
+            cached.source = chunk.shapes;
+            cached.visibility = visibility.hidden_shapes.empty() && visibility.hidden_placements.empty()
+                                    ? nullptr
+                                    : std::make_shared<const ChunkVisibility>(std::move(visibility));
+            ++visibility_builds_;
+            return cached.visibility;
+        }
+
     public:
         /// @brief How many placement-tile indices this stage has built (for
         /// tests: an edit reuses every untouched tile's index).
         std::size_t index_builds() const { return index_builds_; }
 
+        /// @brief How many chunk visibility masks this stage has built (for
+        /// tests: a pan or an edit reuses every untouched chunk's mask).
+        std::size_t visibility_builds() const { return visibility_builds_; }
+
     private:
         std::size_t index_builds_ = 0;
+        std::size_t visibility_builds_ = 0;
+
+        struct FilterContext
+        {
+            bool active = false;
+            ObjectFilterSets filter;
+            const Root *root = nullptr;
+            std::uint64_t root_mutation_version = 0;
+            std::unordered_set<DesignId> hidden_designs;
+            std::vector<bool> hidden_routes; // by RouteId::index
+        };
+        FilterContext filter_;
+
+        // A chunk's mask; `source` is weak so a replaced chunk isn't kept
+        // alive, and checked before use in case its address was reused.
+        struct CachedVisibility
+        {
+            std::weak_ptr<const ViewLayerShapes> source;
+            ChunkVisibilityHandle visibility;
+        };
+        std::unordered_map<const ViewLayerShapes *, CachedVisibility> visibility_cache_;
 
         // A tile's index; `tile` is weak so the cache never keeps a
         // replaced tile alive, and is checked before use in case a dead

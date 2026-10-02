@@ -289,6 +289,20 @@ namespace le
     };
     using ViewPlacements = std::shared_ptr<const ViewPlacementTile>;
 
+    /// @brief Which of one chunk's objects are hidden by the Placement.type/
+    /// Route.use filters (ViewRenderOptions::hidden_objects) - set bits are
+    /// hidden. `hidden_shapes[layer][i]` is parallel to
+    /// `chunk.shapes->at(layer)` (a layer with nothing hidden is absent);
+    /// `hidden_placements[i]` to `chunk.sources->placements` - rect and
+    /// label `i` of the chunk's batched PLACEMENT shape. Built by
+    /// ViewportCullStage, read by RasterizeBlend2DStage.
+    struct ChunkVisibility
+    {
+        std::unordered_map<ViewLayerId, std::vector<bool>> hidden_shapes;
+        std::vector<bool> hidden_placements;
+    };
+    using ChunkVisibilityHandle = std::shared_ptr<const ChunkVisibility>;
+
     struct ViewData
     {
         /// @brief The node's direct shapes: for a Layout its fixed chunks
@@ -307,6 +321,15 @@ namespace le
         /// @brief The hierarchy depth budget this node was resolved with
         /// (HierarchyResolverStage re-resolves its placements with it).
         int remaining_depth = 0;
+        /// @brief Index in `chunks` of placement tile 0's chunk: placement
+        /// tile `t`'s rects/labels and sources are `chunks[offset + t]`,
+        /// whose `sources->placements[j]` is `placement_tiles[t]`'s
+        /// placement `j` when the node has depth left.
+        std::size_t placement_chunk_offset = 0;
+        /// @brief Per-chunk hidden masks, parallel to `chunks` - set only
+        /// in ViewportCullStage's output; empty, or a null entry, means
+        /// nothing in that chunk is hidden.
+        std::vector<ChunkVisibilityHandle> chunk_visibility;
     };
 
     /// @brief Calls `fn(const ViewPlacementData &)` for every placement of `data`.
@@ -544,15 +567,14 @@ namespace le
     /// a stricter/shallower one found later). Revisit if a real fixture
     /// needs otherwise.
     ///
-    /// Recompute trigger: root_mutation_version, top_level,
-    /// hierarchy_depth and hidden_objects all matter here (unlike
-    /// LayerGenerationStage, which only cares about the first) - a
-    /// top_level/hierarchy_depth/hidden_objects change
-    /// re-walks the same Root from a different starting point, budget or filter,
+    /// Recompute trigger: root_mutation_version, top_level, and
+    /// hierarchy_depth all matter here (unlike LayerGenerationStage, which
+    /// only cares about the first) - a top_level/hierarchy_depth change
+    /// re-walks the same Root from a different starting point or budget,
     /// producing a different HierarchyResolverOutput even though nothing
     /// in the database itself changed. When wired to LayerGenerationStage
     /// via a real make_edge (ViewRenderPipeline), a ViewLayerSet rebuild also
-    /// forces a recompute here even if none of the four fields above
+    /// forces a recompute here even if none of the three fields above
     /// changed - LayerGenerationStage's own bumped version() becomes this
     /// stage's own incoming data_version, and execute()'s should_recompute
     /// check ORs that against options_did_change() below.
@@ -593,9 +615,6 @@ namespace le
             // belong to the next compute().
             const std::uint64_t log_end = root.change_log().end_sequence();
 
-            hidden_ = HiddenObjects{.designs = designs_of_placement_types(root, options.hidden_objects.placement_types),
-                                    .route_uses = options.hidden_objects.route_uses};
-
             std::optional<HierarchyResolverOutput> result;
             if (can_update_incrementally(root, view_layers, options))
                 result = update_incrementally(root, view_layers_handle, view_layers, options);
@@ -603,8 +622,7 @@ namespace le
             if (!result)
                 result = resolve_everything(root, view_layers_handle, view_layers, options);
 
-            state_ = ResolveState{.root = &root, .top_level = options.top_level, .hierarchy_depth = options.hierarchy_depth,
-                                  .hidden_objects = options.hidden_objects, .log_end = log_end};
+            state_ = ResolveState{.root = &root, .top_level = options.top_level, .hierarchy_depth = options.hierarchy_depth, .log_end = log_end};
             result->root = &root;
             result->top_level = options.top_level;
             result->hierarchy_depth = options.hierarchy_depth;
@@ -622,8 +640,7 @@ namespace le
         {
             return last.root_mutation_version != current.root_mutation_version ||
                    last.top_level != current.top_level ||
-                   last.hierarchy_depth != current.hierarchy_depth ||
-                   last.hidden_objects != current.hidden_objects;
+                   last.hierarchy_depth != current.hierarchy_depth;
         }
 
         // pipeline_stage_benchmark cache-stat hooks (tbb_core.hpp) - this
@@ -675,17 +692,7 @@ namespace le
             const Root *root = nullptr;
             HierarchyId top_level;
             int hierarchy_depth = 0;
-            ObjectFilterSets hidden_objects;
             std::uint64_t log_end = 0;
-        };
-
-        // The current compute()'s hidden objects: placements of these
-        // Designs (their Placement.type is hidden) and routes with these
-        // Route.use values are left out of the render tree.
-        struct HiddenObjects
-        {
-            std::unordered_set<DesignId> designs;
-            std::set<std::string> route_uses;
         };
 
         struct WorkItem
@@ -835,8 +842,8 @@ namespace le
             }
         };
 
-        ViewLayerShapes collect_route_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const std::vector<RouteId> &routes,
-                                           ChunkSources &sources) const
+        static ViewLayerShapes collect_route_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const std::vector<RouteId> &routes,
+                                                  ChunkSources &sources)
         {
             SourceRecorder recorder;
             recorder.pushes.reserve(routes.size() * 4);
@@ -846,8 +853,6 @@ namespace le
             {
                 const RouteData *route = root.get_route(route_id);
                 if (!route || route->layout != layout_id)
-                    continue;
-                if (!hidden_.route_uses.empty() && hidden_.route_uses.contains(route_use(*route)))
                     continue;
                 for (const ShapeId shape_id : root.get_route_shapes(route_id))
                 {
@@ -871,10 +876,10 @@ namespace le
         // remains - the resolved ViewPlacementData and the child to visit.
         // resolve_design_target runs regardless of depth: the placeholder
         // rect needs the resolved size even at remaining_depth 0.
-        ViewLayerShapes collect_placement_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, int remaining_depth,
-                                               const std::vector<PlacementId> &placements,
-                                               std::vector<ViewPlacementData> &placement_data, std::vector<WorkItem> &children,
-                                               std::vector<PlacementId> &rect_sources) const
+        static ViewLayerShapes collect_placement_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, int remaining_depth,
+                                                      const std::vector<PlacementId> &placements,
+                                                      std::vector<ViewPlacementData> &placement_data, std::vector<WorkItem> &children,
+                                                      std::vector<PlacementId> &rect_sources)
         {
             const ResolverPhaseTimer timer("layout.placements");
             if (remaining_depth > 0)
@@ -890,8 +895,6 @@ namespace le
                 const PlacementData *placement = root.get_placement(placement_id);
                 if (!placement || placement->layout != layout_id || !placement->location || !placement->reference_design.valid())
                     continue;
-                if (!hidden_.designs.empty() && hidden_.designs.contains(placement->reference_design))
-                    continue; // its Placement.type is hidden - outline, label and content
 
                 const DesignTarget target = resolve_design_target(root, placement->reference_design, remaining_depth);
                 HierarchyId child_id;
@@ -942,16 +945,16 @@ namespace le
             return shapes;
         }
 
-        void rebuild_route_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const LayoutTiling &tiling,
-                                std::size_t tile, ViewData &data) const
+        static void rebuild_route_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const LayoutTiling &tiling,
+                                       std::size_t tile, ViewData &data)
         {
             ChunkSources sources;
             ViewLayerShapes shapes = collect_route_tile(root, view_layers, layout_id, tiling.routes.members[tile], sources);
             data.chunks[tiling.route_chunk(tile)] = make_chunk(std::move(shapes), "layout.shape_index", std::move(sources));
         }
 
-        void rebuild_placement_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const LayoutTiling &tiling,
-                                    std::size_t tile, ViewData &data, FreshPlacements &fresh, std::vector<WorkItem> &children) const
+        static void rebuild_placement_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const LayoutTiling &tiling,
+                                           std::size_t tile, ViewData &data, FreshPlacements &fresh, std::vector<WorkItem> &children)
         {
             std::vector<ViewPlacementData> &placement_data = fresh[HierarchyId{layout_id}][tile];
             placement_data.clear();
@@ -1003,6 +1006,7 @@ namespace le
         {
             LayoutTiling &tiling = tilings_[layout_id] = make_tiling(root, layout_id);
             data.chunks.assign(kFixedLayoutChunkCount + tiling.routes.grid.count() + tiling.placements.grid.count(), ViewShapeChunk{});
+            data.placement_chunk_offset = tiling.placement_chunk(0);
             for (std::size_t c = 0; c < kFixedLayoutChunkCount; ++c)
                 data.chunks[c] = build_fixed_chunk(root, view_layers, layout_id, static_cast<LayoutChunk>(c));
             for (std::size_t t = 0; t < tiling.routes.grid.count(); ++t)
@@ -1086,8 +1090,7 @@ namespace le
         {
             const OutputHandle &previous = previous_result();
             return state_ && previous && previous->view_layers && state_->root == &root && state_->top_level == options.top_level &&
-                   state_->hierarchy_depth == options.hierarchy_depth && state_->hidden_objects == options.hidden_objects &&
-                   root.change_log().covers(state_->log_end) &&
+                   state_->hierarchy_depth == options.hierarchy_depth && root.change_log().covers(state_->log_end) &&
                    same_view_layer_ids(*previous->view_layers, view_layers);
         }
 
@@ -2013,7 +2016,6 @@ namespace le
         }
 
         std::optional<ResolveState> state_;
-        HiddenObjects hidden_;
         // Route/placement tile membership of every Layout in the previous
         // output (kept in step with it).
         std::unordered_map<LayoutId, LayoutTiling> tilings_;

@@ -72,13 +72,16 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
     `ViewShapeChunk`s (a Layout's fixed chunks plus spatial tiles of ~2000
     routes/placements), and only touched chunks rebuild; anything it can't
     place falls back to a full resolve (`last_compute_was_incremental()`).
-    Hidden Placement.type/Route.use values (`hidden_objects`) are left out
-    here; changing them re-resolves everything.
     Chunks carry `ChunkSources` so Layout-view selection queries the last
     resolved render tree (`ViewRenderPipeline::resolved_output()`, api.cpp's
     `layout_candidates`) instead of scanning the Layout.
   - `ViewportCullStage` prunes to the viewport with per-node spatial
     indexes; sub-pixel placements are culled whole.
+    It also applies the Placement.type/Route.use filters (`hidden_objects`):
+    hidden placements aren't descended into, and per-chunk
+    `ChunkVisibility` masks (cached per chunk, from `ChunkSources`) tell
+    Rasterize which route shapes and placement rects to skip - a toggle
+    never re-resolves.
   - `RasterizeBlend2DStage` rasterizes each node's own shapes to a
     `BLImage` (fill patterns, labels via a cached monospace glyph atlas,
     port markers, the background grid for the top level); `ComposeStage`

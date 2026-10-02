@@ -102,9 +102,10 @@ namespace le
         std::unordered_map<std::string, bool> layer_name_visible;
         std::unordered_map<ViewLayerPurpose, bool> purpose_visible;
         /// @brief Placement.type/Route.use values whose objects are hidden
-        /// (the Layers panel's per-value filters). HierarchyResolverStage
-        /// leaves them out of the render tree; a change re-resolves
-        /// everything, like a hierarchy_depth change.
+        /// (the Layers panel's per-value filters). Applied by
+        /// ViewportCullStage (hidden placements aren't descended into;
+        /// per-chunk masks for RasterizeBlend2DStage) - the resolved tree
+        /// doesn't depend on it, so a toggle never re-resolves.
         ObjectFilterSets hidden_objects;
 
         /// @brief The user's per-layer colors (LeHandle::layer_color_overrides,

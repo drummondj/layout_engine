@@ -2,6 +2,7 @@
 #include "synchronous_stage_runner.hpp"
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 
 using namespace le;
@@ -228,4 +229,91 @@ TEST_F(ViewportCullStageFixture, PlacementIndicesSurviveEditsThatDontTouchThem)
     hierarchy_resolver_runner.run(view_layers_handle, 0, options_with_viewport(Rect{}));
     cull_runner.run(hierarchy_resolver_runner.last_handle(), 2, options);
     EXPECT_EQ(cull_runner.stage().index_builds(), initial_builds + 1); // BLOCK's only
+}
+
+namespace
+{
+    ViewRenderOptions with_hidden(ViewRenderOptions options, ObjectFilterSets hidden)
+    {
+        options.hidden_objects = std::move(hidden);
+        return options;
+    }
+
+    // Every set bit across `data`'s chunk masks: hidden route shapes, then
+    // hidden placements.
+    std::pair<std::size_t, std::size_t> hidden_counts(const ViewData &data)
+    {
+        std::size_t shapes = 0;
+        std::size_t placements = 0;
+        for (const ChunkVisibilityHandle &visibility : data.chunk_visibility)
+            if (visibility)
+            {
+                for (const auto &[layer, bits] : visibility->hidden_shapes)
+                    shapes += static_cast<std::size_t>(std::ranges::count(bits, true));
+                placements += static_cast<std::size_t>(std::ranges::count(visibility->hidden_placements, true));
+            }
+        return {shapes, placements};
+    }
+}
+
+TEST_F(ViewportCullStageFixture, AHiddenPlacementTypeIsNeitherDescendedIntoNorDrawn)
+{
+    root.get_abstract(leaf_abstract)->type = "CORE";
+    const ViewRenderOptions everything = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
+
+    const HierarchyResolverOutput &hidden = cull_runner.run(cold_output, 0, with_hidden(everything, {.placement_types = {"CORE"}}));
+    ASSERT_TRUE(hidden.view_data.contains(HierarchyId{block_layout}));
+    EXPECT_FALSE(hidden.view_data.contains(HierarchyId{leaf_abstract}));
+    const ViewData &block = hidden.view_data.at(HierarchyId{block_layout});
+    EXPECT_EQ(placement_count(block), 0u);
+    ASSERT_EQ(block.chunk_visibility.size(), block.chunks.size());
+    ASSERT_TRUE(block.chunk_visibility[block.placement_chunk_offset]);
+    EXPECT_EQ(block.chunk_visibility[block.placement_chunk_offset]->hidden_placements, (std::vector<bool>{true, true})); // leaf0/leaf1 rects and labels
+    EXPECT_EQ(placement_count(hidden.view_data.at(HierarchyId{top_layout})), 1u); // BLOCK is untyped
+
+    const HierarchyResolverOutput &shown = cull_runner.run(cold_output, 0, everything);
+    EXPECT_TRUE(shown.view_data.contains(HierarchyId{leaf_abstract}));
+    EXPECT_TRUE(shown.view_data.at(HierarchyId{block_layout}).chunk_visibility.empty());
+}
+
+TEST_F(ViewportCullStageFixture, AHiddenRouteUseMasksExactlyItsRoutesShapes)
+{
+    const RouteId power = root.create_route(RouteData{.layout = top_layout, .name = "VDD", .use = std::string("POWER")});
+    root.create_shape(ShapeData{.route = power, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
+    root.create_shape(ShapeData{.route = power, .rects = {Rect{.ll = Point{0, 20}, .ur = Point{50, 25}}}});
+    const RouteId signal = root.create_route(RouteData{.layout = top_layout, .name = "n1"});
+    root.create_shape(ShapeData{.route = signal, .rects = {Rect{.ll = Point{0, 10}, .ur = Point{50, 15}}}});
+    root.bump_mutation_version();
+    hierarchy_resolver_runner.run(view_layers_handle, 0, options_with_viewport(Rect{}));
+    const ViewRenderOptions everything = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
+
+    const HierarchyResolverOutput &power_hidden = cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, with_hidden(everything, {.route_uses = {"POWER"}}));
+    EXPECT_EQ(hidden_counts(power_hidden.view_data.at(HierarchyId{top_layout})), (std::pair<std::size_t, std::size_t>{2, 0}));
+
+    const HierarchyResolverOutput &unset_hidden = cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, with_hidden(everything, {.route_uses = {"UNSET"}}));
+    EXPECT_EQ(hidden_counts(unset_hidden.view_data.at(HierarchyId{top_layout})), (std::pair<std::size_t, std::size_t>{1, 0}));
+}
+
+TEST_F(ViewportCullStageFixture, MasksAreReusedAcrossPansAndEditsAndRebuiltWhenTheFilterChanges)
+{
+    root.get_abstract(leaf_abstract)->type = "CORE";
+    const ObjectFilterSets filter{.placement_types = {"CORE"}};
+    cull_runner.run(cold_output, 0, with_hidden(options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}}), filter));
+    const std::size_t initial = cull_runner.stage().visibility_builds();
+    ASSERT_GT(initial, 0u);
+
+    cull_runner.run(cold_output, 0, with_hidden(options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{9000, 9000}}), filter)); // a pan
+    EXPECT_EQ(cull_runner.stage().visibility_builds(), initial);
+
+    // Moving TOP's BLOCK placement rebuilds TOP's placement tile only.
+    const PlacementId block0 = root.get_layout_placements(top_layout).front();
+    ASSERT_TRUE(root.update_placement(block0, top_layout, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, Point{200, 200}, std::nullopt, std::nullopt, std::nullopt));
+    root.bump_mutation_version();
+    hierarchy_resolver_runner.run(view_layers_handle, 0, options_with_viewport(Rect{}));
+    ASSERT_TRUE(hierarchy_resolver_runner.stage().last_compute_was_incremental());
+    cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, with_hidden(options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}}), filter));
+    EXPECT_EQ(cull_runner.stage().visibility_builds(), initial + 1);
+
+    cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, with_hidden(options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}}), {.route_uses = {"POWER"}}));
+    EXPECT_GT(cull_runner.stage().visibility_builds(), initial + 1);
 }

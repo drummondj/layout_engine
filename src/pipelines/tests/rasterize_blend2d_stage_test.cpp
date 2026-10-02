@@ -216,3 +216,58 @@ TEST_F(RasterizeBlend2DStageFixture, PortLabelDrawsOverItsOwnMarker)
     // And the marker itself is still drawn there.
     EXPECT_TRUE(region_contains_color_near(image, 440, 180, 476, 220, Color{200, 200, 200, 255}, 10));
 }
+
+// ChunkVisibility masks (ViewportCullStage's Placement.type/Route.use
+// filter): a hidden route shape, and a hidden placement's rect inside the
+// batched PLACEMENT shape, aren't drawn; their unhidden siblings are.
+TEST_F(RasterizeBlend2DStageFixture, ChunkVisibilityMasksHideRouteShapesAndPlacementsIndividually)
+{
+    const LibraryId library_id = root.create_library(LibraryData{.name = "TOPLIB"});
+    const DesignId small_design = root.create_design(DesignData{.library = library_id, .name = "SMALL"});
+    const AbstractId small = root.create_abstract(AbstractData{.design = small_design});
+    root.create_shape(ShapeData{.abstract = small, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{2, 2}}}});
+    const LayoutId top = root.create_layout(LayoutData{.design = root.create_design(DesignData{.library = library_id, .name = "TOP"})});
+    root.create_shape(ShapeData{.layout = top, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
+    const PlacementId p0 = root.create_placement(PlacementData{.layout = top, .name = "p0", .reference_design = small_design, .placement_status = PlacementStatus::PLACED, .location = Point{6, 1}, .orientation = Orientation::N});
+    root.create_placement(PlacementData{.layout = top, .name = "p1", .reference_design = small_design, .placement_status = PlacementStatus::PLACED, .location = Point{6, 4}, .orientation = Orientation::N});
+    const RouteId route = root.create_route(RouteData{.layout = top, .name = "n1"});
+    const ShapeId hidden_shape = root.create_shape(ShapeData{.route = route, .layer = m1, .rects = {Rect{.ll = Point{1, 1}, .ur = Point{3, 2}}}});
+    root.create_shape(ShapeData{.route = route, .layer = m1, .rects = {Rect{.ll = Point{1, 4}, .ur = Point{3, 5}}}});
+
+    // scale 10 over (0,0)-(10,10): device (x, y) is dbu (x / 10, 10 - y / 10).
+    const ViewRenderOptions options = options_for(HierarchyId{top}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);
+    HierarchyResolverRunner resolver{"HierarchyResolverMaskTest"};
+    resolver.run(view_layers_handle, 0, options);
+    HierarchyResolverOutput masked = *resolver.last_handle();
+    ViewData &data = masked.view_data.at(HierarchyId{top});
+
+    const ViewLayerId route_layer = view_layers.find(m1, ViewLayerPurpose::ROUTE);
+    data.chunk_visibility.assign(data.chunks.size(), nullptr);
+    for (std::size_t c = 0; c < data.chunks.size(); ++c)
+    {
+        const ChunkSourcesHandle &sources = data.chunks[c].sources;
+        if (!sources)
+            continue;
+        ChunkVisibility visibility;
+        if (const auto it = sources->shapes.find(route_layer); it != sources->shapes.end())
+        {
+            std::vector<bool> bits(it->second.size());
+            for (std::size_t i = 0; i < bits.size(); ++i)
+                bits[i] = it->second[i] == hidden_shape;
+            visibility.hidden_shapes.emplace(route_layer, std::move(bits));
+        }
+        for (const PlacementId id : sources->placements)
+            visibility.hidden_placements.push_back(id == p0);
+        data.chunk_visibility[c] = std::make_shared<const ChunkVisibility>(std::move(visibility));
+    }
+
+    RasterizeBlend2DRunner rasterizer{"RasterizeBlend2DMaskTest"};
+    const BLImage &image = rasterizer.run(std::make_shared<const HierarchyResolverOutput>(std::move(masked)), 0, options).images.at(HierarchyId{top}).image;
+
+    const Color route_ink = view_layers.get(route_layer)->style.outline_color;
+    const Color placement_ink = view_layers.get(view_layers.placement_view_layer())->style.outline_color;
+    EXPECT_FALSE(region_contains_color_near(image, 9, 79, 32, 91, route_ink, 30)); // hidden route shape (1,1)-(3,2)
+    EXPECT_TRUE(region_contains_color_near(image, 9, 49, 32, 61, route_ink, 30));  // its sibling (1,4)-(3,5)
+    EXPECT_FALSE(region_contains_color_near(image, 59, 69, 82, 91, placement_ink, 30)); // hidden p0 (6,1)-(8,3)
+    EXPECT_TRUE(region_contains_color_near(image, 59, 39, 82, 61, placement_ink, 30));  // p1 (6,4)-(8,6)
+}

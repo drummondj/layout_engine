@@ -156,6 +156,67 @@ namespace
         report(name + ".rasterize_first_ms", median(raster_cold));
         report(name + ".rasterize_warm_ms", median(raster_warm));
     }
+
+    // A Placement.type/Route.use filter toggle on one viewport, from a warm
+    // unfiltered frame: cull+rasterize hiding `filter` (masks built - the
+    // whole cost of a toggle, no resolve), then showing everything again;
+    // plus how many objects are hidden and the masks' memory.
+    void profile_filter(const HierarchyResolverStage::OutputHandle &resolved, const ViewRenderOptions &cold, Rect viewport,
+                        const ObjectFilterSets &filter, int repeats)
+    {
+        std::vector<double> hide_cull, hide_raster, show_cull, show_raster;
+        std::size_t hidden_shapes = 0;
+        std::size_t hidden_placements = 0;
+        std::size_t mask_bytes = 0;
+        for (int r = 0; r < repeats; ++r)
+        {
+            ViewportCullRunner cull{"profile_cull"};
+            RasterizeRunner raster{"profile_rasterize"};
+            raster.stage().set_thread_count(4);
+            const ViewRenderOptions shown = view_options(cold, viewport);
+            ViewRenderOptions hidden = shown;
+            hidden.hidden_objects = filter;
+
+            cull.run(resolved, 1, shown);
+            raster.run(cull.last_handle(), 1, shown);
+
+            auto start = std::chrono::steady_clock::now();
+            cull.run(resolved, 1, hidden);
+            hide_cull.push_back(elapsed_ms(start));
+            const HierarchyResolverStage::OutputHandle hidden_culled = cull.last_handle();
+            start = std::chrono::steady_clock::now();
+            raster.run(hidden_culled, 2, hidden);
+            hide_raster.push_back(elapsed_ms(start));
+
+            hidden_shapes = hidden_placements = mask_bytes = 0;
+            for (const auto &[id, data] : hidden_culled->view_data)
+                for (const ChunkVisibilityHandle &visibility : data.chunk_visibility)
+                    if (visibility)
+                    {
+                        for (const auto &[layer, bits] : visibility->hidden_shapes)
+                        {
+                            hidden_shapes += static_cast<std::size_t>(std::ranges::count(bits, true));
+                            mask_bytes += bits.size() / 8;
+                        }
+                        hidden_placements += static_cast<std::size_t>(std::ranges::count(visibility->hidden_placements, true));
+                        mask_bytes += visibility->hidden_placements.size() / 8;
+                    }
+
+            start = std::chrono::steady_clock::now();
+            cull.run(resolved, 1, shown);
+            show_cull.push_back(elapsed_ms(start));
+            start = std::chrono::steady_clock::now();
+            raster.run(cull.last_handle(), 3, shown);
+            show_raster.push_back(elapsed_ms(start));
+        }
+        report("filter.hide_cull_ms", median(hide_cull));
+        report("filter.hide_rasterize_ms", median(hide_raster));
+        report("filter.show_cull_ms", median(show_cull));
+        report("filter.show_rasterize_ms", median(show_raster));
+        report("filter.hidden_route_shapes", static_cast<double>(hidden_shapes));
+        report("filter.hidden_placements", static_cast<double>(hidden_placements));
+        report("filter.mask_kb", static_cast<double>(mask_bytes) / 1024.0);
+    }
 }
 
 int main(int argc, char **argv)
@@ -258,6 +319,19 @@ int main(int argc, char **argv)
     const Point center{die.ll.x + width / 2, die.ll.y + height / 2};
     const Rect zoomed{.ll = Point{center.x - width / 20, center.y - height / 20}, .ur = Point{center.x + width / 20, center.y + height / 20}};
     profile_viewport("zoom", resolved, cold, zoomed, repeats);
+
+    // Filter toggle on the fit view: hide power/ground routes and the most
+    // common placement type.
+    std::map<std::string, std::size_t> type_counts;
+    for (const PlacementId id : fixture.root.get_layout_placements(fixture.layout_id))
+        if (const PlacementData *placement = fixture.root.get_placement(id))
+            ++type_counts[placement_type(fixture.root, placement->reference_design)];
+    const auto most_common = std::ranges::max_element(type_counts, {}, [](const auto &entry)
+                                                      { return entry.second; });
+    ObjectFilterSets filter{.route_uses = {"POWER", "GROUND"}};
+    if (most_common != type_counts.end())
+        filter.placement_types.insert(most_common->first);
+    profile_filter(resolved, cold, die, filter, repeats);
     resolved.reset(); // edits below replace the output; don't keep the original alive
 
     // Edits near the die center (inside the zoomed-in window), each
