@@ -9,6 +9,7 @@
 #include <map>
 #include <string>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 namespace
@@ -23,12 +24,14 @@ namespace
     // before every geometry item" trick so shapes_from_parser finalizes
     // many separate Shape entries - giving each render enough work per
     // call to take measurable time, without making this test itself
-    // slow. Written to
-    // a scratch temp file rather than a checked-in fixture, since it's
-    // generated, not hand-authored.
+    // slow. Written to a scratch temp file rather than a checked-in
+    // fixture, since it's generated, not hand-authored. The name is unique
+    // per process and size: ctest runs each test as its own process, so a
+    // shared path lets a parallel test overwrite the file before it's read.
     std::string generate_concurrency_stress_lef(int shape_count)
     {
-        const std::filesystem::path path = std::filesystem::temp_directory_path() / "le_concurrency_stress.lef";
+        const std::filesystem::path path = std::filesystem::temp_directory_path()
+            / ("le_concurrency_stress_" + std::to_string(::getpid()) + "_" + std::to_string(shape_count) + ".lef");
 
         std::ofstream out(path, std::ios::trunc);
         out << "VERSION 5.8 ;\nBUSBITCHARS \"<>\" ;\nDIVIDERCHAR \"/\" ;\n\n";
@@ -46,6 +49,15 @@ namespace
 
         out << "END CONCURRENCYSTRESS\n";
         return path.string();
+    }
+
+    /// @brief Reads a generated stress LEF into `handle`, then deletes the temp file.
+    int read_concurrency_stress_lef(LeHandle *handle, int shape_count)
+    {
+        const std::string path = generate_concurrency_stress_lef(shape_count);
+        const int result = le_read_lef(handle, path.c_str(), "test_lib");
+        std::filesystem::remove(path);
+        return result;
     }
 
     // ROUTING layers (e.g. the pin's M1) render with a tiled FillPattern
@@ -2583,8 +2595,7 @@ TEST_F(ApiFixture, SelectAllSkipsUnselectableLayers)
 // of the cap left at this layer.
 TEST_F(ApiFixture, SelectAllIsCappedAt10000AndWarns)
 {
-    const std::string path = generate_concurrency_stress_lef(10050);
-    ASSERT_EQ(le_read_lef(handle, path.c_str(), "test_lib"), 0);
+    ASSERT_EQ(read_concurrency_stress_lef(handle, 10050), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
 
     le_key_down(handle, LE_KEY_CTRL);
@@ -3670,7 +3681,7 @@ TEST_F(ApiFixture, ConcurrentRenderAndMousePositionCallsOnTheSameHandleDoNotCras
     // function locks the handle's own mutex; this drives both call paths
     // concurrently, repeatedly, and must complete without crashing,
     // deadlocking, or hanging.
-    ASSERT_EQ(le_read_lef(handle, generate_concurrency_stress_lef(3000).c_str(), "test_lib"), 0);
+    ASSERT_EQ(read_concurrency_stress_lef(handle, 3000), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 200, 200);
 
@@ -3705,7 +3716,7 @@ TEST_F(ApiFixture, IsRenderingReflectsWhetherARenderIsActuallyInProgress)
     // observable time: a render_thread does the actual render while this
     // thread tight-spin-polls le_is_rendering concurrently, expecting to
     // catch it true at least once before the render finishes.
-    ASSERT_EQ(le_read_lef(handle, generate_concurrency_stress_lef(3000).c_str(), "test_lib"), 0);
+    ASSERT_EQ(read_concurrency_stress_lef(handle, 3000), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     le_set_viewport_size(handle, 200, 200);
 
