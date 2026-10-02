@@ -303,6 +303,12 @@ namespace
                handle->is_view_layer_selectable("PLACEMENT", le::ViewLayerPurpose::PLACEMENT);
     }
 
+    bool rows_selectable(const LeHandle *handle)
+    {
+        return handle->is_view_layer_visible("ROW", le::ViewLayerPurpose::ROW) &&
+               handle->is_view_layer_selectable("ROW", le::ViewLayerPurpose::ROW);
+    }
+
     // Candidates for a Layout-view click or rubber band over `query`: the
     // objects whose rendered geometry overlaps it, read from the render
     // tree (the last resolver output's per-chunk rtrees and their sources -
@@ -4627,8 +4633,8 @@ extern "C"
 
     // Every selectable object under dbu `p`, in click priority order: vias
     // first (a via sits on top of the wires it joins), smallest first;
-    // then shape pieces, topmost layer first; then
-    // (Layout view) placements, topmost first.
+    // then shape pieces, topmost layer first; then (Layout view)
+    // placements, topmost first, and last the Rows the placements sit on.
     std::vector<LeHandle::SelectedObject> objects_under_point_unlocked(const LeHandle *handle, le::Point p)
     {
         std::vector<LeHandle::SelectedObject> objects;
@@ -4662,6 +4668,9 @@ extern "C"
                 for (const le::PlacementId placement_id : le::hit_test_placements_point_all(handle->root, layout_id, remaining_depth, p,
                                                                                            placement_candidates ? &*placement_candidates : nullptr))
                     objects.emplace_back(placement_id);
+            if (rows_selectable(handle))
+                for (const le::RowId row_id : le::hit_test_rows_point_all(handle->root, layout_id, p))
+                    objects.emplace_back(row_id);
         }
         else
             add_pieces(le::hit_test_abstract_point_all(handle->root, handle->view_layers, handle->current_abstract(), p, handle->scale(), is_selectable));
@@ -4732,31 +4741,10 @@ extern "C"
         }
     }
 
-    // le_mouse_up's Select-mode, Layout-view drag-select branch -
-    // top-level Layout content only, never recursing into a Placement's
-    // own reference_design. Own-shape hit-testing covers Route/
-    // PhysicalPort (hit_test_layout_point/_rect,
-    // core/placement_geometry.hpp); Blockage/Row/Region aren't hit-tested
-    // yet (Row/Region have no backing Shape at all, so they need their
-    // own bare-id hit-test, not an extension of this one). A click
-    // checks own_shapes *before* Placement (hit_test_placements_point
-    // is a pure bounding-box test, not real
-    // per-pixel/geometry hit-testing, so a click that lands within a
-    // placement's own bbox but over a point where its own painted
-    // content is actually transparent there - leaving a Route/
-    // PhysicalPort visible underneath - must still prefer the visible
-    // own_shape, not the placement bbox merely covering that point).
-    // Falling through to the Placement bbox test only when own_shapes
-    // has no hit at all keeps every other case unchanged (a click
-    // genuinely inside a placement's own content, away from any
-    // own_shape, still finds nothing via hit_test_layout_point and falls
-    // through to it exactly as before). Route/PhysicalPort have real
-    // backing Shapes, so they ride the exact same ShapeId+piece
-    // re-resolution the Abstract branch above already uses. A drag (the
-    // `else` branch below) has no such ordering concern - it unions both
-    // hit_test_placements_rect and hit_test_layout_rect's own results
-    // independently rather than picking one topmost target, so the same
-    // set of ids ends up selected regardless of which is checked first.
+    // le_mouse_up's Select-mode, Layout-view drag-select branch: selects
+    // every top-level placement, Route/PhysicalPort shape piece, via and
+    // Row fully inside the rectangle, never recursing into a Placement's
+    // reference_design. Blockage and Region aren't hit-tested yet.
     void select_in_layout_view_unlocked(LeHandle *handle, int32_t x, int32_t y)
     {
         const le::LayoutId layout_id = handle->current_layout();
@@ -4787,6 +4775,9 @@ extern "C"
                 handle->select(hit.shape_id, hit.piece_kind, hit.piece_index);
             for (const LeHandle::ShapePiece &via : hit_test_via_rect(handle, drag_rect, shape_candidates))
                 handle->select(via.shape_id, via.piece_kind, via.piece_index);
+            if (rows_selectable(handle))
+                for (const le::RowId row_id : le::hit_test_rows_rect(handle->root, layout_id, drag_rect))
+                    handle->select(row_id);
         }
     }
 

@@ -1317,15 +1317,8 @@ TEST_F(ApiFixture, SelectObjectRefWithPhysicalPortKindSelectsEveryPieceOfEverySe
 
 TEST_F(ApiFixture, MouseClickInLayoutViewSelectsARowWithNoBackingShape)
 {
-    // Same Layout-view own-shape hit-testing gap as
-    // MouseClickInLayoutViewPrefersAnOwnShapeOverAPlacementsBoundingBoxAtTheSamePoint
-    // above - see that test's own comment. Pre-existing, unrelated to the
-    // SystemVerilog/slang work in this branch.
-    GTEST_SKIP() << "Layout-view own-shape hit-testing not yet ported - see comment above";
-    // Row has no stored Shape of its own (purely parametric geometry -
-    // see append_row_shapes' own comment) - this is the specific
-    // "origin set but shape_id unset" fork le_mouse_up needs, distinct
-    // from the ShapeId+piece path every other kind above/below uses.
+    // A Row has no stored Shape; its footprint is synthesized from its
+    // Site (row_footprint_bbox).
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0); // establishes the Technology
 
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
@@ -1357,6 +1350,100 @@ TEST_F(ApiFixture, MouseClickInLayoutViewSelectsARowWithNoBackingShape)
     const LeObjectRef ref = le_selected_object_ref(handle, 0);
     EXPECT_EQ(ref.kind, LE_OBJECT_KIND_ROW);
     EXPECT_EQ(ref.index, row_id.index);
+}
+
+// Layout view at scale 0.005 px/dbu over a 100x100 viewport: device
+// (x, y) is dbu (200 x, 200 (100 - y)), so the view spans (0,0)-(20,20) um.
+namespace
+{
+    constexpr int32_t kRowPurpose = 6; // ViewLayerPurpose::ROW
+
+    LeDesignId row_test_layout(LeHandle *handle, LeLayoutId &layout_out)
+    {
+        EXPECT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+        const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
+        const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
+        layout_out = le_create_layout(handle, top_design);
+        EXPECT_NE(le_create_site(handle, le_technology_id(handle), "SITE4", nullptr, /*has_size=*/1, 4.0, 4.0, 0, 0, 0, 0).index, UINT32_MAX);
+        return top_design;
+    }
+
+    void show_layout_at_row_test_scale(LeHandle *handle, LeDesignId design)
+    {
+        ASSERT_EQ(le_set_current_design_layout_by_id(handle, design), 0);
+        le_set_viewport_size(handle, 100, 100);
+        le_zoom(handle, 0.005 - 1.0, 0, 100);
+    }
+}
+
+TEST_F(ApiFixture, MouseClickOnARowUnderAPlacementSelectsThePlacementFirstThenTheRow)
+{
+    LeLayoutId layout{};
+    const LeDesignId design = row_test_layout(handle, layout);
+    const LeDesignInfo testcell_design = le_library_design_at(handle, 0, 0);
+    // TESTCELL is 10x10 um; the Row (0,0)-(4,4) um lies under it.
+    const LePlacementId placement_id = le_create_placement(handle, layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
+    const LeRowId row_id = le_create_row(handle, layout, "ROW1", "SITE4", /*has_origin=*/1, 0.0, 0.0, "N", 0, 0, 0, 0, 0, 0.0, 0, 0.0);
+    ASSERT_NE(row_id.index, UINT32_MAX);
+    le_set_purpose_visible(handle, kRowPurpose, 1);
+    show_layout_at_row_test_scale(handle, design);
+
+    le_mouse_down(handle, 10, 90); // (2,2) um
+    le_mouse_up(handle, 10, 90);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    LeObjectRef ref = le_selected_object_ref(handle, 0);
+    EXPECT_EQ(ref.kind, LE_OBJECT_KIND_PLACEMENT);
+    EXPECT_EQ(ref.index, placement_id.index);
+
+    le_mouse_down(handle, 10, 90);
+    le_mouse_up(handle, 10, 90);
+    ASSERT_EQ(le_selection_count(handle), 1);
+    ref = le_selected_object_ref(handle, 0);
+    EXPECT_EQ(ref.kind, LE_OBJECT_KIND_ROW);
+    EXPECT_EQ(ref.index, row_id.index);
+}
+
+TEST_F(ApiFixture, DragSelectInLayoutViewSelectsAFullyEnclosedRowAndSkipsAPartlyEnclosedOne)
+{
+    LeLayoutId layout{};
+    const LeDesignId design = row_test_layout(handle, layout);
+    const LeRowId inside = le_create_row(handle, layout, "ROW_IN", "SITE4", /*has_origin=*/1, 0.0, 0.0, "N", 0, 0, 0, 0, 0, 0.0, 0, 0.0);
+    const LeRowId partly = le_create_row(handle, layout, "ROW_PART", "SITE4", /*has_origin=*/1, 8.0, 0.0, "N", 0, 0, 0, 0, 0, 0.0, 0, 0.0);
+    ASSERT_NE(inside.index, UINT32_MAX);
+    ASSERT_NE(partly.index, UINT32_MAX);
+    le_set_purpose_visible(handle, kRowPurpose, 1);
+    show_layout_at_row_test_scale(handle, design);
+
+    // (0,0)-(10,6) um: all of ROW_IN (0,0)-(4,4), half of ROW_PART (8,0)-(12,4).
+    le_mouse_down(handle, 0, 100);
+    le_mouse_up(handle, 50, 70);
+
+    ASSERT_EQ(le_selection_count(handle), 1);
+    const LeObjectRef ref = le_selected_object_ref(handle, 0);
+    EXPECT_EQ(ref.kind, LE_OBJECT_KIND_ROW);
+    EXPECT_EQ(ref.index, inside.index);
+}
+
+TEST_F(ApiFixture, RowsAreNotSelectableWhileTheRowPurposeIsHiddenOrUnselectable)
+{
+    LeLayoutId layout{};
+    const LeDesignId design = row_test_layout(handle, layout);
+    ASSERT_NE(le_create_row(handle, layout, "ROW1", "SITE4", /*has_origin=*/1, 0.0, 0.0, "N", 0, 0, 0, 0, 0, 0.0, 0, 0.0).index, UINT32_MAX);
+    show_layout_at_row_test_scale(handle, design);
+
+    // ROW is hidden by default.
+    le_mouse_down(handle, 10, 90);
+    le_mouse_up(handle, 10, 90);
+    EXPECT_EQ(le_selection_count(handle), 0);
+    le_mouse_down(handle, 0, 100);
+    le_mouse_up(handle, 50, 70);
+    EXPECT_EQ(le_selection_count(handle), 0);
+
+    le_set_purpose_visible(handle, kRowPurpose, 1);
+    le_set_purpose_selectable(handle, kRowPurpose, 0);
+    le_mouse_down(handle, 10, 90);
+    le_mouse_up(handle, 10, 90);
+    EXPECT_EQ(le_selection_count(handle), 0);
 }
 
 TEST_F(ApiFixture, LayerCountAndAtAreZeroOrInvalidForNullHandleOrNoViewLayerSetYet)

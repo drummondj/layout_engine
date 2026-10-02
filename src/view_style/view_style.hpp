@@ -73,7 +73,7 @@ namespace le
     /// match what hit-testing actually walks: TERMINAL/OBSTRUCTION
     /// (hit_test_abstract_*), ROUTE/TERMINAL (hit_test_layout_*, a
     /// PhysicalPort's own shapes draw as TERMINAL), PLACEMENT
-    /// (api.cpp's placements_selectable) - vias follow their owning
+    /// (api.cpp's placements_selectable), ROW (rows_selectable) - vias follow their owning
     /// Shape's purpose. Extend this when a new kind becomes selectable.
     constexpr bool purpose_has_selectable_objects(ViewLayerPurpose purpose)
     {
@@ -83,6 +83,7 @@ namespace le
         case ViewLayerPurpose::OBSTRUCTION:
         case ViewLayerPurpose::ROUTE:
         case ViewLayerPurpose::PLACEMENT:
+        case ViewLayerPurpose::ROW:
             return true;
         default:
             return false;
