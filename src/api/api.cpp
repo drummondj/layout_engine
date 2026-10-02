@@ -80,13 +80,9 @@ namespace
     // Rebuilds handle->view_layers if Root has changed since it was last
     // built - a layer created directly (le_create_layer, generated CRUD)
     // rather than via a LEF read must still show up. Called at the top of
-    // le_layer_count/le_layer_at/le_purpose_count/le_purpose_at - cheap
-    // when already current (one integer compare).
-    //
-    // Known gap: hit_test_abstract_point/_rect and
-    // select_in_abstract_view_unlocked read view_layers directly without
-    // this check, so a layer created via le_create_layer and then
-    // hit-tested before any le_read_lef call can be missed.
+    // le_layer_count/le_layer_at/le_purpose_count/le_purpose_at and of
+    // every hit-test entry point (le_mouse_up, select_all_unlocked) -
+    // cheap when already current (one integer compare).
     void ensure_view_layers_current(LeHandle *handle)
     {
         if (!handle->current_technology_id.valid())
@@ -2014,6 +2010,7 @@ namespace
     // that's both visible and selectable, directly.
     void select_all_unlocked(LeHandle *handle)
     {
+        ensure_view_layers_current(handle);
         const le::AbstractId abstract_id = handle->current_abstract();
         size_t selected_count = 0;
         bool capped = false;
@@ -4798,6 +4795,7 @@ extern "C"
         if (!handle || !handle->is_dragging())
             return;
         HandleWriteLock lock(handle);
+        ensure_view_layers_current(handle); // click and drag-select hit-test against view_layers
 
         const int32_t dx = x - handle->drag_start_x_px();
         const int32_t dy = y - handle->drag_start_y_px();
