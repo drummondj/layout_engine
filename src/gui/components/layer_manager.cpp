@@ -1,7 +1,5 @@
 #include "layer_manager.hpp"
 
-#include "IconsLucide.h"
-#include "compact_button.hpp"
 #include "gui_provider.hpp"
 #include "imgui.h"
 
@@ -204,14 +202,30 @@ namespace le::gui
             const float size = ImGui::GetFrameHeight();
             ImGui::SameLine();
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - size));
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-            // The 16px icon font is merged into the default font.
-            if (icon_button(open ? ICON_LC_CHEVRON_UP : ICON_LC_CHEVRON_DOWN, "expand", size, nullptr))
+            if (ImGui::InvisibleButton("expand", ImVec2(size, size)))
             {
                 open = !open;
                 storage->SetBool(open_id, open);
             }
-            ImGui::PopStyleColor();
+            // Drawn as lines rather than an icon glyph: the merged icon
+            // font follows the text font's ascent, which sits it high in
+            // the frame.
+            ImDrawList *draw_list = ImGui::GetWindowDrawList();
+            const ImVec2 min = ImGui::GetItemRectMin();
+            const ImVec2 max = ImGui::GetItemRectMax();
+            if (ImGui::IsItemHovered())
+                draw_list->AddRectFilled(
+                    min, max, ImGui::GetColorU32(ImGui::IsItemActive() ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered),
+                    ImGui::GetStyle().FrameRounding);
+            const ImVec2 center((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f);
+            const float half_width = size * 0.22f;
+            const float half_height = size * 0.11f * (open ? -1.0f : 1.0f);
+            const ImVec2 points[] = {
+                ImVec2(center.x - half_width, center.y - half_height),
+                ImVec2(center.x, center.y + half_height),
+                ImVec2(center.x + half_width, center.y - half_height),
+            };
+            draw_list->AddPolyline(points, 3, ImGui::GetColorU32(ImGuiCol_Text), ImDrawFlags_None, 1.5f);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(open ? "Hide filters" : "Show filters");
             return open;
@@ -232,20 +246,21 @@ namespace le::gui
             return true;
         }
 
-        // TableHeadersRow() left-aligns each label; V and S are centered
-        // over their checkboxes instead.
+        // Plain labels rather than TableHeadersRow(), which left-aligns
+        // them and gives the row a header background; V and S are
+        // centered over their checkboxes.
         void draw_header_row()
         {
-            ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+            ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::TableHeader("Name");
+            ImGui::TextUnformatted("Name");
             for (int column : {1, 2})
             {
                 ImGui::TableSetColumnIndex(column);
                 const char *label = ImGui::TableGetColumnName(column);
                 const float offset = (ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(label).x) * 0.5f;
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, offset));
-                ImGui::TableHeader(label);
+                ImGui::TextUnformatted(label);
             }
         }
     }
