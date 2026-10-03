@@ -44,15 +44,17 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <poll.h>
 #include <sstream>
 #include <string>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 #if defined(__linux__)
 #include <limits.h>
-#include <unistd.h>
 #endif
 
 namespace
@@ -67,6 +69,12 @@ namespace
     // this Tcl thread, then exits the way a typed `exit` would, after
     // letting readline restore the terminal.
     std::atomic<bool> g_gui_exit_requested{false};
+
+    // Set by drain_pending_gui_commands when stdin reaches end of input.
+    // With rl_event_hook installed, readline() never returns NULL at EOF on
+    // its own: it sees stdin readable with nothing to read and calls the
+    // hook again, forever.
+    bool g_stdin_eof = false;
 
     // Interactive mode only: the main thread runs the GUI loop and Tcl
     // runs on a spawned thread. A batch script runs on the main thread
@@ -372,6 +380,19 @@ namespace
             std::fputc('\n', stdout);
             exit_process(0);
         }
+        // Readline only calls this once its own input buffer is empty, so
+        // stdin readable with no bytes pending is end of input. A stuffed
+        // newline accepts whatever partial line was read, as Enter would;
+        // run_interactive then sees g_stdin_eof.
+        pollfd stdin_poll{STDIN_FILENO, POLLIN, 0};
+        int pending = 0;
+        if (!g_stdin_eof && poll(&stdin_poll, 1, 0) == 1 && ioctl(STDIN_FILENO, FIONREAD, &pending) == 0 &&
+            pending == 0)
+        {
+            g_stdin_eof = true;
+            rl_stuff_char('\n');
+            return 0;
+        }
         for (;;)
         {
             const char *command = le_take_next_pending_tcl_command(g_injected_handle);
@@ -458,15 +479,21 @@ namespace
         Tcl_Eval(interp, "rename exit ::le_shell_builtin_exit\n"
                          "proc exit {{code 0}} {if {[le_shell_confirm_exit]} {::le_shell_builtin_exit $code}}");
 
+        // Ctrl-D at a terminal asks about unsaved changes like `exit`
+        // does; end of piped or redirected input has nobody to answer.
+        const bool stdin_is_terminal = isatty(STDIN_FILENO) != 0;
+
         std::string buffer;
         for (;;)
         {
+            if (g_stdin_eof)
+                return;
             const char *prompt = buffer.empty() ? "le_shell > " : "";
             char *raw = readline(prompt);
             if (raw == nullptr)
             {
                 std::fputc('\n', stdout);
-                if (!confirm_exit_if_unsaved()) // Ctrl-D asks too
+                if (stdin_is_terminal && !confirm_exit_if_unsaved())
                     continue;
                 return;
             }

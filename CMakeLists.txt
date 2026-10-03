@@ -953,6 +953,19 @@ if(SWIG_FOUND AND TCL_FOUND)
     )
     set_tests_properties(le_tcl_shell_gui_exit PROPERTIES TIMEOUT 300)
 
+    # Interactive le_shell reading a pipe or file must evaluate all of it
+    # and exit at end of input.
+    add_test(
+        NAME le_tcl_shell_eof
+        COMMAND ${CMAKE_COMMAND}
+            -DLE_SHELL=$<TARGET_FILE:le_shell>
+            -DLE_TCL_MODULE=$<TARGET_FILE:le_tcl>
+            -DLE_TCL_PROCS=${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
+            -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/shell_eof_test
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/shell_eof_test.cmake
+    )
+    set_tests_properties(le_tcl_shell_eof PROPERTIES TIMEOUT 60)
+
     # Session-handle regression check (src/tcl/tests/session_handle_test.cpp) -
     # a plain GTest binary, not a Tcl script: proves set_session_handle()
     # actually redirects le_tcl_shim.cpp's session() to an externally-
