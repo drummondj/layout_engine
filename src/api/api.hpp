@@ -1164,10 +1164,10 @@ extern "C"
     int32_t le_load_settings(LeHandle *handle, const char *path);
 
     /// @brief 1 if the design has changed since it was last written out
-    /// (write_def/write_lef) - the exit confirmation's "unsaved design"
-    /// Reading a LEF/DEF/Verilog
-    /// isn't a change. Any successful write_def/write_lef counts as saving,
-    /// whichever Layout/Abstracts it wrote. 0 otherwise, or if handle is
+    /// (write_db/write_def/write_lef) - the exit confirmation's "unsaved
+    /// design". Reading a LEF/DEF/Verilog/.led file isn't a change. Any
+    /// successful write_db/write_def/write_lef counts as saving, whichever
+    /// Layout/Abstracts it wrote. 0 otherwise, or if handle is
     /// null.
     int32_t le_has_unsaved_database_changes(LeHandle *handle);
 

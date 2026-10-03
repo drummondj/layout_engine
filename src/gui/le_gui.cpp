@@ -676,7 +676,7 @@ namespace le::gui
 
         // The window's close button opens this instead of closing: close
         // just the window, exit le_shell, or cancel - listing anything
-        // unsaved (the design since its last write_def/write_lef, the
+        // unsaved (the design since its last write_db/write_def/write_lef, the
         // settings since their last save/load) first, with a shortcut to
         // save the settings.
         void draw_close_dialog(GuiProvider &provider, bool &open_requested, CloseChoice &choice)
@@ -698,7 +698,7 @@ namespace le::gui
             {
                 ImGui::TextUnformatted("Unsaved changes:");
                 if (design)
-                    ImGui::BulletText("The design has edits that haven't been written out -\nsave them with write_def / write_lef in the console.");
+                    ImGui::BulletText("The design has edits that haven't been written out -\nsave them with write_db / write_def / write_lef in the console.");
                 if (settings)
                     ImGui::BulletText("Settings have changed since they were last saved.");
                 ImGui::Spacing();

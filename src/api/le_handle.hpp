@@ -1630,8 +1630,8 @@ struct LeHandle
     public:
         // What "saved" means for the exit
         // confirmation. The design is unsaved once root's mutation version
-        // moves past saved_mutation_version (set by a successful write_def/
-        // write_lef, and by a read that starts from a clean state - reading
+        // moves past saved_mutation_version (set by a successful write_db/
+        // write_def/write_lef, and by a read that starts from a clean state - reading
         // a design isn't an edit). Settings are unsaved once
         // settings_to_json no longer matches saved_settings_json (set at
         // creation, by save_settings/load_settings, and by a clean read,
