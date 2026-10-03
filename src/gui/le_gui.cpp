@@ -828,12 +828,11 @@ namespace le::gui
                 ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->WorkSize);
 
                 ImGuiID center_id = dockspace_id;
-                const ImGuiID left_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Left, 0.22f, nullptr, &center_id);
-                ImGuiID right_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Right, 0.28f, nullptr, &center_id);
-                // The Info panel gets
-                // its own strip along the bottom of the right sidebar,
-                // below the Properties/Layers/Settings tabs.
-                const ImGuiID info_id = ImGui::DockBuilderSplitNode(right_id, ImGuiDir_Down, 0.15f, nullptr, &right_id);
+                ImGuiID left_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Left, 0.22f, nullptr, &center_id);
+                const ImGuiID right_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Right, 0.28f, nullptr, &center_id);
+                // The Info panel gets its own strip along the bottom of the
+                // left sidebar, below the Browser.
+                const ImGuiID info_id = ImGui::DockBuilderSplitNode(left_id, ImGuiDir_Down, 0.15f, nullptr, &left_id);
 
                 ImGui::DockBuilderDockWindow(kBrowserWindowTitle, left_id);
                 // Docked into the same node as Properties, not a
