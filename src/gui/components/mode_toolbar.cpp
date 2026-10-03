@@ -94,9 +94,6 @@ namespace le::gui
         switch (mode)
         {
         case LE_MODE_SELECT:
-            if (draw_button(ICON_LC_BOX_SELECT, "Select All", "ctrl-a"))
-                provider.select_all();
-            ImGui::SameLine();
             if (draw_button(ICON_LC_CIRCLE_X, "Deselect All", "ctrl-d"))
                 provider.deselect_all();
             break;

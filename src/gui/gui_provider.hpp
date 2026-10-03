@@ -193,7 +193,6 @@ namespace le::gui
         void open_design_layout(LeDesignId design_id);
 
         void set_mode(int32_t mode);
-        void select_all();
         void deselect_all();
         void arm_move();
         void arm_resize();

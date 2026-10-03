@@ -2391,12 +2391,6 @@ Adds each token to the selection, keeping what's already selected (use deselect_
 | --- | --- | --- | --- |
 | `<tokens>` | `token` | yes | One or more shape:/row:/placement:/region: tokens to select |
 
-## select_all
-
-`select_all [-help]`
-
-Selects every selectable shape in the current view.
-
 ## set_flightline_max_fanout
 
 `set_flightline_max_fanout <max_fanout> [-help]`

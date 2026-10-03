@@ -363,7 +363,6 @@ namespace le::gui
         }
     }
 
-    void GuiProvider::select_all() { run_tcl_command("select_all"); }
     void GuiProvider::deselect_all() { run_tcl_command("deselect_all"); }
     void GuiProvider::arm_move() { run_tcl_command("arm_move"); }
     void GuiProvider::arm_resize() { run_tcl_command("arm_resize"); }

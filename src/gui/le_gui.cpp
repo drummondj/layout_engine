@@ -260,7 +260,6 @@ namespace le::gui
             {ImGuiKey_RightArrow, LE_KEY_PAN_RIGHT},
             {ImGuiKey_UpArrow, LE_KEY_PAN_UP},
             {ImGuiKey_DownArrow, LE_KEY_PAN_DOWN},
-            {ImGuiKey_A, LE_KEY_SELECT_ALL},
             {ImGuiKey_D, LE_KEY_DESELECT_ALL},
             {ImGuiKey_1, LE_KEY_1},
             {ImGuiKey_2, LE_KEY_2},

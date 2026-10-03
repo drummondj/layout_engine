@@ -81,7 +81,7 @@ namespace
     // built - a layer created directly (le_create_layer, generated CRUD)
     // rather than via a LEF read must still show up. Called at the top of
     // le_layer_count/le_layer_at/le_purpose_count/le_purpose_at and of
-    // every hit-test entry point (le_mouse_up, select_all_unlocked) -
+    // every hit-test entry point (le_mouse_up) -
     // cheap when already current (one integer compare).
     void ensure_view_layers_current(LeHandle *handle)
     {
@@ -1369,13 +1369,6 @@ namespace
     constexpr int32_t kKeyFitPaddingPx = 10;
     constexpr double kKeyPanFactor = 0.25;
 
-    // LE_KEY_SELECT_ALL's own cap - a design can have
-    // far more selectable shapes than are reasonable to hold in the
-    // selection at once (LeHandle::select() is O(1) average per call, but
-    // the resulting selection itself, and every later FFI round-trip
-    // over it, still scales with however many objects are in it).
-    constexpr int32_t kMaxSelectAllCount = 10000;
-
     // le_tooltip_message's text, one per LeHandle::Mode. Edit mode lists
     // every key le_key_down acts on in that mode, separated by a blank
     // line ("\n\n"); the Info panel wraps each to its width.
@@ -1812,7 +1805,7 @@ namespace
     }
 
     // LE_KEY_MOVE/le_arm_move's own body - unlocked
-    // variant, same reasoning as fit_selected_unlocked/select_all_unlocked
+    // variant, same reasoning as fit_selected_unlocked
     // below (called from inside le_key_down, which already holds
     // handle->mutex_). Only meaningful in Edit mode with a non-empty
     // selection - the Mode::EDIT check lives here rather than inside
@@ -2063,74 +2056,6 @@ namespace
         if (deleted > 0)
             handle->root.bump_mutation_version();
         return deleted;
-    }
-
-    // LE_KEY_SELECT_ALL's own body - unlocked variant,
-    // same reasoning as zoom_unlocked/pan_unlocked/fit_scene_unlocked
-    // above (called from inside le_key_down, which already holds
-    // handle->mutex_). Deliberately walks Root's own raw Terminal-port/
-    // Obstruction ShapeData directly, *not* hit_test_abstract_rect - a
-    // geometric containment test would need to also bypass its own
-    // sub-pixel cull (select-all means "select everything regardless of
-    // viewport or on-screen size", the same viewport-independence
-    // fit_scene_unlocked's own generate_shapes-direct call needs, for the
-    // same reason - a hidden-by-being-tiny shape should still be
-    // select-all'able even though a *click* on it correctly can't hit
-    // it), so there's nothing a geometric hit-test actually buys here -
-    // select every rect/polygon/path piece of every ShapeId on a layer
-    // that's both visible and selectable, directly.
-    void select_all_unlocked(LeHandle *handle)
-    {
-        ensure_view_layers_current(handle);
-        const le::AbstractId abstract_id = handle->current_abstract();
-        size_t selected_count = 0;
-        bool capped = false;
-
-        const auto select_shape_pieces = [&](le::ShapeId shape_id, le::ViewLayerPurpose purpose)
-        {
-            const le::Shape *shape = handle->root.get_shape(shape_id);
-            if (!shape || !shape->layer.valid())
-                return;
-
-            const le::ViewLayerId view_layer = handle->view_layers.find(shape->layer, purpose);
-            const le::ViewLayerData *data = handle->view_layers.get(view_layer);
-            if (data && (!handle->is_layer_name_visible(data->layer_name) || !handle->is_purpose_visible(data->purpose) ||
-                         !handle->is_view_layer_selectable(data->layer_name, data->purpose)))
-                return;
-
-            const auto select_piece = [&](le::PieceKind kind, size_t index)
-            {
-                if (selected_count >= static_cast<size_t>(kMaxSelectAllCount))
-                {
-                    capped = true;
-                    return;
-                }
-                handle->select(shape_id, kind, index);
-                ++selected_count;
-            };
-            for (size_t i = 0; i < shape->rects.size(); ++i)
-                select_piece(le::PieceKind::RECT, i);
-            for (size_t i = 0; i < shape->polygons.size(); ++i)
-                select_piece(le::PieceKind::POLYGON, i);
-            for (size_t i = 0; i < shape->paths.size(); ++i)
-                select_piece(le::PieceKind::PATH, i);
-            for (size_t i = 0; i < shape->vias.size(); ++i)
-                select_piece(le::PieceKind::VIA, i);
-            for (size_t i = 0; i < shape->via_iterates.size(); ++i)
-                select_piece(le::PieceKind::VIA_ITERATE, i);
-        };
-
-        for (le::TerminalId terminal_id : handle->root.get_abstract_terminals(abstract_id))
-            for (le::TerminalPortId port_id : handle->root.get_terminal_ports(terminal_id))
-                for (le::ShapeId shape_id : handle->root.get_terminal_port_shapes(port_id))
-                    select_shape_pieces(shape_id, le::ViewLayerPurpose::TERMINAL);
-
-        for (le::ObstructionId obstruction_id : handle->root.get_abstract_obstructions(abstract_id))
-            for (le::ShapeId shape_id : handle->root.get_obstruction_shapes(obstruction_id))
-                select_shape_pieces(shape_id, le::ViewLayerPurpose::OBSTRUCTION);
-
-        if (capped)
-            spdlog::warn("select_all: selection capped at {} pieces", kMaxSelectAllCount);
     }
 
     // Every ROUTING-type layer in `technology_id`'s own declaration
@@ -3869,14 +3794,6 @@ extern "C"
         return handle->command_history.recall_at(static_cast<size_t>(index)).c_str();
     }
 
-    void le_select_all(LeHandle *handle)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        select_all_unlocked(handle);
-    }
-
     void le_deselect_all(LeHandle *handle)
     {
         if (!handle)
@@ -4631,15 +4548,6 @@ extern "C"
             if (!ctrl && !shift)
                 pan_unlocked(handle, 0.0, -kKeyPanFactor);
             break;
-        case LE_KEY_SELECT_ALL:
-            // Select-mode-only, in addition to the
-            // existing Ctrl-held gate (switch back to Select mode to
-            // change the selection from Edit/Ruler mode). Shift has no
-            // meaning here - Ctrl-Shift-A is a no-op, not "same as
-            // Ctrl-A".
-            if (handle->mode() == LeHandle::Mode::SELECT && ctrl && !shift)
-                select_all_unlocked(handle);
-            break;
         case LE_KEY_1:
         case LE_KEY_2:
         case LE_KEY_3:
@@ -4671,8 +4579,9 @@ extern "C"
                 toggle_routing_layer_visibility_unlocked(handle, 9); // the 10th ROUTING layer
             break;
         case LE_KEY_DESELECT_ALL:
-            // Same Select-mode-only gate and
-            // Shift-suppresses shape as LE_KEY_SELECT_ALL above.
+            // Select-mode-only, in addition to the Ctrl-held gate (switch
+            // back to Select mode to change the selection from Edit/Ruler
+            // mode). Shift has no meaning here - Ctrl-Shift-D is a no-op.
             if (handle->mode() == LeHandle::Mode::SELECT && ctrl && !shift)
                 handle->clear_selection();
             break;

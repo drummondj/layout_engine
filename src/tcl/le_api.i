@@ -121,7 +121,6 @@ bool get_object_filter_selectable_cmd(int filter, const char *value);
 void set_mode_cmd(int mode);
 int get_mode_cmd();
 void clear_rulers_cmd();
-void select_all_cmd();
 void deselect_all_cmd();
 void arm_move_cmd();
 int delete_selected_pieces_cmd();
