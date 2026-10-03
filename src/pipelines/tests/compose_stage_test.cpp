@@ -69,7 +69,7 @@ namespace
             root.create_shape(ShapeData{.layout = top_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{200, 200}}}}});
             root.create_placement(PlacementData{.layout = top_layout, .name = "block0", .reference_design = block_design, .placement_status = PlacementStatus::PLACED, .location = Point{30, 30}, .orientation = Orientation::N});
 
-            ViewRenderOptions options{
+            options = ViewRenderOptions{
                 .root = &root, .root_mutation_version = root.mutation_version(), .top_level = HierarchyId{top_layout},
                 .hierarchy_depth = 2, .viewport = Rect{.ll = Point{0, 0}, .ur = Point{200, 200}}, .scale = kScale,
             };
@@ -135,6 +135,7 @@ namespace
         HierarchyResolverRunner hierarchy_resolver_runner{"HierarchyResolver"};
         RasterizeRunner rasterize_runner{"Rasterize"};
         ComposeRunner compose_runner{"Compose"};
+        ViewRenderOptions options;
         const RasterizedFrame *frame = nullptr;
     };
 }
@@ -222,4 +223,26 @@ TEST_F(ComposeStageFixture, NullInputProducesEmptyFrame)
     const RasterizedFrame &empty_frame = fresh_runner.run(nullptr, 0, options);
     EXPECT_TRUE(empty_frame.empty);
     EXPECT_EQ(empty_frame.buffer.data, nullptr);
+}
+
+TEST_F(ComposeStageFixture, CursorMoveRedrawsOnlyTheOverlay)
+{
+    build_fixture(Orientation::N);
+
+    const ViewLayerSet view_layers = ViewLayerSet::build_for_technology(root, technology_id);
+    const Color terminal_color = view_layers.get(view_layers.find(m1, ViewLayerPurpose::TERMINAL))->style.outline_color;
+
+    // Empty TOP-local (100,100) and (150,150) -> pixel centers (400,400)
+    // and (600,200); the 7px cursor box fits within +/-5px of its center.
+    options.cursor_snapped_position_dbu = Point{100, 100};
+    ++options.mouse_version;
+    const RasterizedFrame &first = compose_runner.run(rasterize_runner.last_handle(), 0, options);
+    EXPECT_TRUE(region_contains_color_near(first, 395, 395, 406, 406, kCursorBoxColor, 5));
+
+    options.cursor_snapped_position_dbu = Point{150, 150};
+    ++options.mouse_version;
+    const RasterizedFrame &second = compose_runner.run(rasterize_runner.last_handle(), 0, options);
+    EXPECT_TRUE(region_contains_color_near(second, 595, 195, 606, 206, kCursorBoxColor, 5));
+    EXPECT_FALSE(region_contains_color_near(second, 395, 395, 406, 406, kCursorBoxColor, 5));
+    EXPECT_TRUE(region_contains_color_near(second, 204, 592, 216, 596, terminal_color, 5));
 }

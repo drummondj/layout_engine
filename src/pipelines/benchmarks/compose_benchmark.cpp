@@ -27,13 +27,15 @@ namespace
     using RasterizeRunner = SynchronousStageRunner<RasterizeBlend2DStage, HierarchyResolverStage::OutputHandle, RasterizeOutput, ViewRenderOptions>;
     using ComposeRunner = SynchronousStageRunner<ComposeStage, RasterizeOutputHandle, RasterizedFrame, ViewRenderOptions>;
 
-    // Isolates ComposeStage's own cost from BM_WarmTier's combined number
-    // the same way BM_RasterizeBlend2D isolates RasterizeBlend2DStage's - every
-    // (viewport, RasterizeOutput) pair is precomputed OUTSIDE the timed
-    // loop (ViewportCull + Rasterize both run once per pan position ahead
-    // of time; only their OUTPUT matters here, not their own cost), so
-    // the loop below times ComposeStage's own compute() alone.
-    void BM_Compose(benchmark::State &state, TileConfig config)
+    struct ComposeInputs
+    {
+        std::vector<ViewRenderOptions> options_by_pan;
+        std::vector<RasterizeOutputHandle> rasterized_by_pan;
+    };
+
+    // Every (viewport, RasterizeOutput) pair for a 16-step pan across the
+    // fixture, precomputed so a timed loop measures ComposeStage alone.
+    ComposeInputs prepare_compose_inputs(const TileConfig &config)
     {
         const AesScalingFixture &fixture = cached_aes_scaling_fixture(config);
         const std::vector<TechnologyId> technology_ids = fixture.root.get_technology_ids();
@@ -56,10 +58,9 @@ namespace
         constexpr int kPanSteps = 16;
         const double scale = 1000.0 / static_cast<double>(std::max<int64_t>(window_w, 1));
 
-        std::vector<ViewRenderOptions> warm_options_by_pan;
-        std::vector<RasterizeOutputHandle> rasterized_by_pan;
-        warm_options_by_pan.reserve(kPanSteps);
-        rasterized_by_pan.reserve(kPanSteps);
+        ComposeInputs inputs;
+        inputs.options_by_pan.reserve(kPanSteps);
+        inputs.rasterized_by_pan.reserve(kPanSteps);
 
         ViewportCullRunner viewport_cull_runner{"bm_compose_viewport_cull"};
         RasterizeRunner rasterize_runner{"bm_compose_rasterize"};
@@ -76,19 +77,55 @@ namespace
 
             viewport_cull_runner.run(cold_output, static_cast<std::uint64_t>(i + 1), warm_options);
             rasterize_runner.run(viewport_cull_runner.last_handle(), static_cast<std::uint64_t>(i + 1), warm_options);
-            warm_options_by_pan.push_back(warm_options);
-            rasterized_by_pan.push_back(rasterize_runner.last_handle());
+            inputs.options_by_pan.push_back(warm_options);
+            inputs.rasterized_by_pan.push_back(rasterize_runner.last_handle());
         }
+        return inputs;
+    }
+
+    // Isolates ComposeStage's own cost from BM_WarmTier's combined number
+    // the same way BM_RasterizeBlend2D isolates RasterizeBlend2DStage's:
+    // each iteration composes a new pan position.
+    void BM_Compose(benchmark::State &state, TileConfig config)
+    {
+        const ComposeInputs inputs = prepare_compose_inputs(config);
+        const int pan_steps = static_cast<int>(inputs.options_by_pan.size());
 
         ComposeRunner compose_runner{"bm_compose"};
-        compose_runner.run(rasterized_by_pan.front(), 0, warm_options_by_pan.front()); // warm-up, not timed
+        compose_runner.run(inputs.rasterized_by_pan.front(), 0, inputs.options_by_pan.front()); // warm-up, not timed
 
         int pan_index = 0;
         for (auto _ : state)
         {
-            pan_index = (pan_index + 1) % kPanSteps;
+            pan_index = (pan_index + 1) % pan_steps;
             const RasterizedFrame &frame = compose_runner.run(
-                rasterized_by_pan[pan_index], static_cast<std::uint64_t>(pan_index + 1), warm_options_by_pan[pan_index]);
+                inputs.rasterized_by_pan[pan_index], static_cast<std::uint64_t>(pan_index + 1), inputs.options_by_pan[pan_index]);
+            int frame_width = frame.buffer.width;
+            benchmark::DoNotOptimize(frame_width);
+        }
+
+        state.counters["PeakRSS_MB"] = peak_rss_mb();
+    }
+
+    // A mouse move over an unchanged view: the same RasterizeOutput every
+    // iteration, only the cursor position (and mouse_version) changes.
+    void BM_ComposeCursorMove(benchmark::State &state, TileConfig config)
+    {
+        const ComposeInputs inputs = prepare_compose_inputs(config);
+        const RasterizeOutputHandle &rasterized = inputs.rasterized_by_pan.front();
+        ViewRenderOptions options = inputs.options_by_pan.front();
+        const Point center{(options.viewport.ll.x + options.viewport.ur.x) / 2, (options.viewport.ll.y + options.viewport.ur.y) / 2};
+
+        ComposeRunner compose_runner{"bm_compose_cursor_move"};
+        compose_runner.run(rasterized, 1, options); // warm-up, not timed
+
+        int64_t step = 0;
+        for (auto _ : state)
+        {
+            ++step;
+            ++options.mouse_version;
+            options.cursor_snapped_position_dbu = Point{center.x + (step % 64) * 10, center.y};
+            const RasterizedFrame &frame = compose_runner.run(rasterized, 1, options);
             int frame_width = frame.buffer.width;
             benchmark::DoNotOptimize(frame_width);
         }
@@ -109,5 +146,11 @@ namespace le::benchmarks
 
         benchmark::RegisterBenchmark(("BM_Compose/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_Compose, kAesScalingLargeConfig)
             ->Unit(benchmark::kMillisecond);
+
+        for (const TileConfig &config : kAesScalingTileConfigs)
+        {
+            benchmark::RegisterBenchmark(("BM_ComposeCursorMove/" + std::string(config.label)).c_str(), BM_ComposeCursorMove, config)
+                ->Unit(benchmark::kMillisecond);
+        }
     }
 }

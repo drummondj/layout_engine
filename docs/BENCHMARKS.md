@@ -1657,3 +1657,26 @@ The 25 ms at 3x3/5x5 is their center point, which sits on dense special-net rout
 Those fixes took the dense-point click from 48 ms to 24 ms. `ViaHitBoxes` also stopped building a `std::string` key for every via instance.
 
 A separate grid index (`LayoutSelectionIndex`, built on the first click and caught up from the change log) was tried first. It made later clicks just as fast but cost 1.8 s on the first click at 8x8, plus about 450 MB. It was replaced by this approach, which reuses the tree the render already built.
+
+## 2026-10-03 — Compose: overlay-only changes reuse the composited hierarchy
+
+`BM_ComposeCursorMove` (`compose_benchmark.cpp`) composes the same
+`RasterizeOutput` repeatedly, changing only the cursor position and
+`mouse_version`, as a mouse move over an unchanged view does. Release
+build, WSL2 Linux, GCC, mean of 5.
+
+| Benchmark | Before | After |
+|---|---|---|
+| `BM_ComposeCursorMove/1x1` | 6.55 ms | 0.435 ms |
+| `BM_ComposeCursorMove/3x3` | 8.77 ms | 0.441 ms |
+| `BM_Compose/1x1` (pan) | 6.45 ms | 5.96 ms |
+| `BM_Compose/3x3` (pan) | 8.41 ms | 7.55 ms |
+
+Every overlay (cursor box, selection, ruler, drag rectangle, ...) is drawn
+in `ComposeStage`, so a mouse move used to re-composite every visible
+child image. On the caravel full chip (`tcl/caravel.tcl`, zoom-fit, depth
+2, 1600x1000) that was 30 ms per mouse move, long enough to show the
+GUI's rendering indicator. `ComposeStage` now keeps the pre-overlay image
+keyed on its input, `top_level` and `scale`, and an overlay-only change
+copies it and redraws just the overlays: 0.78 ms per mouse move on
+caravel. The cost is one extra frame-sized image held by the stage.

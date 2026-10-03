@@ -109,12 +109,26 @@ namespace le
             const int width = top_own_image.width();
             const int height = top_own_image.height();
 
-            BLImage final_image(width, height, BL_FORMAT_PRGB32);
-            BLContext ctx(final_image);
-            ctx.clear_all();
+            // The composited hierarchy depends only on the input, top_level
+            // and scale; an overlay-only change (a mouse move) reuses it and
+            // redraws just the overlays on a copy.
+            if (input != base_input_ || options.top_level != base_top_level_ || options.scale != base_scale_)
+            {
+                base_image_ = BLImage(width, height, BL_FORMAT_PRGB32);
+                BLContext base_ctx(base_image_);
+                base_ctx.clear_all();
+                std::unordered_map<HierarchyId, BLImage, HierarchyIdHash> composed_cache;
+                draw_node_and_children(base_ctx, options.top_level, own_it->second, *input->culled, input->images, composed_cache, options.scale);
+                base_ctx.end();
+                base_input_ = input;
+                base_top_level_ = options.top_level;
+                base_scale_ = options.scale;
+            }
 
-            std::unordered_map<HierarchyId, BLImage, HierarchyIdHash> composed_cache;
-            draw_node_and_children(ctx, options.top_level, own_it->second, *input->culled, input->images, composed_cache, options.scale);
+            // Shares base_image_'s pixels until the context attaches, which
+            // copies them (copy-on-write), so base_image_ stays overlay-free.
+            BLImage final_image = base_image_;
+            BLContext ctx(final_image);
 
             // Overlay passes - each drawn directly onto the already-fully-
             // composed context, last, rather than as a separate stage/node
@@ -807,6 +821,13 @@ namespace le
         // one user-wide setting, not per-shape variable, so this adds at
         // most a small, fixed handful of extra distinct font sizes.
         std::unordered_map<int, MonospaceFontEntry> monospace_font_cache_;
+
+        // The last composited hierarchy, before overlays, and what it was
+        // composed from.
+        RasterizeOutputHandle base_input_;
+        HierarchyId base_top_level_;
+        double base_scale_ = 0.0;
+        BLImage base_image_;
         std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> glyph_bitmap_cache_;
     };
 }
