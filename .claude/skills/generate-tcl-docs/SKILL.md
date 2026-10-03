@@ -25,16 +25,16 @@ actually changed (in which case run `regen-tcl` first, then this).
 
    ```
    cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-   cmake --build build --target le_tcl -j
+   cmake --build build --target le_tcl -j4
    ```
 
-2. **Run the driver script** via `tclsh8.6` (matching every other Tcl
-   test's own bootstrap - `load` the built module, `source`
-   `le_tcl_procs.tcl`). Paths below are relative to the repo root - run from
-   there, or adjust accordingly:
+2. **Run the driver script** with the `tclsh8.6` CMake configured
+   (`TCL_TCLSH` in `build/CMakeCache.txt`, the same one the `le_tcl_*`
+   ctest tests use). Paths below are relative to the repo root:
 
    ```
-   /opt/homebrew/opt/tcl-tk@8/bin/tclsh8.6 \
+   TCLSH=$(sed -n 's/^TCL_TCLSH:FILEPATH=//p' build/CMakeCache.txt)
+   "$TCLSH" \
        src/tcl/generate_docs.tcl \
        build/le_tcl.so \
        src/tcl/le_tcl_procs.tcl \

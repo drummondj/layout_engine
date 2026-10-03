@@ -26,11 +26,9 @@ allowed-tools:
    ```
 
 3. **Also keep `build_release/` (Release) up to date**, not just `build/`
-   (Debug) - `le_shell` is the real user-facing binary (a real running
-   session needs actual optimized performance, not debug-build timings),
-   and `Dockerfile.linux-release`'s own `export` stage bundles its Release
-   build for every GitHub Release, so it's a persistent tree now, not a
-   throwaway benchmarking artifact:
+   (Debug) - `le_shell` users and benchmarks run it, and
+   `Dockerfile.linux-release`'s `export` stage bundles a Release build for
+   every GitHub Release:
 
    ```
    cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release
@@ -38,15 +36,8 @@ allowed-tools:
    ```
 
    Rebuild both trees after any backend source change that touches
-   `le_shell`/`le_gui`, the same way `build/` gets rebuilt before `ctest`
-   - a recurring mistake this session's own history has hit more than
-   once (stale `le_shell`/`le_tcl.so` in one tree while the other was
-   rebuilt). `build_release/` is `.gitignore`d, same as `build/`.
-
-5. **Dependencies**: `spdlog`, `fmt`, `Boost` via `find_package` (installed
-   via Homebrew on this dev machine); GoogleTest via CMake `FetchContent`
-   (no system install needed); `src/lefdef/lef` (vendored LEF parser C
-   source) built via `ExternalProject_Add` + its own `Makefile`.
+   `le_shell`/`le_gui`; a stale `le_shell`/`le_tcl.so` in one tree is easy
+   to miss. `build_release/` is `.gitignore`d, same as `build/`.
 
 6. **If `lef_lib` fails to build** with something like
    `ranlib: liblef.a is not writable` or `mv: lef.tab.c: No such file or
@@ -64,5 +55,4 @@ allowed-tools:
    `-DENABLE_COVERAGE=ON`, then `cmake --build build --target coverage`.
    Prints a `llvm-cov report --show-branch-summary` table and writes
    `build/coverage/lcov.info`. Requires Clang + `llvm-profdata`/`llvm-cov`
-   (auto-resolved via `xcrun` on macOS). See CLAUDE.md's "Coverage" section
-   for the full explanation, including why `io` shows 0% until it has tests.
+   (auto-resolved via `xcrun` on macOS).

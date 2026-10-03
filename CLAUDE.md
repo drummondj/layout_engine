@@ -317,14 +317,3 @@ Code changes for an issue go on their own branch, never straight onto
   ends with `Fixes #N`.
 - When the work is done and tests pass, push the branch and open a PR
   with `gh pr create`, referencing the issue. Merging is the user's call.
-
-## Skills
-
-- `build-test` — configure, build and test (`build` and `build_release`).
-- `regen-database` — regenerate `src/database/generated/` from `schema.py`.
-- `regen-tcl` — regenerate the generated Tcl/API surface.
-- `generate-tcl-docs` — regenerate `TCL_COMMANDS.md`.
-- `cpp-review` — local review of pending changes (tests, allocations,
-  memory safety); reports via `ReportFindings`, doesn't fix.
-- `overnight-review` — unattended pass over GitHub issues labelled
-  `overnight`.

@@ -56,13 +56,10 @@ assertion on its actual output, not just "was this line executed."
   any user-defined struct or class, not just stdlib containers — taken by
   value (or by non-const reference when never mutated) where `const&`
   would do and the callee doesn't need its own copy. Check free functions
-  and generated code too, not just member functions: a real bug here was
-  `codegen`-generated `to_string`/`to_properties`/`operator<<` (one per
-  schema class) all taking their whole struct *by value* — invisible for
-  small classes, but a 29ms-per-call deep copy for `ObstructionData`,
-  whose `shapes` field can hold hundreds of thousands of entries embedded
-  directly in the struct (not pool-referenced like `TerminalData`'s
-  ports) — called on every property fetch for a selected Obstruction.
+  and generated code too, not just member functions: some `XxxData`
+  structs embed large lists directly (`ObstructionData::shapes` can hold
+  hundreds of thousands of entries), so a by-value parameter can be a
+  multi-millisecond copy on a per-selection path.
   Flag any parameter passed by value into a function that never mutates
   its own copy, and any pass-by-reference parameter missing `const` when
   nothing in the body writes through it.
@@ -97,13 +94,14 @@ assertion on its actual output, not just "was this line executed."
 - Calling a `has*()`-guarded getter on a vendored-parser object (`lefi*`)
   without the guard — the parser reuses scratch structs across callback
   invocations and does not reset fields to a neutral default (see
-  `CLAUDE.md`'s Conventions section) — an unguarded getter can silently
+  `CLAUDE.md`'s LEF/DEF notes) — an unguarded getter can silently
   read a value that leaked forward from a previous, unrelated element.
 
 **Anything else important.** Off-by-one errors, incorrect unit conversion
 (should go through `microns_to_dbu`, not ad hoc arithmetic), thread-safety
-(this project's pipeline is meant to become multi-threaded — flag shared
-mutable state with no synchronization plan), and adherence to `CLAUDE.md`'s
+(the render pipeline runs on oneTBB and renders on a background thread
+while GUI panels read under `LeHandle`'s shared lock — flag shared mutable
+state that lock or other synchronization doesn't cover), and adherence to `CLAUDE.md`'s
 stated conventions (pool lookups return nullable pointers rather than
 throwing; validate at system/file-parsing boundaries but not on internal
 data this code already guarantees — see the `geometry.hpp` vs.

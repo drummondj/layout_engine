@@ -22,10 +22,8 @@ covers property *reading*, `get_<type>` *search*, `create_<type>`,
 uniformly (~35 today, including Shape's own `-rects`/`-polygons`/
 `-paths` flags, which take a *list* of a flattenable embedded struct, not
 just one - see `Field.list_compound_kind()`). `update_<type>` is the
-*only* way any field is ever mutated after creation - there is no
-per-field setter reachable from TCL anymore, generated or hand-written
-(see CLAUDE.md's `src/tcl/` bullet for the full "no per-field
-setters" constraint). `delete_<type>` cascades to every owned pool-backed
+*only* way a field is mutated after creation - there is no per-field
+setter reachable from TCL, generated or hand-written. `delete_<type>` cascades to every owned pool-backed
 child reachable through `Klass.tcl_child_list_fields()`, however many
 schema-graph levels deep that goes for a given class - see
 `Klass.delete_api_body()`'s own docstring for the recursive-at-codegen-
@@ -144,21 +142,18 @@ field - list or scalar, e.g. `Design.abstract` - on the parent class);
 the default-scope case only supplies the fallback used when every `-of`
 was omitted or invalid.
 
-This generated `current_X` state is a distinct field from any other
-"current view" concept in the codebase (e.g. `Scene::current_abstract()`,
-which drives GUI rendering) - a TCL script must call `current_abstract
-<token>` itself (or rely on a convenience caller like `open_design`,
-which does this for the script - see `le_tcl_procs.tcl`) before
-`get_terminals`/`get_shapes`/etc.'s default scope will resolve to
-anything. Selecting a Design (`le_set_current_design`/
-`le_set_current_design_by_id`, `api.cpp`) moves both together now, so a
-Dart-driven GUI opening a Design and a TCL script's own `open_design`
-mean the same thing either way - the one remaining case where they
-diverge is a script that builds an `Abstract` from scratch and calls
-`current_abstract <id>` directly, with no `Design` to select at all;
-that still only touches this generated state, never `Scene`.
+This generated `current_X` state is separate from the GUI's
+`LeHandle::current_abstract()`. A TCL script must select an Abstract
+(`current_abstract <token>`, or `open_design`, which does it for the
+script) before `get_terminals`/`get_shapes`/etc.'s default scope resolves
+to anything. Selecting a Design (`le_set_current_design_abstract`/
+`le_set_current_design_abstract_by_id`, `api.cpp`) moves both together,
+so the GUI opening a Design and a script's `open_design` mean the same
+thing. A script that builds an `Abstract` from scratch and calls
+`current_abstract <id>` directly, with no `Design` to select, moves only
+the generated state.
 
-## The ten generated-code injection points
+## The generated-code injection points
 
 Each of these hand-written files gains one or more `#include`/`%include`/
 `source` lines pointing at generated output - added once, never touched
@@ -180,9 +175,7 @@ again on subsequent regenerations:
   specific existing scope, since `apply_<snake>_snapshot(Root&, <Klass>Id,
   const <Klass>Data&)` needs to be callable from both the generic
   create/update recording hook (below) and `editing::MoveCommand`'s own
-  commit path; `#include "generated_tcl/handle_fields.inc"`
-  inside `struct LeHandle`'s body (per-class property-table caches,
-  search-result caches, `current_X_id` fields); `#include "generated_tcl/property_accessors_internal.inc"`
+  commit path; `#include "generated_tcl/property_accessors_internal.inc"`
   *inside* the file's anonymous namespace (internal helpers -
   `build_X_properties`, `to_c`/`from_c` overloads - never called from
   another translation unit); `#include "generated_tcl/property_accessors_public.inc"`
@@ -208,6 +201,9 @@ again on subsequent regenerations:
   `= \n#include "generated_tcl/filter_tables.inc"` replaces its old
   hand-written initializer list (the `FilterFieldTable` struct itself and
   the functions that consume the table stay hand-written).
+- `le_handle.hpp` - `#include "generated_tcl/handle_fields.inc"` inside
+  `struct LeHandle`'s body (per-class property-table caches,
+  search-result caches, `current_X_id` fields).
 - `le_tcl_shim.hpp` - `#include "generated/le_tcl_shim_generated.hpp"`.
 - `le_tcl_shim.cpp` - `#include "generated/le_tcl_shim_generated.inc"`,
   placed right after the file's own anonymous namespace closes (so
@@ -221,51 +217,20 @@ again on subsequent regenerations:
   hand-written, shared/class-agnostic helpers the generated procs call
   into).
 
-`create_<type>`, `update_<type>`, and `delete_<type>` are all generated
-for every class now (property reading, search, create, update, and
-delete are all uniform today) - `Terminal`/`TerminalPort`/`Obstruction`/
-`Shape` had hand-written `create_X` before `create_<type>` landed,
-`Terminal`/`Shape`/`Abstract` had hand-written per-field setters
-(`set_terminal_name`/`set_terminal_direction_cmd`/`set_shape_layer_name`/
-`update_abstract_boundary_cmd`) before `update_X` landed, and those same
-four classes had hand-written `delete_X` (with no Tcl-level wrapper proc
-at all - just a bare SWIG-bound `int delete_X(const char *id)`) before
-`delete_<type>` landed - every one of these deleted across every file
-above (`api.hpp`/`api.cpp`/`le_tcl_shim.hpp`/`.cpp`/`le_api.i`/
-`le_tcl_procs.tcl`) when its generated equivalent landed, to avoid
-duplicate-symbol link errors or a stale hand-written Tcl `proc` silently
-shadowing the generated one (Tcl allows redefining a `proc` with no error
-- `le_tcl_procs.tcl` sources `generated/le_tcl_procs_generated.tcl`
-*before* its own hand-written procs, so a same-named hand-written one
-defined later always wins silently rather than erroring, which is
-exactly what happened until the stale ones were removed - `delete_X` had
-no hand-written Tcl proc to shadow anything, but still needed its bare
-SWIG declaration/definition removed from `le_tcl_shim.hpp`/`.cpp`/
-`le_api.i` to avoid a duplicate-symbol clash with the new generated
-`delete_X_cmd`/Tcl `delete_X` proc pair). `Shape`'s own
-`create_terminal_port_shape_cmd`/`create_obstruction_shape_cmd` split
-became one generated `create_shape -terminal_port|-obstruction`, not two
-- see `create_api_body()`'s exactly-one-parent check.
-`update_abstract_boundary` has no replacement - `Abstract.boundary` is a
-list-of-`Polygon` field, structurally `list_compound_kind()`-eligible the
-same way `Shape.polygons` is, but explicitly deferred
-(`create_excluded=True` in `src/database/schema.py`, that
-round's own scope was `Shape.rects`/`.polygons`/`.paths` specifically),
-so boundary-setting is unsupported via TCL until a future round flips
-that flag - a real, accepted coverage gap, not an oversight (see
-`Field.create_excluded`'s own docstring in `codegen/codegen/schema.py`
-for the full list of similarly-deferred fields across the schema).
-`delete_<type>`'s own cascade (`Klass.delete_api_body()`) fixed a real
-bug in the formerly hand-written `le_delete_terminal`, which only ever
-cascaded one level deep (each `TerminalPort`, but never that port's own
-`Shape`s, leaving them as orphaned pool entries) - the generator instead
-recursively expands the *actual* schema graph via
-`Klass.tcl_child_list_fields()`, however many levels deep a given class's
-subtree actually goes (e.g. `Technology`'s own `non_default_rules` ->
-`vias` -> `layers` chain is 3 levels), so this class of bug can't
-reappear for any class without the generator itself being wrong. The
-sole remaining hand-written CRUD-ish surface is `Shape`'s own
+Never hand-write a `create_X`/`update_X`/`delete_X` or a per-field
+setter for a TCL-readable class in any of the files above. A duplicate C
+symbol fails the `le_tcl.so` link, and a same-named Tcl `proc` fails
+silently: Tcl redefines a `proc` without error, and `le_tcl_procs.tcl`
+sources `generated/le_tcl_procs_generated.tcl` partway through the file,
+so whichever definition comes later wins. `create_shape
+-terminal_port|-obstruction` is one generated command (see
+`create_api_body()`'s exactly-one-parent check).
+
+A field with `create_excluded=True` (e.g. `Abstract.boundary`) gets no
+create/update flag, so it can't be set from TCL; `Field.create_excluded`'s
+docstring lists them. `delete_<type>` expands the schema graph through
+`Klass.tcl_child_list_fields()` however deep a class's subtree goes
+(e.g. `Technology` -> `non_default_rules` -> `vias` -> `layers`), so no
+owned descendant is orphaned. The only hand-written CRUD is `Shape`'s
 `remove_shape_rect`/`_polygon`/`_path` (removing one geometry entry by
-index) - not per-class flag-driven CRUD in the same sense
-`create_<type>`/`update_<type>`/`delete_<type>` are, so it stays out of
-scope for this generator.
+index), which stays out of this generator.
