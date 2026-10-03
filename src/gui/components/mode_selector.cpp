@@ -74,10 +74,9 @@ namespace le::gui
             }
         }
 
-        // Icon-only now (label moved to a hover tooltip) - fits within
-        // le_gui.cpp's own 64px-wide mode_selector_column child (48 +
-        // its 8px WindowPadding on each side).
-        constexpr float kIconButtonSize = 48.0f;
+        // Fills le_gui.cpp's 64px-wide mode_selector_column child (48 +
+        // its 8px WindowPadding on each side); every mode label fits.
+        constexpr float kButtonWidth = 48.0f;
 
         // Same "optimistic until confirmed" reasoning as
         // layer_manager.cpp's own draw_optimistic_checkbox/hierarchy
@@ -98,12 +97,7 @@ namespace le::gui
             ImGui::PushStyleColor(ImGuiCol_Button,
                                    selected ? kSelectedIconButtonColor
                                             : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-            // icon_button (compact_button.hpp) - not a plain
-            // ImGui::Button(icon, ImVec2(size,size)) - see its own doc
-            // comment for why: this button's small, explicit fixed size
-            // would otherwise trip a real ImGui centering bug and render
-            // the icon visibly right-of-center.
-            const bool clicked = icon_button(mode_icon(mode), std::string("mode_") + mode_keyword(mode), kIconButtonSize);
+            const bool clicked = labeled_icon_button(mode_icon(mode), mode_label(mode), std::string("mode_") + mode_keyword(mode), kButtonWidth);
             // Clicking the already-active mode is a no-op - guarded with
             // a plain `!selected`
             // check rather than wrapping the button in BeginDisabled(selected)
@@ -123,7 +117,7 @@ namespace le::gui
             ImGui::PopStyleColor();
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("%s (%s)", mode_label(mode), mode_shortcut(mode));
+                ImGui::SetTooltip("%s", mode_shortcut(mode));
             }
         }
     }

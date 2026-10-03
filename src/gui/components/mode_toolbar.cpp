@@ -12,31 +12,35 @@ namespace le::gui
 {
     namespace
     {
-        // Icon-only now (label moved to a hover tooltip) - fits within
-        // le_gui.cpp's own 64px-tall mode_toolbar_row child (48 + its
-        // 8px WindowPadding on each side).
-        constexpr float kIconButtonSize = 48.0f;
+        // Labeled icons; le_gui.cpp's mode_toolbar_row is sized for
+        // kLabeledIconButtonHeight plus its padding.
+        constexpr float kButtonMinWidth = 56.0f;
 
-        // `icon` is one of the ICON_LC_* constants (IconsLucide.h) -
-        // the same icon font as mode_selector.cpp. No resting background (matching mode_selector.cpp's
-        // own unselected-button treatment) - every button here is a
-        // momentary action, never a "currently selected" one, so
-        // ButtonHovered/ButtonActive alone (still themed) give it a
-        // press/hover cue.
-        bool draw_button(const char *icon, const char *label, const char *shortcut)
+        // Hover shows `shortcut` (none -> no tooltip), or `disabled_reason`
+        // in its place while the button is disabled.
+        void draw_tooltip(const char *shortcut, const char *disabled_reason = nullptr)
+        {
+            if (!ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                return;
+            if (disabled_reason != nullptr)
+                ImGui::SetTooltip("%s", disabled_reason);
+            else if (shortcut != nullptr && shortcut[0] != '\0')
+                ImGui::SetTooltip("%s", shortcut);
+        }
+
+        // `icon` is one of the ICON_LC_* constants (IconsLucide.h). No
+        // resting background (matching mode_selector.cpp's unselected
+        // buttons) - every button here is a momentary action, so
+        // ButtonHovered/ButtonActive alone give it a press/hover cue.
+        // `disabled_reason` non-null greys it out and replaces its tooltip.
+        bool draw_button(const char *icon, const char *label, const char *shortcut, const char *disabled_reason = nullptr)
         {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-            // icon_button (compact_button.hpp), not a plain ImGui::Button -
-            // see its own doc comment for the centering bug this avoids.
-            const bool clicked = icon_button(icon, label, kIconButtonSize);
+            ImGui::BeginDisabled(disabled_reason != nullptr);
+            const bool clicked = labeled_icon_button(icon, label, label, kButtonMinWidth);
+            ImGui::EndDisabled();
             ImGui::PopStyleColor();
-            if (ImGui::IsItemHovered())
-            {
-                if (shortcut != nullptr && shortcut[0] != '\0')
-                    ImGui::SetTooltip("%s (%s)", label, shortcut);
-                else
-                    ImGui::SetTooltip("%s", label);
-            }
+            draw_tooltip(shortcut, disabled_reason);
             return clicked;
         }
 
@@ -49,8 +53,7 @@ namespace le::gui
         // highlighted background (compact_button.hpp's own
         // kSelectedIconButtonColor); unarmed draws only the icon glyph.
         // Clicking while armed is a no-op - a plain `!armed` guard rather
-        // than BeginDisabled(armed), which would also fade the glyph (a
-        // real reported bug).
+        // than BeginDisabled(armed), which would also fade the glyph.
         // A pending arm the backend refuses (nothing suitable selected)
         // never shows up as armed - it expires after this many frames
         // rather than leaving the button highlighted forever.
@@ -62,10 +65,8 @@ namespace le::gui
             int pending_since_frame = 0;
         };
 
-        // `disabled_reason` non-null greys the button out (it can't arm
-        // then) and replaces its tooltip.
         template <typename OnArm>
-        void draw_tool_button(const char *icon, const char *id, const char *tooltip, bool backend_armed, ToolButtonState &state, OnArm on_arm,
+        void draw_tool_button(const char *icon, const char *label, const char *shortcut, bool backend_armed, ToolButtonState &state, OnArm on_arm,
                               const char *disabled_reason = nullptr)
         {
             if (state.has_pending && (backend_armed || ImGui::GetFrameCount() - state.pending_since_frame > kPendingArmFrames))
@@ -74,12 +75,10 @@ namespace le::gui
 
             ImGui::PushStyleColor(ImGuiCol_Button, armed ? kSelectedIconButtonColor : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
             ImGui::BeginDisabled(disabled_reason != nullptr);
-            // icon_button - see draw_button's own comment above.
-            const bool clicked = icon_button(icon, id, kIconButtonSize);
+            const bool clicked = labeled_icon_button(icon, label, label, kButtonMinWidth);
             ImGui::EndDisabled();
             ImGui::PopStyleColor();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("%s", disabled_reason != nullptr ? disabled_reason : tooltip);
+            draw_tooltip(shortcut, disabled_reason);
             if (clicked && !armed)
             {
                 on_arm();
@@ -109,38 +108,28 @@ namespace le::gui
             // else - they snap differently.
             const int32_t placement_count = provider.state().placement_move.selected_count;
             const bool mixed_selection = placement_count > 0 && provider.state().status_bar.selection_count > placement_count;
-            draw_tool_button(ICON_LC_MOVE, "move", "Move (ctrl-m)", provider.state().is_move_armed, move_state,
+            draw_tool_button(ICON_LC_MOVE, "Move", "ctrl-m", provider.state().is_move_armed, move_state,
                              [&]
                              { provider.arm_move(); },
-                             mixed_selection ? "Move - not available with placements and other objects selected together" : nullptr);
+                             mixed_selection ? "Not available with placements and other objects selected together" : nullptr);
             ImGui::SameLine();
-            // Resize: drag a selected shape's edges/segments; its snap
-            // options appear in the secondary
+            // Resize: click an edge of a selected shape, then click again
+            // to place it; its snap options appear in the secondary
             // toolbar while armed.
             static ToolButtonState resize_state;
-            draw_tool_button(ICON_LC_SCALING, "resize", "Resize (ctrl-r) - click an edge of a selected shape, then click again to place it", provider.state().is_resize_armed, resize_state,
+            draw_tool_button(ICON_LC_SCALING, "Resize", "ctrl-r", provider.state().is_resize_armed, resize_state,
                              [&]
                              { provider.arm_resize(); },
                              // le_arm_resize refuses a selection with a
                              // placement in it.
-                             provider.state().placement_move.selected_count > 0 ? "Resize - not available while a placement is selected" : nullptr);
+                             provider.state().placement_move.selected_count > 0 ? "Not available while a placement is selected" : nullptr);
 
             // Delete: removes the selected shape pieces (and any shape left
             // empty), never their owners.
             ImGui::SameLine();
-            {
-                const bool nothing_to_delete = provider.state().selected_shape_piece_count == 0;
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-                ImGui::BeginDisabled(nothing_to_delete);
-                const bool clicked = icon_button(ICON_LC_TRASH_2, "delete", kIconButtonSize);
-                ImGui::EndDisabled();
-                ImGui::PopStyleColor();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                    ImGui::SetTooltip("%s", nothing_to_delete ? "Delete - select shape parts to delete first"
-                                                              : "Delete (Del) - deletes the selected shape parts (a shape left empty goes too)");
-                if (clicked)
-                    provider.delete_selected_pieces();
-            }
+            if (draw_button(ICON_LC_TRASH_2, "Delete", "Del",
+                            provider.state().selected_shape_piece_count == 0 ? "Select shape parts to delete first" : nullptr))
+                provider.delete_selected_pieces();
 
             // No Rotate/Align buttons until those features exist.
             ImGui::SameLine();

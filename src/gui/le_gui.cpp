@@ -11,6 +11,7 @@
 #include "components/secondary_toolbar.hpp"
 #include "components/settings_panel.hpp"
 #include "components/info_panel.hpp"
+#include "components/compact_button.hpp"
 #include "components/icon_font.hpp"
 
 // Apple deprecated the whole OpenGL framework in favor of Metal (10.14+)
@@ -960,11 +961,10 @@ namespace le::gui
             // A second, standalone (not MergeMode) copy of the same
             // Lucide font at 32px - components/icon_font.hpp's own
             // large_icon_font(), used by mode_selector.cpp/
-            // mode_toolbar.cpp's icon-only buttons (labels removed,
-            // tooltip-only now). Deliberately not merged into the base
-            // 13px text font the way the 16px copy above is - these
-            // buttons render an icon glyph alone, with no label text on
-            // the same line that would need to share its font run.
+            // mode_toolbar.cpp's icon buttons. Deliberately not merged
+            // into the text font the way the 16px copy above is - these
+            // buttons draw the icon glyph on its own, with no text on the
+            // same line that would need to share its font run.
             if (!lucide_font_path.empty())
             {
                 // Plain default ImFontConfig (nullptr) - no
@@ -1269,8 +1269,8 @@ namespace le::gui
                 // so it moves/resizes with the design view rather than
                 // being independently dockable like Browser/Properties/
                 // Layers.
-                // 64 = mode_selector.cpp's own 48px icon-only button plus
-                // this child's 8px WindowPadding on each side.
+                // 64 = mode_selector.cpp's own 48px-wide labeled icon
+                // buttons plus this child's 8px WindowPadding on each side.
                 constexpr float kModeSelectorWidth = 64.0f;
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
                 // ImGuiChildFlags_AlwaysUseWindowPadding - a borderless
@@ -1305,9 +1305,9 @@ namespace le::gui
                 // ModeToolbar (mode_toolbar.hpp) - a fixed-height row
                 // above the design view, same "plain child, not its own
                 // dock panel" reasoning as ModeSelector above.
-                // 64 = mode_toolbar.cpp's own 48px icon-only buttons plus
-                // this child's 8px WindowPadding on each side.
-                constexpr float kModeToolbarHeight = 64.0f;
+                // mode_toolbar.cpp's labeled icon buttons plus this
+                // child's 8px WindowPadding on each side.
+                constexpr float kModeToolbarHeight = kLabeledIconButtonHeight + 16.0f;
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
                 // See mode_selector_column's own comment above -
                 // ImGuiChildFlags_AlwaysUseWindowPadding is needed here
