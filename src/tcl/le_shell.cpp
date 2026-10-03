@@ -125,7 +125,7 @@ namespace
         return TCL_OK;
     }
 
-    // Same two-step fallback as le_gui.cpp's own resolve_lucide_font_path()
+    // Same two-step fallback as le_gui.cpp's own resolve_font_path()
     // (for the exact same reason): `default_value` is this build tree's
     // own absolute path (correct for a local dev/ctest run, where it
     // genuinely still exists), but never valid once le_shell is copied
