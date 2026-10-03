@@ -6758,6 +6758,98 @@ TEST_F(ApiFixture, SettingsLoadReadsTheOldSingleLabelSizeAsTheMax)
     EXPECT_DOUBLE_EQ(le_label_min_size(handle), 12.0);
 }
 
+// Every settings format ever written has a golden file in
+// fixtures/settings/; each must keep loading into the same settings.
+TEST_F(ApiFixture, SettingsGoldenFilesFromEveryFormatVersionLoad)
+{
+    for (const char *name : {"v1_original.json", "v1_latest.json", "v2.json"})
+    {
+        SCOPED_TRACE(name);
+        LeHandle *other = le_create();
+        ASSERT_EQ(le_read_lef(other, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+        ASSERT_EQ(le_load_settings(other, fixture_path(std::string("settings/") + name).c_str()), 0);
+        EXPECT_EQ(le_minor_grid_spacing(other), 200);
+        EXPECT_EQ(le_major_grid_spacing(other), 2000);
+        EXPECT_DOUBLE_EQ(le_ruler_label_size(other), 14.0);
+        EXPECT_EQ(le_hierarchy_depth(other), 3);
+        EXPECT_EQ(le_flightline_max_fanout(other), 7);
+        EXPECT_EQ(le_get_placement_snap_mode(other), LE_PLACEMENT_SNAP_MANUFACTURING_GRID);
+        EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_RECT), LE_SHAPE_SNAP_USER_GRID);
+        EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_POLYGON), LE_SHAPE_SNAP_NONE);
+        EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_PATH), LE_SHAPE_SNAP_TRACKS);
+        // v1's own "via" mode is dropped: vias share the path mode.
+        EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_VIA), LE_SHAPE_SNAP_TRACKS);
+        if (std::string(name) == "v1_original.json")
+        {
+            EXPECT_DOUBLE_EQ(le_label_min_size(other), 12.0);
+            EXPECT_DOUBLE_EQ(le_label_max_size(other), 30.0); // label_size_px
+        }
+        else
+        {
+            EXPECT_DOUBLE_EQ(le_label_min_size(other), 10.0);
+            EXPECT_DOUBLE_EQ(le_label_max_size(other), 18.0);
+            EXPECT_EQ(le_max_concurrency(other), 5);
+            EXPECT_EQ(le_layer_color_rgb(other, "M1"), 0xff8000);
+        }
+        // Migrated on load, so nothing is left over to keep as unknown.
+        const std::string saved = scratch_path("le_settings_golden_resave.json");
+        ASSERT_EQ(le_save_settings(other, saved.c_str()), 0);
+        EXPECT_EQ(read_file(saved).find("\"label_size_px\""), std::string::npos);
+        EXPECT_EQ(read_file(saved).find("\"via\""), std::string::npos);
+        le_destroy(other);
+    }
+}
+
+// What save_settings writes must match the current format's golden file.
+// If this fails because the format changed: adding a key only needs the
+// golden updated; renaming, moving or redefining one needs kSettingsVersion
+// bumped, a migrate_settings_json step, and a new golden beside the old.
+TEST_F(ApiFixture, SettingsSaveMatchesTheCurrentFormatsGoldenFile)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_load_settings(handle, fixture_path("settings/v2.json").c_str()), 0);
+    const std::string path = scratch_path("le_settings_current_format.json");
+    ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
+    EXPECT_EQ(read_file(path), read_file(fixture_path("settings/v2.json")));
+}
+
+// A file from a newer layout_engine loads the settings this one knows, and
+// saving keeps the top-level keys it doesn't, so they survive a round trip
+// through an older version.
+TEST_F(ApiFixture, SettingsFromANewerVersionLoadAndKeepUnknownKeysOnSave)
+{
+    const std::string path = scratch_path("le_settings_newer.json");
+    write_file(path, R"({"version": 99, "hierarchy_depth": 2, "future_panel": {"open": true}, "future_size": 3})");
+    ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
+    EXPECT_EQ(le_hierarchy_depth(handle), 2);
+    EXPECT_EQ(le_has_unsaved_settings(handle), 0);
+
+    le_set_hierarchy_depth(handle, 4);
+    ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
+    const std::string text = read_file(path);
+    EXPECT_NE(text.find("\"future_panel\": {\n    \"open\": true\n  }"), std::string::npos) << text;
+    EXPECT_NE(text.find("\"future_size\": 3"), std::string::npos) << text;
+    EXPECT_NE(text.find("\"hierarchy_depth\": 4"), std::string::npos) << text;
+    EXPECT_NE(text.find("\"version\": 2"), std::string::npos) << text; // this version's format
+
+    // Loading a file without them forgets them.
+    write_file(path, R"({"version": 2})");
+    ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
+    ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
+    EXPECT_EQ(read_file(path).find("future"), std::string::npos);
+}
+
+// A migration never overwrites a key that's already there - the shape of
+// a newer file re-saved by an older version, which writes its own older
+// key beside the newer one it kept. The newer one wins.
+TEST_F(ApiFixture, SettingsMigrationPrefersANewerKeyAlreadyPresent)
+{
+    const std::string path = scratch_path("le_settings_both_label_keys.json");
+    write_file(path, R"({"version": 1, "label_size_px": 30, "label_max_size_px": 18})");
+    ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
+    EXPECT_DOUBLE_EQ(le_label_max_size(handle), 18.0);
+}
+
 // --- Placement.type / Route.use filters ---
 // TESTCELL (CLASS CORE, 10x10 um) placed at (0,0) and a POWER route rect
 // (12,2)-(18,4) um on M1, viewed at 0.005 px/dbu over 100x100 px: device

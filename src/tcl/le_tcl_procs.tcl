@@ -2878,7 +2878,7 @@ proc save_settings {args} {
 }
 register_command_help save_settings \
     "save_settings \[<path>\] \[-help\]" \
-    "Saves the settings - grid spacing, font sizes, hierarchy depth, flightline fanout limit, CPUs, snap modes and layer colors - as JSON to <path>, or to ~/.layout_engine/settings.json if omitted, which le_shell loads when it starts." \
+    "Saves the settings - grid spacing, font sizes, hierarchy depth, flightline fanout limit, CPUs, snap modes and layer colors - as JSON to <path>, or to ~/.layout_engine/settings.json if omitted, which le_shell loads when it starts. Settings from a newer layout_engine that this one doesn't know are kept." \
     {
         {<path> {type file required 0 description {JSON file to write - ~/.layout_engine/settings.json if omitted}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
@@ -2899,7 +2899,7 @@ proc load_settings {args} {
 }
 register_command_help load_settings \
     "load_settings \[<path>\] \[-help\]" \
-    "Loads settings written by save_settings from <path>, or ~/.layout_engine/settings.json if omitted. A setting missing from the file keeps its current value; an invalid one is skipped with a warning." \
+    "Loads settings written by save_settings from <path>, or ~/.layout_engine/settings.json if omitted. A file from an older layout_engine is updated to the current format; one from a newer layout_engine loads the settings this one knows, with a warning. A setting missing from the file keeps its current value; an invalid one is skipped with a warning." \
     {
         {<path> {type file required 0 description {JSON file to read - ~/.layout_engine/settings.json if omitted}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}

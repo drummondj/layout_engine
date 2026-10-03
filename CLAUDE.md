@@ -142,7 +142,9 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   (layer visibility, hierarchy depth, ...) are queued as Tcl commands
   (`le_enqueue_tcl_command`) for le_shell's console thread to run. Settings
   persist to `~/.layout_engine/settings.json` (loaded in interactive mode
-  only), the dock layout to `~/.layout_engine/window_layout.ini`. No
+  only; format versioned by `kSettingsVersion` in api.cpp, with a
+  migration step and a golden file in `src/api/tests/fixtures/settings/`
+  per version), the dock layout to `~/.layout_engine/window_layout.ini`. No
   automated coverage of the render/input loop itself.
 - `src/lefdef/` — vendored Si2 LEF/DEF 6.0.62-p004 parser source, built by
   its own Makefiles via `ExternalProject_Add` (`lef_lib`/`def_lib`). Never

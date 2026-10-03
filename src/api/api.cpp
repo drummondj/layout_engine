@@ -725,10 +725,16 @@ namespace
         return le::Color{static_cast<uint8_t>(value >> 16), static_cast<uint8_t>(value >> 8), static_cast<uint8_t>(value), 255};
     }
 
+    // The settings file's format version. Bump it when a key is renamed,
+    // moved or changes meaning, add the step to migrate_settings_json, and
+    // add the new format's golden file under src/api/tests/fixtures/
+    // settings/. Adding a key needs neither - an older file just lacks it.
+    constexpr int64_t kSettingsVersion = 2;
+
     nlohmann::json settings_to_json(const LeHandle *handle)
     {
         nlohmann::json j;
-        j["version"] = 1;
+        j["version"] = kSettingsVersion;
         nlohmann::json grid = nlohmann::json::object();
         if (const double minor = grid_spacing_um_unlocked(handle, false); minor > 0.0)
             grid["minor_um"] = minor;
@@ -750,7 +756,33 @@ namespace
         for (const auto &[row_name, color] : handle->layer_color_overrides())
             layer_colors[row_name] = hex_color(color);
         j["layer_colors"] = layer_colors;
+        if (!handle->unknown_settings_json.empty())
+        {
+            const nlohmann::json unknown = nlohmann::json::parse(handle->unknown_settings_json);
+            for (const auto &[key, value] : unknown.items())
+                if (!j.contains(key))
+                    j[key] = value;
+        }
         return j;
+    }
+
+    // Brings a settings file written at format `version` up to
+    // kSettingsVersion, one step per version. A step never overwrites a key
+    // that's already present: an older layout_engine saving a newer file
+    // keeps the keys it doesn't know, so a newer-format key can sit beside
+    // its older-format one, and the newer one wins.
+    void migrate_settings_json(nlohmann::json &j, int64_t version)
+    {
+        // 1 -> 2: the single label size became the max of a min/max pair,
+        // and vias share the path snap mode instead of having their own.
+        if (version < 2)
+        {
+            if (j.contains("label_size_px") && !j.contains("label_max_size_px"))
+                j["label_max_size_px"] = j["label_size_px"];
+            j.erase("label_size_px");
+            if (j.contains("shape_snap_modes") && j["shape_snap_modes"].is_object())
+                j["shape_snap_modes"].erase("via");
+        }
     }
 
     // Applies whatever `j` holds - a missing key keeps its current value,
@@ -786,9 +818,7 @@ namespace
             handle->set_ruler_label_size_px(*v);
         if (const auto v = number(j, "label_min_size_px"))
             handle->set_label_min_size_px(*v);
-        // "label_size_px" - the single max size files saved before the
-        // min/max split used.
-        if (const auto v = number(j, j.contains("label_max_size_px") ? "label_max_size_px" : "label_size_px"))
+        if (const auto v = number(j, "label_max_size_px"))
             handle->set_label_max_size_px(*v);
         if (const auto v = number(j, "hierarchy_depth"); v && *v >= 0)
             handle->set_hierarchy_depth(static_cast<int>(*v));
@@ -4445,14 +4475,36 @@ extern "C"
             spdlog::error("load_settings: couldn't open '{}'", source);
             return 1;
         }
-        const nlohmann::json j = nlohmann::json::parse(in, nullptr, /*allow_exceptions=*/false);
+        nlohmann::json j = nlohmann::json::parse(in, nullptr, /*allow_exceptions=*/false);
         if (j.is_discarded() || !j.is_object())
         {
             spdlog::error("load_settings: '{}' isn't a JSON object", source);
             return 1;
         }
+        // Files without a version predate versioning, which started at 1.
+        int64_t version = 1;
+        if (j.contains("version"))
+        {
+            if (j["version"].is_number_integer() && j["version"].get<int64_t>() >= 1)
+                version = j["version"].get<int64_t>();
+            else
+                spdlog::warn("load_settings: {}: ignoring invalid \"version\"", source);
+        }
+        if (version > kSettingsVersion)
+            spdlog::warn("load_settings: {}: written by a newer layout_engine (format {}, this one reads up to {}) - "
+                         "loading the settings this version knows",
+                         source, version, kSettingsVersion);
+        migrate_settings_json(j, version);
         HandleWriteLock lock(handle);
         apply_settings_json(handle, j, source);
+        handle->unknown_settings_json.clear();
+        nlohmann::json unknown = nlohmann::json::object();
+        const nlohmann::json known = settings_to_json(handle);
+        for (const auto &[key, value] : j.items())
+            if (!known.contains(key))
+                unknown[key] = value;
+        if (!unknown.empty())
+            handle->unknown_settings_json = unknown.dump();
         handle->saved_settings_json = settings_snapshot(handle); // the settings are saved
         spdlog::info("load_settings: read '{}'", source);
         return 0;
