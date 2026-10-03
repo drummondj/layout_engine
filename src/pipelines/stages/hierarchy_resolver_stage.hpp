@@ -1866,7 +1866,7 @@ namespace le
         // largest, which also carries its layer's label. Bounding every
         // piece instead would stretch a power grid's marker across the
         // block. One RenderShape per port, so the rasterizer can enlarge
-        // each about its own anchor (enlarged_port_marker).
+        // each about its own anchor (port_marker_scale_factor).
         static void append_physical_port_shapes(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, ViewLayerShapes &shapes_by_layer,
                                                 ChunkSources *sources = nullptr)
         {

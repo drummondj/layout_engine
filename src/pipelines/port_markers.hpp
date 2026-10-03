@@ -27,8 +27,9 @@ namespace le
     /// depth equals that extent.
     ///
     /// `result[0].points[0]` is always the midpoint of the port's outer
-    /// edge - the anchor `enlarged_port_marker` scales about, so a marker
-    /// grown to its minimum on-screen size stays attached to its port.
+    /// edge - the anchor `port_marker_scale_factor`'s scaling is about, so
+    /// a marker clamped to its on-screen size range stays attached to its
+    /// port.
     /// (An outward triangle carries that midpoint as a collinear extra
     /// vertex on its base.)
     ///
@@ -102,14 +103,21 @@ namespace le
     /// the ports themselves are sub-pixel.
     inline constexpr double kMinPortMarkerPixelSize = 3.0;
 
-    /// @brief One port's marker (`port_marker_polygons`' output) scaled
-    /// up about its anchor (`polygons[0].points[0]`) until its bbox is at
-    /// least `min_px` device pixels on each side at `scale` (pixels per
-    /// dbu) - std::nullopt when it already is (or is empty).
-    inline std::optional<std::vector<Polygon>> enlarged_port_marker(const std::vector<Polygon> &polygons, double scale, double min_px = kMinPortMarkerPixelSize)
+    /// @brief The largest a port marker is drawn, in device pixels, on
+    /// each side of its bbox - so a wide port zoomed in doesn't get a
+    /// marker that swamps the view.
+    inline constexpr double kMaxPortMarkerPixelSize = 16.0;
+
+    /// @brief The factor to scale one port's marker (`port_marker_polygons`'
+    /// output) by, about its anchor (`polygons[0].points[0]`), so that at
+    /// `scale` (pixels per dbu) its bbox's shorter side is at least `min_px`
+    /// and its longer side at most `max_px` - the maximum wins if both
+    /// can't hold. 1.0 if it already fits, or is empty or degenerate.
+    inline double port_marker_scale_factor(const std::vector<Polygon> &polygons, double scale,
+                                           double min_px = kMinPortMarkerPixelSize, double max_px = kMaxPortMarkerPixelSize)
     {
         if (polygons.empty() || polygons.front().points.empty() || scale <= 0.0)
-            return std::nullopt;
+            return 1.0;
         int64_t min_x = polygons.front().points.front().x, max_x = min_x;
         int64_t min_y = polygons.front().points.front().y, max_y = min_y;
         for (const Polygon &polygon : polygons)
@@ -120,20 +128,15 @@ namespace le
                 min_y = std::min(min_y, p.y);
                 max_y = std::max(max_y, p.y);
             }
-        const double min_side_px = static_cast<double>(std::min(max_x - min_x, max_y - min_y)) * scale;
-        if (min_side_px >= min_px)
-            return std::nullopt;
-        // A degenerate (zero-side) marker has no shape to scale up.
-        if (min_side_px <= 0.0)
-            return std::nullopt;
+        const double short_px = static_cast<double>(std::min(max_x - min_x, max_y - min_y)) * scale;
+        const double long_px = static_cast<double>(std::max(max_x - min_x, max_y - min_y)) * scale;
+        // A degenerate (zero-side) marker has no shape to scale.
+        if (short_px <= 0.0)
+            return 1.0;
 
-        const double factor = min_px / min_side_px;
-        const Point anchor = polygons.front().points.front();
-        std::vector<Polygon> enlarged = polygons;
-        for (Polygon &polygon : enlarged)
-            for (Point &p : polygon.points)
-                p = Point{.x = anchor.x + static_cast<int64_t>(std::llround(static_cast<double>(p.x - anchor.x) * factor)),
-                          .y = anchor.y + static_cast<int64_t>(std::llround(static_cast<double>(p.y - anchor.y) * factor))};
-        return enlarged;
+        double factor = short_px < min_px ? min_px / short_px : 1.0;
+        if (long_px * factor > max_px)
+            factor = max_px / long_px;
+        return factor;
     }
 }

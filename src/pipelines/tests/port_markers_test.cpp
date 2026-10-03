@@ -124,37 +124,47 @@ TEST(PortMarkers, TheSideNearestThePortsEdgeWinsOverItsCenter)
     EXPECT_EQ(markers[0].points[2].y, -10); // apex 20 below
 }
 
-TEST(PortMarkers, EnlargedIsNulloptWhenAlreadyBigEnough)
+TEST(PortMarkers, ScaleFactorIsOneWhenAlreadyWithinRange)
 {
-    // 40 dbu at 0.1 px/dbu is 4 px - over the 3 px minimum.
+    // 40 dbu at 0.1 px/dbu is 4 px - between the 3 px minimum and 16 px maximum.
     const auto markers = port_marker_polygons(Rect{.ll = Point{0, 400}, .ur = Point{20, 440}}, kDie, SignalDirection::INPUT);
-    EXPECT_FALSE(enlarged_port_marker(markers, 0.1).has_value());
+    EXPECT_DOUBLE_EQ(port_marker_scale_factor(markers, 0.1), 1.0);
 }
 
-TEST(PortMarkers, EnlargedGrowsToThreePixelsAboutTheAnchor)
+TEST(PortMarkers, ScaleFactorGrowsATinyMarkerToThreePixels)
 {
-    // 40 dbu at 0.01 px/dbu is 0.4 px - grown 7.5x to 3 px (300 dbu).
+    // 40 dbu at 0.01 px/dbu is 0.4 px - grown 7.5x to 3 px.
     const auto markers = port_marker_polygons(Rect{.ll = Point{0, 400}, .ur = Point{20, 440}}, kDie, SignalDirection::INPUT);
-    const auto enlarged = enlarged_port_marker(markers, 0.01);
-    ASSERT_TRUE(enlarged.has_value());
-    ASSERT_EQ(enlarged->size(), 1u);
-    const auto &pts = (*enlarged)[0].points;
-    EXPECT_EQ(pts[0].x, 0); // the anchor stays put on the port's edge
-    EXPECT_EQ(pts[0].y, 420);
-    EXPECT_EQ(pts[1].x, -300); // still entirely outside the block, pointing in
-    EXPECT_EQ(pts[1].y, 270);
-    EXPECT_EQ(pts[2].x, -300);
-    EXPECT_EQ(pts[2].y, 570);
+    EXPECT_DOUBLE_EQ(port_marker_scale_factor(markers, 0.01), 7.5);
 }
 
-TEST(PortMarkers, EnlargedInoutKeepsBothTrianglesTogether)
+TEST(PortMarkers, ScaleFactorShrinksALargeMarkerToSixteenPixels)
 {
+    // 40 dbu at 1 px/dbu is 40 px - shrunk to 16 px.
+    const auto markers = port_marker_polygons(Rect{.ll = Point{0, 400}, .ur = Point{20, 440}}, kDie, SignalDirection::INPUT);
+    EXPECT_DOUBLE_EQ(port_marker_scale_factor(markers, 1.0), 0.4);
+    // Zoomed in far enough that 16 px is under one dbu.
+    EXPECT_DOUBLE_EQ(port_marker_scale_factor(markers, 100.0), 16.0 / 4000.0);
+}
+
+TEST(PortMarkers, ScaleFactorCoversBothInoutTrianglesTogether)
+{
+    // The inout pair spans 100 dbu along the edge and 100 out from it.
     const auto markers = port_marker_polygons(Rect{.ll = Point{200, 0}, .ur = Point{300, 50}}, kDie, SignalDirection::INOUT);
-    // 100 dbu at 0.01 px/dbu is 1 px - grown 3x about (250, 0).
-    const auto enlarged = enlarged_port_marker(markers, 0.01);
-    ASSERT_TRUE(enlarged.has_value());
-    EXPECT_EQ((*enlarged)[0].points[2].y, -195); // outward apex: -65 x 3
-    EXPECT_EQ((*enlarged)[1].points[0].y, -105); // inward apex: -35 x 3
-    EXPECT_EQ((*enlarged)[1].points[1].y, -300); // inward base: -100 x 3
-    EXPECT_EQ((*enlarged)[1].points[1].x, 100);  // 200 -> 250 - 50 x 3
+    EXPECT_DOUBLE_EQ(port_marker_scale_factor(markers, 0.01), 3.0);
+    EXPECT_DOUBLE_EQ(port_marker_scale_factor(markers, 1.0), 0.16);
+}
+
+TEST(PortMarkers, ScaleFactorPrefersTheMaximumWhenBothCantHold)
+{
+    // A 1:10 bbox can't be >= 3 px short and <= 16 px long at once.
+    const std::vector<Polygon> sliver{Polygon{.points = {Point{0, 0}, Point{100, 0}, Point{100, 10}}}};
+    EXPECT_DOUBLE_EQ(port_marker_scale_factor(sliver, 0.1), 1.6);
+}
+
+TEST(PortMarkers, ScaleFactorIsOneForEmptyOrDegenerateMarkers)
+{
+    EXPECT_DOUBLE_EQ(port_marker_scale_factor({}, 1.0), 1.0);
+    const std::vector<Polygon> line{Polygon{.points = {Point{0, 0}, Point{100, 0}}}};
+    EXPECT_DOUBLE_EQ(port_marker_scale_factor(line, 1.0), 1.0);
 }
