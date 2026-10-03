@@ -77,49 +77,28 @@ namespace le::gui
         // measurable while idle.
         constexpr auto kIdlePollInterval = std::chrono::milliseconds(30);
 
-        // LE_LUCIDE_FONT_PATH (CMakeLists.txt) is this build machine's
-        // own absolute FetchContent cache path - correct for a local
-        // dev/ctest run where that cache dir genuinely still exists, but
-        // never valid once le_shell is copied to another machine (the
-        // exact bug pipelines.cpp's default_blend2d_font_face() already
-        // has this same two-step fallback for, on Linux, for the exact
-        // same reason - a real report of AddFontFromFileTTF failing
-        // outright in a Linux release build, both icon and body text).
-        // Checked via stat() first, on both platforms, so a missing file
-        // is diagnosed by us (a clean spdlog::warn + graceful skip - icons
-        // just don't render, matching draw_helpers.hpp's own "degrade
-        // rather than throw" contract) instead of reaching
-        // AddFontFromFileTTF at all, which logs its own ImGui-internal
-        // "Could not load font file!" error/assert and returns null
-        // either way - our own check is strictly more informative (names
-        // every candidate path actually tried, mirroring
-        // default_blend2d_font_face()'s own fallback).
-        //
-        // The second candidate - right next to the running executable -
-        // only exists on Linux: CMakeLists.txt's own file(COPY ...) right
-        // after FetchContent_MakeAvailable(lucide_font) puts a real copy
-        // of lucide.ttf in the build tree alongside le_shell specifically
-        // so this works, and Dockerfile.linux-release's own bundle stage
-        // copies that same file into the shipped release bundle
-        // alongside le_shell too. macOS never needs this second
-        // candidate - a real report would be needed before adding
-        // platform-specific bundling for it, matching this project's own
-        // "fix confirmed bugs, don't speculatively harden" convention.
-        std::string resolve_lucide_font_path()
+        // Returns the first of two candidate paths that exists, or empty.
+        // `build_path` is a compile-time path into this build machine's
+        // tree, valid for a local dev/ctest run but not once le_shell is
+        // copied elsewhere; on Linux the release bundle puts the file at
+        // `exe_relative` beside the executable instead. Checked via stat()
+        // so a missing file is reported here, naming every path tried,
+        // rather than by AddFontFromFileTTF's own assert.
+        std::string resolve_font_path(const char *build_path, const char *exe_relative)
         {
             struct stat st{};
-            if (stat(LE_LUCIDE_FONT_PATH, &st) == 0)
-                return LE_LUCIDE_FONT_PATH;
-            spdlog::warn("resolve_lucide_font_path(): '{}' does not exist", LE_LUCIDE_FONT_PATH);
+            if (stat(build_path, &st) == 0)
+                return build_path;
+            spdlog::warn("resolve_font_path(): '{}' does not exist", build_path);
 
 #if defined(__linux__)
             char buf[PATH_MAX];
             const ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
             if (len <= 0)
             {
-                spdlog::warn("resolve_lucide_font_path(): readlink(\"/proc/self/exe\") failed (errno {}) - "
-                             "can't compute the executable-relative icon-font fallback path",
-                             errno);
+                spdlog::warn("resolve_font_path(): readlink(\"/proc/self/exe\") failed (errno {}) - "
+                             "can't compute the executable-relative fallback for '{}'",
+                             errno, exe_relative);
                 return {};
             }
             buf[len] = '\0';
@@ -127,10 +106,12 @@ namespace le::gui
             const size_t slash = exe_path.find_last_of('/');
             const std::string exe_dir = slash == std::string::npos ? "." : slash == 0 ? "/"
                                                                                         : exe_path.substr(0, slash);
-            const std::string candidate = exe_dir + "/lucide.ttf";
+            const std::string candidate = exe_dir + "/" + exe_relative;
             if (stat(candidate.c_str(), &st) == 0)
                 return candidate;
-            spdlog::warn("resolve_lucide_font_path(): '{}' does not exist either", candidate);
+            spdlog::warn("resolve_font_path(): '{}' does not exist either", candidate);
+#else
+            (void)exe_relative;
 #endif
             return {};
         }
@@ -939,39 +920,41 @@ namespace le::gui
             else
                 io.IniFilename = nullptr;
 
+            // Text font: Quicksand (assets/fonts/, also bundled under
+            // fonts/ beside the executable), falling back to ImGui's
+            // built-in ProggyClean. The Blend2D layout view has its own
+            // font (default_blend2d_font_face()).
             // Icon font (components/mode_selector.cpp, mode_toolbar.cpp,
             // and any later toolbar button) - Dear ImGui draws an icon as
             // plain text via its own Unicode codepoint, so the icon
-            // font's own glyphs need to be merged into the same atlas as
-            // the regular text font first (ImFontConfig::MergeMode) -
-            // AddFontDefault() has to run first to give the merge
-            // something to merge *into* (an empty atlas with nothing
-            // added yet can't merge). Both calls have to happen before
-            // ImGui_ImplOpenGL3_Init below, which builds/uploads the
-            // atlas texture from whatever's in it at that point - a font
-            // added afterward would never make it into the uploaded
-            // texture this session.
-            // An explicit SizePixels, not a bare AddFontDefault() - this
-            // pinned ImGui commit asserts when merging a font with an
-            // explicit reference size (AddFontFromFileTTF always needs
-            // one, a scalable TTF has no size of its own) into a
-            // destination font that used an *implicit* one
-            // (AddFontDefault()'s own default when given no config at
-            // all) - 13.0f is ProggyClean.ttf's own established default
-            // size in Dear ImGui, unchanged from every prior version.
-            ImFontConfig default_font_config;
-            default_font_config.SizePixels = 13.0f;
-            io.Fonts->AddFontDefault(&default_font_config);
+            // font's glyphs are merged (ImFontConfig::MergeMode) into the
+            // text font added just before it. Every font has to be added
+            // before ImGui_ImplOpenGL3_Init below, which builds/uploads
+            // the atlas texture from whatever's in it at that point.
+            // The text font needs an explicit size: this pinned ImGui
+            // commit asserts when merging a sized font into one with an
+            // implicit size (a bare AddFontDefault()).
+            const std::string text_font_path = resolve_font_path(LE_FONT_DIR "/Quicksand-Medium.ttf", "fonts/Quicksand-Medium.ttf");
+            ImFont *text_font = nullptr;
+            if (!text_font_path.empty())
+                text_font = io.Fonts->AddFontFromFileTTF(text_font_path.c_str(), 16.0f);
+            if (text_font == nullptr)
+            {
+                spdlog::warn("Quicksand GUI font unavailable - falling back to ImGui's built-in font");
+                ImFontConfig default_font_config;
+                default_font_config.SizePixels = 13.0f;
+                io.Fonts->AddFontDefault(&default_font_config);
+            }
             ImFontConfig icon_font_config;
             icon_font_config.MergeMode = true;
             icon_font_config.PixelSnapH = true;
             icon_font_config.GlyphMinAdvanceX = 16.0f;
             static const ImWchar icon_ranges[] = {ICON_MIN_LC, ICON_MAX_LC, 0};
-            const std::string lucide_font_path = resolve_lucide_font_path();
+            const std::string lucide_font_path = resolve_font_path(LE_LUCIDE_FONT_PATH, "lucide.ttf");
             if (!lucide_font_path.empty())
                 io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 16.0f, &icon_font_config, icon_ranges);
             else
-                spdlog::error("resolve_lucide_font_path(): FAILED - no usable icon font found, every toolbar icon will render blank. "
+                spdlog::error("resolve_font_path(): FAILED - no usable icon font found, every toolbar icon will render blank. "
                                "See the warn() line(s) immediately above for which candidate paths failed and why.");
 
             // A second, standalone (not MergeMode) copy of the same

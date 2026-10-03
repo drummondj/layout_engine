@@ -635,7 +635,7 @@ target_include_directories(gui PRIVATE ${icon_font_header_SOURCE_DIR} ${portable
 # .ttf file, not compiling one in) - a build-tree path is fine for this
 # local-dev prototype, same as this project's own fixture-path compile
 # definitions elsewhere (e.g. API_TEST_FIXTURES_DIR).
-target_compile_definitions(gui PRIVATE LE_LUCIDE_FONT_PATH="${lucide_font_SOURCE_DIR}/lucide.ttf")
+target_compile_definitions(gui PRIVATE LE_LUCIDE_FONT_PATH="${lucide_font_SOURCE_DIR}/lucide.ttf" LE_FONT_DIR="${LE_FONT_DIR}")
 # spdlog::spdlog directly (not just transitively through api, which links
 # pipelines - spdlog's own consumer - PRIVATE, so nothing propagates this
 # far): le_gui.cpp uses spdlog/fmt directly, and without this it silently

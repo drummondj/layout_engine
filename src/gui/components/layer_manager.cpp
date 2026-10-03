@@ -242,9 +242,11 @@ namespace le::gui
         {
             return;
         }
+        // A checkbox is a GetFrameHeight() square, so it follows the font size.
+        const float checkbox_column_width = ImGui::GetFrameHeight();
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("V", ImGuiTableColumnFlags_WidthFixed, 24.0f);
-        ImGui::TableSetupColumn("S", ImGuiTableColumnFlags_WidthFixed, 24.0f);
+        ImGui::TableSetupColumn("V", ImGuiTableColumnFlags_WidthFixed, checkbox_column_width);
+        ImGui::TableSetupColumn("S", ImGuiTableColumnFlags_WidthFixed, checkbox_column_width);
         ImGui::TableHeadersRow();
 
         // Every row/aggregate below is queued as *one* semicolon-joined
