@@ -1,5 +1,7 @@
 #include "layer_manager.hpp"
 
+#include "IconsLucide.h"
+#include "compact_button.hpp"
 #include "gui_provider.hpp"
 #include "imgui.h"
 
@@ -190,18 +192,61 @@ namespace le::gui
             ImGui::PopID();
         }
 
-        // A blank spacer row between the "All"/Purposes/Layers sections. A real
-        // separator line drawn *inside* one continuous table (needed so
-        // every row's checkboxes still line up in the same two columns)
-        // would need its own manual draw-list line rather than a plain
-        // ImGui::Separator() (which assumes it owns a full ordinary row,
-        // not a table cell) - not worth the extra complexity for a
-        // cosmetic divider in a prototype.
-        void draw_spacer_row()
+        // Draws a chevron toggle right-aligned in the current cell, after
+        // the row's label, and returns whether the row is expanded. The
+        // state lives in ImGui's per-window storage under the caller's ID
+        // scope, so it lasts the session and starts collapsed.
+        bool draw_expand_toggle()
         {
-            ImGui::TableNextRow();
+            ImGuiStorage *storage = ImGui::GetStateStorage();
+            const ImGuiID open_id = ImGui::GetID("expanded");
+            bool open = storage->GetBool(open_id, false);
+            const float size = ImGui::GetFrameHeight();
+            ImGui::SameLine();
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - size));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+            // The 16px icon font is merged into the default font.
+            if (icon_button(open ? ICON_LC_CHEVRON_UP : ICON_LC_CHEVRON_DOWN, "expand", size, nullptr))
+            {
+                open = !open;
+                storage->SetBool(open_id, open);
+            }
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(open ? "Hide filters" : "Show filters");
+            return open;
+        }
+
+        // The panel is three tables (All, Purposes, Layers) so a full-width
+        // ImGui::Separator() can sit between them; identical column setup
+        // keeps every section's checkboxes in the same two columns.
+        bool begin_section_table(const char *id)
+        {
+            if (!ImGui::BeginTable(id, 3, ImGuiTableFlags_SizingFixedFit))
+                return false;
+            // A checkbox is a GetFrameHeight() square, so it follows the font size.
+            const float checkbox_column_width = ImGui::GetFrameHeight();
+            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("V", ImGuiTableColumnFlags_WidthFixed, checkbox_column_width);
+            ImGui::TableSetupColumn("S", ImGuiTableColumnFlags_WidthFixed, checkbox_column_width);
+            return true;
+        }
+
+        // TableHeadersRow() left-aligns each label; V and S are centered
+        // over their checkboxes instead.
+        void draw_header_row()
+        {
+            ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
             ImGui::TableSetColumnIndex(0);
-            ImGui::Spacing();
+            ImGui::TableHeader("Name");
+            for (int column : {1, 2})
+            {
+                ImGui::TableSetColumnIndex(column);
+                const char *label = ImGui::TableGetColumnName(column);
+                const float offset = (ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(label).x) * 0.5f;
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, offset));
+                ImGui::TableHeader(label);
+            }
         }
     }
 
@@ -238,16 +283,9 @@ namespace le::gui
                 all_purposes_selectable = all_purposes_selectable && purpose.selectable;
         }
 
-        if (!ImGui::BeginTable("layer_manager_table", 3, ImGuiTableFlags_SizingFixedFit))
-        {
+        if (!begin_section_table("layer_manager_all"))
             return;
-        }
-        // A checkbox is a GetFrameHeight() square, so it follows the font size.
-        const float checkbox_column_width = ImGui::GetFrameHeight();
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("V", ImGuiTableColumnFlags_WidthFixed, checkbox_column_width);
-        ImGui::TableSetupColumn("S", ImGuiTableColumnFlags_WidthFixed, checkbox_column_width);
-        ImGui::TableHeadersRow();
+        draw_header_row();
 
         // Every row/aggregate below is queued as *one* semicolon-joined
         // Tcl command when it covers more than one row (via
@@ -296,7 +334,10 @@ namespace le::gui
                     provider.run_tcl_command(script);
             });
 
-        draw_spacer_row();
+        ImGui::EndTable();
+        ImGui::Separator();
+        if (!begin_section_table("layer_manager_purposes"))
+            return;
 
         draw_toggle_row(
             "all_purposes", []
@@ -329,22 +370,32 @@ namespace le::gui
             });
         for (const GuiProvider::PurposeRow &purpose : purposes)
         {
+            const bool has_filters = purpose.ordinal == kPlacementPurpose || purpose.ordinal == kRoutePurpose;
+            bool show_filters = false;
             draw_toggle_row(
                 purpose_name(purpose.ordinal), [&]
-                { ImGui::TextUnformatted(purpose_name(purpose.ordinal)); },
+                {
+                    ImGui::TextUnformatted(purpose_name(purpose.ordinal));
+                    if (has_filters)
+                        show_filters = draw_expand_toggle(); },
                 purpose.visible, purpose.selectable,
                 [&](bool value)
                 { provider.set_purpose_visible(purpose_name(purpose.ordinal), value); },
                 [&](bool value)
                 { provider.set_purpose_selectable(purpose_name(purpose.ordinal), value); },
                 purpose.has_selectable_objects);
+            if (!show_filters)
+                continue;
             if (purpose.ordinal == kPlacementPurpose)
                 draw_filter_rows(provider, LE_OBJECT_FILTER_PLACEMENT_TYPE, state.layer_manager.placement_types);
             else if (purpose.ordinal == kRoutePurpose)
                 draw_filter_rows(provider, LE_OBJECT_FILTER_ROUTE_USE, state.layer_manager.route_uses);
         }
 
-        draw_spacer_row();
+        ImGui::EndTable();
+        ImGui::Separator();
+        if (!begin_section_table("layer_manager_layers"))
+            return;
 
         draw_toggle_row(
             "all_layers", []
