@@ -28,21 +28,25 @@ namespace le::gui
     /// thread instead of the process's main one - Tcl_Main's own
     /// blocking stdin/event loop and this loop can't share a thread
     /// either way (see le_shell.cpp's own comment for the full
-    /// threading story). Never returns in normal operation - process
-    /// exit is driven entirely by the Tcl console thread's own
-    /// Tcl_Main() reaching `exit`/EOF, which terminates the whole
-    /// process immediately (Tcl_Exit() calls the platform exit()), with
-    /// no coordinated shutdown needed here.
+    /// threading story). Never returns: the process ends on this thread
+    /// once request_exit() is called, or through the exit handler.
     void run_main_thread_loop(LeHandle *handle);
+
+    /// @brief Asks run_main_thread_loop to close any open window (without
+    /// the close dialog), terminate GLFW and std::exit(status) on the main
+    /// thread. Callable from any thread; the caller must not touch shared
+    /// state afterwards and should block until the process ends. Exiting
+    /// from another thread instead would run static destructors while the
+    /// window and its render thread are still live.
+    void request_exit(int status);
 
     /// @brief What "Exit le_shell" in the window's close dialog does
     /// (closing the window asks whether to close just the window or exit
     /// the tool) - called on the GUI
     /// thread once the window is torn down. The default flushes stdio and
     /// ends the process at once (std::_Exit - no static destructors racing
-    /// the Tcl thread), right for a batch script; le_shell's interactive
-    /// mode instead asks its Tcl thread to exit, so readline can restore
-    /// the terminal first. Set before run_main_thread_loop.
+    /// the Tcl thread); le_shell instead asks its Tcl thread to exit, so
+    /// readline can restore the terminal first. Set before run_main_thread_loop.
     using ExitHandler = void (*)();
     void set_exit_handler(ExitHandler handler);
 }

@@ -36,9 +36,10 @@ set terminal [create_terminal -abstract $abstract_token -name SHELL_TEST -direct
 check "created terminal is searchable" $terminal [get_terminals SHELL_TEST]
 check "delete_terminal return code" 0 [delete_terminal $terminal]
 
-# show_gui is a deliberate stub (le_tcl_procs.tcl) - just confirm it
-# exists as a real command and doesn't error, not what it prints.
-show_gui
+# A batch script can't open or close a window.
+check "show_gui errors in a batch script" 1 [catch {show_gui} message]
+check "show_gui's batch-mode message" 1 [string match "show_gui: not available in a batch script*" $message]
+check "close_gui errors in a batch script" 1 [catch {close_gui}]
 
 puts "le_shell batch-mode test passed"
 exit 0

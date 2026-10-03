@@ -2566,12 +2566,15 @@ proc show_gui {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "show_gui \[-help\] - Opens a window showing this session's current view"
     }
+    if {[info exists ::le_shell_batch]} {
+        error "show_gui: not available in a batch script - run le_shell without a script for the GUI"
+    }
     request_show_gui_cmd
     puts "show_gui: opening window..."
 }
 register_command_help show_gui \
     "show_gui \[-help\] - Opens a window showing this session's current view" \
-    "Opens a window showing the session's current view. It shares the session - the mouse and keyboard there act on the same design as the console. Returns at once." \
+    "Opens a window showing the session's current view. It shares the session - the mouse and keyboard there act on the same design as the console. Returns at once. Interactive le_shell only - an error in a batch script." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
@@ -2580,12 +2583,15 @@ proc close_gui {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "close_gui \[-help\] - Closes the GUI window, leaving le_shell running"
     }
+    if {[info exists ::le_shell_batch]} {
+        error "close_gui: not available in a batch script - run le_shell without a script for the GUI"
+    }
     request_close_gui_cmd
     return ""
 }
 register_command_help close_gui \
     "close_gui \[-help\] - Closes the GUI window, leaving le_shell running" \
-    "Closes the window show_gui opened, without asking - nothing is lost, and show_gui reopens it. The window's own close button instead asks whether to close the window or exit." \
+    "Closes the window show_gui opened, without asking - nothing is lost, and show_gui reopens it. The window's own close button instead asks whether to close the window or exit. Interactive le_shell only - an error in a batch script." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
