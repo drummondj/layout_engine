@@ -112,8 +112,11 @@ namespace le
         }
         case FillPattern::DOTS:
         {
+            // Centered on a pixel center, not a pixel corner, so a dot
+            // this small inks one solid pixel instead of four faint ones.
+            const double center = std::floor(s / 2) + 0.5;
             ctx.set_fill_style(color);
-            ctx.fill_circle(BLCircle(s / 2, s / 2, s * 0.15));
+            ctx.fill_circle(BLCircle(center, center, kDotPatternRadius));
             break;
         }
         default:
