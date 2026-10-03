@@ -13,6 +13,7 @@
 #include "components/info_panel.hpp"
 #include "components/compact_button.hpp"
 #include "components/icon_font.hpp"
+#include "../core/resource_path.hpp"
 
 // Apple deprecated the whole OpenGL framework in favor of Metal (10.14+)
 // but still fully implements it - every desktop-GL ImGui backend still
@@ -57,14 +58,8 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include <sys/stat.h>
 #include <thread>
 #include <vector>
-
-#if defined(__linux__)
-#include <limits.h>
-#include <unistd.h>
-#endif
 
 namespace le::gui
 {
@@ -78,43 +73,19 @@ namespace le::gui
         // measurable while idle.
         constexpr auto kIdlePollInterval = std::chrono::milliseconds(30);
 
-        // Returns the first of two candidate paths that exists, or empty.
-        // `build_path` is a compile-time path into this build machine's
-        // tree, valid for a local dev/ctest run but not once le_shell is
-        // copied elsewhere; on Linux the release bundle puts the file at
-        // `exe_relative` beside the executable instead. Checked via stat()
-        // so a missing file is reported here, naming every path tried,
-        // rather than by AddFontFromFileTTF's own assert.
-        std::string resolve_font_path(const char *build_path, const char *exe_relative)
+        // A bundled font's path (find_resource), or "" after logging every
+        // path tried and `consequence`. Checked up front so a missing file
+        // is reported here rather than by AddFontFromFileTTF's assert.
+        std::string resolve_font_path(const char *build_path, const char *exe_relative, const char *consequence)
         {
-            struct stat st{};
-            if (stat(build_path, &st) == 0)
-                return build_path;
-            spdlog::warn("resolve_font_path(): '{}' does not exist", build_path);
-
-#if defined(__linux__)
-            char buf[PATH_MAX];
-            const ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-            if (len <= 0)
+            auto path = find_resource(build_path, exe_relative);
+            if (!path)
             {
-                spdlog::warn("resolve_font_path(): readlink(\"/proc/self/exe\") failed (errno {}) - "
-                             "can't compute the executable-relative fallback for '{}'",
-                             errno, exe_relative);
+                spdlog::error("Font {} not found (tried {}) - {}.", std::filesystem::path(exe_relative).filename().string(),
+                              quoted_paths(path.error()), consequence);
                 return {};
             }
-            buf[len] = '\0';
-            const std::string exe_path(buf);
-            const size_t slash = exe_path.find_last_of('/');
-            const std::string exe_dir = slash == std::string::npos ? "." : slash == 0 ? "/"
-                                                                                        : exe_path.substr(0, slash);
-            const std::string candidate = exe_dir + "/" + exe_relative;
-            if (stat(candidate.c_str(), &st) == 0)
-                return candidate;
-            spdlog::warn("resolve_font_path(): '{}' does not exist either", candidate);
-#else
-            (void)exe_relative;
-#endif
-            return {};
+            return std::move(*path);
         }
 
         // A dark, low-saturation ("pastel") ImGui theme - applied once,
@@ -934,13 +905,13 @@ namespace le::gui
             // The text font needs an explicit size: this pinned ImGui
             // commit asserts when merging a sized font into one with an
             // implicit size (a bare AddFontDefault()).
-            const std::string text_font_path = resolve_font_path(LE_FONT_DIR "/Quicksand-Medium.ttf", "fonts/Quicksand-Medium.ttf");
+            const std::string text_font_path = resolve_font_path(LE_FONT_DIR "/Quicksand-Medium.ttf", "fonts/Quicksand-Medium.ttf",
+                                                                 "using ImGui's built-in font");
             ImFont *text_font = nullptr;
             if (!text_font_path.empty())
                 text_font = io.Fonts->AddFontFromFileTTF(text_font_path.c_str(), 16.0f);
             if (text_font == nullptr)
             {
-                spdlog::warn("Quicksand GUI font unavailable - falling back to ImGui's built-in font");
                 ImFontConfig default_font_config;
                 default_font_config.SizePixels = 13.0f;
                 io.Fonts->AddFontDefault(&default_font_config);
@@ -950,12 +921,9 @@ namespace le::gui
             icon_font_config.PixelSnapH = true;
             icon_font_config.GlyphMinAdvanceX = 16.0f;
             static const ImWchar icon_ranges[] = {ICON_MIN_LC, ICON_MAX_LC, 0};
-            const std::string lucide_font_path = resolve_font_path(LE_LUCIDE_FONT_PATH, "lucide.ttf");
+            const std::string lucide_font_path = resolve_font_path(LE_LUCIDE_FONT_PATH, "lucide.ttf", "toolbar icons will render blank");
             if (!lucide_font_path.empty())
                 io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 16.0f, &icon_font_config, icon_ranges);
-            else
-                spdlog::error("resolve_font_path(): FAILED - no usable icon font found, every toolbar icon will render blank. "
-                               "See the warn() line(s) immediately above for which candidate paths failed and why.");
 
             // A second, standalone (not MergeMode) copy of the same
             // Lucide font at 32px - components/icon_font.hpp's own
