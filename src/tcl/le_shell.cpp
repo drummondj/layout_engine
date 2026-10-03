@@ -33,6 +33,7 @@
 #include "api.hpp"
 #include "le_gui.hpp"
 #include "generated/le_shell_version.hpp"
+#include "../core/resource_path.hpp"
 
 #include <readline/history.h>
 #include <readline/readline.h>
@@ -52,10 +53,6 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
-
-#if defined(__linux__)
-#include <limits.h>
-#endif
 
 namespace
 {
@@ -133,60 +130,15 @@ namespace
         return TCL_OK;
     }
 
-    // Same two-step fallback as le_gui.cpp's own resolve_font_path()
-    // (for the exact same reason): `default_value` is this build tree's
-    // own absolute path (correct for a local dev/ctest run, where it
-    // genuinely still exists), but never valid once le_shell is copied
-    // elsewhere - e.g. Dockerfile.linux-release's `bundle` stage, which
-    // copies le_shell/le_tcl.so/le_tcl_procs.tcl flat into one directory,
-    // not this build tree's own layout. Checked via stat() first so a
-    // genuinely missing file is diagnosed by us, not by Tcl's own opaque
-    // `load` error. Only tried when no -module/-procs/env override was
-    // given - an explicit override is trusted as-is, matching this
-    // function's pre-existing "beats everything" precedence.
-    std::string exe_relative_candidate(const char *default_value)
-    {
-#if defined(__linux__)
-        const std::string default_path(default_value);
-        const size_t default_slash = default_path.find_last_of('/');
-        const std::string basename = default_slash == std::string::npos
-            ? default_path
-            : default_path.substr(default_slash + 1);
-
-        char buf[PATH_MAX];
-        const ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-        if (len <= 0)
-        {
-            std::fprintf(stderr, "le_shell: readlink(\"/proc/self/exe\") failed (errno %d) - "
-                                  "can't compute an executable-relative fallback path\n", errno);
-            return {};
-        }
-        buf[len] = '\0';
-        const std::string exe_path(buf);
-        const size_t exe_slash = exe_path.find_last_of('/');
-        const std::string exe_dir = exe_slash == std::string::npos ? "." : exe_slash == 0 ? "/"
-                                                                                            : exe_path.substr(0, exe_slash);
-        return exe_dir + "/" + basename;
-#else
-        (void)default_value;
-        return {};
-#endif
-    }
-
     // -module/-procs beat LE_TCL_MODULE/LE_TCL_PROCS_PATH beat the
-    // compile-time default baked in by CMakeLists.txt's own le_shell
-    // target (LE_TCL_MODULE_DEFAULT_PATH/LE_TCL_PROCS_DEFAULT_PATH - the
-    // exact build-tree locations this same build already produces, same
-    // idea as le_tcl_session_test's own LE_TCL_MODULE_PATH/
-    // LE_TCL_PROCS_PATH definitions) - so a plain `./le_shell` with no
-    // flags or env vars set works out of the box against this binary's
-    // own build tree, while either override mechanism still lets a
-    // packaged/relocated binary (e.g. Dockerfile.linux-release's bundle)
-    // point at a different location. If the compile-time default doesn't
-    // actually exist (the binary was copied/bundled elsewhere), falls
-    // back to a same-named file right next to the running executable -
-    // exactly where Dockerfile.linux-release's `bundle` stage puts
-    // le_tcl.so/le_tcl_procs.tcl alongside le_shell - before giving up.
+    // compile-time default baked in by CMakeLists.txt's le_shell target
+    // (LE_TCL_MODULE_DEFAULT_PATH/LE_TCL_PROCS_DEFAULT_PATH, the build
+    // tree's own outputs), so a plain `./le_shell` works against its own
+    // build tree. An explicit override is trusted as-is. The default falls
+    // back to a same-named file beside the executable (find_resource),
+    // where Dockerfile.linux-release's bundle puts le_tcl.so and
+    // le_tcl_procs.tcl - checked up front so a missing file is reported
+    // here rather than by Tcl's opaque `load` error.
     std::string resolve_path(const char *cli_value, const char *env_var, const char *default_value, const char *what)
     {
         if (cli_value != nullptr)
@@ -197,27 +149,19 @@ namespace
         {
             return from_env;
         }
-        if (default_value != nullptr)
+        if (default_value == nullptr)
         {
-            struct stat st{};
-            if (stat(default_value, &st) == 0)
-            {
-                return default_value;
-            }
-            std::fprintf(stderr, "le_shell: default %s '%s' does not exist - trying the "
-                                  "executable-relative fallback\n", what, default_value);
-            const std::string candidate = exe_relative_candidate(default_value);
-            if (!candidate.empty() && stat(candidate.c_str(), &st) == 0)
-            {
-                return candidate;
-            }
-            if (!candidate.empty())
-            {
-                std::fprintf(stderr, "le_shell: '%s' does not exist either\n", candidate.c_str());
-            }
+            std::fprintf(stderr, "le_shell: no %s given - pass it as an argument or set %s\n", what, env_var);
+            std::exit(2);
         }
-        std::fprintf(stderr, "le_shell: no %s given - pass it as an argument or set %s\n", what, env_var);
-        std::exit(2);
+        auto found = le::find_resource(default_value, std::filesystem::path(default_value).filename().string());
+        if (!found)
+        {
+            std::fprintf(stderr, "le_shell: %s not found (tried %s) - pass it as an argument or set %s\n", what,
+                         le::quoted_paths(found.error()).c_str(), env_var);
+            std::exit(2);
+        }
+        return std::move(*found);
     }
 
     // Bootstrapping: `load` le_tcl and source le_tcl_procs.tcl, so both
@@ -625,8 +569,8 @@ int main(int argc, char **argv)
 #else
     const char *procs_default = nullptr;
 #endif
-    g_module_path = resolve_path(module_arg, "LE_TCL_MODULE", module_default, "the le_tcl module path (-module)");
-    g_procs_path = resolve_path(procs_arg, "LE_TCL_PROCS_PATH", procs_default, "the le_tcl_procs.tcl path (-procs)");
+    g_module_path = resolve_path(module_arg, "LE_TCL_MODULE", module_default, "the le_tcl module (-module)");
+    g_procs_path = resolve_path(procs_arg, "LE_TCL_PROCS_PATH", procs_default, "le_tcl_procs.tcl (-procs)");
 
     g_injected_handle = le_create();
 
