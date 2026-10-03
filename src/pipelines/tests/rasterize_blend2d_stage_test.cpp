@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <numbers>
+#include <utility>
 
 using namespace le;
 
@@ -270,4 +272,24 @@ TEST_F(RasterizeBlend2DStageFixture, ChunkVisibilityMasksHideRouteShapesAndPlace
     EXPECT_TRUE(region_contains_color_near(image, 9, 49, 32, 61, route_ink, 30));  // its sibling (1,4)-(3,5)
     EXPECT_FALSE(region_contains_color_near(image, 59, 69, 82, 91, placement_ink, 30)); // hidden p0 (6,1)-(8,3)
     EXPECT_TRUE(region_contains_color_near(image, 59, 39, 82, 61, placement_ink, 30));  // p1 (6,4)-(8,6)
+}
+
+TEST(PatternBlend2D, DotsTileDrawsOneSmallCrispDotAtThePixelCenter)
+{
+    const BLImage tile = pattern_blend2d(FillPattern::DOTS, BLRgba32(255, 255, 255, 255)).get_image();
+    ASSERT_EQ(tile.width(), kPatternTileSize);
+
+    // The dot is centered on a pixel center, so that pixel is fully inked
+    // and its 4-neighbours only get the antialiased rim.
+    const int c = kPatternTileSize / 2;
+    EXPECT_EQ(sample(tile, c, c).a, 255u);
+    for (const auto [dx, dy] : {std::pair{1, 0}, std::pair{-1, 0}, std::pair{0, 1}, std::pair{0, -1}})
+        EXPECT_LT(sample(tile, c + dx, c + dy).a, 128u);
+
+    // Total ink matches a disk of kDotPatternRadius.
+    double coverage = 0.0;
+    for (int y = 0; y < tile.height(); ++y)
+        for (int x = 0; x < tile.width(); ++x)
+            coverage += sample(tile, x, y).a / 255.0;
+    EXPECT_NEAR(coverage, std::numbers::pi * kDotPatternRadius * kDotPatternRadius, 0.5);
 }

@@ -25,6 +25,9 @@ namespace le
     // an ambient scale.
     inline constexpr int kPatternTileSize = 12;
 
+    // FillPattern::DOTS' dot radius in screen pixels, one per tile.
+    inline constexpr double kDotPatternRadius = 0.9;
+
     // Spacing between stripes, in screen pixels.
     inline constexpr double kDiagonalStripePeriod = 8.0;
 
