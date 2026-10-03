@@ -6675,7 +6675,7 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsLayerColors)
 }
 
 // What the exit confirmation counts as
-// unsaved. Reading files isn't a change; an edit is until write_def/write_lef;
+// unsaved. Reading files isn't a change; an edit is until write_db/write_def/write_lef;
 // a setting is until save_settings/load_settings.
 TEST_F(ApiFixture, UnsavedChangesTrackEditsWritesAndSettings)
 {
