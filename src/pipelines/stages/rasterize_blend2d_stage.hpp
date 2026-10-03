@@ -745,18 +745,27 @@ namespace le
                     ctx.stroke_rect(rect);
                 }
 
-                // A port marker never shrinks below kMinPortMarkerPixelSize -
-                // grown about the
-                // port's edge, so it's never sub-pixel either.
-                std::optional<std::vector<Polygon>> enlarged_marker;
-                if (is_port_marker_layer)
-                    enlarged_marker = enlarged_port_marker(shape.polygons, scale);
-                for (const Polygon &poly : enlarged_marker ? *enlarged_marker : shape.polygons)
+                // A port marker is held between kMinPortMarkerPixelSize and
+                // kMaxPortMarkerPixelSize, scaled about the port's edge - in
+                // doubles, since a 16 px marker can be under one dbu zoomed
+                // far in. Never sub-pixel once scaled.
+                const double marker_factor = is_port_marker_layer ? port_marker_scale_factor(shape.polygons, scale) : 1.0;
+                BLMatrix2D marker_transform = BLMatrix2D::make_identity();
+                if (marker_factor != 1.0)
                 {
-                    if (polygon_is_sub_pixel(poly, scale))
+                    const Point &anchor = shape.polygons.front().points.front();
+                    marker_transform = BLMatrix2D(marker_factor, 0.0, 0.0, marker_factor,
+                                                  (1.0 - marker_factor) * static_cast<double>(anchor.x),
+                                                  (1.0 - marker_factor) * static_cast<double>(anchor.y));
+                }
+                for (const Polygon &poly : shape.polygons)
+                {
+                    if (marker_factor == 1.0 && polygon_is_sub_pixel(poly, scale))
                         continue;
                     any_geometry_drawn = true;
-                    const BLPath path = to_bl_path(poly, /*close=*/true);
+                    BLPath path = to_bl_path(poly, /*close=*/true);
+                    if (marker_factor != 1.0)
+                        path.transform(marker_transform);
                     if (is_cross)
                     {
                         BLBox bounds;

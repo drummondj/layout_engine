@@ -201,7 +201,8 @@ TEST_F(RasterizeBlend2DStageFixture, PortLabelDrawsOverItsOwnMarker)
     root.create_shape(ShapeData{.physical_port_segment = segment, .layer = m1, .rects = {Rect{.ll = Point{960, 480}, .ur = Point{1000, 520}}}});
 
     // 2 px/dbu over (800,400)-(1100,600): 600x400 px. The marker points in
-    // from (1040, 480..520) to its apex at (1000, 500).
+    // to its apex at (1000, 500), capped at 16 px: its base is at
+    // (1008, 496..504).
     const Rect viewport{.ll = Point{800, 400}, .ur = Point{1100, 600}};
     HierarchyResolverRunner resolver{"HierarchyResolver"};
     resolver.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 0, viewport, 2.0));
@@ -209,12 +210,12 @@ TEST_F(RasterizeBlend2DStageFixture, PortLabelDrawsOverItsOwnMarker)
     const BLImage &image = output.images.at(HierarchyId{top_layout}).image;
     ASSERT_EQ(image.width(), 600);
 
-    // Inside the marker, x 1020..1038 / y 490..510 dbu: the label's ink
+    // Inside the marker, x 1003..1008 / y 498..502 dbu: the label's ink
     // (the M1 outline color) shows through the solid gray.
     const Color label_color = view_layers.get(view_layers.find(m1, ViewLayerPurpose::TERMINAL))->style.outline_color;
-    EXPECT_TRUE(region_contains_color_near(image, 440, 180, 476, 220, label_color, 30));
+    EXPECT_TRUE(region_contains_color_near(image, 406, 196, 416, 204, label_color, 30));
     // And the marker itself is still drawn there.
-    EXPECT_TRUE(region_contains_color_near(image, 440, 180, 476, 220, Color{200, 200, 200, 255}, 10));
+    EXPECT_TRUE(region_contains_color_near(image, 406, 196, 416, 204, Color{200, 200, 200, 255}, 10));
 }
 
 // ChunkVisibility masks (ViewportCullStage's Placement.type/Route.use
@@ -270,4 +271,31 @@ TEST_F(RasterizeBlend2DStageFixture, ChunkVisibilityMasksHideRouteShapesAndPlace
     EXPECT_TRUE(region_contains_color_near(image, 9, 49, 32, 61, route_ink, 30));  // its sibling (1,4)-(3,5)
     EXPECT_FALSE(region_contains_color_near(image, 59, 69, 82, 91, placement_ink, 30)); // hidden p0 (6,1)-(8,3)
     EXPECT_TRUE(region_contains_color_near(image, 59, 39, 82, 61, placement_ink, 30));  // p1 (6,4)-(8,6)
+}
+
+TEST_F(RasterizeBlend2DStageFixture, PortMarkerIsCappedAtSixteenPixels)
+{
+    // An INPUT port on TOP's left die edge: its marker points in, apex at
+    // (0, 420), base 40 dbu out at x = -40 - 40 px at 1 px/dbu, capped to
+    // 16 px (base at x = -16).
+    const LibraryId library_id = root.create_library(LibraryData{.name = "TOPLIB"});
+    const DesignId top_design = root.create_design(DesignData{.library = library_id, .name = "TOP"});
+    const LayoutId top_layout = root.create_layout(LayoutData{.design = top_design});
+    root.create_shape(ShapeData{.layout = top_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{1000, 1000}}}}});
+    const PhysicalPortId port = root.create_physical_port(PhysicalPortData{.layout = top_layout, .name = "IN", .direction = SignalDirection::INPUT});
+    const PhysicalPortSegmentId segment = root.create_physical_port_segment(PhysicalPortSegmentData{.physical_port = port});
+    root.create_shape(ShapeData{.physical_port_segment = segment, .layer = m1, .rects = {Rect{.ll = Point{0, 400}, .ur = Point{20, 440}}}});
+
+    // Viewport (-100, 300)-(100, 500): pixel (x, y) is dbu (x - 100, 500 - y).
+    ViewRenderOptions options = options_for(HierarchyId{top_layout}, 0, Rect{.ll = Point{-100, 300}, .ur = Point{100, 500}}, 1.0);
+    options.minor_grid_spacing_dbu = 0;
+    options.major_grid_spacing_dbu = 0;
+    hierarchy_resolver_runner.run(view_layers_handle, 0, options);
+    const RasterizeOutput &output = rasterize_runner.run(hierarchy_resolver_runner.last_handle(), 0, options);
+
+    const BLImage &image = output.images.at(HierarchyId{top_layout}).image;
+    ASSERT_EQ(image.width(), 200);
+    EXPECT_GT(sample(image, 90, 80).a, 0u);  // dbu (-10, 420): inside the capped marker
+    EXPECT_EQ(sample(image, 80, 80).a, 0u);  // dbu (-20, 420): just past its base
+    EXPECT_EQ(sample(image, 70, 80).a, 0u);  // dbu (-30, 420): inside the uncapped one
 }
