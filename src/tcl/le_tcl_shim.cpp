@@ -885,11 +885,6 @@ void clear_rulers_cmd()
     le_clear_rulers(session());
 }
 
-void select_all_cmd()
-{
-    le_select_all(session());
-}
-
 void deselect_all_cmd()
 {
     le_deselect_all(session());
