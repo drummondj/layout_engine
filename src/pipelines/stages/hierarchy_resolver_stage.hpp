@@ -315,9 +315,13 @@ namespace le
         std::vector<ViewPlacements> placement_tiles;
         /// @brief The node's declared bbox (diearea/boundary) grown to
         /// cover everything it draws - its own shapes and its placements'
-        /// `extent`s. RasterizeBlend2DStage sizes a nested node's image to
-        /// this, so nothing outside a cell's boundary is clipped.
+        /// `extent`s, so nothing outside a cell's boundary is clipped.
         Rect extent;
+        /// @brief Set only in ViewportCullStage's output: the part of the
+        /// node any visible instance of it shows, in its local space (the
+        /// viewport itself for the top level). RasterizeBlend2DStage sizes
+        /// a nested node's image to this, or to `extent` when it's unset.
+        std::optional<Rect> visible_region;
         /// @brief The hierarchy depth budget this node was resolved with
         /// (HierarchyResolverStage re-resolves its placements with it).
         int remaining_depth = 0;

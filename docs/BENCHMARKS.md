@@ -1680,3 +1680,28 @@ GUI's rendering indicator. `ComposeStage` now keeps the pre-overlay image
 keyed on its input, `top_level` and `scale`, and an overlay-only change
 copies it and redraws just the overlays: 0.78 ms per mouse move on
 caravel. The cost is one extra frame-sized image held by the stage.
+
+## 2026-10-03 — Viewport cull: nested images sized to their visible region
+
+Rasterize used to size every nested node's image to the node's whole
+extent, capped at 8192 px a side. Zoomed into a block larger than that
+(caravel_core is 4767 um tall, so from about 1.7 px/um), everything
+beyond 8192 px from the block's lower-left corner was cut off and its
+contents vanished. `ViewportCullStage` now carries each node's visible
+region in its own local space - the union of what every surviving
+instance shows - and culls a node's children against it; Rasterize sizes
+nested images to that region. Release build, WSL2 Linux, GCC, mean of 5.
+
+| Benchmark | Before | After |
+|---|---|---|
+| `BM_ViewportCull/1x1` | 0.114 ms | 0.122 ms |
+| `BM_ViewportCull/3x3` | 0.454 ms | 0.364 ms |
+| `BM_ViewportCull/5x5` | 0.976 ms | 0.866 ms |
+| `BM_WarmTier/1x1` | 50.7 ms | 40.3 ms |
+| `BM_WarmTier/3x3` | 229 ms | 194 ms |
+| `BM_WarmTier/5x5` | 183 ms | 141 ms |
+
+The cull does one inverse transform and rect union per surviving
+placement instead of a transform compose, at about the same cost. The
+warm tier gets faster because partly visible nested nodes now rasterize
+only their visible part.
