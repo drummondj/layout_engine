@@ -1147,13 +1147,18 @@ extern "C"
     /// @brief Writes the current settings as JSON to `path` (null
     /// or "" - le_default_settings_path), creating its directory if needed:
     /// grid spacing (um), ruler and label font sizes (px), hierarchy depth,
-    /// flightline fanout limit, and the placement/shape snap modes. Returns
-    /// 0 on success, nonzero (logged) on failure or a null handle.
+    /// flightline fanout limit, and the placement/shape snap modes. Top-level
+    /// keys the last loaded file had that this version doesn't know are
+    /// written back unchanged. Returns 0 on success, nonzero (logged) on
+    /// failure or a null handle.
     int32_t le_save_settings(LeHandle *handle, const char *path);
 
     /// @brief Reads settings written by le_save_settings from `path` (null
-    /// or "" - le_default_settings_path) and applies them. A missing key
-    /// keeps its current value; an invalid one is skipped with a warning.
+    /// or "" - le_default_settings_path) and applies them. A file from an
+    /// older version is migrated to the current format first; one from a
+    /// newer version loads the keys this version knows, with a warning. A
+    /// missing key keeps its current value; an invalid one is skipped with
+    /// a warning.
     /// Returns 0 on success, nonzero (logged) if the file can't be read or
     /// isn't a JSON object, or handle is null.
     int32_t le_load_settings(LeHandle *handle, const char *path);

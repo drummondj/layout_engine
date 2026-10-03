@@ -1,0 +1,18 @@
+{
+  "flightline_max_fanout": 7,
+  "grid": {
+    "major_um": 2.0,
+    "minor_um": 0.2
+  },
+  "hierarchy_depth": 3,
+  "label_size_px": 30.0,
+  "placement_snap_mode": "manufacturing",
+  "ruler_label_size_px": 14.0,
+  "shape_snap_modes": {
+    "path": "tracks",
+    "polygon": "none",
+    "rect": "user",
+    "via": "none"
+  },
+  "version": 1
+}

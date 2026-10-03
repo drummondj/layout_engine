@@ -1638,6 +1638,11 @@ struct LeHandle
         // which can fill in grid spacing in um). Maintained by api.cpp.
         uint64_t saved_mutation_version = 0;
         std::string saved_settings_json;
+        // The last loaded settings file's top-level keys this version
+        // doesn't know (a JSON object, or "" for none) - written back by
+        // save_settings so a newer layout_engine's settings survive a save
+        // from this one.
+        std::string unknown_settings_json;
 
     private:
         // Minimum on-screen distance (px, converted via the current
