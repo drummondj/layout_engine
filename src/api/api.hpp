@@ -646,10 +646,12 @@ extern "C"
     /// `label` (e.g. the raw text of a command a user just typed, or a
     /// short synthesized label like "move"). Every le_create_X/le_update_X/
     /// le_delete_X call made on this handle while a transaction is
-    /// recording is captured as one undo/redo step within it. Calling
-    /// this while a transaction is already recording is a no-op (no
-    /// nesting supported this round) - a no-op if handle or label is
-    /// null.
+    /// recording is captured as one undo/redo step within it. Until
+    /// le_end_command(), le_wait_for_render_needed() doesn't return (only
+    /// le_cancel_render_wait() wakes it), so the command's mutations
+    /// render once, when it ends. Calling this while a transaction is
+    /// already recording is a no-op (no nesting supported this round) - a
+    /// no-op if handle or label is null.
     void le_begin_command(LeHandle *handle, const char *label);
 
     /// @brief Ends the transaction started by le_begin_command(). If it
@@ -659,7 +661,7 @@ extern "C"
     /// (le_command_history_count/_at), `succeeded` or not - so a
     /// zero-step command (e.g. a pure read) is recallable even though
     /// there's nothing to undo, and a failed one can be recalled and
-    /// fixed. A no-op if
+    /// fixed. Releases the render hold le_begin_command() set. A no-op if
     /// handle is null or no transaction is currently recording.
     void le_end_command(LeHandle *handle, int32_t succeeded);
 
@@ -1772,11 +1774,19 @@ extern "C"
     /// rendering) if handle is null.
     int32_t le_is_rendering(LeHandle *handle);
 
+    /// @brief 1 between le_begin_command() and le_end_command(): a Tcl
+    /// command is running and the view won't re-render until it ends.
+    /// Lock-free like le_is_rendering(), so the GUI can poll it every
+    /// frame. Returns 0 if handle is null.
+    int32_t le_is_command_running(LeHandle *handle);
+
     /// @brief Blocks the calling thread until a mutation has been made to
     /// this handle (any call that takes HandleWriteLock, le_handle.hpp -
     /// every le_create_X/le_update_X/le_delete_X/le_set_*/le_mouse_*/
     /// le_key_*/le_read_*/... call) since the last time this returned, or
     /// until le_cancel_render_wait() is called - whichever comes first.
+    /// Between le_begin_command() and le_end_command() only
+    /// le_cancel_render_wait() wakes it.
     /// The intended caller is a single dedicated render thread
     /// (le_gui.cpp's render_thread_loop): call this, then call
     /// le_render_pixel_buffer() once and publish whatever it returns,
@@ -1798,9 +1808,9 @@ extern "C"
     /// join the thread) rather than staying blocked forever waiting for
     /// a mutation that may never come. Safe to call even if no thread is
     /// currently waiting (the next le_wait_for_render_needed() call would
-    /// simply return immediately instead of blocking - LeHandle::
-    /// render_needed_ is a level, not a one-shot edge). A no-op if handle
-    /// is null.
+    /// simply return immediately instead of blocking - the cancel is a
+    /// level, not a one-shot edge). Wakes the waiter even while a command
+    /// holds renders (le_begin_command). A no-op if handle is null.
     void le_cancel_render_wait(LeHandle *handle);
 
     /// @brief Signals that a window showing this handle's own rendered

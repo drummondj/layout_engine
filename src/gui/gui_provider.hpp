@@ -72,6 +72,8 @@ namespace le::gui
         {
             int32_t mode = LE_MODE_SELECT;
             bool is_rendering = false;
+            // A Tcl command is running (le_is_command_running).
+            bool is_command_running = false;
             bool is_move_armed = false;
             bool is_resize_armed = false;
             // Selected shape pieces - the Edit-mode Delete button's targets

@@ -2,9 +2,11 @@
 #include <algorithm>
 #include <set>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <gtest/gtest.h>
 #include <map>
 #include <string>
@@ -3743,6 +3745,58 @@ TEST_F(ApiFixture, IsRenderingReflectsWhetherARenderIsActuallyInProgress)
     render_thread.join();
     EXPECT_TRUE(observed_rendering) << "expected to observe le_is_rendering() true at least once during a real render";
     EXPECT_EQ(le_is_rendering(handle), 0) << "should be false again once the render has finished";
+}
+
+// A Tcl command (le_repl_eval brackets every one with begin/end) renders
+// once when it ends, not after each mutation - a loop of deletes would
+// otherwise re-render, and stall on the render's shared lock, per delete.
+TEST_F(ApiFixture, RenderWaitIsHeldUntilTheCommandEnds)
+{
+    le_begin_command(handle, "held");
+    std::promise<void> woke;
+    std::future<void> woke_future = woke.get_future();
+    std::thread waiter([&]
+                       { le_wait_for_render_needed(handle);
+                         woke.set_value(); });
+
+    le_set_viewport_size(handle, 120, 80);
+    le_zoom(handle, 1.5, 60, 40);
+    EXPECT_EQ(woke_future.wait_for(std::chrono::milliseconds(200)), std::future_status::timeout);
+
+    le_end_command(handle, 1);
+    EXPECT_EQ(woke_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    waiter.join();
+}
+
+TEST_F(ApiFixture, IsCommandRunningIsTrueBetweenBeginAndEndCommand)
+{
+    EXPECT_EQ(le_is_command_running(handle), 0);
+    le_begin_command(handle, "running");
+    EXPECT_EQ(le_is_command_running(handle), 1);
+    le_end_command(handle, 1);
+    EXPECT_EQ(le_is_command_running(handle), 0);
+    EXPECT_EQ(le_is_command_running(nullptr), 0);
+}
+
+// Window teardown cancels the wait to stop its render thread; that must
+// work mid-command too, since a typed `exit` never reaches le_end_command.
+TEST_F(ApiFixture, CancelRenderWaitWakesTheWaiterWhileACommandHoldsRenders)
+{
+    le_begin_command(handle, "held");
+    le_set_viewport_size(handle, 120, 80);
+    std::promise<void> woke;
+    std::future<void> woke_future = woke.get_future();
+    std::thread waiter([&]
+                       { le_wait_for_render_needed(handle);
+                         woke.set_value(); });
+
+    le_cancel_render_wait(handle);
+    const bool woke_in_time = woke_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    if (!woke_in_time)
+        le_end_command(handle, 1); // unblock the waiter so the join below returns
+    waiter.join();
+    EXPECT_TRUE(woke_in_time);
+    le_end_command(handle, 1);
 }
 
 TEST_F(ApiFixture, TakeShowGuiRequestConsumesTheRequestExactlyOnce)

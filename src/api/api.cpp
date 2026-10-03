@@ -3783,6 +3783,7 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         handle->command_history.begin(label);
+        handle->hold_renders();
     }
 
     void le_end_command(LeHandle *handle, int32_t succeeded)
@@ -3791,6 +3792,7 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         handle->command_history.end(succeeded != 0);
+        handle->release_renders();
     }
 
     int32_t le_undo(LeHandle *handle)
@@ -6182,6 +6184,13 @@ extern "C"
         return handle->is_rendering_.load(std::memory_order_relaxed) ? 1 : 0;
     }
 
+    int32_t le_is_command_running(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        return handle->renders_held() ? 1 : 0;
+    }
+
     void le_wait_for_render_needed(LeHandle *handle)
     {
         if (!handle)
@@ -6193,7 +6202,7 @@ extern "C"
     {
         if (!handle)
             return;
-        handle->notify_render_needed();
+        handle->cancel_render_wait();
     }
 
     void le_request_show_gui(LeHandle *handle)

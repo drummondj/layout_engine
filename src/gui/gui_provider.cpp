@@ -34,6 +34,7 @@ namespace le::gui
     {
         state_.mode = le_get_mode(handle_);
         state_.is_rendering = le_is_rendering(handle_) != 0;
+        state_.is_command_running = le_is_command_running(handle_) != 0;
         state_.is_move_armed = le_is_move_armed(handle_) != 0;
         state_.is_resize_armed = le_is_resize_armed(handle_) != 0;
         state_.resize.hover_axis = state_.is_resize_armed ? le_resize_hover_axis(handle_) : LE_RESIZE_AXIS_NONE;

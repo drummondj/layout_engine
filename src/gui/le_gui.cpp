@@ -522,6 +522,11 @@ namespace le::gui
         // next real input event.
         constexpr double kMainLoopIdleWaitSeconds = 0.033;
 
+        // How long a Tcl command must have been running before the design
+        // view shows "running..." - long enough that quick commands (and
+        // the GUI's own queued ones, like a layer toggle) don't flicker it.
+        constexpr double kCommandIndicatorDelaySeconds = 0.25;
+
         // Logical (window/point, not framebuffer-pixel) height reserved
         // at the bottom of the window for draw_status_bar
         // (components/status_bar.hpp), directly below the design view.
@@ -1047,6 +1052,9 @@ namespace le::gui
             std::thread render_thread;
             uint64_t displayed_generation = 0;
             bool have_content = false;
+            // glfwGetTime() when the running Tcl command was first seen; < 0
+            // while none is running.
+            double command_started_at = -1.0;
 
             // The close button asks
             // (draw_close_dialog) rather than closing; close_gui closes
@@ -1157,7 +1165,23 @@ namespace le::gui
                 // real recompute (api.cpp's own le_render_pixel_buffer
                 // comment), a render is already a clean, one-shot
                 // true/false pulse - nothing left to smooth.
-                const bool show_loading_overlay = is_rendering;
+                // A Tcl command holds renders until it ends
+                // (le_begin_command), so without this the view would sit
+                // still with no feedback; it gets the same overlay,
+                // labelled "running...".
+                const bool is_command_running = provider.state().is_command_running;
+                if (!is_command_running)
+                    command_started_at = -1.0;
+                else if (command_started_at < 0.0)
+                    command_started_at = glfwGetTime();
+                const bool show_running = is_command_running &&
+                                          glfwGetTime() - command_started_at >= kCommandIndicatorDelaySeconds;
+                const bool show_loading_overlay = is_rendering || show_running;
+
+                // Input isn't forwarded to the handle while a command runs
+                // either: a click would otherwise select or Move
+                // mid-command, inside that command's undo step.
+                const bool input_blocked = is_rendering || is_command_running;
 
                 // Set once the layout
                 // view's own hover state is known (forward_mouse_input,
@@ -1466,8 +1490,9 @@ namespace le::gui
                     // hover (and therefore the spinner/hidden-cursor
                     // block further down) still works correctly while a
                     // render is in flight, just without forwarding to
-                    // the backend that frame.
-                    if (is_rendering)
+                    // the backend that frame. The same while a command runs
+                    // (input_blocked).
+                    if (input_blocked)
                     {
                         over_layout_content = ImGui::IsItemHovered();
                     }
@@ -1517,7 +1542,7 @@ namespace le::gui
                     {
                         ImGui::GetWindowDrawList()->AddText(
                             ImVec2(image_screen_pos.x + 8, image_screen_pos.y + 8),
-                            IM_COL32(255, 255, 255, 220), "rendering...");
+                            IM_COL32(255, 255, 255, 220), show_running ? "running..." : "rendering...");
                     }
                 }
                 else
@@ -1532,7 +1557,9 @@ namespace le::gui
                         : 0.0f;
                     ImGui::Dummy(ImVec2(panel_width, dummy_height));
                     over_layout_content = ImGui::IsItemHovered();
-                    if (show_loading_overlay)
+                    if (show_running)
+                        ImGui::TextUnformatted("Running a command - the view updates when it finishes...");
+                    else if (show_loading_overlay)
                         ImGui::TextUnformatted("Loading design - this can take a while for a large one...");
                     else
                         ImGui::TextUnformatted("No design loaded yet - read_lef/open_design from the console.");
@@ -1590,7 +1617,7 @@ namespace le::gui
                     draw_loading_spinner(ImGui::GetForegroundDrawList(), center, static_cast<float>(glfwGetTime()));
                 }
 
-                // !is_rendering - forward_keyboard_input calls
+                // !input_blocked - forward_keyboard_input calls
                 // le_key_down/_up/le_clear_all_keys, all
                 // handle->mutex_-locked (see this frame's own
                 // is_rendering doc comment further up); layout_view_hovered
@@ -1606,7 +1633,7 @@ namespace le::gui
                 // comment for why
                 // io.WantTextInput, not io.WantCaptureKeyboard, is the
                 // right flag here.
-                if (!is_rendering)
+                if (!input_blocked)
                     forward_keyboard_input(provider, layout_view_hovered && !ImGui::GetIO().WantTextInput, escape_consumed);
 
                 // Called unconditionally - draw_status_bar's own

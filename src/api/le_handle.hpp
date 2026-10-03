@@ -182,6 +182,16 @@ struct LeHandle
     std::mutex render_needed_mutex_;
     std::condition_variable render_needed_cv_;
     bool render_needed_ = false;
+    // Set between le_begin_command and le_end_command: a Tcl command
+    // (e.g. a loop of deletes) renders once when it ends, not after each
+    // mutation it makes. Written under render_needed_mutex_; read
+    // lock-free by renders_held().
+    std::atomic<bool> renders_held_{false};
+    // Set by cancel_render_wait; wakes a waiter even while renders are
+    // held, so window teardown never waits on a command that won't end
+    // (a typed `exit` never reaches le_end_command). Under
+    // render_needed_mutex_.
+    bool render_wait_cancelled_ = false;
 
     // Called by HandleWriteLock's destructor (below) - every
     // std::unique_lock<std::shared_mutex> acquisition on mutex_ is, by
@@ -198,9 +208,7 @@ struct LeHandle
     // (render_thread_loop, le_gui.cpp) just calls le_render_pixel_buffer
     // once, which cheaply no-ops via ViewRenderPipeline::would_recompute()
     // when nothing relevant changed (view_render_pipeline.hpp's own
-    // run() doc comment). Also called directly by le_cancel_render_wait
-    // (api.cpp) to wake a render thread blocked here with nothing to do,
-    // purely so it can re-check its own stop flag and exit cleanly.
+    // run() doc comment).
     void notify_render_needed()
     {
         {
@@ -218,9 +226,43 @@ struct LeHandle
     void wait_for_render_needed()
     {
         std::unique_lock<std::mutex> lock(render_needed_mutex_);
-        render_needed_cv_.wait(lock, [this] { return render_needed_; });
-        render_needed_ = false;
+        render_needed_cv_.wait(lock, [this]
+                               { return render_wait_cancelled_ || (render_needed_ && !renders_held_); });
+        if (render_wait_cancelled_)
+            render_wait_cancelled_ = false;
+        else
+            render_needed_ = false;
     }
+
+    // Wakes wait_for_render_needed() even while renders are held. A level,
+    // like render_needed_: a cancel before anyone waits isn't lost.
+    void cancel_render_wait()
+    {
+        {
+            std::lock_guard<std::mutex> lock(render_needed_mutex_);
+            render_wait_cancelled_ = true;
+        }
+        render_needed_cv_.notify_all();
+    }
+
+    // Defers wait_for_render_needed() until release_renders(); mutations
+    // in between still mark a render as needed.
+    void hold_renders()
+    {
+        std::lock_guard<std::mutex> lock(render_needed_mutex_);
+        renders_held_ = true;
+    }
+
+    void release_renders()
+    {
+        {
+            std::lock_guard<std::mutex> lock(render_needed_mutex_);
+            renders_held_ = false;
+        }
+        render_needed_cv_.notify_one();
+    }
+
+    bool renders_held() const { return renders_held_.load(std::memory_order_relaxed); }
 
     // Process-wide cap on how many threads
     // oneTBB's default arena may use for this handle's pipeline flow
