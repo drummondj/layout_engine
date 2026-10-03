@@ -248,12 +248,10 @@ namespace le::gui
 
         // Plain labels rather than TableHeadersRow(), which left-aligns
         // them and gives the row a header background; V and S are
-        // centered over their checkboxes.
+        // centered over their checkboxes and the name column is unlabeled.
         void draw_header_row()
         {
             ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::TextUnformatted("Name");
             for (int column : {1, 2})
             {
                 ImGui::TableSetColumnIndex(column);
