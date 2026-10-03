@@ -1,3 +1,4 @@
+#include "../stages/rasterize_blend2d_stage.hpp"
 #include "../stages/viewport_cull_stage.hpp"
 #include "synchronous_stage_runner.hpp"
 #include <gtest/gtest.h>
@@ -19,6 +20,16 @@ namespace
 
     using HierarchyResolverRunner = SynchronousStageRunner<HierarchyResolverStage, ViewLayerSetHandle, HierarchyResolverOutput, ViewRenderOptions>;
     using ViewportCullRunner = SynchronousStageRunner<ViewportCullStage, HierarchyResolverStage::OutputHandle, HierarchyResolverOutput, ViewRenderOptions>;
+    using RasterizeRunner = SynchronousStageRunner<RasterizeBlend2DStage, HierarchyResolverStage::OutputHandle, RasterizeOutput, ViewRenderOptions>;
+
+    void expect_rect_eq(const std::optional<Rect> &actual, Rect expected)
+    {
+        ASSERT_TRUE(actual.has_value());
+        EXPECT_EQ(actual->ll.x, expected.ll.x);
+        EXPECT_EQ(actual->ll.y, expected.ll.y);
+        EXPECT_EQ(actual->ur.x, expected.ur.x);
+        EXPECT_EQ(actual->ur.y, expected.ur.y);
+    }
 
     // Same LEAF/BLOCK/TOP fixture as hierarchy_resolver_stage_test.cpp -
     // TOP places BLOCK once at (100, 100); BLOCK (a Layout) places LEAF
@@ -316,4 +327,53 @@ TEST_F(ViewportCullStageFixture, MasksAreReusedAcrossPansAndEditsAndRebuiltWhenT
 
     cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, with_hidden(options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}}), {.route_uses = {"POWER"}}));
     EXPECT_GT(cull_runner.stage().visibility_builds(), initial + 1);
+}
+
+TEST_F(ViewportCullStageFixture, NestedVisibleRegionIsTheViewportInTheNodesOwnSpace)
+{
+    const ViewRenderOptions options = options_with_viewport(Rect{.ll = Point{550, 550}, .ur = Point{650, 650}});
+    const HierarchyResolverOutput &culled = cull_runner.run(cold_output, 0, options);
+
+    expect_rect_eq(culled.view_data.at(HierarchyId{top_layout}).visible_region, Rect{.ll = Point{550, 550}, .ur = Point{650, 650}});
+    // BLOCK is placed at (100,100); LEAF (leaf1 at BLOCK-local (500,500)) is wholly inside.
+    expect_rect_eq(culled.view_data.at(HierarchyId{block_layout}).visible_region, Rect{.ll = Point{450, 450}, .ur = Point{550, 550}});
+    expect_rect_eq(culled.view_data.at(HierarchyId{leaf_abstract}).visible_region, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}});
+}
+
+TEST_F(ViewportCullStageFixture, SharedNodeKeepsChildrenAnyOfItsInstancesShows)
+{
+    // A second BLOCK at (2000,100). The viewport shows BLOCK-local
+    // (900,0)-(1000,30) through block0 (no leaves there) and (0,0)-(30,30)
+    // through block1, which holds leaf0 - culling BLOCK against only its
+    // first instance's view would drop leaf0.
+    root.create_placement(PlacementData{.layout = top_layout, .name = "block1", .reference_design = root.get_layout(block_layout)->design, .placement_status = PlacementStatus::PLACED, .location = Point{2000, 100}, .orientation = Orientation::N});
+    const ViewRenderOptions cold_options{.root = &root, .root_mutation_version = root.mutation_version(), .top_level = HierarchyId{top_layout}, .hierarchy_depth = 2};
+    hierarchy_resolver_runner.run(view_layers_handle, 1, cold_options);
+
+    const ViewRenderOptions options = options_with_viewport(Rect{.ll = Point{1000, 100}, .ur = Point{2030, 130}});
+    const HierarchyResolverOutput &culled = cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, options);
+
+    ASSERT_TRUE(culled.view_data.contains(HierarchyId{block_layout}));
+    const ViewData &block_data = culled.view_data.at(HierarchyId{block_layout});
+    expect_rect_eq(block_data.visible_region, Rect{.ll = Point{0, 0}, .ur = Point{1000, 30}});
+    ASSERT_EQ(placement_count(block_data), 1u);
+    EXPECT_EQ(placements_of(block_data)[0].location.x, 10); // leaf0
+    EXPECT_TRUE(culled.view_data.contains(HierarchyId{leaf_abstract}));
+}
+
+TEST_F(ViewportCullStageFixture, RasterizeSizesANestedNodeToItsVisibleRegion)
+{
+    // At scale 10 BLOCK's whole 1000-dbu extent would be 10000 px a side;
+    // only the 100x100 dbu the viewport shows is rasterized.
+    ViewRenderOptions options = options_with_viewport(Rect{.ll = Point{550, 550}, .ur = Point{650, 650}});
+    options.scale = 10.0;
+    cull_runner.run(cold_output, 0, options);
+    RasterizeRunner rasterize_runner{"Rasterize"};
+    const RasterizeOutput &rasterized = rasterize_runner.run(cull_runner.last_handle(), 0, options);
+
+    const RasterizedImage &block_image = rasterized.images.at(HierarchyId{block_layout});
+    EXPECT_EQ(block_image.image.width(), 1000);
+    EXPECT_EQ(block_image.image.height(), 1000);
+    EXPECT_EQ(block_image.local_origin.x, 450);
+    EXPECT_EQ(block_image.local_origin.y, 450);
 }

@@ -9,6 +9,7 @@
 
 #include <boost/geometry/index/rtree.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <deque>
 #include <memory>
@@ -31,15 +32,12 @@ namespace le
     /// same way it would walk Cold's own unculled output.
     ///
     /// Walks the same hierarchy HierarchyResolverStage's own traversal
-    /// discovered, top-down from options.top_level, composing a running
-    /// Geometry::InstanceTransform as it descends (identity at top_level
-    /// itself - its own placement_data bboxes are already in the
-    /// viewport's own coordinate space; a nested placement's own bbox is
-    /// only in that same space once transformed through every ancestor's
-    /// own placement transform on the way down, via Geometry::compose -
-    /// ViewPlacementData::bbox is only ever in its *immediate* parent's
-    /// own local space, never pre-composed with anything above that). At
-    /// each visited id:
+    /// discovered, top-down from options.top_level, carrying each node's
+    /// visible region in its own local space (`ViewData::visible_region`):
+    /// the viewport for top_level, and for a nested node the union, over
+    /// every surviving placement of it, of the parent's region clipped to
+    /// that placement's extent and brought into the node's space through
+    /// the placement's inverse transform. At each visited id:
     ///   - `shapes`/`shapes_index` are carried through unchanged - a
     ///     shared_ptr copy (ViewShapesHandle/ViewShapesIndexHandle,
     ///     hierarchy_resolver_stage.hpp's own comments) is a refcount
@@ -49,9 +47,7 @@ namespace le
     ///     the one that queries `shapes_index` against its own per-node
     ///     render bbox to avoid walking every shape in a huge flat node.
     ///   - `placement_data` is filtered down to just the placements whose
-    ///     own local (pre-ancestor-transform) bbox overlaps the viewport
-    ///     once brought into this node's own local space - see the
-    ///     spatial-index paragraph below for exactly how - AND whose own
+    ///     own local bbox overlaps the node's visible region AND whose own
     ///     bbox isn't sub-pixel at `options.scale` (`bbox_is_sub_pixel`,
     ///     draw_helpers.hpp - the same function/threshold RasterizeBlend2DStage
     ///     already applies per-shape). A placement's
@@ -77,30 +73,23 @@ namespace le
     /// "was this ever discoverable at all".
     ///
     /// The same id can be reached via more than one surviving placement
-    /// (the same shared cell instanced at several visible positions, or a
-    /// design placed by more than one parent) - this stage still only
-    /// recurses into it once, using whichever surviving instance's own
-    /// accumulated transform got there first (mirrors
-    /// HierarchyResolverStage's own "shallowest-first, first discovered
-    /// wins" dedup - see that class's own doc comment). One consequence:
-    /// a child near that id's own edge that would be visible from a
-    /// *different* surviving instance's own vantage point, but not this
-    /// one, may be kept (or dropped) depending on which instance won -
-    /// a deliberate simplification, not a correctness bug: Compose still
-    /// draws every surviving instance of a shared id at its own correct
-    /// position regardless, so this can only ever cost a little
-    /// unnecessary off-screen work, never an incorrect on-screen result.
+    /// (a shared cell instanced at several visible positions, or a design
+    /// placed by more than one parent). Its region is the union of what
+    /// each instance shows, and the node is culled again whenever that
+    /// region grows, so its one shared image holds every child any
+    /// instance shows. Rasterize sizes a nested node's image to its
+    /// region, so a block much larger than the viewport is never
+    /// rasterized whole.
     ///
     /// Overlap testing is spatially indexed, not a linear scan (a linear
     /// scan misses the Warm tier's 500ms budget by ~3.5x at the
     /// 1M-component target scale). Two things make this fast rather than just
     /// "an rtree slapped on":
-    ///   - The *viewport* is brought into each node's own local space
-    ///     (Geometry::invert(accumulated_transform) applied once per
-    ///     node, via Geometry::transform_bbox), not the other way around
-    ///     - transforming one rect per node is far cheaper than
-    ///     transforming every one of that node's own (up to ~1,000,000)
-    ///     placement bboxes out to world space just to test them.
+    ///   - The visible region is carried in each node's own local space,
+    ///     not the other way around - transforming one rect per surviving
+    ///     placement is far cheaper than transforming every one of a
+    ///     node's own (up to ~1,000,000) placement bboxes out to world
+    ///     space just to test them.
     ///   - Each node's own R-tree (Boost.Geometry Index, bulk-loaded over
     ///     that node's local, untransformed placement bboxes) is built at
     ///     most once per distinct Cold input and reused across every
@@ -140,55 +129,60 @@ namespace le
                           { return entry.second.tile.expired(); });
             update_filter(options);
 
-            struct WorkItem
-            {
-                HierarchyId id;
-                Geometry::InstanceTransform accumulated_transform;
-            };
-            std::deque<WorkItem> worklist;
-            worklist.push_back(WorkItem{options.top_level, Geometry::identity_transform()});
+            // Each reached node's visible region in its own local space: the
+            // union, over every surviving instance, of the part of the node
+            // that instance shows. A node is (re)culled whenever its region
+            // grows, so a shared node reached at more than one position (or
+            // depth) keeps every child any of its instances shows.
+            std::unordered_map<HierarchyId, Rect, HierarchyIdHash> regions;
+            std::unordered_set<HierarchyId, HierarchyIdHash> queued;
+            std::deque<HierarchyId> worklist;
+            regions.emplace(options.top_level, options.viewport);
+            queued.insert(options.top_level);
+            worklist.push_back(options.top_level);
 
             while (!worklist.empty())
             {
-                const WorkItem item = worklist.front();
+                const HierarchyId id = worklist.front();
                 worklist.pop_front();
+                queued.erase(id);
 
-                if (result.view_data.contains(item.id))
-                    continue; // already visited via an earlier surviving instance
-
-                const auto source_it = input->view_data.find(item.id);
+                const auto source_it = input->view_data.find(id);
                 if (source_it == input->view_data.end())
                     continue; // not present in Cold's own output - nothing to cull (degrade, don't crash)
 
                 const ViewData &source_data = source_it->second;
-                ViewData data;
-                data.chunks = source_data.chunks;
-                data.extent = source_data.extent;
-                data.placement_chunk_offset = source_data.placement_chunk_offset;
-                if (filter_.active)
+                const Rect region = regions.at(id);
+                auto [data_it, first_visit] = result.view_data.try_emplace(id);
+                ViewData &data = data_it->second;
+                if (first_visit)
                 {
-                    data.chunk_visibility.reserve(data.chunks.size());
-                    for (const ViewShapeChunk &chunk : data.chunks)
-                        data.chunk_visibility.push_back(visibility_for(chunk, *options.root));
+                    data.chunks = source_data.chunks;
+                    data.extent = source_data.extent;
+                    data.placement_chunk_offset = source_data.placement_chunk_offset;
+                    if (filter_.active)
+                    {
+                        data.chunk_visibility.reserve(data.chunks.size());
+                        for (const ViewShapeChunk &chunk : data.chunks)
+                            data.chunk_visibility.push_back(visibility_for(chunk, *options.root));
+                    }
                 }
-
-                // One Rect transform per node, not one per placement -
-                // see the class's own doc comment.
-                const Rect local_viewport = Geometry::transform_bbox(Geometry::invert(item.accumulated_transform), options.viewport);
+                data.visible_region = region;
+                data.placement_tiles.clear();
 
                 ViewPlacementTile culled;
                 std::vector<IndexEntry> candidates;
                 for (std::size_t t = 0; t < source_data.placement_tiles.size(); ++t)
                 {
                     const ViewPlacements &tile = source_data.placement_tiles[t];
-                    if (tile->placements.empty() || !bg::intersects(tile->extent, local_viewport))
+                    if (tile->placements.empty() || !bg::intersects(tile->extent, region))
                         continue; // the whole tile is off-screen - don't even build its index
                     // The tile's chunk's placement mask is parallel to its placements.
                     const std::size_t chunk = source_data.placement_chunk_offset + t;
                     const ChunkVisibility *visibility = chunk < data.chunk_visibility.size() ? data.chunk_visibility[chunk].get() : nullptr;
                     const std::vector<bool> *hidden = visibility && !visibility->hidden_placements.empty() ? &visibility->hidden_placements : nullptr;
                     candidates.clear();
-                    spatial_index_for(tile).query(bgi::intersects(local_viewport), std::back_inserter(candidates));
+                    spatial_index_for(tile).query(bgi::intersects(region), std::back_inserter(candidates));
                     for (const IndexEntry &entry : candidates)
                     {
                         if (hidden && entry.second < hidden->size() && (*hidden)[entry.second])
@@ -201,13 +195,22 @@ namespace le
                         if (bbox_is_sub_pixel(placement.extent.ur.x - placement.extent.ll.x, placement.extent.ur.y - placement.extent.ll.y, options.scale))
                             continue;
                         culled.placements.push_back(placement);
-                        worklist.push_back(WorkItem{placement.id, Geometry::compose(item.accumulated_transform, placement.transform)});
+
+                        const Rect shown = Geometry::transform_bbox(Geometry::invert(placement.transform), intersection(region, placement.extent));
+                        auto [region_it, first_instance] = regions.try_emplace(placement.id, shown);
+                        if (!first_instance)
+                        {
+                            if (contains(region_it->second, shown))
+                                continue;
+                            region_it->second = united(region_it->second, shown);
+                        }
+                        if (queued.insert(placement.id).second)
+                            worklist.push_back(placement.id);
                     }
                 }
 
                 if (!culled.placements.empty())
                     data.placement_tiles.push_back(std::make_shared<const ViewPlacementTile>(std::move(culled)));
-                result.view_data.emplace(item.id, std::move(data));
             }
 
             return result;
@@ -255,6 +258,23 @@ namespace le
         }
 
     private:
+        static Rect intersection(const Rect &a, const Rect &b)
+        {
+            return Rect{.ll = Point{std::max(a.ll.x, b.ll.x), std::max(a.ll.y, b.ll.y)},
+                        .ur = Point{std::min(a.ur.x, b.ur.x), std::min(a.ur.y, b.ur.y)}};
+        }
+
+        static Rect united(const Rect &a, const Rect &b)
+        {
+            return Rect{.ll = Point{std::min(a.ll.x, b.ll.x), std::min(a.ll.y, b.ll.y)},
+                        .ur = Point{std::max(a.ur.x, b.ur.x), std::max(a.ur.y, b.ur.y)}};
+        }
+
+        static bool contains(const Rect &outer, const Rect &inner)
+        {
+            return outer.ll.x <= inner.ll.x && outer.ll.y <= inner.ll.y && inner.ur.x <= outer.ur.x && inner.ur.y <= outer.ur.y;
+        }
+
         // Rect (a node's own local placement bbox) paired with its own
         // index into that node's placement_data vector - the rtree's own
         // value type has to carry enough to recover the actual

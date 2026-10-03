@@ -981,10 +981,10 @@ namespace le
 
             for (const auto &[id, data] : culled->view_data)
             {
-                // A nested node covers everything it draws (ViewData::extent),
-                // not just its declared boundary - content outside a cell's
-                // boundary still shows one level up.
-                const Rect local_bbox = (id == options.top_level) ? options.viewport : data.extent;
+                // A nested node covers only what its visible instances show
+                // (ViewData::visible_region, within its extent) - a block
+                // larger than the viewport is never rasterized whole.
+                const Rect local_bbox = (id == options.top_level) ? options.viewport : data.visible_region.value_or(data.extent);
 
                 const double width_dbu = static_cast<double>(local_bbox.ur.x - local_bbox.ll.x);
                 const double height_dbu = static_cast<double>(local_bbox.ur.y - local_bbox.ll.y);

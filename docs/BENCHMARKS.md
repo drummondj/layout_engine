@@ -1657,3 +1657,51 @@ The 25 ms at 3x3/5x5 is their center point, which sits on dense special-net rout
 Those fixes took the dense-point click from 48 ms to 24 ms. `ViaHitBoxes` also stopped building a `std::string` key for every via instance.
 
 A separate grid index (`LayoutSelectionIndex`, built on the first click and caught up from the change log) was tried first. It made later clicks just as fast but cost 1.8 s on the first click at 8x8, plus about 450 MB. It was replaced by this approach, which reuses the tree the render already built.
+
+## 2026-10-03 — Compose: overlay-only changes reuse the composited hierarchy
+
+`BM_ComposeCursorMove` (`compose_benchmark.cpp`) composes the same
+`RasterizeOutput` repeatedly, changing only the cursor position and
+`mouse_version`, as a mouse move over an unchanged view does. Release
+build, WSL2 Linux, GCC, mean of 5.
+
+| Benchmark | Before | After |
+|---|---|---|
+| `BM_ComposeCursorMove/1x1` | 6.55 ms | 0.435 ms |
+| `BM_ComposeCursorMove/3x3` | 8.77 ms | 0.441 ms |
+| `BM_Compose/1x1` (pan) | 6.45 ms | 5.96 ms |
+| `BM_Compose/3x3` (pan) | 8.41 ms | 7.55 ms |
+
+Every overlay (cursor box, selection, ruler, drag rectangle, ...) is drawn
+in `ComposeStage`, so a mouse move used to re-composite every visible
+child image. On the caravel full chip (`tcl/caravel.tcl`, zoom-fit, depth
+2, 1600x1000) that was 30 ms per mouse move, long enough to show the
+GUI's rendering indicator. `ComposeStage` now keeps the pre-overlay image
+keyed on its input, `top_level` and `scale`, and an overlay-only change
+copies it and redraws just the overlays: 0.78 ms per mouse move on
+caravel. The cost is one extra frame-sized image held by the stage.
+
+## 2026-10-03 — Viewport cull: nested images sized to their visible region
+
+Rasterize used to size every nested node's image to the node's whole
+extent, capped at 8192 px a side. Zoomed into a block larger than that
+(caravel_core is 4767 um tall, so from about 1.7 px/um), everything
+beyond 8192 px from the block's lower-left corner was cut off and its
+contents vanished. `ViewportCullStage` now carries each node's visible
+region in its own local space - the union of what every surviving
+instance shows - and culls a node's children against it; Rasterize sizes
+nested images to that region. Release build, WSL2 Linux, GCC, mean of 5.
+
+| Benchmark | Before | After |
+|---|---|---|
+| `BM_ViewportCull/1x1` | 0.114 ms | 0.122 ms |
+| `BM_ViewportCull/3x3` | 0.454 ms | 0.364 ms |
+| `BM_ViewportCull/5x5` | 0.976 ms | 0.866 ms |
+| `BM_WarmTier/1x1` | 50.7 ms | 40.3 ms |
+| `BM_WarmTier/3x3` | 229 ms | 194 ms |
+| `BM_WarmTier/5x5` | 183 ms | 141 ms |
+
+The cull does one inverse transform and rect union per surviving
+placement instead of a transform compose, at about the same cost. The
+warm tier gets faster because partly visible nested nodes now rasterize
+only their visible part.
