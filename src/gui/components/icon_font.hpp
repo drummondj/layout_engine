@@ -5,7 +5,7 @@
 namespace le::gui
 {
     // Shared accessor for the large (32px), icon-only Lucide font used by
-    // mode_selector.cpp/mode_toolbar.cpp's now-label-less icon buttons -
+    // mode_selector.cpp/mode_toolbar.cpp's icon buttons -
     // set once by le_gui.cpp's own font setup, right after the same
     // lucide.ttf file used for the merged 16px icon font (le_gui.cpp's
     // own font-merge block) loads successfully at a second, larger,

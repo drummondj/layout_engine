@@ -3,6 +3,7 @@
 #include "icon_font.hpp"
 #include "imgui.h"
 
+#include <algorithm>
 #include <string>
 
 namespace le::gui
@@ -42,8 +43,7 @@ namespace le::gui
     // both vary per call site (selected/armed state) and don't belong
     // in a shared helper. `id` disambiguates this button's ImGui id
     // from any other button using the same icon glyph elsewhere (goes
-    // after "##", so it's never actually rendered - see mode_toolbar.cpp's
-    // own draw_button for the established convention this replaces).
+    // after "##", so it's never actually rendered).
     inline bool icon_button(const char *icon, const std::string &id, float size, ImFont *font = large_icon_font())
     {
         ImGui::PushFont(font);
@@ -51,6 +51,52 @@ namespace le::gui
         const std::string label = std::string(icon) + "##" + id;
         const bool clicked = ImGui::Button(label.c_str(), ImVec2(size, size));
         ImGui::PopStyleVar();
+        ImGui::PopFont();
+        return clicked;
+    }
+
+    // labeled_icon_button's geometry: a large_icon_font() glyph centered
+    // in the top kLabeledIconAreaHeight, the label (text font at
+    // kIconLabelFontSize) centered in the line below it.
+    constexpr float kIconLabelFontSize = 12.0f;
+    constexpr float kLabeledIconAreaHeight = 40.0f;
+    constexpr float kLabeledIconButtonHeight = 56.0f;
+    constexpr float kIconLabelPadding = 4.0f;
+
+    /// @brief Width of a labeled_icon_button: `min_width`, or wider if the label needs it.
+    inline float labeled_icon_button_width(const char *label, float min_width)
+    {
+        ImGui::PushFont(nullptr, kIconLabelFontSize);
+        const float label_width = ImGui::CalcTextSize(label).x;
+        ImGui::PopFont();
+        return std::max(min_width, label_width + 2.0f * kIconLabelPadding);
+    }
+
+    // An icon with its label below, in one button - the whole area is
+    // clickable and takes the themed hover/active background. Both are
+    // drawn into the button's rect rather than as its ImGui label, so
+    // there's no FramePadding clip rect to trip icon_button's centering
+    // bug. Drawn with ImGuiCol_Text, so BeginDisabled fades them like
+    // any other button text. Same caller-owned background/disabled
+    // contract as icon_button.
+    inline bool labeled_icon_button(const char *icon, const char *label, const std::string &id, float min_width)
+    {
+        const float width = labeled_icon_button_width(label, min_width);
+        const bool clicked = ImGui::Button(("##" + id).c_str(), ImVec2(width, kLabeledIconButtonHeight));
+        const ImVec2 rect_min = ImGui::GetItemRectMin();
+        ImDrawList *draw_list = ImGui::GetWindowDrawList();
+        const ImU32 text_color = ImGui::GetColorU32(ImGuiCol_Text);
+
+        ImGui::PushFont(large_icon_font());
+        const ImVec2 icon_size = ImGui::CalcTextSize(icon);
+        draw_list->AddText(ImVec2(rect_min.x + (width - icon_size.x) * 0.5f, rect_min.y + (kLabeledIconAreaHeight - icon_size.y) * 0.5f), text_color, icon);
+        ImGui::PopFont();
+
+        ImGui::PushFont(nullptr, kIconLabelFontSize);
+        const ImVec2 label_size = ImGui::CalcTextSize(label);
+        const float label_area_height = kLabeledIconButtonHeight - kLabeledIconAreaHeight;
+        draw_list->AddText(ImVec2(rect_min.x + (width - label_size.x) * 0.5f, rect_min.y + kLabeledIconAreaHeight + (label_area_height - label_size.y) * 0.5f),
+                           text_color, label);
         ImGui::PopFont();
         return clicked;
     }
