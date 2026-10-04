@@ -94,7 +94,7 @@ proc le_repl_eval {command} {
 # options <list>} dict - register_command_help below is the single write
 # path, called once per command right after its own `proc` definition.
 # Every generated command (get_<type>/create_<type>/update_<type>)
-# registers itself from generated/le_tcl_procs_generated.tcl, sourced
+# registers itself from generated/tcl/le_tcl_procs_generated.tcl, sourced
 # further down this file; every hand-written command below registers
 # itself directly, right after its own definition. help/man/
 # complete_command/generate_command_docs all read purely from this
@@ -2935,7 +2935,7 @@ register_command_help get_max_concurrency \
 # --- get_instances/get_nets/get_ports: hierarchical path override ---
 #
 # Overrides the three generated flat-search procs of the same name
-# (sourced above from generated/le_tcl_procs_generated.tcl) - Tcl's own
+# (sourced above from generated/tcl/le_tcl_procs_generated.tcl) - Tcl's own
 # "last proc definition wins" semantics make this a real replacement, not
 # a conflict. Each name-expr is checked independently: one containing "/"
 # routes through the shared hierarchical resolver - the exact same one
@@ -3058,7 +3058,7 @@ register_command_help get_ports \
 # overrides ---
 #
 # Overrides the three generated procs of the same name (sourced above
-# from generated/le_tcl_procs_generated.tcl) - same "last proc definition
+# from generated/tcl/le_tcl_procs_generated.tcl) - same "last proc definition
 # wins" mechanism the get_instances/get_nets/get_ports overrides above
 # use. delete_net always routes through delete_net_cascade_cmd - a Net
 # delete needs the same Route-delete/PhysicalPort.net-clearing/Pin.net-

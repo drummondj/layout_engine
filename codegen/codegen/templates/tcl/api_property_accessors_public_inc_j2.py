@@ -2,7 +2,7 @@ TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). #include'd once in api.cpp INSIDE the file's
 // `extern "C" { ... }` block (right after it opens, before le_create) -
 // NOT inside the anonymous namespace api_property_accessors_internal_inc_j2
-// lives in. These functions are declared in api.hpp (generated_tcl/
+// lives in. These functions are declared in api.hpp (generated/api/
 // declarations.inc) and called from other translation units (le_tcl_shim.cpp)
 // via SWIG - a function defined inside an unnamed namespace has internal
 // linkage regardless of any `extern "C"` wrapping (extern "C" only

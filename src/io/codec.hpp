@@ -1,6 +1,6 @@
 #pragma once
 #include "byte_io.hpp"
-#include "native_tables.hpp"
+#include "generated/database/native_tables.hpp"
 
 #include <array>
 #include <cmath>

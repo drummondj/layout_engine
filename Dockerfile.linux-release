@@ -215,7 +215,7 @@ RUN mkdir -p /bundle/fonts \
  && cp build_release/le_tcl.so /bundle/ \
  && cp build_release/lucide.ttf /bundle/ \
  && cp src/tcl/le_tcl_procs.tcl /bundle/ \
- && cp build_release/le_generated/tcl/generated/le_tcl_procs_generated.tcl /bundle/ \
+ && cp build_release/generated/tcl/le_tcl_procs_generated.tcl /bundle/ \
  && cp -r assets/fonts/. /bundle/fonts/ \
  && find /opt/tbb -name 'libtbb.so*' -exec cp -P {} /bundle/ \;
 

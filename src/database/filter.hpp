@@ -25,7 +25,7 @@
 // Explicit hops only (`.shapes.layer_name`, never an implicit/magic
 // `.layer_name`): one general N-hop resolver, no per-class special-casing.
 
-#include "generated/property.hpp"
+#include "generated/database/property.hpp"
 
 #include <cctype>
 #include <cerrno>

@@ -470,9 +470,9 @@ namespace
 // format_property_value/resolve_numeric_friendly_id/
 // format_numeric_friendly_id are all already in scope, and so
 // technology_id() below can use the generated format_technology_id().
-// Never edit generated/le_tcl_shim_generated.inc directly - regenerate
+// Never edit generated/tcl/le_tcl_shim_generated.inc directly - regenerate
 // by rebuilding.
-#include "generated/le_tcl_shim_generated.inc"
+#include "generated/tcl/le_tcl_shim_generated.inc"
 
 int read_lef(const char *path, const char *library_name)
 {

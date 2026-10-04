@@ -1,6 +1,6 @@
 ---
 name: regen-tcl
-description: Regenerate the TCL/SWIG property-reading, search, create_<type>, update_<type>, and delete_<type> surface (written by the build into build/le_generated/api/generated_tcl/ and build/le_generated/tcl/generated/) from src/database/schema.py via the codegen fork's `tcl` target. Use whenever schema.py changes a TCL-readable class, a has_current_access flag, a create/update-field's optionality/type, or a class's tcl_child_list_fields() (delete_<type>'s own cascade shape), or when the generated TCL surface looks out of sync (missing class, stale field, stale friendly-id lookup, wrong get_<type> default scope, stale create_<type>/update_<type>/delete_<type> signature).
+description: Regenerate the TCL/SWIG property-reading, search, create_<type>, update_<type>, and delete_<type> surface (written by the build into build/generated/api/ and build/generated/tcl/) from src/database/schema.py via the codegen fork's `tcl` target. Use whenever schema.py changes a TCL-readable class, a has_current_access flag, a create/update-field's optionality/type, or a class's tcl_child_list_fields() (delete_<type>'s own cascade shape), or when the generated TCL surface looks out of sync (missing class, stale field, stale friendly-id lookup, wrong get_<type> default scope, stale create_<type>/update_<type>/delete_<type> signature).
 user-invocable: true
 allowed-tools:
   - Bash
@@ -15,8 +15,8 @@ allowed-tools:
 property table, how their friendly id is built, and how every readable
 class's `get_<type>` default scope (`-of` omitted) is derived. The build
 runs this target alongside the database one whenever `schema.py` or
-`codegen/` changes, into `<build>/le_generated/api/generated_tcl/` and
-`<build>/le_generated/tcl/generated/` - never edit them; rebuild instead.
+`codegen/` changes, into `<build>/generated/api/` and
+`<build>/generated/tcl/` - never edit them; rebuild instead.
 
 This is a **separate generation target** from `regen-database` - it
 covers property *reading*, `get_<type>` *search*, `create_<type>`,
@@ -54,14 +54,14 @@ the delete cascade plan).
 
    ```
    PYTHONPATH=codegen python3 -m codegen.cli --schema src/database/schema.py \
-       --output build/le_generated --target tcl
+       --output build/generated --target tcl
    ```
 
-   It writes two subdirectories beneath `--output`: `api/generated_tcl/` and
-   `tcl/generated/`.
+   It writes two subdirectories beneath `--output`: `api/` and
+   `tcl/`.
 
 2. **Diff the output if needed.** Generated code lives in the build tree, so
-   `git diff` won't show it - copy `build/le_generated/` aside before
+   `git diff` won't show it - copy `build/generated/` aside before
    rebuilding if you need a baseline. codegen recreates both directories on
    every run, so a stale file from a since-renamed class can't survive.
 
@@ -143,26 +143,26 @@ Each of these hand-written files gains one or more `#include`/`%include`/
 `source` lines pointing at generated output - added once, never touched
 again on subsequent regenerations:
 
-- `api.hpp` - **two** injection points: `#include "generated_tcl/ids.inc"`
+- `api.hpp` - **two** injection points: `#include "generated/api/ids.inc"`
   immediately after `typedef struct LeHandle LeHandle;` (every `LeXId`
   typedef - has to come before anything else in the file, hand-written or
   generated, that names one of these types), and
-  `#include "generated_tcl/declarations.inc"` further down (friendly-id-
+  `#include "generated/api/declarations.inc"` further down (friendly-id-
   by-name lookups, property-table declarations, `is_child` enumeration,
   current-instance access, `get_<type>` search declarations, and
   `le_create_<type>`/`le_update_<type>`/`le_delete_<type>` declarations).
-- `api.cpp` - **five** injection points: `#include "generated_tcl/snapshot_appliers.hpp"`
+- `api.cpp` - **five** injection points: `#include "generated/api/snapshot_appliers.hpp"`
   near the top of the file with the rest of its ordinary top-level
-  `#include`s - unlike every other generated_tcl/
+  `#include`s - unlike every other generated/api/
   file below, this one is a real standalone header (`#pragma once`, its
   own `namespace le { ... }`), not a `.inc` fragment spliced into a
   specific existing scope, since `apply_<snake>_snapshot(Root&, <Klass>Id,
   const <Klass>Data&)` needs to be callable from both the generic
   create/update recording hook (below) and `editing::MoveCommand`'s own
-  commit path; `#include "generated_tcl/property_accessors_internal.inc"`
+  commit path; `#include "generated/api/property_accessors_internal.inc"`
   *inside* the file's anonymous namespace (internal helpers -
   `build_X_properties`, `to_c`/`from_c` overloads - never called from
-  another translation unit); `#include "generated_tcl/property_accessors_public.inc"`
+  another translation unit); `#include "generated/api/property_accessors_public.inc"`
   *inside* `extern "C" { ... }` (the real `le_X_property_count/_at/_path`,
   friendly-id-by-name lookups, `le_current_X`/`le_set_current_X`, and
   `le_create_X`/`le_update_X`/`le_delete_X` - external C linkage required
@@ -179,22 +179,22 @@ again on subsequent regenerations:
   at all - a delete's own undo is a plain `create_x(snapshot)` replay, not
   a field-by-field apply, see `Klass.delete_api_body()`'s own docstring,
   `codegen/codegen/schema.py`);
-  `#include "generated_tcl/search.inc"` right after it, also
+  `#include "generated/api/search.inc"` right after it, also
   inside `extern "C" { ... }` (`le_get_X`/`le_search_result_X_at`, same
   linkage reasoning). `filter_field_tables()`'s body is also generated -
-  `= \n#include "generated_tcl/filter_tables.inc"` replaces its old
+  `= \n#include "generated/api/filter_tables.inc"` replaces its old
   hand-written initializer list (the `FilterFieldTable` struct itself and
   the functions that consume the table stay hand-written).
-- `le_handle.hpp` - `#include "generated_tcl/handle_fields.inc"` inside
+- `le_handle.hpp` - `#include "generated/api/handle_fields.inc"` inside
   `struct LeHandle`'s body (per-class property-table caches,
   search-result caches, `current_X_id` fields).
-- `le_tcl_shim.hpp` - `#include "generated/le_tcl_shim_generated.hpp"`.
-- `le_tcl_shim.cpp` - `#include "generated/le_tcl_shim_generated.inc"`,
+- `le_tcl_shim.hpp` - `#include "generated/tcl/le_tcl_shim_generated.hpp"`.
+- `le_tcl_shim.cpp` - `#include "generated/tcl/le_tcl_shim_generated.inc"`,
   placed right after the file's own anonymous namespace closes (so
   `session()`/`pack`/`unpack`/`return_string`/`format_property_value`/
   `resolve_numeric_friendly_id`/`format_numeric_friendly_id` are already
   in scope).
-- `le_api.i` - `%include "generated/le_api_generated.i"`.
+- `le_api.i` - `%include "generated/tcl/le_api_generated.i"`.
 - `le_tcl_procs.tcl` - sources `le_tcl_procs_generated.tcl`: the build
   tree's copy (its path is compiled into `le_tcl`, returned by
   `generated_procs_default_path_command`), else the one beside

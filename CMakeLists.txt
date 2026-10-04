@@ -485,7 +485,8 @@ enable_testing()
 include(GoogleTest)
 
 # --- codegen: src/database/schema.py -> the generated database, C API and
-# Tcl sources, written into the build tree (LE_GENERATED_DIR) whenever the
+# Tcl sources, written into the build tree's generated/database, generated/api
+# and generated/tcl (named after the src/ modules that include them) whenever the
 # schema, its history or codegen itself changes. Runs the in-tree codegen
 # (not an installed copy), so a codegen change can't be missed. The
 # database target also checks the schema against src/database/schema_history/
@@ -502,17 +503,13 @@ if(NOT LE_CODEGEN_DEPS_RESULT EQUAL 0)
     message(FATAL_ERROR "codegen needs jinja2 and click for ${Python3_EXECUTABLE}: "
         "run `${Python3_EXECUTABLE} -m pip install ./codegen` (or pass -DPython3_EXECUTABLE=... for another Python >= 3.11)")
 endif()
-# Generated code used to be written into the source tree. A leftover copy
-# there would shadow the build tree's: a quoted #include resolves next to
-# the including file first.
-foreach(stale_dir src/database/generated src/api/generated_tcl src/tcl/generated)
-    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${stale_dir})
-        message(FATAL_ERROR "${stale_dir}/ is stale codegen output (codegen now writes into the build tree) - "
-            "delete it: rm -rf ${CMAKE_CURRENT_SOURCE_DIR}/${stale_dir}")
-    endif()
-endforeach()
-
-set(LE_GENERATED_DIR ${CMAKE_BINARY_DIR}/le_generated)
+# src/ is on several targets' include paths, so a src/generated/ directory
+# would shadow the build tree's "generated/<module>/..." headers.
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
+    message(FATAL_ERROR "src/generated/ would shadow the generated code in ${CMAKE_BINARY_DIR}/generated/ - "
+        "delete it (debuggers and compile_commands.json already point at the build tree's copy)")
+endif()
+set(LE_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated)
 set(LE_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/src/database/schema.py)
 file(GLOB_RECURSE LE_CODEGEN_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/codegen/codegen/*.py)
 file(GLOB LE_SCHEMA_HISTORY CONFIGURE_DEPENDS
@@ -523,7 +520,7 @@ set(LE_CODEGEN ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/co
     ${Python3_EXECUTABLE} -m codegen.cli)
 add_custom_command(
     OUTPUT ${LE_GENERATED_DIR}/codegen.stamp
-    COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR}/database/generated --target database
+    COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR}/database --target database
     COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR} --target tcl
     COMMAND ${CMAKE_COMMAND} -E touch ${LE_GENERATED_DIR}/codegen.stamp
     DEPENDS ${LE_SCHEMA} ${LE_CODEGEN_SOURCES} ${LE_SCHEMA_HISTORY}
@@ -534,9 +531,9 @@ add_custom_target(le_codegen DEPENDS ${LE_GENERATED_DIR}/codegen.stamp)
 
 # --- database: header-only, generated from src/database/schema.py via codegen ---
 add_library(database INTERFACE)
-# Both: generated headers include each other by bare name, and
-# database.hpp/filter.hpp include them as "generated/...".
-target_include_directories(database INTERFACE src/database ${LE_GENERATED_DIR}/database/generated ${LE_GENERATED_DIR}/database)
+# Generated code is included as "generated/<module>/...", from the build
+# tree's root.
+target_include_directories(database INTERFACE src/database ${CMAKE_BINARY_DIR})
 add_dependencies(database le_codegen)
 
 # --- geometry: header-only Boost.Geometry wrapper over database types ---
@@ -632,9 +629,9 @@ le_enable_coverage_instrumentation(io)
 # stay out of api.hpp, which is a plain-C header - see api.hpp's own
 # comment. ---
 add_library(api STATIC src/api/api.cpp)
-# api.hpp includes "generated_tcl/..." itself, so its consumers need the
-# generated directory (and the codegen step) too.
-target_include_directories(api PUBLIC src/api ${LE_GENERATED_DIR}/api)
+# api.hpp includes "generated/api/..." itself, so its consumers need the
+# build tree's root on their include path (and the codegen step) too.
+target_include_directories(api PUBLIC src/api ${CMAKE_BINARY_DIR})
 add_dependencies(api le_codegen)
 target_link_libraries(api PRIVATE database geometry editing pipelines io)
 target_include_directories(api PRIVATE ${nlohmann_json_header_SOURCE_DIR})
@@ -730,7 +727,7 @@ find_package(TCL)
 if(SWIG_FOUND AND TCL_FOUND)
     include(UseSWIG)
     set_property(SOURCE src/tcl/le_api.i PROPERTY CPLUSPLUS ON)
-    # SWIG's own depfile tracks generated/le_api_generated.i, so a codegen
+    # SWIG's own depfile tracks generated/tcl/le_api_generated.i, so a codegen
     # rewrite re-runs SWIG. SWIG then runs inside le_tcl, after codegen
     # (le_tcl links api, which depends on le_codegen).
     set_property(SOURCE src/tcl/le_api.i PROPERTY USE_SWIG_DEPENDENCIES TRUE)
@@ -738,12 +735,12 @@ if(SWIG_FOUND AND TCL_FOUND)
         LANGUAGE tcl
         SOURCES src/tcl/le_api.i src/tcl/le_tcl_shim.cpp
     )
-    set_property(TARGET le_tcl PROPERTY SWIG_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/src/api ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl ${LE_GENERATED_DIR}/tcl)
-    target_include_directories(le_tcl PRIVATE src/api src/tcl ${LE_GENERATED_DIR}/tcl ${TCL_INCLUDE_PATH})
+    set_property(TARGET le_tcl PROPERTY SWIG_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/src/api ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl ${CMAKE_BINARY_DIR})
+    target_include_directories(le_tcl PRIVATE src/api src/tcl ${CMAKE_BINARY_DIR} ${TCL_INCLUDE_PATH})
     # Where le_tcl_procs.tcl finds le_tcl_procs_generated.tcl in a build
     # tree; a release bundle keeps it beside le_tcl_procs.tcl instead.
     target_compile_definitions(le_tcl PRIVATE
-        LE_TCL_GENERATED_PROCS_PATH="${LE_GENERATED_DIR}/tcl/generated/le_tcl_procs_generated.tcl")
+        LE_TCL_GENERATED_PROCS_PATH="${LE_GENERATED_DIR}/tcl/le_tcl_procs_generated.tcl")
     # blend2d::blend2d alongside `api` - `pipelines` (api's own dependency)
     # links it too, but only PUBLIC-propagates it as far as api, not this
     # far; le_tcl_shim.cpp needs it directly for dump_png_cmd's own

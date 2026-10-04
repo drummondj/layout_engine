@@ -41,7 +41,7 @@ Secondary goals:
 Paths below are relative to the repo root.
 
 **Database shape**
-- Every pooled class is a plain struct, `XxxData` (for example the generated `net.hpp`, `NetData`), stored in `Pool<XxxData, XxxId>` (generated `pool.hpp`). Generated code lives in `<build>/le_generated/database/generated/`.
+- Every pooled class is a plain struct, `XxxData` (for example the generated `net.hpp`, `NetData`), stored in `Pool<XxxData, XxxId>` (generated `pool.hpp`). Generated code lives in `<build>/generated/database/`.
 - A pool is a slot vector with `generation` and `alive` flags plus a free list. An `Id` is `{uint32 index, uint32 generation}` (generated `ids.hpp`).
 
 **Field types**, all from codegen's `TYPEMAP` (`codegen/codegen/schema.py:11`):

@@ -1,6 +1,6 @@
 ---
 name: regen-database
-description: Change src/database/schema.py and regenerate the database code (written by the build into build/le_generated/database/generated/) - version bump, schema-history snapshot, golden files, migration. Use whenever schema.py changes, or when the generated database code looks out of sync with the schema (missing class, stale field, stale test).
+description: Change src/database/schema.py and regenerate the database code (written by the build into build/generated/database/) - version bump, schema-history snapshot, golden files, migration. Use whenever schema.py changes, or when the generated database code looks out of sync with the schema (missing class, stale field, stale test).
 user-invocable: true
 allowed-tools:
   - Bash
@@ -12,7 +12,7 @@ allowed-tools:
 `src/database/schema.py` is the only hand-edited source for the generated
 database code. CMake runs codegen whenever `schema.py`, `schema_history/`,
 `migrations/` or `codegen/` changes, writing into
-`<build>/le_generated/database/generated/` (and the TCL surface beside it -
+`<build>/generated/database/` (and the TCL surface beside it -
 see `regen-tcl`). Nothing is generated into the source tree, and there's no
 manual codegen step: rebuilding regenerates.
 
@@ -40,7 +40,7 @@ field type.
 
    ```
    PYTHONPATH=codegen python3 -m codegen.cli --schema src/database/schema.py \
-       --output build/le_generated/database/generated --update-snapshot
+       --output build/generated/database --update-snapshot
    ```
 
 2. **Rebuild** (see the `build-test` skill). codegen runs first. A new
@@ -86,7 +86,7 @@ field type.
    re-baselining before the first release, step 3).
 
 5. **Diff the output if needed.** Generated code lives in the build tree, so
-   `git diff` won't show it. Copy `build/le_generated/` aside before
+   `git diff` won't show it. Copy `build/generated/` aside before
    rebuilding if you need a baseline. codegen recreates its output
    directories on every run, so a stale file from a since-renamed class
    can't survive.

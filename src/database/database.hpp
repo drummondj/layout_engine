@@ -1,6 +1,6 @@
 #pragma once
-#include "generated/property.hpp"
-#include "generated/root.hpp"
+#include "generated/database/property.hpp"
+#include "generated/database/root.hpp"
 #include "piece_kind.hpp"
 
 namespace le

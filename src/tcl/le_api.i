@@ -208,6 +208,6 @@ int get_max_concurrency_command();
 void set_max_concurrency_command(int max_concurrency);
 
 // --- Generated TCL property-reading surface (see CLAUDE.md's
-// TCL section) - never edit generated/le_api_generated.i directly,
+// TCL section) - never edit generated/tcl/le_api_generated.i directly,
 // codegen rewrites it on every build that needs it. ---
-%include "generated/le_api_generated.i"
+%include "generated/tcl/le_api_generated.i"

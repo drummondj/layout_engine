@@ -22,7 +22,7 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
 
 - `src/database/` — the object-pool database. `schema.py` is the source of
   truth; the build generates code from it into
-  `<build>/le_generated/` (see Database codegen). `database.hpp` is the single public include. Also
+  `<build>/generated/` (see Database codegen). `database.hpp` is the single public include. Also
   hand-written helpers: `filter.hpp` (the `-filter` expression parser/
   evaluator and property-path resolver), `library_helpers.hpp`
   (get-or-create Library/Design by name for every reader),
@@ -198,8 +198,9 @@ unless `has_pool=False` (an embedded value type like `Point`/`Rect`).
 
 CMake runs the in-tree codegen (`le_codegen` target) whenever `schema.py`,
 its history, its migrations or `codegen/` change, writing into
-`<build>/le_generated/` - nothing is generated into the source tree, and
-configure refuses a leftover in-tree `generated/` directory.
+`<build>/generated/database`, `generated/api` and `generated/tcl` (named
+after the `src/` modules that include them, as `"generated/<module>/..."`).
+Nothing is generated into the source tree.
 
 To change the schema: edit `src/database/schema.py`, bump `Schema.version`
 for a real shape change, and rebuild (the `regen-database` skill has the
@@ -214,8 +215,8 @@ first release a change may re-baseline instead of migrating
 ## TCL codegen
 
 A separate target (`codegen --target tcl`, the `regen-tcl` skill), also run
-by the build, generating `<build>/le_generated/api/generated_tcl/` and
-`<build>/le_generated/tcl/generated/`. Every
+by the build, generating `<build>/generated/api/` and
+`<build>/generated/tcl/`. Every
 readable `Klass` gets a property table, friendly-id resolution, `is_child`
 enumeration, `get_<type>`, and `create_<type>`/`update_<type>`/
 `delete_<type>`.

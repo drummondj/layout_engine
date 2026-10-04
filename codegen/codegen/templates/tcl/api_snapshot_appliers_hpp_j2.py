@@ -1,9 +1,9 @@
 TEMPLATE = """#pragma once
 // GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). #include'd once from api.cpp, alongside the
-// other generated_tcl/*.inc includes - a real
+// other generated/api/*.inc includes - a real
 // standalone header (not a .inc fragment spliced into an existing scope
-// like every other generated_tcl/ file), since these free functions need
+// like every other generated/api/ file), since these free functions need
 // to be callable from anywhere that already has a <Klass>Data value in
 // hand - not just the generic create_api_body()/update_api_body()
 // recording hook these back, but also editing::MoveCommand's own commit
