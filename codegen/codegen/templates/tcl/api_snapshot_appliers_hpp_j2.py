@@ -1,5 +1,5 @@
 TEMPLATE = """#pragma once
-// GENERATED - do not edit by hand. Regenerate via the regen-tcl skill
+// GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). #include'd once from api.cpp, alongside the
 // other generated_tcl/*.inc includes - a real
 // standalone header (not a .inc fragment spliced into an existing scope
@@ -16,7 +16,7 @@ TEMPLATE = """#pragma once
 // uniqueness invariant update_<klass>() itself already maintains - no
 // raw-pointer-overwrite shortcut that could silently corrupt a
 // unique_per_parent/parent-child index.
-#include "../../database/database.hpp"
+#include "database.hpp"
 
 namespace le
 {

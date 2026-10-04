@@ -1,4 +1,4 @@
-TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl skill
+TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). #include'd once in api.cpp INSIDE the file's
 // `extern "C" { ... }` block (right after it opens, before le_create) -
 // NOT inside the anonymous namespace api_property_accessors_internal_inc_j2

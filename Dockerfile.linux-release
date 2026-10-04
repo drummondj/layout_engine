@@ -153,27 +153,15 @@ FROM tbb AS source
 WORKDIR /workspace
 COPY . .
 
-# ---- codegen: src/database/generated/ (and src/api/generated_tcl/,
-# src/tcl/generated/) are .gitignore'd build artifacts, produced on
-# demand by this repo's own `codegen` fork (repo root, also COPY'd in by
-# the source stage) from src/database/schema.py - see the regen-database/
-# regen-tcl skills. Dockerfile.linux-ci/rocky8-bootstrap.sh never needed
-# this step because they operate on an already-bootstrapped host checkout
-# where these were generated once, ages ago, and left on disk; a COPY'd-in
-# fresh checkout has no such history, so src/pipelines/pipelines.cpp's #include
-# "generated/property.hpp" fails outright without this - confirmed by
-# hitting exactly that failure before adding this stage. codegen's own
-# pyproject.toml requires Python >=3.11 (RHEL8's stock `python3` is 3.6) -
-# poetry-core is a standard PEP 517 backend, so a plain `pip install .`
-# works without needing the poetry CLI itself. ----
+# ---- codegen: CMake runs the in-tree codegen into each build tree, but
+# needs its Python dependencies (jinja2, click). codegen requires Python
+# >= 3.11 (RHEL8's stock `python3` is 3.6), so they go into python3.12,
+# and the configure steps below point CMake at it. poetry-core is a
+# standard PEP 517 backend, so a plain `pip install .` works without the
+# poetry CLI. ----
 FROM source AS codegen
 WORKDIR /workspace/codegen
 RUN python3.12 -m pip install --no-cache-dir .
-RUN codegen --schema /workspace/src/database/schema.py \
-        --output /workspace/src/database/generated \
- && codegen --schema /workspace/src/database/schema.py \
-        --output /workspace/src \
-        --target tcl
 
 # ---- build: build + test. ctest gates the whole release - a failing
 # test here fails this `docker build`, so nothing downstream ever runs.
@@ -197,19 +185,18 @@ WORKDIR /workspace
 # Debug/ctest tree, which isn't shipped either way) - a shipped release
 # binary shouldn't carry Tracy's own profiling instrumentation.
 ARG BUILD_JOBS=2
-RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
+RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPython3_EXECUTABLE=$(command -v python3.12) \
  && cmake --build build -j ${BUILD_JOBS} \
  && ctest --test-dir build --output-on-failure \
- && cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release -DLE_ENABLE_TRACY=OFF \
+ && cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release -DLE_ENABLE_TRACY=OFF -DPython3_EXECUTABLE=$(command -v python3.12) \
  && cmake --build build_release --target api pipelines io le_shell le_tcl -j ${BUILD_JOBS}
 
 # ---- bundle: the release asset's actual content, nothing else - just the
 # Release-tree le_shell binary, the le_tcl.so module it `load`s at
 # startup, the Tcl procs it sources (both the hand-written file and its
-# generated companion - le_tcl_procs.tcl's own "flat layout" fallback,
-# added for exactly this bundle, looks for
-# le_tcl_procs_generated.tcl right alongside itself when no generated/
-# subdirectory exists - see that file's own comment), the shared libtbb.so.12
+# generated companion, which le_tcl_procs.tcl looks for right beside itself
+# when the build tree's copy isn't there - see that file's own comment),
+# the shared libtbb.so.12
 # every one of api/pipelines/le_shell/le_tcl.so links dynamically (`find`,
 # not a hardcoded lib/lib64 path - GNUInstallDirs' own choice between the
 # two isn't worth pinning down by hand here), the bundled font directory
@@ -228,7 +215,7 @@ RUN mkdir -p /bundle/fonts \
  && cp build_release/le_tcl.so /bundle/ \
  && cp build_release/lucide.ttf /bundle/ \
  && cp src/tcl/le_tcl_procs.tcl /bundle/ \
- && cp src/tcl/generated/le_tcl_procs_generated.tcl /bundle/ \
+ && cp build_release/le_generated/tcl/generated/le_tcl_procs_generated.tcl /bundle/ \
  && cp -r assets/fonts/. /bundle/fonts/ \
  && find /opt/tbb -name 'libtbb.so*' -exec cp -P {} /bundle/ \;
 

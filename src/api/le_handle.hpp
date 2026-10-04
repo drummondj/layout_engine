@@ -1720,7 +1720,7 @@ struct LeHandle
         // Generated TCL property-reading cache - one cached_X_property_id/
         // cached_X_properties pair per TCL-readable class not already covered
         // by hand-written code above. Never edit generated_tcl/
-        // handle_fields.inc directly - regenerate via the regen-tcl skill.
+        // handle_fields.inc directly - the build regenerates it.
 #include "generated_tcl/handle_fields.inc"
 };
 

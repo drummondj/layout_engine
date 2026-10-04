@@ -2509,7 +2509,7 @@ extern "C"
     // codegen/codegen/schema.py, for the cascade-to-owned-children
     // mechanism their generated replacements use), for every TCL-readable
     // class. Never edit generated_tcl/declarations.inc directly -
-    // regenerate via the regen-tcl skill instead. ---
+    // the build regenerates it. ---
 #include "generated_tcl/declarations.inc"
 
     /// @brief The singleton Technology's friendly id (see

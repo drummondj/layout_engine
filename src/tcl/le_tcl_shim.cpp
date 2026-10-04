@@ -471,7 +471,7 @@ namespace
 // format_numeric_friendly_id are all already in scope, and so
 // technology_id() below can use the generated format_technology_id().
 // Never edit generated/le_tcl_shim_generated.inc directly - regenerate
-// via the regen-tcl skill instead.
+// by rebuilding.
 #include "generated/le_tcl_shim_generated.inc"
 
 int read_lef(const char *path, const char *library_name)
@@ -1384,6 +1384,15 @@ int load_settings_command(const char *path)
 const char *default_settings_path_command()
 {
     return le_default_settings_path();
+}
+
+const char *generated_procs_default_path_command()
+{
+#ifdef LE_TCL_GENERATED_PROCS_PATH
+    return LE_TCL_GENERATED_PROCS_PATH;
+#else
+    return "";
+#endif
 }
 
 int get_max_concurrency_command()

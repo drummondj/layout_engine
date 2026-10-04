@@ -15,9 +15,8 @@ allowed-tools:
 `update_<type>` and hand-written command registers itself into (see
 `le_tcl_procs.tcl`'s own "Help system" section and
 `le_tcl_procs_generated_tcl_j2.py`). Nothing here changes what commands
-exist - only their documented output - so a plain rebuild is enough, no
-`regen-tcl` step required unless a command's own usage/description/flags
-actually changed (in which case run `regen-tcl` first, then this).
+exist - only their documented output - and a rebuild regenerates the TCL
+surface anyway, so rebuilding before running this is enough.
 
 ## Steps
 
@@ -46,5 +45,5 @@ actually changed (in which case run `regen-tcl` first, then this).
    `ctest`.
 
 3. **Commit the result.** `TCL_COMMANDS.md` is a real, committed
-   file (unlike `generated/`/`generated_tcl/`, which are `.gitignore`d) -
+   file (unlike the generated code, which lives in the build tree) -
    `git diff` shows exactly what changed.

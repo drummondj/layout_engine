@@ -15,7 +15,7 @@
 #include "../io/lef_writer.hpp"
 #include "../io/def_writer.hpp"
 #include "../io/native_format.hpp"
-#include "../database/generated/schema_version.hpp"
+#include "schema_version.hpp"
 #include "../pipelines/view_style.hpp"
 #include "../pipelines/view_render_pipeline.hpp"
 #include "../pipelines/pipeline_options.hpp"
@@ -26,7 +26,7 @@
 // other generated_tcl/*.inc fragment, so it's included here with the
 // rest of api.cpp's top-level includes rather than spliced into a
 // specific scope. Never edit generated_tcl/snapshot_appliers.hpp
-// directly - regenerate via the regen-tcl skill.
+// directly - the build regenerates it.
 #include "generated_tcl/snapshot_appliers.hpp"
 #include <fmt/format.h>
 #include <json.hpp>
@@ -1428,7 +1428,7 @@ namespace
     // `-filter` validation (every le_get_* function
     // below) - a hand-maintained allowlist of each class's filterable leaf
     // fields and hops, cross-checked directly against each class's own
-    // generated get_field()/match_hop() (src/database/generated/*.hpp).
+    // generated get_field()/match_hop() (the generated struct headers).
     // Hand-duplicated from schema.py rather than adding a codegen-generated
     // runtime enumeration - a short static list not worth a cross-repo
     // codegen change for. Deliberately narrower than what get_field/
@@ -1621,7 +1621,7 @@ namespace
     // every other is_child-field-derived count row exactly (was
     // hand-abbreviated to "port_count" before this migration; see
     // api_test.cpp). Never edit generated_tcl/property_accessors_internal.inc
-    // directly - regenerate via the regen-tcl skill instead.
+    // directly - the build regenerates it.
 #include "generated_tcl/property_accessors_internal.inc"
 
     // Lock-free bodies of le_zoom/le_pan/le_fit_scene - factored out so
@@ -2492,13 +2492,13 @@ extern "C"
     // above (internal linkage there would make these unresolvable from
     // other translation units) - see
     // generated_tcl/property_accessors_public.inc's own header comment.
-    // Never edit that file directly - regenerate via the regen-tcl skill.
+    // Never edit that file directly - the build regenerates it.
 #include "generated_tcl/property_accessors_public.inc"
 
     // Generated get_<type> search (le_get_X/le_search_result_X_at) for
     // every TCL-readable class - same external-linkage requirement as
     // property_accessors_public.inc above. Never edit that file directly
-    // - regenerate via the regen-tcl skill.
+    // - the build regenerates it.
 #include "generated_tcl/search.inc"
 
     LeHandle *le_create(void)

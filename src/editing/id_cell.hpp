@@ -5,7 +5,7 @@ namespace le::editing
 {
     /// @brief A tiny mutable box around one IdT, always held via
     /// IdCellPtr<IdT> (a shared_ptr). Pool<T,IdT>::create() (see
-    /// src/database/generated/pool.hpp) always allocates a fresh
+    /// the generated pool.hpp) always allocates a fresh
     /// index/generation - there is no "create at this specific id"
     /// operation - so undoing a delete or redoing a create never
     /// reproduces the original id. Every ICommand that creates/recreates

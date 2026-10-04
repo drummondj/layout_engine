@@ -82,14 +82,11 @@ WORKDIR /workspace
 # silently skipped and io/pipelines fail on a missing
 # src/lefdef/{lef,def}/include/*.hpp instead.
 #
-# codegen step (pip install + codegen, both targets): src/database/generated/,
-# src/api/generated_tcl/, and src/tcl/generated/ are all .gitignore'd
-# build artifacts (see the regen-database/regen-tcl skills), never present
-# in a fresh CI checkout. Reinstalling+regenerating on every run (not just
-# once) is deliberate, mirroring Dockerfile.linux-release's own codegen
-# stage - both codegen/ and src/database/schema.py are bind-mounted source
-# that can change between runs, and `pip install .` of a small pure-Python
-# package is cheap enough not to matter. --break-system-packages: Ubuntu
+# pip install ./codegen: CMake runs the in-tree codegen itself (into each
+# build tree), but needs its Python dependencies (jinja2, click) installed.
+# Reinstalled on every run because codegen/ is bind-mounted source whose
+# pyproject.toml can change between runs, and installing a small
+# pure-Python package is cheap. --break-system-packages: Ubuntu
 # 24.04's system Python is PEP 668-protected; this is an ephemeral,
 # single-purpose container, not a shared system, so the usual venv
 # reasoning for avoiding it doesn't apply.
@@ -100,8 +97,6 @@ CMD ["bash", "-c", "\
     rm -rf /build/debug/lef_lib-prefix /build/release/lef_lib-prefix && \
     rm -rf /build/debug/def_lib-prefix /build/release/def_lib-prefix && \
     python3 -m pip install --no-cache-dir --break-system-packages ./codegen && \
-    codegen --schema src/database/schema.py --output src/database/generated && \
-    codegen --schema src/database/schema.py --output src --target tcl && \
     cmake -S . -B /build/debug -DCMAKE_BUILD_TYPE=Debug && \
     cmake --build /build/debug -j ${BUILD_JOBS} && \
     ctest --test-dir /build/debug --output-on-failure && \

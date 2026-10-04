@@ -1,4 +1,4 @@
-TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl skill
+TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). #include'd once from api.hpp, immediately after
 // `typedef struct LeHandle LeHandle;` - before anything else in the file,
 // hand-written or generated, that names one of these types. A separate

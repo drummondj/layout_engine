@@ -1,11 +1,11 @@
-TEMPLATE = """# GENERATED - do not edit by hand. Regenerate via the regen-tcl skill
+TEMPLATE = """# GENERATED - do not edit by hand. The build regenerates it
 # (codegen --target tcl). Sourced once from le_tcl_procs.tcl.
 #
 # property_accessors_for_token (dispatches a friendly-id token to its
 # {count name value path} shim-function quadruplet by prefix, across
 # every TCL-readable class) and get_<type>/set_current_<type> - all
 # generated - see CLAUDE.md's TCL codegen section. Never edit
-# this file directly, regenerate via the regen-tcl skill instead.
+# this file directly, the build regenerates it.
 # parse_get_args/check_of_prefixes/default_to_unset (le_tcl_procs.tcl)
 # are shared, class-agnostic helpers this file calls into, not generated
 # here. register_command_help/::command_help (the help system) are

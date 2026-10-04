@@ -2023,26 +2023,28 @@ proc default_to_unset {values} {
 # every TCL-readable class - not just library:/design:/abstract:/
 # terminal:/terminal_port:/obstruction:/shape:) and the ::property_scalars/
 # ::property_hops dot-path completion tables are
-# generated - see generated/le_tcl_procs_generated.tcl and
-# CLAUDE.md's TCL section. Never edit that file directly, regenerate via
-# the regen-tcl skill instead.
-# Tries the real source-tree layout first (generated/le_tcl_procs_generated.tcl,
-# alongside this file, unchanged - ctest/le_shell/tclsh all source this file
-# straight from src/tcl/, where that subdirectory genuinely exists),
-# then falls back to a flat layout (this file's own directory, no generated/
-# subdirectory) - a packaged release bundle (Dockerfile.linux-release's
-# `bundle` stage) copies files into one flat directory.
+# generated - see le_tcl_procs_generated.tcl and CLAUDE.md's TCL section.
+# codegen writes it into the build tree on every build that needs it; never
+# edit it directly.
+# Tries the build tree's copy first (its path is compiled into le_tcl, which
+# is always loaded before this file), then this file's own directory - a
+# release bundle keeps both procs files side by side.
 set _le_generated_procs_candidates [list \
-    [file join [file dirname [info script]] generated le_tcl_procs_generated.tcl] \
+    [generated_procs_default_path_command] \
     [file join [file dirname [info script]] le_tcl_procs_generated.tcl] \
 ]
+set _le_generated_procs_found 0
 foreach _le_candidate $_le_generated_procs_candidates {
-    if {[file exists $_le_candidate]} {
+    if {$_le_candidate ne "" && [file exists $_le_candidate]} {
         source $_le_candidate
+        set _le_generated_procs_found 1
         break
     }
 }
-unset _le_generated_procs_candidates _le_candidate
+if {!$_le_generated_procs_found} {
+    error "le_tcl_procs_generated.tcl not found (tried: [join $_le_generated_procs_candidates {, }])"
+}
+unset _le_generated_procs_candidates _le_candidate _le_generated_procs_found
 
 # All properties for one token, as a dict - the shared building block
 # behind both get_properties and report_properties.

@@ -499,6 +499,9 @@ const char *get_layer_color_command(const char *layer);
 int save_settings_command(const char *path);
 int load_settings_command(const char *path);
 const char *default_settings_path_command();
+/// @brief The build tree's generated procs file, or "" when this module
+/// wasn't built with one (le_tcl_procs.tcl then looks beside itself).
+const char *generated_procs_default_path_command();
 
 int get_max_concurrency_command();
 void set_max_concurrency_command(int max_concurrency);
@@ -507,5 +510,5 @@ void set_max_concurrency_command(int max_concurrency);
 // TCL section) - bare property-table accessors and is_child-field
 // enumeration for every TCL-readable class not already covered above.
 // Never edit generated/le_tcl_shim_generated.hpp directly - regenerate
-// via the regen-tcl skill instead. ---
+// by rebuilding. ---
 #include "generated/le_tcl_shim_generated.hpp"

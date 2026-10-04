@@ -1,4 +1,4 @@
-TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl skill
+TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). #include'd once in api.cpp, replacing the body
 // of the hand-written filter_field_tables() (still hand-written: the
 // FilterFieldTable struct itself, validate_filter_path/

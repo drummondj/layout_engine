@@ -1,6 +1,6 @@
 ---
 name: regen-tcl
-description: Regenerate the TCL/SWIG property-reading, search, create_<type>, update_<type>, and delete_<type> surface (src/api/generated_tcl/, src/tcl/generated/) from src/database/schema.py using the local codegen fork's `tcl` target. Use whenever schema.py changes a TCL-readable class, a has_current_access flag, a create/update-field's optionality/type, or a class's tcl_child_list_fields() (delete_<type>'s own cascade shape), or when the generated TCL surface looks out of sync (missing class, stale field, stale friendly-id lookup, wrong get_<type> default scope, stale create_<type>/update_<type>/delete_<type> signature).
+description: Regenerate the TCL/SWIG property-reading, search, create_<type>, update_<type>, and delete_<type> surface (written by the build into build/le_generated/api/generated_tcl/ and build/le_generated/tcl/generated/) from src/database/schema.py via the codegen fork's `tcl` target. Use whenever schema.py changes a TCL-readable class, a has_current_access flag, a create/update-field's optionality/type, or a class's tcl_child_list_fields() (delete_<type>'s own cascade shape), or when the generated TCL surface looks out of sync (missing class, stale field, stale friendly-id lookup, wrong get_<type> default scope, stale create_<type>/update_<type>/delete_<type> signature).
 user-invocable: true
 allowed-tools:
   - Bash
@@ -13,8 +13,10 @@ allowed-tools:
 `Klass.tcl_readable`/`Klass.tcl_id_field`/`Klass.has_current_access`
 (codegen/codegen/schema.py) control which classes get a generated TCL
 property table, how their friendly id is built, and how every readable
-class's `get_<type>` default scope (`-of` omitted) is derived. Never edit
-`generated_tcl/`/`tcl/generated/` directly - re-run codegen instead.
+class's `get_<type>` default scope (`-of` omitted) is derived. The build
+runs this target alongside the database one whenever `schema.py` or
+`codegen/` changes, into `<build>/le_generated/api/generated_tcl/` and
+`<build>/le_generated/tcl/generated/` - never edit them; rebuild instead.
 
 This is a **separate generation target** from `regen-database` - it
 covers property *reading*, `get_<type>` *search*, `create_<type>`,
@@ -47,42 +49,24 @@ the delete cascade plan).
 
 ## Steps
 
-1. **Ensure the local `codegen` fork is installed, editable** (paths
-   below are relative to the repo root):
+1. **Rebuild** (see the `build-test` skill). There's no manual codegen
+   step. To run the target by hand, e.g. to inspect its output:
 
    ```
-   pip install --user -e codegen      # or: cd codegen && poetry install
-   python3 -c "import codegen; print(codegen.__file__)"
+   PYTHONPATH=codegen python3 -m codegen.cli --schema src/database/schema.py \
+       --output build/le_generated --target tcl
    ```
 
-   The second line must print this checkout's `codegen/codegen/__init__.py`.
-   A non-editable install (`pip install codegen` without `-e`) is a frozen
-   copy that silently goes stale as `codegen/` changes. The command is
-   `codegen` (named so it can't collide with an installed upstream `cmg`). If pip refuses with
-   "externally-managed-environment", add `--break-system-packages` (a
-   `--user` install doesn't touch the system packages) or use poetry.
+   It writes two subdirectories beneath `--output`: `api/generated_tcl/` and
+   `tcl/generated/`.
 
-2. **Run the generator with `--target tcl`**, pointing `--output` at
-   `src/` (not `src/database/generated` - this
-   target writes to two different subdirectories beneath `--output`,
-   `api/generated_tcl/` and `tcl/generated/`):
+2. **Diff the output if needed.** Generated code lives in the build tree, so
+   `git diff` won't show it - copy `build/le_generated/` aside before
+   rebuilding if you need a baseline. codegen recreates both directories on
+   every run, so a stale file from a since-renamed class can't survive.
 
-   ```
-   codegen --schema src/database/schema.py --output src --target tcl
-   ```
-
-   (`poetry run codegen ...` from inside `codegen/` if you installed with
-   poetry - adjust the relative paths to `../...`.)
-
-3. **Diff the output.** Both output directories are `.gitignore`d, so
-   `git diff`/`git status` won't show anything - copy them aside before
-   regenerating if you need a real diff baseline. The generator deletes
-   and fully recreates both directories on every run, so a stale/orphaned
-   file (e.g. from a since-renamed class) can't survive a run.
-
-4. **Rebuild and run tests** (see the `build-test` skill) to confirm the
-   regenerated code still compiles and passes - `le_tcl_smoke`,
-   `le_tcl_crud`, and `le_tcl_shell` exercise this surface directly.
+3. **Run the tests** - `le_tcl_smoke`, `le_tcl_crud` and `le_tcl_shell`
+   exercise this surface directly.
 
 ## Adding a new TCL-readable class
 
@@ -211,7 +195,10 @@ again on subsequent regenerations:
   `resolve_numeric_friendly_id`/`format_numeric_friendly_id` are already
   in scope).
 - `le_api.i` - `%include "generated/le_api_generated.i"`.
-- `le_tcl_procs.tcl` - `source [file join [file dirname [info script]] generated le_tcl_procs_generated.tcl]`
+- `le_tcl_procs.tcl` - sources `le_tcl_procs_generated.tcl`: the build
+  tree's copy (its path is compiled into `le_tcl`, returned by
+  `generated_procs_default_path_command`), else the one beside
+  `le_tcl_procs.tcl` in a release bundle
   (`property_accessors_for_token`, `current_X`, every `get_<type>`
   proc - `parse_get_args`/`check_of_prefixes`/`default_to_unset` stay
   hand-written, shared/class-agnostic helpers the generated procs call
@@ -221,7 +208,7 @@ Never hand-write a `create_X`/`update_X`/`delete_X` or a per-field
 setter for a TCL-readable class in any of the files above. A duplicate C
 symbol fails the `le_tcl.so` link, and a same-named Tcl `proc` fails
 silently: Tcl redefines a `proc` without error, and `le_tcl_procs.tcl`
-sources `generated/le_tcl_procs_generated.tcl` partway through the file,
+sources `le_tcl_procs_generated.tcl` partway through the file,
 so whichever definition comes later wins. `create_shape
 -terminal_port|-obstruction` is one generated command (see
 `create_api_body()`'s exactly-one-parent check).

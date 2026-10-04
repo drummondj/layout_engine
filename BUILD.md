@@ -85,49 +85,31 @@ instead prints an error about
 `~/.local/layout_engine_toolchain/root` not being found, step 1 didn't
 complete — go back and fix that first.
 
-## 3. Generate the database/TCL bindings (codegen)
+## 3. Install codegen's Python dependencies
 
-Step 4 below won't compile without this — `src/database/generated/`
-and the TCL-facing generated surface (`src/api/generated_tcl/`,
-`src/tcl/generated/`) are `.gitignore`d, produced from
-`src/database/schema.py` by this repo's own `codegen` fork (repo
-root: `codegen/`), not checked in. There's no combined script for this yet —
-run both generation targets by hand:
+The build generates the database and TCL bindings from
+`src/database/schema.py` itself, running this repo's own `codegen` fork
+(`codegen/`) into the build tree - there's no manual generation step. It
+needs Python `>=3.11,<3.14` (per `codegen/pyproject.toml`) with codegen's
+packages installed:
 
 ```
-cd codegen
-poetry install 2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-poetry-install.log"
-
-poetry run codegen --schema ../src/database/schema.py \
-                --output ../src/database/generated \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-database.log"
-
-poetry run codegen --schema ../src/database/schema.py \
-                --output ../src \
-                --target tcl \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-tcl.log"
-
-cd ..
+python3.11 -m pip install --user ./codegen \
+    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-pip-install.log"
 ```
 
-This needs Python (`>=3.11,<3.14` per `codegen/pyproject.toml`) and
-[Poetry](https://python-poetry.org/) on `PATH` — neither is installed by
+and step 4's `cmake -S` lines then need `-DPython3_EXECUTABLE=$(command -v python3.11)`
+(or whichever interpreter you installed into). Neither is provided by
 step 1's bootstrap script, which only assembles the C++ toolchain.
-**Rocky 8's system `python3` is 3.6**, too old for this — you'll need a
+**Rocky 8's system `python3` is 3.6**, too old for this - you'll need a
 newer interpreter available some other way (e.g. an already-installed
-`python3.11`+, or `pyenv`/an extracted portable build) before `poetry
-install` will succeed; this hasn't been verified on the actual Rocky 8
-target machine yet, so treat it the same as everything else in this
-doc — expect to hit something here and send back
-`codegen-poetry-install.log` if `poetry install` itself is what fails.
+`python3.11`+, or `pyenv`/an extracted portable build). This hasn't been
+verified on the actual Rocky 8 target machine yet, so treat it the same as
+everything else in this doc - expect to hit something here and send back
+`codegen-pip-install.log` if the install itself is what fails.
 
-See `.claude/skills/regen-database/SKILL.md` and
-`regen-tcl/SKILL.md` for what each target actually generates and why
-both are needed (one covers `src/database/generated/`, the other covers
-the TCL/SWIG-facing surface `src/tcl/` and `src/api/` `#include`). Rerun
-both any time `schema.py` changes — those skills are the ones to reach
-for then, this section is just the one-time "get from nothing to a
-buildable tree" version.
+The `regen-database`/`regen-tcl` skills describe what each codegen target
+generates.
 
 ## 4. Build and test
 
@@ -186,9 +168,9 @@ today.
 Steps 1-2 are one-time (until you want to rebuild the toolchain itself).
 After editing C++ source, re-run step 4's `cmake --build`/`ctest`
 lines (no need to reconfigure unless `CMakeLists.txt` itself changed).
-After editing `src/database/schema.py`, re-run step 3 (both
-`codegen` targets) before step 4 — see the `regen-database`/`regen-tcl`
-skills for the fuller regeneration workflow. If a build ever looks
+Editing `src/database/schema.py` needs nothing extra: the build
+regenerates the code - see the `regen-database` skill for the version-bump,
+snapshot and golden-file steps a schema change needs. If a build ever looks
 inexplicably wrong after switching between this path and something else
 (e.g. macOS, or Docker) on the *same* checkout, suspect stale cross-environment
 build artifacts in build*/ or src/lefdef/{lef,def}/ before anything else.

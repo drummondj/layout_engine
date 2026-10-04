@@ -202,11 +202,12 @@ const char *get_layer_color_command(const char *layer);
 int save_settings_command(const char *path);
 int load_settings_command(const char *path);
 const char *default_settings_path_command();
+const char *generated_procs_default_path_command();
 
 int get_max_concurrency_command();
 void set_max_concurrency_command(int max_concurrency);
 
 // --- Generated TCL property-reading surface (see CLAUDE.md's
 // TCL section) - never edit generated/le_api_generated.i directly,
-// regenerate via the regen-tcl skill instead. ---
+// codegen rewrites it on every build that needs it. ---
 %include "generated/le_api_generated.i"

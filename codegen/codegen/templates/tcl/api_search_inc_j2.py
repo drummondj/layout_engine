@@ -1,4 +1,4 @@
-TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl skill
+TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). #include'd once in api.cpp INSIDE the
 // `extern "C" { ... }` block, alongside property_accessors_public.inc
 // (same external-linkage reasoning - le_get_X/le_search_result_X_at are

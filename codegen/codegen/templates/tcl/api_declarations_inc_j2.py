@@ -1,4 +1,4 @@
-TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl skill
+TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). #include'd once from api.hpp - see this
 // project's own "generated code, never hand-edited" convention
 // (CLAUDE.md's Database codegen section; this is the TCL-surface
