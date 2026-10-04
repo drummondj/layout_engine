@@ -254,11 +254,10 @@ if {[catch {load_settings $settings_file} err]} {
 
 clear_rulers
 puts "ok: clear_rulers"
-select_all
-puts "ok: select_all"
 deselect_all
 puts "ok: deselect_all"
 
+check "select_all is not a command" {} [info commands select_all]
 check "get_selection is empty with nothing selected" {} [get_selection]
 if {[catch {select "not_a_real_token"} err]} {
     puts "ok: select rejects an unrecognized token ($err)"

@@ -1186,9 +1186,8 @@ register_command_help get_mode \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# --- rulers/selection/move (backed by clear_rulers_cmd/select_all_cmd/
-# deselect_all_cmd/arm_move_cmd -> le_clear_rulers/le_select_all/
-# le_deselect_all/le_arm_move) ---
+# --- rulers/selection/move (backed by clear_rulers_cmd/deselect_all_cmd/
+# arm_move_cmd -> le_clear_rulers/le_deselect_all/le_arm_move) ---
 
 proc clear_rulers {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
@@ -1200,20 +1199,6 @@ proc clear_rulers {args} {
 register_command_help clear_rulers \
     "clear_rulers \[-help\]" \
     "Removes every ruler, finished or not." \
-    {
-        {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
-
-proc select_all {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "select_all \[-help\] - Selects every currently selectable shape in the current Abstract"
-    }
-    select_all_cmd
-    return ""
-}
-register_command_help select_all \
-    "select_all \[-help\]" \
-    "Selects every selectable shape in the current view." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }

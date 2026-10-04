@@ -2554,83 +2554,16 @@ namespace
     }
 }
 
-TEST_F(ApiFixture, CtrlSelectAllSelectsEveryShapeRegardlessOfViewport)
-{
-    load_two_shapes_at_known_scale(handle);
-
-    // Zoom in tight on PIN A alone (huge factor, anchored at its own
-    // center) so PIN B - way off in the opposite corner of the macro - is
-    // no longer inside the viewport. select_all_unlocked bypasses
-    // filter_by_viewport_and_size entirely (see its own comment in
-    // api.cpp), so both shapes should still get selected.
-    le_zoom(handle, 5.0, 25, 175);
-
-    le_key_down(handle, LE_KEY_CTRL);
-    le_key_down(handle, LE_KEY_SELECT_ALL);
-
-    EXPECT_EQ(le_selection_count(handle), 2);
-}
-
-TEST_F(ApiFixture, SelectAllWithoutCtrlHeldIsANoOp)
-{
-    load_two_shapes_at_known_scale(handle);
-
-    le_key_down(handle, LE_KEY_SELECT_ALL); // Ctrl never pressed
-
-    EXPECT_EQ(le_selection_count(handle), 0);
-}
-
-TEST_F(ApiFixture, SelectAllSkipsUnselectableLayers)
-{
-    load_two_shapes_at_known_scale(handle);
-    le_set_layer_name_selectable(handle, "M1", 0); // both PIN A and PIN B are on M1
-
-    le_key_down(handle, LE_KEY_CTRL);
-    le_key_down(handle, LE_KEY_SELECT_ALL);
-
-    EXPECT_EQ(le_selection_count(handle), 0);
-}
-
-// The "WARNING: select_all: selection capped..." message (api.cpp) now
-// goes straight to spdlog::warn, not a queryable handle->messages queue
-// - the selection count itself is the only externally-observable proof
-// of the cap left at this layer.
-TEST_F(ApiFixture, SelectAllIsCappedAt10000AndWarns)
-{
-    ASSERT_EQ(read_concurrency_stress_lef(handle, 10050), 0);
-    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
-
-    le_key_down(handle, LE_KEY_CTRL);
-    le_key_down(handle, LE_KEY_SELECT_ALL);
-
-    EXPECT_EQ(le_selection_count(handle), 10000);
-}
-
-TEST_F(ApiFixture, SelectAllWithNullHandleDoesNotCrash)
-{
-    le_key_down(nullptr, LE_KEY_SELECT_ALL);
-}
-
-TEST_F(ApiFixture, SelectAllWithCtrlAndShiftBothHeldIsANoOp)
-{
-    load_two_shapes_at_known_scale(handle);
-
-    le_key_down(handle, LE_KEY_CTRL);
-    le_key_down(handle, LE_KEY_SHIFT);
-    le_key_down(handle, LE_KEY_SELECT_ALL);
-
-    EXPECT_EQ(le_selection_count(handle), 0);
-}
-
 TEST_F(ApiFixture, CtrlDDeselectAllClearsTheSelection)
 {
     load_two_shapes_at_known_scale(handle);
 
-    le_key_down(handle, LE_KEY_CTRL);
-    le_key_down(handle, LE_KEY_SELECT_ALL);
+    le_mouse_down(handle, 0, 200); // drag over both pins
+    le_mouse_up(handle, 200, 0);
     ASSERT_EQ(le_selection_count(handle), 2);
 
-    le_key_down(handle, LE_KEY_DESELECT_ALL); // Ctrl still held from above
+    le_key_down(handle, LE_KEY_CTRL);
+    le_key_down(handle, LE_KEY_DESELECT_ALL);
     EXPECT_EQ(le_selection_count(handle), 0);
 }
 
@@ -2665,10 +2598,11 @@ TEST_F(ApiFixture, DeselectAllWithCtrlAndShiftBothHeldIsANoOp)
 {
     load_two_shapes_at_known_scale(handle);
 
-    le_key_down(handle, LE_KEY_CTRL);
-    le_key_down(handle, LE_KEY_SELECT_ALL);
+    le_mouse_down(handle, 0, 200); // drag over both pins
+    le_mouse_up(handle, 200, 0);
     ASSERT_EQ(le_selection_count(handle), 2);
 
+    le_key_down(handle, LE_KEY_CTRL);
     le_key_down(handle, LE_KEY_SHIFT); // Ctrl+Shift both held
     le_key_down(handle, LE_KEY_DESELECT_ALL);
     EXPECT_EQ(le_selection_count(handle), 2); // unchanged
@@ -2752,8 +2686,8 @@ TEST_F(ApiFixture, MouseDownThenUpAsAClickSelectsTheHitShape)
 // though it's still marked selectable=true (the default) - "selectable"
 // means "eligible to be selected when visible", not "selectable
 // regardless of visibility". The is_selectable predicate passed to
-// hit_test_abstract_point checks both, as select_all_unlocked and hover
-// (le_set_mouse_position) do (see that test below).
+// hit_test_abstract_point checks both, as hover (le_set_mouse_position)
+// does (see that test below).
 TEST_F(ApiFixture, MouseClickDoesNotSelectATerminalOnAHiddenLayer)
 {
     load_two_shapes_at_known_scale(handle);
@@ -4674,17 +4608,6 @@ TEST_F(ApiFixture, ShapeAccessorsWithNullHandleOrUnknownIdDegradeGracefully)
 
 // --- Editing / undo-redo ---
 
-TEST_F(ApiFixture, SelectAllInEditModeIsANoOpEvenWithCtrlHeld)
-{
-    load_two_shapes_at_known_scale(handle);
-    le_set_mode(handle, LE_MODE_EDIT);
-
-    le_key_down(handle, LE_KEY_CTRL);
-    le_key_down(handle, LE_KEY_SELECT_ALL);
-
-    EXPECT_EQ(le_selection_count(handle), 0);
-}
-
 TEST_F(ApiFixture, DeselectAllInEditModeIsANoOpEvenWithCtrlHeld)
 {
     load_two_shapes_at_known_scale(handle);
@@ -4780,7 +4703,6 @@ TEST_F(ApiFixture, EditingFunctionsWithNullHandleDoNotCrash)
     EXPECT_EQ(le_can_redo(nullptr), 0);
     EXPECT_EQ(le_command_history_count(nullptr), 0);
     EXPECT_EQ(le_command_history_at(nullptr, 0), nullptr);
-    le_select_all(nullptr);
     le_deselect_all(nullptr);
     le_arm_move(nullptr);
     le_cancel_move(nullptr);
@@ -5032,21 +4954,28 @@ TEST_F(ApiFixture, PlacementMoveSnapsToTheRowSiteGridAndOrientationAndIsUndoable
     EXPECT_EQ(placement_property(handle, placement_id, ".orientation"), "N");
 }
 
-TEST_F(ApiFixture, SelectAllSkipsAHiddenLayerCreatedAfterTheLefRead)
+TEST_F(ApiFixture, DragSelectSkipsAHiddenLayerCreatedAfterTheLefRead)
 {
     // "M4" isn't in testcell.lef - named_layer creates it after the read,
-    // so select-all must refresh the view layers to see it's hidden.
+    // so the hit-test must refresh the view layers to see it's hidden.
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
     create_obstruction_with_rect(handle, testcell_abstract_id(handle), "M4", kRect0);
+    le_set_viewport_size(handle, 200, 200);
+    le_fit_scene(handle, 10);
+    const auto drag_select_everything = [&]
+    {
+        le_mouse_down(handle, 0, 200);
+        le_mouse_up(handle, 200, 0);
+    };
 
     le_set_layer_name_visible(handle, "M4", false);
-    le_select_all(handle);
+    drag_select_everything();
     const int32_t with_m4_hidden = le_selection_count(handle);
 
     le_deselect_all(handle);
     le_set_layer_name_visible(handle, "M4", true);
-    le_select_all(handle);
+    drag_select_everything();
     EXPECT_EQ(le_selection_count(handle), with_m4_hidden + 1);
 }
 

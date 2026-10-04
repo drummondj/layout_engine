@@ -272,7 +272,6 @@ foreach {cmd expect_substr} {
     set_mode                   "set_mode <mode>"
     get_mode                   "get_mode"
     clear_rulers                "clear_rulers"
-    select_all                  "select_all"
     deselect_all                "deselect_all"
     arm_move                    "arm_move"
     shape_rects                "shape_rects <id>"

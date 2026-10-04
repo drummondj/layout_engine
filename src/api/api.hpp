@@ -695,18 +695,10 @@ extern "C"
     /// index is out of range.
     const char *le_command_history_at(LeHandle *handle, int32_t index);
 
-    /// @brief Selects every currently selectable shape in the current
-    /// Abstract (same underlying behavior as LE_KEY_SELECT_ALL while
-    /// LE_KEY_CTRL is held - see its own doc comment for the 10,000-object
-    /// cap and capped-selection warning message), but callable directly -
-    /// for the Select-mode toolbox button, which has
-    /// no natural "Ctrl held" precondition of its own the way the keyboard
-    /// shortcut does. A no-op if handle is null.
-    void le_select_all(LeHandle *handle);
-
     /// @brief Clears the current selection (same underlying behavior as
-    /// LE_KEY_DESELECT_ALL while LE_KEY_CTRL is held), callable directly -
-    /// see le_select_all's own comment. A no-op if handle is null.
+    /// LE_KEY_DESELECT_ALL while LE_KEY_CTRL is held), callable directly
+    /// for the Select-mode toolbar button, which has no "Ctrl held"
+    /// precondition of its own. A no-op if handle is null.
     void le_deselect_all(LeHandle *handle);
 
     /// @brief Arms Move - equivalent to Ctrl-M or
@@ -1228,15 +1220,10 @@ extern "C"
         LE_KEY_PAN_DOWN = 7,
         /// A pure modifier, tracked exactly like LE_KEY_SHIFT - held
         /// state only, no immediate action of its own. Read by
-        /// LE_KEY_SELECT_ALL, LE_KEY_DESELECT_ALL, LE_KEY_FIT, and
+        /// LE_KEY_DESELECT_ALL, LE_KEY_FIT, and
         /// LE_KEY_1..LE_KEY_9.
         LE_KEY_CTRL = 8,
-        /// Select-all - an "action" code like
-        /// LE_KEY_ZOOM/LE_KEY_FIT/LE_KEY_PAN_*, but only actually does
-        /// anything while LE_KEY_CTRL is currently held (see le_key_down's
-        /// own doc comment) - a bare "a" press with Ctrl not held is a
-        /// deliberate no-op, not "select nothing."
-        LE_KEY_SELECT_ALL = 9,
+        // 9 is unassigned.
         /// Digit keys 1-9 toggle a ROUTING layer's visibility - which one
         /// depends on LE_KEY_CTRL's held state (the
         /// same "backend reads modifier state" split LE_KEY_ZOOM/
@@ -1258,11 +1245,10 @@ extern "C"
         LE_KEY_7 = 16,
         LE_KEY_8 = 17,
         LE_KEY_9 = 18,
-        /// Deselect-all - same "action code, gated on
-        /// LE_KEY_CTRL" shape as LE_KEY_SELECT_ALL, but simply clears the
-        /// current selection rather than building a new one; a bare "d"
-        /// press with Ctrl not held is a deliberate no-op, same reasoning
-        /// as LE_KEY_SELECT_ALL's own comment.
+        /// Deselect-all - an "action" code like
+        /// LE_KEY_ZOOM/LE_KEY_FIT/LE_KEY_PAN_*, but only does anything
+        /// while LE_KEY_CTRL is held (see le_key_down's own doc comment) -
+        /// a bare "d" press with Ctrl not held is a deliberate no-op.
         LE_KEY_DESELECT_ALL = 19,
         /// Toggles the tenth ROUTING layer's visibility -
         /// not Ctrl-gated, unlike LE_KEY_1..LE_KEY_9's own Ctrl-held
@@ -1324,7 +1310,7 @@ extern "C"
         /// Arms Move (Ctrl-M) - see le_arm_move's own
         /// doc comment. Fires only while Ctrl is held and Shift is not,
         /// at the le_key_down call site, same shape as
-        /// LE_KEY_SELECT_ALL/LE_KEY_DESELECT_ALL, even though the Move
+        /// LE_KEY_DESELECT_ALL, even though the Move
         /// toolbox button calls le_arm_move() directly and bypasses this
         /// gate. No separate LE_KEY_UNDO/LE_KEY_REDO code exists -
         /// Ctrl-Z/Ctrl-Shift-Z are handled by branching inside
@@ -1371,20 +1357,6 @@ extern "C"
     /// - LE_KEY_PAN_LEFT/RIGHT/UP/DOWN: le_pan() by a fixed
     ///   viewport-fraction step in the corresponding direction. Bare
     ///   only - a no-op while either LE_KEY_CTRL or LE_KEY_SHIFT is held.
-    /// - LE_KEY_SELECT_ALL: only while LE_KEY_CTRL is
-    ///   currently held, LE_KEY_SHIFT is *not*, and the current mode is
-    ///   LE_MODE_SELECT (Select-mode selection
-    ///   shortcuts are disabled in Edit/Ruler mode; switch back to
-    ///   Select mode to change the selection there) - clears the current
-    ///   selection, then selects every piece of every currently
-    ///   selectable shape in the current Abstract regardless of viewport
-    ///   (not just what's on screen), up to a fixed cap of 10,000
-    ///   objects (pieces, not whole shapes). If the
-    ///   design has more selectable pieces than that, the selection
-    ///   stops at the cap and a "WARNING: Selection capped..." message
-    ///   is logged via spdlog::warn - there's no separate "was it
-    ///   capped" return value, this is the same mechanism any other
-    ///   backend-originated message uses.
     /// - LE_KEY_1..LE_KEY_9: toggles a ROUTING
     ///   layer's visibility - the 1st..9th if LE_KEY_CTRL is not
     ///   currently held, the 11th..19th if it is (a no-op if there's no
@@ -1403,8 +1375,8 @@ extern "C"
     ///   VIA-pairing re-check as LE_KEY_1..LE_KEY_9 above.
     /// - LE_KEY_DESELECT_ALL: only while LE_KEY_CTRL is
     ///   currently held, LE_KEY_SHIFT is not, and the current mode is
-    ///   LE_MODE_SELECT (same mode-gating as LE_KEY_SELECT_ALL above)
-    ///   - clears the current selection. A no-op
+    ///   LE_MODE_SELECT (Select-mode selection shortcuts are disabled in
+    ///   Edit/Ruler mode) - clears the current selection. A no-op
     ///   (not an error) if the selection was already empty.
     /// - LE_KEY_MOVE: only while LE_KEY_CTRL is
     ///   currently held and LE_KEY_SHIFT is not - equivalent to
@@ -1521,7 +1493,7 @@ extern "C"
     /// each one. Selection is untouched either way - Move never changes
     /// *which* shapes are selected, only their geometry. In Edit mode
     /// with Move *not* armed, this is a no-op (selection changes are
-    /// Select-mode-only - see LE_KEY_SELECT_ALL's own comment).
+    /// Select-mode-only - see LE_KEY_DESELECT_ALL in le_key_down).
     ///
     /// **Started by le_zoom_drag_down()**: a click-sized
     /// release (same threshold as above) is a no-op - fitting to a
@@ -1728,8 +1700,7 @@ extern "C"
     /// a no-op logged via spdlog::error rather than crashing or silently
     /// doing nothing. For LE_OBJECT_KIND_SHAPE/_ROUTE/_PHYSICAL_PORT,
     /// this selects every piece of every underlying Shape (every rect/
-    /// polygon/path entry - the same per-shape loop le_select_all()
-    /// already uses internally, walking Route's own get_route_shapes or
+    /// polygon/path entry, walking Route's own get_route_shapes or
     /// PhysicalPort's own get_physical_port_segments ->
     /// get_physical_port_segment_shapes for the latter two), not just
     /// one - piece-level granularity is reachable only via a real mouse

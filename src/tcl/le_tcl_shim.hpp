@@ -336,10 +336,6 @@ int32_t get_mode_cmd();
 /// le_clear_rulers directly.
 void clear_rulers_cmd();
 
-/// @brief Backing for the `select_all` Tcl command - mirrors le_select_all
-/// directly.
-void select_all_cmd();
-
 /// @brief Backing for the `deselect_all` Tcl command - mirrors
 /// le_deselect_all directly.
 void deselect_all_cmd();
