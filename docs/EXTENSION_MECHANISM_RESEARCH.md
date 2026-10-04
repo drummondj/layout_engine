@@ -1,4 +1,6 @@
-# Extension Mechanism — Architecture Research (NEW_FEATURES item 30)
+# Extension Mechanism — Architecture Research
+
+Companion documents: [NATIVE_FILE_FORMAT_RESEARCH.md](NATIVE_FILE_FORMAT_RESEARCH.md) (how extension data is saved and migrated) and [PACKAGE_MANAGER_RESEARCH.md](PACKAGE_MANAGER_RESEARCH.md) (how users install extensions into a project). The package manager decides how an extension is described and found, so §2 and §6 follow its design.
 
 ## Goal
 
@@ -15,7 +17,8 @@ Their code must live **completely outside** the layout_engine tree, yet be **com
 
 | Concern | Recommendation |
 |---|---|
-| Packaging | **Superbuild.** The customer repo includes layout_engine as a git submodule (never edited) and lists extension directories in `LE_EXTENSION_DIRS`. |
+| Packaging | **An extension is a directory with a declarative manifest, `le_extension.toml`** (name, version, prefix, compatible layout_engine versions, dependencies, what it contains). The package manager reads it to resolve and fetch; CMake reads it to build. **Superbuild:** layout_engine's CMake takes extension directories in `LE_EXTENSION_DIRS`. The package manager generates that list for a project, and a hand-made superbuild (layout_engine as a git submodule) still works. |
+| Tiers | **Script extensions** (Tcl procs and data files only) need no compiler and install into a prebuilt release. **Compiled extensions** (C++, schema, GUI) need a project build of `le_shell`. |
 | Build | layout_engine provides an `le_add_extension()` CMake function. Each extension builds as up to three static libraries (`_core`, `_tcl`, `_gui`) that are linked into the existing host targets. |
 | Registration | CMake generates an init file that calls `le_ext_<name>_register(Registry&)` for each extension. This is explicit; nothing relies on static self-registration. |
 | Schema | Extension classes are **merged into the core schema at build time**. `schema_ext.py` defines `extend(schema)`, and CMake runs codegen into the build directory. Extension objects get pools in `Root`, undo/redo, the change log and TCL CRUD commands for free. |
@@ -36,95 +39,125 @@ Their code must live **completely outside** the layout_engine tree, yet be **com
 Layout Engine is a closed world today: there are no extension points anywhere. Relevant facts, with paths relative to the repo root:
 
 **Schema and codegen**
-- `src/database/schema.py` is a Python DSL: `Schema(name="layout_engine", namespace="le", classes=[Klass(...), ...])`.
-- `codegen` (`../codegen/codegen/cli.py`) accepts a single `--schema` and two targets, `database` and `tcl`. It loads the schema with `SourceFileLoader(...).load_module()` (`../codegen/codegen/generator.py:23`). Because that is plain Python, a schema file can already `import` another schema and append to it.
-- Generated code (`src/database/generated/`, `src/api/generated_tcl/`, `src/tcl/generated/`) is **not** committed: it is `.gitignore`d and each developer regenerates it by hand (the `regen-database` / `regen-tcl` skills). CMake never runs codegen; `add_library(database INTERFACE)` is at `CMakeLists.txt:504`.
-- Codegen produces a single `class Root` (`generated/root.hpp:223`) with one `Pool` per class, plus a closed `enum class ChangeKlass` (`root.hpp:93`). The undo/redo templates in `src/editing/command.hpp` and the TCL CRUD surface are also generated per class.
-- The native `.led` format (`src/persistence/`, `write_db`/`read_db`) is driven by codegen's `native_tables.hpp`, so classes merged into the schema are persisted without hand-written code.
+- `src/database/schema.py` is a Python DSL: `Schema(name="layout_engine", namespace="le", version="0.49.0", classes=[Klass(...), ...])`.
+- `codegen` is vendored in-tree (`codegen/`, this project's fork of cmg). `codegen/codegen/cli.py` accepts a single `--schema` and four targets: `database`, `tcl`, `makemigration` and `checkmigrations`. It loads the schema with `SourceFileLoader(...).load_module()` (`codegen/codegen/generator.py:33`). Because that is plain Python, a schema file can already `import` another schema and append to it.
+- Generated code (`src/database/generated/`, `src/api/generated_tcl/`, `src/tcl/generated/`) is **not** committed: it is `.gitignore`d and each developer regenerates it by hand (the `regen-database` / `regen-tcl` skills). CMake never runs codegen; `add_library(database INTERFACE)` is at `CMakeLists.txt:488`.
+- Codegen produces a single `class Root` (`src/database/generated/root.hpp`) with one `Pool` per class, plus a closed `enum class ChangeKlass`. The undo/redo templates in `src/editing/command.hpp` and the TCL CRUD surface are also generated per class.
+- The native `.led` format (`src/io/native_format.*`, `write_db`/`read_db`) is driven by codegen's `native_tables.hpp`, so classes merged into the schema are persisted without hand-written code.
 
 **Build**
-- The top-level `CMakeLists.txt` is flat. It has no `add_subdirectory` of project code, no install/export rules, and no `LE_EXTRA_*` options.
-- `api` is a static library (`:631`) that keeps its internals `PRIVATE`.
-- `le_tcl` is a SWIG-built Tcl module (`:729`) that links `api` privately.
-- `le_shell` (`:1027`) is both the Tcl shell and the GUI app, and also links `api` (`:1030`). The process therefore contains **two copies of `api`**, one in the executable and one in the loaded module, and they share the `LeHandle*` passed through `set_session_handle`. This matters for where extension state may live (§3).
+- The top-level `CMakeLists.txt` (at the repo root) is flat. It has no `add_subdirectory` of project code, no install/export rules, and no `LE_EXTRA_*` options.
+- `api` is a static library (`:583`) that keeps its internals `PRIVATE`.
+- `le_tcl` is a SWIG-built Tcl module (`swig_add_library`, `:679`) that links `api` privately.
+- `le_shell` (`:859`) is both the Tcl shell and the GUI app, and also links `api` (`:862`). The process therefore contains **two copies of `api`**, one in the executable and one in the loaded module, and they share the `LeHandle*` passed through `set_session_handle`. On macOS the module hides its duplicate symbols (`src/tcl/le_tcl_unexported_symbols.txt`) so each image binds to its own copy. This matters for where extension state may live (§3).
+- Releases are a flat, prebuilt bundle (`Dockerfile.linux-release`): `le_shell`, `le_tcl.so`, the procs files, `fonts/` and `libtbb`. Resources are found with `find_resource` (`src/core/resource_path.hpp`): the compile-time build-tree path first, else a path relative to the executable.
 
 **TCL**
 - A command passes through four layers:
   1. the C API in `src/api/api.hpp`
   2. the shim in `src/tcl/le_tcl_shim.cpp`, which reaches the handle through `session()`
-  3. the SWIG interface `src/tcl/le_api.i`, which already ends with `%include "generated/le_api_generated.i"` (`:211`)
-  4. the procs in `src/tcl/le_tcl_procs.tcl`, which parse flags and call `register_command_help` (`:135`)
+  3. the SWIG interface `src/tcl/le_api.i`, which already ends with `%include "generated/le_api_generated.i"` (`:213`)
+  4. the procs in `src/tcl/le_tcl_procs.tcl`, which parse flags and call `register_command_help` (`:114`)
 - The `::command_help` dict drives `help`, `man`, tab completion and `TCL_COMMANDS.md`.
-- `le_shell.cpp`'s `app_init` runs `load {module} le_tcl` (`:229`), then `set_session_handle`, then `Tcl_EvalFile(procs)` (`:249`).
+- `le_shell.cpp`'s `app_init` (`:171`) runs `load {module} le_tcl` (`:178`), then `set_session_handle` (`:191`), then `Tcl_EvalFile(procs)` (`:198`).
 
 **GUI** (`src/gui/le_gui.cpp`)
-- Panels are hard-coded `Begin` / `draw_xxx(provider)` / `End` calls inside the frame loop, and their dock slots are fixed in `DockBuilder` code (`:867`+).
+- Panels are hard-coded `Begin` / `draw_xxx(provider)` / `End` calls inside the frame loop (`:1162-1226`), with no close button, and their dock slots are fixed in `DockBuilder` code (`:797-821`).
 - There is **no menu bar**.
-- The toolbars are hard-coded, and so is the key table (`kKeyMappings`, `:304`).
-- `GuiProvider` (`gui_provider.hpp:32`) is the only way into `LeHandle`, and it deliberately exposes no raw handle.
+- The toolbars are hard-coded, and so is the key table (`kKeyMappings`, `:256`).
+- `GuiProvider` (`src/gui/gui_provider.hpp:25`) is the only way into `LeHandle`, and it deliberately exposes no raw handle.
 
 **Rendering and settings**
-- Overlays are a fixed list of `draw_*_overlay` calls in `ComposeStage::compute` (`src/pipelines/stages/compose_stage.hpp:134-139`).
+- Overlays are a fixed list of `draw_*_overlay` calls in `ComposeStage::compute` (`src/pipelines/stages/compose_stage.hpp:141-147`).
 - `ViewLayerPurpose` is a closed enum (`src/pipelines/view_style.hpp:17`), mirrored by hand in `layer_manager.cpp` and `le_tcl_procs.tcl`.
-- Settings are fixed JSON keys (`src/api/api.cpp:707`, `settings_to_json`).
-- Window state is saved in imgui.ini, using a custom `ImGuiSettingsHandler` (`le_gui.cpp:689`). That same mechanism would work for extensions.
+- Settings are fixed JSON keys (`settings_to_json`, `src/api/api.cpp:734`). The format is versioned (`kSettingsVersion`, with one migration step per version), and top-level keys this build doesn't know are kept and written back (`LeHandle::unknown_settings_json`). So an extension's settings section already survives a session in a build without that extension.
+- Window state is saved in `~/.layout_engine/window_layout.ini`, using a custom `ImGuiSettingsHandler` (`le_gui.cpp:627`). That same mechanism would work for extensions.
 
 ---
 
 ## 2. Packaging: a superbuild with extension directories
 
+An extension is one directory. It never refers to paths inside layout_engine, so the same directory works as a package-manager install, in a hand-made superbuild, and in layout_engine's own CI.
+
 ```
-acme_le/                          <- customer's repo (proprietary)
-  CMakeLists.txt
-  layout_engine/                  <- git submodule, never modified
-  ext/
-    acme_router/
-      le_extension.cmake
-      schema_ext.py
-      include/acme_router/...
-      src/router.cpp              <- core C++ (no Tcl / ImGui deps)
-      tcl/acme_router.i
-      tcl/acme_router_shim.cpp
-      tcl/acme_router_procs.tcl
-      gui/acme_router_window.cpp
-      tests/...
+acme_router/                      <- the extension (its own repo, proprietary)
+  le_extension.toml               <- manifest: identity, compatibility, contents
+  le_extension.cmake              <- build: sources, libraries (compiled tier only)
+  schema_ext.py
+  include/acme_router/...
+  src/router.cpp                  <- core C++ (no Tcl / ImGui deps)
+  tcl/acme_router.i
+  tcl/acme_router_shim.cpp
+  tcl/acme_router_procs.tcl
+  gui/acme_router_window.cpp
+  migrations/  schema_history/    <- once its schema has changed (§4)
+  tests/...
 ```
 
-The customer's top-level `CMakeLists.txt`:
+**With the package manager** (the normal route), the user lists `acme_router` in their project's `le_project.toml`. `le install` fetches layout_engine and the extension at the locked versions and configures a build with `LE_EXTENSION_DIRS` set. See [PACKAGE_MANAGER_RESEARCH.md](PACKAGE_MANAGER_RESEARCH.md).
+
+**By hand**, a superbuild repo includes layout_engine as a git submodule:
 
 ```cmake
 cmake_minimum_required(VERSION 3.25)
 project(acme_le CXX)
 set(LE_EXTENSION_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/ext/acme_router CACHE STRING "" FORCE)
-add_subdirectory(layout_engine/backend)
+add_subdirectory(layout_engine)
 ```
 
-Upgrading is `git -C layout_engine checkout vX.Y && cmake --build build`. No customer file lives inside layout_engine, and no layout_engine file is edited.
-
-Plain configure-time use works too, for teams that would rather not use a superbuild repo:
+or passes the list at configure time:
 
 ```
-cmake -S layout_engine/backend -B build -DLE_EXTENSION_DIRS="/path/ext/acme_router;/path/ext/acme_drc"
+cmake -S layout_engine -B build -DLE_EXTENSION_DIRS="/path/ext/acme_router;/path/ext/acme_drc"
 ```
+
+Either way, no extension file lives inside layout_engine, and no layout_engine file is edited.
+
+### `le_extension.toml`
+
+The manifest is data, not code, so the package manager can resolve dependencies without running CMake or Python from an untrusted extension:
+
+```toml
+[extension]
+name        = "acme_router"          # unique across every extension a project installs
+version     = "1.4.0"                # the package version (semver)
+prefix      = "Acme"                 # required class / command prefix (§4, §6)
+description = "Global routing guides"
+
+[compatibility]
+layout_engine = ">=0.9, <0.11"       # resolver checks this before anything is built
+extension_api = 1                    # must equal LE_EXTENSION_API_VERSION
+
+[dependencies]
+acme_common = ">=2.0"                # other extensions, ordered before this one
+
+[contents]                           # all optional; any C++/schema/GUI entry makes it "compiled"
+schema     = "schema_ext.py"
+migrations = "migrations"
+cmake      = "le_extension.cmake"
+tcl_procs  = ["tcl/acme_router_procs.tcl"]
+resources  = ["data/"]               # copied to ext/acme_router/ in the bundle
+```
+
+The package version and the extension's **schema version** (its migration chain, §4) are separate numbers, just as layout_engine's release version and `Schema.version` are. A release that changes no schema bumps only the package version.
 
 ### `le_extension.cmake`
 
-layout_engine includes each directory's `le_extension.cmake`, and that file calls one function:
+For the compiled tier, layout_engine includes the directory's `le_extension.cmake`, after reading the manifest. That file calls one function with the build details; identity, prefix, schema and procs come from the manifest:
 
 ```cmake
 le_add_extension(acme_router
-    PREFIX        Acme                      # required class / command prefix
-    SCHEMA        schema_ext.py             # optional
     CORE_SOURCES  src/router.cpp
     CORE_INCLUDE  include
     TCL_SWIG      tcl/acme_router.i         # optional
     TCL_SOURCES   tcl/acme_router_shim.cpp
-    TCL_PROCS     tcl/acme_router_procs.tcl
     GUI_SOURCES   gui/acme_router_window.cpp  # optional
     TESTS         tests/router_test.cpp       # optional, added to backend_tests or own gtest exe
     LINK          Boost::graph              # customer's own third-party deps
 )
 ```
+
+CMake has no TOML parser. Configuration therefore runs a small Python helper (shipped with codegen, using the standard library's `tomllib`) that turns each manifest into CMake variables. Python is already a build requirement once CMake runs codegen (§4).
 
 For each extension, `le_add_extension()`:
 1. Builds `acme_router_core`, a static library linked against `le::extension_sdk`. It contains no Tcl or ImGui dependency, so it can be unit-tested in isolation.
@@ -132,6 +165,8 @@ For each extension, `le_add_extension()`:
 3. Builds `acme_router_gui` (linked to `gui`) and links it into **`le_shell`**.
 4. Links `acme_router_core` into **both** `le_tcl` and `le_shell`, the same way `api` is linked today.
 5. Records the extension's name, schema path, `.i` files and procs paths in global properties. Later steps (codegen, init-file generation, the SWIG include list, the procs list) read them from there.
+
+Extensions are processed in dependency order (from `[dependencies]`, ties broken by name), so `register_all()`, schema `extend()` calls and procs sourcing all see a dependency before its dependents. A cycle or a missing dependency is a configure error.
 
 A bundled library needs `-Wl,--whole-archive` (or an explicit reference) only if it relies on static constructors. The registration design in §3 avoids that.
 
@@ -214,7 +249,7 @@ def extend(schema):
             name="AcmeRouteGuide",
             tcl_readable=True,
             fields=[
-                Field(name="net",   type="Net", parent="acme_route_guides"),  # owned by a core Net
+                Field(name="net",   type="Net", parent="acme_route_guides"),  # owned by a core Net (Net's child list is synthesized)
                 Field(name="layer", type="Layer"),
                 Field(name="box",   type="rect"),
                 Field(name="weight", type="double", is_optional=True),
@@ -227,7 +262,8 @@ The changes in layout_engine are small:
 1. **codegen:** add a repeatable `--extension path/to/schema_ext.py` option to `cli.py`. After `schema_loader()` has run, codegen imports each extension module, calls `extend(schema)`, and then runs the normal validation. New validation rules:
    - every extension class name starts with the extension's declared `PREFIX`
    - class, header and TCL names don't collide with core names
-2. **CMake:** when any extension declares a `SCHEMA`, CMake adds a custom command that runs `codegen --target database` and `codegen --target tcl` over the core schema plus all extension schemas. The output goes to `${CMAKE_BINARY_DIR}/le_generated/`, and those include directories are placed **ahead of** the in-tree `generated/` directories. The layout_engine tree is never written to. Without extensions the build is unchanged and uses the in-tree output. Since generated code is already a local, uncommitted artifact, a natural follow-up is to have CMake run codegen in every build, which removes the manual regen step for everyone.
+   - an extension adds no field to a class it doesn't own (core or another extension's); see below
+2. **CMake:** CMake runs `codegen --target database` and `codegen --target tcl` itself, over the core schema plus every extension schema, as a custom command. The output goes to `${CMAKE_BINARY_DIR}/le_generated/`, so the layout_engine tree is never written to, and a package-manager build can't be broken by stale hand-generated output. Generated code is already a local, uncommitted artifact, so this also removes the manual regen step for everyone. It is a prerequisite for the package manager, not an optional follow-up: a user running `le install` must never have to run codegen by hand.
    - The textual `#include "generated/..."` sites in `api.cpp`, `le_tcl_shim.cpp`, `le_api.i` and `le_tcl_procs.tcl` need to find the build-dir copy first.
    - The cleanest way to do that is to make them include-path-relative, which is a one-time mechanical change.
 
@@ -239,7 +275,7 @@ The changes in layout_engine are small:
 - `get_acme_route_guides`, `create_acme_route_guide`, `update_…`, `delete_…` TCL commands, with help text
 - Display in the GUI's generic property viewer (via `to_properties()`)
 
-**Adding fields to core classes.** An extension *can* do this through `schema.klass("Net").fields.append(...)`, and it works mechanically. It is also the most upgrade-fragile thing an extension can do. The recommendation is to allow it but emit a codegen warning, and to steer customers towards owning objects (`AcmeNetInfo` with `parent="…"` onto `Net`) instead.
+**Classes an extension doesn't own are read-only.** An extension may not add, change or remove fields on core classes or on another extension's classes; codegen fails the build if `extend()` does. Per-object extension data goes in an object of its own, owned by the core object (`AcmeNetInfo` with `parent="acme_net_info"` onto `Net`). This doesn't modify `Net`'s stored data: a parent's child list is derived (rebuilt in `Root::index_`, never stored in `NetData` or the file), and codegen synthesizes it from the child's `parent=`, so `extend()` never touches the core class. The rule gives every stored table exactly one owner, which keeps upgrades and migrations simple (see "Extension schema migrations" below, and NATIVE_FILE_FORMAT_RESEARCH.md §4.8).
 
 ### Alternative considered: a separate extension `Root`
 
@@ -272,7 +308,7 @@ Under that proposal, an extension evolves its schema the same way core does. Nex
 Core and extension migrations share **one timeline**:
 - Each extension migration records the core version it was written against (`depends_on_core`, filled in automatically).
 - When loading, it runs right after that core migration and before the next one.
-- Core migrations also rewrite extension data that refers to core classes: references follow renamed classes, removed parents cascade, and fields the extension added to a core class travel with their rows.
+- Core migrations also rewrite extension data that refers to core classes: references follow renamed classes and removed parents cascade. Core migrations never change an extension class's fields, and extension migrations may only write the extension's own classes.
 
 So most core schema changes need **no extension migration**. At most the build names the `schema_ext.py` lines to update. Only a core change that removes or reshapes something the extension relies on needs a new extension migration. The full rules are in NATIVE_FILE_FORMAT_RESEARCH.md §4.8.
 
@@ -315,7 +351,7 @@ Extensions follow the three-layer pattern the core uses, so their commands look 
 
 1. **Shim** (`tcl/acme_router_shim.cpp`) contains plain C++ free functions. Each gets the handle through `session()` (exported from `le_tcl_shim.hpp`) and calls into `acme_router_core`.
 2. **SWIG.** CMake generates `le_api_extensions.i`, containing one `%include "/abs/path/acme_router.i"` per extension. `le_api.i` gets a single `%include "le_api_extensions.i"` next to its existing generated include (`le_api.i:211`). The extension's wrappers compile into the one `le_tcl` module, so no second module or second session handle is needed.
-3. **Procs.** CMake bakes the list of extension procs files into `le_shell` (as it already does for `LE_TCL_PROCS_DEFAULT_PATH`), and `app_init` sources them **after** `le_tcl_procs.tcl`. Extension procs call `register_command_help` like core procs do, so the following all include extension commands automatically:
+3. **Procs.** `app_init` sources every active extension's procs **after** `le_tcl_procs.tcl`, in dependency order. The list comes from an `extensions.json` index next to the executable, written by the build (or by `le install` for script extensions), and found with `find_resource` like the core procs. Compiled and script extensions therefore load through the same path, and a prebuilt release can gain script extensions without being rebuilt. `le_shell` checks each entry's `extension_api` and refuses a mismatch with a clear message, instead of failing on an unknown command later. Extension procs call `register_command_help` like core procs do, so the following all include extension commands automatically:
    - `help`
    - `man`
    - tab completion
@@ -343,14 +379,14 @@ struct GuiWindow {
 ```
 
 - In `le_gui.cpp`'s frame loop, after the built-in panels, loop over `registry.windows()` and call `Begin(title, &open)` / `draw` / `End`.
-- The default-layout `DockBuilder` code (`le_gui.cpp:833-887`) docks each extension window into the slot it asked for.
-- The window's open/closed state is persisted through the existing `ImGuiSettingsHandler` mechanism (`le_gui.cpp:689`).
+- The default-layout `DockBuilder` code (`le_gui.cpp:797-821`) docks each extension window into the slot it asked for.
+- The window's open/closed state is persisted through the existing `ImGuiSettingsHandler` mechanism (`le_gui.cpp:627`).
 - **Recommended cleanup:** convert the built-in panels (Browser, Properties, Layers, Settings, Info) onto the same `GuiWindow` list. That makes the list the one code path for all panels, rather than a side channel for extensions.
 
 ### Menu bar
 
 There is no menu bar today. Add one, with:
-- **Window**: toggles every registered panel, core and extension alike. This is useful on its own, since a closed panel currently can't be re-opened.
+- **Window**: toggles every registered panel, core and extension alike. This is useful on its own, since panels currently can't be closed at all.
 - **Extensions**: items registered through `add_menu_item`.
 
 ### `ExtGuiContext`
@@ -364,10 +400,10 @@ There is no menu bar today. Add one, with:
 
 ### Smaller hooks
 
-- **Toolbar buttons** in the mode toolbar, reusing `draw_tool_button` (`components/mode_toolbar.cpp:70`).
+- **Toolbar buttons** in the mode toolbar, reusing `draw_tool_button` (`src/gui/components/mode_toolbar.cpp:69`).
 - **Key bindings.** Extra entries are appended to the key-mapping table and dispatched to a registry callback, or to a TCL command string, when the Layout view is hovered.
-- **Fonts and icons.** A hook runs during font atlas construction, before `ImGui_ImplOpenGL3_Init` (`le_gui.cpp:985-1029`).
-- **Settings.** An `extensions.<name>` object in `settings.json`. `settings_to_json` and its loader call the registered save/load callbacks, and the Settings panel draws a collapsible section per extension.
+- **Fonts and icons.** A hook runs during font atlas construction, before `ImGui_ImplOpenGL3_Init` (`le_gui.cpp:903-959`). Extension font files are resources, found under `ext/<name>/` with `find_resource`.
+- **Settings.** An `extensions.<name>` object in `settings.json`. `settings_to_json` and its loader call the registered save/load callbacks, and the Settings panel draws a collapsible section per extension. Each section carries its own `version` and migrates itself, the way `kSettingsVersion` works for core keys. Because unknown keys are already preserved, a project that drops an extension doesn't lose its settings.
 
 ---
 
@@ -388,12 +424,12 @@ Every one of the four is a closed, hand-maintained list:
 
 | Concern | Where it's closed | Mirrors |
 |---|---|---|
-| Purposes | `enum class ViewLayerPurpose` (`view_style.hpp`); `purpose_has_selectable_objects`; `ViewLayerSet::build_for_technology` adds each column/pseudo-row | `kPurposeNames` (`layer_manager.cpp`), `::purpose_names` (`le_tcl_procs.tcl`), defaults in `LeHandle::purpose_visible_`/`purpose_selectable_` |
-| Rendering | `HierarchyResolverStage`: `LayoutChunk` (4 fixed chunks) and `collect_layout_chunk` name each owner (blockages, ports, free shapes, rows...); routes/placements are tiled separately; `collect_abstract_content` for Abstracts | `collect_dirty` maps each `ChangeKlass` to the chunk it dirties |
-| Selection | `for_each_layout_hit_shape`/`hit_test_abstract_*` (`core/placement_geometry.hpp`) walk named owners; `LeHandle::SelectedObject` is a fixed `std::variant`; whole-object kinds (Row/Placement/Region) each have their own hit-test | `purpose_has_selectable_objects` |
-| Properties | `LeObjectKind` (`api.hpp`) and the `build_object_properties`/`le_object_parent` switches (`api.cpp`) | Property *content* is already generated (`to_properties`) |
+| Purposes | `enum class ViewLayerPurpose` (`src/pipelines/view_style.hpp:17`); `purpose_has_selectable_objects` (`:78`); `ViewLayerSet::build_for_technology` (`:177`) adds each column/pseudo-row | `kPurposeNames` (`src/gui/components/layer_manager.cpp:25`), `::purpose_names` (`src/tcl/le_tcl_procs.tcl:922`), defaults in `LeHandle::purpose_visible_`/`purpose_selectable_` |
+| Rendering | `HierarchyResolverStage` (`src/pipelines/stages/hierarchy_resolver_stage.hpp`): `LayoutChunk` (`:270`, 4 fixed chunks: `DIEAREA_BLOCKAGES`, `PORTS`, `FREE_SHAPES`, `ROWS_TRACKS_GCELLS_REGIONS`) and `collect_layout_chunk` name each owner; routes/placements are tiled separately (`collect_route_tile`/`collect_placement_tile`); `collect_abstract_content` for Abstracts | `collect_dirty` (`:1136`) maps each `ChangeKlass` to the chunk it dirties |
+| Selection | `for_each_layout_hit_shape`/`hit_test_abstract_*` (`src/api/hit_test.hpp`) walk named owners; `LeHandle::SelectedObject` is a fixed `std::variant` (`le_handle.hpp:405`); whole-object kinds (Row/Placement/Region) each have their own hit-test | `purpose_has_selectable_objects` |
+| Properties | `LeObjectKind` (`api.hpp:1617`) and the `build_object_properties`/`le_object_parent` switches (`api.cpp:2282`) | Property *content* is already generated (`to_properties`) |
 
-Geometry storage is the other constraint. `Shape` has one parent field per owner (`terminal_port`, `obstruction`, `route`, `blockage`, ...). An extension `Klass` with `Field(type="Shape", is_list=True, is_child=True)` needs a matching parent field on core `Shape`, because `Klass.link()` pairs the two.
+Geometry storage is the other constraint. `ShapeData` has nine typed owner ids (`terminal_port`, `obstruction`, `physical_port_segment`, `blockage`, `route`, `layout`, `abstract`, `in_abstract`, `in_layout`), and exactly one is set. An extension `Klass` owning `Shape`s would need a tenth, which the read-only rule (§4) forbids. §8.2 D item 2 replaces the nine with one owner reference that any class, core or extension, can fill.
 
 ### 8.2 Options
 
@@ -437,8 +473,8 @@ Klass(
     fields=[
         Field(name="layout", type="Layout", parent="acme_route_guides"),
         Field(name="name",   type="str", index=True),
-        Field(name="shapes", type="Shape", is_list=True, is_child=True),
         Field(name="weight", type="double", is_optional=True),
+        Field(name="shapes", type="Shape", is_list=True, is_child=True, via="owner"),
     ],
     render=Render(
         purpose="ACME_GUIDE",      # new purpose, declared by the extension
@@ -451,23 +487,42 @@ Klass(
 )
 ```
 
+The extension declares the child list on its own class only; `Shape` is untouched (item 2).
+
 What codegen generates from `render=`, replacing each closed list in 8.1:
 
 1. **Purpose registry.** `ViewLayerPurpose` becomes generated. Core purposes move into `schema.py` as `Purpose(...)` declarations (name, `per_layer`, default visibility/selectability, selectable-objects flag), and extensions append theirs. Codegen emits the enum, `purpose_has_selectable_objects`, the defaults, and a name table. The C API gains `le_purpose_name(ordinal)`, so `layer_manager.cpp` and the Tcl `::purpose_names` read names at runtime instead of mirroring them. This deletes three hand-synced copies even without extensions.
-2. **Shape ownership.** For each `Klass` with a `shapes` child list, codegen synthesizes the back-reference on `Shape` (`Shape.acme_route_guide`, `parent="shapes"`), so the extension never writes a core field. Delete cascades, undo and the change log follow from the existing machinery. Classes that keep geometry as embedded `Rect`s (like `Region.rects`) are supported too, with whole-object selection.
+2. **One polymorphic owner on `Shape`.** The nine typed owner ids become one stored owner reference:
+
+   ```cpp
+   struct ShapeOwner {            // generated
+       ChangeKlass klass;         // owning class - core or extension, from the merged schema
+       uint8_t slot;              // which of that class's Shape lists (Layout.diearea vs Layout.free_shapes)
+       uint32_t index, generation;
+   };
+   ```
+
+   In the schema, `Shape` declares `Field(name="owner", polymorphic_parent=True)`, and each owner declares its list with `via="owner"`: core's `Route.shapes`, `Layout.diearea`, `Layout.free_shapes` and so on, and an extension's `AcmeRouteGuide.shapes`. codegen collects the owner set from those lists, so an extension adds an owner without touching `Shape`. That is what makes it compatible with the read-only rule: the owner's class is a *value* in Shape's column, not a new field.
+   - **codegen** learns the polymorphic parent. Child lists are still derived, now keyed by `(klass, slot, id)`. Delete cascades, undo and the change log work on the pair, and the change log's `ChangeParent` already has exactly this shape (`klass`, `slot`, `index`, `generation`). Generated typed accessors (`owner_route()` returning `RouteId` or empty, `get_route_shapes()`) keep most core call sites as they are. A wrong-class lookup becomes an empty result rather than a compile error. The Tcl `-parent` flag takes any owner's friendly id.
+   - **Memory.** Nine 8-byte ids (72 bytes, 64 of them always empty) become about 12 bytes, so roughly 60 bytes saved per Shape. To be confirmed by measuring `aes_scaling_8x8` before and after, per the benchmark rule.
+   - **Invariant.** "At most one owner" becomes true by construction, closing the gap the native loader doesn't check today.
+   - **File format.** The owner is stored as the owner class's **name** and the list's **field name** (both in the string table, like enums) plus the row index within that class. So it doesn't depend on which extensions are built in. A class or list rename rewrites the stored names automatically (NATIVE_FILE_FORMAT_RESEARCH.md §4.8 rule 3), so an extension's migrations still never write to `Shape`.
+   - **Migration.** None: nothing has been released, so the change re-baselines the schema (new version, new snapshot and golden files, the 0.49.0 ones removed; NATIVE_FILE_FORMAT_RESEARCH.md §4.1). After the first release, a change like this would need a data migration that folds the typed parent fields into `owner`.
+   - **Everything Shape-based works for extension geometry:** rendering, hit-testing, `ShapePiece` selection, the `shape_*` commands, Resize handles and path/via snapping. Classes that keep geometry as embedded `Rect`s (like `Region.rects`) are supported too, with whole-object selection.
+   - **Cost:** a one-time, mostly mechanical core refactor of everything that sets or reads a Shape's owner: the LEF/DEF readers and writers, `hit_test.hpp`, the resolver's chunk collection, `shape_ops.hpp`, `rename_propagation.hpp` and the generated Tcl CRUD.
 3. **Render tree.** A generated `renderable_classes.inc` lists, per renderable class: how to enumerate a Layout's/Abstract's instances (the class's nearest Layout/Abstract ancestor is known from the parent graph, the same climb `collect_dirty` does by hand), its purpose and its label field. `HierarchyResolverStage` gets one generic chunk per renderable class after its fixed chunks, or tiles for `tiled=True`. The core is written once, against the generated list. `collect_dirty` maps the class's `ChangeKlass` to that chunk through the same table, so incremental updates work without extension code.
-4. **Selection.** `for_each_layout_hit_shape`/`hit_test_abstract_*` iterate the generated list as well as the core owners. `SelectedObject` stays `ShapePiece | ...`: a piece of an extension-owned Shape is selectable as it is today. With `selectable=True` the property viewer resolves the piece to its owning object through the generated parent table (`le_object_parent` already climbs Shape -> owner).
+4. **Selection.** `for_each_layout_hit_shape`/`hit_test_abstract_*` iterate the generated list as well as the core owners. `SelectedObject` stays `ShapePiece | ...`: a piece of an extension-owned Shape is selectable exactly as a core one is. With `selectable=True` the property viewer resolves the piece to its owning object through `Shape.owner`, which replaces `le_object_parent`'s per-owner switch.
 5. **Properties.** `LeObjectKind` and the `build_object_properties`/`le_object_parent` switches become generated from the `Klass` list (property content is already generated), so an extension class appears in the property viewer and in `le_select_object_ref` automatically.
 
 - Pros:
   - No core hand edits per extension, matching the "no core change" requirement.
   - Incremental updates, culling, per-node rasterization, visibility/selectability toggles, Tcl `set_purpose_*` commands and the Layers panel all work for extension objects for free, because they ride the same path as routes.
   - Removes three hand-maintained mirrors in core today, which pays for part of the refactor on its own.
-  - Declarative, so it is reviewable and versioned with the schema; `codegen` validates it (purpose name collisions, `per_layer` objects without a `layer` on their shapes).
+  - Declarative, so it is reviewable and versioned with the schema; `codegen` validates it (purpose name collisions, `per_layer` objects whose shapes have no `layer`).
 - Cons:
-  - A one-time core refactor: purposes, `LeObjectKind` and the resolver's chunk list move to generated tables. It touches the render hot path, so it needs before/after numbers from `resolver_profile` and `pipeline_benchmarks`.
+  - A one-time core refactor: purposes, `LeObjectKind` and the resolver's chunk list move to generated tables, and `Shape` gets its polymorphic owner. It touches the render hot path, so it needs before/after numbers from `resolver_profile` and `pipeline_benchmarks`.
   - Only stored geometry is supported. Synthesized geometry (Row-style footprints, track grids) still needs a C++ hook, as in C.
-  - Purpose ordinals depend on which extensions are built in. Anything persisted by ordinal must persist by name instead: settings, and `LeHandle` visibility maps if they're ever saved. The C API already passes ordinals only within one process, so this is just a rule to follow.
+  - Purpose ordinals depend on which extensions are built in. Anything persisted must key purposes by name. Settings already do: `layer_colors` is keyed by row name, and purpose visibility isn't saved. The `LeHandle` visibility maps would need the same if they're ever saved. The C API already passes ordinals only within one process, so this is just a rule to follow.
   - Codegen learns a rendering concept (`Render`), so the `database` target is no longer purely about storage. The generated tables can live in a separate `render` codegen target to keep that boundary.
 
 **E. D plus a C++ escape hatch (the recommendation in full).**
@@ -491,25 +546,29 @@ Implement D for the declarative case. Add C's `add_render_source` hook only when
 
 1. Generated purpose registry plus `le_purpose_name`. Removes the hand mirrors and is independently useful.
 2. Generated `LeObjectKind`/property and parent dispatch.
-3. Shape back-reference synthesis plus generic renderable-class chunks and hit-testing (`render=` without `tiled`), benchmarked against `aes_scaling_*`.
-4. `tiled=True`.
-5. The C++ `emit` hook, when an extension needs it.
+3. Polymorphic `Shape.owner` (item 2): measure Shape memory on `aes_scaling_8x8` first, then the codegen support and the core refactor, landing as a schema re-baseline with new golden files.
+4. Generic renderable-class chunks and hit-testing (`render=` without `tiled`), benchmarked against `aes_scaling_*`.
+5. `tiled=True`.
+6. The C++ `emit` hook, when an extension needs it.
 
-Steps 1 and 2 are pure refactors of existing core behaviour, with no extension API yet, so they can land and be benchmarked before anything is promised to customers.
+Steps 1–3 are refactors of existing core behaviour, with no extension API yet, so they can land and be benchmarked before anything is promised to customers. Step 3 must land before the first release, while it can still re-baseline instead of needing a data migration.
 
 ---
 
 ## 9. Upgrade and stability story
 
-- **Customers:** bump the submodule, then rebuild.
+- **Customers:** `le update layout_engine` (or bump the submodule), then rebuild.
+  - The resolver refuses first if an installed extension's `[compatibility]` range excludes the new version, naming the extension. This catches most breaks before anything is compiled.
   - Breaking SDK changes fail at `static_assert(LE_EXTENSION_API_VERSION == N)`, and the changelog entry for N+1 says what to change.
   - Core schema changes are checked by the merged migration replay. It either passes, names the `schema_ext.py` lines to update, or says an extension migration is needed (see "Extension schema migrations" in §4).
   - The extension's golden files then prove existing user files still load.
 - **layout_engine:**
   - `examples/extensions/hello_ext` exercises all four points: one schema class, one C++ function, one TCL command, and one window plus overlay.
   - It also carries at least one extension migration and golden files, so a core migration that mishandles extension references fails layout_engine's CI, not a customer's.
-  - CI configures with `-DLE_EXTENSION_DIRS=examples/extensions/hello_ext` and runs its tests, so an accidental SDK break is caught before release.
-- **Surface area discipline:** anything reachable through `le/extension.hpp`, `Registry`, `ExtGuiContext`, the codegen `extend()` hook and the TCL helper procs (`register_command_help`) is public API. Everything else is not.
+  - CI configures with `-DLE_EXTENSION_DIRS=examples/extensions/hello_ext` and runs its tests, so an accidental SDK break is caught before release. A second, script-only `examples/extensions/hello_script` is installed into the release bundle by the smoke test, covering the no-compiler path.
+  - The same two examples are the package manager's test fixtures.
+- **Surface area discipline:** anything reachable through `le/extension.hpp`, `Registry`, `ExtGuiContext`, the codegen `extend()` hook, the TCL helper procs (`register_command_help`) and the `le_extension.toml` schema is public API. Everything else is not.
+- **Version identity.** Compatibility ranges need layout_engine releases with meaningful versions. Today `project(... VERSION 0.1.0)` never changes and the repo has no release tags. Releases must be tagged, and the version bumped, before the first extension declares a range.
 
 ---
 
@@ -517,24 +576,30 @@ Steps 1 and 2 are pure refactors of existing core behaviour, with no extension A
 
 Each phase is independently useful:
 
+Phase 0 is groundwork that the package manager also needs. Package-manager phases are in [PACKAGE_MANAGER_RESEARCH.md](PACKAGE_MANAGER_RESEARCH.md) §11, and slot in after phase 2.
+
 | Phase | Work | Unlocks |
 |---|---|---|
-| 1 | `LE_EXTENSION_DIRS`, `le_add_extension()`, `Registry`, generated `register_all()`, `LeHandle` extension-data slots, `le::extension_sdk` | Customer C++ modules |
-| 2 | Generated `le_api_extensions.i`, extension procs sourced in `app_init`, `add_tcl_init` | Customer TCL commands |
+| 0 | CMake runs codegen into the build dir; tagged, versioned releases; `le_extension.toml` schema and its CMake reader | Reproducible builds from a clean checkout |
+| 1 | `LE_EXTENSION_DIRS`, `le_add_extension()`, dependency ordering, `Registry`, generated `register_all()`, `LeHandle` extension-data slots, `le::extension_sdk` | Customer C++ modules |
+| 2 | Generated `le_api_extensions.i`, the `extensions.json` index read by `app_init`, `add_tcl_init` | Customer TCL commands; script extensions in a prebuilt release |
 | 3 | Menu bar with Window/Extensions menus, `GuiWindow` list (core panels migrated), `ExtGuiContext` | Customer GUI windows |
-| 4 | Codegen `--extension`, CMake-driven codegen into the build dir when extensions declare schemas, prefix and collision validation | Customer schema objects |
+| 4 | Codegen `--extension`, prefix and collision validation | Customer schema objects |
 | 5 | Compose overlays, toolbar/key/font hooks, settings sections | Richer GUI integration |
-| 6 | `hello_ext` example and CI job, extension-SDK changelog | Upgrade safety |
-| 7 | Generated purpose registry and `LeObjectKind` dispatch (§8.4 steps 1-2) | Removes core's hand mirrors; prerequisite for extension rendering |
-| 8 | `render=` declarations: Shape back-references, renderable-class chunks, hit-testing, then `tiled=True` (§8.4 steps 3-4) | Extension objects drawn, selectable and inspectable |
-| later | C++ `emit` hook for synthesized geometry; extension migration chains (NATIVE_FILE_FORMAT_RESEARCH.md §10) | Custom geometry; upgrade-safe extension data |
+| 6 | `hello_ext` and `hello_script` examples and CI jobs, extension-SDK changelog | Upgrade safety |
+| 7 | Generated purpose registry, `LeObjectKind` dispatch, polymorphic `Shape.owner` (§8.4 steps 1-3) | Removes core's hand mirrors; smaller Shapes; prerequisite for extension rendering |
+| 8 | `render=` declarations: renderable-class chunks, hit-testing, then `tiled=True` (§8.4 steps 4-5) | Extension objects drawn, selectable and inspectable |
+| later | C++ `emit` hook for synthesized geometry; extension migration chains (NATIVE_FILE_FORMAT_RESEARCH.md §10, phase 5) | Custom geometry; upgrade-safe extension data |
 
 ---
 
-## 11. Open questions
+## 11. Decisions
 
-1. **Extension migrations.** The native format already stores merged classes; the open part is the extension migration chain in NATIVE_FILE_FORMAT_RESEARCH.md §4.8.
-2. **Core-class fields.** Should extensions be allowed to add fields to core classes, with a warning, or be restricted to owning objects of their own?
-3. **Multiple vendors.** Must extensions from different vendors coexist in one build? If yes, the prefix rule becomes mandatory, and cross-extension dependencies (`DEPENDS acme_router`) need ordering in `le_add_extension`.
-4. **Binary distribution.** Will a customer ever need to ship its extension *without* source to a third party? If so, a prebuilt static library plus headers still works under this design, but only against the exact layout_engine version it was built with.
-5. **Purpose identity.** With generated purposes, ordinals depend on the set of extensions built in. Settings that store visibility must key purposes by name (§8.2 D).
+1. **Extension migrations.** Designed in NATIVE_FILE_FORMAT_RESEARCH.md §4.8; extension migrations may write only their own classes. What remains is implementation (native-format phase 5).
+2. **Core-class fields.** Extensions may not add fields to core classes or other extensions' classes; codegen enforces it (§4).
+3. **Multiple vendors.** Extensions from different vendors coexist in one project, so the prefix rule is mandatory, names are unique per project, and `[dependencies]` ordering is built in (§2).
+4. **Binary distribution.** Not supported: extensions ship as source.
+5. **Purpose identity.** Purpose ordinals depend on the set of extensions built in, so anything persisted keys purposes by name (§8.2 D).
+6. **A C-API-only compiled tier.** Rejected, as too complicated for its benefit. Extensions are either script or compiled.
+
+No questions remain open.
