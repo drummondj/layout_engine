@@ -56,6 +56,16 @@ TEST_F(NativeDbApi, WriteThenReadIntoAFreshSessionRestoresTheDesign)
     le_destroy(loaded);
 }
 
+TEST_F(NativeDbApi, WriteSavesPendingEdits)
+{
+    le_create_library(source, "EDITLIB");
+    EXPECT_EQ(le_has_unsaved_database_changes(source), 1);
+    EXPECT_NE(le_write_db(source, (dir / "no_such_dir" / "x.led").string().c_str()), 0);
+    EXPECT_EQ(le_has_unsaved_database_changes(source), 1); // a failed write saves nothing
+    ASSERT_EQ(le_write_db(source, path.c_str()), 0);
+    EXPECT_EQ(le_has_unsaved_database_changes(source), 0);
+}
+
 TEST_F(NativeDbApi, ReadIntoANonEmptySessionFailsAndChangesNothing)
 {
     ASSERT_EQ(le_write_db(source, path.c_str()), 0);
