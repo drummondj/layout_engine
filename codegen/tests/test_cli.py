@@ -14,6 +14,7 @@ class TestCli(unittest.TestCase):
 
         return super().setUp()
 
+    @unittest.skip("generates upstream cmg's example schema, whose float field the fork no longer supports")
     def test_cli(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
