@@ -593,11 +593,13 @@ Phase 0 is groundwork that the package manager also needs. Package-manager phase
 
 ---
 
-## 11. Open questions
+## 11. Decisions
 
-1. **Extension migrations.** The native format already stores merged classes; the open part is the extension migration chain in NATIVE_FILE_FORMAT_RESEARCH.md §4.8.
-2. **Core-class fields.** *Settled:* extensions may not add fields to core classes or other extensions' classes; codegen enforces it (§4).
-3. **Multiple vendors.** *Settled by the package manager:* extensions from different vendors coexist in one project. So the prefix rule is mandatory, names are unique per project, and `[dependencies]` ordering is built in (§2).
-4. **Binary distribution.** Will a customer ever need to ship its extension *without* source to a third party? If so, a prebuilt static library plus headers still works under this design, but only against the exact layout_engine version (and set of schema extensions) it was built with. The package manager would treat it as a source that is pinned to one layout_engine version.
-5. **Purpose identity.** With generated purposes, ordinals depend on the set of extensions built in. Settings that store visibility must key purposes by name (§8.2 D).
-6. **A C-API-only compiled tier.** `api.hpp` is a plain C API, so a Tcl module that calls only `le_*` functions could be built against a release's headers and `load`ed without rebuilding `le_shell`. That would fill the gap between the script and compiled tiers. Is it worth exporting the C API from `le_tcl.so` for this? It can't add schema objects or GUI windows.
+1. **Extension migrations.** Designed in NATIVE_FILE_FORMAT_RESEARCH.md §4.8; extension migrations may write only their own classes. What remains is implementation (native-format phase 5).
+2. **Core-class fields.** Extensions may not add fields to core classes or other extensions' classes; codegen enforces it (§4).
+3. **Multiple vendors.** Extensions from different vendors coexist in one project, so the prefix rule is mandatory, names are unique per project, and `[dependencies]` ordering is built in (§2).
+4. **Binary distribution.** Not supported: extensions ship as source.
+5. **Purpose identity.** Purpose ordinals depend on the set of extensions built in, so anything persisted keys purposes by name (§8.2 D).
+6. **A C-API-only compiled tier.** Rejected, as too complicated for its benefit. Extensions are either script or compiled.
+
+No questions remain open.
