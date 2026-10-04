@@ -234,30 +234,29 @@ RUN mkdir -p /bundle/fonts \
 
 # ---- smoke-test the bundle exactly as a real user runs it: extracted
 # into its own directory elsewhere, `le_shell` invoked with no -module/
-# -procs flags and no LE_TCL_MODULE/LE_TCL_PROCS_PATH env vars, so its own
-# resolve_path() (le_shell.cpp) must fall all the way through its
-# compile-time default (this image's own build tree path,
-# /workspace/build_release/le_tcl.so, baked in by
-# CMakeLists.txt at this same `docker build`'s configure step) to its
-# executable-relative fallback, the same way it would on a machine that
-# never had /workspace at all - added after a real, repeated report
-# (`load` failing with "couldn't load file
-# .../build_release/le_tcl.so: No such file or directory") that
-# reached a shipped release before anything caught it.
+# -procs flags and no LE_TCL_MODULE/LE_TCL_PROCS_PATH env vars, so its
+# resolve_path() (le_shell.cpp) must fall through its compile-time
+# default (/workspace/build_release/..., baked in at this build's
+# configure step) to the executable-relative fallback (find_resource), as
+# it would on a machine that never had /workspace.
 #
-# build_release is moved out of the way first (nothing after this
-# stage needs it - `export` below copies only /bundle) specifically so
-# the compile-time default genuinely can't resolve here either; without
-# that, this whole check would silently pass regardless of whether the
-# fallback actually works, since that build-tree file still exists
-# in-image at this point otherwise.
+# build_release is moved out of the way first (nothing after this stage
+# needs it - `export` copies only /bundle) so the compile-time default
+# genuinely can't resolve; otherwise the check passes whether or not the
+# fallback works.
+#
+# The script's own line must be the *whole* output: a working bundle
+# finds every bundled file quietly, so any warning or error (e.g. a
+# resource lookup falling back noisily) fails the build, and the output is
+# printed so the failure is diagnosable from the build log.
 RUN mv build_release build_release.hidden-for-bundle-smoke-test \
  && mkdir -p /tmp/bundle-smoke-test \
  && cp -r /bundle/. /tmp/bundle-smoke-test/ \
  && cd /tmp/bundle-smoke-test \
  && echo 'puts LE_SHELL_BUNDLE_SMOKE_OK' > smoke.tcl \
- && ./le_shell smoke.tcl > smoke.log 2>&1 \
- && grep -q LE_SHELL_BUNDLE_SMOKE_OK smoke.log \
+ && echo LE_SHELL_BUNDLE_SMOKE_OK > expected.log \
+ && { { ./le_shell smoke.tcl > smoke.log 2>&1 && diff -u expected.log smoke.log; } \
+      || { echo 'bundle smoke test failed - le_shell output:'; cat smoke.log; exit 1; }; } \
  && rm -rf /tmp/bundle-smoke-test
 
 # ---- export: `docker buildx build --target export --output
