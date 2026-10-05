@@ -4073,7 +4073,27 @@ extern "C"
 
     int32_t le_purpose_has_selectable_objects(int32_t purpose)
     {
+        if (purpose < 0 || static_cast<size_t>(purpose) >= le::kViewLayerPurposeCount)
+            return 0;
         return le::purpose_has_selectable_objects(static_cast<le::ViewLayerPurpose>(purpose)) ? 1 : 0;
+    }
+
+    int32_t le_purpose_kind_count(void) { return static_cast<int32_t>(le::kViewLayerPurposeCount); }
+
+    const char *le_purpose_name(int32_t purpose)
+    {
+        if (purpose < 0 || static_cast<size_t>(purpose) >= le::kViewLayerPurposeCount)
+            return nullptr;
+        // Labels are string literals in the generated table, so their data
+        // is null-terminated and lives for the whole process.
+        return le::kViewLayerPurposes[static_cast<size_t>(purpose)].label.data();
+    }
+
+    int32_t le_purpose_visible_by_default(int32_t purpose)
+    {
+        if (purpose < 0 || static_cast<size_t>(purpose) >= le::kViewLayerPurposeCount)
+            return 0;
+        return le::kViewLayerPurposes[static_cast<size_t>(purpose)].visible_by_default ? 1 : 0;
     }
 
     int32_t le_is_purpose_selectable(LeHandle *handle, int32_t purpose)

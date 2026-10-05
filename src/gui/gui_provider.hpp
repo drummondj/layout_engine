@@ -43,6 +43,7 @@ namespace le::gui
         struct PurposeRow
         {
             int32_t ordinal;
+            const char *name; // le_purpose_name: static storage, never null
             bool visible;
             bool selectable;
             bool has_selectable_objects; // false - no selectable checkbox (le_purpose_has_selectable_objects)

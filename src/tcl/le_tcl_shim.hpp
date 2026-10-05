@@ -288,10 +288,8 @@ bool get_layer_selectable_cmd(const char *layer_name);
 
 /// @brief Backing for the `set_purpose_visible <purpose> <visible>` Tcl
 /// command - mirrors le_set_purpose_visible directly. `purpose` is the raw
-/// ordinal le_purpose_at()/le_tcl_procs.tcl's own ::purpose_names dict
-/// resolves a friendly keyword (e.g. "OBSTRUCTION") to - see le_purpose_at's
-/// own api.hpp comment for the full ordinal list and why it must be passed
-/// through opaquely rather than re-derived.
+/// ordinal le_tcl_procs.tcl's ::purpose_names resolves a label (e.g.
+/// "obstruction") to.
 void set_purpose_visible_cmd(int32_t purpose, bool visible);
 
 /// @brief Backing for the `get_purpose_visible <purpose>` Tcl command -
@@ -305,6 +303,13 @@ void set_purpose_selectable_cmd(int32_t purpose, bool selectable);
 /// @brief Backing for the `get_purpose_selectable <purpose>` Tcl command -
 /// mirrors le_is_purpose_selectable directly.
 bool get_purpose_selectable_cmd(int32_t purpose);
+
+/// @brief The purpose registry, for le_tcl_procs.tcl's ::purpose_names and
+/// help text - mirror le_purpose_kind_count/le_purpose_name/
+/// le_purpose_visible_by_default. purpose_name_cmd returns "" out of range.
+int purpose_kind_count_cmd();
+const char *purpose_name_cmd(int32_t purpose);
+bool purpose_visible_by_default_cmd(int32_t purpose);
 
 /// @brief Backing for `set_placement_type_visible`/`set_route_use_visible` -
 /// mirrors le_set_object_filter_value_visible. `filter` is an LeObjectFilter.

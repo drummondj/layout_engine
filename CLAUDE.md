@@ -77,14 +77,16 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   - `via_shapes.hpp` expands vias/via arrays at render time;
     `draw_helpers.hpp` holds style constants and shared drawing helpers.
   - `view_style.hpp` — `ViewLayerSet`/`ViewLayer`: the rendering-layer
-    concept, distinct from LEF/DEF layers. `ViewLayerPurpose` is a closed,
-    application-owned enum: per physical Layer `TERMINAL`/`OBSTRUCTION`/
+    concept, distinct from LEF/DEF layers. `ViewLayerPurpose` is an
+    application-owned enum generated from `schema.py`'s `purposes`
+    (`codegen --target render` -> `generated/pipelines/view_layer_purpose.hpp`,
+    with each purpose's label and visible/selectable defaults): per physical Layer `TERMINAL`/`OBSTRUCTION`/
     `TRACK_PREFERRED`/`TRACK_NON_PREFERRED`/`ROUTING_BLOCKAGE`/`ROUTE`/
     `CUSTOM_SHAPE`, plus pseudo-rows with no Layer (`ROW`, `BOUNDARY`,
     `PLACEMENT`, `GCELLGRID`, `PLACEMENT_BLOCKAGE`, `REGION`, `DEBUG`,
-    `FLIGHTLINE`, `PORT_MARKER`). Its raw ordinals cross the C API and are
-    mirrored by hand in `layer_manager.cpp` and `le_tcl_procs.tcl` -
-    append, don't reorder. Each Layer gets one palette color shared by its
+    `FLIGHTLINE`, `PORT_MARKER`). Its raw ordinals cross the C API within
+    one process only; the GUI and Tcl read labels through `le_purpose_name`,
+    and anything persisted uses the label. Each Layer gets one palette color shared by its
     columns; `FillPattern` distinguishes them. User-picked colors
     (`LeHandle::layer_color_overrides`) are applied on top.
   - `pipelines.cpp` is the module's one compiled TU

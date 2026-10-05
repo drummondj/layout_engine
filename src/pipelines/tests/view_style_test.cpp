@@ -534,3 +534,28 @@ TEST_F(ViewStyleFixture, SetRowColorRecolorsEveryPurposeKeepingAlphaAndPattern)
 
     EXPECT_FALSE(view_layers.set_row_color("NO_SUCH_LAYER", Color{1, 2, 3, 255}));
 }
+
+TEST(ViewLayerPurposeRegistry, TableIsIndexedByOrdinal)
+{
+    for (std::size_t i = 0; i < kViewLayerPurposeCount; ++i)
+        EXPECT_EQ(static_cast<std::size_t>(kViewLayerPurposes[i].purpose), i) << kViewLayerPurposes[i].label;
+}
+
+TEST(ViewLayerPurposeRegistry, LabelsRoundTrip)
+{
+    for (const ViewLayerPurposeInfo &info : kViewLayerPurposes)
+        EXPECT_EQ(purpose_from_label(info.label), info.purpose) << info.label;
+    EXPECT_EQ(purpose_info(ViewLayerPurpose::TRACK_PREFERRED).label, "trackPreferred");
+    EXPECT_EQ(purpose_from_label("nope"), std::nullopt);
+}
+
+TEST(ViewLayerPurposeRegistry, SelectableObjectsMatchWhatHitTestingWalks)
+{
+    for (const ViewLayerPurposeInfo &info : kViewLayerPurposes)
+    {
+        const bool expected = info.purpose == ViewLayerPurpose::TERMINAL || info.purpose == ViewLayerPurpose::OBSTRUCTION ||
+                              info.purpose == ViewLayerPurpose::ROUTE || info.purpose == ViewLayerPurpose::PLACEMENT ||
+                              info.purpose == ViewLayerPurpose::ROW;
+        EXPECT_EQ(purpose_has_selectable_objects(info.purpose), expected) << info.label;
+    }
+}

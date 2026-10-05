@@ -489,7 +489,7 @@ The extension declares the child list on its own class only; `Shape` is untouche
 
 What codegen generates from `render=`, replacing each closed list in 8.1:
 
-1. **Purpose registry.** `ViewLayerPurpose` becomes generated. Core purposes move into `schema.py` as `Purpose(...)` declarations (name, `per_layer`, default visibility/selectability, selectable-objects flag), and extensions append theirs. Codegen emits the enum, `purpose_has_selectable_objects`, the defaults, and a name table. The C API gains `le_purpose_name(ordinal)`, so `layer_manager.cpp` and the Tcl `::purpose_names` read names at runtime instead of mirroring them. This deletes three hand-synced copies even without extensions.
+1. **Purpose registry.** *Built:* `schema.py` declares `purposes=[Purpose(...)]` (name, label, description, default visibility/selectability, selectable-objects flag). `codegen --target render` emits `generated/pipelines/view_layer_purpose.hpp`: the enum, a `kViewLayerPurposes` table, `purpose_has_selectable_objects` and `purpose_from_label`. The C API gains `le_purpose_kind_count`/`le_purpose_name`/`le_purpose_visible_by_default`, so the Layers panel and the Tcl `::purpose_names` read labels at runtime instead of mirroring them, and `LeHandle`'s defaults are seeded from the table. Still to add for extensions: appending an extension's purposes, and a `per_layer` flag once something reads it.
 2. **One polymorphic owner on `Shape`.** The nine typed owner ids become one stored owner reference:
 
    ```cpp

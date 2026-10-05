@@ -912,30 +912,28 @@ register_command_help get_layer_selectable \
 # le_set_purpose_selectable/le_is_purpose_selectable). A purpose is the
 # other axis from a layer row - see set_layer_visible's own comment - one
 # column (e.g. just a layer's own OBSTRUCTION shapes) rather than a whole
-# row. Takes a friendly keyword, not le_purpose_at's own raw ordinal
-# directly - ::purpose_names below mirrors le_purpose_at's own api.hpp
-# comment (the ordinal list, not its per-Technology *index*) and must be
-# kept in sync with it and with le_gui's own layer_manager.cpp
-# (kPurposeNames) - a purpose appended to ViewLayerPurpose (view_style.hpp)
-# must be added to both, or a caller passing its new keyword here gets
-# "unknown purpose" while the GUI side shows "?" for it.
-array set ::purpose_names {
-    terminal 0
-    obstruction 1
-    boundary 2
-    trackPreferred 3
-    trackNonPreferred 4
-    routingBlockage 5
-    row 6
-    gcellgrid 7
-    placementBlockage 8
-    route 9
-    region 10
-    placement 11
-    customShape 12
-    debug 13
-    flightline 14
-    portMarker 15
+# row. Takes a label (e.g. obstruction), not le_purpose_at's raw ordinal:
+# ::purpose_names maps each label to its ordinal, built from the generated
+# purpose registry (schema.py's `purposes`).
+array set ::purpose_names {}
+set ::_le_purpose_labels {}
+set ::_le_purposes_hidden_by_default {}
+for {set _le_i 0} {$_le_i < [purpose_kind_count_cmd]} {incr _le_i} {
+    set _le_label [purpose_name_cmd $_le_i]
+    set ::purpose_names($_le_label) $_le_i
+    lappend ::_le_purpose_labels $_le_label
+    if {![purpose_visible_by_default_cmd $_le_i]} {
+        lappend ::_le_purposes_hidden_by_default $_le_label
+    }
+}
+unset _le_i _le_label
+
+# "a, b and c".
+proc _le_english_list {items} {
+    if {[llength $items] < 2} {
+        return [join $items]
+    }
+    return "[join [lrange $items 0 end-1] {, }] and [lindex $items end]"
 }
 
 proc _resolve_purpose_name {command purpose} {
@@ -957,12 +955,12 @@ proc set_purpose_visible { purpose args } {
 }
 register_command_help set_purpose_visible \
     "set_purpose_visible <purpose> <visible> \[-help\]" \
-    "Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placement placementBlockage portMarker region route routingBlockage row terminal trackNonPreferred trackPreferred. Everything is visible by default except row, trackPreferred, trackNonPreferred, gcellgrid and flightline." \
-    {
-        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker}}}
+    "Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: [lsort $::_le_purpose_labels]. Everything is visible by default except [_le_english_list $::_le_purposes_hidden_by_default]." \
+    "
+        {<purpose> {type str required 1 description {One of [join $::_le_purpose_labels {, }]}}}
         {<visible> {type bool required 1 description {0/1 or true/false - hide/show}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
+    "
 
 proc get_purpose_visible { purpose } {
     if {$purpose eq "-help"} {
@@ -973,10 +971,10 @@ proc get_purpose_visible { purpose } {
 register_command_help get_purpose_visible \
     "get_purpose_visible <purpose> \[-help\]" \
     "Returns 1 if the purpose <purpose> is visible, 0 if it's hidden - see set_purpose_visible." \
-    {
-        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker}}}
+    "
+        {<purpose> {type str required 1 description {One of [join $::_le_purpose_labels {, }]}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
+    "
 
 proc set_purpose_selectable { purpose args } {
     if {$purpose eq "-help" || [lsearch -exact $args "-help"] >= 0} {
@@ -991,11 +989,11 @@ proc set_purpose_selectable { purpose args } {
 register_command_help set_purpose_selectable \
     "set_purpose_selectable <purpose> <selectable> \[-help\]" \
     "Sets whether shapes of one purpose - e.g. obstructions - can be selected, across every layer. See set_purpose_visible for the purposes." \
-    {
-        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker}}}
+    "
+        {<purpose> {type str required 1 description {One of [join $::_le_purpose_labels {, }]}}}
         {<selectable> {type bool required 1 description {0/1 or true/false}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
+    "
 
 proc get_purpose_selectable { purpose } {
     if {$purpose eq "-help"} {
@@ -1006,10 +1004,10 @@ proc get_purpose_selectable { purpose } {
 register_command_help get_purpose_selectable \
     "get_purpose_selectable <purpose> \[-help\]" \
     "Returns 1 if shapes of the purpose <purpose> can be selected, 0 otherwise." \
-    {
-        {<purpose> {type str required 1 description {One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker}}}
+    "
+        {<purpose> {type str required 1 description {One of [join $::_le_purpose_labels {, }]}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
+    "
 
 # --- Placement.type / Route.use filters (backed by set_object_filter_visible_cmd/
 # get_object_filter_visible_cmd/set_object_filter_selectable_cmd/

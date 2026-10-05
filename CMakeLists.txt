@@ -485,8 +485,9 @@ enable_testing()
 include(GoogleTest)
 
 # --- codegen: src/database/schema.py -> the generated database, C API and
-# Tcl sources, written into the build tree's generated/database, generated/api
-# and generated/tcl (named after the src/ modules that include them) whenever the
+# Tcl sources and the renderer's purpose registry, written into the build
+# tree's generated/database, generated/api, generated/tcl and
+# generated/pipelines (named after the src/ modules that include them) whenever the
 # schema, its history or codegen itself changes. Runs the in-tree codegen
 # (not an installed copy), so a codegen change can't be missed. The
 # database target also checks the schema against src/database/schema_history/
@@ -522,9 +523,10 @@ add_custom_command(
     OUTPUT ${LE_GENERATED_DIR}/codegen.stamp
     COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR}/database --target database
     COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR} --target tcl
+    COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR}/pipelines --target render
     COMMAND ${CMAKE_COMMAND} -E touch ${LE_GENERATED_DIR}/codegen.stamp
     DEPENDS ${LE_SCHEMA} ${LE_CODEGEN_SOURCES} ${LE_SCHEMA_HISTORY}
-    COMMENT "Generating database, C API and Tcl code from schema.py"
+    COMMENT "Generating database, C API, Tcl and render code from schema.py"
     VERBATIM
 )
 add_custom_target(le_codegen DEPENDS ${LE_GENERATED_DIR}/codegen.stamp)
