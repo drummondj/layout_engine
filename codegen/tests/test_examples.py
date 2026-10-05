@@ -20,6 +20,7 @@ class TestExamples(unittest.TestCase):
         schema = eda.schema
         generate(schema, TEST_RUN_DIR, logging.getLogger("test"))
 
+    @unittest.skip("upstream cmg's solar_system example uses a float field the fork no longer supports")
     def test_solar_system(self):
         schema = solar_system.schema
         generate(schema, TEST_RUN_DIR, logging.getLogger("test"))
