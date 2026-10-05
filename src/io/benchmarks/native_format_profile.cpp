@@ -7,11 +7,15 @@
 // Reports one "metric value" line each (times in ms, sizes in MB): the
 // LEF+DEF read, then per zstd level the save time, file size and load
 // time, and whether re-saving the loaded database reproduces the file.
+// Memory (MB): process RSS after the read and after each load, and each
+// pooled class's slot storage (capacity x sizeof(slot), not the heap its
+// vectors own) - the classes holding at least 1 MB, plus Shape always.
 // Not run by ctest.
 
 #include "../../io/def_reader.hpp"
 #include "../../io/lef_reader.hpp"
 #include "../native_format.hpp"
+#include "generated/database/native_tables.hpp"
 
 #include <oneapi/tbb/global_control.h>
 #include <memory>
@@ -34,6 +38,32 @@ namespace
     }
 
     void report(const std::string &metric, double value) { std::printf("%s %.3f\n", metric.c_str(), value); }
+
+    // Resident set size, from /proc/self/status (VmRSS, in kB).
+    double rss_mb()
+    {
+        std::ifstream status("/proc/self/status");
+        for (std::string line; std::getline(status, line);)
+            if (line.rfind("VmRSS:", 0) == 0)
+                return std::stod(line.substr(6)) / 1024.0;
+        return 0.0;
+    }
+
+    void report_memory(const std::string &prefix, const Root &root)
+    {
+        report(prefix + "rss_mb", rss_mb());
+        native_tables::for_each_pooled([&]<class P>(P) {
+            const auto &slots = P::pool(root).slots();
+            const double mb = static_cast<double>(slots.capacity() * sizeof(slots[0])) / 1e6;
+            const std::string name(P::name);
+            if (mb >= 1.0 || name == "Shape")
+            {
+                report(prefix + "pool[" + name + "]_count", static_cast<double>(P::pool(root).alive_count()));
+                report(prefix + "pool[" + name + "]_slot_bytes", static_cast<double>(sizeof(slots[0])));
+                report(prefix + "pool[" + name + "]_mb", mb);
+            }
+        });
+    }
 
     bool same_file(const std::string &a, const std::string &b)
     {
@@ -72,6 +102,7 @@ int main(int argc, char **argv)
     }
     report("lef_def_read_ms", elapsed_ms(start));
     report("def_file_mb", static_cast<double>(std::filesystem::file_size(def_path)) / 1e6);
+    report_memory("read_", root);
 
     const auto dir = std::filesystem::temp_directory_path();
     for (int level : levels)
@@ -98,6 +129,7 @@ int main(int argc, char **argv)
             return 1;
         }
         report(prefix + "load_ms", elapsed_ms(start));
+        report_memory(prefix + "loaded_", loaded);
         for (const auto &[phase, ms] : saved.phase_ms)
             if (ms >= 50)
                 report(prefix + "save_phase[" + phase + "]_ms", ms);

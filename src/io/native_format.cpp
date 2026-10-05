@@ -318,6 +318,14 @@ namespace le::persistence
                             continue; // derived from the index, never stored
                         FileField f;
                         f.name = field.at("name").get<std::string>();
+                        if (field_kind == "owner")
+                        {
+                            f.type.kind = FileType::Kind::Owner;
+                            for (const auto &option : field.at("options"))
+                                f.type.owner_options.emplace_back(option.at("name").get<std::string>(), option.at("type").get<std::string>());
+                            structure->fields.push_back(std::move(f));
+                            continue;
+                        }
                         f.type.name = field.at("type").get<std::string>();
                         f.type.presence = field.value("presence", false);
                         f.type.list = field.value("list", false);
@@ -922,6 +930,13 @@ namespace le::persistence
         case FileType::Kind::Struct:
             for (const FileField &field : ft.structure->fields)
                 skip_value(r, field.type, field.type.presence, field.type.list, ctx);
+            break;
+        case FileType::Kind::Owner:
+            if (r.u8() != 0)
+            {
+                r.varint(); // option name
+                r.varint(); // parent row
+            }
             break;
         }
     }

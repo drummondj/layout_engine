@@ -40,6 +40,12 @@ namespace {{schema.namespace}}::native_tables
     template <class E>
     struct EnumInfo;
 
+    /// @brief OwnerInfo<O> - a <Klass>Owner's options (its owner=True parent
+    /// fields): stored as the option's name plus the parent's row, so
+    /// reordering options is harmless.
+    template <class O>
+    struct OwnerInfo;
+
     inline constexpr std::size_t kPooledClassCount = {{schema.get_pool_classes() | length}};
 {% for klass in schema.get_pool_classes() %}
     template <>
@@ -76,10 +82,54 @@ namespace {{schema.namespace}}::native_tables
     {
         static constexpr std::string_view name = "{{klass.name}}";
         static constexpr auto members = std::make_tuple(
+        {%- if klass.get_owner_fields() %}
+            Member<{{klass.name}}Data, {{klass.owner_type_name()}}>{"owner", &{{klass.name}}Data::owner}{% if klass.get_struct_fields() %},{% endif %}
+        {%- endif %}
         {%- for field in klass.get_struct_fields() %}
             Member<{{klass.name}}Data, decltype({{klass.name}}Data::{{field.name}})>{"{{field.name}}", &{{klass.name}}Data::{{field.name}}}{% if not loop.last %},{% endif %}
         {%- endfor %}
         );
+    };
+{% endfor %}
+{%- for klass in schema.get_pool_classes() if klass.get_owner_fields() %}
+
+    template <>
+    struct OwnerInfo<{{klass.owner_type_name()}}>
+    {
+        static constexpr std::string_view name = "{{klass.owner_type_name()}}";
+
+        /// @brief Calls f(Pooled<parent's tag>{}, option name) for `kind`;
+        /// false (f not called) for None.
+        template <class F>
+        static bool with_kind({{klass.name}}OwnerKind kind, F &&f)
+        {
+            switch (kind)
+            {
+            {%- for field in klass.get_owner_fields() %}
+            case {{klass.name}}OwnerKind::{{field.owner_kind()}}:
+                f(Pooled<{{field.type}}Tag>{}, std::string_view("{{field.name}}"));
+                return true;
+            {%- endfor %}
+            case {{klass.name}}OwnerKind::None:
+                break;
+            }
+            return false;
+        }
+
+        /// @brief Calls f(Pooled<parent's tag>{}, kind) for the option named
+        /// `option`; false (f not called) if there is none.
+        template <class F>
+        static bool with_option(std::string_view option, F &&f)
+        {
+            {%- for field in klass.get_owner_fields() %}
+            if (option == "{{field.name}}")
+            {
+                f(Pooled<{{field.type}}Tag>{}, {{klass.name}}OwnerKind::{{field.owner_kind()}});
+                return true;
+            }
+            {%- endfor %}
+            return false;
+        }
     };
 {% endfor %}
 {%- for klass in schema.classes if not klass.has_pool and not klass.is_enum %}

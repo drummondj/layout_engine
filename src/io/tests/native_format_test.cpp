@@ -347,6 +347,69 @@ namespace le::persistence
         EXPECT_EQ(read_bytes(first), read_bytes(second));
     }
 
+    TEST(NativeFormat, ShapeOwnersRoundTripThroughEveryKind)
+    {
+        TempDir dir;
+        Root original;
+        const LibraryId library = original.create_library(LibraryData{.name = "lib"});
+        const DesignId design = original.create_design(DesignData{.library = library, .name = "top"});
+        const LayoutId layout = original.create_layout(LayoutData{.design = design});
+        const AbstractId abstract = original.create_abstract(AbstractData{.design = design});
+        const RouteId route = original.create_route(RouteData{.layout = layout, .name = "n1"});
+        original.create_shape(ShapeData{.owner = ShapeOwner::route(route)});
+        original.create_shape(ShapeData{.owner = ShapeOwner::layout(layout)});
+        original.create_shape(ShapeData{.owner = ShapeOwner::in_layout(layout)});
+        original.create_shape(ShapeData{.owner = ShapeOwner::in_abstract(abstract)});
+        original.create_shape(ShapeData{});
+
+        const auto path = dir.file("owners.led");
+        ASSERT_TRUE(save_native(original, path.string()).ok());
+        Root loaded;
+        const LoadReport report = load_native(loaded, path.string());
+        ASSERT_TRUE(report.ok()) << report.error;
+
+        // Rows are written in child-list order, so Shape ids may change:
+        // find each one through its owner. (One object of every other class,
+        // so their ids don't.)
+        ASSERT_EQ(loaded.get_route_shapes(route).size(), 1u);
+        EXPECT_EQ(loaded.get_shape(loaded.get_route_shapes(route)[0])->route(), route);
+        ASSERT_EQ(loaded.get_layout_free_shapes(layout).size(), 1u);
+        const ShapeData *in_layout = loaded.get_shape(loaded.get_layout_free_shapes(layout)[0]);
+        EXPECT_EQ(in_layout->in_layout(), layout);
+        EXPECT_FALSE(in_layout->layout().valid()) << "same owner class, different list";
+        const ShapeData *diearea = loaded.get_shape(loaded.get_layout_diearea(layout));
+        ASSERT_NE(diearea, nullptr);
+        EXPECT_EQ(diearea->layout(), layout);
+        ASSERT_EQ(loaded.get_abstract_free_shapes(abstract).size(), 1u);
+        EXPECT_EQ(loaded.get_shape(loaded.get_abstract_free_shapes(abstract)[0])->in_abstract(), abstract);
+        size_t unowned = 0;
+        loaded.pool_shape().for_each_id([&](ShapeId id) { unowned += loaded.get_shape(id)->owner.valid() ? 0 : 1; });
+        EXPECT_EQ(unowned, 1u);
+        EXPECT_EQ(report.objects, 10u); // library, design, layout, abstract, route and five shapes
+    }
+
+    TEST(NativeFormat, ShapeOwnerMovesBetweenOwnersChildLists)
+    {
+        Root root;
+        const LibraryId library = root.create_library(LibraryData{.name = "lib"});
+        const DesignId design = root.create_design(DesignData{.library = library, .name = "top"});
+        const LayoutId layout = root.create_layout(LayoutData{.design = design});
+        const RouteId route = root.create_route(RouteData{.layout = layout, .name = "n1"});
+        const ShapeId shape = root.create_shape(ShapeData{.owner = ShapeOwner::route(route)});
+
+        ASSERT_TRUE(root.set_shape_in_layout(shape, layout));
+        EXPECT_TRUE(root.get_route_shapes(route).empty());
+        EXPECT_EQ(root.get_layout_free_shapes(layout), std::vector<ShapeId>{shape});
+        EXPECT_FALSE(root.get_shape(shape)->route().valid());
+
+        // Clearing a field that isn't the owner leaves the owner alone.
+        ASSERT_TRUE(root.set_shape_route(shape, RouteId{}));
+        EXPECT_EQ(root.get_shape(shape)->in_layout(), layout);
+
+        ASSERT_TRUE(root.delete_shape(shape));
+        EXPECT_TRUE(root.get_layout_free_shapes(layout).empty());
+    }
+
     TEST(NativeFormat, ClassesLargerThanOneSegmentRoundTrip)
     {
         // 65536 rows per column segment: 150000 nets span three.

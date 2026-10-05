@@ -104,7 +104,7 @@ TEST(FilterExpression, SingleHopResolvesExistentialListField)
     LayerId m4 = root.create_layer(LayerData{.technology = technology_id, .name = "M4", .type = "ROUTING"});
 
     ObstructionId obstruction_id = root.create_obstruction(ObstructionData{.abstract = abstract_id});
-    root.create_shape(ShapeData{.obstruction = obstruction_id, .layer = m4});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::obstruction(obstruction_id), .layer = m4});
     const ObstructionData *data = root.get_obstruction(obstruction_id);
 
     EXPECT_TRUE(matches(".shapes.layer.name == M4", root, obstruction_id, *data));
@@ -134,7 +134,7 @@ TEST(FilterExpression, MatchesUpdatesMdItem15SExampleShape)
     TerminalPortId port_id = root.create_terminal_port(TerminalPortData{.terminal = terminal_id});
     TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
     LayerId m4 = root.create_layer(LayerData{.technology = technology_id, .name = "M4", .type = "ROUTING"});
-    root.create_shape(ShapeData{.terminal_port = port_id, .layer = m4});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::terminal_port(port_id), .layer = m4});
     const TerminalPortData *data = root.get_terminal_port(port_id);
 
     EXPECT_TRUE(matches(".terminal.name =~ IN* && .shapes.layer.name == M4", root, port_id, *data));

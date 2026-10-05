@@ -26,6 +26,18 @@ class TestOps(unittest.TestCase):
         self.assertIn("label", [f["name"] for f in net["fields"]])
         self.assertEqual(next(f for f in net["fields"] if f["name"] == "bus")["type"], "Bundle")
 
+    def test_rename_class_retargets_owner_options(self):
+        from tests.test_owner import _schema
+
+        schema = _schema()
+        schema.link()
+        after = d.build_descriptor(schema)
+        m.RenameClass("Holder", "Box").apply(after)
+        item = next(k for k in after["classes"] if k["name"] == "Item")
+        owner = next(f for f in item["fields"] if f["name"] == "owner")
+        self.assertEqual([o["type"] for o in owner["options"]], ["Root", "Box"])
+        m._check_references(after, m.Migration(from_version="1.0.0", to_version="1.0.1", description="t", ops=[]))
+
     def test_illegal_ops_are_reported(self):
         for op in [
             m.RenameField("Net", "missing", "x"),

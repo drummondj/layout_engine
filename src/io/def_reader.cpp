@@ -487,7 +487,7 @@ namespace le
             return 0;
         }
         reader->root_->create_shape(ShapeData{
-            .layout = reader->layout_id_,
+            .owner = le::ShapeOwner::layout(reader->layout_id_),
             .purpose = ShapePurpose::BOUNDARY,
             .polygons = {polygon_from_die_area(box, reader->unit_scale_)},
         });
@@ -705,7 +705,7 @@ namespace le
                 for (Shape &shape : shapes_from_pin_like(*reader->root_, port, reader->unit_scale_))
                 {
                     shape = Geometry::transform(shape, to_design);
-                    shape.physical_port_segment = segment_id;
+                    shape.owner = le::ShapeOwner::physical_port_segment(segment_id);
                     reader->root_->create_shape(std::move(shape));
                 }
             }
@@ -720,7 +720,7 @@ namespace le
             for (Shape &shape : shapes_from_pin_like(*reader->root_, pin, reader->unit_scale_))
             {
                 shape = Geometry::transform(shape, to_design);
-                shape.physical_port_segment = segment_id;
+                shape.owner = le::ShapeOwner::physical_port_segment(segment_id);
                 reader->root_->create_shape(std::move(shape));
             }
         }
@@ -776,7 +776,7 @@ namespace le
             // region isn't tied to any routing layer at all (DEF's own
             // PLACEMENT blockage syntax has no LAYER clause), so it gets
             // .purpose = PLACEMENT_BLOCKAGE instead.
-            Shape shape{.blockage = blockage_id};
+            Shape shape{.owner = le::ShapeOwner::blockage(blockage_id)};
             if (blockage->hasLayer())
             {
                 shape.layer = reader->root_->get_layer_by_name(blockage->layerName());
@@ -968,7 +968,7 @@ namespace le
         }
         for (Shape &shape : shapes)
         {
-            shape.route = route_id;
+            shape.owner = le::ShapeOwner::route(route_id);
             reader->root_->create_shape(std::move(shape));
         }
         return 0;

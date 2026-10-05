@@ -39,7 +39,7 @@ Their code must live **completely outside** the layout_engine tree, yet be **com
 Layout Engine is a closed world today: there are no extension points anywhere. Relevant facts, with paths relative to the repo root:
 
 **Schema and codegen**
-- `src/database/schema.py` is a Python DSL: `Schema(name="layout_engine", namespace="le", version="0.49.0", classes=[Klass(...), ...])`.
+- `src/database/schema.py` is a Python DSL: `Schema(name="layout_engine", namespace="le", version="0.50.0", classes=[Klass(...), ...])`.
 - `codegen` is vendored in-tree (`codegen/`, this project's fork of cmg). `codegen/codegen/cli.py` accepts a single `--schema` and four targets: `database`, `tcl`, `makemigration` and `checkmigrations`. It loads the schema with `SourceFileLoader(...).load_module()` (`codegen/codegen/generator.py:33`). Because that is plain Python, a schema file can already `import` another schema and append to it.
 - Generated code is **not** committed: CMake runs codegen (`le_codegen` target, `CMakeLists.txt`) into `<build>/generated/` whenever the schema, its history or codegen changes. `add_library(database INTERFACE)` depends on it.
 - Codegen produces a single `class Root` (generated `root.hpp`) with one `Pool` per class, plus a closed `enum class ChangeKlass`. The undo/redo templates in `src/editing/command.hpp` and the TCL CRUD surface are also generated per class.
@@ -472,7 +472,7 @@ Klass(
         Field(name="layout", type="Layout", parent="acme_route_guides"),
         Field(name="name",   type="str", index=True),
         Field(name="weight", type="double", is_optional=True),
-        Field(name="shapes", type="Shape", is_list=True, is_child=True, via="owner"),
+        Field(name="shapes", type="Shape", is_list=True, is_child=True, owner=True),
     ],
     render=Render(
         purpose="ACME_GUIDE",      # new purpose, declared by the extension
@@ -490,24 +490,20 @@ The extension declares the child list on its own class only; `Shape` is untouche
 What codegen generates from `render=`, replacing each closed list in 8.1:
 
 1. **Purpose registry.** *Built:* `schema.py` declares `purposes=[Purpose(...)]` (name, label, description, default visibility/selectability, selectable-objects flag). `codegen --target render` emits `generated/pipelines/view_layer_purpose.hpp`: the enum, a `kViewLayerPurposes` table, `purpose_has_selectable_objects` and `purpose_from_label`. The C API gains `le_purpose_kind_count`/`le_purpose_name`/`le_purpose_visible_by_default`, so the Layers panel and the Tcl `::purpose_names` read labels at runtime instead of mirroring them, and `LeHandle`'s defaults are seeded from the table. Still to add for extensions: appending an extension's purposes, and a `per_layer` flag once something reads it.
-2. **One polymorphic owner on `Shape`.** The nine typed owner ids become one stored owner reference:
+2. **One polymorphic owner on `Shape`.** *Built:* the nine typed owner ids are one stored owner reference:
 
    ```cpp
-   struct ShapeOwner {            // generated
-       ChangeKlass klass;         // owning class - core or extension, from the merged schema
-       uint8_t slot;              // which of that class's Shape lists (Layout.diearea vs Layout.free_shapes)
-       uint32_t index, generation;
-   };
+   enum class ShapeOwnerKind : uint8_t { None, TerminalPort, Obstruction, ..., InLayout };  // generated
+   struct ShapeOwner { ShapeOwnerKind kind; uint32_t index, generation; };              // 12 bytes
    ```
 
-   In the schema, `Shape` declares `Field(name="owner", polymorphic_parent=True)`, and each owner declares its list with `via="owner"`: core's `Route.shapes`, `Layout.diearea`, `Layout.free_shapes` and so on, and an extension's `AcmeRouteGuide.shapes`. codegen collects the owner set from those lists, so an extension adds an owner without touching `Shape`. That is what makes it compatible with the read-only rule: the owner's class is a *value* in Shape's column, not a new field.
-   - **codegen** learns the polymorphic parent. Child lists are still derived, now keyed by `(klass, slot, id)`. Delete cascades, undo and the change log work on the pair, and the change log's `ChangeParent` already has exactly this shape (`klass`, `slot`, `index`, `generation`). Generated typed accessors (`owner_route()` returning `RouteId` or empty, `get_route_shapes()`) keep most core call sites as they are. A wrong-class lookup becomes an empty result rather than a compile error. The Tcl `-parent` flag takes any owner's friendly id.
-   - **Memory.** Nine 8-byte ids (72 bytes, 64 of them always empty) become about 12 bytes, so roughly 60 bytes saved per Shape. To be confirmed by measuring `aes_scaling_8x8` before and after, per the benchmark rule.
-   - **Invariant.** "At most one owner" becomes true by construction, closing the gap the native loader doesn't check today.
-   - **File format.** The owner is stored as the owner class's **name** and the list's **field name** (both in the string table, like enums) plus the row index within that class. So it doesn't depend on which extensions are built in. A class or list rename rewrites the stored names automatically (NATIVE_FILE_FORMAT_RESEARCH.md §4.8 rule 3), so an extension's migrations still never write to `Shape`.
-   - **Migration.** None: nothing has been released, so the change re-baselines the schema (new version, new snapshot and golden files, the 0.49.0 ones removed; NATIVE_FILE_FORMAT_RESEARCH.md §4.1). After the first release, a change like this would need a data migration that folds the typed parent fields into `owner`.
+   In the schema, each of Shape's nine parent fields is marked `owner=True` (`Field.owner`); codegen stores them together in one `owner` member, with one kind per field (so `Layout.diearea` and `Layout.free_shapes` stay distinct). Generated code reads `shape.route()` (an invalid id unless the owner is a Route) and builds owners with `ShapeOwner::route(id)`; `Root::set_shape_owner` moves a Shape between owners' child lists. Child lists, delete cascades, undo, change-log slots, Tcl flags (`create_shape -route ...`) and `-filter` hops (`.route.name`) are unchanged, keyed by the field names as before.
+   - **Memory** (`native_format_profile`, `aes_scaling_8x8`, 2.87M Shapes): a Shape slot shrank from 424 to 360 bytes, and RSS after the DEF read from 4762 MB to 4579 MB (-3.8%). See `docs/BENCHMARKS.md`.
+   - **Invariant.** "At most one owner" is true by construction.
+   - **File format.** The owner is stored as the owner field's **name** plus the parent's row (NATIVE_FILE_FORMAT_RESEARCH.md §3), so it doesn't depend on which extensions are built in.
+   - **Migration.** None: the schema was re-baselined to 0.50.0 (NATIVE_FILE_FORMAT_RESEARCH.md §4.1).
    - **Everything Shape-based works for extension geometry:** rendering, hit-testing, `ShapePiece` selection, the `shape_*` commands, Resize handles and path/via snapping. Classes that keep geometry as embedded `Rect`s (like `Region.rects`) are supported too, with whole-object selection.
-   - **Cost:** a one-time, mostly mechanical core refactor of everything that sets or reads a Shape's owner: the LEF/DEF readers and writers, `hit_test.hpp`, the resolver's chunk collection, `shape_ops.hpp`, `rename_propagation.hpp` and the generated Tcl CRUD.
+   - **Still to do for extensions:** an extension can't add an `owner=True` field to `Shape` (the read-only rule), so extension schemas (#74) need codegen to synthesize one from an owner-side declaration, e.g. `Field(name="shapes", type="Shape", is_list=True, is_child=True, owner=True)` on `AcmeRouteGuide`. The stored value is still just a kind name in Shape's column, so this stays within the rule.
 3. **Render tree.** A generated `renderable_classes.inc` lists, per renderable class: how to enumerate a Layout's/Abstract's instances (the class's nearest Layout/Abstract ancestor is known from the parent graph, the same climb `collect_dirty` does by hand), its purpose and its label field. `HierarchyResolverStage` gets one generic chunk per renderable class after its fixed chunks, or tiles for `tiled=True`. The core is written once, against the generated list. `collect_dirty` maps the class's `ChangeKlass` to that chunk through the same table, so incremental updates work without extension code.
 4. **Selection.** `for_each_layout_hit_shape`/`hit_test_abstract_*` iterate the generated list as well as the core owners. `SelectedObject` stays `ShapePiece | ...`: a piece of an extension-owned Shape is selectable exactly as a core one is. With `selectable=True` the property viewer resolves the piece to its owning object through `Shape.owner`, which replaces `le_object_parent`'s per-owner switch.
 5. **Properties.** *Built:* `LeObjectKind` is generated (one kind per TCL-readable class, `generated/api/object_kinds.inc`), and so are `build_object_properties`, the `le_object_parent` dispatch (from each class's parent fields) and a kind-name table behind `le_object_kind_name`/`le_object_kind_is_named` (`generated/api/object_dispatch.inc`), so an extension class appears in the property viewer automatically. Still hand-written: `le_select_object_ref` and the GUI's child listing, which encode which objects are selectable and how children are grouped; they move to the generated tables with `render=` (item 4).
@@ -544,7 +540,7 @@ Implement D for the declarative case. Add C's `add_render_source` hook only when
 
 1. Generated purpose registry plus `le_purpose_name`. Removes the hand mirrors and is independently useful.
 2. Generated `LeObjectKind`/property and parent dispatch.
-3. Polymorphic `Shape.owner` (item 2): measure Shape memory on `aes_scaling_8x8` first, then the codegen support and the core refactor, landing as a schema re-baseline with new golden files.
+3. Polymorphic `Shape.owner` (item 2). *Done.*
 4. Generic renderable-class chunks and hit-testing (`render=` without `tiled`), benchmarked against `aes_scaling_*`.
 5. `tiled=True`.
 6. The C++ `emit` hook, when an extension needs it.

@@ -150,8 +150,9 @@ class RenameClass(Op):
         for other in _classes(desc):
             if other["kind"] != "enum":
                 for f in other["fields"]:
-                    if f["type"] == self.old:
-                        f["type"] = self.new
+                    for typed in _typed(f):
+                        if typed.get("type") == self.old:
+                            typed["type"] = self.new
 
     def runtime_entries(self):
         return [(self.runtime, "", self.old, self.new)]
@@ -393,14 +394,23 @@ def replay(baseline: Dict[str, Any], migrations: List[Migration]) -> List[Tuple[
     return results
 
 
+def _typed(field: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The dicts in `field` that name a class in "type": an owner field's
+    options (it stores one of several parents), else the field itself."""
+    return field.get("options", []) if field["kind"] == "owner" else [field]
+
+
 def _check_references(desc: Dict[str, Any], migration: Migration) -> None:
     names = {k["name"] for k in _classes(desc)}
     for klass in _classes(desc):
         if klass["kind"] == "enum":
             continue
         for f in klass["fields"]:
-            if f["kind"] != "scalar" and f["type"] not in names:
-                raise MigrationError(f"{migration.label()}: afterwards {klass['name']}.{f['name']} refers to missing class {f['type']}")
+            if f["kind"] == "scalar":
+                continue
+            for typed in _typed(f):
+                if typed["type"] not in names:
+                    raise MigrationError(f"{migration.label()}: afterwards {klass['name']}.{f['name']} refers to missing class {typed['type']}")
 
 
 def check_migrations(current: Dict[str, Any], history_dir: Path, migrations_dir: Path) -> List[str]:
@@ -468,6 +478,16 @@ def runtime_table(migrations: List[Migration]) -> List[Tuple[str, str, str, str,
 # --- Drafting ------------------------------------------------------------------------
 
 
+def _retargeted(member: Dict[str, Any], renamed_to: Dict[str, str]) -> Dict[str, Any]:
+    """A copy of `member` with class names in renamed_to replaced."""
+    member = copy.deepcopy(member)
+    if "kind" in member:
+        for typed in _typed(member):
+            if typed.get("type") in renamed_to:
+                typed["type"] = renamed_to[typed["type"]]
+    return member
+
+
 def _same_but_name(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     return {k: v for k, v in a.items() if k != "name"} == {k: v for k, v in b.items() if k != "name"}
 
@@ -531,9 +551,7 @@ def draft_ops(old: Dict[str, Any], new: Dict[str, Any], ask_rename=None) -> List
         came_members = [m for m in new_members if m not in old_members]
         for gone in list(gone_members):
             for came in list(came_members):
-                a = dict(old_members[gone])
-                if a.get("type") in renamed_to:
-                    a["type"] = renamed_to[a["type"]]
+                a = _retargeted(old_members[gone], renamed_to)
                 if _same_but_name(a, new_members[came]):
                     answer = is_rename("enum value" if enum else "field", name, gone, came)
                     if answer is None:
@@ -550,9 +568,7 @@ def draft_ops(old: Dict[str, Any], new: Dict[str, Any], ask_rename=None) -> List
         for gone in gone_members:
             removes.append(RemoveEnumValue(name, gone) if enum else RemoveField(name, gone))
         for member_name in old_members.keys() & new_members.keys():
-            a = dict(old_members[member_name])
-            if a.get("type") in renamed_to:
-                a["type"] = renamed_to[a["type"]]
+            a = _retargeted(old_members[member_name], renamed_to)
             b = new_members[member_name]
             if a != b:
                 changes.append(AlterEnumValue(name, member_name, b["value"]) if enum else AlterField(name, copy.deepcopy(b)))

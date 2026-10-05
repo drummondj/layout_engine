@@ -191,6 +191,11 @@ unless `has_pool=False` (an embedded value type like `Point`/`Rect`).
 - A class pair may have several parent/`is_child` relationships;
   `Klass.link()` pairs each `is_child` field with the parent field whose
   `parent=` names it.
+- `Field.owner=True` parent fields (Shape's nine owners) share one stored
+  `owner` member (`ShapeOwner`: which field is set plus the parent's id),
+  so at most one is set. Read them with accessors (`shape.route()`), build
+  one with `ShapeOwner::route(id)`, and move a Shape with
+  `Root::set_shape_owner`; Tcl flags and filter hops keep the field names.
 - `Root` keeps a change log (`change_log()`, a fixed ring): every
   generated create/update/delete records the object and its owner(s), so
   consumers update incrementally. An edit through a mutable `get_x()`

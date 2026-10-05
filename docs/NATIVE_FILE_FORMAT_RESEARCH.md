@@ -59,7 +59,7 @@ Paths below are relative to the repo root.
 - As a result, only the pools need saving. Indexes can always be rebuilt.
 
 **Versioning**
-- `Schema.version` is `"0.49.0"`. It is the baseline: `src/database/schema_history/0.49.0.json` is the only snapshot, and no migration exists yet. Every `codegen --target database` run now checks the schema against the history (§4.5), so the version can no longer drift from the schema unnoticed.
+- `Schema.version` is `"0.50.0"`. It is the baseline: `src/database/schema_history/0.50.0.json` is the only snapshot, and no migration exists yet (0.49.0 was re-baselined away by the `Shape.owner` change, §4.1). Every `codegen --target database` run checks the schema against the history (§4.5), so the version can't drift from the schema unnoticed.
 - The schema *does* change structurally, not just additively. Example: commit `d5d16a2` (before the baseline) turned `Abstract.boundary` from a `List[Polygon]` field into a child `Shape` object, and `Layout.diearea` likewise. An older file that holds polygon lists must become `Shape` objects on load. That is exactly the kind of change a naive format can't survive.
 
 **Support in codegen**
@@ -142,7 +142,7 @@ Each field of each class becomes one column. As built (`src/io/codec.hpp`), each
 | Field kind | Encoding |
 |---|---|
 | Reference (`NetId`) | varint: dense row index of the target within its class + 1, with 0 meaning unset. The writer remaps live slots to 0..n-1, so the file never contains dead slots or generations. |
-| Polymorphic owner (planned, `Shape.owner`) | varint string-table index of the owner class's name (0 = unset), then of the owner's list field name, then the dense row index. By name, like enums, so it doesn't depend on which extensions are built in. |
+| owner (`<Klass>Owner`, e.g. `Shape.owner`) | 1 presence byte; if set, varint string-table index of the owner field's **name** (e.g. `route`, `in_layout`), then varint dense row of the parent in that field's class. The descriptor lists it as one field of kind `owner` with its options (name, parent class), so it doesn't depend on which extensions are built in. |
 | `int` / `dbu` / `dbu2` | zig-zag varint |
 | `double` | raw 8 bytes |
 | `bool` | 1 byte |
@@ -285,7 +285,7 @@ The check runs as part of `codegen --target database` (the `regen-database` flow
 
 ### 4.6 Data-level guarantee: the golden corpus
 
-Symbolic replay proves the chain produces the right *shape*. It can't prove the data survives, for example that a `LookupBy` actually finds the layers. So `src/io/tests/golden/<version>/` holds small but representative `.led` files written by each version. Today, version 0.49.0 has `lef_def` (the vendored `complete.5.8` LEF and DEF), `testcell` (a small LEF+DEF) and `netlist` (a gate-level Verilog netlist). Still to add: an RTL (`read_rtl`) sample, and an extension object once `hello_ext` exists.
+Symbolic replay proves the chain produces the right *shape*. It can't prove the data survives, for example that a `LookupBy` actually finds the layers. So `src/io/tests/golden/<version>/` holds small but representative `.led` files written by each version. Today, version 0.50.0 has `lef_def` (the vendored `complete.5.8` LEF and DEF), `testcell` (a small LEF+DEF) and `netlist` (a gate-level Verilog netlist). Still to add: an RTL (`read_rtl`) sample, and an extension object once `hello_ext` exists.
 
 `GoldenFiles.EveryVersionsFilesStillLoad` (`src/io/tests/golden_files_test.cpp`) loads every file with the current build, which runs the full chain from that version. It checks that every class the build still has keeps its object count from `manifest.json`, and that a current-version file re-saves byte-identically, so the encoding can't drift silently. Spot-value checks are still to add. Adding a version's golden files is part of the schema-change commit (§4.1). As long as this test passes, "reads every older version" is being checked on every build, not just claimed.
 
@@ -338,8 +338,8 @@ plan:  C0.51 → C0.52 → A1.3 (dep 0.52) → A1.4 (dep 0.52) → C0.53
 
 | Core op | Effect on extension data |
 |---|---|
-| `RenameClass` | Reference columns of that type are retagged everywhere, and polymorphic owner values naming the class are rewritten. Extension class renames do the same to `Shape.owner` values, so this needs no write by the extension's ops. |
-| `RenameField` of a `via="owner"` list | Polymorphic owner values naming that list are rewritten. |
+| `RenameClass` | Reference columns of that type are retagged everywhere, and so are owner options naming the class (built in the symbolic replay; owner values store the option *name*, not the class, so no data changes). |
+| `RenameField` of an owner option | Owner values naming that option are rewritten (planned: a rename runtime for owner options, alongside the other rename ops). |
 | `RemoveClass` | Extension objects whose *parent* was removed are cascaded away (the normal delete rule). Plain references are nulled, with a warning and a count. |
 | `MergeClasses` / `SplitClass` | Reference values are remapped through the op's row mapping. `SplitClass` must say which new class a reference to the old class follows. |
 
@@ -462,10 +462,10 @@ Planned:
 
 | Phase | Work |
 |---|---|
-| 1 ✅ | codegen: schema descriptor, fingerprint, `schema_version.hpp`, the first `schema_history/` snapshot (the baseline, with no migration before it), and a "schema changed without a snapshot" check. **Done:** `codegen/codegen/descriptor.py`; the check runs inside every `codegen --target database` run, and the baseline is `src/database/schema_history/0.49.0.json`. |
+| 1 ✅ | codegen: schema descriptor, fingerprint, `schema_version.hpp`, the first `schema_history/` snapshot (the baseline, with no migration before it), and a "schema changed without a snapshot" check. **Done:** `codegen/codegen/descriptor.py`; the check runs inside every `codegen --target database` run, and the baseline is `src/database/schema_history/0.50.0.json` (0.49.0 was re-baselined away). |
 | 2 ✅ | Container writer/reader (chunks, strings, CRC, zstd), generated typed tables, `Pool::load_dense`, `Root::rebuild_indexes()`. **Done** (`src/io/native_format.*`, `src/io/codec.hpp`). §3 describes the as-built container and value encoding; the name-matching decode (§4.4, additive changes) is built in, while `DynamicDb` waits for phase 4. |
 | 3 ✅ | C API, TCL commands, golden corpus (first version) plus the corpus test. **Done:** `le_write_db`/`le_read_db`/`le_db_info`, TCL `write_db`/`read_db`/`db_info`. `read_db` loads into an empty session only. Golden files are in `src/io/tests/golden/<version>/`. |
-| 4 🟡 | Migration framework. **Done so far** (`codegen/codegen/migration.py`): the op classes, symbolic replay and per-op validation, which run on every `codegen --target database` and replace the phase-1 check; `makemigration` with diffing and rename prompts (`Todo` when non-interactive); `checkmigrations`. The generated `migrations.hpp` table lets the loader apply **renames** (class, field, enum value, and `RemoveEnumValue(map_to=)`) to an older file's schema before name matching. **Not yet:** `DynamicDb` and the data runtime for `ConvertField`, `ExtractToChild`/`InlineChild`, split/merge and `RunCode`. Those ops are declared unsupported at runtime, so a file needing one is refused with the migration's description. §4.3 lists the built op set. No migration has been written yet: 0.49.0 is still the only schema version. |
+| 4 🟡 | Migration framework. **Done so far** (`codegen/codegen/migration.py`): the op classes, symbolic replay and per-op validation, which run on every `codegen --target database` and replace the phase-1 check; `makemigration` with diffing and rename prompts (`Todo` when non-interactive); `checkmigrations`. The generated `migrations.hpp` table lets the loader apply **renames** (class, field, enum value, and `RemoveEnumValue(map_to=)`) to an older file's schema before name matching. **Not yet:** `DynamicDb` and the data runtime for `ConvertField`, `ExtractToChild`/`InlineChild`, split/merge and `RunCode`. Those ops are declared unsupported at runtime, so a file needing one is refused with the migration's description. §4.3 lists the built op set. No migration has been written yet: 0.50.0 is the only schema version. |
 | 5 | SESSION chunk, GUI File menu, SCHM `"extensions"` object and extension migration chains (needs the extension mechanism's schema phase). |
 | 6 | Performance: parallel encode (decode is already parallel), and the Arrow-style encodings §3 left out, each kept only if `native_format_profile` shows a gain. |
 

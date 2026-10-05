@@ -43,6 +43,9 @@ def _field_kind(field: Field) -> str:
     - "enum":   an enum value
     - "struct": an embedded (non-pooled) struct such as Rect or Point
     - "scalar": a TYPEMAP primitive (int, dbu, str, bool, ...)
+
+    owner=True parent fields aren't stored one by one - see
+    _owner_descriptor.
     """
     if field.has_parent():
         return "parent"
@@ -94,6 +97,19 @@ def _field_descriptor(field: Field) -> Dict[str, Any]:
     return desc
 
 
+def _owner_descriptor(klass: Klass) -> Dict[str, Any]:
+    """
+    The one stored `owner` member that holds every owner=True parent field:
+    which of them is set (its option name) plus that parent's id. Options
+    are listed in declaration order; a file stores the option's name.
+    """
+    return {
+        "name": "owner",
+        "kind": "owner",
+        "options": [{"name": f.name, "type": f.type, "parent_field": f.parent} for f in klass.get_owner_fields()],
+    }
+
+
 def _klass_descriptor(klass: Klass) -> Dict[str, Any]:
     if klass.is_enum:
         return {
@@ -103,10 +119,16 @@ def _klass_descriptor(klass: Klass) -> Dict[str, Any]:
             # enum_hpp_j2 renders), not Klass.enum_values.
             "values": [{"name": f.name, "value": f.value} for f in klass.fields],
         }
+    fields: List[Dict[str, Any]] = []
+    for f in klass.fields:
+        if not f.owner:
+            fields.append(_field_descriptor(f))
+        elif not any(d["kind"] == "owner" for d in fields):
+            fields.append(_owner_descriptor(klass))
     return {
         "name": klass.name,
         "kind": "pooled" if klass.has_pool else "struct",
-        "fields": [_field_descriptor(f) for f in klass.fields],
+        "fields": fields,
     }
 
 

@@ -172,7 +172,7 @@ int main(int argc, char **argv)
     // (LeHandle::fit_to_content(std::nullopt, ...) leaves scale/pan at
     // their defaults - an all-white render, not an error).
     root.create_shape(ShapeData{
-        .layout = out_layout_id,
+        .owner = le::ShapeOwner::layout(out_layout_id),
         .purpose = ShapePurpose::BOUNDARY,
         .polygons = {Polygon{.points = {Point{0, 0}, Point{tile_width * tile_x, tile_height * tile_y}}}},
     });
@@ -252,7 +252,7 @@ int main(int argc, char **argv)
                     if (!src_shape)
                         continue;
                     ShapeData shape_copy = *src_shape;
-                    shape_copy.route = new_route_id;
+                    shape_copy.owner = le::ShapeOwner::route(new_route_id);
 
                     for (Rect &r : shape_copy.rects)
                         r = translate(r, dx, dy);

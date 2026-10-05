@@ -1,11 +1,11 @@
 {
-  "version": "0.49.0",
-  "fingerprint": "db27ba6b68a31200",
+  "version": "0.50.0",
+  "fingerprint": "3f26e3b72b57d1a1",
   "descriptor": {
     "format": 1,
     "name": "layout_engine",
     "namespace": "le",
-    "version": "0.49.0",
+    "version": "0.50.0",
     "classes": [
       {
         "name": "Technology",
@@ -2287,58 +2287,55 @@
         "kind": "pooled",
         "fields": [
           {
-            "name": "terminal_port",
-            "kind": "parent",
-            "type": "TerminalPort",
-            "parent_field": "shapes"
-          },
-          {
-            "name": "obstruction",
-            "kind": "parent",
-            "type": "Obstruction",
-            "parent_field": "shapes"
-          },
-          {
-            "name": "physical_port_segment",
-            "kind": "parent",
-            "type": "PhysicalPortSegment",
-            "parent_field": "shapes"
-          },
-          {
-            "name": "blockage",
-            "kind": "parent",
-            "type": "Blockage",
-            "parent_field": "shapes"
-          },
-          {
-            "name": "route",
-            "kind": "parent",
-            "type": "Route",
-            "parent_field": "shapes"
-          },
-          {
-            "name": "layout",
-            "kind": "parent",
-            "type": "Layout",
-            "parent_field": "diearea"
-          },
-          {
-            "name": "abstract",
-            "kind": "parent",
-            "type": "Abstract",
-            "parent_field": "boundary"
-          },
-          {
-            "name": "in_abstract",
-            "kind": "parent",
-            "type": "Abstract",
-            "parent_field": "free_shapes"
-          },
-          {
-            "name": "in_layout",
-            "kind": "parent",
-            "type": "Layout",
-            "parent_field": "free_shapes"
+            "name": "owner",
+            "kind": "owner",
+            "options": [
+              {
+                "name": "terminal_port",
+                "type": "TerminalPort",
+                "parent_field": "shapes"
+              },
+              {
+                "name": "obstruction",
+                "type": "Obstruction",
+                "parent_field": "shapes"
+              },
+              {
+                "name": "physical_port_segment",
+                "type": "PhysicalPortSegment",
+                "parent_field": "shapes"
+              },
+              {
+                "name": "blockage",
+                "type": "Blockage",
+                "parent_field": "shapes"
+              },
+              {
+                "name": "route",
+                "type": "Route",
+                "parent_field": "shapes"
+              },
+              {
+                "name": "layout",
+                "type": "Layout",
+                "parent_field": "diearea"
+              },
+              {
+                "name": "abstract",
+                "type": "Abstract",
+                "parent_field": "boundary"
+              },
+              {
+                "name": "in_abstract",
+                "type": "Abstract",
+                "parent_field": "free_shapes"
+              },
+              {
+                "name": "in_layout",
+                "type": "Layout",
+                "parent_field": "free_shapes"
+              }
+            ]
           },
           {
             "name": "layer",

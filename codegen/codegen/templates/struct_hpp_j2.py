@@ -13,6 +13,51 @@ TEMPLATE = """
 
 namespace {{schema.namespace}}
 {
+{%- if klass.get_owner_fields() %}
+    /// @brief Which of {{klass.name}}'s owner fields its `owner` holds.
+    enum class {{klass.name}}OwnerKind : uint8_t
+    {
+        None,
+    {%- for field in klass.get_owner_fields() %}
+        {{field.owner_kind()}},
+    {%- endfor %}
+    };
+
+    /// @brief {{klass.name}}'s one owner: which owner field is set (at most
+    /// one can be), and that parent's id. Built with the per-field makers.
+    struct {{klass.owner_type_name()}}
+    {
+        {{klass.name}}OwnerKind kind = {{klass.name}}OwnerKind::None;
+        uint32_t index = std::numeric_limits<uint32_t>::max();
+        uint32_t generation = 0;
+
+        constexpr bool valid() const noexcept { return kind != {{klass.name}}OwnerKind::None; }
+    {%- for field in klass.get_owner_fields() %}
+
+        /// @brief Owned by {{field.type}} `id` through {{field.name}}; unset if `id` is invalid.
+        static constexpr {{klass.owner_type_name()}} {{field.name}}({{field.type}}Id id) noexcept
+        {
+            return id.valid() ? {{klass.owner_type_name()}}{ {{klass.name}}OwnerKind::{{field.owner_kind()}}, id.index, id.generation } : {{klass.owner_type_name()}}{};
+        }
+    {%- endfor %}
+
+        friend constexpr bool operator==(const {{klass.owner_type_name()}} &, const {{klass.owner_type_name()}} &) = default;
+    };
+
+    inline std::string to_string(const {{klass.owner_type_name()}} &value)
+    {
+        switch (value.kind)
+        {
+    {%- for field in klass.get_owner_fields() %}
+        case {{klass.name}}OwnerKind::{{field.owner_kind()}}:
+            return "{{field.name}}:" + le::to_string({{field.type}}Id{value.index, value.generation});
+    {%- endfor %}
+        default:
+            return "none";
+        }
+    }
+{%- endif %}
+
     /**
         @brief {{klass.description}}
 
@@ -21,14 +66,28 @@ namespace {{schema.namespace}}
     {%- endfor %}
     */
     struct {{klass.name}}{{"Data" if klass.has_pool}} {
+    {%- if klass.get_owner_fields() %}
+        {{klass.owner_type_name()}} owner;
+    {%- endif %}
     {%- for field in klass.get_struct_fields() %}
         {{field.get_cpp_type()}} {{field.name}};
+    {%- endfor %}
+    {%- for field in klass.get_owner_fields() %}
+
+        /// @brief The owning {{field.type}} if `owner` is set through {{field.name}}, else invalid.
+        constexpr {{field.type}}Id {{field.name}}() const noexcept
+        {
+            return owner.kind == {{klass.name}}OwnerKind::{{field.owner_kind()}} ? {{field.type}}Id{owner.index, owner.generation} : {{field.type}}Id{};
+        }
     {%- endfor %}
     };
 
     inline std::string to_string(const {{schema.namespace}}::{{klass.name}}{{"Data" if klass.has_pool}} &value)
     {
         std::string output = "{{klass.name}}{";
+        {%- if klass.get_owner_fields() %}
+        output += "owner=" + to_string(value.owner) + " ";
+        {%- endif %}
         {%- for field in klass.get_struct_fields() %}
         output += "{{field.name}}=" + {{field.wrap_with_to_string('value.' + field.name, schema.namespace)}} + " ";
         {%- endfor %}
@@ -143,8 +202,8 @@ namespace {{schema.namespace}}
     {%- for field in klass.get_filterable_hop_fields() %}
         if (hop == "{{field.name}}") {
         {%- if field.has_parent() %}
-            const auto* target = root.get_{{field._type_klass.to_snake_case()}}(d.{{field.name}});
-            return target != nullptr && matcher(d.{{field.name}}, *target);
+            const auto* target = root.get_{{field._type_klass.to_snake_case()}}(d.{{field.accessor}});
+            return target != nullptr && matcher(d.{{field.accessor}}, *target);
         {%- elif field.is_child and field.is_list %}
             for (const auto& child_id : root.get_{{klass.to_snake_case()}}_{{field.name}}(id)) {
                 const auto* target = root.get_{{field._type_klass.to_snake_case()}}(child_id);

@@ -51,8 +51,8 @@ LeObjectRef object_ref_parent(const le::Root &root, LeObjectRef ref)
         if (!object)
             return invalid_object_ref();
 {% for field, parent in parents %}
-        if (object->{{field.name}}.valid())
-            return ref_from_id(LE_OBJECT_KIND_{{parent.to_snake_case()|upper}}, object->{{field.name}});
+        if (object->{{field.accessor}}.valid())
+            return ref_from_id(LE_OBJECT_KIND_{{parent.to_snake_case()|upper}}, object->{{field.accessor}});
 {% endfor %}
         return invalid_object_ref();
     }

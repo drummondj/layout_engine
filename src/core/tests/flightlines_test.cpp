@@ -36,7 +36,7 @@ namespace
                 terminal.name = name;
                 const TerminalPortId port = root.create_terminal_port(TerminalPortData{.terminal = root.create_terminal(terminal)});
                 ShapeData shape{};
-                shape.terminal_port = port;
+                shape.owner = le::ShapeOwner::terminal_port(port);
                 shape.rects = {rect};
                 root.create_shape(shape);
             };

@@ -36,7 +36,7 @@ class TestObjectKinds(unittest.TestCase):
             for field in klass.get_parent_fields():
                 parent = field.type
                 self.assertIn(
-                    f"return ref_from_id(LE_OBJECT_KIND_{self.schema.get_klass(parent).to_snake_case().upper()}, object->{field.name});",
+                    f"return ref_from_id(LE_OBJECT_KIND_{self.schema.get_klass(parent).to_snake_case().upper()}, object->{field.accessor});",
                     text,
                 )
 
