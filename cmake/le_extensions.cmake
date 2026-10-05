@@ -80,13 +80,21 @@ else()
     set(LE_EXTENSIONS_HAVE_TCL OFF)
 endif()
 
+# A relative directory is relative to this source tree's top directory, not
+# to wherever cmake happens to run.
+set(le_extension_dirs "")
+foreach(dir IN LISTS LE_EXTENSION_DIRS)
+    get_filename_component(dir "${dir}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    list(APPEND le_extension_dirs "${dir}")
+endforeach()
+
 execute_process(
     COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/codegen
         ${Python3_EXECUTABLE} -m codegen.extension_manifest
         --layout-engine-version ${PROJECT_VERSION}
         --extension-api ${LE_EXTENSION_API_VERSION}
         --output ${CMAKE_BINARY_DIR}/le_extension_manifests.cmake
-        ${LE_EXTENSION_DIRS}
+        ${le_extension_dirs}
     RESULT_VARIABLE manifest_result
     ERROR_VARIABLE manifest_errors)
 if(NOT manifest_result EQUAL 0)
