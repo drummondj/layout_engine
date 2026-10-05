@@ -55,7 +55,7 @@ function(le_add_extension name)
         add_executable(${name}_tests ${ARG_TESTS})
         # le_extensions (defined below) holds every core plus register_all().
         target_link_libraries(${name}_tests PRIVATE le_extensions GTest::gtest_main)
-        gtest_discover_tests(${name}_tests)
+        gtest_discover_tests(${name}_tests TEST_PREFIX "${name}.")
     endif()
 
     if(ARG_TCL_SOURCES)

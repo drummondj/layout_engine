@@ -166,7 +166,8 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   `src/tcl/extension_index.hpp`) checks and sources after the core procs;
   `tcl_tests` run through `le_shell` as ctests. `examples/extensions/`
   holds the compiled (`hello_ext`) and script (`hello_script`) examples
-  CI builds.
+  CI builds. `docs/EXTENSION_SDK.md` is the authors' reference and the
+  API changelog - update it with any change to the SDK.
 - `src/lefdef/` — vendored Si2 LEF/DEF 6.0.62-p004 parser source, built by
   its own Makefiles via `ExternalProject_Add` (`lef_lib`/`def_lib`). Never
   hand-edit.

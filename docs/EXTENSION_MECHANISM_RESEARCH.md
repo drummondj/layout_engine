@@ -1,5 +1,7 @@
 # Extension Mechanism — Architecture Research
 
+The reference for extension authors (manifest, CMake, C++ and Tcl APIs, changelog) is [EXTENSION_SDK.md](EXTENSION_SDK.md); this page is the design and its reasons.
+
 Companion documents: [NATIVE_FILE_FORMAT_RESEARCH.md](NATIVE_FILE_FORMAT_RESEARCH.md) (how extension data is saved and migrated) and [PACKAGE_MANAGER_RESEARCH.md](PACKAGE_MANAGER_RESEARCH.md) (how users install extensions into a project). The package manager decides how an extension is described and found, so §2 and §6 follow its design.
 
 ## Goal
