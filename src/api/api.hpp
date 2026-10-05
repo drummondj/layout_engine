@@ -1580,41 +1580,10 @@ extern "C"
         double double_value;
     } LeProperty;
 
-    /// @brief Which database class an LeObjectRef names - the classes the
-    /// friendly-id convention distinguishes (le_tcl_shim.cpp's library:/
-    /// design:/abstract:/terminal:/... prefixes), typed instead of
-    /// stringly-typed, for the GUI's Property Viewer. Includes the
-    /// top-level Layout-view kinds LeHandle::SelectedObject's variant
-    /// covers - le_selected_object_ref() dispatches each selected object
-    /// to its own kind here so the
-    /// Property Viewer shows real properties for a selected Row/
-    /// Placement/Blockage/Route/PhysicalPort/Region, not just a Shape.
-    typedef enum LeObjectKind
-    {
-        LE_OBJECT_KIND_LIBRARY = 0,
-        LE_OBJECT_KIND_DESIGN = 1,
-        LE_OBJECT_KIND_ABSTRACT = 2,
-        LE_OBJECT_KIND_TERMINAL = 3,
-        LE_OBJECT_KIND_TERMINAL_PORT = 4,
-        LE_OBJECT_KIND_OBSTRUCTION = 5,
-        LE_OBJECT_KIND_SHAPE = 6,
-        LE_OBJECT_KIND_ROW = 7,
-        LE_OBJECT_KIND_PLACEMENT = 8,
-        LE_OBJECT_KIND_BLOCKAGE = 9,
-        LE_OBJECT_KIND_ROUTE = 10,
-        LE_OBJECT_KIND_PHYSICAL_PORT = 11,
-        LE_OBJECT_KIND_REGION = 12,
-        // Intermediate parent-hop node only (like LE_OBJECT_KIND_TERMINAL_PORT
-        // - never itself a mouse-click selection result, only reached via
-        // le_object_parent() from a Shape belonging to a PhysicalPort).
-        LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT = 13,
-        // Another intermediate parent-hop node, so the Property Viewer's
-        // breadcrumb tree (walking le_object_parent() all the way to
-        // LE_OBJECT_KIND_LIBRARY) continues Row/Placement/... -> Layout ->
-        // Design -> Library, the way an Abstract-view selection's
-        // Terminal -> Abstract -> Design -> Library chain does.
-        LE_OBJECT_KIND_LAYOUT = 14,
-    } LeObjectKind;
+    /// @brief Which database class an LeObjectRef names: one
+    /// LE_OBJECT_KIND_<CLASS> per TCL-readable class, generated from
+    /// schema.py, so every class the Property Viewer can reach has a kind.
+#include "generated/api/object_kinds.inc"
 
     /// @brief A generic, typed reference to one database object of any
     /// LeObjectKind class - `index`/`generation` are that class's own id
@@ -1638,6 +1607,16 @@ extern "C"
     /// or the input ref itself doesn't resolve, and by le_selected_object_ref()
     /// for an out-of-range selection_index or a null handle.
     LeObjectRef le_object_invalid_ref(void);
+
+    /// @brief The snake_case class name of LeObjectKind `kind` (e.g.
+    /// "terminal_port") - the prefix of its TCL friendly id. Static
+    /// storage; null if `kind` is out of range.
+    const char *le_object_kind_name(int32_t kind);
+
+    /// @brief Nonzero if `kind`'s friendly id is its name
+    /// ("library:lib1"), zero if it's a packed numeric id
+    /// ("shape:4294967296") or `kind` is out of range.
+    int32_t le_object_kind_is_named(int32_t kind);
 
     /// @brief Number of property rows `ref` has (see LeProperty) - indexes
     /// le_object_property_at()'s own `index` parameter, 0..this-1. Read-

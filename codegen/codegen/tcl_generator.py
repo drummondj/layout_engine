@@ -15,6 +15,8 @@ from codegen.templates.tcl import (
     api_filter_tables_inc_j2,
     api_handle_fields_inc_j2,
     api_ids_inc_j2,
+    api_object_dispatch_inc_j2,
+    api_object_kinds_inc_j2,
     api_property_accessors_internal_inc_j2,
     api_property_accessors_public_inc_j2,
     api_search_inc_j2,
@@ -105,6 +107,8 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
         (api_dir / "filter_tables.inc", api_filter_tables_inc_j2.TEMPLATE),
         (api_dir / "search.inc", api_search_inc_j2.TEMPLATE),
         (api_dir / "snapshot_appliers.hpp", api_snapshot_appliers_hpp_j2.TEMPLATE),
+        (api_dir / "object_kinds.inc", api_object_kinds_inc_j2.TEMPLATE, True),
+        (api_dir / "object_dispatch.inc", api_object_dispatch_inc_j2.TEMPLATE, True),
         (tcl_dir / "le_tcl_shim_generated.hpp", le_tcl_shim_generated_hpp_j2.TEMPLATE),
         (tcl_dir / "le_tcl_shim_generated.inc", le_tcl_shim_generated_inc_j2.TEMPLATE),
         (tcl_dir / "le_api_generated.i", le_api_generated_i_j2.TEMPLATE),
@@ -113,8 +117,17 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
             le_tcl_procs_generated_tcl_j2.TEMPLATE,
         ),
     ]
-    for path, template_str in files:
-        content = jinja2.Template(template_str).render(
+    by_name = {k.name: k for k in classes}
+    # Each class's parent fields paired with the parent class, for the
+    # generic parent dispatch - only parents that are TCL-readable have a kind.
+    parent_fields = {
+        k.name: [(f, by_name[f.type]) for f in k.get_parent_fields() if f.type in by_name] for k in classes
+    }
+    for path, template_str, *trim in files:
+        # The newer templates are written for trim_blocks/lstrip_blocks.
+        trimmed = bool(trim and trim[0])
+        content = jinja2.Template(template_str, trim_blocks=trimmed, lstrip_blocks=trimmed).render(
+            parent_fields=parent_fields,
             schema=schema,
             classes=classes,
             readable_classes=classes,

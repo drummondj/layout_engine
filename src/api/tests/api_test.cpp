@@ -1834,6 +1834,37 @@ TEST(PurposeRegistry, EveryOrdinalHasAUniqueLabel)
     EXPECT_EQ(le_purpose_has_selectable_objects(count), 0);
 }
 
+TEST(ObjectKinds, EveryKindHasAUniqueName)
+{
+    std::set<std::string> names;
+    int32_t kind = 0;
+    for (; le_object_kind_name(kind) != nullptr; ++kind)
+        EXPECT_TRUE(names.insert(le_object_kind_name(kind)).second) << le_object_kind_name(kind);
+    EXPECT_GT(kind, static_cast<int32_t>(LE_OBJECT_KIND_LAYOUT));
+    EXPECT_EQ(le_object_kind_name(-1), nullptr);
+    EXPECT_STREQ(le_object_kind_name(LE_OBJECT_KIND_TERMINAL_PORT), "terminal_port");
+    EXPECT_NE(le_object_kind_is_named(LE_OBJECT_KIND_LIBRARY), 0);
+    EXPECT_NE(le_object_kind_is_named(LE_OBJECT_KIND_PLACEMENT), 0);
+    EXPECT_EQ(le_object_kind_is_named(LE_OBJECT_KIND_SHAPE), 0);
+    EXPECT_EQ(le_object_kind_is_named(LE_OBJECT_KIND_ABSTRACT), 0);
+    EXPECT_EQ(le_object_kind_is_named(kind), 0);
+}
+
+TEST_F(ApiFixture, ObjectRefsReachEveryReadableClass)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "test_lib"), 0);
+    const LeLayerId m1 = le_layer_by_name(handle, "M1");
+    ASSERT_NE(m1.index, UINT32_MAX);
+    const LeObjectRef layer_ref{.kind = LE_OBJECT_KIND_LAYER, .index = m1.index, .generation = m1.generation};
+    EXPECT_GT(le_object_property_count(handle, layer_ref), 0);
+
+    const LeObjectRef technology_ref = le_object_parent(handle, layer_ref);
+    EXPECT_EQ(technology_ref.kind, LE_OBJECT_KIND_TECHNOLOGY);
+    ASSERT_NE(technology_ref.index, UINT32_MAX);
+    EXPECT_GT(le_object_property_count(handle, technology_ref), 0);
+    EXPECT_EQ(le_object_parent(handle, technology_ref).index, UINT32_MAX); // Technology has no parent
+}
+
 TEST_F(ApiFixture, FreshHandleHidesExactlyThePurposesHiddenByDefault)
 {
     for (int32_t purpose = 0; purpose < le_purpose_kind_count(); ++purpose)

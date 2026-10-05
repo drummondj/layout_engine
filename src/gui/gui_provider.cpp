@@ -131,6 +131,10 @@ namespace le::gui
         return le_object_parent(handle_, ref);
     }
 
+    const char *GuiProvider::object_kind_name(int32_t kind) { return le_object_kind_name(kind); }
+
+    bool GuiProvider::object_kind_is_named(int32_t kind) { return le_object_kind_is_named(kind) != 0; }
+
     LeObjectRef GuiProvider::selected_object_ref(int32_t selection_index) const
     {
         return le_selected_object_ref(handle_, selection_index);
