@@ -160,6 +160,17 @@ extern "C"
     /// live references elsewhere - not a new constraint this introduces).
     void le_destroy(LeHandle *handle);
 
+    /// @brief Number of extensions built into this binary (LE_EXTENSION_DIRS),
+    /// registered at startup by le::ext::register_all().
+    int32_t le_extension_count(void);
+
+    /// @brief The name of extension `index` (0..le_extension_count()-1), in
+    /// dependency order. Static storage; null if out of range.
+    const char *le_extension_name(int32_t index);
+
+    /// @brief The version of extension `index`. Static storage; null if out of range.
+    const char *le_extension_version(int32_t index);
+
     /// @brief Read a LEF file into this handle's shared Root, its MACROs
     /// into the Library named `library_name` (required; created at the
     /// first MACRO if it doesn't exist yet). A
