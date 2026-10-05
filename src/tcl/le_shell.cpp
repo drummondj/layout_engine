@@ -34,6 +34,7 @@
 #include "le_gui.hpp"
 #include "generated/le_shell_version.hpp"
 #include "../core/resource_path.hpp"
+#include "le/register_all.hpp"
 
 #include <readline/history.h>
 #include <readline/readline.h>
@@ -523,6 +524,9 @@ namespace
 
 int main(int argc, char **argv)
 {
+    // Before anything can use the extensions this binary was built with.
+    le::ext::register_all();
+
     const char *module_arg = nullptr;
     const char *procs_arg = nullptr;
 

@@ -82,6 +82,9 @@ WORKDIR /workspace
 # silently skipped and io/pipelines fail on a missing
 # src/lefdef/{lef,def}/include/*.hpp instead.
 #
+# The Debug tree builds the example extension (examples/extensions/hello_ext)
+# and runs its tests, so a change that breaks the extension SDK fails CI.
+#
 # pip install ./codegen: CMake runs the in-tree codegen itself (into each
 # build tree), but needs its Python dependencies (jinja2, click) installed.
 # Reinstalled on every run because codegen/ is bind-mounted source whose
@@ -97,7 +100,7 @@ CMD ["bash", "-c", "\
     rm -rf /build/debug/lef_lib-prefix /build/release/lef_lib-prefix && \
     rm -rf /build/debug/def_lib-prefix /build/release/def_lib-prefix && \
     python3 -m pip install --no-cache-dir --break-system-packages ./codegen && \
-    cmake -S . -B /build/debug -DCMAKE_BUILD_TYPE=Debug && \
+    cmake -S . -B /build/debug -DCMAKE_BUILD_TYPE=Debug -DLE_EXTENSION_DIRS=$PWD/examples/extensions/hello_ext && \
     cmake --build /build/debug -j ${BUILD_JOBS} && \
     ctest --test-dir /build/debug --output-on-failure && \
     cmake -S . -B /build/release -DCMAKE_BUILD_TYPE=Release && \

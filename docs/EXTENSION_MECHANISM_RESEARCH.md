@@ -322,21 +322,24 @@ Add to `le_add_extension()`:
 
 ## 5. C++ modules: a narrow extension SDK
 
-Add an INTERFACE target, `le::extension_sdk`, that exposes the headers under `src/extension/le/` and the generated database headers:
+*Built:* an INTERFACE target, `le::extension_sdk`, exposes `src/extension/le/extension.hpp`, the C API and the database headers:
 
 ```cpp
 namespace le::ext {
 class ExtensionContext {
 public:
-    ReadView  read();                 // shared lock; const Root&, view_layers, selection
-    WriteView write();                // HandleWriteLock; Root&, notifies render on scope exit
-    Transaction begin_transaction(std::string_view label);   // groups edits into one undo step
-    template <class T> T &extension_data();
-    spdlog::logger &log();
+    ExtensionContext(LeHandle *handle, std::string_view extension_name);
+    LeHandle *handle() const;               // for C API calls (le_*)
+    ReadView read() const;                  // shared lock; const Root&
+    WriteView write();                      // exclusive lock; Root&; bumps the mutation version and wakes the renderer when it ends
+    Transaction transaction(const std::string &label);  // groups C API edits into one undo step
+    template <class T> T &data();           // per-session, per-extension state
 };
 }
 ```
 
+- **Undo:** only the C API's generated `le_create_<type>`/`le_update_<type>`/`le_delete_<type>` record undo steps. So an undoable edit calls those through `handle()` inside a `transaction()`. `write()` is for bulk edits that aren't undoable, such as a reader.
+- `log()` was left out until an extension needs it; spdlog is reachable through the database headers anyway.
 - The rest of `api` (pipelines, LeHandle internals, io) stays `PRIVATE`. The smaller the SDK, the fewer upgrade breaks.
 - Everything is compiled together, so **ABI does not matter**. The contract is source-level only, and a breaking change bumps `LE_EXTENSION_API_VERSION`. The `static_assert` above makes the break show up as a clear compile-time message rather than confusing template errors.
 - Customers link their own third-party dependencies through `LINK`. Those dependencies do not leak into core targets.
@@ -575,7 +578,7 @@ Phase 0 is groundwork that the package manager also needs. Package-manager phase
 | Phase | Work | Unlocks |
 |---|---|---|
 | 0 | CMake runs codegen into the build dir; tagged, versioned releases; `le_extension.toml` schema and its CMake reader | Reproducible builds from a clean checkout |
-| 1 | `LE_EXTENSION_DIRS`, `le_add_extension()`, dependency ordering, `Registry`, generated `register_all()`, `LeHandle` extension-data slots, `le::extension_sdk` | Customer C++ modules |
+| 1 ✅ | `LE_EXTENSION_DIRS`, `le_add_extension()`, dependency ordering, `Registry`, generated `register_all()`, `LeHandle` extension-data slots, `le::extension_sdk` | Customer C++ modules |
 | 2 | Generated `le_api_extensions.i`, the `extensions.json` index read by `app_init`, `add_tcl_init` | Customer TCL commands; script extensions in a prebuilt release |
 | 3 | Menu bar with Window/Extensions menus, `GuiWindow` list (core panels migrated), `ExtGuiContext` | Customer GUI windows |
 | 4 | Codegen `--extension`, prefix and collision validation | Customer schema objects |

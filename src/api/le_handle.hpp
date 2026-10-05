@@ -22,6 +22,7 @@
 #include <deque>
 #include <limits>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -143,6 +144,12 @@ struct LeHandle
     // callers that bracket one with begin()/end().
     le::editing::CommandHistory command_history;
     std::shared_mutex mutex_;
+    // Extensions' per-handle state (le::ext::ExtensionContext::data<T>()),
+    // keyed by extension name and type. State lives here, not in globals,
+    // because le_shell and the le_tcl module each link their own copy of
+    // every extension. Its own mutex, so a lookup never waits on a render.
+    std::mutex extension_data_mutex;
+    std::unordered_map<std::string, std::shared_ptr<void>> extension_data;
 
     // Whether le_render_pixel_buffer is currently doing real work on this
     // handle, for a caller (the GUI's "rendering..." indicator) that

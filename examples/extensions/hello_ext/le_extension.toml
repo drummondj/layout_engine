@@ -1,0 +1,14 @@
+# A minimal compiled extension: the in-tree example CI builds, so a change
+# that breaks the extension SDK fails here before it reaches anyone else.
+[extension]
+name = "hello_ext"
+version = "0.1.0"
+prefix = "Hello"
+description = "Example extension: counts libraries, and adds a greeting library as one undo step"
+
+[compatibility]
+layout_engine = ">=0.2, <0.3"
+extension_api = 1
+
+[contents]
+cmake = "le_extension.cmake"

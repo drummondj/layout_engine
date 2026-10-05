@@ -34,7 +34,14 @@
 
 %{
 #include "le_tcl_shim.hpp"
+#include "le/register_all.hpp"
 #include <vector>
+%}
+
+// The module links its own copy of every extension, so it registers them
+// itself when Tcl loads it (le_shell's own copy registers in main()).
+%init %{
+    le::ext::register_all();
 %}
 
 // Gives SWIG a portable definition of int32_t/int64_t (and their Tcl

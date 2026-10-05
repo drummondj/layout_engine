@@ -148,6 +148,17 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   migration step and a golden file in `src/api/tests/fixtures/settings/`
   per version), the dock layout to `~/.layout_engine/window_layout.ini`. No
   automated coverage of the render/input loop itself.
+- `src/extension/` — the extension SDK header, `le/extension.hpp`
+  (`le::ext::Registry`, `ExtensionContext` with `read()`/`write()`/
+  `transaction()`/`data<T>()`; implemented in `src/api/extension.cpp`),
+  versioned by `LE_EXTENSION_API_VERSION`. `cmake/le_extensions.cmake`
+  builds each directory in `LE_EXTENSION_DIRS` (its `le_extension.toml`
+  checked and ordered by `codegen/codegen/extension_manifest.py`, its
+  `le_extension.cmake` calling `le_add_extension()`) into the
+  `le_extensions` library with a generated `register_all()`, called by
+  `le_shell` and the `le_tcl` module. Extension state lives on `LeHandle`
+  (`data<T>()`), never in globals: `le_shell` and `le_tcl` each link their
+  own copy. `examples/extensions/hello_ext` is the example CI builds.
 - `src/lefdef/` — vendored Si2 LEF/DEF 6.0.62-p004 parser source, built by
   its own Makefiles via `ExternalProject_Add` (`lef_lib`/`def_lib`). Never
   hand-edit.

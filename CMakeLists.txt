@@ -14,6 +14,12 @@ endif()
 
 project(layout_engine_backend VERSION 0.2.0 LANGUAGES C CXX)
 
+# The extension SDK's version (src/extension/le/extension.hpp): bumped on any
+# breaking change to it, and checked against each extension's manifest.
+set(LE_EXTENSION_API_VERSION 1)
+set(LE_EXTENSION_DIRS "" CACHE STRING
+    "Extension directories (each with an le_extension.toml) to build into le_shell/le_tcl, ;-separated")
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -630,12 +636,28 @@ le_enable_coverage_instrumentation(io)
 # Compiled (not header-only): the opaque LeHandle's real definition must
 # stay out of api.hpp, which is a plain-C header - see api.hpp's own
 # comment. ---
-add_library(api STATIC src/api/api.cpp)
+add_library(api STATIC src/api/api.cpp src/api/extension.cpp)
 # api.hpp includes "generated/api/..." itself, so its consumers need the
 # build tree's root on their include path (and the codegen step) too.
 target_include_directories(api PUBLIC src/api ${CMAKE_BINARY_DIR})
 add_dependencies(api le_codegen)
 target_link_libraries(api PRIVATE database geometry editing pipelines io)
+# extension.cpp implements the extension SDK (src/extension/le/extension.hpp).
+target_include_directories(api PRIVATE src/extension)
+target_compile_definitions(api PRIVATE LE_EXTENSION_API_VERSION=${LE_EXTENSION_API_VERSION})
+
+# --- extension SDK: what an extension's C++ may use (le/extension.hpp, the C
+# API and the database). A breaking change to it bumps LE_EXTENSION_API_VERSION,
+# which extensions check with a static_assert and their manifests'
+# [compatibility] extension_api. ---
+add_library(extension_sdk INTERFACE)
+add_library(le::extension_sdk ALIAS extension_sdk)
+target_include_directories(extension_sdk INTERFACE src/extension)
+target_link_libraries(extension_sdk INTERFACE api database)
+target_compile_definitions(extension_sdk INTERFACE LE_EXTENSION_API_VERSION=${LE_EXTENSION_API_VERSION})
+
+# The extensions in LE_EXTENSION_DIRS, as the `le_extensions` library.
+include(cmake/le_extensions.cmake)
 target_include_directories(api PRIVATE ${nlohmann_json_header_SOURCE_DIR})
 le_enable_coverage_instrumentation(api)
 
@@ -747,7 +769,7 @@ if(SWIG_FOUND AND TCL_FOUND)
     # links it too, but only PUBLIC-propagates it as far as api, not this
     # far; le_tcl_shim.cpp needs it directly for dump_png_cmd's own
     # BLImage::write_to_file PNG export.
-    target_link_libraries(le_tcl PRIVATE api blend2d::blend2d ${TCL_LIBRARY})
+    target_link_libraries(le_tcl PRIVATE api le_extensions blend2d::blend2d ${TCL_LIBRARY})
     # Hide this module's own copies of symbols that are also statically
     # linked into the process that loads it (src/tcl/le_tcl_unexported_symbols.txt).
     # On macOS, le_shell links `api` (and transitively io/liblef.a,
@@ -920,7 +942,7 @@ if(SWIG_FOUND AND TCL_FOUND)
     add_executable(le_shell src/tcl/le_shell.cpp)
     add_dependencies(le_shell generate_le_shell_version)
     target_include_directories(le_shell PRIVATE ${TCL_INCLUDE_PATH} ${CMAKE_BINARY_DIR})
-    target_link_libraries(le_shell PRIVATE ${TCL_LIBRARY} api gui)
+    target_link_libraries(le_shell PRIVATE ${TCL_LIBRARY} api gui le_extensions)
 
     # Compile-time fallback for -module/-procs and their LE_TCL_MODULE/
     # LE_TCL_PROCS_PATH env-var equivalents (le_shell.cpp's own
