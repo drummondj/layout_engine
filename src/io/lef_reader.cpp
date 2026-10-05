@@ -291,7 +291,7 @@ namespace le
             spdlog::debug("boundary polygon {}", fmt::streamed(polygon));
 
         reader->root_->create_shape(ShapeData{
-            .abstract = reader->abstract_id_,
+            .owner = le::ShapeOwner::abstract(reader->abstract_id_),
             .purpose = ShapePurpose::BOUNDARY,
             .polygons = std::move(boundary_polygons),
         });
@@ -1771,7 +1771,7 @@ namespace le
             auto port_id = reader->root_->create_terminal_port(port);
             for (auto &shape : shapes)
             {
-                shape.terminal_port = port_id;
+                shape.owner = le::ShapeOwner::terminal_port(port_id);
                 reader->root_->create_shape(std::move(shape));
             }
         }
@@ -1789,7 +1789,7 @@ namespace le
         auto obstruction_id = reader->root_->create_obstruction(ObstructionData{.abstract = reader->abstract_id_});
         for (auto &shape : shapes)
         {
-            shape.obstruction = obstruction_id;
+            shape.owner = le::ShapeOwner::obstruction(obstruction_id);
             reader->root_->create_shape(std::move(shape));
         }
 

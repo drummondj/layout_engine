@@ -60,12 +60,12 @@ namespace
             const LibraryId library_id = root.create_library(LibraryData{.name = "LIB"});
             const DesignId leaf_design = root.create_design(DesignData{.library = library_id, .name = "LEAF"});
             leaf_abstract = root.create_abstract(AbstractData{.design = leaf_design});
-            root.create_shape(ShapeData{.abstract = leaf_abstract, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::abstract(leaf_abstract), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
             const TerminalId leaf_terminal = root.create_terminal(TerminalData{.abstract = leaf_abstract, .name = "A", .direction = SignalDirection::INPUT});
             const TerminalPortId leaf_port = root.create_terminal_port(TerminalPortData{.terminal = leaf_terminal});
-            root.create_shape(ShapeData{.terminal_port = leaf_port, .layer = m1, .rects = {Rect{.ll = Point{1, 1}, .ur = Point{2, 2}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::terminal_port(leaf_port), .layer = m1, .rects = {Rect{.ll = Point{1, 1}, .ur = Point{2, 2}}}});
             const ObstructionId leaf_obstruction = root.create_obstruction(ObstructionData{.abstract = leaf_abstract});
-            root.create_shape(ShapeData{.obstruction = leaf_obstruction, .layer = m1, .rects = {Rect{.ll = Point{3, 3}, .ur = Point{4, 4}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::obstruction(leaf_obstruction), .layer = m1, .rects = {Rect{.ll = Point{3, 3}, .ur = Point{4, 4}}}});
 
             hierarchy_resolver_runner.run(view_layers_handle, 0, options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0));
             hierarchy_output = hierarchy_resolver_runner.last_handle();
@@ -160,7 +160,7 @@ TEST_F(RasterizeBlend2DStageFixture, ShapeFarOutsideTheRenderViewportIsCulledBut
     // wired correctly for this backend.
     const TerminalId far_terminal = root.create_terminal(TerminalData{.abstract = leaf_abstract, .name = "FAR", .direction = SignalDirection::INPUT});
     const TerminalPortId far_port = root.create_terminal_port(TerminalPortData{.terminal = far_terminal});
-    root.create_shape(ShapeData{.terminal_port = far_port, .layer = m1, .rects = {Rect{.ll = Point{1000, 1000}, .ur = Point{1001, 1001}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::terminal_port(far_port), .layer = m1, .rects = {Rect{.ll = Point{1000, 1000}, .ur = Point{1001, 1001}}}});
 
     HierarchyResolverRunner fresh_hierarchy_runner{"HierarchyResolverCullingTest"};
     const ViewRenderOptions options = options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);
@@ -197,10 +197,10 @@ TEST_F(RasterizeBlend2DStageFixture, PortLabelDrawsOverItsOwnMarker)
     const LibraryId library_id = root.create_library(LibraryData{.name = "TOPLIB"});
     const DesignId top_design = root.create_design(DesignData{.library = library_id, .name = "TOP"});
     const LayoutId top_layout = root.create_layout(LayoutData{.design = top_design});
-    root.create_shape(ShapeData{.layout = top_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{1000, 0}, Point{1000, 1000}, Point{0, 1000}}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::layout(top_layout), .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{1000, 0}, Point{1000, 1000}, Point{0, 1000}}}}});
     const PhysicalPortId port = root.create_physical_port(PhysicalPortData{.layout = top_layout, .name = "PORT_WITH_A_LONG_NAME", .direction = SignalDirection::INPUT});
     const PhysicalPortSegmentId segment = root.create_physical_port_segment(PhysicalPortSegmentData{.physical_port = port});
-    root.create_shape(ShapeData{.physical_port_segment = segment, .layer = m1, .rects = {Rect{.ll = Point{960, 480}, .ur = Point{1000, 520}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::physical_port_segment(segment), .layer = m1, .rects = {Rect{.ll = Point{960, 480}, .ur = Point{1000, 520}}}});
 
     // 2 px/dbu over (800,400)-(1100,600): 600x400 px. The marker points in
     // to its apex at (1000, 500), capped at 16 px: its base is at
@@ -228,14 +228,14 @@ TEST_F(RasterizeBlend2DStageFixture, ChunkVisibilityMasksHideRouteShapesAndPlace
     const LibraryId library_id = root.create_library(LibraryData{.name = "TOPLIB"});
     const DesignId small_design = root.create_design(DesignData{.library = library_id, .name = "SMALL"});
     const AbstractId small = root.create_abstract(AbstractData{.design = small_design});
-    root.create_shape(ShapeData{.abstract = small, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{2, 2}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::abstract(small), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{2, 2}}}});
     const LayoutId top = root.create_layout(LayoutData{.design = root.create_design(DesignData{.library = library_id, .name = "TOP"})});
-    root.create_shape(ShapeData{.layout = top, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::layout(top), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
     const PlacementId p0 = root.create_placement(PlacementData{.layout = top, .name = "p0", .reference_design = small_design, .placement_status = PlacementStatus::PLACED, .location = Point{6, 1}, .orientation = Orientation::N});
     root.create_placement(PlacementData{.layout = top, .name = "p1", .reference_design = small_design, .placement_status = PlacementStatus::PLACED, .location = Point{6, 4}, .orientation = Orientation::N});
     const RouteId route = root.create_route(RouteData{.layout = top, .name = "n1"});
-    const ShapeId hidden_shape = root.create_shape(ShapeData{.route = route, .layer = m1, .rects = {Rect{.ll = Point{1, 1}, .ur = Point{3, 2}}}});
-    root.create_shape(ShapeData{.route = route, .layer = m1, .rects = {Rect{.ll = Point{1, 4}, .ur = Point{3, 5}}}});
+    const ShapeId hidden_shape = root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route), .layer = m1, .rects = {Rect{.ll = Point{1, 1}, .ur = Point{3, 2}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route), .layer = m1, .rects = {Rect{.ll = Point{1, 4}, .ur = Point{3, 5}}}});
 
     // scale 10 over (0,0)-(10,10): device (x, y) is dbu (x / 10, 10 - y / 10).
     const ViewRenderOptions options = options_for(HierarchyId{top}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}, 10.0);
@@ -283,10 +283,10 @@ TEST_F(RasterizeBlend2DStageFixture, PortMarkerIsCappedAtSixteenPixels)
     const LibraryId library_id = root.create_library(LibraryData{.name = "TOPLIB"});
     const DesignId top_design = root.create_design(DesignData{.library = library_id, .name = "TOP"});
     const LayoutId top_layout = root.create_layout(LayoutData{.design = top_design});
-    root.create_shape(ShapeData{.layout = top_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{1000, 1000}}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::layout(top_layout), .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{1000, 1000}}}}});
     const PhysicalPortId port = root.create_physical_port(PhysicalPortData{.layout = top_layout, .name = "IN", .direction = SignalDirection::INPUT});
     const PhysicalPortSegmentId segment = root.create_physical_port_segment(PhysicalPortSegmentData{.physical_port = port});
-    root.create_shape(ShapeData{.physical_port_segment = segment, .layer = m1, .rects = {Rect{.ll = Point{0, 400}, .ur = Point{20, 440}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::physical_port_segment(segment), .layer = m1, .rects = {Rect{.ll = Point{0, 400}, .ur = Point{20, 440}}}});
 
     // Viewport (-100, 300)-(100, 500): pixel (x, y) is dbu (x - 100, 500 - y).
     ViewRenderOptions options = options_for(HierarchyId{top_layout}, 0, Rect{.ll = Point{-100, 300}, .ur = Point{100, 500}}, 1.0);

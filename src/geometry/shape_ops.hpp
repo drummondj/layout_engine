@@ -56,13 +56,13 @@ namespace le::shape_ops
             std::visit([&](auto id)
                        {
                 using IdT = decltype(id);
-                if constexpr (std::is_same_v<IdT, AbstractId>) data.in_abstract = id;
-                else if constexpr (std::is_same_v<IdT, LayoutId>) data.in_layout = id;
-                else if constexpr (std::is_same_v<IdT, ObstructionId>) data.obstruction = id;
-                else if constexpr (std::is_same_v<IdT, TerminalPortId>) data.terminal_port = id;
-                else if constexpr (std::is_same_v<IdT, RouteId>) data.route = id;
-                else if constexpr (std::is_same_v<IdT, BlockageId>) data.blockage = id;
-                else data.physical_port_segment = id; },
+                if constexpr (std::is_same_v<IdT, AbstractId>) data.owner = le::ShapeOwner::in_abstract(id);
+                else if constexpr (std::is_same_v<IdT, LayoutId>) data.owner = le::ShapeOwner::in_layout(id);
+                else if constexpr (std::is_same_v<IdT, ObstructionId>) data.owner = le::ShapeOwner::obstruction(id);
+                else if constexpr (std::is_same_v<IdT, TerminalPortId>) data.owner = le::ShapeOwner::terminal_port(id);
+                else if constexpr (std::is_same_v<IdT, RouteId>) data.owner = le::ShapeOwner::route(id);
+                else if constexpr (std::is_same_v<IdT, BlockageId>) data.owner = le::ShapeOwner::blockage(id);
+                else data.owner = le::ShapeOwner::physical_port_segment(id); },
                        parent);
         }
 

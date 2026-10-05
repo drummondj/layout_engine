@@ -54,7 +54,7 @@ namespace
             terminal.abstract = abstract;
             terminal.name = pin_names[i];
             ShapeData shape{};
-            shape.terminal_port = root.create_terminal_port(TerminalPortData{.terminal = root.create_terminal(terminal)});
+            shape.owner = le::ShapeOwner::terminal_port(root.create_terminal_port(TerminalPortData{.terminal = root.create_terminal(terminal)}));
             shape.rects = {Rect{.ll = {100 + 200 * i, 100}, .ur = {200 + 200 * i, 400}}};
             root.create_shape(shape);
         }

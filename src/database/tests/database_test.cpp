@@ -442,7 +442,7 @@ TEST(FilterMetadata, MatchObstructionHopCoversParentWalkAndEmbeddedListExistenti
     LayerId m9 = root.create_layer(LayerData{.technology = technology_id, .name = "M9", .type = "ROUTING"});
 
     ObstructionId obstruction_id = root.create_obstruction(ObstructionData{.abstract = abstract_id});
-    root.create_shape(ShapeData{.obstruction = obstruction_id, .layer = m4});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::obstruction(obstruction_id), .layer = m4});
     const ObstructionData *data = root.get_obstruction(obstruction_id);
     ASSERT_NE(data, nullptr);
 
@@ -637,7 +637,7 @@ TEST(DatabaseChangeLog, CreateUpdateDeleteRecordTheObjectAndItsOwner)
     const uint64_t since = root.change_log().end_sequence();
 
     const RouteId route = root.create_route(RouteData{.layout = layout});
-    const ShapeId shape = root.create_shape(ShapeData{.route = route, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{1, 1}}}});
+    const ShapeId shape = root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route), .rects = {Rect{.ll = Point{0, 0}, .ur = Point{1, 1}}}});
     ASSERT_TRUE(root.update_shape(shape, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{0, 0}, .ur = Point{2, 2}}}, std::nullopt, std::nullopt, std::nullopt));
     ASSERT_TRUE(root.delete_shape(shape));
 

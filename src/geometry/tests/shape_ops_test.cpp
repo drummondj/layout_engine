@@ -27,7 +27,7 @@ namespace
 
         ShapeId free_rect(LayerId layer, Rect rect)
         {
-            return root.create_shape(ShapeData{.in_abstract = abstract_id, .layer = layer, .rects = {rect}});
+            return root.create_shape(ShapeData{.owner = le::ShapeOwner::in_abstract(abstract_id), .layer = layer, .rects = {rect}});
         }
     };
 }
@@ -46,7 +46,7 @@ TEST_F(ShapeOps, CopyCreatesOneShapePerInputOnTheNewLayer)
         const Shape *copy = root.get_shape(id);
         ASSERT_NE(copy, nullptr);
         EXPECT_EQ(copy->layer, m2);
-        EXPECT_EQ(copy->in_abstract, abstract_id);
+        EXPECT_EQ(copy->in_abstract(), abstract_id);
         EXPECT_EQ(copy->rects.size(), 1u);
     }
     EXPECT_EQ(root.get_shape(a)->layer, m1); // the original is untouched
@@ -89,8 +89,8 @@ TEST_F(ShapeOps, ResultsCanJoinARealParentsShapes)
 
     ASSERT_TRUE(result.has_value()) << result.error();
     ASSERT_EQ(result->size(), 1u);
-    EXPECT_EQ(root.get_shape(result->front())->obstruction, obstruction_id);
-    EXPECT_FALSE(root.get_shape(result->front())->in_abstract.valid());
+    EXPECT_EQ(root.get_shape(result->front())->obstruction(), obstruction_id);
+    EXPECT_FALSE(root.get_shape(result->front())->in_abstract().valid());
     ASSERT_EQ(root.get_obstruction_shapes(obstruction_id).size(), 1u);
 }
 
@@ -117,7 +117,7 @@ TEST_F(ShapeOps, AFailingInputLeavesTheDatabaseUntouched)
     // X/Y amounts - nothing may be created for either.
     const ShapeId rect = free_rect(m1, Rect{.ll = {0, 0}, .ur = {10, 10}});
     const ShapeId triangle = root.create_shape(ShapeData{
-        .in_abstract = abstract_id,
+        .owner = le::ShapeOwner::in_abstract(abstract_id),
         .layer = m1,
         .polygons = {Polygon{.points = {{0, 0}, {100, 0}, {0, 100}, {0, 0}}}},
     });
@@ -132,7 +132,7 @@ TEST_F(ShapeOps, AFailingInputLeavesTheDatabaseUntouched)
 TEST_F(ShapeOps, IteratesAreExpandedBeforeOperating)
 {
     const ShapeId iterated = root.create_shape(ShapeData{
-        .in_abstract = abstract_id,
+        .owner = le::ShapeOwner::in_abstract(abstract_id),
         .layer = m1,
         .rect_iterates = {RectIterate{.rect = Rect{.ll = {0, 0}, .ur = {10, 10}}, .num_x = 3, .num_y = 1, .space_x = 20, .space_y = 0}},
     });

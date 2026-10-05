@@ -29,6 +29,8 @@
 //   presence-flagged value       1 byte (0/1), then the value if 1
 //   list                         varint count, then the elements
 //   embedded struct              its stored fields, in the file's declared order
+//   owner (<Klass>Owner)         1 byte (0/1); if 1, the option's name as a
+//                                string-table index, then varint parent row
 //
 // Encoding is driven by the current C++ types. Decoding is driven by the
 // *file's* schema descriptor: fields and struct members are matched by
@@ -70,6 +72,8 @@ namespace le::persistence
     };
     template <class T>
     concept HasFields = requires { nt::Fields<T>::members; };
+    template <class T>
+    concept IsOwner = requires { nt::OwnerInfo<T>::name; };
 
     // --- Encoding ------------------------------------------------------------
 
@@ -102,7 +106,26 @@ namespace le::persistence
     template <class T>
     void encode_value(ByteWriter &w, const T &value, EncodeContext &ctx)
     {
-        if constexpr (IsId<T>::value)
+        if constexpr (IsOwner<T>)
+        {
+            bool written = false;
+            nt::OwnerInfo<T>::with_kind(value.kind, [&]<class P>(P, std::string_view option) {
+                const auto &dense = ctx.dense[P::index];
+                const typename P::Id parent{value.index, value.generation};
+                if (value.index < dense.size() && dense[value.index] != kNoRow && P::pool(*ctx.root).contains(parent))
+                {
+                    w.u8(1);
+                    w.varint(ctx.intern(option));
+                    w.varint(dense[value.index]);
+                    written = true;
+                }
+                else
+                    ++ctx.dangling_references;
+            });
+            if (!written)
+                w.u8(0);
+        }
+        else if constexpr (IsId<T>::value)
         {
             using P = nt::Pooled<typename IsId<T>::tag>;
             if (!value.valid())
@@ -164,12 +187,15 @@ namespace le::persistence
             Enum,
             Ref,
             Struct,
+            Owner,
         };
         Kind kind = Kind::Int;
         std::string name; // Enum/Ref/Struct: the type's schema name; scalars: the schema type ("dbu", ...)
         bool presence = false;
         bool list = false;
         const FileStruct *structure = nullptr; // Kind::Struct only
+        /// Kind::Owner only: each option's name and the class it refers to.
+        std::vector<std::pair<std::string, std::string>> owner_options;
     };
 
     struct FileField
@@ -205,7 +231,22 @@ namespace le::persistence
     std::string incompatibility(const FileType &ft, bool presence, bool list)
     {
         using K = FileType::Kind;
-        if constexpr (IsId<T>::value)
+        if constexpr (IsOwner<T>)
+        {
+            if (ft.kind != K::Owner || list || presence)
+                return "was not an owner, now " + std::string(nt::OwnerInfo<T>::name);
+            for (const auto &[option, klass] : ft.owner_options)
+            {
+                std::string problem = "owner option " + option + " no longer exists";
+                nt::OwnerInfo<T>::with_option(option, [&]<class P>(P, auto) {
+                    problem = klass == P::name ? std::string{} : "owner option " + option + " referred to " + klass + ", now refers to " + std::string(P::name);
+                });
+                if (!problem.empty())
+                    return problem;
+            }
+            return {};
+        }
+        else if constexpr (IsId<T>::value)
         {
             using P = nt::Pooled<typename IsId<T>::tag>;
             if (ft.kind != K::Ref || list)
@@ -298,7 +339,25 @@ namespace le::persistence
     void decode_value(ByteReader &r, const FileType &ft, bool presence, bool list, T &out, DecodeContext &ctx)
     {
         using K = FileType::Kind;
-        if constexpr (IsId<T>::value)
+        if constexpr (IsOwner<T>)
+        {
+            const uint8_t present = r.u8();
+            if (present > 1)
+                r.fail("bad owner presence byte");
+            out = T{};
+            if (!present)
+                return;
+            const std::string_view option = ctx.string_at(r);
+            const uint64_t row = r.varint();
+            const bool known = nt::OwnerInfo<T>::with_option(option, [&]<class P>(P, auto kind) {
+                if (row >= ctx.row_counts[P::index])
+                    r.fail("owner " + std::string(option) + " row " + std::to_string(row) + " past the last " + std::string(P::name) + " row");
+                out = T{kind, static_cast<uint32_t>(row), 0};
+            });
+            if (!known)
+                r.fail("unknown owner option " + std::string(option));
+        }
+        else if constexpr (IsId<T>::value)
         {
             using P = nt::Pooled<typename IsId<T>::tag>;
             const uint64_t value = r.varint();

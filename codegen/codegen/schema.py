@@ -132,6 +132,11 @@ def _leaf_value_expr(leaf: "Field", param: str) -> str:
     return param
 
 
+def child_klass_owner_type(klass_name: str) -> str:
+    """The <Klass>Owner type name for a class with owner=True parent fields."""
+    return f"{klass_name}Owner"
+
+
 def to_snake_case(name: str) -> str:
     """
     Convert a camelCase or PascalCase string to snake_case.
@@ -940,7 +945,18 @@ class Klass:
         # anywhere relative to its class's other create fields, so this
         # single pass over self.fields is what keeps the emitted literal
         # in the one order C++ actually requires).
+        owner_fields = self.get_owner_fields()
+        if owner_fields:
+            # `owner` is the struct's first member: whichever owner parameter
+            # was given (validation above guarantees at most one).
+            owner_type = f"le::{self.owner_type_name()}"
+            expr = f"{owner_type}{{}}"
+            for f in reversed(owner_fields):
+                expr = f"{f.name}.valid() ? {owner_type}::{f.name}({f.name}) : {expr}"
+            add(f"    .owner = {expr},")
         for f in self.fields:
+            if f.owner:
+                continue
             if f in parent_fields:
                 add(f"    .{f.name} = {f.name},")
             elif f in reference_fields:
@@ -1971,6 +1987,7 @@ class Klass:
                     "field": fld,
                     "child_klass": child_klass,
                     "child_field_name": child_field.name,
+                    "child_field_is_owner": child_field.owner,
                     "ids_var": ids_var,
                     "snap_var": snap_var,
                     "owner_is_scalar": owner_is_scalar,
@@ -2020,7 +2037,10 @@ class Klass:
             add(f"            [{parent_cell_expr}](le::Root &r, const le::{child_type}Data &d)")
             add("            {")
             add(f"                le::{child_type}Data fixed = d;")
-            add(f"                fixed.{fixup_field} = {parent_cell_expr}->id;")
+            if e["child_field_is_owner"]:
+                add(f"                fixed.owner = le::{child_klass_owner_type(child_type)}::{fixup_field}({parent_cell_expr}->id);")
+            else:
+                add(f"                fixed.{fixup_field} = {parent_cell_expr}->id;")
             add(f"                return r.create_{child_snake}(fixed);")
             add("            },")
             add(f"            [](le::Root &r, le::{child_type}Id i) {{ return r.delete_{child_snake}(i); }});")
@@ -2157,9 +2177,19 @@ class Klass:
             other_fields, key=lambda x: x.name
         )
 
+    def get_owner_fields(self) -> List["Field"]:
+        """The owner=True parent fields, stored together in one `owner` member."""
+        return [f for f in self.fields if f.owner]
+
+    def owner_type_name(self) -> str:
+        """The C++ type of this class's `owner` member, e.g. ShapeOwner."""
+        return f"{self.name}Owner"
+
     def get_struct_fields(self):
         """
-        Get the struct fields when using INDEXED_POOL export style
+        Get the struct fields when using INDEXED_POOL export style - the
+        stored members, so owner=True fields (stored in `owner`) are left
+        out.
 
         Returns:
             List[Field]: The struct fields.
@@ -2168,6 +2198,8 @@ class Klass:
         for field in self.fields:
             ## Ignore child references
             if field.is_child and field.is_reference():
+                continue
+            if field.owner:
                 continue
 
             struct_fields.append(field)
@@ -2386,6 +2418,15 @@ class Field:
             down - {"debug": {"purpose": "DEBUG"}} on Shape.layer makes
             `create_shape -layer debug` mean `-purpose DEBUG` with no
             layer, matching the shape_* commands' own `-layer debug`.
+
+        owner (bool): Requires parent=. The field isn't stored on its own:
+            every owner=True parent field of a Klass shares one generated
+            `owner` member (<Klass>Owner: which of these fields is set, plus
+            that parent's id), so at most one can ever be set. Generated code
+            reads it through an accessor named after the field (`route()`)
+            and builds one with <Klass>Owner::<field>(id). Flags, filter
+            hops and change-log slots keep the field's name, as for any
+            parent field.
     """
 
     name: str
@@ -2402,12 +2443,23 @@ class Field:
     create_excluded: bool = False
     value: Optional[int] = None
     tcl_create_aliases: Optional[Dict[str, Dict[str, str]]] = None
+    owner: bool = False
     _parent_klass: Optional[Klass] = field(default=None, repr=False, init=False)
     _parent_field: Optional["Field"] = field(default=None, repr=False, init=False)
     _child_klass: Optional[Klass] = field(default=None, repr=False, init=False)
     _child_field: Optional["Field"] = field(default=None, repr=False, init=False)
     _klass: Optional[Klass] = field(default=None, repr=False, init=False)
     _type_klass: Optional[Klass] = field(default=None, repr=False, init=False)
+
+    @property
+    def accessor(self) -> str:
+        """How generated C++ reads this field off its struct: `name`, or
+        `name()` for an owner=True field (stored in the struct's `owner`)."""
+        return f"{self.name}()" if self.owner else self.name
+
+    def owner_kind(self) -> str:
+        """This owner=True field's enumerator in <Klass>OwnerKind (PascalCase)."""
+        return "".join(part.capitalize() for part in self.name.split("_"))
 
     def has_parent(self) -> bool:
         """

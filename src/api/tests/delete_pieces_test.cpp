@@ -25,7 +25,7 @@ namespace
             const le::LayoutId layout = root.create_layout(le::LayoutData{.design = design});
             const le::RouteId route = root.create_route(le::RouteData{.layout = layout, .name = "NET1"});
             shape = root.create_shape(le::ShapeData{
-                .route = route,
+                .owner = le::ShapeOwner::route(route),
                 .layer = root.get_layer_by_name("M1"),
                 .paths = {le::Path{.width = 10, .polygon = {.points = {le::Point{0, 0}, le::Point{100, 0}}}}},
                 .rects = {le::Rect{.ll = {0, 0}, .ur = {10, 10}}, le::Rect{.ll = {20, 0}, .ur = {30, 10}}, le::Rect{.ll = {40, 0}, .ur = {50, 10}}},
@@ -88,7 +88,7 @@ TEST_F(DeletePiecesFixture, IsOneUndoableStep)
 
 TEST_F(DeletePiecesFixture, AShapeLeftWithNoGeometryIsDeletedAndUndoBringsItBackWhole)
 {
-    const le::RouteId route = data().route;
+    const le::RouteId route = data().route();
     for (size_t i = 0; i < 3; ++i)
         handle->select(shape, le::PieceKind::RECT, i);
     handle->select(shape, le::PieceKind::PATH, 0);

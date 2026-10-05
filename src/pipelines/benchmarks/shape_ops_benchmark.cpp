@@ -233,9 +233,9 @@ namespace
                 .rects = {Rect{.ll = {x, y}, .ur = {x + std::max<int64_t>(step_x * 2 / 3, 1), y + std::max<int64_t>(step_y * 2 / 3, 1)}}},
             };
             if (target == FreeShapeTarget::Layout)
-                data.in_layout = fixture.layout_id;
+                data.owner = le::ShapeOwner::in_layout(fixture.layout_id);
             else
-                data.in_abstract = cell_abstract;
+                data.owner = le::ShapeOwner::in_abstract(cell_abstract);
             root.create_shape(std::move(data));
         }
         root.bump_mutation_version();

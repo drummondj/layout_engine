@@ -54,19 +54,19 @@ namespace
 
             const DesignId leaf_design = root.create_design(DesignData{.library = library_id, .name = "LEAF"});
             leaf_abstract = root.create_abstract(AbstractData{.design = leaf_design});
-            root.create_shape(ShapeData{.abstract = leaf_abstract, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::abstract(leaf_abstract), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
             const TerminalId leaf_terminal = root.create_terminal(TerminalData{.abstract = leaf_abstract, .name = "A", .direction = SignalDirection::INPUT});
             const TerminalPortId leaf_port = root.create_terminal_port(TerminalPortData{.terminal = leaf_terminal});
-            root.create_shape(ShapeData{.terminal_port = leaf_port, .layer = m1, .rects = {Rect{.ll = Point{1, 1}, .ur = Point{4, 2}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::terminal_port(leaf_port), .layer = m1, .rects = {Rect{.ll = Point{1, 1}, .ur = Point{4, 2}}}});
 
             const DesignId block_design = root.create_design(DesignData{.library = library_id, .name = "BLOCK"});
             block_layout = root.create_layout(LayoutData{.design = block_design});
-            root.create_shape(ShapeData{.layout = block_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{50, 50}}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::layout(block_layout), .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{50, 50}}}}});
             root.create_placement(PlacementData{.layout = block_layout, .name = "leaf0", .reference_design = leaf_design, .placement_status = PlacementStatus::PLACED, .location = Point{20, 20}, .orientation = leaf_orientation});
 
             const DesignId top_design = root.create_design(DesignData{.library = library_id, .name = "TOP"});
             top_layout = root.create_layout(LayoutData{.design = top_design});
-            root.create_shape(ShapeData{.layout = top_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{200, 200}}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::layout(top_layout), .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{200, 200}}}}});
             root.create_placement(PlacementData{.layout = top_layout, .name = "block0", .reference_design = block_design, .placement_status = PlacementStatus::PLACED, .location = Point{30, 30}, .orientation = Orientation::N});
 
             options = ViewRenderOptions{

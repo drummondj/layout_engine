@@ -1705,3 +1705,35 @@ The cull does one inverse transform and rect union per surviving
 placement instead of a transform compose, at about the same cost. The
 warm tier gets faster because partly visible nested nodes now rasterize
 only their visible part.
+
+## 2026-10-05 — One polymorphic `Shape.owner` instead of nine owner ids (#65)
+
+Shape's nine typed owner ids (8 bytes each, exactly one set) became one
+12-byte `ShapeOwner`. Release builds, same configuration (Tracy on), WSL2.
+
+**Memory** — `native_format_profile 8x8 3` (2.87M Shapes, 1476 MB DEF):
+
+| | before | after |
+|---|---|---|
+| Shape slot | 424 B | 360 B |
+| Shape pool after the DEF read | 1778 MB | 1510 MB |
+| RSS after the DEF read | 4762 MB | 4579 MB (-3.8%) |
+| `.led` load | 3961 ms | 4229 ms (single run) |
+
+`resolver_profile 4x4 5`: RSS after load 1166 -> 1114 MB (-4.5%), peak
+3769 -> 3702 MB.
+
+**Time** — `resolver_profile 4x4 5`, seven runs each, alternating a `main`
+build and this one. Every phase is bimodal on this machine, in both builds:
+a run is either "fast" or "slow" across the board, so medians mostly measure
+which mode a run hit. Compared mode for mode:
+
+| resolve (ms) | main fast | owner fast | main slow | owner slow |
+|---|---|---|---|---|
+| total | 2131-2185 | 2170-2182 | 2402-2489 | 2390-2408 |
+| routes phase | 1247-1280 | 1304-1306 | 1416-1462 | 1409-1429 |
+| placements phase | 83-87 | 83-84 | 154 | 151-156 |
+
+The routes phase is about 3% slower in the fast mode (the owner accessor's
+extra comparison per Shape read); nothing else moved. Cull and rasterize
+were within noise (fit rasterize warm 581 -> 576 ms).

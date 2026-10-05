@@ -20,11 +20,11 @@ namespace
 
             const DesignId leaf_design = root.create_design(DesignData{.library = library_id, .name = "LEAF"});
             leaf_abstract = root.create_abstract(AbstractData{.design = leaf_design});
-            root.create_shape(ShapeData{.abstract = leaf_abstract, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::abstract(leaf_abstract), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
 
             const DesignId top_design = root.create_design(DesignData{.library = library_id, .name = "TOP"});
             top_layout = root.create_layout(LayoutData{.design = top_design});
-            root.create_shape(ShapeData{.layout = top_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{5000, 5000}}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::layout(top_layout), .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{5000, 5000}}}}});
             root.create_placement(PlacementData{.layout = top_layout, .name = "leaf0", .reference_design = leaf_design, .placement_status = PlacementStatus::PLACED, .location = Point{100, 100}, .orientation = Orientation::N});
         }
 
@@ -127,7 +127,7 @@ TEST_F(ViewRenderPipelineFixture, PlacedCellContentOutsideItsBoundaryStillDraws)
     // at (140..160, 140..160) in TOP, well outside that.
     const TerminalId terminal = root.create_terminal(TerminalData{.abstract = leaf_abstract, .name = "A"});
     const TerminalPortId port = root.create_terminal_port(TerminalPortData{.terminal = terminal});
-    root.create_shape(ShapeData{.terminal_port = port, .layer = m1, .rects = {Rect{.ll = Point{40, 40}, .ur = Point{60, 60}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::terminal_port(port), .layer = m1, .rects = {Rect{.ll = Point{40, 40}, .ur = Point{60, 60}}}});
     root.bump_mutation_version();
 
     ViewRenderOptions options = options_for(1);

@@ -287,10 +287,10 @@ namespace le
         if (candidates)
         {
             for (const ShapeId shape_id : *candidates)
-                if (const Shape *shape = root.get_shape(shape_id); shape && shape->route.valid())
+                if (const Shape *shape = root.get_shape(shape_id); shape && shape->route().valid())
                     visit(shape_id, ViewLayerPurpose::ROUTE);
             for (const ShapeId shape_id : *candidates)
-                if (const Shape *shape = root.get_shape(shape_id); shape && !shape->route.valid() && shape->physical_port_segment.valid())
+                if (const Shape *shape = root.get_shape(shape_id); shape && !shape->route().valid() && shape->physical_port_segment().valid())
                     visit(shape_id, ViewLayerPurpose::TERMINAL);
             return;
         }

@@ -68,26 +68,26 @@ namespace
             // LEAF: Abstract only.
             const DesignId leaf_design = root.create_design(DesignData{.library = library_id, .name = "LEAF"});
             leaf_abstract = root.create_abstract(AbstractData{.design = leaf_design});
-            root.create_shape(ShapeData{.abstract = leaf_abstract, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::abstract(leaf_abstract), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
             const TerminalId leaf_terminal = root.create_terminal(TerminalData{.abstract = leaf_abstract, .name = "A", .direction = SignalDirection::INPUT});
             const TerminalPortId leaf_port = root.create_terminal_port(TerminalPortData{.terminal = leaf_terminal});
-            root.create_shape(ShapeData{.terminal_port = leaf_port, .layer = m1, .rects = {Rect{.ll = Point{1, 1}, .ur = Point{2, 2}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::terminal_port(leaf_port), .layer = m1, .rects = {Rect{.ll = Point{1, 1}, .ur = Point{2, 2}}}});
             const ObstructionId leaf_obstruction = root.create_obstruction(ObstructionData{.abstract = leaf_abstract});
-            root.create_shape(ShapeData{.obstruction = leaf_obstruction, .layer = m1, .rects = {Rect{.ll = Point{3, 3}, .ur = Point{4, 4}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::obstruction(leaf_obstruction), .layer = m1, .rects = {Rect{.ll = Point{3, 3}, .ur = Point{4, 4}}}});
 
             // BLOCK: both a Layout (containing 2 LEAF placements) and an Abstract.
             const DesignId block_design = root.create_design(DesignData{.library = library_id, .name = "BLOCK"});
             block_abstract = root.create_abstract(AbstractData{.design = block_design});
-            root.create_shape(ShapeData{.abstract = block_abstract, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{1000, 1000}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::abstract(block_abstract), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{1000, 1000}}}});
             block_layout = root.create_layout(LayoutData{.design = block_design});
-            root.create_shape(ShapeData{.layout = block_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{1000, 1000}}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::layout(block_layout), .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{1000, 1000}}}}});
             root.create_placement(PlacementData{.layout = block_layout, .name = "leaf0", .reference_design = leaf_design, .placement_status = PlacementStatus::PLACED, .location = Point{10, 10}, .orientation = Orientation::N});
             root.create_placement(PlacementData{.layout = block_layout, .name = "leaf1", .reference_design = leaf_design, .placement_status = PlacementStatus::PLACED, .location = Point{500, 500}, .orientation = Orientation::N});
 
             // TOP: Layout only, places BLOCK once.
             const DesignId top_design = root.create_design(DesignData{.library = library_id, .name = "TOP"});
             top_layout = root.create_layout(LayoutData{.design = top_design});
-            root.create_shape(ShapeData{.layout = top_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{5000, 5000}}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::layout(top_layout), .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{5000, 5000}}}}});
             root.create_placement(PlacementData{.layout = top_layout, .name = "block0", .reference_design = block_design, .placement_status = PlacementStatus::PLACED, .location = Point{100, 100}, .orientation = Orientation::N});
         }
 
@@ -375,11 +375,11 @@ namespace
 
 TEST_F(HierarchyResolverStageFixture, FreeShapesDrawOnTheirLayersCustomShapeColumnOrTheDebugRow)
 {
-    root.create_shape(ShapeData{.in_abstract = leaf_abstract, .layer = m1, .rects = {Rect{.ll = Point{5, 5}, .ur = Point{6, 6}}}});
-    root.create_shape(ShapeData{.in_abstract = leaf_abstract, .purpose = ShapePurpose::DEBUG, .rects = {Rect{.ll = Point{7, 7}, .ur = Point{8, 8}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::in_abstract(leaf_abstract), .layer = m1, .rects = {Rect{.ll = Point{5, 5}, .ur = Point{6, 6}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::in_abstract(leaf_abstract), .purpose = ShapePurpose::DEBUG, .rects = {Rect{.ll = Point{7, 7}, .ur = Point{8, 8}}}});
     // Layer-less and not DEBUG: not drawn at all - in particular not on the
     // BOUNDARY row its own purpose would otherwise resolve to.
-    root.create_shape(ShapeData{.in_abstract = leaf_abstract, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{9, 9}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::in_abstract(leaf_abstract), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{9, 9}}}});
 
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{leaf_abstract}, 0));
     const ViewData &leaf = output.view_data.at(HierarchyId{leaf_abstract});
@@ -397,7 +397,7 @@ TEST_F(HierarchyResolverStageFixture, FreeShapesDrawOnTheirLayersCustomShapeColu
 
 TEST_F(HierarchyResolverStageFixture, ALayoutsFreeShapesAreDrawn)
 {
-    root.create_shape(ShapeData{.in_layout = top_layout, .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 50}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::in_layout(top_layout), .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 50}}}});
 
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 0));
 
@@ -406,7 +406,7 @@ TEST_F(HierarchyResolverStageFixture, ALayoutsFreeShapesAreDrawn)
 
 TEST_F(HierarchyResolverStageFixture, AnAbstractsFreeShapesAppearInEveryPlacementOfIt)
 {
-    root.create_shape(ShapeData{.in_abstract = leaf_abstract, .layer = m1, .rects = {Rect{.ll = Point{5, 5}, .ur = Point{6, 6}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::in_abstract(leaf_abstract), .layer = m1, .rects = {Rect{.ll = Point{5, 5}, .ur = Point{6, 6}}}});
 
     // Depth 2 resolves TOP -> BLOCK's Layout -> both LEAF placements, each
     // reusing LEAF's one collected content.
@@ -429,10 +429,10 @@ TEST_F(HierarchyResolverStageFixture, PhysicalPortsDrawShapesLabelsAndDirectionM
     // TOP's die is (0,0)-(5000,5000); IN sits on its left edge, OUT on its top.
     const PhysicalPortId in_port = root.create_physical_port(PhysicalPortData{.layout = top_layout, .name = "IN", .direction = SignalDirection::INPUT});
     const PhysicalPortSegmentId in_segment = root.create_physical_port_segment(PhysicalPortSegmentData{.physical_port = in_port});
-    root.create_shape(ShapeData{.physical_port_segment = in_segment, .layer = m1, .rects = {Rect{.ll = Point{0, 2000}, .ur = Point{100, 2040}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::physical_port_segment(in_segment), .layer = m1, .rects = {Rect{.ll = Point{0, 2000}, .ur = Point{100, 2040}}}});
     const PhysicalPortId out_port = root.create_physical_port(PhysicalPortData{.layout = top_layout, .name = "OUT", .direction = SignalDirection::OUTPUT});
     const PhysicalPortSegmentId out_segment = root.create_physical_port_segment(PhysicalPortSegmentData{.physical_port = out_port});
-    root.create_shape(ShapeData{.physical_port_segment = out_segment, .layer = m1, .rects = {Rect{.ll = Point{3000, 4900}, .ur = Point{3040, 5000}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::physical_port_segment(out_segment), .layer = m1, .rects = {Rect{.ll = Point{3000, 4900}, .ur = Point{3040, 5000}}}});
 
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 0));
     const ViewData &top = output.view_data.at(HierarchyId{top_layout});
@@ -465,7 +465,7 @@ TEST_F(HierarchyResolverStageFixture, ExtentsGrowToCoverContentOutsideTheBoundar
 {
     // LEAF's boundary is (0,0)-(10,10); this obstruction overhangs it.
     const ObstructionId overhang = root.create_obstruction(ObstructionData{.abstract = leaf_abstract});
-    root.create_shape(ShapeData{.obstruction = overhang, .layer = m1, .rects = {Rect{.ll = Point{8, -5}, .ur = Point{15, 12}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::obstruction(overhang), .layer = m1, .rects = {Rect{.ll = Point{8, -5}, .ur = Point{15, 12}}}});
 
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
 
@@ -599,7 +599,7 @@ namespace
 TEST_F(IncrementalFixture, MovingAPlacementRebuildsOnlyItsLayoutsPlacements)
 {
     const RouteId route = root.create_route(RouteData{.layout = block_layout});
-    root.create_shape(ShapeData{.route = route, .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route), .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
     const HierarchyResolverOutput before = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
 
     const PlacementId leaf1 = placement_named(block_layout, "leaf1");
@@ -619,7 +619,7 @@ TEST_F(IncrementalFixture, MovingAPlacementRebuildsOnlyItsLayoutsPlacements)
 TEST_F(IncrementalFixture, EditingAndDeletingARouteRebuildsOnlyTheRoutesChunk)
 {
     const RouteId route = root.create_route(RouteData{.layout = top_layout});
-    const ShapeId shape = root.create_shape(ShapeData{.route = route, .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
+    const ShapeId shape = root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route), .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
     const HierarchyResolverOutput before = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
 
     ASSERT_TRUE(root.update_shape(shape, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{0, 0}, .ur = Point{80, 5}}}, std::nullopt, std::nullopt, std::nullopt));
@@ -641,7 +641,7 @@ TEST_F(IncrementalFixture, EditingACellsTerminalRebuildsOnlyThatCell)
 
     ShapeId terminal_shape;
     root.for_each_shape_id([&](ShapeId id)
-                           { if (root.get_shape(id)->terminal_port.valid()) terminal_shape = id; });
+                           { if (root.get_shape(id)->terminal_port().valid()) terminal_shape = id; });
     ASSERT_TRUE(root.update_shape(terminal_shape, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{1, 1}, .ur = Point{3, 3}}}, std::nullopt, std::nullopt, std::nullopt));
     const HierarchyResolverOutput &after = rerun_and_compare();
 
@@ -656,7 +656,7 @@ TEST_F(IncrementalFixture, ChangingACellsBoundaryRebuildsThePlacementsOfIt)
 
     ShapeId boundary;
     root.for_each_shape_id([&](ShapeId id)
-                           { if (root.get_shape(id)->abstract == leaf_abstract) boundary = id; });
+                           { if (root.get_shape(id)->abstract() == leaf_abstract) boundary = id; });
     ASSERT_TRUE(root.update_shape(boundary, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{0, 0}, .ur = Point{20, 30}}}, std::nullopt, std::nullopt, std::nullopt));
     rerun_and_compare();
     EXPECT_TRUE(runner.stage().last_compute_was_incremental());
@@ -669,7 +669,7 @@ TEST_F(IncrementalFixture, RepointingAPlacementResolvesTheNewCellAndDropsUnreach
     const LibraryId library_id = root.get_design(root.get_abstract(leaf_abstract)->design)->library;
     const DesignId other_design = root.create_design(DesignData{.library = library_id, .name = "OTHER"});
     const AbstractId other_abstract = root.create_abstract(AbstractData{.design = other_design});
-    root.create_shape(ShapeData{.abstract = other_abstract, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{40, 40}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::abstract(other_abstract), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{40, 40}}}});
     runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
 
     for (const char *name : {"leaf0", "leaf1"})
@@ -734,7 +734,7 @@ TEST_F(IncrementalFixture, EditsInABigLayoutRebuildOnlyTheirTiles)
         const int64_t x = (i % 100) * 50;
         const int64_t y = (i / 100) * 100;
         const RouteId route = root.create_route(RouteData{.layout = top_layout, .name = "r" + std::to_string(i)}); // names are unique per Layout
-        route_shapes.push_back(root.create_shape(ShapeData{.route = route, .layer = m1, .rects = {Rect{.ll = Point{x, y}, .ur = Point{x + 20, y + 5}}}}));
+        route_shapes.push_back(root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route), .layer = m1, .rects = {Rect{.ll = Point{x, y}, .ur = Point{x + 20, y + 5}}}}));
     }
     const DesignId leaf_design = root.get_abstract(leaf_abstract)->design;
     std::vector<PlacementId> placements;
@@ -770,7 +770,7 @@ TEST_F(IncrementalFixture, EditsInABigLayoutRebuildOnlyTheirTiles)
 
     // Deleting a route: its tile only.
     const HierarchyResolverOutput before_delete = far;
-    const RouteId route = root.get_shape(route_shapes[10])->route;
+    const RouteId route = root.get_shape(route_shapes[10])->route();
     ASSERT_TRUE(root.delete_shape(route_shapes[10]));
     ASSERT_TRUE(root.delete_route(route));
     const HierarchyResolverOutput &deleted = rerun_and_compare();
@@ -790,11 +790,11 @@ TEST_F(HierarchyResolverStageFixture, ChunkSourcesNameTheObjectBehindEverySelect
     root.create_via_layer(ViaLayerData{.via = via, .layer_name = "M2", .rects = {Rect{.ll = {-5, -5}, .ur = {5, 5}}}});
 
     const RouteId route = root.create_route(RouteData{.layout = top_layout, .name = "R1"});
-    const ShapeId route_shape = root.create_shape(ShapeData{.route = route, .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{100, 10}}},
+    const ShapeId route_shape = root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route), .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{100, 10}}},
                                                             .vias = {ShapeVia{.via_name = "VIA12", .origin = Point{50, 5}}}});
     const PhysicalPortId port = root.create_physical_port(PhysicalPortData{.layout = top_layout, .name = "IN", .direction = SignalDirection::INPUT});
     const PhysicalPortSegmentId segment = root.create_physical_port_segment(PhysicalPortSegmentData{.physical_port = port});
-    const ShapeId port_shape = root.create_shape(ShapeData{.physical_port_segment = segment, .layer = m1, .rects = {Rect{.ll = Point{0, 2000}, .ur = Point{100, 2040}}}});
+    const ShapeId port_shape = root.create_shape(ShapeData{.owner = le::ShapeOwner::physical_port_segment(segment), .layer = m1, .rects = {Rect{.ll = Point{0, 2000}, .ur = Point{100, 2040}}}});
 
     const HierarchyResolverOutput &output = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 1));
     const ViewData &top = output.view_data.at(HierarchyId{top_layout});

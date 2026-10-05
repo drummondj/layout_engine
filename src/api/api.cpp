@@ -315,7 +315,7 @@ namespace
             if (hidden.route_uses.empty() && unselectable.route_uses.empty())
                 return true;
             const le::Shape *shape = handle->root.get_shape(piece->shape_id);
-            const le::RouteData *route = shape ? handle->root.get_route(shape->route) : nullptr;
+            const le::RouteData *route = shape ? handle->root.get_route(shape->route()) : nullptr;
             if (!route)
                 return true;
             const std::string use = le::route_use(*route);
@@ -466,9 +466,9 @@ namespace
             const le::ShapeData *shape = root.get_shape(id);
             if (!shape)
                 return true;
-            if (const le::RouteData *route = root.get_route(shape->route))
+            if (const le::RouteData *route = root.get_route(shape->route()))
                 return route->layout != layout_id;
-            if (const le::PhysicalPortSegmentData *segment = root.get_physical_port_segment(shape->physical_port_segment))
+            if (const le::PhysicalPortSegmentData *segment = root.get_physical_port_segment(shape->physical_port_segment()))
                 if (const le::PhysicalPortData *port = root.get_physical_port(segment->physical_port))
                     return port->layout != layout_id;
             return true; });
@@ -495,7 +495,7 @@ namespace
             return;
         }
         for (const le::ShapeId shape_id : *candidates)
-            if (const le::ShapeData *shape = handle->root.get_shape(shape_id); shape && shape->route.valid())
+            if (const le::ShapeData *shape = handle->root.get_shape(shape_id); shape && shape->route().valid())
                 visit(shape_id, le::ViewLayerPurpose::ROUTE);
     }
 
@@ -1040,8 +1040,8 @@ namespace
                 };
                 follow(own.after, grab.piece.piece_index, own.ghost_pieces);
 
-                if (existing->route.valid())
-                    for (const le::ShapeId sibling_id : handle->root.get_route_shapes(existing->route))
+                if (existing->route().valid())
+                    for (const le::ShapeId sibling_id : handle->root.get_route_shapes(existing->route()))
                     {
                         const le::ShapeData *sibling = handle->root.get_shape(sibling_id);
                         if (sibling_id == grab.piece.shape_id || !sibling || sibling->layer != existing->layer)
@@ -2733,7 +2733,7 @@ extern "C"
                             [route_cell](le::Root &r, const le::ShapeData &d)
                             {
                                 le::ShapeData fixed = d;
-                                fixed.route = route_cell->id;
+                                fixed.owner = le::ShapeOwner::route(route_cell->id);
                                 return r.create_shape(fixed);
                             },
                             [](le::Root &r, le::ShapeId i) { return r.delete_shape(i); });

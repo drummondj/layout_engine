@@ -54,17 +54,17 @@ namespace
 
             const DesignId leaf_design = root.create_design(DesignData{.library = library_id, .name = "LEAF"});
             leaf_abstract = root.create_abstract(AbstractData{.design = leaf_design});
-            root.create_shape(ShapeData{.abstract = leaf_abstract, .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::abstract(leaf_abstract), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
 
             const DesignId block_design = root.create_design(DesignData{.library = library_id, .name = "BLOCK"});
             block_layout = root.create_layout(LayoutData{.design = block_design});
-            root.create_shape(ShapeData{.layout = block_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{1000, 1000}}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::layout(block_layout), .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{1000, 1000}}}}});
             root.create_placement(PlacementData{.layout = block_layout, .name = "leaf0", .reference_design = leaf_design, .placement_status = PlacementStatus::PLACED, .location = Point{10, 10}, .orientation = Orientation::N});
             root.create_placement(PlacementData{.layout = block_layout, .name = "leaf1", .reference_design = leaf_design, .placement_status = PlacementStatus::PLACED, .location = Point{500, 500}, .orientation = Orientation::N});
 
             const DesignId top_design = root.create_design(DesignData{.library = library_id, .name = "TOP"});
             top_layout = root.create_layout(LayoutData{.design = top_design});
-            root.create_shape(ShapeData{.layout = top_layout, .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{5000, 5000}}}}});
+            root.create_shape(ShapeData{.owner = le::ShapeOwner::layout(top_layout), .purpose = ShapePurpose::BOUNDARY, .polygons = {Polygon{.points = {Point{0, 0}, Point{5000, 5000}}}}});
             root.create_placement(PlacementData{.layout = top_layout, .name = "block0", .reference_design = block_design, .placement_status = PlacementStatus::PLACED, .location = Point{100, 100}, .orientation = Orientation::N});
 
             const ViewRenderOptions cold_options{.root = &root, .root_mutation_version = root.mutation_version(), .top_level = HierarchyId{top_layout}, .hierarchy_depth = 2};
@@ -224,7 +224,7 @@ TEST_F(ViewportCullStageFixture, PlacementIndicesSurviveEditsThatDontTouchThem)
     const std::size_t initial_builds = cull_runner.stage().index_builds(); // TOP, BLOCK, LEAF
 
     const RouteId route = root.create_route(RouteData{.layout = top_layout});
-    root.create_shape(ShapeData{.route = route, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route), .rects = {Rect{.ll = Point{0, 0}, .ur = Point{10, 10}}}});
     root.bump_mutation_version();
     hierarchy_resolver_runner.run(view_layers_handle, 0, options_with_viewport(Rect{}));
     ASSERT_TRUE(hierarchy_resolver_runner.stage().last_compute_was_incremental());
@@ -290,10 +290,10 @@ TEST_F(ViewportCullStageFixture, AHiddenPlacementTypeIsNeitherDescendedIntoNorDr
 TEST_F(ViewportCullStageFixture, AHiddenRouteUseMasksExactlyItsRoutesShapes)
 {
     const RouteId power = root.create_route(RouteData{.layout = top_layout, .name = "VDD", .use = std::string("POWER")});
-    root.create_shape(ShapeData{.route = power, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
-    root.create_shape(ShapeData{.route = power, .rects = {Rect{.ll = Point{0, 20}, .ur = Point{50, 25}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::route(power), .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::route(power), .rects = {Rect{.ll = Point{0, 20}, .ur = Point{50, 25}}}});
     const RouteId signal = root.create_route(RouteData{.layout = top_layout, .name = "n1"});
-    root.create_shape(ShapeData{.route = signal, .rects = {Rect{.ll = Point{0, 10}, .ur = Point{50, 15}}}});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::route(signal), .rects = {Rect{.ll = Point{0, 10}, .ur = Point{50, 15}}}});
     root.bump_mutation_version();
     hierarchy_resolver_runner.run(view_layers_handle, 0, options_with_viewport(Rect{}));
     const ViewRenderOptions everything = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});

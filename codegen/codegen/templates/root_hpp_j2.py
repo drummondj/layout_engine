@@ -249,13 +249,13 @@ namespace {{schema.namespace}} {
             {%- if field.parent %}
                 {%- if field._parent_field.is_list %}
             {
-                auto it = index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.find(d.{{field.name}});
+                auto it = index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.find(d.{{field.accessor}});
                 if (it != index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.end()) {
                     it->second.erase(std::remove(it->second.begin(), it->second.end(), id), it->second.end());
                 }
             }
                 {%- else %}
-            index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.erase(d.{{field.name}});
+            index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.erase(d.{{field.accessor}});
                 {%- endif %}
             {%- elif field.index and field.unique_per_parent %}
             {
@@ -270,6 +270,43 @@ namespace {{schema.namespace}} {
         {%- endif %}
             return {{klass.to_snake_case()}}_.erase(id);
         }
+        {%- if klass.get_owner_fields() %}
+
+        /// @brief Set {{klass.name}}'s owner (which owner field, and that
+        /// parent), moving it from the old owner's child list to the new
+        /// one's. False (no-op) if id doesn't exist.
+        bool set_{{klass.to_snake_case()}}_owner({{klass.name}}Id id, {{klass.owner_type_name()}} value) {
+            auto* existing = {{klass.to_snake_case()}}_.get(id);
+            if (!existing) return false;
+            if (existing->owner == value) return true;
+            const ChangeParent parent_before = change_parent_(id, *existing);
+            log_change_(ChangeKlass::{{klass.name}}, ChangeOp::UPDATE, id, parent_before);
+            switch (existing->owner.kind)
+            {
+            {%- for field in klass.get_owner_fields() %}
+            case {{klass.name}}OwnerKind::{{field.owner_kind()}}:
+                {%- if field._parent_field.is_list %}
+            {
+                auto& old_siblings = index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[existing->{{field.accessor}}];
+                old_siblings.erase(std::remove(old_siblings.begin(), old_siblings.end(), id), old_siblings.end());
+                break;
+            }
+                {%- else %}
+                index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.erase(existing->{{field.accessor}});
+                break;
+                {%- endif %}
+            {%- endfor %}
+            case {{klass.name}}OwnerKind::None:
+                break;
+            }
+            existing->owner = value;
+            index_insert_{{klass.to_snake_case()}}_owner_(id, *existing);
+            const ChangeParent parent_after = change_parent_(id, *existing);
+            if (!(parent_after == parent_before))
+                log_change_(ChangeKlass::{{klass.name}}, ChangeOp::UPDATE, id, parent_after);
+            return true;
+        }
+        {%- endif %}
 
         {%- for field in klass.get_ordered_fields() %}
             {%- if field.parent or field.index %}
@@ -286,6 +323,14 @@ namespace {{schema.namespace}} {
         /// this is a documented, currently-unreachable gap rather than a fix).
                 {%- endif %}
         bool set_{{klass.to_snake_case()}}_{{field.name}}({{klass.name}}Id id, {{field.get_cpp_type()}} value) {
+            {%- if field.owner %}
+            const auto* existing = {{klass.to_snake_case()}}_.get(id);
+            if (!existing) return false;
+            // Clearing a field that isn't the current owner changes nothing.
+            if (!value.valid() && existing->owner.kind != {{klass.name}}OwnerKind::{{field.owner_kind()}}) return true;
+            return set_{{klass.to_snake_case()}}_owner(id, {{klass.owner_type_name()}}::{{field.name}}(value));
+        }
+            {%- else %}
             auto* existing = {{klass.to_snake_case()}}_.get(id);
             if (!existing) return false;
             if (existing->{{field.name}} == value) return true;
@@ -332,6 +377,7 @@ namespace {{schema.namespace}} {
             return true;
             {%- endif %}
         }
+            {%- endif %}
             {%- endif %}
         {%- endfor %}
 
@@ -498,15 +544,36 @@ namespace {{schema.namespace}} {
 
     private:
     {%- for klass in schema.get_pool_classes() %}
-        void index_insert_{{klass.to_snake_case()}}_([[maybe_unused]] {{klass.name}}Id id, [[maybe_unused]] const {{klass.name}}Data& d) {
-        {%- for field in klass.get_ordered_fields() %}
-            {%- if field.parent %}
+        {%- if klass.get_owner_fields() %}
+        void index_insert_{{klass.to_snake_case()}}_owner_({{klass.name}}Id id, const {{klass.name}}Data& d) {
+            switch (d.owner.kind)
+            {
+            {%- for field in klass.get_owner_fields() %}
+            case {{klass.name}}OwnerKind::{{field.owner_kind()}}:
                 {%- if field._parent_field.is_list %}
-            if (d.{{field.name}}.valid())
-                index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.name}}].push_back(id);
+                index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.accessor}}].push_back(id);
                 {%- else %}
-            if (d.{{field.name}}.valid())
-                index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.name}}] = id;
+                index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.accessor}}] = id;
+                {%- endif %}
+                break;
+            {%- endfor %}
+            case {{klass.name}}OwnerKind::None:
+                break;
+            }
+        }
+        {%- endif %}
+        void index_insert_{{klass.to_snake_case()}}_([[maybe_unused]] {{klass.name}}Id id, [[maybe_unused]] const {{klass.name}}Data& d) {
+        {%- if klass.get_owner_fields() %}
+            index_insert_{{klass.to_snake_case()}}_owner_(id, d);
+        {%- endif %}
+        {%- for field in klass.get_ordered_fields() %}
+            {%- if field.parent and not field.owner %}
+                {%- if field._parent_field.is_list %}
+            if (d.{{field.accessor}}.valid())
+                index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.accessor}}].push_back(id);
+                {%- else %}
+            if (d.{{field.accessor}}.valid())
+                index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.accessor}}] = id;
                 {%- endif %}
             {%- elif field.index and field.unique_per_parent %}
             if (d.{{klass.get_parent_field().name}}.valid())
@@ -526,8 +593,8 @@ namespace {{schema.namespace}} {
     {%- for klass in schema.get_pool_classes() %}
         static ChangeParent change_parent_({{klass.name}}Id, [[maybe_unused]] const {{klass.name}}Data &d) {
         {%- for field in klass.get_parent_fields() %}
-            if (d.{{field.name}}.valid())
-                return ChangeParent{.klass = ChangeKlass::{{field.type}}, .slot = {{loop.index0}}, .index = d.{{field.name}}.index, .generation = d.{{field.name}}.generation};
+            if (d.{{field.accessor}}.valid())
+                return ChangeParent{.klass = ChangeKlass::{{field.type}}, .slot = {{loop.index0}}, .index = d.{{field.accessor}}.index, .generation = d.{{field.accessor}}.generation};
         {%- endfor %}
             return {};
         }

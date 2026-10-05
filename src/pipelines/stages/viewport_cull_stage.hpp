@@ -360,7 +360,7 @@ namespace le
                     bool any = false;
                     for (std::size_t i = 0; i < shape_ids.size(); ++i)
                         if (const ShapeData *shape = root.get_shape(shape_ids[i]);
-                            shape && shape->route.valid() && shape->route.index < filter_.hidden_routes.size() && filter_.hidden_routes[shape->route.index])
+                            shape && shape->route().valid() && shape->route().index < filter_.hidden_routes.size() && filter_.hidden_routes[shape->route().index])
                             hidden[i] = any = true;
                     if (any)
                         visibility.hidden_shapes.emplace(layer, std::move(hidden));

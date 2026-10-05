@@ -320,6 +320,33 @@ class UniquePerParentRequiresIndexAndSingleParentRule(BaseRule):
         return errors
 
 
+class OwnerFieldsRule(BaseRule):
+    """
+    Rule that checks owner=True fields (see Field.owner): each is a single,
+    non-optional parent field, and its Klass has no other field named
+    `owner` (the generated member that stores them).
+
+    Attributes:
+        name: The name of the rule
+        description: The description of the rule
+    """
+
+    def validate(self, schema) -> List[RuleError]:
+        errors = []
+        for klass in schema.classes:
+            owner_fields = [f for f in klass.fields if f.owner]
+            if not owner_fields:
+                continue
+            if any(f.name == "owner" for f in klass.fields):
+                errors.append(RuleError(f"Klass {klass.name} has owner=True fields, so it can't also have a field named owner"))
+            for field in owner_fields:
+                if not field.parent:
+                    errors.append(RuleError(f"Field {field.name} in klass {klass.name} has owner=True but no parent"))
+                if field.is_list or field.is_optional:
+                    errors.append(RuleError(f"Field {field.name} in klass {klass.name} has owner=True, so it can't be a list or optional"))
+        return errors
+
+
 class SchemaContainsOneRootKlassRule(BaseRule):
     """
     Rule that checks if the schema contains one root klass
@@ -363,6 +390,10 @@ class SchemaRuleSet(RuleSet):
             ParentFieldExistsRule(
                 "ParentFieldExistsRule",
                 "Checks if the parent field exists",
+            ),
+            OwnerFieldsRule(
+                "OwnerFieldsRule",
+                "Checks owner=True fields are single, non-optional parent fields",
             ),
             FieldDefaultMatchesTypeRule(
                 "FieldDefaultMatchesTypeRule",
