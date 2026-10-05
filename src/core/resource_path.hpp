@@ -34,16 +34,17 @@ namespace le
 #endif
     }
 
-    /// @brief Finds a file shipped with the application: `build_path` (a
-    /// compile-time path into the build tree, valid for a local run) if it
-    /// exists, else `exe_relative` beside the running executable, where a
-    /// release bundle puts it. Returns the path found, or every path tried.
+    /// @brief Finds a file shipped with the application: `exe_relative`
+    /// beside the running executable, where an installed bundle puts it,
+    /// else `build_path` (a compile-time path into the build tree, valid
+    /// for a run from that tree). Beside-the-executable comes first so an
+    /// installed bundle only ever uses its own files, even on a machine
+    /// that still has the build tree. Returns the path found, or every
+    /// path tried.
     inline std::expected<std::string, std::vector<std::string>> find_resource(const std::string &build_path, const std::string &exe_relative)
     {
         struct stat st{};
-        if (stat(build_path.c_str(), &st) == 0)
-            return build_path;
-        std::vector<std::string> tried{build_path};
+        std::vector<std::string> tried;
         if (const std::string dir = executable_dir(); !dir.empty())
         {
             std::string candidate = dir + "/" + exe_relative;
@@ -51,6 +52,9 @@ namespace le
                 return candidate;
             tried.push_back(std::move(candidate));
         }
+        if (stat(build_path.c_str(), &st) == 0)
+            return build_path;
+        tried.push_back(build_path);
         return std::unexpected(std::move(tried));
     }
 

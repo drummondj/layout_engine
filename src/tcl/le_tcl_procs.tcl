@@ -2024,17 +2024,20 @@ proc default_to_unset {values} {
 # generated - see le_tcl_procs_generated.tcl and CLAUDE.md's TCL section.
 # codegen writes it into the build tree on every build that needs it; never
 # edit it directly.
-# Tries the build tree's copy first (its path is compiled into le_tcl, which
-# is always loaded before this file), then this file's own directory - a
-# release bundle keeps both procs files side by side.
+# Tries this file's own directory first - an installed bundle keeps both
+# procs files side by side, and must use its own copy even where the build
+# tree still exists - then the build tree's copy (its path is compiled into
+# le_tcl, which is always loaded before this file). ::le_generated_procs_path
+# records which one was sourced.
 set _le_generated_procs_candidates [list \
-    [generated_procs_default_path_command] \
     [file join [file dirname [info script]] le_tcl_procs_generated.tcl] \
+    [generated_procs_default_path_command] \
 ]
 set _le_generated_procs_found 0
 foreach _le_candidate $_le_generated_procs_candidates {
     if {$_le_candidate ne "" && [file exists $_le_candidate]} {
         source $_le_candidate
+        set ::le_generated_procs_path [file normalize $_le_candidate]
         set _le_generated_procs_found 1
         break
     }

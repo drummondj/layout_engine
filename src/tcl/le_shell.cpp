@@ -131,13 +131,13 @@ namespace
     }
 
     // -module/-procs beat LE_TCL_MODULE/LE_TCL_PROCS_PATH beat the
-    // compile-time default baked in by CMakeLists.txt's le_shell target
-    // (LE_TCL_MODULE_DEFAULT_PATH/LE_TCL_PROCS_DEFAULT_PATH, the build
-    // tree's own outputs), so a plain `./le_shell` works against its own
-    // build tree. An explicit override is trusted as-is. The default falls
-    // back to a same-named file beside the executable (find_resource),
-    // where Dockerfile.linux-release's bundle puts le_tcl.so and
-    // le_tcl_procs.tcl - checked up front so a missing file is reported
+    // default: a same-named file beside the executable (find_resource),
+    // where an installed bundle (`cmake --install`) puts le_tcl.so and
+    // le_tcl_procs.tcl, else the compile-time build-tree path baked in by
+    // CMakeLists.txt's le_shell target (LE_TCL_MODULE_DEFAULT_PATH/
+    // LE_TCL_PROCS_DEFAULT_PATH), so a plain `./le_shell` works against its
+    // own build tree. An explicit override is trusted as-is. Checked up
+    // front so a missing file is reported
     // here rather than by Tcl's opaque `load` error.
     std::string resolve_path(const char *cli_value, const char *env_var, const char *default_value, const char *what)
     {

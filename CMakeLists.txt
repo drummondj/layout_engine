@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.21)
 
 # Must be set before project() to take effect. Pins the minimum macOS
 # version rather than letting clang target whatever SDK the build machine
@@ -984,6 +984,39 @@ if(SWIG_FOUND AND TCL_FOUND)
             BUILD_RPATH "$ORIGIN"
         )
     endif()
+
+    # --- install: the release bundle, one flat directory -
+    # `cmake --install <build> --component bundle --prefix <dir>`. The
+    # `bundle` component leaves out what fetched dependencies install for
+    # themselves (headers, static libraries). le_shell, le_tcl.so and the
+    # GUI/label code look for their files beside the executable first
+    # (find_resource, le_tcl_procs.tcl), so the bundle runs from anywhere and
+    # never uses a build tree's files; libtbb goes alongside, found through
+    # the $ORIGIN runpath.
+    if(NOT APPLE)
+        set_target_properties(le_shell le_tcl PROPERTIES INSTALL_RPATH "$ORIGIN")
+    endif()
+    install(TARGETS le_shell RUNTIME DESTINATION . COMPONENT bundle)
+    install(TARGETS le_tcl LIBRARY DESTINATION . COMPONENT bundle)
+    install(FILES
+        src/tcl/le_tcl_procs.tcl
+        ${LE_GENERATED_DIR}/tcl/le_tcl_procs_generated.tcl
+        ${CMAKE_BINARY_DIR}/lucide.ttf
+        DESTINATION . COMPONENT bundle)
+    install(DIRECTORY ${LE_FONT_DIR}/ DESTINATION fonts COMPONENT bundle)
+    install(IMPORTED_RUNTIME_ARTIFACTS TBB::tbb DESTINATION . COMPONENT bundle)
+
+    # The installed bundle runs on its own files: installed into a scratch
+    # directory, le_shell (no -module/-procs flags or env vars) must load the
+    # bundle's le_tcl.so and procs, not this build tree's.
+    add_test(
+        NAME le_shell_install
+        COMMAND ${CMAKE_COMMAND}
+            -DBUILD_DIR=${CMAKE_BINARY_DIR}
+            -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/install_test
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/install_test.cmake
+    )
+    set_tests_properties(le_shell_install PROPERTIES TIMEOUT 120)
 
     # Batch-mode regression check (src/tcl/tests/shell_test.tcl) - runs
     # through the real compiled le_shell binary (not tclsh directly
