@@ -84,6 +84,8 @@ WORKDIR /workspace
 #
 # The Debug tree builds the example extensions (examples/extensions/)
 # and runs their tests, so a change that breaks the extension SDK fails CI.
+# LE_TEST_PACKAGE_MANAGER also runs `le`'s end-to-end test, which builds a
+# project (Layout Engine plus both examples) through the package manager.
 #
 # pip install ./codegen: CMake runs the in-tree codegen itself (into each
 # build tree), but needs its Python dependencies (jinja2, click) installed.
@@ -100,7 +102,7 @@ CMD ["bash", "-c", "\
     rm -rf /build/debug/lef_lib-prefix /build/release/lef_lib-prefix && \
     rm -rf /build/debug/def_lib-prefix /build/release/def_lib-prefix && \
     python3 -m pip install --no-cache-dir --break-system-packages ./codegen && \
-    cmake -S . -B /build/debug -DCMAKE_BUILD_TYPE=Debug -DLE_EXTENSION_DIRS=\"$PWD/examples/extensions/hello_ext;$PWD/examples/extensions/hello_script\" && \
+    cmake -S . -B /build/debug -DCMAKE_BUILD_TYPE=Debug -DLE_EXTENSION_DIRS=\"$PWD/examples/extensions/hello_ext;$PWD/examples/extensions/hello_script\" -DLE_TEST_PACKAGE_MANAGER=ON && \
     cmake --build /build/debug -j ${BUILD_JOBS} && \
     ctest --test-dir /build/debug --output-on-failure && \
     cmake -S . -B /build/release -DCMAKE_BUILD_TYPE=Release && \

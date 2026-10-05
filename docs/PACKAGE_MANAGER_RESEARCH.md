@@ -83,6 +83,8 @@ An extension's own `[dependencies]` (from its manifest) need not be repeated her
 
 Written by `le install` and `le update`; never edited by hand.
 
+*As built (#71, `tools/le`):* the lock pins each GitHub source's **commit** (`rev`) and **signer** fingerprint, plus a hash of `le_project.toml`. The commit already identifies the tree, so there's no separate `sha256`. A locked install refuses a tag that now resolves to another commit, or another signing key, and `le update` accepts the change. Any edit to `le_project.toml` re-resolves everything. An extension's dependencies must be listed in `le_project.toml` explicitly; `le` doesn't add them on its own. Usage is in `tools/le/README.md`.
+
 ```toml
 format = 1
 
@@ -267,7 +269,7 @@ Extension-mechanism phases are in EXTENSION_MECHANISM_RESEARCH.md §10. Package-
 
 | Phase | Work | Unlocks |
 |---|---|---|
-| 1 | `le` skeleton: `init`/`add`/`remove`/`install`/`shell`/`list`; GitHub (tag/rev) and path sources; signed-tag verification and `trust`; lock file; compiled-tier superbuild; CMake `install` target with `extensions.json` | Projects with compiled extensions |
+| 1 ✅ | `le` skeleton: `init`/`add`/`remove`/`install`/`shell`/`list` (and `update`); GitHub (tag/rev) and path sources; signed-tag verification and `trust`; lock file; compiled-tier superbuild; CMake `install` target with `extensions.json` | Projects with compiled extensions |
 | 2 | Tagged, published, signed releases; `-extensions` flag; script tier on release bundles; `version` ranges against tags; `update` with the downgrade rule; `le` as a PyInstaller binary in the bundle | Projects with no compiler |
 | 3 | `new-extension`, `test`, `makemigration`; `check <file.led>` (needs SCHM `"extensions"`, native-format phase 5) | Extension authoring and file checks |
 | later | Package index (a signed git repo of TOML entries, so it can be private), other git hosts, `--container` builds, `doctor` | Discovery; servers without a toolchain |

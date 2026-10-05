@@ -1116,6 +1116,21 @@ if(SWIG_FOUND AND TCL_FOUND)
     )
     set_tests_properties(le_shell_refuses_wrong_extension_api PROPERTIES
         PASS_REGULAR_EXPRESSION "written for extension API 999")
+
+    # The `le` package manager (tools/le): its unit tests always; its
+    # end-to-end test, which builds Layout Engine again through `le`, only
+    # when asked (CI does).
+    add_test(NAME le_package_manager_unit
+        COMMAND ${Python3_EXECUTABLE} -m unittest discover -s tests -t .
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tools/le)
+    option(LE_TEST_PACKAGE_MANAGER "Run the le package manager's end-to-end test (slow: builds Layout Engine)" OFF)
+    if(LE_TEST_PACKAGE_MANAGER)
+        add_test(NAME le_package_manager_integration
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/tests/integration_test.py ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(le_package_manager_integration PROPERTIES
+            TIMEOUT 7200
+            ENVIRONMENT "LE_DEPS_DIR=${CMAKE_BINARY_DIR}/_deps")
+    endif()
 else()
     message(STATUS "SWIG and/or Tcl not found - skipping le_tcl target")
 endif()
