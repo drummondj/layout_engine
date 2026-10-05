@@ -1656,31 +1656,24 @@ struct LeHandle
         int32_t drag_start_y_px_ = 0;
         std::unordered_set<int32_t> held_keys_;
         std::unordered_map<std::string, bool> layer_name_visible_;
-        // Pre-seeded false for TRACK_PREFERRED/TRACK_NON_PREFERRED/ROW/
-        // GCELLGRID (scaffolding, invisible by default) and FLIGHTLINE -
-        // every other purpose still falls back to is_purpose_visible()'s
-        // own "unknown key -> visible" default.
-        std::unordered_map<le::ViewLayerPurpose, bool> purpose_visible_{
-            {le::ViewLayerPurpose::TRACK_PREFERRED, false},
-            {le::ViewLayerPurpose::TRACK_NON_PREFERRED, false},
-            {le::ViewLayerPurpose::ROW, false},
-            {le::ViewLayerPurpose::GCELLGRID, false},
-            {le::ViewLayerPurpose::FLIGHTLINE, false},
-        };
+        // {purpose, false} for each purpose whose `flag` is false in the
+        // generated registry.
+        static std::unordered_map<le::ViewLayerPurpose, bool> purposes_off_by_default(bool le::ViewLayerPurposeInfo::*flag)
+        {
+            std::unordered_map<le::ViewLayerPurpose, bool> off;
+            for (const le::ViewLayerPurposeInfo &info : le::kViewLayerPurposes)
+                if (!(info.*flag))
+                    off.emplace(info.purpose, false);
+            return off;
+        }
+        // Pre-seeded with every purpose the registry hides by default; the
+        // rest fall back to is_purpose_visible()'s "unknown key -> visible",
+        // and the pipeline reads this map the same way.
+        std::unordered_map<le::ViewLayerPurpose, bool> purpose_visible_ = purposes_off_by_default(&le::ViewLayerPurposeInfo::visible_by_default);
         uint64_t visibility_version_ = 0;
         std::unordered_map<std::string, bool> layer_name_selectable_;
-        // Pre-seeded false for TRACK_PREFERRED/TRACK_NON_PREFERRED/
-        // GCELLGRID - hit-testing never returns tracks or gcell grids
-        // anyway; this keeps the Layers panel's selectable-checkbox
-        // default consistent with that rather than showing an
-        // active-looking no-op. ROW stays selectable by default - rows
-        // are meant to be selectable.
-        std::unordered_map<le::ViewLayerPurpose, bool> purpose_selectable_{
-            {le::ViewLayerPurpose::TRACK_PREFERRED, false},
-            {le::ViewLayerPurpose::TRACK_NON_PREFERRED, false},
-            {le::ViewLayerPurpose::GCELLGRID, false},
-            {le::ViewLayerPurpose::FLIGHTLINE, false}, // an overlay, never hit-tested
-        };
+        // Pre-seeded the same way from selectable_by_default.
+        std::unordered_map<le::ViewLayerPurpose, bool> purpose_selectable_ = purposes_off_by_default(&le::ViewLayerPurposeInfo::selectable_by_default);
         le::ObjectFilterSets hidden_objects_;
         le::ObjectFilterSets unselectable_objects_;
         mutable std::mutex placement_type_values_mutex_;

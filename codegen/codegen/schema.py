@@ -222,6 +222,10 @@ class Schema:
         namespace (str): The namespace of the schema.
 
         classes (List[Klass]): The classes in the schema.
+
+        purposes (List[Purpose]): The view-layer purposes the renderer draws
+            shapes on ('render' target). Not stored data, so not part of the
+            descriptor or fingerprint.
     """
 
     name: str
@@ -229,6 +233,7 @@ class Schema:
     namespace: str
     version: str
     classes: List["Klass"] = field(default_factory=list)
+    purposes: List["Purpose"] = field(default_factory=list)
     _output_dir: str = field(default=".", repr=False, init=False)
 
     def set_output_dir(self, output_dir: str) -> None:
@@ -3868,3 +3873,29 @@ class Field:
 class EnumValue:
     name: str
     value: int
+
+
+@dataclass
+class Purpose:
+    """
+    One view-layer purpose: a kind of object the renderer draws, toggled as
+    one column across every layer. Declaration order is the C++ enum's
+    order, whose ordinals cross the C API within one process only.
+
+    Attributes:
+        name (str): The C++ enumerator, UPPER_SNAKE_CASE (e.g. TRACK_PREFERRED).
+        label (str): The user-facing keyword, camelCase (e.g. trackPreferred) -
+            what the Tcl purpose commands take and the Layers panel shows.
+        description (str): What is drawn on it, for users.
+        visible_by_default (bool): Visible until the user hides it.
+        selectable_by_default (bool): Selectable until the user turns it off.
+        has_selectable_objects (bool): Whether anything drawn on it can be
+            selected at all; false hides its selectable toggle.
+    """
+
+    name: str
+    label: str
+    description: str
+    visible_by_default: bool = True
+    selectable_by_default: bool = True
+    has_selectable_objects: bool = False

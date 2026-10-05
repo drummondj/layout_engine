@@ -7,50 +7,13 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace le::gui
 {
     namespace
     {
-        // le::ViewLayerPurpose's own declaration order (api.hpp's own
-        // le_purpose_at doc comment has the authoritative list) - purely
-        // a display label here; le_set_purpose_visible/_selectable below
-        // take the raw ordinal directly, there's no name-string round
-        // trip. Still a separate hand-synced copy from le_tcl_procs.tcl's
-        // own ::purpose_names dict, though - a purpose appended to
-        // ViewLayerPurpose (view_style.hpp) must be added to both, or it
-        // silently falls off the end of this array and displays as "?"
-        // (purpose_name's own out-of-range fallback below).
-        constexpr const char *kPurposeNames[] = {
-            "terminal",
-            "obstruction",
-            "boundary",
-            "trackPreferred",
-            "trackNonPreferred",
-            "routingBlockage",
-            "row",
-            "gcellgrid",
-            "placementBlockage",
-            "route",
-            "region",
-            "placement",
-            "customShape",
-            "debug",
-            "flightline",
-            "portMarker",
-        };
-        constexpr int32_t kPurposeNameCount = static_cast<int32_t>(sizeof(kPurposeNames) / sizeof(kPurposeNames[0]));
-
-        const char *purpose_name(int32_t ordinal)
-        {
-            if (ordinal < 0 || ordinal >= kPurposeNameCount)
-            {
-                return "?";
-            }
-            return kPurposeNames[ordinal];
-        }
-
         const char *tcl_bool(bool value)
         {
             return value ? "1" : "0";
@@ -164,9 +127,10 @@ namespace le::gui
             ImGui::PopID();
         }
 
-        // kPurposeNames ordinals with per-value filter rows beneath them.
-        constexpr int32_t kRoutePurpose = 9;
-        constexpr int32_t kPlacementPurpose = 11;
+        // Labels (le_purpose_name) of the purposes with per-value filter
+        // rows beneath them - a label is a purpose's stable identity.
+        constexpr std::string_view kRoutePurpose = "route";
+        constexpr std::string_view kPlacementPurpose = "placement";
 
         // A purpose's Placement.type/Route.use values, indented under its
         // row - each hides or locks just the objects with that value.
@@ -321,7 +285,7 @@ namespace le::gui
                 {
                     if (!script.empty())
                         script += "; ";
-                    script += std::string("set_purpose_visible ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
+                    script += std::string("set_purpose_visible ") + purpose.name + " " + tcl_bool(value);
                 }
                 if (!script.empty())
                     provider.run_tcl_command(script);
@@ -341,7 +305,7 @@ namespace le::gui
                         continue;
                     if (!script.empty())
                         script += "; ";
-                    script += std::string("set_purpose_selectable ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
+                    script += std::string("set_purpose_selectable ") + purpose.name + " " + tcl_bool(value);
                 }
                 if (!script.empty())
                     provider.run_tcl_command(script);
@@ -362,7 +326,7 @@ namespace le::gui
                 {
                     if (!script.empty())
                         script += "; ";
-                    script += std::string("set_purpose_visible ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
+                    script += std::string("set_purpose_visible ") + purpose.name + " " + tcl_bool(value);
                 }
                 if (!script.empty())
                     provider.run_tcl_command(script);
@@ -376,32 +340,32 @@ namespace le::gui
                         continue;
                     if (!script.empty())
                         script += "; ";
-                    script += std::string("set_purpose_selectable ") + purpose_name(purpose.ordinal) + " " + tcl_bool(value);
+                    script += std::string("set_purpose_selectable ") + purpose.name + " " + tcl_bool(value);
                 }
                 if (!script.empty())
                     provider.run_tcl_command(script);
             });
         for (const GuiProvider::PurposeRow &purpose : purposes)
         {
-            const bool has_filters = purpose.ordinal == kPlacementPurpose || purpose.ordinal == kRoutePurpose;
+            const bool has_filters = purpose.name == kPlacementPurpose || purpose.name == kRoutePurpose;
             bool show_filters = false;
             draw_toggle_row(
-                purpose_name(purpose.ordinal), [&]
+                purpose.name, [&]
                 {
-                    ImGui::TextUnformatted(purpose_name(purpose.ordinal));
+                    ImGui::TextUnformatted(purpose.name);
                     if (has_filters)
                         show_filters = draw_expand_toggle(); },
                 purpose.visible, purpose.selectable,
                 [&](bool value)
-                { provider.set_purpose_visible(purpose_name(purpose.ordinal), value); },
+                { provider.set_purpose_visible(purpose.name, value); },
                 [&](bool value)
-                { provider.set_purpose_selectable(purpose_name(purpose.ordinal), value); },
+                { provider.set_purpose_selectable(purpose.name, value); },
                 purpose.has_selectable_objects);
             if (!show_filters)
                 continue;
-            if (purpose.ordinal == kPlacementPurpose)
+            if (purpose.name == kPlacementPurpose)
                 draw_filter_rows(provider, LE_OBJECT_FILTER_PLACEMENT_TYPE, state.layer_manager.placement_types);
-            else if (purpose.ordinal == kRoutePurpose)
+            else if (purpose.name == kRoutePurpose)
                 draw_filter_rows(provider, LE_OBJECT_FILTER_ROUTE_USE, state.layer_manager.route_uses);
         }
 

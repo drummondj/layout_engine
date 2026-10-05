@@ -1816,6 +1816,30 @@ TEST_F(ApiFixture, SetPurposeVisibleWithNullHandleDoesNotCrash)
     le_set_purpose_visible(nullptr, 1, 0);
 }
 
+TEST(PurposeRegistry, EveryOrdinalHasAUniqueLabel)
+{
+    const int32_t count = le_purpose_kind_count();
+    ASSERT_GT(count, 0);
+    std::set<std::string> labels;
+    for (int32_t purpose = 0; purpose < count; ++purpose)
+    {
+        const char *name = le_purpose_name(purpose);
+        ASSERT_NE(name, nullptr) << purpose;
+        EXPECT_FALSE(std::string(name).empty()) << purpose;
+        EXPECT_TRUE(labels.insert(name).second) << "duplicate label " << name;
+    }
+    EXPECT_EQ(le_purpose_name(-1), nullptr);
+    EXPECT_EQ(le_purpose_name(count), nullptr);
+    EXPECT_EQ(le_purpose_visible_by_default(count), 0);
+    EXPECT_EQ(le_purpose_has_selectable_objects(count), 0);
+}
+
+TEST_F(ApiFixture, FreshHandleHidesExactlyThePurposesHiddenByDefault)
+{
+    for (int32_t purpose = 0; purpose < le_purpose_kind_count(); ++purpose)
+        EXPECT_EQ(le_is_purpose_visible(handle, purpose) != 0, le_purpose_visible_by_default(purpose) != 0) << le_purpose_name(purpose);
+}
+
 TEST_F(ApiFixture, LayerNameSelectabilityDefaultsTrueAndRoundTrips)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);

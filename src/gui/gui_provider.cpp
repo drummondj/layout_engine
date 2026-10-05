@@ -107,7 +107,9 @@ namespace le::gui
             const int32_t ordinal = le_purpose_at(handle_, i);
             const bool visible = le_is_purpose_visible(handle_, ordinal) != 0;
             const bool selectable = le_is_purpose_selectable(handle_, ordinal) != 0;
-            state_.layer_manager.purposes.push_back(PurposeRow{ordinal, visible, selectable, le_purpose_has_selectable_objects(ordinal) != 0});
+            const char *name = le_purpose_name(ordinal);
+            state_.layer_manager.purposes.push_back(
+                PurposeRow{ordinal, name ? name : "?", visible, selectable, le_purpose_has_selectable_objects(ordinal) != 0});
         }
 
         const auto refresh_filter = [this](int32_t filter, std::vector<FilterRow> &rows)

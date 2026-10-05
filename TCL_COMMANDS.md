@@ -2542,7 +2542,7 @@ Sets whether shapes of one purpose - e.g. obstructions - can be selected, across
 
 `set_purpose_visible <purpose> <visible> [-help]`
 
-Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placement placementBlockage portMarker region route routingBlockage row terminal trackNonPreferred trackPreferred. Everything is visible by default except row, trackPreferred, trackNonPreferred, gcellgrid and flightline.
+Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placement placementBlockage portMarker region route routingBlockage row terminal trackNonPreferred trackPreferred. Everything is visible by default except trackPreferred, trackNonPreferred, row, gcellgrid and flightline.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |

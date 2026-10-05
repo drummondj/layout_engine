@@ -850,6 +850,22 @@ bool get_purpose_selectable_cmd(int32_t purpose)
     return le_is_purpose_selectable(session(), purpose);
 }
 
+int purpose_kind_count_cmd()
+{
+    return le_purpose_kind_count();
+}
+
+const char *purpose_name_cmd(int32_t purpose)
+{
+    const char *name = le_purpose_name(purpose);
+    return name ? name : "";
+}
+
+bool purpose_visible_by_default_cmd(int32_t purpose)
+{
+    return le_purpose_visible_by_default(purpose) != 0;
+}
+
 void set_object_filter_visible_cmd(int32_t filter, const char *value, bool visible)
 {
     le_set_object_filter_value_visible(session(), filter, value, visible);

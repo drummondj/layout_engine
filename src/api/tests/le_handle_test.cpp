@@ -1492,3 +1492,22 @@ TEST(LeHandle, SelectionChangesDoNotBumpViewportOrVisibilityVersion)
     EXPECT_EQ(handle.viewport_version(), viewport_version_before);
     EXPECT_EQ(handle.visibility_version(), visibility_version_before);
 }
+
+TEST(LeHandle, PurposeDefaultsComeFromTheRegistry)
+{
+    LeHandle handle;
+    for (const le::ViewLayerPurposeInfo &info : le::kViewLayerPurposes)
+    {
+        EXPECT_EQ(handle.is_purpose_visible(info.purpose), info.visible_by_default) << info.label;
+        EXPECT_EQ(handle.is_purpose_selectable(info.purpose), info.selectable_by_default) << info.label;
+    }
+    // The pipeline reads purpose_visibility() directly, treating a missing
+    // purpose as visible - so every hidden-by-default purpose must be in it.
+    for (const le::ViewLayerPurposeInfo &info : le::kViewLayerPurposes)
+        if (!info.visible_by_default)
+        {
+            const auto it = handle.purpose_visibility().find(info.purpose);
+            ASSERT_NE(it, handle.purpose_visibility().end()) << info.label;
+            EXPECT_FALSE(it->second) << info.label;
+        }
+}

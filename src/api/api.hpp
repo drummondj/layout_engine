@@ -489,13 +489,9 @@ extern "C"
     int32_t le_purpose_count(LeHandle *handle);
 
     /// @brief The purpose at `index` (0..le_purpose_count()-1) - the
-    /// returned int is le::ViewLayerPurpose's own raw ordinal (its
-    /// declaration order, not necessarily this index): 0 = TERMINAL,
-    /// 1 = OBSTRUCTION, 2 = BOUNDARY, 3 = TRACK_PREFERRED,
-    /// 4 = TRACK_NON_PREFERRED, 5 = ROUTING_BLOCKAGE, 6 = ROW,
-    /// 7 = GCELLGRID, 8 = PLACEMENT_BLOCKAGE, 9 = ROUTE, 10 = REGION,
-    /// 11 = PLACEMENT, 12 = CUSTOM_SHAPE, 13 = DEBUG, 14 = FLIGHTLINE,
-    /// 15 = PORT_MARKER.
+    /// returned int is le::ViewLayerPurpose's raw ordinal (its order in
+    /// schema.py's `purposes`, not necessarily this index); le_purpose_name()
+    /// gives its label. Ordinals are only meaningful within one process.
     /// `index` itself walks ViewLayerSet::purposes()'s own
     /// first-encountered order instead (ROW, then BOUNDARY, then
     /// PLACEMENT, then TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
@@ -506,16 +502,23 @@ extern "C"
     /// `le_is_purpose_visible`/`le_set_purpose_visible`, never assume
     /// index equals ordinal.
     ///
-    /// NOTE: this ordinal list crosses into two other hand-synced copies -
-    /// le_gui's own layer_manager.cpp (kPurposeNames) and le_tcl_procs.tcl's
-    /// own ::purpose_names dict - update both together if
-    /// le::ViewLayerPurpose's declaration order (or member count) ever
-    /// changes again (PLACEMENT_NAME/PLACEMENT_BOUNDARY were merged into
-    /// PLACEMENT, shifting CUSTOM_SHAPE and later down by one).
-    ///
     /// Returns -1 if handle is null or index is out of range, rather than
     /// crashing.
     int32_t le_purpose_at(LeHandle *handle, int32_t index);
+
+    /// @brief Number of purposes that exist (every le::ViewLayerPurpose,
+    /// whether or not the current ViewLayerSet uses it); ordinals run
+    /// 0..le_purpose_kind_count()-1. Needs no handle.
+    int32_t le_purpose_kind_count(void);
+
+    /// @brief The user-facing label of purpose ordinal `purpose` (e.g.
+    /// "trackPreferred") - what the Tcl purpose commands take and the
+    /// Layers panel shows. Static storage; null if out of range.
+    const char *le_purpose_name(int32_t purpose);
+
+    /// @brief Nonzero if purpose ordinal `purpose` is visible until the
+    /// user hides it; zero if hidden by default or out of range.
+    int32_t le_purpose_visible_by_default(int32_t purpose);
 
     /// @brief Current visibility of every ViewLayer whose LeLayerRow::name
     /// is `layer_name` (case-sensitive exact match) - i.e. a whole row

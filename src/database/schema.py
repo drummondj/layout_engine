@@ -1,4 +1,4 @@
-from codegen.schema import Schema, Klass, Field
+from codegen.schema import Schema, Klass, Field, Purpose
 
 schema = Schema(
     name="layout_engine",
@@ -2841,5 +2841,27 @@ schema = Schema(
                 Field(name="rects", description="The region's rects (a region can be a multi-rect rectilinear area)", type="Rect", is_list=True),
             ],
         ),
+    ],
+    # What the renderer draws, each toggled as one column across every layer
+    # (codegen --target render). Declaration order is the enum order.
+    # has_selectable_objects must match what hit-testing walks (api/hit_test.hpp,
+    # api.cpp's placement/row hit-tests); vias follow their owning Shape's purpose.
+    purposes=[
+        Purpose(name="TERMINAL", label="terminal", description="Pin shapes of cells, and the design's port shapes", has_selectable_objects=True),
+        Purpose(name="OBSTRUCTION", label="obstruction", description="Obstruction (OBS) shapes of cells", has_selectable_objects=True),
+        Purpose(name="BOUNDARY", label="boundary", description="Cell boundaries and the design's die area"),
+        Purpose(name="TRACK_PREFERRED", label="trackPreferred", description="Routing tracks in their layer's preferred direction", visible_by_default=False, selectable_by_default=False),
+        Purpose(name="TRACK_NON_PREFERRED", label="trackNonPreferred", description="Routing tracks against their layer's preferred direction", visible_by_default=False, selectable_by_default=False),
+        Purpose(name="ROUTING_BLOCKAGE", label="routingBlockage", description="Routing blockages on a layer"),
+        Purpose(name="ROW", label="row", description="Placement rows", visible_by_default=False, has_selectable_objects=True),
+        Purpose(name="GCELLGRID", label="gcellgrid", description="The global-routing cell grid", visible_by_default=False, selectable_by_default=False),
+        Purpose(name="PLACEMENT_BLOCKAGE", label="placementBlockage", description="Placement blockages"),
+        Purpose(name="ROUTE", label="route", description="Routed wires and vias of nets and special nets", has_selectable_objects=True),
+        Purpose(name="REGION", label="region", description="Placement regions"),
+        Purpose(name="PLACEMENT", label="placement", description="Placed cell outlines and their instance names", has_selectable_objects=True),
+        Purpose(name="CUSTOM_SHAPE", label="customShape", description="Free-standing shapes, such as the results of shape commands"),
+        Purpose(name="DEBUG", label="debug", description="Debug shapes, drawn on top of everything in a high-contrast color"),
+        Purpose(name="FLIGHTLINE", label="flightline", description="Net connections between the selected cells' pins", visible_by_default=False, selectable_by_default=False),
+        Purpose(name="PORT_MARKER", label="portMarker", description="Direction arrows beside each design port"),
     ],
 )

@@ -4,7 +4,7 @@ from pathlib import Path
 import click
 import logging
 
-from codegen import generator, tcl_generator
+from codegen import generator, render_generator, tcl_generator
 
 """
 CLI for the codegen package (the `codegen` command).
@@ -22,10 +22,11 @@ codegen --schema <path to schema file> --output <backend src dir> --target tcl
 @click.option(
     "-t",
     "--target",
-    type=click.Choice(["database", "tcl", "makemigration", "checkmigrations"]),
+    type=click.Choice(["database", "tcl", "render", "makemigration", "checkmigrations"]),
     default="database",
     help="'database' (default): the object-pool database (structs/pools/root) into --output directly. "
     "'tcl' - the generated TCL/SWIG property-reading surface into {output}/api and {output}/tcl. "
+    "'render' - the renderer's purpose registry (view_layer_purpose.hpp) into --output directly. "
     "'makemigration' - draft the migration to the current schema version (needs --name). "
     "'checkmigrations' - only check the migration chain.",
 )
@@ -72,7 +73,7 @@ def cli(
     schema_dir = Path(schema).resolve().parent
     history_dir = history or str(schema_dir / "schema_history")
     migrations_dir = migrations or str(schema_dir / "migrations")
-    if target in ("database", "tcl") and not output:
+    if target in ("database", "tcl", "render") and not output:
         raise click.UsageError(f"--output is required for the '{target}' target")
     if target == "makemigration":
         if not name:
@@ -84,6 +85,8 @@ def cli(
         exit_code = generator.check_migrations_only(generator.schema_loader(schema), history_dir, migrations_dir, logger)
     elif target == "tcl":
         exit_code = tcl_generator.generate(generator.schema_loader(schema), output, logger)
+    elif target == "render":
+        exit_code = render_generator.generate(generator.schema_loader(schema), output, logger)
     else:
         exit_code = generator.generate(
             generator.schema_loader(schema),
@@ -95,7 +98,7 @@ def cli(
         )
     if exit_code != 0:
         logger.error(f"codegen {target} failed.")
-    elif target in ("database", "tcl"):
+    elif target in ("database", "tcl", "render"):
         logger.info("Code generation complete.")
 
     sys.exit(exit_code)

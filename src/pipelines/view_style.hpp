@@ -1,5 +1,6 @@
 #pragma once
 #include "../database/database.hpp"
+#include "generated/pipelines/view_layer_purpose.hpp"
 #include <algorithm>
 #include <array>
 #include <map>
@@ -11,85 +12,6 @@
 
 namespace le
 {
-    /// @brief What a ViewLayer represents: which kind of object drew the
-    /// shapes on it. Purely an application/rendering concept, not a LEF
-    /// vocabulary term - a closed enum we own, not an open string field.
-    enum class ViewLayerPurpose
-    {
-        TERMINAL,
-        OBSTRUCTION,
-        BOUNDARY,
-        // DEF TRACKS, split into two independently toggleable purposes -
-        // a Track's own is_x compared against its Layer's declared
-        // `direction` (RoutingDirection) decides which one a given track
-        // resolves to (HierarchyResolverStage). Both contribute into the
-        // named real Layer's own row, as two separate columns.
-        //
-        // NOTE: the raw ordinals of this enum cross the C API
-        // (le_purpose_at) with no C-side named enum, and are mirrored by
-        // hand in layer_manager.cpp's kPurposeNames and le_tcl_procs.tcl's
-        // ::purpose_names. Append new purposes at the end; reordering
-        // means updating both mirrors.
-        TRACK_PREFERRED,
-        TRACK_NON_PREFERRED,
-        ROUTING_BLOCKAGE,   // DEF BLOCKAGES LAYER - contributes into the named real Layer's own row
-        ROW,                // DEF ROW - own pseudo-row, no Layer
-        GCELLGRID,          // DEF GCELLGRID - own pseudo-row, no Layer
-        PLACEMENT_BLOCKAGE, // DEF BLOCKAGES PLACEMENT - own pseudo-row, no Layer - kept
-                             // independently toggleable from ROUTING_BLOCKAGE (not merged
-                             // into one shared BLOCKAGE purpose) since the two serve very
-                             // different purposes for a user (routing keep-out vs.
-                             // placement keep-out).
-        ROUTE,              // DEF NETS/SPECIALNETS routed geometry (Route) - contributes
-                             // into the named real Layer's own row, same as TRACK_PREFERRED/
-                             // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE
-        REGION,             // DEF REGIONS - own pseudo-row, no Layer (Region has no color/
-                             // style field of its own, same "no physical Layer" treatment as
-                             // ROW/GCELLGRID)
-        PLACEMENT,          // A Placement's own resolved footprint outline plus its name
-                             // label (HierarchyResolverStage's collect_layout_content) - own
-                             // pseudo-row, no Layer, same "no physical Layer" treatment as
-                             // ROW/GCELLGRID/REGION. Kept apart from BOUNDARY so a placement's
-                             // footprint can be toggled independently of a Design's own
-                             // boundary/diearea outline.
-        CUSTOM_SHAPE,       // A free-standing Shape (Abstract/Layout.free_shapes - e.g. a shape_*
-                             // TCL command's result) on a real Layer - contributes into that
-                             // Layer's own row with its own color and fill, as its own column so
-                             // custom geometry can be hidden independently of real pins/routes.
-        DEBUG,              // Shape.purpose == DEBUG (`-layer debug`) - own pseudo-row, no Layer,
-                             // drawn on top of everything in a high-contrast color.
-        FLIGHTLINE,         // Net connections between the selected placements' pins
-                             // (core/flightlines.hpp) - own
-                             // pseudo-row, no Layer, hidden by default (LeHandle pre-seeds it
-                             // invisible); drawn by ComposeStage as an overlay, not rasterized.
-        PORT_MARKER,        // A direction triangle beside each PhysicalPort (DEF PIN) -
-                             // pointing in for inputs, out for outputs, both ways for
-                             // inouts (pipelines/port_markers.hpp) - own pseudo-row, no Layer.
-    };
-
-    /// @brief Whether anything drawn on `purpose` can ever be selected -
-    /// false means its selectable toggle does nothing, so the Layers panel
-    /// shows no checkbox for it. Must
-    /// match what hit-testing actually walks: TERMINAL/OBSTRUCTION
-    /// (hit_test_abstract_*), ROUTE/TERMINAL (hit_test_layout_*, a
-    /// PhysicalPort's own shapes draw as TERMINAL), PLACEMENT
-    /// (api.cpp's placements_selectable), ROW (rows_selectable) - vias follow their owning
-    /// Shape's purpose. Extend this when a new kind becomes selectable.
-    constexpr bool purpose_has_selectable_objects(ViewLayerPurpose purpose)
-    {
-        switch (purpose)
-        {
-        case ViewLayerPurpose::TERMINAL:
-        case ViewLayerPurpose::OBSTRUCTION:
-        case ViewLayerPurpose::ROUTE:
-        case ViewLayerPurpose::PLACEMENT:
-        case ViewLayerPurpose::ROW:
-            return true;
-        default:
-            return false;
-        }
-    }
-
     struct Color
     {
         uint8_t r = 0;
