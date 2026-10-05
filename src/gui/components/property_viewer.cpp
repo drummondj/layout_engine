@@ -48,52 +48,23 @@ namespace le::gui
             return std::string(prefix) + ":" + buf;
         }
 
-        // [ref]'s own TCL-style friendly-id token - name-keyed for the
-        // classes that have a real name field, numeric-packed
-        // (generation<<32 | index) for the ones that don't. Purely a
-        // display string - never round-tripped through TCL, since
-        // LeObjectRef already carries the same index/generation shape.
+        // [ref]'s TCL-style friendly-id token - name-keyed for the classes
+        // that have a name field, numeric-packed (generation<<32 | index)
+        // for the ones that don't. Purely a display string - never
+        // round-tripped through TCL, since LeObjectRef already carries the
+        // same index/generation shape.
         std::string token_for(const GuiProvider &provider, const LeObjectRef &ref)
         {
-            if (!ref_is_valid(ref))
+            const char *kind_name = GuiProvider::object_kind_name(ref.kind);
+            if (!ref_is_valid(ref) || !kind_name)
             {
                 return "?";
             }
-            switch (ref.kind)
+            if (GuiProvider::object_kind_is_named(ref.kind))
             {
-            case LE_OBJECT_KIND_LIBRARY:
-                return "library:" + name_of(provider, ref);
-            case LE_OBJECT_KIND_DESIGN:
-                return "design:" + name_of(provider, ref);
-            case LE_OBJECT_KIND_TERMINAL:
-                return "terminal:" + name_of(provider, ref);
-            case LE_OBJECT_KIND_ROW:
-                return "row:" + name_of(provider, ref);
-            case LE_OBJECT_KIND_PLACEMENT:
-                return "placement:" + name_of(provider, ref);
-            case LE_OBJECT_KIND_ROUTE:
-                return "route:" + name_of(provider, ref);
-            case LE_OBJECT_KIND_PHYSICAL_PORT:
-                return "physical_port:" + name_of(provider, ref);
-            case LE_OBJECT_KIND_REGION:
-                return "region:" + name_of(provider, ref);
-            case LE_OBJECT_KIND_ABSTRACT:
-                return packed_token("abstract", ref);
-            case LE_OBJECT_KIND_TERMINAL_PORT:
-                return packed_token("terminal_port", ref);
-            case LE_OBJECT_KIND_OBSTRUCTION:
-                return packed_token("obstruction", ref);
-            case LE_OBJECT_KIND_SHAPE:
-                return packed_token("shape", ref);
-            case LE_OBJECT_KIND_BLOCKAGE:
-                return packed_token("blockage", ref);
-            case LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT:
-                return packed_token("physical_port_segment", ref);
-            case LE_OBJECT_KIND_LAYOUT:
-                return packed_token("layout", ref);
-            default:
-                return "?";
+                return std::string(kind_name) + ":" + name_of(provider, ref);
             }
+            return packed_token(kind_name, ref);
         }
 
         const char *child_label(int32_t kind)

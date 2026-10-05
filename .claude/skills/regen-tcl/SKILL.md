@@ -185,6 +185,13 @@ again on subsequent regenerations:
   `= \n#include "generated/api/filter_tables.inc"` replaces its old
   hand-written initializer list (the `FilterFieldTable` struct itself and
   the functions that consume the table stay hand-written).
+- `api.hpp` also includes `generated/api/object_kinds.inc` (the
+  `LeObjectKind` enum, one kind per TCL-readable class) where that enum is
+  documented, and `api.cpp` includes `generated/api/object_dispatch.inc`
+  in its anonymous namespace after the `id_from_ref`/`ref_from_id`/
+  `invalid_object_ref` helpers (`build_object_properties`,
+  `object_ref_parent`, and the `kObjectKinds` name table behind
+  `le_object_kind_name`/`le_object_kind_is_named`).
 - `le_handle.hpp` - `#include "generated/api/handle_fields.inc"` inside
   `struct LeHandle`'s body (per-class property-table caches,
   search-result caches, `current_X_id` fields).

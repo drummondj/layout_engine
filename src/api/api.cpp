@@ -2160,8 +2160,8 @@ namespace
     // --- Generic LeObjectRef dispatch (for the Property Viewer) -
     // le_object_property_count/_at/
     // le_object_parent/le_selected_object_ref's own internal machinery.
-    // Every ref's `index`/`generation` pair is exactly one of the seven
-    // LeXxxId structs' own fields, so converting is a bare field copy. ---
+    // A ref's `index`/`generation` pair is its class's LeXxxId fields, so
+    // converting is a bare field copy. ---
 
     LeObjectRef invalid_object_ref()
     {
@@ -2179,184 +2179,14 @@ namespace
         return IdT{.index = ref.index, .generation = ref.generation};
     }
 
-    LeObjectRef ref_from_id(LeObjectKind kind, le::LibraryId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::DesignId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::AbstractId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::TerminalId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::TerminalPortId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::ObstructionId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::ShapeId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    // The top-level Layout-view kinds, plus PhysicalPortSegment (an
-    // intermediate parent-hop node only, mirroring TerminalPort).
-    LeObjectRef ref_from_id(LeObjectKind kind, le::RowId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::PlacementId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::BlockageId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::RouteId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::PhysicalPortId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::RegionId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::PhysicalPortSegmentId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-    LeObjectRef ref_from_id(LeObjectKind kind, le::LayoutId id) { return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation}; }
-
-    // Dispatches to the same by-id property builder each class's own
-    // le_X_property_count/_at already uses (build_library_properties et
-    // al, all lock-free, defined earlier in this file) - never the public
-    // le_X_property_at functions themselves, which each take
-    // handle->mutex_ on their own; le_object_property_count/_at take it
-    // exactly once, so calling back into a lock-taking function here
-    // would self-deadlock (std::mutex isn't recursive).
-    std::vector<le::PropertyValue> build_object_properties(const le::Root &root, LeObjectRef ref)
+    template <typename IdT>
+    LeObjectRef ref_from_id(LeObjectKind kind, IdT id)
     {
-        switch (static_cast<LeObjectKind>(ref.kind))
-        {
-        case LE_OBJECT_KIND_LIBRARY:
-            return build_library_properties(root, id_from_ref<le::LibraryId>(ref));
-        case LE_OBJECT_KIND_DESIGN:
-            return build_design_properties(root, id_from_ref<le::DesignId>(ref));
-        case LE_OBJECT_KIND_ABSTRACT:
-            return build_abstract_properties(root, id_from_ref<le::AbstractId>(ref));
-        case LE_OBJECT_KIND_TERMINAL:
-            return build_terminal_properties(root, id_from_ref<le::TerminalId>(ref));
-        case LE_OBJECT_KIND_TERMINAL_PORT:
-            return build_terminal_port_properties(root, id_from_ref<le::TerminalPortId>(ref));
-        case LE_OBJECT_KIND_OBSTRUCTION:
-            return build_obstruction_properties(root, id_from_ref<le::ObstructionId>(ref));
-        case LE_OBJECT_KIND_SHAPE:
-            return build_shape_properties(root, id_from_ref<le::ShapeId>(ref));
-        case LE_OBJECT_KIND_ROW:
-            return build_row_properties(root, id_from_ref<le::RowId>(ref));
-        case LE_OBJECT_KIND_PLACEMENT:
-            return build_placement_properties(root, id_from_ref<le::PlacementId>(ref));
-        case LE_OBJECT_KIND_BLOCKAGE:
-            return build_blockage_properties(root, id_from_ref<le::BlockageId>(ref));
-        case LE_OBJECT_KIND_ROUTE:
-            return build_route_properties(root, id_from_ref<le::RouteId>(ref));
-        case LE_OBJECT_KIND_PHYSICAL_PORT:
-            return build_physical_port_properties(root, id_from_ref<le::PhysicalPortId>(ref));
-        case LE_OBJECT_KIND_REGION:
-            return build_region_properties(root, id_from_ref<le::RegionId>(ref));
-        case LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT:
-            return build_physical_port_segment_properties(root, id_from_ref<le::PhysicalPortSegmentId>(ref));
-        case LE_OBJECT_KIND_LAYOUT:
-            return build_layout_properties(root, id_from_ref<le::LayoutId>(ref));
-        }
-        return {};
+        return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation};
     }
 
-    // `ref`'s immediate parent - the same parent-hop graph
-    // filter_field_tables() already declares for -filter validation
-    // (Shape->terminal_port/obstruction, TerminalPort->terminal,
-    // Terminal/Obstruction->abstract, Abstract->design, Design->library),
-    // read directly off each class's own schema parent field. Library has
-    // no parent. Degrades to invalid_object_ref() if `ref` doesn't
-    // resolve to a real object (rather than asserting) - same graceful-
-    // degradation convention as every other lookup in this file.
-    LeObjectRef object_ref_parent(const le::Root &root, LeObjectRef ref)
-    {
-        switch (static_cast<LeObjectKind>(ref.kind))
-        {
-        case LE_OBJECT_KIND_LIBRARY:
-            return invalid_object_ref();
-        case LE_OBJECT_KIND_DESIGN:
-        {
-            const le::DesignData *design = root.get_design(id_from_ref<le::DesignId>(ref));
-            return design ? ref_from_id(LE_OBJECT_KIND_LIBRARY, design->library) : invalid_object_ref();
-        }
-        case LE_OBJECT_KIND_ABSTRACT:
-        {
-            const le::AbstractData *abstract = root.get_abstract(id_from_ref<le::AbstractId>(ref));
-            return abstract ? ref_from_id(LE_OBJECT_KIND_DESIGN, abstract->design) : invalid_object_ref();
-        }
-        case LE_OBJECT_KIND_TERMINAL:
-        {
-            const le::TerminalData *terminal = root.get_terminal(id_from_ref<le::TerminalId>(ref));
-            return terminal ? ref_from_id(LE_OBJECT_KIND_ABSTRACT, terminal->abstract) : invalid_object_ref();
-        }
-        case LE_OBJECT_KIND_TERMINAL_PORT:
-        {
-            const le::TerminalPortData *port = root.get_terminal_port(id_from_ref<le::TerminalPortId>(ref));
-            return port ? ref_from_id(LE_OBJECT_KIND_TERMINAL, port->terminal) : invalid_object_ref();
-        }
-        case LE_OBJECT_KIND_OBSTRUCTION:
-        {
-            const le::ObstructionData *obstruction = root.get_obstruction(id_from_ref<le::ObstructionId>(ref));
-            return obstruction ? ref_from_id(LE_OBJECT_KIND_ABSTRACT, obstruction->abstract) : invalid_object_ref();
-        }
-        case LE_OBJECT_KIND_SHAPE:
-        {
-            const le::ShapeData *shape = root.get_shape(id_from_ref<le::ShapeId>(ref));
-            if (!shape)
-                return invalid_object_ref();
-            if (shape->terminal_port.valid())
-                return ref_from_id(LE_OBJECT_KIND_TERMINAL_PORT, shape->terminal_port);
-            if (shape->obstruction.valid())
-                return ref_from_id(LE_OBJECT_KIND_OBSTRUCTION, shape->obstruction);
-            // The three Layout-view parent fields Shape has alongside
-            // terminal_port/obstruction (schema.py).
-            if (shape->blockage.valid())
-                return ref_from_id(LE_OBJECT_KIND_BLOCKAGE, shape->blockage);
-            if (shape->route.valid())
-                return ref_from_id(LE_OBJECT_KIND_ROUTE, shape->route);
-            if (shape->physical_port_segment.valid())
-                return ref_from_id(LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT, shape->physical_port_segment);
-            // Free-standing shapes (Abstract/Layout.free_shapes) and the
-            // one boundary/diearea Shape - all owned directly by the
-            // Abstract/Layout itself.
-            if (shape->in_abstract.valid())
-                return ref_from_id(LE_OBJECT_KIND_ABSTRACT, shape->in_abstract);
-            if (shape->in_layout.valid())
-                return ref_from_id(LE_OBJECT_KIND_LAYOUT, shape->in_layout);
-            if (shape->abstract.valid())
-                return ref_from_id(LE_OBJECT_KIND_ABSTRACT, shape->abstract);
-            if (shape->layout.valid())
-                return ref_from_id(LE_OBJECT_KIND_LAYOUT, shape->layout);
-            return invalid_object_ref(); // shouldn't happen - mutually exclusive per schema.py - degrade gracefully anyway
-        }
-        case LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT:
-        {
-            const le::PhysicalPortSegmentData *segment = root.get_physical_port_segment(id_from_ref<le::PhysicalPortSegmentId>(ref));
-            return segment ? ref_from_id(LE_OBJECT_KIND_PHYSICAL_PORT, segment->physical_port) : invalid_object_ref();
-        }
-        // Row/Placement/Blockage/Route/PhysicalPort/Region's own parent is
-        // a Layout, which has its own LeObjectKind (LE_OBJECT_KIND_LAYOUT)
-        // so this hop continues on up to Design -> Library.
-        case LE_OBJECT_KIND_ROW:
-        {
-            const le::RowData *row = root.get_row(id_from_ref<le::RowId>(ref));
-            return row ? ref_from_id(LE_OBJECT_KIND_LAYOUT, row->layout) : invalid_object_ref();
-        }
-        case LE_OBJECT_KIND_PLACEMENT:
-        {
-            const le::PlacementData *placement = root.get_placement(id_from_ref<le::PlacementId>(ref));
-            return placement ? ref_from_id(LE_OBJECT_KIND_LAYOUT, placement->layout) : invalid_object_ref();
-        }
-        case LE_OBJECT_KIND_BLOCKAGE:
-        {
-            const le::BlockageData *blockage = root.get_blockage(id_from_ref<le::BlockageId>(ref));
-            return blockage ? ref_from_id(LE_OBJECT_KIND_LAYOUT, blockage->layout) : invalid_object_ref();
-        }
-        case LE_OBJECT_KIND_ROUTE:
-        {
-            const le::RouteData *route = root.get_route(id_from_ref<le::RouteId>(ref));
-            return route ? ref_from_id(LE_OBJECT_KIND_LAYOUT, route->layout) : invalid_object_ref();
-        }
-        case LE_OBJECT_KIND_PHYSICAL_PORT:
-        {
-            const le::PhysicalPortData *port = root.get_physical_port(id_from_ref<le::PhysicalPortId>(ref));
-            return port ? ref_from_id(LE_OBJECT_KIND_LAYOUT, port->layout) : invalid_object_ref();
-        }
-        case LE_OBJECT_KIND_REGION:
-        {
-            const le::RegionData *region = root.get_region(id_from_ref<le::RegionId>(ref));
-            return region ? ref_from_id(LE_OBJECT_KIND_LAYOUT, region->layout) : invalid_object_ref();
-        }
-        case LE_OBJECT_KIND_LAYOUT:
-        {
-            const le::LayoutData *layout = root.get_layout(id_from_ref<le::LayoutId>(ref));
-            return layout ? ref_from_id(LE_OBJECT_KIND_DESIGN, layout->design) : invalid_object_ref();
-        }
-        }
-        return invalid_object_ref();
-    }
+    // build_object_properties, object_ref_parent and kObjectKinds.
+#include "generated/api/object_dispatch.inc"
 
     // --- shape_* operations ---
 
@@ -4988,6 +4818,20 @@ extern "C"
     LeObjectRef le_object_invalid_ref(void)
     {
         return invalid_object_ref();
+    }
+
+    const char *le_object_kind_name(int32_t kind)
+    {
+        if (kind < 0 || static_cast<size_t>(kind) >= std::size(kObjectKinds))
+            return nullptr;
+        return kObjectKinds[kind].name;
+    }
+
+    int32_t le_object_kind_is_named(int32_t kind)
+    {
+        if (kind < 0 || static_cast<size_t>(kind) >= std::size(kObjectKinds))
+            return 0;
+        return kObjectKinds[kind].named ? 1 : 0;
     }
 
     int32_t le_object_property_count(LeHandle *handle, LeObjectRef ref)

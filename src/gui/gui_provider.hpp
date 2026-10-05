@@ -154,6 +154,10 @@ namespace le::gui
         // would_block_property_lookup's own comment). ---
 
         LeObjectRef object_parent(LeObjectRef ref) const;
+        // le_object_kind_name/le_object_kind_is_named: a kind's friendly-id
+        // prefix (null out of range) and whether that id is a name.
+        static const char *object_kind_name(int32_t kind);
+        static bool object_kind_is_named(int32_t kind);
         LeObjectRef selected_object_ref(int32_t selection_index) const;
         int32_t object_property_count(LeObjectRef ref) const;
         LeProperty object_property_at(LeObjectRef ref, int32_t index) const;
