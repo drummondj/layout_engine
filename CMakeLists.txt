@@ -656,8 +656,6 @@ target_include_directories(extension_sdk INTERFACE src/extension)
 target_link_libraries(extension_sdk INTERFACE api database)
 target_compile_definitions(extension_sdk INTERFACE LE_EXTENSION_API_VERSION=${LE_EXTENSION_API_VERSION})
 
-# The extensions in LE_EXTENSION_DIRS, as the `le_extensions` library.
-include(cmake/le_extensions.cmake)
 target_include_directories(api PRIVATE ${nlohmann_json_header_SOURCE_DIR})
 le_enable_coverage_instrumentation(api)
 
@@ -748,6 +746,10 @@ endif()
 find_package(SWIG 4.0)
 find_package(TCL)
 
+# The extensions in LE_EXTENSION_DIRS: the `le_extensions` library (and
+# `le_extensions_tcl`, their Tcl commands) and extensions.json.
+include(cmake/le_extensions.cmake)
+
 if(SWIG_FOUND AND TCL_FOUND)
     include(UseSWIG)
     set_property(SOURCE src/tcl/le_api.i PROPERTY CPLUSPLUS ON)
@@ -769,7 +771,7 @@ if(SWIG_FOUND AND TCL_FOUND)
     # links it too, but only PUBLIC-propagates it as far as api, not this
     # far; le_tcl_shim.cpp needs it directly for dump_png_cmd's own
     # BLImage::write_to_file PNG export.
-    target_link_libraries(le_tcl PRIVATE api le_extensions blend2d::blend2d ${TCL_LIBRARY})
+    target_link_libraries(le_tcl PRIVATE api le_extensions_tcl blend2d::blend2d ${TCL_LIBRARY})
     # Hide this module's own copies of symbols that are also statically
     # linked into the process that loads it (src/tcl/le_tcl_unexported_symbols.txt).
     # On macOS, le_shell links `api` (and transitively io/liblef.a,
@@ -955,7 +957,11 @@ if(SWIG_FOUND AND TCL_FOUND)
     target_compile_definitions(le_shell PRIVATE
         LE_TCL_MODULE_DEFAULT_PATH="$<TARGET_FILE:le_tcl>"
         LE_TCL_PROCS_DEFAULT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl"
+        LE_EXTENSIONS_DEFAULT_PATH="${LE_EXTENSIONS_INDEX}"
+        LE_LAYOUT_ENGINE_VERSION="${PROJECT_VERSION}"
     )
+    # extension_index.hpp reads extensions.json.
+    target_include_directories(le_shell PRIVATE ${nlohmann_json_header_SOURCE_DIR})
     add_dependencies(le_shell le_tcl)
 
     # GNU readline (GPL - this project carries no LICENSE file/
@@ -1088,8 +1094,8 @@ if(SWIG_FOUND AND TCL_FOUND)
     # owned LeHandle*, the mechanism le_shell relies on. Kept out of
     # backend_tests (unconditional, built even without SWIG/TCL) since
     # this needs both.
-    add_executable(le_tcl_session_test src/tcl/tests/session_handle_test.cpp)
-    target_include_directories(le_tcl_session_test PRIVATE src/api ${TCL_INCLUDE_PATH})
+    add_executable(le_tcl_session_test src/tcl/tests/session_handle_test.cpp src/tcl/tests/extension_index_test.cpp)
+    target_include_directories(le_tcl_session_test PRIVATE src/api ${TCL_INCLUDE_PATH} ${nlohmann_json_header_SOURCE_DIR})
     target_link_libraries(le_tcl_session_test PRIVATE api ${TCL_LIBRARY} GTest::gtest_main)
     target_compile_definitions(le_tcl_session_test PRIVATE
         API_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures"
@@ -1098,6 +1104,18 @@ if(SWIG_FOUND AND TCL_FOUND)
     )
     add_dependencies(le_tcl_session_test le_tcl)
     gtest_discover_tests(le_tcl_session_test)
+
+    # le_shell refuses an extensions.json written for another extension API,
+    # naming the mismatch, rather than loading procs that may not fit.
+    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/test_fixtures/extensions_wrong_api.json
+        "{\"format\": 1, \"layout_engine\": \"${PROJECT_VERSION}\", \"extension_api\": 999, \"extensions\": []}\n")
+    add_test(
+        NAME le_shell_refuses_wrong_extension_api
+        COMMAND le_shell -extensions ${CMAKE_CURRENT_BINARY_DIR}/test_fixtures/extensions_wrong_api.json
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/shell_test.tcl
+    )
+    set_tests_properties(le_shell_refuses_wrong_extension_api PROPERTIES
+        PASS_REGULAR_EXPRESSION "written for extension API 999")
 else()
     message(STATUS "SWIG and/or Tcl not found - skipping le_tcl target")
 endif()

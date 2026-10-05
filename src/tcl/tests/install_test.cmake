@@ -13,7 +13,7 @@ if(NOT result EQUAL 0)
     message(FATAL_ERROR "cmake --install failed (${result}):\n${output}")
 endif()
 
-foreach(file le_shell le_tcl.so le_tcl_procs.tcl le_tcl_procs_generated.tcl lucide.ttf
+foreach(file le_shell le_tcl.so le_tcl_procs.tcl le_tcl_procs_generated.tcl lucide.ttf extensions.json
         fonts/DejaVuSansMono.ttf fonts/Quicksand-Medium.ttf)
     if(NOT EXISTS "${WORK_DIR}/${file}")
         message(FATAL_ERROR "the bundle is missing ${file}")
@@ -33,6 +33,7 @@ file(WRITE "${WORK_DIR}/smoke.tcl" [=[
 puts "module [lindex [lindex [info loaded] 0] 0]"
 puts "generated $::le_generated_procs_path"
 puts "commands [llength [info commands get_*]]"
+puts "index $::le_extensions_index"
 ]=])
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env --unset=LE_TCL_MODULE --unset=LE_TCL_PROCS_PATH --unset=LD_LIBRARY_PATH
@@ -45,7 +46,7 @@ if(NOT result EQUAL 0)
     message(FATAL_ERROR "the installed le_shell failed (${result}):\n${output}\n${errors}")
 endif()
 file(REAL_PATH "${WORK_DIR}" work_dir)
-foreach(expected "module ${work_dir}/le_tcl.so" "generated ${work_dir}/le_tcl_procs_generated.tcl")
+foreach(expected "module ${work_dir}/le_tcl.so" "generated ${work_dir}/le_tcl_procs_generated.tcl" "index ${work_dir}/extensions.json")
     string(FIND "${output}" "${expected}" at)
     if(at EQUAL -1)
         message(FATAL_ERROR "expected \"${expected}\" - the bundle used files outside itself:\n${output}")

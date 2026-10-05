@@ -57,13 +57,14 @@ class TestManifests(unittest.TestCase):
         d = write_extension(
             self.root,
             "acme_router",
-            manifest_text("acme_router", "Acme", contents='cmake = "le_extension.cmake"\ntcl_procs = ["procs.tcl"]'),
-            files=("le_extension.cmake", "procs.tcl"),
+            manifest_text("acme_router", "Acme", contents='cmake = "le_extension.cmake"\ntcl_procs = ["procs.tcl"]\ntcl_tests = ["t.tcl"]'),
+            files=("le_extension.cmake", "procs.tcl", "t.tcl"),
         )
         m = em.load(d)
         self.assertEqual((m.name, m.version, m.prefix, m.extension_api), ("acme_router", "1.0.0", "Acme", 1))
         self.assertEqual(m.cmake, (d / "le_extension.cmake").resolve())
         self.assertEqual(m.tcl_procs, [(d / "procs.tcl").resolve()])
+        self.assertEqual(m.tcl_tests, [(d / "t.tcl").resolve()])
         self.assertTrue(m.compiled)
 
     def test_script_only_extension_is_not_compiled(self):

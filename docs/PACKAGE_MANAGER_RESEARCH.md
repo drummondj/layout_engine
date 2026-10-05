@@ -197,7 +197,7 @@ my_chip/
 
 ## 8. Runtime
 
-**Finding extensions.** `app_init` reads `extensions.json` next to the executable, found with `find_resource` like the core procs. A script-tier project runs the cached release `le_shell`, so `le shell` passes the project's index explicitly with a new `-extensions <path>` flag (env `LE_EXTENSIONS_PATH`), matching the existing `-module`/`-procs` flags and `LE_TCL_MODULE`/`LE_TCL_PROCS_PATH`.
+**Finding extensions.** *Built (#69):* `app_init` reads `extensions.json` next to the executable, found with `find_resource` like the core procs. A script-tier project runs the cached release `le_shell`, so `le shell` passes the project's index explicitly with a new `-extensions <path>` flag (env `LE_EXTENSIONS_PATH`), matching the existing `-module`/`-procs` flags and `LE_TCL_MODULE`/`LE_TCL_PROCS_PATH`.
 
 ```json
 {
