@@ -256,7 +256,7 @@ Changes made to EXTENSION_MECHANISM_RESEARCH.md because of this design:
 5. **CMake runs codegen.** This is now phase 0, a prerequisite, rather than an optional follow-up.
 6. **Multiple vendors coexist.** Unique names and the prefix rule are mandatory, and dependency ordering is built in (decision 3 there).
 7. **Package version ≠ schema version.** SCHM records both for each extension (NATIVE_FILE_FORMAT_RESEARCH.md §4.8, §6).
-8. **Versioned layout_engine releases.** `project(... VERSION 0.1.0)` must start moving, releases must be tagged `vX.Y.Z` (the repo has no tags today), and release bundles must be published (e.g. GitHub releases) so script-tier projects can download them.
+8. **Versioned layout_engine releases.** *Built (#67):* releases are signed `vX.Y.Z` tags that must match `project(... VERSION)`, starting at 0.2.0. The release workflow publishes the bundle with a detached SSH signature by the release key, whose public half is committed in `assets/keys/allowed_signers` (`docs/RELEASING.md`).
 9. **An `install` target** that builds the release-shaped bundle, so `Dockerfile.linux-release` and `le` share one layout.
 
 ---

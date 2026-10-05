@@ -163,7 +163,8 @@ cmake --install build_release --component bundle --prefix ~/le_bundle
 ```
 
 The bundle's own files always win over the build tree's, so it can be
-copied to another machine as-is. `le_shell`/`le_gui` link
+copied to another machine as-is. Published releases are signed; see
+`docs/RELEASING.md` to verify one. `le_shell`/`le_gui` link
 GLFW (X11 backend) and GNU readline unconditionally now — this rootless
 path (step 1) doesn't yet provision either's system dev packages
 (`libX11-devel`/`libXrandr-devel`/`libXinerama-devel`/`libXcursor-devel`/

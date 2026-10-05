@@ -562,7 +562,7 @@ Steps 1–3 are refactors of existing core behaviour, with no extension API yet,
   - CI configures with `-DLE_EXTENSION_DIRS=examples/extensions/hello_ext` and runs its tests, so an accidental SDK break is caught before release. A second, script-only `examples/extensions/hello_script` is installed into the release bundle by the smoke test, covering the no-compiler path.
   - The same two examples are the package manager's test fixtures.
 - **Surface area discipline:** anything reachable through `le/extension.hpp`, `Registry`, `ExtGuiContext`, the codegen `extend()` hook, the TCL helper procs (`register_command_help`) and the `le_extension.toml` schema is public API. Everything else is not.
-- **Version identity.** Compatibility ranges need layout_engine releases with meaningful versions. Today `project(... VERSION 0.1.0)` never changes and the repo has no release tags. Releases must be tagged, and the version bumped, before the first extension declares a range.
+- **Version identity.** Compatibility ranges need layout_engine releases with meaningful versions. *Built (#67):* releases are signed `vX.Y.Z` tags that must match `project(... VERSION)`, starting at 0.2.0 (`docs/RELEASING.md`).
 
 ---
 

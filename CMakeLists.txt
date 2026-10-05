@@ -12,7 +12,7 @@ if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version - see comment above")
 endif()
 
-project(layout_engine_backend VERSION 0.1.0 LANGUAGES C CXX)
+project(layout_engine_backend VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
