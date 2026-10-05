@@ -261,7 +261,8 @@ ci` (`Dockerfile.linux-ci`); releases come from `Dockerfile.linux-release`,
 which packages the `bundle` install component (`cmake --install <build>
 --component bundle --prefix <dir>`: a flat, relocatable directory whose own
 files win over a build tree's - `find_resource` looks beside the executable
-first).
+first). Releases are signed `vX.Y.Z` tags matching `project(... VERSION)`;
+`docs/RELEASING.md` covers the release key and the steps.
 
 Dependencies: Python >= 3.11 with codegen's packages (`pip install
 ./codegen`; pass `-DPython3_EXECUTABLE=...` to pick the interpreter);
