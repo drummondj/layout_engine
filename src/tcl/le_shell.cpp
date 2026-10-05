@@ -34,6 +34,7 @@
 #include "le_gui.hpp"
 #include "generated/le_shell_version.hpp"
 #include "../core/resource_path.hpp"
+#include "extension_index.hpp"
 #include "le/register_all.hpp"
 
 #include <readline/history.h>
@@ -59,6 +60,10 @@ namespace
 {
     std::string g_module_path;
     std::string g_procs_path;
+    // The extensions whose procs app_init sources (extensions.json), in
+    // order, and the index file they came from ("" if none was found).
+    le::ExtensionIndex g_extensions;
+    std::string g_extensions_index_path;
 
     LeHandle *g_injected_handle = nullptr;
 
@@ -201,7 +206,68 @@ namespace
             return TCL_ERROR;
         }
 
+        // Extensions' procs after the core ones (they may call
+        // register_command_help and core commands), in dependency order;
+        // then the project's startup script, if any. ::le_extensions_index
+        // records which index was used.
+        Tcl_SetVar(interp, "le_extensions_index", g_extensions_index_path.c_str(), TCL_GLOBAL_ONLY);
+        for (const le::ExtensionIndexEntry &extension : g_extensions.extensions)
+            for (const std::filesystem::path &procs : extension.procs)
+                if (Tcl_EvalFile(interp, procs.c_str()) != TCL_OK)
+                {
+                    std::fprintf(stderr, "le_shell: extension %s: %s: %s\n", extension.name.c_str(), procs.c_str(), Tcl_GetStringResult(interp));
+                    return TCL_ERROR;
+                }
+        if (g_extensions.startup && Tcl_EvalFile(interp, g_extensions.startup->c_str()) != TCL_OK)
+        {
+            std::fprintf(stderr, "le_shell: startup script %s: %s\n", g_extensions.startup->c_str(), Tcl_GetStringResult(interp));
+            return TCL_ERROR;
+        }
+
         return TCL_OK;
+    }
+
+    // extensions.json: -extensions beats LE_EXTENSIONS_PATH beats the
+    // default (beside the executable, else the build tree's; find_resource).
+    // No index is fine for a binary with no compiled extensions; otherwise
+    // their procs would be missing, so it's an error.
+    le::ExtensionIndex load_extension_index(const char *cli_value)
+    {
+        std::vector<std::string> compiled;
+        for (int32_t i = 0; i < le_extension_count(); ++i)
+            compiled.emplace_back(le_extension_name(i));
+
+        std::string path;
+        if (cli_value != nullptr)
+            path = cli_value;
+        else if (const char *from_env = std::getenv("LE_EXTENSIONS_PATH"))
+            path = from_env;
+        else
+        {
+#ifdef LE_EXTENSIONS_DEFAULT_PATH
+            const char *default_path = LE_EXTENSIONS_DEFAULT_PATH;
+#else
+            const char *default_path = "";
+#endif
+            auto found = le::find_resource(default_path, "extensions.json");
+            if (!found)
+            {
+                if (compiled.empty())
+                    return {};
+                std::fprintf(stderr, "le_shell: extensions.json not found (tried %s) - pass -extensions or set LE_EXTENSIONS_PATH\n",
+                             le::quoted_paths(found.error()).c_str());
+                std::exit(2);
+            }
+            path = std::move(*found);
+        }
+        auto index = le::read_extension_index(path, LE_LAYOUT_ENGINE_VERSION, LE_EXTENSION_API_VERSION, compiled);
+        if (!index)
+        {
+            std::fprintf(stderr, "le_shell: %s\n", index.error().c_str());
+            std::exit(2);
+        }
+        g_extensions_index_path = std::filesystem::weakly_canonical(path).string();
+        return std::move(*index);
     }
 
     // Runs one already-assembled command string through le_repl_eval and
@@ -529,8 +595,9 @@ int main(int argc, char **argv)
 
     const char *module_arg = nullptr;
     const char *procs_arg = nullptr;
+    const char *extensions_arg = nullptr;
 
-    // -module/-procs are this shell's own bootstrap flags, consumed here
+    // -module/-procs/-extensions are this shell's own bootstrap flags, consumed here
     // (only as a fixed leading run, before anything run_shell itself
     // needs to see) rather than passed through - what's left (a script
     // path plus its own arguments, or nothing at all for interactive
@@ -551,6 +618,11 @@ int main(int argc, char **argv)
         else if (arg == "-procs" && i + 1 < argc)
         {
             procs_arg = argv[i + 1];
+            i += 2;
+        }
+        else if (arg == "-extensions" && i + 1 < argc)
+        {
+            extensions_arg = argv[i + 1];
             i += 2;
         }
         else
@@ -575,6 +647,7 @@ int main(int argc, char **argv)
 #endif
     g_module_path = resolve_path(module_arg, "LE_TCL_MODULE", module_default, "the le_tcl module (-module)");
     g_procs_path = resolve_path(procs_arg, "LE_TCL_PROCS_PATH", procs_default, "le_tcl_procs.tcl (-procs)");
+    g_extensions = load_extension_index(extensions_arg);
 
     g_injected_handle = le_create();
 

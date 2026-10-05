@@ -1,0 +1,15 @@
+# A minimal script extension: Tcl procs only, so it needs no compiler and
+# installs into a prebuilt release. The in-tree example CI builds and tests.
+[extension]
+name = "hello_script"
+version = "0.1.0"
+prefix = "HelloScript"
+description = "Example script extension: a greeting command"
+
+[compatibility]
+layout_engine = ">=0.2, <0.3"
+extension_api = 1
+
+[contents]
+tcl_procs = ["tcl/hello_script.tcl"]
+tcl_tests = ["tests/hello_script_test.tcl"]

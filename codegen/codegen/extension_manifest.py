@@ -83,6 +83,7 @@ class Manifest:
     schema: Optional[Path] = None
     migrations: Optional[Path] = None
     tcl_procs: List[Path] = field(default_factory=list)
+    tcl_tests: List[Path] = field(default_factory=list)
     resources: List[Path] = field(default_factory=list)
 
     @property
@@ -171,12 +172,12 @@ def load(directory: Path) -> Manifest:
     for key in ("cmake", "schema", "migrations"):
         if key in contents:
             setattr(manifest, key, _path(directory, contents[key], key, where))
-    for key in ("tcl_procs", "resources"):
+    for key in ("tcl_procs", "tcl_tests", "resources"):
         values = contents.get(key, [])
         if not isinstance(values, list):
             raise ManifestError(f"{where}: {key} must be a list of paths")
         setattr(manifest, key, [_path(directory, v, key, where) for v in values])
-    unknown = set(contents) - {"cmake", "schema", "migrations", "tcl_procs", "resources"}
+    unknown = set(contents) - {"cmake", "schema", "migrations", "tcl_procs", "tcl_tests", "resources"}
     if unknown:
         raise ManifestError(f"{where}: unknown [contents] keys {sorted(unknown)}")
     return manifest
@@ -255,6 +256,7 @@ def to_cmake(ordered: List[Manifest]) -> str:
             f"set({p}_CMAKE {_cmake_string(str(m.cmake) if m.cmake else '')})",
             f"set({p}_SCHEMA {_cmake_string(str(m.schema) if m.schema else '')})",
             f"set({p}_TCL_PROCS {_cmake_list(m.tcl_procs)})",
+            f"set({p}_TCL_TESTS {_cmake_list(m.tcl_tests)})",
             f"set({p}_RESOURCES {_cmake_list(m.resources)})",
         ]
     return "\n".join(lines) + "\n"

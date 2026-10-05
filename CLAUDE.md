@@ -158,7 +158,15 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   `le_extensions` library with a generated `register_all()`, called by
   `le_shell` and the `le_tcl` module. Extension state lives on `LeHandle`
   (`data<T>()`), never in globals: `le_shell` and `le_tcl` each link their
-  own copy. `examples/extensions/hello_ext` is the example CI builds.
+  own copy. Tcl commands: an extension's `TCL_SWIG`/`TCL_SOURCES`
+  (`le/extension_tcl.hpp`, `tcl_session()`) build into `le_tcl` through a
+  generated `le_api_extensions.i`; its `tcl_procs` are listed in
+  `extensions.json` (build tree, and the bundle's `ext/<name>/` copy),
+  which `le_shell` (`-extensions`/`LE_EXTENSIONS_PATH`,
+  `src/tcl/extension_index.hpp`) checks and sources after the core procs;
+  `tcl_tests` run through `le_shell` as ctests. `examples/extensions/`
+  holds the compiled (`hello_ext`) and script (`hello_script`) examples
+  CI builds.
 - `src/lefdef/` — vendored Si2 LEF/DEF 6.0.62-p004 parser source, built by
   its own Makefiles via `ExternalProject_Add` (`lef_lib`/`def_lib`). Never
   hand-edit.

@@ -34,14 +34,16 @@
 
 %{
 #include "le_tcl_shim.hpp"
-#include "le/register_all.hpp"
+#include "le/extension_tcl.hpp"
 #include <vector>
 %}
 
 // The module links its own copy of every extension, so it registers them
-// itself when Tcl loads it (le_shell's own copy registers in main()).
+// itself when Tcl loads it (le_shell's own copy registers in main()), then
+// runs their Tcl init hooks.
 %init %{
     le::ext::register_all();
+    le::ext::init_tcl(interp);
 %}
 
 // Gives SWIG a portable definition of int32_t/int64_t (and their Tcl
@@ -221,3 +223,7 @@ void set_max_concurrency_command(int max_concurrency);
 // TCL section) - never edit generated/tcl/le_api_generated.i directly,
 // codegen rewrites it on every build that needs it. ---
 %include "generated/tcl/le_api_generated.i"
+
+// --- Extensions' Tcl commands (their TCL_SWIG files), generated from
+// LE_EXTENSION_DIRS by cmake/le_extensions.cmake. ---
+%include "generated/extensions/le_api_extensions.i"

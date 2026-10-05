@@ -348,21 +348,25 @@ public:
 
 ## 6. TCL commands
 
-Extensions follow the three-layer pattern the core uses, so their commands look and behave exactly like built-ins.
+*Built.* Extensions follow the three-layer pattern the core uses, so their commands look and behave exactly like built-ins.
 
-1. **Shim** (`tcl/acme_router_shim.cpp`) contains plain C++ free functions. Each gets the handle through `session()` (exported from `le_tcl_shim.hpp`) and calls into `acme_router_core`.
-2. **SWIG.** CMake generates `le_api_extensions.i`, containing one `%include "/abs/path/acme_router.i"` per extension. `le_api.i` gets a single `%include "le_api_extensions.i"` next to its existing generated include (`le_api.i:211`). The extension's wrappers compile into the one `le_tcl` module, so no second module or second session handle is needed.
-3. **Procs.** `app_init` sources every active extension's procs **after** `le_tcl_procs.tcl`, in dependency order. The list comes from an `extensions.json` index next to the executable, written by the build (or by `le install` for script extensions), and found with `find_resource` like the core procs. Compiled and script extensions therefore load through the same path, and a prebuilt release can gain script extensions without being rebuilt. `le_shell` checks each entry's `extension_api` and refuses a mismatch with a clear message, instead of failing on an unknown command later. Extension procs call `register_command_help` like core procs do, so the following all include extension commands automatically:
+1. **C++** (`TCL_SOURCES`, linked into the `le_tcl` module only): plain functions that get the session from `le::ext::tcl_session()` (`le/extension_tcl.hpp`) and call into the extension's core library.
+2. **SWIG** (`TCL_SWIG`): CMake generates `generated/extensions/le_api_extensions.i`, with one `%include` per extension `.i` file, and `le_api.i` includes it after its own generated surface. The wrappers compile into the one `le_tcl` module, so there's no second module or second session handle.
+3. **Procs** (`tcl_procs` in the manifest): listed, in dependency order, in an `extensions.json` index. The build tree's copy points at the extensions' source directories. The installed bundle's copy points at `ext/<name>/` beside `le_shell`, where `cmake --install` copies each extension's procs and resources. `app_init` reads the index (`-extensions` flag, `LE_EXTENSIONS_PATH`, else beside the executable, else the build tree's) and checks its layout_engine version and extension API. Every compiled extension must also be both in the binary and in the index. It then sources each extension's procs after `le_tcl_procs.tcl`, then the optional `startup` script. `::le_extensions_index` records which index was used. Extension procs call `register_command_help` like core procs do, so the following all include extension commands automatically:
    - `help`
    - `man`
    - tab completion
    - `generate_command_docs` / `TCL_COMMANDS.md`
 
+**Script extensions** need only the manifest and their procs. They appear in the index with tier `script`, and nothing is compiled.
+
+**Tests:** a manifest's `tcl_tests` scripts each run as a ctest through the build tree's `le_shell`, with every configured extension loaded. A script fails by raising an error.
+
 **Conventions:**
 - Commands use the extension prefix (`acme_route_nets`). Optionally they can also live in a Tcl namespace, exported to global.
 - Overriding a core proc is technically possible ("last definition wins"), but it should be documented as unsupported.
 
-**Escape hatch:** a `Registry::add_tcl_init` hook receives the `Tcl_Interp*` for raw `Tcl_CreateObjCommand` use. This suits commands that don't fit SWIG well, such as those taking callbacks or streams.
+**Escape hatch:** `le_add_extension(... TCL_INIT)` declares that the extension's Tcl sources define `le_ext_<name>_init_tcl(Tcl_Interp *)`. A generated `le::ext::init_tcl()` calls each one when Tcl loads the module, for raw `Tcl_CreateObjCommand` use such as commands taking callbacks or streams. This is a convention rather than a `Registry` hook, because an extension's core library has no Tcl dependency.
 
 ---
 
@@ -579,7 +583,7 @@ Phase 0 is groundwork that the package manager also needs. Package-manager phase
 |---|---|---|
 | 0 | CMake runs codegen into the build dir; tagged, versioned releases; `le_extension.toml` schema and its CMake reader | Reproducible builds from a clean checkout |
 | 1 ✅ | `LE_EXTENSION_DIRS`, `le_add_extension()`, dependency ordering, `Registry`, generated `register_all()`, `LeHandle` extension-data slots, `le::extension_sdk` | Customer C++ modules |
-| 2 | Generated `le_api_extensions.i`, the `extensions.json` index read by `app_init`, `add_tcl_init` | Customer TCL commands; script extensions in a prebuilt release |
+| 2 ✅ | Generated `le_api_extensions.i`, the `extensions.json` index read by `app_init`, `TCL_INIT` hooks, `tcl_tests` | Customer TCL commands; script extensions in a prebuilt release |
 | 3 | Menu bar with Window/Extensions menus, `GuiWindow` list (core panels migrated), `ExtGuiContext` | Customer GUI windows |
 | 4 | Codegen `--extension`, prefix and collision validation | Customer schema objects |
 | 5 | Compose overlays, toolbar/key/font hooks, settings sections | Richer GUI integration |

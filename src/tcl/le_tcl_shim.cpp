@@ -1,4 +1,5 @@
 #include "le_tcl_shim.hpp"
+#include "le/extension_tcl.hpp"
 
 #include "api.hpp"
 
@@ -460,6 +461,11 @@ namespace
         }
         return out.str();
     }
+}
+
+LeHandle *le::ext::tcl_session()
+{
+    return session();
 }
 
 // Generated TCL property-reading surface - friendly-id resolve/format,

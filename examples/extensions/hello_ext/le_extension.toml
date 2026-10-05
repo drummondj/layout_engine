@@ -4,7 +4,7 @@
 name = "hello_ext"
 version = "0.1.0"
 prefix = "Hello"
-description = "Example extension: counts libraries, and adds a greeting library as one undo step"
+description = "Example extension: counts libraries and adds a greeting library as one undo step, from C++ and Tcl"
 
 [compatibility]
 layout_engine = ">=0.2, <0.3"
@@ -12,3 +12,5 @@ extension_api = 1
 
 [contents]
 cmake = "le_extension.cmake"
+tcl_procs = ["tcl/hello_ext.tcl"]
+tcl_tests = ["tests/hello_ext_test.tcl"]
