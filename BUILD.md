@@ -150,7 +150,20 @@ error rather than a test result).
 ./build_release/le_shell -module build_release/le_tcl.so -procs src/tcl/le_tcl_procs.tcl
 ```
 
-Drops into the interactive `le_shell` console. `le_shell`/`le_gui` link
+Drops into the interactive `le_shell` console. A plain
+`./build_release/le_shell` works too: it finds the module and procs in its
+build tree.
+
+To make a self-contained, relocatable copy (the same layout as a release
+download), install the `bundle` component into any directory:
+
+```
+cmake --install build_release --component bundle --prefix ~/le_bundle
+~/le_bundle/le_shell
+```
+
+The bundle's own files always win over the build tree's, so it can be
+copied to another machine as-is. `le_shell`/`le_gui` link
 GLFW (X11 backend) and GNU readline unconditionally now — this rootless
 path (step 1) doesn't yet provision either's system dev packages
 (`libX11-devel`/`libXrandr-devel`/`libXinerama-devel`/`libXcursor-devel`/

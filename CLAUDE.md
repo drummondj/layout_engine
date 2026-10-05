@@ -257,7 +257,11 @@ ctest --test-dir build --output-on-failure
 Keep a second tree, `build_release` (Release), up to date too - it's what
 `le_shell` users and benchmarks run. See the `build-test` skill and
 `BUILD.md` (rootless Rocky Linux 8 build). Docker: `docker compose run --rm
-ci` (`Dockerfile.linux-ci`); releases come from `Dockerfile.linux-release`.
+ci` (`Dockerfile.linux-ci`); releases come from `Dockerfile.linux-release`,
+which packages the `bundle` install component (`cmake --install <build>
+--component bundle --prefix <dir>`: a flat, relocatable directory whose own
+files win over a build tree's - `find_resource` looks beside the executable
+first).
 
 Dependencies: Python >= 3.11 with codegen's packages (`pip install
 ./codegen`; pass `-DPython3_EXECUTABLE=...` to pick the interpreter);
