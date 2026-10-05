@@ -1,6 +1,6 @@
 #include "codec.hpp"
 #include "native_format.hpp"
-#include "schema_version.hpp"
+#include "generated/database/schema_version.hpp"
 
 #include "def_reader.hpp"
 #include "lef_reader.hpp"

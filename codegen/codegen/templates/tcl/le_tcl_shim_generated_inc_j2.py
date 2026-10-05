@@ -1,4 +1,4 @@
-TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl skill
+TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). #include'd once in le_tcl_shim.cpp, right
 // after the file's own anonymous namespace closes (so session()/pack/
 // unpack/return_string/format_property_value/

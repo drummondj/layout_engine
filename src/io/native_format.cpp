@@ -2,7 +2,7 @@
 
 #include "byte_io.hpp"
 #include "codec.hpp"
-#include "schema_version.hpp"
+#include "generated/database/schema_version.hpp"
 
 #include <json.hpp>
 #include <oneapi/tbb/parallel_for.h>

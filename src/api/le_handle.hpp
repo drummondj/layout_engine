@@ -79,7 +79,7 @@
 // happens right after a real edit, not during a steady render) rather
 // than a blanket unique_lock, so they stay on the fast, concurrent-safe
 // path in the common case - see each one's own comment in api.cpp.
-// generated_tcl/search.inc's own get_<type>/search_result_<type>_at pair
+// generated/api/search.inc's own get_<type>/search_result_<type>_at pair
 // is a *third*, different shape of hazard - it unconditionally rewrites a
 // shared per-class search-result cache on every call, by design (a fresh
 // query, not a staleness check), so it can't be made shared-lock-safe the
@@ -1719,9 +1719,9 @@ struct LeHandle
 
         // Generated TCL property-reading cache - one cached_X_property_id/
         // cached_X_properties pair per TCL-readable class not already covered
-        // by hand-written code above. Never edit generated_tcl/
-        // handle_fields.inc directly - regenerate via the regen-tcl skill.
-#include "generated_tcl/handle_fields.inc"
+        // by hand-written code above. Never edit generated/api/
+        // handle_fields.inc directly - the build regenerates it.
+#include "generated/api/handle_fields.inc"
 };
 
 // Every genuine mutation of a LeHandle goes through exactly this pattern

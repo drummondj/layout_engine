@@ -1,5 +1,5 @@
-"""Generates the TCL/SWIG property-reading and search surface (src/
-api's generated_tcl/ fragments, src/tcl's generated/ files) from a
+"""Generates the TCL/SWIG property-reading and search surface (C API
+fragments for src/api, SWIG/shim/procs files for src/tcl) from a
 schema - a separate generation target from generator.py's database
 codegen, invoked via `codegen --target tcl`.
 """
@@ -61,9 +61,9 @@ def get_search_scopes(classes, current_access_classes) -> dict:
 
 
 def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
-    """Generate the TCL property-reading/search surface. `output_dir` is
-    the backend's src/ directory - files land under api/generated_tcl/
-    and tcl/generated/ beneath it."""
+    """Generate the TCL property-reading/search surface into `output_dir`'s
+    api/ (C API fragments) and tcl/ (SWIG, shim and procs) subdirectories,
+    each recreated from scratch."""
 
     logger.info("Validating schema ...")
     errors = SchemaRuleSet().validate(schema)
@@ -83,8 +83,8 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
         f"{', '.join(k.name for k in classes)}"
     )
 
-    api_dir = Path(output_dir) / "api" / "generated_tcl"
-    tcl_dir = Path(output_dir) / "tcl" / "generated"
+    api_dir = Path(output_dir) / "api"
+    tcl_dir = Path(output_dir) / "tcl"
     shutil.rmtree(api_dir, ignore_errors=True)
     shutil.rmtree(tcl_dir, ignore_errors=True)
     api_dir.mkdir(parents=True, exist_ok=True)

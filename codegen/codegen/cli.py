@@ -25,8 +25,7 @@ codegen --schema <path to schema file> --output <backend src dir> --target tcl
     type=click.Choice(["database", "tcl", "makemigration", "checkmigrations"]),
     default="database",
     help="'database' (default): the object-pool database (structs/pools/root) into --output directly. "
-    "'tcl' - the generated TCL/SWIG property-reading surface into {output}/api/generated_tcl and "
-    "{output}/tcl/generated - point --output at the backend's src/ directory for this target. "
+    "'tcl' - the generated TCL/SWIG property-reading surface into {output}/api and {output}/tcl. "
     "'makemigration' - draft the migration to the current schema version (needs --name). "
     "'checkmigrations' - only check the migration chain.",
 )

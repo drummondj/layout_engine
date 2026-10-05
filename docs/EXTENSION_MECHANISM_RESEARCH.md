@@ -41,8 +41,8 @@ Layout Engine is a closed world today: there are no extension points anywhere. R
 **Schema and codegen**
 - `src/database/schema.py` is a Python DSL: `Schema(name="layout_engine", namespace="le", version="0.49.0", classes=[Klass(...), ...])`.
 - `codegen` is vendored in-tree (`codegen/`, this project's fork of cmg). `codegen/codegen/cli.py` accepts a single `--schema` and four targets: `database`, `tcl`, `makemigration` and `checkmigrations`. It loads the schema with `SourceFileLoader(...).load_module()` (`codegen/codegen/generator.py:33`). Because that is plain Python, a schema file can already `import` another schema and append to it.
-- Generated code (`src/database/generated/`, `src/api/generated_tcl/`, `src/tcl/generated/`) is **not** committed: it is `.gitignore`d and each developer regenerates it by hand (the `regen-database` / `regen-tcl` skills). CMake never runs codegen; `add_library(database INTERFACE)` is at `CMakeLists.txt:488`.
-- Codegen produces a single `class Root` (`src/database/generated/root.hpp`) with one `Pool` per class, plus a closed `enum class ChangeKlass`. The undo/redo templates in `src/editing/command.hpp` and the TCL CRUD surface are also generated per class.
+- Generated code is **not** committed: CMake runs codegen (`le_codegen` target, `CMakeLists.txt`) into `<build>/generated/` whenever the schema, its history or codegen changes. `add_library(database INTERFACE)` depends on it.
+- Codegen produces a single `class Root` (generated `root.hpp`) with one `Pool` per class, plus a closed `enum class ChangeKlass`. The undo/redo templates in `src/editing/command.hpp` and the TCL CRUD surface are also generated per class.
 - The native `.led` format (`src/io/native_format.*`, `write_db`/`read_db`) is driven by codegen's `native_tables.hpp`, so classes merged into the schema are persisted without hand-written code.
 
 **Build**
@@ -56,7 +56,7 @@ Layout Engine is a closed world today: there are no extension points anywhere. R
 - A command passes through four layers:
   1. the C API in `src/api/api.hpp`
   2. the shim in `src/tcl/le_tcl_shim.cpp`, which reaches the handle through `session()`
-  3. the SWIG interface `src/tcl/le_api.i`, which already ends with `%include "generated/le_api_generated.i"` (`:213`)
+  3. the SWIG interface `src/tcl/le_api.i`, which already ends with `%include "generated/tcl/le_api_generated.i"` (`:213`)
   4. the procs in `src/tcl/le_tcl_procs.tcl`, which parse flags and call `register_command_help` (`:114`)
 - The `::command_help` dict drives `help`, `man`, tab completion and `TCL_COMMANDS.md`.
 - `le_shell.cpp`'s `app_init` (`:171`) runs `load {module} le_tcl` (`:178`), then `set_session_handle` (`:191`), then `Tcl_EvalFile(procs)` (`:198`).
@@ -263,9 +263,7 @@ The changes in layout_engine are small:
    - every extension class name starts with the extension's declared `PREFIX`
    - class, header and TCL names don't collide with core names
    - an extension adds no field to a class it doesn't own (core or another extension's); see below
-2. **CMake:** CMake runs `codegen --target database` and `codegen --target tcl` itself, over the core schema plus every extension schema, as a custom command. The output goes to `${CMAKE_BINARY_DIR}/le_generated/`, so the layout_engine tree is never written to, and a package-manager build can't be broken by stale hand-generated output. Generated code is already a local, uncommitted artifact, so this also removes the manual regen step for everyone. It is a prerequisite for the package manager, not an optional follow-up: a user running `le install` must never have to run codegen by hand.
-   - The textual `#include "generated/..."` sites in `api.cpp`, `le_tcl_shim.cpp`, `le_api.i` and `le_tcl_procs.tcl` need to find the build-dir copy first.
-   - The cleanest way to do that is to make them include-path-relative, which is a one-time mechanical change.
+2. **CMake:** CMake already runs `codegen --target database` and `--target tcl` into `${CMAKE_BINARY_DIR}/generated/` (the `le_codegen` custom command). Extensions add their schema paths to that command's arguments and dependencies; the layout_engine tree is never written to.
 
 **What extension objects get for free, because they are ordinary `Root` classes:**
 - Pool storage and `AcmeRouteGuideId` handles

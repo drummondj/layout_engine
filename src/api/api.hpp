@@ -35,7 +35,7 @@ extern "C"
     /// (included by api.cpp, never by this header).
     typedef struct LeHandle LeHandle;
 
-#include "generated_tcl/ids.inc"
+#include "generated/api/ids.inc"
 
     /// @brief Raw RGBA8888 pixel buffer, mirroring le::PixelBuffer
     /// (compose_stage.hpp) but using explicit fixed-width types (not
@@ -1851,7 +1851,7 @@ extern "C"
     // --- CRUD + filter-search - layered on top of Root's primitives
     // (create_x/delete_x/set_x_<field>, get_field()/match_hop()/search_x,
     // src/database/filter.hpp's parser+evaluator); most per-class CRUD is
-    // generated (generated_tcl/declarations.inc). Every id here is
+    // generated (generated/api/declarations.inc). Every id here is
     // addressed directly, not through the current GUI selection
     // (le_object_property_count/_at can address these same ids
     // generically too - see LeObjectRef) - the
@@ -2126,7 +2126,7 @@ extern "C"
     // only - no layer, no geometry) and le_create_shape/le_update_shape
     // (including their own -rects/-polygons/-paths - see
     // Klass.list_compound_kind() in codegen/codegen/schema.py) are all
-    // generated (generated_tcl/declarations.inc, below), not hand-written
+    // generated (generated/api/declarations.inc, below), not hand-written
     // here. Only per-index rect/polygon/path removal
     // (le_remove_shape_rect/_polygon/_path, further below) stays
     // hand-written - adding/replacing geometry goes through
@@ -2225,11 +2225,11 @@ extern "C"
     // which kind of parent it belongs to - le_terminal_port_shape_at/
     // le_obstruction_shape_at are how a caller discovers a LeShapeId in
     // the first place (enumerating a specific parent's shapes) or the
-    // generated le_create_shape (generated_tcl/declarations.inc, below -
+    // generated le_create_shape (generated/api/declarations.inc, below -
     // takes both a LeTerminalPortId and a LeObstructionId, exactly one of
     // which must resolve) returns one directly; after that, every
     // le_shape_*/le_remove_shape_*
-    // call below, and the generated le_delete_shape (generated_tcl/
+    // call below, and the generated le_delete_shape (generated/api/
     // declarations.inc), only needs the LeShapeId itself.
     //
     // Rects/polygons/paths are all treated the same way: none are
@@ -2508,9 +2508,9 @@ extern "C"
     // be hand-written here; see Klass.delete_api_body(),
     // codegen/codegen/schema.py, for the cascade-to-owned-children
     // mechanism their generated replacements use), for every TCL-readable
-    // class. Never edit generated_tcl/declarations.inc directly -
-    // regenerate via the regen-tcl skill instead. ---
-#include "generated_tcl/declarations.inc"
+    // class. Never edit generated/api/declarations.inc directly -
+    // the build regenerates it. ---
+#include "generated/api/declarations.inc"
 
     /// @brief The singleton Technology's friendly id (see
     /// le_tcl_shim.hpp's own "IDs" comment for the friendly-id

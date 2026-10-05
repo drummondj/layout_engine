@@ -157,7 +157,7 @@ if {[catch {get_properties {} .name}]} {
 
 if {[catch {get_properties bogus_token:1} err]} {
     # Prefix list is generated (property_accessors_for_token, see
-    # generated/le_tcl_procs_generated.tcl) and covers every TCL-readable
+    # generated/tcl/le_tcl_procs_generated.tcl) and covers every TCL-readable
     # class, not just the 7 with hand-written CRUD.
     check "get_properties unrecognized token error message" \
         "get_properties: unrecognized token \"bogus_token:1\" - expected a friendly id (technology:/property_definition:/layer:/antenna_model:/array_spacing:/two_widths_spacing_entry:/prefer_enclosure_entry:/enclosure_entry:/layer_density_entry:/macro_site_placement:/site:/non_default_rule_layer:/non_default_rule_via:/non_default_rule:/minimum_cut:/min_step:/influence_spacing_entry:/spacing_rule:/via_layer:/via_rule_reference:/via_rule_layer:/via:/via_rule:/shape:/library:/design:/abstract:/macro_density_layer:/foreign:/terminal:/pin_antenna_model:/terminal_port:/obstruction:/schematic:/instance:/port_bus:/port:/net_bus:/net:/pin:/layout:/row:/track:/g_cell_grid:/placement:/physical_port_segment:/physical_port:/blockage:/layout_via:/route:/region:)" \

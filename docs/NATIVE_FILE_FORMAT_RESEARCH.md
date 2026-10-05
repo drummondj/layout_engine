@@ -41,8 +41,8 @@ Secondary goals:
 Paths below are relative to the repo root.
 
 **Database shape**
-- Every pooled class is a plain struct, `XxxData` (for example `src/database/generated/net.hpp`, `NetData`), stored in `Pool<XxxData, XxxId>` (`src/database/generated/pool.hpp`).
-- A pool is a slot vector with `generation` and `alive` flags plus a free list. An `Id` is `{uint32 index, uint32 generation}` (`src/database/generated/ids.hpp`).
+- Every pooled class is a plain struct, `XxxData` (for example the generated `net.hpp`, `NetData`), stored in `Pool<XxxData, XxxId>` (generated `pool.hpp`). Generated code lives in `<build>/generated/database/`.
+- A pool is a slot vector with `generation` and `alive` flags plus a free list. An `Id` is `{uint32 index, uint32 generation}` (generated `ids.hpp`).
 
 **Field types**, all from codegen's `TYPEMAP` (`codegen/codegen/schema.py:11`):
 - scalars (`int`, `double`, `bool`, `str`, `dbu`/`dbu2` = `int64_t`)
@@ -51,11 +51,11 @@ Paths below are relative to the repo root.
 - embedded non-pooled structs (`Rect`, `Path`, `Polygon`, `Point`)
 - `std::optional<T>` and `std::vector<T>` of any of the above
 
-`ShapeData` (`src/database/generated/shape.hpp:52`) is the most demanding case: one parent reference per possible owner, plus a list of embedded structs per geometry kind.
+`ShapeData` (generated `shape.hpp`) is the most demanding case: one parent reference per possible owner, plus a list of embedded structs per geometry kind.
 
 **Relationships**
 - Stored **only as the child's reference to its parent**, e.g. `NetData::schematic`.
-- Parent → children lists and name lookups are **derived**, in `Root::index_` (`src/database/generated/index.hpp`). `create_x()` maintains them incrementally (`create_net`, `src/database/generated/root.hpp:7360`).
+- Parent → children lists and name lookups are **derived**, in `Root::index_` (generated `index.hpp`). `create_x()` maintains them incrementally (`create_net`, generated `root.hpp`).
 - As a result, only the pools need saving. Indexes can always be rebuilt.
 
 **Versioning**
@@ -124,7 +124,7 @@ The original design's footer chunk directory and whole-file CRC were dropped. Pe
 
 ### Schema descriptor
 
-A dump of the schema as it was when the file was written: the same JSON as the `schema_history/` snapshots, produced by `codegen/codegen/descriptor.py`. codegen emits it as a constant (`src/database/generated/schema_version.hpp`), and the writer copies it into SCHM verbatim. In outline:
+A dump of the schema as it was when the file was written: the same JSON as the `schema_history/` snapshots, produced by `codegen/codegen/descriptor.py`. codegen emits it as a constant (generated `schema_version.hpp`), and the writer copies it into SCHM verbatim. In outline:
 
 ```
 class Net      fields: schematic:ref(Schematic)  name:str  bus:ref(NetBus)?  bit_index:int?
@@ -255,7 +255,7 @@ The vocabulary is expected to grow. A new op is added when a second `RunCode` ne
 
 1. **Generic decode.** When the file's schema fingerprint differs from the running build's, the reader decodes the file into a **`DynamicDb`**: for each class name, a table of rows, each row mapping field names to `Value` variants (int, double, string, enum-name, ref, list, struct). The decoder is driven entirely by the file's embedded schema descriptor, so any file ever written can be decoded, with no old generated code needed.
 2. **Pick the chain.** The chain runs from the file's `schema_version` to the build's. Versions are totally ordered, and each migration has exactly one `from` and one `to`, so the chain is a straight line. Branching is prevented by a validation rule: two migrations may not share a `from_version`.
-3. **Run the ops.** codegen compiles every migration file into C++. Today that is the generated `src/database/generated/migrations.hpp` table of rename ops. Under this design each op becomes a call into a small runtime in `src/io/` that implements the op vocabulary on `DynamicDb`. `RunCode` ops call the named hand-written functions. Ops run in order, and each migration runs as one step.
+3. **Run the ops.** codegen compiles every migration file into C++. Today that is the generated `migrations.hpp` table of rename ops. Under this design each op becomes a call into a small runtime in `src/io/` that implements the op vocabulary on `DynamicDb`. `RunCode` ops call the named hand-written functions. Ops run in order, and each migration runs as one step.
 4. **Materialize.** The migrated `DynamicDb` now matches the current schema exactly, which §4.5 guarantees. The generic materializer writes it into the pools (§5).
 
 **Fast path:** if the file's fingerprint equals the build's, steps 1–3 are skipped. Generated typed decoders write columns straight into the pools. Old files take the slower generic path, and the app can offer to re-save them in the current format.

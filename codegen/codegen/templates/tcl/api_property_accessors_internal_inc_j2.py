@@ -1,4 +1,4 @@
-TEMPLATE = """// GENERATED - do not edit by hand. Regenerate via the regen-tcl skill
+TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). #include'd once in api.cpp INSIDE the file's
 // own anonymous namespace, right after build_shape_properties() - these
 // are internal helpers (no api.hpp declaration), same as the hand-

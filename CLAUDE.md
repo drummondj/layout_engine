@@ -21,8 +21,8 @@ Design docs, research and benchmark history live in `docs/`
 Each module's tests live beside it in `tests/` (hand-written GTest).
 
 - `src/database/` — the object-pool database. `schema.py` is the source of
-  truth; `generated/` is produced from it and never hand-edited (see
-  Database codegen). `database.hpp` is the single public include. Also
+  truth; the build generates code from it into
+  `<build>/generated/` (see Database codegen). `database.hpp` is the single public include. Also
   hand-written helpers: `filter.hpp` (the `-filter` expression parser/
   evaluator and property-path resolver), `library_helpers.hpp`
   (get-or-create Library/Design by name for every reader),
@@ -178,7 +178,7 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
 [cmg](https://github.com/johndru-astrophysics/cmg) (INDEXED_POOLS export
 style). Every `Klass` in `schema.py` becomes an `XxxData` struct, an
 `XxxId` `{index, generation}` handle, and a generational
-`Pool<XxxData, XxxId>`. `Root` (`generated/root.hpp`) owns every pool and
+`Pool<XxxData, XxxId>`. `Root` (generated `root.hpp`) owns every pool and
 index and exposes `create_x`/`get_x`/`update_x`/`delete_x` per class.
 `update_x` is the only way a pooled field changes after creation (each
 parameter is `std::optional`: present means apply). A `Klass` is pooled
@@ -196,18 +196,27 @@ unless `has_pool=False` (an embedded value type like `Point`/`Rect`).
   operations (every read and `link`) saturate it, meaning "everything
   changed".
 
+CMake runs the in-tree codegen (`le_codegen` target) whenever `schema.py`,
+its history, its migrations or `codegen/` change, writing into
+`<build>/generated/database`, `generated/api` and `generated/tcl` (named
+after the `src/` modules that include them, as `"generated/<module>/..."`).
+Nothing is generated into the source tree.
+
 To change the schema: edit `src/database/schema.py`, bump `Schema.version`
-for a real shape change, and regenerate with the `regen-database` skill.
-codegen fingerprints the schema and compares it with
-`src/database/schema_history/`; a new version needs its snapshot, a
-migration (`src/database/migrations/`, drafted by
-`codegen --target makemigration`) and golden files
-(`src/io/tests/golden/<version>/`), all committed together.
+for a real shape change, and rebuild (the `regen-database` skill has the
+details). codegen fingerprints the schema and compares it with
+`src/database/schema_history/`, failing the build on a change without a
+bump; a new version needs its snapshot (written by the build), a migration
+(`src/database/migrations/`, drafted by `--target makemigration`) and golden
+files (`src/io/tests/golden/<version>/`), all committed together. Before the
+first release a change may re-baseline instead of migrating
+(docs/NATIVE_FILE_FORMAT_RESEARCH.md §4.1).
 
 ## TCL codegen
 
-A separate target (`codegen --target tcl`, the `regen-tcl` skill)
-generating `src/api/generated_tcl/` and `src/tcl/generated/`. Every
+A separate target (`codegen --target tcl`, the `regen-tcl` skill), also run
+by the build, generating `<build>/generated/api/` and
+`<build>/generated/tcl/`. Every
 readable `Klass` gets a property table, friendly-id resolution, `is_child`
 enumeration, `get_<type>`, and `create_<type>`/`update_<type>`/
 `delete_<type>`.
@@ -243,7 +252,9 @@ Keep a second tree, `build_release` (Release), up to date too - it's what
 `BUILD.md` (rootless Rocky Linux 8 build). Docker: `docker compose run --rm
 ci` (`Dockerfile.linux-ci`); releases come from `Dockerfile.linux-release`.
 
-Dependencies: spdlog/fmt/Boost (headers) via `find_package` with
+Dependencies: Python >= 3.11 with codegen's packages (`pip install
+./codegen`; pass `-DPython3_EXECUTABLE=...` to pick the interpreter);
+spdlog/fmt/Boost (headers) via `find_package` with
 `FetchContent` fallbacks; oneTBB required; Blend2D, slang, Dear ImGui,
 GLFW (fallback), GoogleTest/Benchmark and others via `FetchContent`.
 

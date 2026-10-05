@@ -5,7 +5,7 @@
 namespace le
 {
     /// @brief The render-cache-specific analog of ShapeData
-    /// (database/generated/shape.hpp) - HierarchyResolverStage's own cache
+    /// (generated/database/shape.hpp) - HierarchyResolverStage's own cache
     /// (ViewLayerShapes) holds these instead of the full database Shape.
     /// Keeps only the 4 fields any pipeline stage downstream of
     /// HierarchyResolverStage ever reads (RasterizeBlend2DStage's own

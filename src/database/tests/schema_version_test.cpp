@@ -1,4 +1,4 @@
-#include "schema_version.hpp"
+#include "generated/database/schema_version.hpp"
 #include <gtest/gtest.h>
 #include <json.hpp>
 

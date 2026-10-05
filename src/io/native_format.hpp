@@ -1,5 +1,5 @@
 #pragma once
-#include "migrations.hpp"
+#include "generated/database/migrations.hpp"
 
 #include <cstdint>
 #include <span>

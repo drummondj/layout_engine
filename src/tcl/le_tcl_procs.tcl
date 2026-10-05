@@ -94,7 +94,7 @@ proc le_repl_eval {command} {
 # options <list>} dict - register_command_help below is the single write
 # path, called once per command right after its own `proc` definition.
 # Every generated command (get_<type>/create_<type>/update_<type>)
-# registers itself from generated/le_tcl_procs_generated.tcl, sourced
+# registers itself from generated/tcl/le_tcl_procs_generated.tcl, sourced
 # further down this file; every hand-written command below registers
 # itself directly, right after its own definition. help/man/
 # complete_command/generate_command_docs all read purely from this
@@ -2023,26 +2023,28 @@ proc default_to_unset {values} {
 # every TCL-readable class - not just library:/design:/abstract:/
 # terminal:/terminal_port:/obstruction:/shape:) and the ::property_scalars/
 # ::property_hops dot-path completion tables are
-# generated - see generated/le_tcl_procs_generated.tcl and
-# CLAUDE.md's TCL section. Never edit that file directly, regenerate via
-# the regen-tcl skill instead.
-# Tries the real source-tree layout first (generated/le_tcl_procs_generated.tcl,
-# alongside this file, unchanged - ctest/le_shell/tclsh all source this file
-# straight from src/tcl/, where that subdirectory genuinely exists),
-# then falls back to a flat layout (this file's own directory, no generated/
-# subdirectory) - a packaged release bundle (Dockerfile.linux-release's
-# `bundle` stage) copies files into one flat directory.
+# generated - see le_tcl_procs_generated.tcl and CLAUDE.md's TCL section.
+# codegen writes it into the build tree on every build that needs it; never
+# edit it directly.
+# Tries the build tree's copy first (its path is compiled into le_tcl, which
+# is always loaded before this file), then this file's own directory - a
+# release bundle keeps both procs files side by side.
 set _le_generated_procs_candidates [list \
-    [file join [file dirname [info script]] generated le_tcl_procs_generated.tcl] \
+    [generated_procs_default_path_command] \
     [file join [file dirname [info script]] le_tcl_procs_generated.tcl] \
 ]
+set _le_generated_procs_found 0
 foreach _le_candidate $_le_generated_procs_candidates {
-    if {[file exists $_le_candidate]} {
+    if {$_le_candidate ne "" && [file exists $_le_candidate]} {
         source $_le_candidate
+        set _le_generated_procs_found 1
         break
     }
 }
-unset _le_generated_procs_candidates _le_candidate
+if {!$_le_generated_procs_found} {
+    error "le_tcl_procs_generated.tcl not found (tried: [join $_le_generated_procs_candidates {, }])"
+}
+unset _le_generated_procs_candidates _le_candidate _le_generated_procs_found
 
 # All properties for one token, as a dict - the shared building block
 # behind both get_properties and report_properties.
@@ -2933,7 +2935,7 @@ register_command_help get_max_concurrency \
 # --- get_instances/get_nets/get_ports: hierarchical path override ---
 #
 # Overrides the three generated flat-search procs of the same name
-# (sourced above from generated/le_tcl_procs_generated.tcl) - Tcl's own
+# (sourced above from generated/tcl/le_tcl_procs_generated.tcl) - Tcl's own
 # "last proc definition wins" semantics make this a real replacement, not
 # a conflict. Each name-expr is checked independently: one containing "/"
 # routes through the shared hierarchical resolver - the exact same one
@@ -3056,7 +3058,7 @@ register_command_help get_ports \
 # overrides ---
 #
 # Overrides the three generated procs of the same name (sourced above
-# from generated/le_tcl_procs_generated.tcl) - same "last proc definition
+# from generated/tcl/le_tcl_procs_generated.tcl) - same "last proc definition
 # wins" mechanism the get_instances/get_nets/get_ports overrides above
 # use. delete_net always routes through delete_net_cascade_cmd - a Net
 # delete needs the same Route-delete/PhysicalPort.net-clearing/Pin.net-
