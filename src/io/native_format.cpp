@@ -17,6 +17,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <set>
 #include <mutex>
 #include <span>
 #include <unistd.h>
@@ -145,15 +146,41 @@ namespace le::persistence
             return order;
         }
 
-        std::string schema_chunk_json()
+        // The SCHM JSON. Only the extensions with objects in `root` are
+        // listed, so a file holding none of an extension's objects still
+        // opens in a build without that extension.
+        std::string schema_chunk_json(const Root &root)
         {
+            std::set<std::string_view> present;
+            nt::for_each_pooled([&]<class P>(P) {
+                if (!P::extension.empty() && P::pool(root).alive_count() > 0)
+                    present.insert(P::extension);
+            });
             std::string json = R"({"writer":"layout_engine","core":{"version":")";
             json += schema_info::kVersion;
             json += R"(","fingerprint":")";
             json += schema_info::kFingerprint;
             json += R"(","descriptor":)";
             json += schema_info::kDescriptorJson;
-            json += "}}";
+            json += "}";
+            if (!present.empty())
+            {
+                json += R"(,"extensions":[)";
+                bool first = true;
+                for (std::size_t i = 0; i < schema_info::kExtensionCount; ++i)
+                {
+                    const schema_info::ExtensionSchema &ext = schema_info::kExtensions[i];
+                    if (!present.contains(ext.name))
+                        continue;
+                    json += first ? "" : ",";
+                    first = false;
+                    json += R"({"name":")" + std::string(ext.name) + R"(","package_version":")" + std::string(ext.package_version) +
+                            R"(","version":")" + std::string(ext.version) + R"(","fingerprint":")" + std::string(ext.fingerprint) +
+                            R"(","descriptor":)" + std::string(ext.descriptor_json) + "}";
+                }
+                json += "]";
+            }
+            json += "}";
             return json;
         }
 
@@ -256,12 +283,21 @@ namespace le::persistence
             return raw;
         }
 
+        struct FileExtension
+        {
+            std::string name;
+            std::string package_version;
+            std::string version; // its schema version
+            std::string fingerprint;
+        };
+
         struct FileSchema
         {
             std::string version;
             std::string fingerprint;
             std::string writer;
-            std::map<std::string, std::unique_ptr<FileStruct>> structs; // pooled classes and embedded structs
+            std::vector<FileExtension> extensions;
+            std::map<std::string, std::unique_ptr<FileStruct>> structs; // pooled classes and embedded structs, core and extensions'
         };
 
         FileType::Kind scalar_kind(const std::string &type)
@@ -295,53 +331,62 @@ namespace le::persistence
                 const auto &core = json.at("core");
                 schema.version = core.at("version").get<std::string>();
                 schema.fingerprint = core.at("fingerprint").get<std::string>();
-                const auto &descriptor = core.at("descriptor");
-                if (descriptor.at("format").get<int>() != 1)
-                    throw FormatError("unsupported schema descriptor format " + descriptor.at("format").dump());
-
-                std::map<std::string, std::string> kinds; // class name -> "pooled"/"struct"/"enum"
-                for (const auto &klass : descriptor.at("classes"))
-                    kinds[klass.at("name").get<std::string>()] = klass.at("kind").get<std::string>();
-
-                for (const auto &klass : descriptor.at("classes"))
-                {
-                    const std::string kind = klass.at("kind").get<std::string>();
-                    if (kind == "enum")
-                        continue;
-                    auto structure = std::make_unique<FileStruct>();
-                    structure->name = klass.at("name").get<std::string>();
-                    structure->pooled = kind == "pooled";
-                    for (const auto &field : klass.at("fields"))
+                std::vector<const nlohmann::json *> descriptors{&core.at("descriptor")};
+                if (json.contains("extensions"))
+                    for (const auto &ext : json.at("extensions"))
                     {
-                        const std::string field_kind = field.at("kind").get<std::string>();
-                        if (field_kind == "child")
-                            continue; // derived from the index, never stored
-                        FileField f;
-                        f.name = field.at("name").get<std::string>();
-                        if (field_kind == "owner")
-                        {
-                            f.type.kind = FileType::Kind::Owner;
-                            for (const auto &option : field.at("options"))
-                                f.type.owner_options.emplace_back(option.at("name").get<std::string>(), option.at("type").get<std::string>());
-                            structure->fields.push_back(std::move(f));
-                            continue;
-                        }
-                        f.type.name = field.at("type").get<std::string>();
-                        f.type.presence = field.value("presence", false);
-                        f.type.list = field.value("list", false);
-                        if (field_kind == "parent" || field_kind == "ref")
-                            f.type.kind = FileType::Kind::Ref;
-                        else if (field_kind == "enum")
-                            f.type.kind = FileType::Kind::Enum;
-                        else if (field_kind == "struct")
-                            f.type.kind = FileType::Kind::Struct;
-                        else if (field_kind == "scalar")
-                            f.type.kind = scalar_kind(f.type.name);
-                        else
-                            throw FormatError("unknown field kind " + field_kind);
-                        structure->fields.push_back(std::move(f));
+                        schema.extensions.push_back({ext.at("name").get<std::string>(), ext.at("package_version").get<std::string>(),
+                                                     ext.at("version").get<std::string>(), ext.at("fingerprint").get<std::string>()});
+                        descriptors.push_back(&ext.at("descriptor"));
                     }
-                    schema.structs[structure->name] = std::move(structure);
+
+                for (const nlohmann::json *descriptor_ptr : descriptors)
+                {
+                    const auto &descriptor = *descriptor_ptr;
+                    if (descriptor.at("format").get<int>() != 1)
+                        throw FormatError("unsupported schema descriptor format " + descriptor.at("format").dump());
+                    for (const auto &klass : descriptor.at("classes"))
+                    {
+                        const std::string kind = klass.at("kind").get<std::string>();
+                        if (kind == "enum")
+                            continue;
+                        auto structure = std::make_unique<FileStruct>();
+                        structure->name = klass.at("name").get<std::string>();
+                        structure->pooled = kind == "pooled";
+                        for (const auto &field : klass.at("fields"))
+                        {
+                            const std::string field_kind = field.at("kind").get<std::string>();
+                            if (field_kind == "child")
+                                continue; // derived from the index, never stored
+                            FileField f;
+                            f.name = field.at("name").get<std::string>();
+                            if (field_kind == "owner")
+                            {
+                                f.type.kind = FileType::Kind::Owner;
+                                for (const auto &option : field.at("options"))
+                                    f.type.owner_options.emplace_back(option.at("name").get<std::string>(), option.at("type").get<std::string>());
+                                structure->fields.push_back(std::move(f));
+                                continue;
+                            }
+                            f.type.name = field.at("type").get<std::string>();
+                            f.type.presence = field.value("presence", false);
+                            f.type.list = field.value("list", false);
+                            if (field_kind == "parent" || field_kind == "ref")
+                                f.type.kind = FileType::Kind::Ref;
+                            else if (field_kind == "enum")
+                                f.type.kind = FileType::Kind::Enum;
+                            else if (field_kind == "struct")
+                                f.type.kind = FileType::Kind::Struct;
+                            else if (field_kind == "scalar")
+                                f.type.kind = scalar_kind(f.type.name);
+                            else
+                                throw FormatError("unknown field kind " + field_kind);
+                            structure->fields.push_back(std::move(f));
+                        }
+                        const std::string name = structure->name;
+                        if (!schema.structs.emplace(name, std::move(structure)).second)
+                            throw FormatError("class " + name + " is described twice");
+                    }
                 }
                 for (auto &[name, structure] : schema.structs)
                     for (FileField &field : structure->fields)
@@ -448,6 +493,52 @@ namespace le::persistence
                 return parts;
             };
             return parse(a) > parse(b);
+        }
+
+        const schema_info::ExtensionSchema *built_extension(const std::string &name)
+        {
+            for (std::size_t i = 0; i < schema_info::kExtensionCount; ++i)
+                if (schema_info::kExtensions[i].name == name)
+                    return &schema_info::kExtensions[i];
+            return nullptr;
+        }
+
+        /// @brief Whether the file's schema is exactly this build's: core and
+        /// every extension it holds.
+        bool schema_matches_build(const FileSchema &schema)
+        {
+            if (schema.fingerprint != schema_info::kFingerprint)
+                return false;
+            for (const FileExtension &ext : schema.extensions)
+            {
+                const schema_info::ExtensionSchema *built = built_extension(ext.name);
+                if (!built || built->fingerprint != ext.fingerprint)
+                    return false;
+            }
+            return true;
+        }
+
+        /// @brief Refuses a file holding objects of an extension this build
+        /// doesn't have, or written with a newer schema of one it has: it
+        /// can't be loaded, or re-saved, without losing that data.
+        void check_extensions(const FileSchema &schema)
+        {
+            std::string problems;
+            for (const FileExtension &ext : schema.extensions)
+            {
+                const schema_info::ExtensionSchema *built = built_extension(ext.name);
+                std::string problem;
+                if (!built)
+                    problem = "extension " + ext.name + " " + ext.package_version +
+                              ", which this build doesn't have - add it to the project (le add) or build with it (LE_EXTENSION_DIRS)";
+                else if (built->fingerprint != ext.fingerprint && version_newer(ext.version, std::string(built->version)))
+                    problem = "extension " + ext.name + " " + ext.package_version + " (schema " + ext.version + "), newer than this build's " +
+                              std::string(built->package_version) + " (schema " + std::string(built->version) + ") - update the extension";
+                if (!problem.empty())
+                    problems += (problems.empty() ? "" : "; ") + problem;
+            }
+            if (!problems.empty())
+                throw FormatError("the file needs " + problems);
         }
 
         struct Opened
@@ -599,7 +690,7 @@ namespace le::persistence
             out.write(header.bytes().data(), header.size());
 
             {
-                const std::string json = schema_chunk_json();
+                const std::string json = schema_chunk_json(root);
                 ByteWriter payload;
                 append_block(payload, reinterpret_cast<const uint8_t *>(json.data()), json.size(), options.compression_level);
                 out.chunk(kSchemaTag, payload.bytes());
@@ -692,10 +783,11 @@ namespace le::persistence
             timer.lap("read");
             report.file_schema_version = file.schema.version;
             report.file_fingerprint = file.schema.fingerprint;
-            report.schema_matches = file.schema.fingerprint == schema_info::kFingerprint;
-            if (!report.schema_matches && version_newer(file.schema.version, std::string(schema_info::kVersion)))
+            report.schema_matches = schema_matches_build(file.schema);
+            if (file.schema.fingerprint != schema_info::kFingerprint && version_newer(file.schema.version, std::string(schema_info::kVersion)))
                 throw FormatError("written with schema version " + file.schema.version + ", newer than this build's " + std::string(schema_info::kVersion) +
                                   " - open it with a newer Layout Engine");
+            check_extensions(file.schema);
 
             EnumRenames enum_renames;
             if (!report.schema_matches)
@@ -860,8 +952,13 @@ namespace le::persistence
             info.schema_version = file.schema.version;
             info.fingerprint = file.schema.fingerprint;
             info.writer = file.schema.writer;
-            info.schema_matches = file.schema.fingerprint == schema_info::kFingerprint;
+            info.schema_matches = schema_matches_build(file.schema);
             info.file_bytes = file.bytes.size();
+            for (const FileExtension &ext : file.schema.extensions)
+            {
+                const schema_info::ExtensionSchema *built = built_extension(ext.name);
+                info.extensions.push_back({ext.name, ext.package_version, ext.version, built ? std::string(built->version) : std::string()});
+            }
             for (const FileClass &klass : file.classes)
                 info.classes.emplace_back(klass.name, klass.rows);
         }

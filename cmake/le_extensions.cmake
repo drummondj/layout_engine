@@ -3,9 +3,9 @@
 # CMakeLists.txt after the `api` and `le::extension_sdk` targets exist and
 # Tcl/SWIG have been looked for.
 #
-# Each directory's le_extension.toml is read and checked by
-# codegen.extension_manifest (identity, compatibility with this build,
-# dependencies), which also orders them. A compiled extension's
+# Each directory's le_extension.toml has already been read, checked and
+# ordered (cmake/le_extension_manifests.cmake, before codegen, which merges
+# extension schemas into the database). A compiled extension's
 # le_extension.cmake then calls le_add_extension() with its build details.
 # The results:
 # - `le_extensions`: every extension's core library plus a generated
@@ -93,30 +93,6 @@ else()
     set(LE_EXTENSIONS_HAVE_TCL OFF)
 endif()
 
-# A relative directory is relative to this source tree's top directory, not
-# to wherever cmake happens to run.
-set(le_extension_dirs "")
-foreach(dir IN LISTS LE_EXTENSION_DIRS)
-    get_filename_component(dir "${dir}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-    list(APPEND le_extension_dirs "${dir}")
-endforeach()
-
-execute_process(
-    COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/codegen
-        ${Python3_EXECUTABLE} -m codegen.extension_manifest
-        --layout-engine-version ${PROJECT_VERSION}
-        --extension-api ${LE_EXTENSION_API_VERSION}
-        --output ${CMAKE_BINARY_DIR}/le_extension_manifests.cmake
-        ${le_extension_dirs}
-    RESULT_VARIABLE manifest_result
-    ERROR_VARIABLE manifest_errors)
-if(NOT manifest_result EQUAL 0)
-    message(FATAL_ERROR "LE_EXTENSION_DIRS: ${manifest_errors}")
-endif()
-include(${CMAKE_BINARY_DIR}/le_extension_manifests.cmake)
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    ${CMAKE_CURRENT_SOURCE_DIR}/codegen/codegen/extension_manifest.py)
-
 set(le_extension_cores "")
 set(le_extension_declarations "")
 set(le_extension_registrations "")
@@ -130,9 +106,6 @@ set(index_position 0)
 foreach(name IN LISTS LE_EXTENSIONS)
     set(dir "${LE_EXTENSION_${name}_DIR}")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${LE_EXTENSION_${name}_MANIFEST})
-    if(LE_EXTENSION_${name}_SCHEMA)
-        message(FATAL_ERROR "extension ${name}: extension schemas aren't supported yet (#74)")
-    endif()
     string(APPEND le_extension_registrations
         "        registry().add({\"${name}\", \"${LE_EXTENSION_${name}_VERSION}\"});\n")
     if(LE_EXTENSION_${name}_CMAKE)
@@ -146,6 +119,8 @@ foreach(name IN LISTS LE_EXTENSIONS)
         string(APPEND le_extension_declarations "void le_ext_${name}_register(le::ext::Registry &);\n")
         string(APPEND le_extension_registrations "        le_ext_${name}_register(registry());\n")
         set(tier compiled)
+    elseif(LE_EXTENSION_${name}_SCHEMA)
+        set(tier compiled) # its classes are compiled in, though it has no C++ of its own
     else()
         set(tier script)
     endif()

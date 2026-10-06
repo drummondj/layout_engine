@@ -29,6 +29,22 @@ namespace hello
     }
 }
 
+namespace hello
+{
+    std::vector<std::string> notes_on(le::ext::ExtensionContext &ctx, const std::string &library)
+    {
+        const le::ext::ReadView view = ctx.read();
+        const le::Root &root = view.root();
+        std::vector<std::string> texts;
+        const le::LibraryId id = root.get_library_by_name(library);
+        if (!root.get_library(id))
+            return texts;
+        for (const le::HelloNoteId note : root.get_library_hello_notes(id))
+            texts.push_back(root.get_hello_note(note)->text);
+        return texts;
+    }
+}
+
 void le_ext_hello_ext_register(le::ext::Registry &)
 {
 }

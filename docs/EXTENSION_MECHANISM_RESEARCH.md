@@ -267,6 +267,8 @@ The changes in layout_engine are small:
    - an extension adds no field to a class it doesn't own (core or another extension's); see below
 2. **CMake:** CMake already runs `codegen --target database` and `--target tcl` into `${CMAKE_BINARY_DIR}/generated/` (the `le_codegen` custom command). Extensions add their schema paths to that command's arguments and dependencies; the layout_engine tree is never written to.
 
+**As built** (`codegen/codegen/extension_schema.py`): the option is `--extension <extension dir>`, which reads the manifest for the name, prefix, package version and `schema` path. `schema_ext.py` also sets `VERSION`, its schema version. Extensions apply in dependency order (`cmake/le_extension_manifests.cmake` reads the manifests before codegen runs), so an extension may own children of an earlier extension's classes. Each extension's classes go in a descriptor of their own, with its own `schema_history/` beside `schema_ext.py`, checked like core's.
+
 **What extension objects get for free, because they are ordinary `Root` classes:**
 - Pool storage and `AcmeRouteGuideId` handles
 - Index lookups and parent/child navigation (`get_net_acme_route_guides`)

@@ -171,7 +171,13 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   `src/tcl/extension_index.hpp`) checks and sources after the core procs;
   `tcl_tests` run through `le_shell` as ctests. GUI: an extension's
   `GUI_SOURCES` (`le/extension_gui.hpp`: `GuiRegistry`, `ExtGuiContext`)
-  build into `le_shell` only through a generated `register_all_gui()`. `examples/extensions/`
+  build into `le_shell` only through a generated `register_all_gui()`. Database classes: an extension's `schema_ext.py` (`VERSION`,
+  `extend(schema)`) is merged in by codegen (`--extension <dir>`,
+  `codegen/codegen/extension_schema.py`): prefixed class names, classes it
+  doesn't own read-only, parents' child lists synthesized. Its classes stay
+  out of the core descriptor (its own descriptor and `schema_history/`), and
+  `.led` files list the extensions they hold objects of (SCHM
+  `"extensions"`), refusing a missing or newer one on load. `examples/extensions/`
   holds the compiled (`hello_ext`) and script (`hello_script`) examples
   CI builds. `docs/EXTENSION_SDK.md` is the authors' reference and the
   API changelog - update it with any change to the SDK.

@@ -3138,6 +3138,10 @@ extern "C"
         text = fmt::format("file: {}\nsize: {} bytes\ncontainer version: {}\nschema version: {} (fingerprint {})\nthis build: {} (fingerprint {}) - {}\n", path,
                            info.file_bytes, info.container_version, info.schema_version, info.fingerprint, le::schema_info::kVersion, le::schema_info::kFingerprint,
                            info.schema_matches ? "same schema" : "different schema, fields matched by name on load");
+        for (const auto &ext : info.extensions)
+            text += fmt::format("extension {} {} (schema {}): {}\n", ext.name, ext.package_version, ext.schema_version,
+                                ext.built_schema_version.empty() ? "not in this build - the file can't be opened here"
+                                                                 : "this build has schema " + ext.built_schema_version);
         uint64_t total = 0;
         for (const auto &[name, rows] : info.classes)
         {

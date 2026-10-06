@@ -8,7 +8,8 @@ is the reference.
 
 **Extension API version: 1** (Layout Engine 0.3.x, the first with extension support). See the [changelog](#changelog).
 
-Not available yet: extension schema classes (#74), GUI toolbar, key,
+Not available yet: extension schema migrations (#74, so a schema can't
+change after its first snapshot), GUI toolbar, key,
 overlay and settings hooks (#76), and drawing extension objects (#77).
 Projects install extensions with the `le` package manager
 (`tools/le/README.md`); while developing one, build it in with
@@ -87,6 +88,7 @@ other_ext = ">=2.0"
 
 [contents]                       # all optional
 cmake      = "le_extension.cmake"
+schema     = "schema_ext.py"
 tcl_procs  = ["tcl/my_ext.tcl"]
 tcl_tests  = ["tests/my_ext_test.tcl"]
 resources  = ["data/"]
@@ -101,6 +103,7 @@ resources  = ["data/"]
 | `extension_api` | The SDK version you wrote against. The build refuses any other. |
 | `[dependencies]` | Other extensions, each with a constraint. They must be in the same build, and they load before you. |
 | `cmake` | Your build file; its presence makes the extension compiled. |
+| `schema` | Your database classes (see [Database classes](#database-classes)); also makes the extension compiled. |
 | `tcl_procs` | Tcl files sourced at startup, after Layout Engine's own procs and your dependencies', in the order listed. |
 | `tcl_tests` | Tcl scripts run as ctests (see [Testing](#testing)). |
 | `resources` | Files or directories installed into the bundle under `ext/<name>/`, at the same relative paths. |
@@ -205,6 +208,49 @@ statics. `le_shell` and the `le_tcl` module each link their own copy of your
 extension, so a global would exist twice and the two copies would diverge.
 State is per extension and per type: `data<State>()` in `my_ext` and in
 `other_ext` are different objects.
+
+## Database classes
+
+`schema_ext.py` adds classes to Layout Engine's database. They become
+ordinary database classes: pools and `<Type>Id` handles, parent/child
+navigation, delete cascades, undo, the change log, `.led` files, the
+property viewer, and generated `get_`/`create_`/`update_`/`delete_<type>`
+Tcl commands with help.
+
+```python
+from codegen.schema import Field, Klass
+
+VERSION = "0.1.0"   # this schema's version, separate from the package's
+
+def extend(schema):
+    schema.classes.append(Klass(
+        name="MyExtNote",
+        description="A note on a library",
+        fields=[
+            Field(name="library", description="Its library", type="Library", parent="my_ext_notes"),
+            Field(name="text", description="The text", type="str", example="hi"),
+        ],
+    ))
+```
+
+- **Names:** every class starts with your prefix (`MyExt...`), and no
+  class or generated name may collide with another class's.
+- **Classes you don't own are read-only.** You can't add, change or
+  remove fields of core classes or another extension's classes. Keep
+  per-object data in a class of your own with `parent=` on theirs. The
+  parent's child list (`Library.my_ext_notes`, `get_library_my_ext_notes`)
+  is generated for you, because a child list isn't stored.
+- **History:** the build writes `schema_history/<VERSION>.json` beside
+  `schema_ext.py`. Commit it. Changing the schema without bumping
+  `VERSION` fails the build, as for core.
+- **Files:** a `.led` file records each extension it holds objects of,
+  with its package and schema versions. A build without that extension, or
+  with an older schema of it, refuses the file and names what's missing. A
+  file holding none of your objects doesn't mention you, so it opens
+  anywhere.
+- **Golden files:** keep a `.led` file per schema version and load them
+  all in your tests, as `hello_ext`'s `EverySchemaVersionsGoldenFileStillLoads`
+  does, so a later change that breaks old files fails your CI.
 
 ## GUI: `<le/extension_gui.hpp>`
 
@@ -362,6 +408,8 @@ Only these are the SDK. Anything else in Layout Engine may change in any
 release without notice.
 - `<le/extension.hpp>`, `<le/extension_tcl.hpp>` and `<le/extension_gui.hpp>`
 - `le_add_extension()` and the `le_extension.toml` format
+- `schema_ext.py`'s `VERSION`/`extend()` contract and the `codegen.schema`
+  `Klass`/`Field` it uses
 - the C API (`api.hpp`) and the database classes (`le::Root`, the
   `<Type>Data` structs and `<Type>Id` handles, generated from `schema.py`)
 - the Tcl helpers `register_command_help`, `help` and `man`
@@ -382,7 +430,7 @@ as new functions or new optional manifest keys, don't bump it.
 The first version.
 - `le_extension.toml` with `[extension]`, `[compatibility]`,
   `[dependencies]` and `[contents]` (`cmake`, `tcl_procs`, `tcl_tests`,
-  `resources`; `schema` and `migrations` are reserved for #74).
+  `resources`, `schema`; `migrations` is reserved for #74).
 - `le_add_extension()` with `CORE_SOURCES`, `CORE_INCLUDE`, `TESTS`,
   `TCL_SWIG`, `TCL_SOURCES`, `TCL_INIT`, `GUI_SOURCES` and `LINK`.
 - `le::ext::Registry`, `register_all()`, `ExtensionContext` (`read`,
@@ -390,5 +438,7 @@ The first version.
   `init_tcl()`.
 - GUI: `GuiRegistry` (`add_window`, `add_menu_item`), `GuiWindow`, `Dock`,
   `GuiMenuItem`, `ExtGuiContext`, `register_all_gui()`.
+- Database classes: `schema_ext.py` (`VERSION`, `extend(schema)`), its
+  `schema_history/`, and the `"extensions"` entry in `.led` files.
 - C API: `le_extension_count`, `le_extension_name`, `le_extension_version`.
 - `extensions.json` format 1.

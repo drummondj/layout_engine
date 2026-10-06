@@ -276,6 +276,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         sys.stderr.write(f"extension manifest error:\n{e}\n")
         return 1
     output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
     text = to_cmake(ordered)
     if not output.exists() or output.read_text() != text:
         output.write_text(text)

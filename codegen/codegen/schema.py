@@ -441,6 +441,11 @@ class Klass:
     # ones other classes' defaults should anchor to.
     has_current_access: bool = False
 
+    # The extension whose schema_ext.py added this class (None: core).
+    # Set by codegen.extension_schema; such classes stay out of the core
+    # descriptor and go in that extension's own.
+    extension: Optional[str] = field(default=None, repr=False, init=False, compare=False)
+
     _schema: Optional[Schema] = field(default=None, repr=False, init=False)
     # Memoizes embedded_scalar_leaves() - False (not None) means "computed,
     # and this Klass is not flattenable" (None means "not computed yet"),
@@ -2444,6 +2449,11 @@ class Field:
     value: Optional[int] = None
     tcl_create_aliases: Optional[Dict[str, Dict[str, str]]] = None
     owner: bool = False
+    # The extension whose class's parent= this derived child list was
+    # synthesized for (None: declared in the schema). Kept out of every
+    # descriptor: a child list isn't stored, and the class it's on doesn't
+    # belong to that extension.
+    synthesized_by: Optional[str] = field(default=None, repr=False, init=False, compare=False)
     _parent_klass: Optional[Klass] = field(default=None, repr=False, init=False)
     _parent_field: Optional["Field"] = field(default=None, repr=False, init=False)
     _child_klass: Optional[Klass] = field(default=None, repr=False, init=False)

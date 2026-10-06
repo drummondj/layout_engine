@@ -516,6 +516,22 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
     message(FATAL_ERROR "src/generated/ would shadow the generated code in ${CMAKE_BINARY_DIR}/generated/ - "
         "delete it (debuggers and compile_commands.json already point at the build tree's copy)")
 endif()
+include(cmake/le_extension_manifests.cmake)
+
+# Extension schemas (an le_extension.toml with `schema = ...`) are merged into
+# the generated code, in dependency order; each brings its own snapshot
+# history and migrations, beside its schema file.
+set(LE_CODEGEN_EXTENSION_ARGS "")
+set(LE_EXTENSION_SCHEMA_FILES "")
+foreach(name IN LISTS LE_EXTENSIONS)
+    if(LE_EXTENSION_${name}_SCHEMA)
+        list(APPEND LE_CODEGEN_EXTENSION_ARGS --extension ${LE_EXTENSION_${name}_DIR})
+        get_filename_component(schema_dir ${LE_EXTENSION_${name}_SCHEMA} DIRECTORY)
+        file(GLOB extension_history CONFIGURE_DEPENDS ${schema_dir}/schema_history/*.json ${schema_dir}/migrations/*.py)
+        list(APPEND LE_EXTENSION_SCHEMA_FILES ${LE_EXTENSION_${name}_SCHEMA} ${LE_EXTENSION_${name}_MANIFEST} ${extension_history})
+    endif()
+endforeach()
+
 set(LE_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated)
 set(LE_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/src/database/schema.py)
 file(GLOB_RECURSE LE_CODEGEN_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/codegen/codegen/*.py)
@@ -527,11 +543,11 @@ set(LE_CODEGEN ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/co
     ${Python3_EXECUTABLE} -m codegen.cli)
 add_custom_command(
     OUTPUT ${LE_GENERATED_DIR}/codegen.stamp
-    COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR}/database --target database
-    COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR} --target tcl
-    COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR}/pipelines --target render
+    COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR}/database --target database ${LE_CODEGEN_EXTENSION_ARGS}
+    COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR} --target tcl ${LE_CODEGEN_EXTENSION_ARGS}
+    COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR}/pipelines --target render ${LE_CODEGEN_EXTENSION_ARGS}
     COMMAND ${CMAKE_COMMAND} -E touch ${LE_GENERATED_DIR}/codegen.stamp
-    DEPENDS ${LE_SCHEMA} ${LE_CODEGEN_SOURCES} ${LE_SCHEMA_HISTORY}
+    DEPENDS ${LE_SCHEMA} ${LE_CODEGEN_SOURCES} ${LE_SCHEMA_HISTORY} ${LE_EXTENSION_SCHEMA_FILES}
     COMMENT "Generating database, C API, Tcl and render code from schema.py"
     VERBATIM
 )
@@ -1219,6 +1235,11 @@ target_compile_definitions(backend_tests PRIVATE
 add_dependencies(backend_tests lef_lib def_lib)
 le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
+
+# codegen's own unit tests (codegen/tests).
+add_test(NAME codegen_unit
+    COMMAND ${Python3_EXECUTABLE} -m unittest discover -s tests -t .
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
 
 # --- gui_tests: the GUI module's parts that run headless (panels, the
 # extension GUI SDK) - Dear ImGui with no window or backend. ---

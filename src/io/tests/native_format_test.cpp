@@ -676,6 +676,46 @@ namespace le::persistence
         EXPECT_NE(report.error.find("newer than this build"), std::string::npos) << report.error;
     }
 
+    TEST_F(NativeFormatOlderSchema, AFileWithNoExtensionObjectsListsNoExtensions)
+    {
+        EXPECT_FALSE(file.schema.contains("extensions"));
+    }
+
+    TEST_F(NativeFormatOlderSchema, AnExtensionThisBuildDoesNotHaveRefusesTheFile)
+    {
+        file.schema["extensions"] = nlohmann::json::array({{{"name", "acme_missing"},
+                                                             {"package_version", "2.1.0"},
+                                                             {"version", "1.0.0"},
+                                                             {"fingerprint", "ffffffffffffffff"},
+                                                             {"descriptor", {{"format", 1}, {"name", "acme_missing"}, {"namespace", "le"}, {"version", "1.0.0"}, {"classes", nlohmann::json::array()}}}}});
+        const LoadReport report = load();
+        EXPECT_FALSE(report.ok());
+        EXPECT_NE(report.error.find("extension acme_missing 2.1.0, which this build doesn't have"), std::string::npos) << report.error;
+        EXPECT_EQ(loaded.get_layer_ids().size(), 0u) << "nothing is loaded";
+
+        const FileInfo info = inspect_native(path.string());
+        ASSERT_TRUE(info.ok()) << info.error;
+        ASSERT_EQ(info.extensions.size(), 1u);
+        EXPECT_EQ(info.extensions[0].name, "acme_missing");
+        EXPECT_EQ(info.extensions[0].package_version, "2.1.0");
+        EXPECT_TRUE(info.extensions[0].built_schema_version.empty());
+    }
+
+    TEST_F(NativeFormatOlderSchema, ANewerSchemaOfABuiltInExtensionRefusesTheFile)
+    {
+        if (schema_info::kExtensionCount == 0)
+            GTEST_SKIP() << "needs a build with an extension schema (LE_EXTENSION_DIRS)";
+        const schema_info::ExtensionSchema &built = schema_info::kExtensions[0];
+        file.schema["extensions"] = nlohmann::json::array({{{"name", std::string(built.name)},
+                                                             {"package_version", "99.0.0"},
+                                                             {"version", "99.0.0"},
+                                                             {"fingerprint", "ffffffffffffffff"},
+                                                             {"descriptor", nlohmann::json::parse(built.descriptor_json)}}});
+        const LoadReport report = load();
+        EXPECT_FALSE(report.ok());
+        EXPECT_NE(report.error.find("newer than this build's"), std::string::npos) << report.error;
+    }
+
     TEST_F(NativeFormatOlderSchema, ReferenceOutOfRangeIsRejected)
     {
         // Design.library -> row 7 of a one-row Library table.

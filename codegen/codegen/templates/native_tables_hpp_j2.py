@@ -55,6 +55,8 @@ namespace {{schema.namespace}}::native_tables
         using Id = {{klass.name}}Id;
         static constexpr std::size_t index = {{loop.index0}};
         static constexpr std::string_view name = "{{klass.name}}";
+        /// @brief The extension that owns this class ("" for core).
+        static constexpr std::string_view extension = "{{klass.extension or ''}}";
         static Pool<{{klass.name}}Data, {{klass.name}}Id> &pool(Root &root) { return root.pool_{{klass.to_snake_case()}}(); }
         static const Pool<{{klass.name}}Data, {{klass.name}}Id> &pool(const Root &root) { return root.pool_{{klass.to_snake_case()}}(); }
         static void rebuild_index(Root &root, std::vector<std::string> &problems) { root.rebuild_{{klass.to_snake_case()}}_index(problems); }

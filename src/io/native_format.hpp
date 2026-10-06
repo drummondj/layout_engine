@@ -72,7 +72,8 @@ namespace le::persistence
         std::vector<std::string> warnings;
         std::string file_schema_version;
         std::string file_fingerprint;
-        /// The file's schema is exactly this build's (no name matching needed).
+        /// The file's schema, core and extensions, is exactly this build's
+        /// (no name matching needed).
         bool schema_matches = false;
         uint64_t objects = 0;
         /// Where the time went (ms), for profiling: "read", "decode <Class>", "index".
@@ -104,6 +105,15 @@ namespace le::persistence
         uint64_t file_bytes = 0;
         /// (class name, rows) for every class stored in the file.
         std::vector<std::pair<std::string, uint64_t>> classes;
+        /// The extensions whose objects the file holds.
+        struct Extension
+        {
+            std::string name;
+            std::string package_version;
+            std::string schema_version;
+            std::string built_schema_version; // this build's, or empty if it doesn't have the extension
+        };
+        std::vector<Extension> extensions;
         bool ok() const { return error.empty(); }
     };
 

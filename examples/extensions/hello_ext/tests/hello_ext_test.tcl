@@ -31,4 +31,18 @@ expect "hello_ext_info" [hello_ext_info] "hello_ext 0.1.0"
 if {![catch {hello_add_library ""}]} {
     error "an empty library name should fail"
 }
+# HelloNote, the extension's own database class, gets the generated commands
+# and is saved with the design.
+create_library -name notes_lib
+set note [create_hello_note -library library:notes_lib -text "route the clock first"]
+expect "notes" [get_hello_notes -of library:notes_lib] $note
+expect "note text" [dict get [get_properties $note] text] "route the clock first"
+set path /tmp/hello_ext_test_[pid].led
+write_db $path
+delete_library library:notes_lib
+expect "notes after deleting their library" [llength [get_hello_notes]] 0
+read_db $path
+file delete $path
+expect "notes read back" [llength [get_hello_notes -of library:notes_lib]] 1
+
 puts "hello_ext Tcl test passed"

@@ -121,6 +121,8 @@ def _klass_descriptor(klass: Klass) -> Dict[str, Any]:
         }
     fields: List[Dict[str, Any]] = []
     for f in klass.fields:
+        if f.synthesized_by is not None:
+            continue
         if not f.owner:
             fields.append(_field_descriptor(f))
         elif not any(d["kind"] == "owner" for d in fields):
@@ -134,15 +136,28 @@ def _klass_descriptor(klass: Klass) -> Dict[str, Any]:
 
 def build_descriptor(schema: Schema) -> Dict[str, Any]:
     """
-    The descriptor for `schema`, in declaration order (readable in a
-    snapshot diff). The schema must already be linked (Schema.link()).
+    The core schema's descriptor, in declaration order (readable in a
+    snapshot diff): extensions' classes, and the child lists synthesized
+    for them on core classes, are left out, so building with extensions
+    never changes it. The schema must already be linked (Schema.link()).
     """
     return {
         "format": DESCRIPTOR_FORMAT,
         "name": schema.name,
         "namespace": schema.namespace,
         "version": schema.version,
-        "classes": [_klass_descriptor(k) for k in schema.classes],
+        "classes": [_klass_descriptor(k) for k in schema.classes if k.extension is None],
+    }
+
+
+def build_extension_descriptor(schema: Schema, extension: str, version: str) -> Dict[str, Any]:
+    """One extension's descriptor: its own classes only, at its schema `version`."""
+    return {
+        "format": DESCRIPTOR_FORMAT,
+        "name": extension,
+        "namespace": schema.namespace,
+        "version": version,
+        "classes": [_klass_descriptor(k) for k in schema.classes if k.extension == extension],
     }
 
 
@@ -229,7 +244,9 @@ class HistoryCheck:
         self.note: Optional[str] = None
 
 
-def check_history(descriptor: Dict[str, Any], history_dir: Path, update_snapshot: bool = False) -> HistoryCheck:
+def check_history(
+    descriptor: Dict[str, Any], history_dir: Path, update_snapshot: bool = False, bump_hint: str = "Bump version= in the Schema(...) call."
+) -> HistoryCheck:
     """
     Compare `descriptor` against the snapshots in `history_dir`:
 
@@ -268,7 +285,7 @@ def check_history(descriptor: Dict[str, Any], history_dir: Path, update_snapshot
             return result
         result.errors.append(
             f"The schema changed (fingerprint {existing['fingerprint']} -> {current_fp}) but its version is still "
-            f"{version}. Bump version= in the Schema(...) call. If {version} has not been committed or released "
+            f"{version}. {bump_hint} If {version} has not been committed or released "
             f"yet, rerun with --update-snapshot instead."
         )
         return result
