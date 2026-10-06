@@ -4,7 +4,7 @@
 name = "hello_ext"
 version = "0.1.0"
 prefix = "Hello"
-description = "Example extension: counts libraries and adds a library as one undo step, from C++ and Tcl"
+description = "Example extension: counts libraries, adds a library as one undo step, and attaches notes (its own database class) to libraries"
 
 [compatibility]
 layout_engine = ">=0.3, <0.4"
@@ -12,5 +12,6 @@ extension_api = 1
 
 [contents]
 cmake = "le_extension.cmake"
+schema = "schema_ext.py"
 tcl_procs = ["tcl/hello_ext.tcl"]
 tcl_tests = ["tests/hello_ext_test.tcl"]

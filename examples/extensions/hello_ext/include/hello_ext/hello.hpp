@@ -2,6 +2,7 @@
 #include <le/extension.hpp>
 
 #include <string>
+#include <vector>
 
 namespace hello
 {
@@ -18,4 +19,9 @@ namespace hello
     /// undoable edit through the C API). False, changing nothing, if `name`
     /// is empty or the library couldn't be created.
     bool add_library(le::ext::ExtensionContext &ctx, const std::string &name);
+
+    /// @brief The texts of the notes (HelloNote, this extension's own
+    /// database class) on the library named `library`, in order; empty if
+    /// there's no such library.
+    std::vector<std::string> notes_on(le::ext::ExtensionContext &ctx, const std::string &library);
 }

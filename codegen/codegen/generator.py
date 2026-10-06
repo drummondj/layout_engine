@@ -2,7 +2,7 @@
 
 from logging import Logger
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 import shutil
 import jinja2
 from codegen.templates import (
@@ -18,6 +18,7 @@ from codegen.templates import (
     migrations_hpp_j2,
 )
 from codegen import descriptor as schema_descriptor
+from codegen import extension_schema
 from codegen import migration as schema_migration
 import json
 
@@ -104,6 +105,7 @@ def generate(
     history_dir: Optional[str] = None,
     update_snapshot: bool = False,
     migrations_dir: Optional[str] = None,
+    extensions: Optional[List[extension_schema.ExtensionSchema]] = None,
 ) -> int:
     """
     Generate C++ code based on the schema.
@@ -144,6 +146,35 @@ def generate(
             for error in migration_errors:
                 logger.error(error)
             return 1
+
+    # Each extension schema has its own history and migration chain, in its
+    # own directory, checked the same way as core's.
+    extension_info = []
+    for ext in extensions or []:
+        ext_descriptor = schema_descriptor.build_extension_descriptor(schema, ext.name, ext.version)
+        if history_dir is not None:
+            check = schema_descriptor.check_history(
+                ext_descriptor, ext.history_dir, update_snapshot, bump_hint=f"Bump VERSION in {ext.schema_path}."
+            )
+            errors = [f"extension {ext.name}: {e}" for e in check.errors]
+            if not errors:
+                if check.write:
+                    path = schema_descriptor.write_snapshot(ext.history_dir, ext_descriptor)
+                    logger.info(f"extension {ext.name}: {check.note}: {path}")
+                errors = [f"extension {ext.name}: {e}" for e in schema_migration.check_migrations(ext_descriptor, ext.history_dir, ext.migrations_dir)]
+            if errors:
+                for error in errors:
+                    logger.error(error)
+                return 1
+        extension_info.append(
+            {
+                "name": ext.name,
+                "package_version": ext.package_version,
+                "version": ext.version,
+                "fingerprint": schema_descriptor.fingerprint(ext_descriptor),
+                "descriptor_json": schema_descriptor.descriptor_json(ext_descriptor),
+            }
+        )
 
     logger.info("Generating code ...")
 
@@ -186,7 +217,7 @@ def generate(
 
     descriptor_json = schema_descriptor.descriptor_json(descriptor)
     delimiter = "LEDESC"
-    if f"){delimiter}" in descriptor_json:
+    if any(f"){delimiter}" in text for text in [descriptor_json] + [e["descriptor_json"] for e in extension_info]):
         raise ValueError("Schema descriptor contains the raw-string delimiter")
     with open(f"{output_dir}/schema_version.hpp", "w") as f:
         f.write(
@@ -196,6 +227,7 @@ def generate(
                 fingerprint=schema_descriptor.fingerprint(descriptor),
                 descriptor_json=descriptor_json,
                 delimiter=delimiter,
+                extensions=extension_info,
             )
         )
 

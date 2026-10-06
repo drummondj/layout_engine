@@ -101,7 +101,9 @@ As built (`src/io/native_format.hpp`, container version 1):
 ```
 header   "LEDB\r\n\x1a\n", u32 container version, u32 flags
 chunks   tag[4], u64 payload size, payload - in this order:
-  SCHM   block: JSON {"core": {"version", "fingerprint", "descriptor"}, "writer"}
+  SCHM   block: JSON {"core": {"version", "fingerprint", "descriptor"}, "writer",
+         "extensions": [{"name", "package_version", "version", "fingerprint",
+         "descriptor"}] - only extensions with objects in the file, omitted if none}
   CLAS   one per non-empty pooled class: name, u64 rows, u32 columns,
          then per column: field name, u32 segments, and per segment
          (65,536 rows each, the last one fewer): u64 rows, block
@@ -117,7 +119,6 @@ block    u8 codec (0 raw, 1 zstd), u64 raw size, u64 stored size,
 - Rows are written in each parent's child-list order, so rebuilt indexes reproduce every child list's order, not just its membership.
 
 **Planned additions**, which old readers skip or ignore:
-- an `"extensions"` object in SCHM's JSON: per extension, its name, package version, schema version, fingerprint and descriptor (§4.8, §6)
 - an optional `SESS` chunk (§8)
 
 The original design's footer chunk directory and whole-file CRC were dropped. Per-block CRCs plus the END chunk detect corruption and truncation.
@@ -413,6 +414,7 @@ Loading is not undoable, just as `read_def` into a fresh session isn't. As built
 This connects to the extension mechanism research:
 - Extension classes are ordinary `Root` classes after the build-time merge, so they are saved like any other.
 - SCHM lists each extension's name, schema version and package version separately. Each extension has its own `migrations/` chain and snapshot history in its own tree, keyed to *its* schema version and interleaved with the core chain by the core version each migration was written against (§4.8).
+- **As built:** codegen keeps each extension's classes out of the core descriptor (and the child lists synthesized for them off core classes), so core's fingerprint is the same with or without extensions. SCHM's `"extensions"` lists only extensions with objects in the file, so a file holding none of an extension's objects opens in builds without it. The reader merges each listed extension's descriptor into the file's classes before matching by name.
 - **Opening a file that contains an extension the running build doesn't have is an error.** `read_db` refuses the whole file, naming each missing extension and the package version that wrote it, before anything is loaded. Inside a project, the message gives the `le add` line that installs it ([PACKAGE_MANAGER_RESEARCH.md](PACKAGE_MANAGER_RESEARCH.md) §8). A file whose extension schema version is newer than the build's is refused the same way, as for core (§4.9). So no build ever drops, or re-saves without, data it doesn't understand.
 - References *from* core classes *to* extension classes can't exist, because core never knows about extensions. That keeps the "missing extension" case clean.
 
