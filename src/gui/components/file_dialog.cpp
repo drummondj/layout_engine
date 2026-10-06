@@ -4,6 +4,7 @@
 #include "portable-file-dialogs.h"
 
 #include <array>
+#include <cstdlib>
 
 namespace le::gui
 {
@@ -29,6 +30,10 @@ namespace le::gui
         state_->title = std::move(title);
         if (pfd::settings::available())
         {
+            // zenity 4 draws with GTK 4, whose default GPU renderer leaves its
+            // window blank under WSLg and on GPU-less servers; the software
+            // renderer always works. A user's own GSK_RENDERER wins.
+            setenv("GSK_RENDERER", "cairo", 0);
             if (mode == Mode::SAVE)
                 state_->save_dialog = std::make_unique<pfd::save_file>(state_->title, default_path, filters, pfd::opt::none);
             else
