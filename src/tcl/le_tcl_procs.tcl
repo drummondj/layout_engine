@@ -1832,41 +1832,56 @@ register_command_help write_def \
 # database in one .led file, readable by every later Layout Engine.
 # write_db errors on failure like write_def; read_db returns a status like
 # read_def (the details are printed either way).
+# Splits a db command's args into its one <filename> and whether -no_session
+# was given; errors (naming `command`) otherwise.
+proc ::db_command_args {command args_list} {
+    set with_session 1
+    set positional {}
+    foreach arg $args_list {
+        if {$arg eq "-no_session"} {
+            set with_session 0
+        } else {
+            lappend positional $arg
+        }
+    }
+    if {[llength $positional] != 1} {
+        error "$command: expected exactly one <filename> argument, got \"$args_list\""
+    }
+    return [list [lindex $positional 0] $with_session]
+}
+
 proc write_db {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
-        return "write_db <filename> \[-help\] - Saves the whole database to a native .led file"
+        return "write_db <filename> \[-no_session\] \[-help\] - Saves the whole database to a native .led file"
     }
-    if {[llength $args] != 1} {
-        error "write_db: expected exactly one <filename> argument, got \"$args\""
-    }
-    set filename [lindex $args 0]
-    if {[write_db_cmd $filename] != 0} {
+    lassign [::db_command_args write_db $args] filename with_session
+    if {[write_db_cmd $filename $with_session] != 0} {
         error "write_db: failed to write \"$filename\" - see the terminal log for the specific reason"
     }
     return ""
 }
 register_command_help write_db \
-    "write_db <filename> \[-help\] - Saves the whole database to a native .led file" \
-    "Saves everything read or created so far - technology, libraries, designs, schematics and layouts - to one native Layout Engine database file (.led by convention), which read_db loads back exactly and later Layout Engine versions can still read. An existing file is only replaced once the new one is completely written. Afterwards the design counts as saved." \
+    "write_db <filename> \[-no_session\] \[-help\] - Saves the whole database to a native .led file" \
+    "Saves everything read or created so far - technology, libraries, designs, schematics and layouts - to one native Layout Engine database file (.led by convention), which read_db loads back exactly and later Layout Engine versions can still read. The session goes with it - the open view, the viewport and layer/purpose/filter visibility - unless -no_session is given. An existing file is only replaced once the new one is completely written. Afterwards the design counts as saved." \
     {
         {<filename> {type file required 1 description {Output .led file path}}}
+        {-no_session {type flag required 0 description {Save the database only, not the session}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
 proc read_db {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
-        return "read_db <filename> \[-help\] - Loads a native .led database file into an empty session"
+        return "read_db <filename> \[-no_session\] \[-help\] - Loads a native .led database file into an empty session"
     }
-    if {[llength $args] != 1} {
-        error "read_db: expected exactly one <filename> argument, got \"$args\""
-    }
-    return [read_db_cmd [lindex $args 0]]
+    lassign [::db_command_args read_db $args] filename with_session
+    return [read_db_cmd $filename $with_session]
 }
 register_command_help read_db \
-    "read_db <filename> \[-help\] - Loads a native .led database file into an empty session" \
-    "Loads a database file written by write_db. Only works in an empty session (before anything is read or created). A file written by an older Layout Engine loads too: fields added or removed since are matched by name, and anything dropped is printed as a warning. Clears undo/redo. Returns 0 on success, nonzero on an error (the details are printed)." \
+    "read_db <filename> \[-no_session\] \[-help\] - Loads a native .led database file into an empty session" \
+    "Loads a database file written by write_db. Only works in an empty session (before anything is read or created). A file written by an older Layout Engine loads too: fields added or removed since are matched by name, and anything dropped is printed as a warning. Restores the session saved with it (the open view, viewport and layer/purpose/filter visibility) unless -no_session is given. Clears undo/redo. Returns 0 on success, nonzero on an error (the details are printed)." \
     {
         {<filename> {type file required 1 description {.led file to read}}}
+        {-no_session {type flag required 0 description {Load the database only, ignoring its saved session}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 

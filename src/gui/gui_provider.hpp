@@ -226,6 +226,17 @@ namespace le::gui
         bool has_unsaved_design() const;
         bool has_unsaved_settings() const;
         bool save_settings_now();
+        // Writes the design to db_path() now, with its session (the close
+        // dialog's Save); false if there's no such file or the save failed.
+        bool save_design_now();
+        // The File menu: read_db/write_db, queued as Tcl commands so they
+        // land in the console's history; db_path() is the .led file last
+        // read or written ("" if none), and read_db only loads into an
+        // empty database.
+        void read_db(const std::string &path);
+        void write_db(const std::string &path);
+        std::string db_path() const;
+        bool database_is_empty() const;
         // The Settings panel's "Reset
         // window layout" asks le_gui.cpp (a GUI-only concern, no backend
         // state) to rebuild the default dock layout next frame.

@@ -469,6 +469,17 @@ namespace le::gui
     bool GuiProvider::has_unsaved_settings() const { return le_has_unsaved_settings(handle_) != 0; }
     bool GuiProvider::save_settings_now() { return le_save_settings(handle_, "") == 0; }
 
+    bool GuiProvider::save_design_now()
+    {
+        const std::string path = db_path();
+        return !path.empty() && le_write_db(handle_, path.c_str(), 1) == 0;
+    }
+
+    void GuiProvider::read_db(const std::string &path) { run_tcl_command("read_db " + tcl_quote(path)); }
+    void GuiProvider::write_db(const std::string &path) { run_tcl_command("write_db " + tcl_quote(path)); }
+    std::string GuiProvider::db_path() const { return le_db_path(handle_); }
+    bool GuiProvider::database_is_empty() const { return le_database_is_empty(handle_) != 0; }
+
     void GuiProvider::set_layer_color(const std::string &layer_name, uint8_t r, uint8_t g, uint8_t b)
     {
         char color[8];

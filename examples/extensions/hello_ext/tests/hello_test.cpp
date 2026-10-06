@@ -117,13 +117,13 @@ TEST(HelloExt, NotesRoundTripThroughANativeFile)
     {
         Session session;
         add_two_notes(session.handle);
-        ASSERT_EQ(le_write_db(session.handle, path.c_str()), 0);
+        ASSERT_EQ(le_write_db(session.handle, path.c_str(), 1), 0);
     }
     const std::string info = le_db_info(path.c_str());
     EXPECT_NE(info.find("extension hello_ext 0.1.0 (schema 0.2.0): this build has schema 0.2.0"), std::string::npos) << info;
 
     Session session;
-    ASSERT_EQ(le_read_db(session.handle, path.c_str()), 0);
+    ASSERT_EQ(le_read_db(session.handle, path.c_str(), 1), 0);
     le::ext::ExtensionContext ctx(session.handle, "hello_ext");
     EXPECT_EQ(hello::notes_on(ctx, "lib1"), (std::vector<std::string>{"route the clock first", "then the resets"}));
     std::filesystem::remove(path);
@@ -136,7 +136,7 @@ TEST(HelloExt, EverySchemaVersionsGoldenFileStillLoads)
     {
         Session session;
         const std::filesystem::path file = version.path() / "notes.led";
-        ASSERT_EQ(le_read_db(session.handle, file.c_str()), 0) << file;
+        ASSERT_EQ(le_read_db(session.handle, file.c_str(), 1), 0) << file;
         le::ext::ExtensionContext ctx(session.handle, "hello_ext");
         EXPECT_EQ(hello::notes_on(ctx, "lib1"), (std::vector<std::string>{"route the clock first", "then the resets"})) << file;
         ++loaded;
@@ -151,5 +151,5 @@ TEST(HelloExt, DISABLED_WriteGoldenFileForThisSchemaVersion)
     Session session;
     add_two_notes(session.handle);
     std::filesystem::create_directories(kGoldenDir / kSchemaVersion);
-    ASSERT_EQ(le_write_db(session.handle, (kGoldenDir / kSchemaVersion / "notes.led").c_str()), 0);
+    ASSERT_EQ(le_write_db(session.handle, (kGoldenDir / kSchemaVersion / "notes.led").c_str(), 1), 0);
 }

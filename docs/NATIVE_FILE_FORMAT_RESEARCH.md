@@ -2,7 +2,7 @@
 
 Follow-up to [EXTENSION_MECHANISM_RESEARCH.md](EXTENSION_MECHANISM_RESEARCH.md) §4 ("Open issue: persistence"). How a project's set of extensions is chosen and pinned is in [PACKAGE_MANAGER_RESEARCH.md](PACKAGE_MANAGER_RESEARCH.md).
 
-**Status:** phases 1–3 are built (`src/io/native_format.*`, `write_db`/`read_db`/`db_info`). Phase 4 is partly built: renames are applied, but structural ops are not yet. See §10. Where the as-built format differs from the original design, the sections below describe what was built and mark the rest as planned.
+**Status:** phases 1–3 and 5 are built (`src/io/native_format.*`, `write_db`/`read_db`/`db_info`, the session, extensions). Phase 4 is partly built: renames are applied, but structural ops are not yet. See §10. Where the as-built format differs from the original design, the sections below describe what was built and mark the rest as planned.
 
 ## Goal
 
@@ -108,6 +108,7 @@ chunks   tag[4], u64 payload size, payload - in this order:
          then per column: field name, u32 segments, and per segment
          (65,536 rows each, the last one fewer): u64 rows, block
   STRS   block: deduplicated string table (layer, cell and net names repeat heavily)
+  SESS   optional block: the session's JSON (§8)
   END    empty - its absence means a truncated file
 block    u8 codec (0 raw, 1 zstd), u64 raw size, u64 stored size,
          u32 CRC-32 of the stored bytes, stored bytes
@@ -117,9 +118,6 @@ block    u8 codec (0 raw, 1 zstd), u64 raw size, u64 stored size,
 - Segments are independent blocks, so one large column decodes on many threads (TBB).
 - Lengths are 64-bit, so there is no 2 GB limit.
 - Rows are written in each parent's child-list order, so rebuilt indexes reproduce every child list's order, not just its membership.
-
-**Planned additions**, which old readers skip or ignore:
-- an optional `SESS` chunk (§8)
 
 The original design's footer chunk directory and whole-file CRC were dropped. Per-block CRCs plus the END chunk detect corruption and truncation.
 
@@ -447,6 +445,8 @@ This connects to the extension mechanism research:
 
 The SESSION chunk is JSON so it can evolve loosely: unknown keys are ignored and missing keys get defaults, with no migration machinery needed.
 
+**As built** (`SESS`, after STRS; `session_to_json`/`apply_session_json` in `src/api/api.cpp`): `{"format": 1, "view": {"layout"|"abstract": ref}, "viewport": {"pan", "scale"}, "current": {"technology", "abstract", "schematic", "layout"}, "layers": {"visible", "selectable"}, "purposes": {"visible", "selectable"}, "filters": {"hidden", "unselectable"}}`. Purposes are keyed by label (ordinals depend on the extensions built in). Layer colours stay in `settings.json`, which already holds them globally. Object references are written as `{"$ref": class, "index", "generation"}` and stored as `{"$ref", "row"}` (`save_native` maps slots to rows); a reference to something deleted, or to a class or row the loading build doesn't have, becomes null.
+
 ---
 
 ## 9. API and user surface
@@ -457,11 +457,12 @@ Built:
 - **Developer:** `codegen --target makemigration --name <slug>` drafts the next migration file; `codegen --target checkmigrations` runs the symbolic replay (§4.5).
 - A successful `write_db` or `read_db` marks the database saved, so the GUI's exit dialog stops warning about unsaved changes.
 
+- `write_db -no_session` and `read_db -no_session`; `db_info` says whether a file has a session and lists its extensions.
+- **GUI:** File → Open / Save / Save As in the menu bar (queued `read_db`/`write_db` commands, so they're in the console history; Open only while the session is empty). The exit dialog offers "Save design" once the design has a file.
+
 Planned:
-- `write_db -no_session`.
-- `db_info` also lists the file's extensions and the migrations that would run on it. Useful for support, and the package manager reads the extensions list (PACKAGE_MANAGER_RESEARCH.md §8).
+- `db_info` also lists the migrations that would run on a file. Useful for support, and the package manager reads the extensions list (PACKAGE_MANAGER_RESEARCH.md §8).
 - **Offline upgrade:** `migrate_db <in.led> <out.led>`.
-- **GUI:** File → Open / Save / Save As, in the menu bar proposed in the extension research. The exit dialog can then offer "Save" directly.
 
 ---
 
@@ -473,7 +474,7 @@ Planned:
 | 2 ✅ | Container writer/reader (chunks, strings, CRC, zstd), generated typed tables, `Pool::load_dense`, `Root::rebuild_indexes()`. **Done** (`src/io/native_format.*`, `src/io/codec.hpp`). §3 describes the as-built container and value encoding; the name-matching decode (§4.4, additive changes) is built in, while `DynamicDb` waits for phase 4. |
 | 3 ✅ | C API, TCL commands, golden corpus (first version) plus the corpus test. **Done:** `le_write_db`/`le_read_db`/`le_db_info`, TCL `write_db`/`read_db`/`db_info`. `read_db` loads into an empty session only. Golden files are in `src/io/tests/golden/<version>/`. |
 | 4 🟡 | Migration framework. **Done so far** (`codegen/codegen/migration.py`): the op classes, symbolic replay and per-op validation, which run on every `codegen --target database` and replace the phase-1 check; `makemigration` with diffing and rename prompts (`Todo` when non-interactive); `checkmigrations`. The generated `migrations.hpp` table lets the loader apply **renames** (class, field, enum value, and `RemoveEnumValue(map_to=)`) to an older file's schema before name matching. **Not yet:** `DynamicDb` and the data runtime for `ConvertField`, `ExtractToChild`/`InlineChild`, split/merge and `RunCode`. Those ops are declared unsupported at runtime, so a file needing one is refused with the migration's description. §4.3 lists the built op set. No migration has been written yet: 0.50.0 is the only schema version. |
-| 5 | SESSION chunk, GUI File menu, SCHM `"extensions"` object and extension migration chains (needs the extension mechanism's schema phase). |
+| 5 ✅ | SESSION chunk, GUI File menu, SCHM `"extensions"` object and extension migration chains (needs the extension mechanism's schema phase). |
 | 6 | Performance: parallel encode (decode is already parallel), and the Arrow-style encodings §3 left out, each kept only if `native_format_profile` shows a gain. |
 
 ---

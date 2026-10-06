@@ -47,6 +47,12 @@ namespace le::persistence
         /// zstd level (1 fastest .. 19 smallest); 0 or less stores every
         /// block uncompressed (debugging, and tests that edit files).
         int compression_level = 3;
+        /// The session to save beside the database (a JSON object; empty:
+        /// none). An object of the form {"$ref": "<Class>", "index": i,
+        /// "generation": g} anywhere in it is an object reference: it is
+        /// stored as that object's row in the file, or null if the object
+        /// no longer exists.
+        std::string session_json;
     };
 
     struct SaveReport
@@ -76,6 +82,10 @@ namespace le::persistence
         /// (no name matching needed).
         bool schema_matches = false;
         uint64_t objects = 0;
+        /// The file's session (empty if it has none), its object references
+        /// as {"$ref": "<Class>", "index": row, "generation": 0} - the
+        /// loaded object's id - or null if the class or row is gone.
+        std::string session_json;
         /// Where the time went (ms), for profiling: "read", "decode <Class>", "index".
         std::vector<std::pair<std::string, double>> phase_ms;
         bool ok() const { return error.empty(); }
@@ -114,6 +124,7 @@ namespace le::persistence
             std::string built_schema_version; // this build's, or empty if it doesn't have the extension
         };
         std::vector<Extension> extensions;
+        bool has_session = false;
         bool ok() const { return error.empty(); }
     };
 

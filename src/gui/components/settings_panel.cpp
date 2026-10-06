@@ -1,14 +1,12 @@
 #include "settings_panel.hpp"
 
 #include "committed_field.hpp"
+#include "file_dialog.hpp"
 #include "gui_provider.hpp"
 #include "imgui.h"
 
-#include "portable-file-dialogs.h"
-
-#include <array>
 #include <cstdio>
-#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -18,107 +16,10 @@ namespace le::gui
     {
         const std::vector<std::string> kJsonFilters = {"JSON files (*.json)", "*.json", "All files", "*"};
 
-        // A Save As/Load in progress. The system dialog (portable-file-dialogs
-        // - zenity/kdialog on Linux, the native one on macOS/Windows) runs
-        // asynchronously and is polled each frame so the GUI keeps drawing.
-        // With no dialog helper installed, a small in-app path prompt
-        // (a modal popup) stands in for it.
-        struct FileRequest
-        {
-            enum class Kind
-            {
-                NONE,
-                SAVE,
-                LOAD,
-            } kind = Kind::NONE;
-            std::unique_ptr<pfd::save_file> save_dialog;
-            std::unique_ptr<pfd::open_file> open_dialog;
-            bool prompt_open = false;
-            std::array<char, 1024> prompt_path{};
-        };
-
         void section(const char *title)
         {
             ImGui::Spacing();
             ImGui::SeparatorText(title);
-        }
-
-        // Starts a Save As (`save` true) or Load - the system dialog when
-        // one is available, else the in-app prompt, prefilled either way
-        // with the default settings file.
-        void start_file_request(FileRequest &request, bool save)
-        {
-            const std::string default_path = le_default_settings_path();
-            request.kind = save ? FileRequest::Kind::SAVE : FileRequest::Kind::LOAD;
-            if (pfd::settings::available())
-            {
-                if (save)
-                    request.save_dialog = std::make_unique<pfd::save_file>("Save settings", default_path, kJsonFilters, pfd::opt::none);
-                else
-                    request.open_dialog = std::make_unique<pfd::open_file>("Load settings", default_path, kJsonFilters, pfd::opt::none);
-                return;
-            }
-            request.prompt_path.fill('\0');
-            default_path.copy(request.prompt_path.data(), request.prompt_path.size() - 1);
-            request.prompt_open = true;
-        }
-
-        // Finishes a request whose path is now known ("" - cancelled).
-        void finish_file_request(GuiProvider &provider, FileRequest &request, const std::string &path, std::string &status)
-        {
-            if (!path.empty())
-            {
-                if (request.kind == FileRequest::Kind::SAVE)
-                {
-                    provider.save_settings(path);
-                    status = "Saved to " + path;
-                }
-                else
-                {
-                    provider.load_settings(path);
-                    status = "Loaded " + path;
-                }
-            }
-            request = FileRequest{};
-        }
-
-        void poll_file_request(GuiProvider &provider, FileRequest &request, std::string &status)
-        {
-            if (request.save_dialog && request.save_dialog->ready(0))
-                finish_file_request(provider, request, request.save_dialog->result(), status);
-            else if (request.open_dialog && request.open_dialog->ready(0))
-            {
-                const std::vector<std::string> paths = request.open_dialog->result();
-                finish_file_request(provider, request, paths.empty() ? std::string() : paths.front(), status);
-            }
-
-            if (request.prompt_open)
-            {
-                ImGui::OpenPopup("Settings file###settings_path_prompt");
-                request.prompt_open = false;
-            }
-            if (ImGui::BeginPopupModal("Settings file###settings_path_prompt", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-            {
-                const bool save = request.kind == FileRequest::Kind::SAVE;
-                ImGui::TextUnformatted(save ? "Save settings to:" : "Load settings from:");
-                ImGui::TextDisabled("(no system file dialog found - install zenity or kdialog for one)");
-                ImGui::SetNextItemWidth(420.0f);
-                if (ImGui::IsWindowAppearing())
-                    ImGui::SetKeyboardFocusHere();
-                const bool entered = ImGui::InputText("##settings_path", request.prompt_path.data(), request.prompt_path.size(), ImGuiInputTextFlags_EnterReturnsTrue);
-                if (ImGui::Button(save ? "Save" : "Load") || entered)
-                {
-                    finish_file_request(provider, request, request.prompt_path.data(), status);
-                    ImGui::CloseCurrentPopup();
-                }
-                ImGui::SameLine();
-                if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
-                {
-                    request = FileRequest{};
-                    ImGui::CloseCurrentPopup();
-                }
-                ImGui::EndPopup();
-            }
         }
     }
 
@@ -195,9 +96,10 @@ namespace le::gui
             ImGui::SetTooltip("Most threads rendering may use at once - at least 2");
 
         section("Settings file");
-        static FileRequest request;
+        static FileDialog dialog;
+        static bool dialog_saves = false;
         static std::string status;
-        const bool busy = request.kind != FileRequest::Kind::NONE;
+        const bool busy = dialog.active();
         const std::string default_path = le_default_settings_path();
 
         ImGui::BeginDisabled(busy || default_path.empty());
@@ -212,10 +114,16 @@ namespace le::gui
         ImGui::SameLine();
         ImGui::BeginDisabled(busy);
         if (ImGui::Button("Save As..."))
-            start_file_request(request, true);
+        {
+            dialog.start(FileDialog::Mode::SAVE, "Save settings", default_path, kJsonFilters);
+            dialog_saves = true;
+        }
         ImGui::SameLine();
         if (ImGui::Button("Load..."))
-            start_file_request(request, false);
+        {
+            dialog.start(FileDialog::Mode::OPEN, "Load settings", default_path, kJsonFilters);
+            dialog_saves = false;
+        }
         ImGui::EndDisabled();
         if (ImGui::Button("Reset window layout"))
             provider.request_window_layout_reset();
@@ -231,6 +139,18 @@ namespace le::gui
             ImGui::PopStyleColor();
         }
 
-        poll_file_request(provider, request, status);
+        if (const std::optional<std::string> path = dialog.poll())
+        {
+            if (dialog_saves)
+            {
+                provider.save_settings(*path);
+                status = "Saved to " + *path;
+            }
+            else
+            {
+                provider.load_settings(*path);
+                status = "Loaded " + *path;
+            }
+        }
     }
 }

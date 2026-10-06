@@ -355,9 +355,11 @@ extern "C"
     /// file (.led - see docs/NATIVE_FILE_FORMAT_RESEARCH.md). Written via a
     /// temporary file and a rename, so a failed save never damages an
     /// existing file. On success the database counts as saved (the exit
-    /// dialog's unsaved-changes check). Returns 0 on success;
-    /// errors are logged via spdlog.
-    int le_write_db(LeHandle *handle, const char *path);
+    /// dialog's unsaved-changes check). With `with_session` nonzero the
+    /// file also keeps the session - the open view, viewport, current
+    /// objects and layer/purpose/filter visibility - which le_read_db
+    /// restores. Returns 0 on success; errors are logged via spdlog.
+    int le_write_db(LeHandle *handle, const char *path, int32_t with_session);
 
     /// @brief Loads a native database file into this handle. Only into an
     /// empty database (nothing read or created yet) - fails otherwise,
@@ -365,9 +367,18 @@ extern "C"
     /// loads too when its differences are only added, removed or
     /// reordered classes/fields (each dropped or defaulted field is logged
     /// as a warning); one needing a real migration fails with a message
-    /// saying so. Clears undo/redo, and leaves the database saved. Returns
-    /// 0 on success; errors are logged via spdlog.
-    int le_read_db(LeHandle *handle, const char *path);
+    /// saying so. Clears undo/redo, and leaves the database saved. With
+    /// `with_session` nonzero, restores the file's session if it has one.
+    /// Returns 0 on success; errors are logged via spdlog.
+    int le_read_db(LeHandle *handle, const char *path, int32_t with_session);
+
+    /// @brief The native database file last read or written ("" until one
+    /// is) - valid until the next call on this thread.
+    const char *le_db_path(LeHandle *handle);
+
+    /// @brief 1 if the database holds no objects (le_read_db can load
+    /// into it), else 0.
+    int32_t le_database_is_empty(LeHandle *handle);
 
     /// @brief A human-readable description of a native database file
     /// (schema version, whether this build's schema matches, per-class

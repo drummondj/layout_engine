@@ -310,6 +310,51 @@ namespace le::persistence
         EXPECT_EQ(names, (std::vector<std::string>{"M1", "V1", "M4"}));
     }
 
+    TEST(NativeFormat, TheSessionRoundTripsWithReferencesToTheLoadedObjects)
+    {
+        TempDir dir;
+        SmallDesign original;
+        // M4 reuses M2's slot but is saved after V1: its slot isn't its row.
+        ASSERT_TRUE(original.root.delete_layer(original.m2));
+        const LayerId m4 = original.root.create_layer(LayerData{.technology = original.technology, .name = "M4", .type = "ROUTING"});
+        const auto ref = [](const char *klass, auto id) { return nlohmann::json{{"$ref", klass}, {"index", id.index}, {"generation", id.generation}}; };
+        const nlohmann::json session = {
+            {"current", ref("Layer", m4)},
+            {"gone", ref("Layer", original.m2)}, // M2's old generation
+            {"bogus", ref("NoSuchClass", m4)},
+            {"nested", {{"list", nlohmann::json::array({ref("Design", original.design), 7})}}},
+            {"scale", 0.25},
+        };
+        const auto path = dir.file("session.led");
+        ASSERT_TRUE(save_native(original.root, path.string(), SaveOptions{.session_json = session.dump()}).ok());
+        EXPECT_TRUE(inspect_native(path.string()).has_session);
+
+        Root loaded;
+        const LoadReport report = load_native(loaded, path.string());
+        ASSERT_TRUE(report.ok()) << report.error;
+        const nlohmann::json restored = nlohmann::json::parse(report.session_json);
+        const auto id_of = [](const nlohmann::json &r) { return r.at("index").get<uint32_t>(); };
+        EXPECT_EQ(loaded.get_layer(LayerId{id_of(restored["current"]), 0})->name, "M4");
+        EXPECT_TRUE(restored["gone"].is_null());
+        EXPECT_TRUE(restored["bogus"].is_null());
+        EXPECT_EQ(loaded.get_design(DesignId{id_of(restored["nested"]["list"][0]), 0})->name, "top");
+        EXPECT_EQ(restored["nested"]["list"][1], 7);
+        EXPECT_EQ(restored["scale"], 0.25);
+    }
+
+    TEST(NativeFormat, AFileWithoutASessionLoadsWithNone)
+    {
+        TempDir dir;
+        SmallDesign original;
+        const auto path = dir.file("plain.led");
+        ASSERT_TRUE(save_native(original.root, path.string()).ok());
+        EXPECT_FALSE(inspect_native(path.string()).has_session);
+        Root loaded;
+        const LoadReport report = load_native(loaded, path.string());
+        ASSERT_TRUE(report.ok()) << report.error;
+        EXPECT_TRUE(report.session_json.empty());
+    }
+
     TEST(NativeFormat, CompleteLefDefAndVerilogRoundTripByteIdentically)
     {
         TempDir dir;

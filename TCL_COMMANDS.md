@@ -2263,13 +2263,14 @@ Returns 1 if <mode> has something to snap to: rows in the current layout for sit
 
 ## read_db
 
-`read_db <filename> [-help]`
+`read_db <filename> [-no_session] [-help]`
 
-Loads a database file written by write_db. Only works in an empty session (before anything is read or created). A file written by an older Layout Engine loads too: fields added or removed since are matched by name, and anything dropped is printed as a warning. Clears undo/redo. Returns 0 on success, nonzero on an error (the details are printed).
+Loads a database file written by write_db. Only works in an empty session (before anything is read or created). A file written by an older Layout Engine loads too: fields added or removed since are matched by name, and anything dropped is printed as a warning. Restores the session saved with it (the open view, viewport and layer/purpose/filter visibility) unless -no_session is given. Clears undo/redo. Returns 0 on success, nonzero on an error (the details are printed).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<filename>` | `file` | yes | .led file to read |
+| `-no_session` | `flag` | no | Load the database only, ignoring its saved session |
 
 ## read_def
 
@@ -3618,13 +3619,14 @@ Changes the given fields of a ViaRuleReference; omitted flags leave a field unch
 
 ## write_db
 
-`write_db <filename> [-help]`
+`write_db <filename> [-no_session] [-help]`
 
-Saves everything read or created so far - technology, libraries, designs, schematics and layouts - to one native Layout Engine database file (.led by convention), which read_db loads back exactly and later Layout Engine versions can still read. An existing file is only replaced once the new one is completely written. Afterwards the design counts as saved.
+Saves everything read or created so far - technology, libraries, designs, schematics and layouts - to one native Layout Engine database file (.led by convention), which read_db loads back exactly and later Layout Engine versions can still read. The session goes with it - the open view, the viewport and layer/purpose/filter visibility - unless -no_session is given. An existing file is only replaced once the new one is completely written. Afterwards the design counts as saved.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<filename>` | `file` | yes | Output .led file path |
+| `-no_session` | `flag` | no | Save the database only, not the session |
 
 ## write_def
 

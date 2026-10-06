@@ -19,7 +19,7 @@ if {[lindex $argv 0] eq "load"} {
     lassign $argv - module_path procs_path db_path expected_nets
     load $module_path le_tcl
     source $procs_path
-    check "read_db return code" 0 [read_db $db_path]
+    check "read_db -no_session return code" 0 [read_db -no_session $db_path]
     check "net count after read_db" $expected_nets [llength [get_nets -of [get_schematics -of [get_designs top]]]]
     check "second read_db into the now non-empty session fails" 1 [expr {[read_db $db_path] != 0}]
     exit 0
@@ -48,6 +48,13 @@ check "db_info reports the same schema" 1 [string match "*same schema*" $info]
 check "db_info lists Net" 1 [string match "*Net *" $info]
 check "db_info on a missing file errors" 1 [catch {db_info $db_path.missing}]
 check "write_db with no filename errors" 1 [catch {write_db}]
+check "db_info: a session is saved by default" 1 [string match "*session: yes*" $info]
+set bare_path [file join $tmp_dir "native_db_test_bare_[pid].led"]
+check "write_db -no_session result" "" [write_db -no_session $bare_path]
+check "db_info: -no_session saves none" 1 [string match "*session: no*" [db_info $bare_path]]
+check "-no_session in either position" "" [write_db $bare_path -no_session]
+file delete $bare_path
+check "write_db with two filenames errors" 1 [catch {write_db a.led b.led}]
 check "read_db -help" 1 [string match "read_db*" [read_db -help]]
 
 set output [exec [info nameofexecutable] [info script] load $module_path $procs_path $db_path $nets]
