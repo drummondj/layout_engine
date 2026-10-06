@@ -54,9 +54,13 @@ namespace le::ext
     {
     public:
         explicit ReadView(LeHandle *handle);
+        /// @brief Doesn't wait: invalid if the lock isn't free right now.
+        ReadView(LeHandle *handle, std::try_to_lock_t);
         ReadView(const ReadView &) = delete;
         ReadView &operator=(const ReadView &) = delete;
 
+        bool valid() const { return lock_.owns_lock(); }
+        /// @brief Only when valid().
         const Root &root() const { return *root_; }
 
     private:

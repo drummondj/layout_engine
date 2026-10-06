@@ -691,6 +691,7 @@ target_link_libraries(imgui_lib PUBLIC glfw)
 add_library(gui STATIC
     src/gui/le_gui.cpp
     src/gui/gui_provider.cpp
+    src/gui/panels.cpp
     src/gui/components/status_bar.cpp
     src/gui/components/library_browser.cpp
     src/gui/components/property_viewer.cpp
@@ -718,7 +719,7 @@ target_compile_definitions(gui PRIVATE LE_LUCIDE_FONT_PATH="${lucide_font_SOURCE
 # a real link-time ABI mismatch (fmt::v9 object code linked against this
 # project's own fmt::v11 library), same class of bug io's own PUBLIC
 # spdlog::spdlog dependency exists to avoid.
-target_link_libraries(gui PUBLIC api imgui_lib spdlog::spdlog)
+target_link_libraries(gui PUBLIC api le::extension_sdk imgui_lib spdlog::spdlog)
 if(APPLE)
     target_link_libraries(gui PRIVATE "-framework Cocoa" "-framework IOKit" "-framework OpenGL")
 else()
@@ -944,7 +945,8 @@ if(SWIG_FOUND AND TCL_FOUND)
     add_executable(le_shell src/tcl/le_shell.cpp)
     add_dependencies(le_shell generate_le_shell_version)
     target_include_directories(le_shell PRIVATE ${TCL_INCLUDE_PATH} ${CMAKE_BINARY_DIR})
-    target_link_libraries(le_shell PRIVATE ${TCL_LIBRARY} api gui le_extensions)
+    target_link_libraries(le_shell PRIVATE ${TCL_LIBRARY} api gui le_extensions le_extensions_gui)
+    add_dependencies(le_shell le_extensions_index)
 
     # Compile-time fallback for -module/-procs and their LE_TCL_MODULE/
     # LE_TCL_PROCS_PATH env-var equivalents (le_shell.cpp's own
@@ -1217,6 +1219,12 @@ target_compile_definitions(backend_tests PRIVATE
 add_dependencies(backend_tests lef_lib def_lib)
 le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
+
+# --- gui_tests: the GUI module's parts that run headless (panels, the
+# extension GUI SDK) - Dear ImGui with no window or backend. ---
+add_executable(gui_tests src/gui/tests/panels_test.cpp)
+target_link_libraries(gui_tests PRIVATE gui GTest::gtest_main)
+gtest_discover_tests(gui_tests)
 
 # --- pipelines_tests: the pipelines module's own test binary, separate
 # from backend_tests so the stages and view_style can be tested

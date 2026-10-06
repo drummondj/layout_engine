@@ -39,7 +39,7 @@ TEST(HelloExt, AnEditIsOneUndoStep)
 {
     Session session;
     le::ext::ExtensionContext ctx(session.handle, "hello_ext");
-    ASSERT_TRUE(hello::add_greeting(ctx, "world"));
+    ASSERT_TRUE(hello::add_library(ctx, "world"));
     EXPECT_EQ(hello::library_count(ctx), 1);
     ASSERT_NE(le_undo(session.handle), 0);
     EXPECT_EQ(hello::library_count(ctx), 0);
@@ -51,19 +51,19 @@ TEST(HelloExt, StateIsPerSessionAndPerExtension)
     le::ext::ExtensionContext in_a(a.handle, "hello_ext");
     le::ext::ExtensionContext in_b(b.handle, "hello_ext");
     le::ext::ExtensionContext other_extension(a.handle, "other_ext");
-    ASSERT_TRUE(hello::add_greeting(in_a, "one"));
-    ASSERT_TRUE(hello::add_greeting(in_a, "two"));
-    EXPECT_EQ(in_a.data<hello::State>().greetings_added, 2);
-    EXPECT_EQ(in_b.data<hello::State>().greetings_added, 0);
-    EXPECT_EQ(other_extension.data<hello::State>().greetings_added, 0);
+    ASSERT_TRUE(hello::add_library(in_a, "one"));
+    ASSERT_TRUE(hello::add_library(in_a, "two"));
+    EXPECT_EQ(in_a.data<hello::State>().libraries_added, 2);
+    EXPECT_EQ(in_b.data<hello::State>().libraries_added, 0);
+    EXPECT_EQ(other_extension.data<hello::State>().libraries_added, 0);
 }
 
 TEST(HelloExt, AFailedEditLeavesNothingToUndo)
 {
     Session session;
     le::ext::ExtensionContext ctx(session.handle, "hello_ext");
-    EXPECT_FALSE(hello::add_greeting(ctx, ""));
-    EXPECT_EQ(ctx.data<hello::State>().greetings_added, 0);
+    EXPECT_FALSE(hello::add_library(ctx, ""));
+    EXPECT_EQ(ctx.data<hello::State>().libraries_added, 0);
     EXPECT_EQ(le_undo(session.handle), 0);
 }
 

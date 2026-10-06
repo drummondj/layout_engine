@@ -10,9 +10,9 @@ namespace hello
         return static_cast<int>(view.root().get_library_ids().size());
     }
 
-    bool add_greeting(le::ext::ExtensionContext &ctx, const std::string &name)
+    bool add_library(le::ext::ExtensionContext &ctx, const std::string &name)
     {
-        le::ext::Transaction transaction = ctx.transaction("hello_add_greeting " + name);
+        le::ext::Transaction transaction = ctx.transaction("hello_add_library " + name);
         if (name.empty())
         {
             transaction.fail();
@@ -24,7 +24,7 @@ namespace hello
             transaction.fail();
             return false;
         }
-        ++ctx.data<State>().greetings_added;
+        ++ctx.data<State>().libraries_added;
         return true;
     }
 }

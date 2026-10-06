@@ -8,7 +8,7 @@ namespace hello
     /// @brief This extension's per-session state.
     struct State
     {
-        int greetings_added = 0;
+        int libraries_added = 0;
     };
 
     /// @brief How many libraries the session's database holds (a read).
@@ -17,5 +17,5 @@ namespace hello
     /// @brief Adds a library named "hello_<name>", as one undo step (an
     /// undoable edit through the C API). False, changing nothing, if `name`
     /// is empty or the library couldn't be created.
-    bool add_greeting(le::ext::ExtensionContext &ctx, const std::string &name);
+    bool add_library(le::ext::ExtensionContext &ctx, const std::string &name);
 }

@@ -5,4 +5,5 @@ le_add_extension(hello_ext
     TCL_SWIG      tcl/hello_ext.i
     TCL_SOURCES   tcl/hello_tcl.cpp
     TCL_INIT
+    GUI_SOURCES   gui/hello_gui.cpp
 )
