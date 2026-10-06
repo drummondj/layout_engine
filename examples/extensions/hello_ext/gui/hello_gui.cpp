@@ -23,11 +23,11 @@ namespace
         if (const le::ext::ReadView view = ctx.read(); view.valid())
             state.library_count = static_cast<int>(view.root().get_library_ids().size());
         ImGui::Text("Libraries: %d", state.library_count);
-        ImGui::Text("Greetings added this session: %d", ctx.data<hello::State>().greetings_added);
+        ImGui::Text("Greeting libraries added this session: %d", ctx.data<hello::State>().greeting_libraries_added);
         ImGui::Text("Selected objects: %d", ctx.selection_count());
         ImGui::BeginDisabled(ctx.is_busy());
-        if (ImGui::Button("Add greeting"))
-            ctx.run_tcl_command("hello_add_greeting gui");
+        if (ImGui::Button("Add greeting library"))
+            ctx.run_tcl_command("hello_add_greeting_library gui");
         ImGui::EndDisabled();
     }
 }
@@ -35,6 +35,6 @@ namespace
 void le_ext_hello_ext_register_gui(le::ext::GuiRegistry &registry)
 {
     registry.add_window({.title = "Hello", .dock = le::ext::Dock::RIGHT, .draw = draw_hello_window});
-    registry.add_menu_item({.label = "Add a greeting",
-                            .action = [](le::ext::ExtGuiContext &ctx) { ctx.run_tcl_command("hello_add_greeting menu"); }});
+    registry.add_menu_item({.label = "Add a greeting library",
+                            .action = [](le::ext::ExtGuiContext &ctx) { ctx.run_tcl_command("hello_add_greeting_library menu"); }});
 }

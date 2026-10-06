@@ -61,7 +61,7 @@ def main() -> int:
         script = project / "check.tcl"
         script.write_text(
             'if {[hello_script_greet world] ne "Hello, world!"} { error "hello_script_greet" }\n'
-            "hello_add_greeting world\n"
+            "hello_add_greeting_library world\n"
             'if {[hello_library_count] != 1} { error "hello_library_count" }\n'
             "puts [hello_ext_info]\n"
         )

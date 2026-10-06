@@ -5,6 +5,6 @@
 /// @brief The session's library count.
 int hello_library_count_cmd();
 /// @brief 0 if hello_<name> was added (one undo step), nonzero otherwise.
-int hello_add_greeting_cmd(const char *name);
-/// @brief How many greetings this session has added.
-int hello_greetings_added_cmd();
+int hello_add_greeting_library_cmd(const char *name);
+/// @brief How many greeting libraries this session has added.
+int hello_greeting_libraries_added_cmd();

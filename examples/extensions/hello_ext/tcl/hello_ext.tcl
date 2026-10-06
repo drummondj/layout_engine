@@ -13,32 +13,32 @@ register_command_help hello_library_count \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-proc hello_add_greeting {name args} {
+proc hello_add_greeting_library {name args} {
     if {$name eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "hello_add_greeting <name> \[-help\] - Adds a library named hello_<name>"
+        return "hello_add_greeting_library <name> \[-help\] - Adds a greeting library named hello_<name>"
     }
-    if {[hello_add_greeting_cmd $name] != 0} {
-        error "hello_add_greeting: couldn't add hello_$name"
+    if {[hello_add_greeting_library_cmd $name] != 0} {
+        error "hello_add_greeting_library: couldn't add hello_$name"
     }
     return ""
 }
-register_command_help hello_add_greeting \
-    "hello_add_greeting <name> \[-help\]" \
-    "Adds a library named hello_<name>, as one undo step. From the hello_ext example extension." \
+register_command_help hello_add_greeting_library \
+    "hello_add_greeting_library <name> \[-help\]" \
+    "Adds a greeting library named hello_<name>, as one undo step. From the hello_ext example extension." \
     {
-        {<name> {type str required 1 description {The greeting's name}}}
+        {<name> {type str required 1 description {The greeting library's name (the library is hello_<name>)}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-proc hello_greetings_added {args} {
+proc hello_greeting_libraries_added {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
-        return "hello_greetings_added \[-help\] - Returns how many greetings this session added"
+        return "hello_greeting_libraries_added \[-help\] - Returns how many greeting libraries this session added"
     }
-    return [hello_greetings_added_cmd]
+    return [hello_greeting_libraries_added_cmd]
 }
-register_command_help hello_greetings_added \
-    "hello_greetings_added \[-help\]" \
-    "Returns how many greetings hello_add_greeting has added in this session. From the hello_ext example extension." \
+register_command_help hello_greeting_libraries_added \
+    "hello_greeting_libraries_added \[-help\]" \
+    "Returns how many greeting libraries hello_add_greeting_library has added in this session. From the hello_ext example extension." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
