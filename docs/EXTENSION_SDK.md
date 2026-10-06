@@ -240,6 +240,17 @@ def extend(schema):
   per-object data in a class of your own with `parent=` on theirs. The
   parent's child list (`Library.my_ext_notes`, `get_library_my_ext_notes`)
   is generated for you, because a child list isn't stored.
+- **Owning shapes:** a class of yours can own `Shape`s - geometry that
+  works with everything Shape-based (rendering once #77 lands, `shape_*`
+  commands, snapping). Declare the list on your class with `owner=True`:
+  `Field(name="shapes", type="Shape", is_list=True, is_child=True,
+  owner=True)`. Layout Engine adds the matching owner option to `Shape`
+  (named after your class, `my_ext_marker`) without changing Shape's own
+  fields. Because `le_create_shape` takes only the core owners (its
+  signature can't depend on which extensions are built in), you create
+  your shapes with the generated `le_create_shape_in_my_ext_marker`, or
+  `create_shape_in_my_ext_marker -my_ext_marker <token> ...` in Tcl.
+  Deleting your object deletes its shapes, undoably.
 - **History:** the build writes `schema_history/<VERSION>.json` beside
   `schema_ext.py`. Commit it. Changing the schema without bumping
   `VERSION` fails the build, as for core.

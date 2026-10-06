@@ -172,9 +172,9 @@ register_command_help get_{{plural}} "{{usage_line}}" "Returns the {{klass.name}
 # reach the *_cmd form directly). `-help` is checked
 # before the unknown-flag loop below, since it never receives a paired
 # value the way every other flag does. ---
-{% for klass in classes %}
-{%- set snake = klass.to_snake_case() %}
-{%- set parent_fields = klass.get_parent_fields() %}
+{% for klass in create_classes %}
+{%- set snake = klass.api_name() %}
+{%- set parent_fields = klass.api_parent_fields() %}
 proc create_{{snake}} {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "{{klass.create_tcl_usage()}}"

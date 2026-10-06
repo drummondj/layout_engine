@@ -123,6 +123,9 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
     parent_fields = {
         k.name: [(f, by_name[f.type]) for f in k.get_parent_fields() if f.type in by_name] for k in classes
     }
+    # The classes whose create functions are generated: each class, then a
+    # view per extension-synthesized owner option (le_create_shape_in_<option>).
+    create_classes = [view for k in classes for view in [k] + k.owner_api_variants()]
     for path, template_str, *trim in files:
         # The newer templates are written for trim_blocks/lstrip_blocks.
         trimmed = bool(trim and trim[0])
@@ -130,6 +133,7 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
             parent_fields=parent_fields,
             schema=schema,
             classes=classes,
+            create_classes=create_classes,
             readable_classes=classes,
             current_access_classes=current_access_classes,
             search_scopes=search_scopes,

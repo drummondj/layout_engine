@@ -100,8 +100,8 @@ Le{{klass.name}}Id le_search_result_{{klass.to_snake_case()}}_at(LeHandle *handl
 // "INPUT"), not a raw numeric code. A multi-parent class (e.g. Shape's
 // terminal_port/obstruction) takes one Id parameter per parent field;
 // le_create_<type> itself rejects zero or more than one resolving. ---
-{% for klass in classes %}
-Le{{klass.name}}Id le_create_{{klass.to_snake_case()}}(LeHandle *handle{% if klass.create_api_params() %}, {{klass.create_api_params()}}{% endif %});
+{% for klass in create_classes %}
+Le{{klass.name}}Id le_create_{{klass.api_name()}}(LeHandle *handle{% if klass.create_api_params() %}, {{klass.create_api_params()}}{% endif %});
 {% endfor %}
 
 // --- update_<type> - the *only* way any TCL-readable class's fields are

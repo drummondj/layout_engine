@@ -254,6 +254,10 @@ unless `has_pool=False` (an embedded value type like `Point`/`Rect`).
   so at most one is set. Read them with accessors (`shape.route()`), build
   one with `ShapeOwner::route(id)`, and move a Shape with
   `Root::set_shape_owner`; Tcl flags and filter hops keep the field names.
+  An extension class owning Shapes (`owner=True` on its child list) gets a
+  synthesized owner option; the C API/Tcl `create_shape` keep core owners
+  only (`api_parent_fields()`), and each synthesized option gets
+  `le_create_shape_in_<option>` (`owner_api_variants()`).
 - `Root` keeps a change log (`change_log()`, a fixed ring): every
   generated create/update/delete records the object and its owner(s), so
   consumers update incrementally. An edit through a mutable `get_x()`

@@ -1,5 +1,6 @@
 """A schema used to define the structure of the data in a model."""
 
+import copy
 from dataclasses import dataclass, field
 import os
 from typing import Any, Dict, List, Optional, Tuple
@@ -446,6 +447,11 @@ class Klass:
     # descriptor and go in that extension's own.
     extension: Optional[str] = field(default=None, repr=False, init=False, compare=False)
 
+    # owner_api_variants(): the one owner option a variant's create takes,
+    # and the suffix on its generated names.
+    _api_parent_override: Optional[List["Field"]] = field(default=None, repr=False, init=False, compare=False)
+    _api_suffix: str = field(default="", repr=False, init=False, compare=False)
+
     _schema: Optional[Schema] = field(default=None, repr=False, init=False)
     # Memoizes embedded_scalar_leaves() - False (not None) means "computed,
     # and this Klass is not flattenable" (None means "not computed yet"),
@@ -732,7 +738,7 @@ class Klass:
         has_<field> companion for the ones that need one - see
         Field.create_needs_has_flag()).
         """
-        parts = [f"Le{pf.type}Id {pf.name}_id" for pf in self.get_parent_fields()]
+        parts = [f"Le{pf.type}Id {pf.name}_id" for pf in self.api_parent_fields()]
         parts += [f"Le{rf.type}Id {rf.name}_id" for rf in self.get_reference_create_fields()]
         parts += self._create_field_param_parts("create")
         return ", ".join(parts)
@@ -751,7 +757,7 @@ class Klass:
         the create_<type> generation round's own notes for why those two
         are being replaced, not extended).
         """
-        parts = [f"const char *{pf.name}_id" for pf in self.get_parent_fields()]
+        parts = [f"const char *{pf.name}_id" for pf in self.api_parent_fields()]
         parts += [f"const char *{rf.name}_id" for rf in self.get_reference_create_fields()]
         parts += self._create_field_param_parts("create")
         return ", ".join(parts)
@@ -765,7 +771,7 @@ class Klass:
         own Field.cmd_forward_exprs() (identity for numeric/compound-leaf
         slots, empty-to-nullptr for an optional str/enum field).
         """
-        parts = [f"resolve_{pf._parent_klass.to_snake_case()}_id({pf.name}_id)" for pf in self.get_parent_fields()]
+        parts = [f"resolve_{pf._parent_klass.to_snake_case()}_id({pf.name}_id)" for pf in self.api_parent_fields()]
         parts += [f"resolve_{rf._type_klass.to_snake_case()}_id({rf.name}_id)" for rf in self.get_reference_create_fields()]
         parts += self._create_field_forward_parts("create")
         return ", ".join(parts)
@@ -824,7 +830,7 @@ class Klass:
             lines.append(f"{indent}{text}" if text else "")
 
         snake = self.to_snake_case()
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.api_parent_fields()
         create_fields = self.get_create_fields()
         reference_fields = self.get_reference_create_fields()
         enum_fields = [f for f in create_fields if f.is_enum_type()]
@@ -950,7 +956,7 @@ class Klass:
         # anywhere relative to its class's other create fields, so this
         # single pass over self.fields is what keeps the emitted literal
         # in the one order C++ actually requires).
-        owner_fields = self.get_owner_fields()
+        owner_fields = [f for f in self.get_owner_fields() if f in parent_fields]
         if owner_fields:
             # `owner` is the struct's first member: whichever owner parameter
             # was given (validation above guarantees at most one).
@@ -1005,7 +1011,7 @@ class Klass:
         {args}` proc - one entry per parent field, then per create field,
         in create_shim_params() order.
         """
-        parts = [f"-{pf.name} {{}}" for pf in self.get_parent_fields()]
+        parts = [f"-{pf.name} {{}}" for pf in self.api_parent_fields()]
         parts += [f"-{rf.name} {{}}" for rf in self.get_reference_create_fields()]
         parts += [f"-{f.name} {{}}" for f in self.get_create_fields()]
         return " ".join(parts)
@@ -1020,8 +1026,8 @@ class Klass:
         plus every create_required() create field.
         """
         parts = []
-        if len(self.get_parent_fields()) == 1:
-            parts.append(f"-{self.get_parent_fields()[0].name}")
+        if len(self.api_parent_fields()) == 1:
+            parts.append(f"-{self.api_parent_fields()[0].name}")
         parts += [f"-{rf.name}" for rf in self.get_reference_create_fields() if rf.create_required()]
         parts += [f"-{f.name}" for f in self.get_create_fields() if f.create_required()]
         return " ".join(parts)
@@ -1060,7 +1066,7 @@ class Klass:
         the scalar would silently replace the existing child (the die
         area) instead of adding a new one.
         """
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.api_parent_fields()
         list_owner_klasses = {pf._parent_klass.name for pf in parent_fields if pf._parent_field is not None and pf._parent_field.is_list}
         lines = []
         for pf in parent_fields:
@@ -1117,7 +1123,7 @@ class Klass:
         order - `$opts(-<parent_field>)` per parent token, then each
         create field's own Field.cmd_tcl_call_args("create").
         """
-        parts = [f"$opts(-{pf.name})" for pf in self.get_parent_fields()]
+        parts = [f"$opts(-{pf.name})" for pf in self.api_parent_fields()]
         parts += [f"$opts(-{rf.name})" for rf in self.get_reference_create_fields()]
         for f in self.get_create_fields():
             parts.extend(f.cmd_tcl_call_args("create"))
@@ -1164,7 +1170,7 @@ class Klass:
         create field, never neither).
         """
         parts = [f"Le{self.name}Id id"]
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.api_parent_fields()
         if len(parent_fields) == 1:
             pf = parent_fields[0]
             parts.append(f"int32_t has_{pf.name}")
@@ -1186,7 +1192,7 @@ class Klass:
         create_shim_params() vs. create_api_params()'s existing split).
         """
         parts = ["const char *id"]
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.api_parent_fields()
         if len(parent_fields) == 1:
             pf = parent_fields[0]
             parts.append(f"int32_t has_{pf.name}")
@@ -1216,7 +1222,7 @@ class Klass:
         own Field.cmd_forward_exprs("update").
         """
         parts = []
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.api_parent_fields()
         if len(parent_fields) == 1:
             pf = parent_fields[0]
             parts.append(f"has_{pf.name}")
@@ -1234,7 +1240,7 @@ class Klass:
         field (only for a single-parent class), then per create field,
         in update_shim_params() order.
         """
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.api_parent_fields()
         parts = [f"-{parent_fields[0].name} {{}}"] if len(parent_fields) == 1 else []
         parts += [f"-{rf.name} {{}}" for rf in self.get_reference_create_fields()]
         parts += [f"-{f.name} {{}}" for f in self.get_create_fields()]
@@ -1252,7 +1258,7 @@ class Klass:
         follows via its own Field.cmd_tcl_call_args("update").
         """
         parts = []
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.api_parent_fields()
         if len(parent_fields) == 1:
             opt = f"$opts(-{parent_fields[0].name})"
             parts.append(f"[expr {{{opt} ne {{}} ? 1 : 0}}]")
@@ -1294,7 +1300,7 @@ class Klass:
         (le_tcl_procs_generated_tcl_j2.py) already does the same for its
         own `[-of ...]`/`[-filter ...]`/`[-help]` fragments.
         """
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.api_parent_fields()
         single_parent = len(parent_fields) == 1
         parts = [f"create_{self.to_snake_case()}"]
         for pf in parent_fields:
@@ -1328,7 +1334,7 @@ class Klass:
         order - the registration payload help/man/complete_command
         (le_tcl_procs.tcl) read.
         """
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.api_parent_fields()
         single_parent = len(parent_fields) == 1
         parts = []
         for pf in parent_fields:
@@ -1364,7 +1370,7 @@ class Klass:
         update_tcl_flag_defaults()). See create_tcl_usage()'s own comment
         for why every `[`/`]` here is backslash-escaped.
         """
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.api_parent_fields()
         parts = [f"update_{self.to_snake_case()}", "<id>"]
         if len(parent_fields) == 1:
             parts.append(f"\\[-{parent_fields[0].name} <token>\\]")
@@ -1384,7 +1390,7 @@ class Klass:
         parent-reassignment flag instead of create's always-parent-token
         entry.
         """
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.api_parent_fields()
         parts = []
         if len(parent_fields) == 1:
             pf = parent_fields[0]
@@ -1495,7 +1501,7 @@ class Klass:
             lines.append(f"{indent}{text}" if text else "")
 
         snake = self.to_snake_case()
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.api_parent_fields()
         create_fields = self.get_create_fields()
         reference_fields = self.get_reference_create_fields()
         enum_fields = [f for f in create_fields if f.is_enum_type()]
@@ -2182,6 +2188,37 @@ class Klass:
             other_fields, key=lambda x: x.name
         )
 
+    def api_parent_fields(self) -> List["Field"]:
+        """
+        The parent fields the generated C API, shim and Tcl create/update
+        functions take: every parent field except owner options an
+        extension synthesized, so core signatures don't depend on which
+        extensions are built in - or, for an owner_api_variants() view, just
+        that variant's one owner option.
+        """
+        if self._api_parent_override is not None:
+            return self._api_parent_override
+        return [f for f in self.get_parent_fields() if f.synthesized_by is None]
+
+    def api_name(self) -> str:
+        """The generated API's name for this class: snake_case, plus a variant's suffix (shape_in_hello_marker)."""
+        return self.to_snake_case() + self._api_suffix
+
+    def owner_api_variants(self) -> List["Klass"]:
+        """
+        One view of this class per owner option an extension synthesized,
+        whose create functions take that owner (le_create_shape_in_hello_marker)
+        - since le_create_shape itself takes only core owners.
+        """
+        variants = []
+        for f in self.get_parent_fields():
+            if f.synthesized_by is not None and f.owner:
+                variant = copy.copy(self)
+                variant._api_parent_override = [f]
+                variant._api_suffix = f"_in_{f.name}"
+                variants.append(variant)
+        return variants
+
     def get_owner_fields(self) -> List["Field"]:
         """The owner=True parent fields, stored together in one `owner` member."""
         return [f for f in self.fields if f.owner]
@@ -2454,6 +2491,10 @@ class Field:
     # descriptor: a child list isn't stored, and the class it's on doesn't
     # belong to that extension.
     synthesized_by: Optional[str] = field(default=None, repr=False, init=False, compare=False)
+    # An extension's child list declared with owner=True: the owner option it
+    # implies on the child class is synthesized (codegen.extension_schema),
+    # and the descriptor records the declaration here, on the list.
+    declares_owner: bool = field(default=False, repr=False, init=False, compare=False)
     _parent_klass: Optional[Klass] = field(default=None, repr=False, init=False)
     _parent_field: Optional["Field"] = field(default=None, repr=False, init=False)
     _child_klass: Optional[Klass] = field(default=None, repr=False, init=False)

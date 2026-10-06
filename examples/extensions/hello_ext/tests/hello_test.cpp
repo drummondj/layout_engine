@@ -18,7 +18,33 @@ namespace
     const std::filesystem::path kGoldenDir = std::filesystem::path(__FILE__).parent_path() / "golden";
 
     // schema_ext.py's VERSION: the golden directory a new file goes in.
-    constexpr const char *kSchemaVersion = "0.2.0";
+    constexpr const char *kSchemaVersion = "0.3.0";
+
+    // A HelloMarker owning one Shape (a 2x1 um DEBUG rect), in a new layout.
+    LeHelloMarkerId add_marker(LeHandle *handle)
+    {
+        // 1000 dbu per micron; every optional field unset.
+        le_create_technology(handle, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0.0, 0, 0.0,
+                             nullptr, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
+        const LeLibraryId library = le_create_library(handle, "markers");
+        const LeDesignId design = le_create_design(handle, library, "top");
+        const LeLayoutId layout = le_create_layout(handle, design);
+        const LeHelloMarkerId marker = le_create_hello_marker(handle, layout, "clock_root");
+        const double rect[] = {0.0, 0.0, 2.0, 1.0};
+        le_create_shape_in_hello_marker(handle, marker, LeLayerId{UINT32_MAX, 0}, "DEBUG", 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0, 0, 0.0, 0);
+        return marker;
+    }
+
+    // How many markers the session has, and how many shapes they own.
+    std::pair<size_t, size_t> markers_and_shapes(LeHandle *handle)
+    {
+        le::ext::ExtensionContext ctx(handle, "hello_ext");
+        const le::ext::ReadView view = ctx.read();
+        size_t shapes = 0;
+        for (const le::HelloMarkerId marker : view.root().get_hello_marker_ids())
+            shapes += view.root().get_hello_marker_shapes(marker).size();
+        return {view.root().get_hello_marker_ids().size(), shapes};
+    }
 
     LeLibraryId add_two_notes(LeHandle *handle)
     {
@@ -121,7 +147,8 @@ TEST(HelloExt, NotesRoundTripThroughANativeFile)
         ASSERT_EQ(le_write_db(session.handle, path.c_str(), 1), 0);
     }
     const std::string info = le_db_info(path.c_str());
-    EXPECT_NE(info.find("extension hello_ext 0.1.0 (schema 0.2.0): this build has schema 0.2.0"), std::string::npos) << info;
+    const std::string schema = kSchemaVersion;
+    EXPECT_NE(info.find("extension hello_ext 0.1.0 (schema " + schema + "): this build has schema " + schema), std::string::npos) << info;
 
     Session session;
     ASSERT_EQ(le_read_db(session.handle, path.c_str(), 1), 0);
@@ -151,6 +178,7 @@ TEST(HelloExt, DISABLED_WriteGoldenFileForThisSchemaVersion)
 {
     Session session;
     add_two_notes(session.handle);
+    add_marker(session.handle);
     std::filesystem::create_directories(kGoldenDir / kSchemaVersion);
     ASSERT_EQ(le_write_db(session.handle, (kGoldenDir / kSchemaVersion / "notes.led").c_str(), 1), 0);
 }
@@ -191,4 +219,31 @@ TEST(HelloExt, RegistersItsOverlay)
     for (const auto &[extension, draw] : le::ext::registry().overlays())
         overlays += extension == "hello_ext" && draw != nullptr;
     EXPECT_EQ(overlays, 1);
+}
+
+// HelloMarker owns Shapes (an owner option codegen adds to Shape for it):
+// created through le_create_shape_in_hello_marker, deleted with the marker,
+// undone together and saved.
+TEST(HelloExt, MarkersOwnShapes)
+{
+    Session session;
+    le_begin_command(session.handle, "markers");
+    const LeHelloMarkerId marker = add_marker(session.handle);
+    le_end_command(session.handle, 1);
+    EXPECT_EQ(markers_and_shapes(session.handle), (std::pair<size_t, size_t>{1, 1}));
+
+    le_begin_command(session.handle, "delete marker");
+    ASSERT_EQ(le_delete_hello_marker(session.handle, marker), 0);
+    le_end_command(session.handle, 1);
+    EXPECT_EQ(markers_and_shapes(session.handle), (std::pair<size_t, size_t>{0, 0}));
+    EXPECT_EQ(le::ext::ExtensionContext(session.handle, "hello_ext").read().root().get_shape_ids().size(), 0u) << "the shape goes with its marker";
+    ASSERT_NE(le_undo(session.handle), 0);
+    EXPECT_EQ(markers_and_shapes(session.handle), (std::pair<size_t, size_t>{1, 1}));
+
+    const std::filesystem::path path = std::filesystem::temp_directory_path() / "hello_ext_markers_test.led";
+    ASSERT_EQ(le_write_db(session.handle, path.c_str(), 1), 0);
+    Session loaded;
+    ASSERT_EQ(le_read_db(loaded.handle, path.c_str(), 1), 0);
+    EXPECT_EQ(markers_and_shapes(loaded.handle), (std::pair<size_t, size_t>{1, 1}));
+    std::filesystem::remove(path);
 }

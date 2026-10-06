@@ -45,4 +45,16 @@ read_db $path
 file delete $path
 expect "notes read back" [llength [get_hello_notes -of library:notes_lib]] 1
 
+# HelloMarker owns Shapes: Layout Engine generates create_shape_in_hello_marker
+# for it (create_shape itself takes only the core owners).
+create_technology -database_units_microns 1000
+create_design -library library:notes_lib -name marked
+set layout [create_layout -design design:marked]
+set marker [create_hello_marker -layout $layout -name clock_root]
+set shape [create_shape_in_hello_marker -hello_marker $marker -purpose DEBUG -rects {{{0 0} {2 1}}}]
+expect "the marker's shapes" [get_shapes -of $marker] $shape
+le_repl_eval "delete_hello_marker $marker"
+expect "the marker is gone" [llength [get_hello_markers -of $layout]] 0
+expect "the shape went with its marker (no properties left)" [get_properties $shape] {}
+
 puts "hello_ext Tcl test passed"

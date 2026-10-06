@@ -159,10 +159,10 @@ const char *get_{{klass.tcl_plural_snake_case()}}_at(int index)
 // class, hand-written or generated - see that overload's own comment)
 // rather than any class-specific field-taking overload some classes also
 // happen to have. ---
-{% for klass in classes %}
-const char *create_{{klass.to_snake_case()}}_cmd({{klass.create_shim_params()}})
+{% for klass in create_classes %}
+const char *create_{{klass.api_name()}}_cmd({{klass.create_shim_params()}})
 {
-    Le{{klass.name}}Id id = le_create_{{klass.to_snake_case()}}(session(){% if klass.create_shim_forward_args() %}, {{klass.create_shim_forward_args()}}{% endif %});
+    Le{{klass.name}}Id id = le_create_{{klass.api_name()}}(session(){% if klass.create_shim_forward_args() %}, {{klass.create_shim_forward_args()}}{% endif %});
     if (id.index == UINT32_MAX)
         return return_string("");
     return return_string(format_{{klass.to_snake_case()}}_id(id));

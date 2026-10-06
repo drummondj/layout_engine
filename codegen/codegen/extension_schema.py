@@ -15,6 +15,13 @@ Its classes become ordinary Root classes. The rules:
   parent= on a core class; that parent's child list is derived, never
   stored, so it is synthesized here (Field.synthesized_by) rather than
   written into the core class.
+- a class of its own may own objects of a class with polymorphic owners
+  (Shape) by declaring the child list on itself with owner=True:
+  Field(name="shapes", type="Shape", is_list=True, is_child=True,
+  owner=True). The other side - one more owner option on Shape, named
+  after the class (hello_marker) - is synthesized; it stores only that
+  option's name in Shape's owner column, so Shape's own fields don't
+  change.
 
 Extensions apply in the order given (dependency order, from CMake), so an
 extension may own children of an earlier extension's classes.
@@ -146,6 +153,9 @@ def _check_and_mark(schema: Schema, ext: ExtensionSchema, before: Dict[str, tupl
     by_name = {k.name: k for k in schema.classes}
     for klass in added:
         for field in klass.fields:
+            if field.is_child and field.owner:
+                errors += _synthesize_owner_option(by_name, ext, klass, field)
+                continue
             if field.type not in by_name and field.type in core_renames:
                 errors.append(
                     f"{where}: a core migration renamed {field.type} to {core_renames[field.type]} - update {ext.schema_path.name}: "
@@ -170,3 +180,28 @@ def _check_and_mark(schema: Schema, ext: ExtensionSchema, before: Dict[str, tupl
             child_list.synthesized_by = ext.name
             parent.fields.append(child_list)
     return errors
+
+
+def _synthesize_owner_option(by_name: Dict[str, Klass], ext: ExtensionSchema, klass: Klass, child_list: Field) -> List[str]:
+    """The owner option on `child_list.type` that `child_list` (owner=True) declares from the owning side."""
+    where = f"extension {ext.name}"
+    target = by_name.get(child_list.type)
+    if target is None:
+        return []  # validation reports the unknown type
+    if not target.get_owner_fields():
+        return [f"{where}: {klass.name}.{child_list.name} has owner=True, but {target.name} has no owner fields to join - drop owner=True"]
+    option = to_snake_case(klass.name)
+    if any(f.name == option for f in target.fields):
+        return [f"{where}: {klass.name}.{child_list.name} would add owner option {option} to {target.name}, which already has a field {option}"]
+    owner_field = Field(
+        name=option,
+        description=f"The {klass.name} (from the {ext.name} extension) that owns this {target.name}",
+        type=klass.name,
+        parent=child_list.name,
+        owner=True,
+    )
+    owner_field.synthesized_by = ext.name
+    target.fields.append(owner_field)
+    child_list.owner = False  # the list itself is an ordinary derived child list...
+    child_list.declares_owner = True  # ...whose descriptor records the declaration
+    return []
