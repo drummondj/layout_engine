@@ -117,6 +117,14 @@ class TestInstall(unittest.TestCase):
         self.assertIn("isn't signed by a trusted key of acme", self.last_error)
         self.assertEqual(self.recorder.calls, [])
 
+    def test_a_missing_ssh_keygen_is_reported_clearly(self):
+        self.trust_acme()
+        self.publish_extension("base", "Base", key=self.acme_key)
+        real_which = installer.sources.shutil.which
+        with mock.patch.object(installer.sources.shutil, "which", lambda name: None if name == "ssh-keygen" else real_which(name)):
+            self.assertEqual(self.le("add", "base", "--github", "acme/base", "--tag", "v1.0.0", "--publisher", "acme"), 1)
+        self.assertIn("needs ssh-keygen", self.last_error)
+
     def test_allow_unsigned_is_recorded(self):
         self.publish_extension("plain", "Plain")
         self.assertEqual(self.le("add", "plain", "--github", "acme/plain", "--tag", "v1.0.0", "--allow-unsigned"), 0, self.last_error)

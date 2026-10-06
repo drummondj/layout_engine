@@ -73,6 +73,8 @@ def verify(repo_dir: Path, ref: str, is_tag: bool, allowed_signers: Path, princi
     signature by `principal` under `allowed_signers`; returns the signing
     key's fingerprint.
     """
+    if shutil.which("ssh-keygen") is None:
+        raise SourceError("checking signatures needs ssh-keygen (OpenSSH's client tools, e.g. the openssh-client package)")
     command = ["verify-tag", ref] if is_tag else ["verify-commit", ref]
     result = git("-c", f"gpg.ssh.allowedSignersFile={allowed_signers}", *command, cwd=repo_dir, check=False)
     output = result.stderr + result.stdout

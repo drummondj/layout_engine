@@ -5,7 +5,8 @@ project lists, installed into the project's `.le/` directory. Design:
 [docs/PACKAGE_MANAGER_RESEARCH.md](../../docs/PACKAGE_MANAGER_RESEARCH.md).
 Writing an extension: [docs/EXTENSION_SDK.md](../../docs/EXTENSION_SDK.md).
 
-It needs Python 3.11+ (standard library only), git 2.34+, and everything a
+It needs Python 3.11+ (standard library only), git 2.34+, `ssh-keygen`
+(OpenSSH's client tools, used by git to check signatures), and everything a
 Layout Engine source build needs (`BUILD.md`). Run it as `tools/le/bin/le`,
 or put `tools/le/bin` on your `PATH`.
 

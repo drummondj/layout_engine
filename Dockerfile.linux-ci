@@ -17,6 +17,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential clang cmake ninja-build git python3 python3-pip pkg-config \
     ca-certificates curl unzip xz-utils bison flex \
+    # ssh-keygen: git checks SSH-signed tags with it (`le`, tools/le).
+    openssh-client \
     libboost-dev libspdlog-dev libfmt-dev \
     tcl8.6-dev tk8.6-dev swig \
     # GLFW's own Linux/X11 backend (src/gui/, le_shell's `show_gui`) -
