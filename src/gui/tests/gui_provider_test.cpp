@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
+#include <unistd.h>
 #include <future>
 #include <shared_mutex>
 #include <string>
@@ -155,4 +157,38 @@ TEST_F(GuiProviderFixture, RefreshReportsARunningCommand)
     le_end_command(handle, 1);
     provider.refresh();
     EXPECT_FALSE(provider.state().is_command_running);
+}
+
+TEST_F(GuiProviderFixture, DbFileQueriesAndWriteDbNow)
+{
+    le::gui::GuiProvider provider(handle);
+    EXPECT_TRUE(provider.database_is_empty());
+    EXPECT_EQ(provider.db_path(), "");
+    EXPECT_FALSE(provider.write_db_now("")) << "nowhere to save";
+
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    EXPECT_FALSE(provider.database_is_empty());
+    const std::string path = (std::filesystem::temp_directory_path() / ("gui_provider_db_" + std::to_string(::getpid()) + ".led")).string();
+    ASSERT_EQ(le_write_db(handle, path.c_str(), 1), 0);
+    EXPECT_EQ(provider.db_path(), path);
+
+    le_create_library(handle, "edited");
+    EXPECT_TRUE(provider.has_unsaved_design());
+    EXPECT_TRUE(provider.write_db_now(provider.db_path()));
+    EXPECT_FALSE(provider.has_unsaved_design());
+    std::filesystem::remove(path);
+}
+
+TEST_F(GuiProviderFixture, FileMenuQueuesReadAndWriteDbAsTclCommands)
+{
+    le::gui::GuiProvider provider(handle);
+    provider.write_db("/tmp/a \"b\".led");
+    const char *command = le_take_next_pending_tcl_command(handle);
+    ASSERT_NE(command, nullptr);
+    EXPECT_EQ(std::string(command).rfind("write_db ", 0), 0u) << command;
+    EXPECT_NE(std::string(command).find("\\\"b\\\""), std::string::npos) << command;
+    provider.read_db("/tmp/x.led");
+    command = le_take_next_pending_tcl_command(handle);
+    ASSERT_NE(command, nullptr);
+    EXPECT_EQ(std::string(command), "read_db \"/tmp/x.led\"");
 }

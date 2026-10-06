@@ -1403,6 +1403,7 @@ struct LeHandle
         // ViewRenderOptions, which otherwise has no dependency on this
         // handle's own type at all.
         const std::unordered_map<std::string, bool> &layer_name_visibility() const { return layer_name_visible_; }
+        const std::unordered_map<std::string, bool> &layer_name_selectability() const { return layer_name_selectable_; }
         const std::unordered_map<le::ViewLayerPurpose, bool> &purpose_visibility() const { return purpose_visible_; }
 
         // Monotonic counter bumped by set_layer_name_visible/set_purpose_visible
@@ -1644,6 +1645,12 @@ struct LeHandle
         // creation, by save_settings/load_settings, and by a clean read,
         // which can fill in grid spacing in um). Maintained by api.cpp.
         uint64_t saved_mutation_version = 0;
+        // The native database file last read or written (read_db/write_db),
+        // the GUI's File > Save target; empty until there is one.
+        std::string db_path;
+        // Whether the GUI asks before a Save overwrites a design file (a
+        // setting, saved in settings.json).
+        bool confirm_overwrite = true;
         std::string saved_settings_json;
         // The last loaded settings file's top-level keys this version
         // doesn't know (a JSON object, or "" for none) - written back by

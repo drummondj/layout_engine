@@ -39,6 +39,7 @@ namespace le::persistence
         constexpr Tag kClassTag = {'C', 'L', 'A', 'S'};
         constexpr Tag kStringsTag = {'S', 'T', 'R', 'S'};
         constexpr Tag kEndTag = {'E', 'N', 'D', ' '};
+        constexpr Tag kSessionTag = {'S', 'E', 'S', 'S'};
 
         std::string tag_name(const Tag &tag) { return std::string(tag.data(), tag.size()); }
 
@@ -548,7 +549,65 @@ namespace le::persistence
             FileSchema schema;
             std::vector<FileClass> classes;
             Span strings_payload;
+            Span session_payload; // empty if the file has no session
         };
+
+        // The session's object references, in place: (class, index,
+        // generation) -> (class, row) when saving, and back when loading.
+        // Anything that isn't a well-formed reference to a live object
+        // becomes null - a session is advisory, never a reason to fail.
+        template <class Fn>
+        void for_each_reference(nlohmann::json &json, Fn &&fn)
+        {
+            if (json.is_object())
+            {
+                if (json.contains("$ref"))
+                {
+                    fn(json);
+                    return;
+                }
+                for (auto &[key, value] : json.items())
+                    for_each_reference(value, fn);
+            }
+            else if (json.is_array())
+                for (auto &value : json)
+                    for_each_reference(value, fn);
+        }
+
+        std::string session_for_file(const std::string &session_json, const Root &root, const EncodeContext &ctx)
+        {
+            nlohmann::json session = nlohmann::json::parse(session_json);
+            for_each_reference(session, [&](nlohmann::json &ref) {
+                const std::string klass = ref.value("$ref", "");
+                const auto index = ref.value("index", std::numeric_limits<uint32_t>::max());
+                const auto generation = ref.value("generation", 0u);
+                std::optional<uint32_t> row;
+                nt::for_each_pooled([&]<class P>(P) {
+                    if (P::name != klass || !P::pool(root).get(typename P::Id{index, generation}))
+                        return;
+                    if (ctx.dense[P::index][index] != kNoRow)
+                        row = ctx.dense[P::index][index];
+                });
+                ref = row ? nlohmann::json{{"$ref", klass}, {"row", *row}} : nlohmann::json(nullptr);
+            });
+            return session.dump();
+        }
+
+        std::string session_from_file(const Span &payload, const std::map<std::string, uint64_t> &rows)
+        {
+            ByteReader r(payload.data, payload.size, "SESS chunk");
+            const std::vector<uint8_t> raw = read_block(r);
+            nlohmann::json session = nlohmann::json::parse(raw.begin(), raw.end(), nullptr, false);
+            if (session.is_discarded() || !session.is_object())
+                return {};
+            for_each_reference(session, [&](nlohmann::json &ref) {
+                const std::string klass = ref.value("$ref", "");
+                const auto row = ref.value("row", std::numeric_limits<uint64_t>::max());
+                const auto it = rows.find(klass);
+                ref = it != rows.end() && row < it->second ? nlohmann::json{{"$ref", klass}, {"index", row}, {"generation", 0}} : nlohmann::json(nullptr);
+            });
+            return session.dump();
+        }
 
         Opened open_file(const std::string &path)
         {
@@ -572,6 +631,8 @@ namespace le::persistence
                     opened.strings_payload = chunk.payload;
                     have_strings = true;
                 }
+                else if (chunk.tag == kSessionTag)
+                    opened.session_payload = chunk.payload;
                 // Unknown chunk kinds are skipped: that is how later
                 // container additions stay readable by this build.
             }
@@ -778,6 +839,13 @@ namespace le::persistence
                 append_block(payload, table.bytes().data(), table.size(), options.compression_level);
                 out.chunk(kStringsTag, payload.bytes());
             }
+            if (!options.session_json.empty())
+            {
+                const std::string session = session_for_file(options.session_json, root, ctx);
+                ByteWriter payload;
+                append_block(payload, reinterpret_cast<const uint8_t *>(session.data()), session.size(), options.compression_level);
+                out.chunk(kSessionTag, payload.bytes());
+            }
             out.chunk(kEndTag, {});
             out.close_synced();
             timer.lap("strings+write");
@@ -961,6 +1029,13 @@ namespace le::persistence
             }
             root.replace_contents_from(std::move(loaded));
             timer.lap("replace");
+            if (file.session_payload.size > 0)
+            {
+                std::map<std::string, uint64_t> rows;
+                for (const FileClass &klass : file.classes)
+                    rows[klass.name] = klass.rows;
+                report.session_json = session_from_file(file.session_payload, rows);
+            }
         }
         catch (const std::exception &e)
         {
@@ -981,6 +1056,7 @@ namespace le::persistence
             info.writer = file.schema.writer;
             info.schema_matches = schema_matches_build(file.schema);
             info.file_bytes = file.bytes.size();
+            info.has_session = file.session_payload.size > 0;
             for (const FileExtension &ext : file.schema.extensions)
             {
                 const schema_info::ExtensionSchema *built = built_extension(ext.name);

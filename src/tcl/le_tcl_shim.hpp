@@ -239,8 +239,8 @@ int write_def_cmd(const char *path, const char *layout_token);
 /// @brief Backing for the native database file commands write_db/read_db/
 /// db_info (docs/NATIVE_FILE_FORMAT_RESEARCH.md) - thin wrappers over
 /// le_write_db/le_read_db/le_db_info.
-int write_db_cmd(const char *path);
-int read_db_cmd(const char *path);
+int write_db_cmd(const char *path, int with_session);
+int read_db_cmd(const char *path, int with_session);
 const char *db_info_cmd(const char *path);
 
 /// @brief Backing for `get_selection` -
@@ -492,6 +492,8 @@ void set_flightline_max_fanout_command(int max_fanout);
 // commands return 0 on success, nonzero on failure.
 double get_grid_spacing_um_command(int major);
 void set_grid_spacing_um_command(double minor_um, double major_um);
+int get_confirm_overwrite_command();
+void set_confirm_overwrite_command(int confirm);
 double get_ruler_label_size_command();
 void set_ruler_label_size_command(double px);
 double get_label_min_size_command();

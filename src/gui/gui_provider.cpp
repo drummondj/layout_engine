@@ -61,6 +61,7 @@ namespace le::gui
         state_.settings.major_grid_um = le_grid_spacing_um(handle_, 1);
         state_.settings.manufacturing_grid_um = le_manufacturing_grid_um(handle_);
         state_.settings.ruler_label_size_px = le_ruler_label_size(handle_);
+        state_.settings.confirm_overwrite = le_confirm_overwrite(handle_) != 0;
         state_.settings.label_min_size_px = le_label_min_size(handle_);
         state_.settings.label_max_size_px = le_label_max_size(handle_);
 
@@ -459,6 +460,7 @@ namespace le::gui
     }
 
     void GuiProvider::set_ruler_label_size(double px) { run_tcl_command("set_ruler_label_size " + tcl_number(px)); }
+    void GuiProvider::set_confirm_overwrite(bool confirm) { run_tcl_command(confirm ? "set_confirm_overwrite 1" : "set_confirm_overwrite 0"); }
     void GuiProvider::set_max_concurrency(int32_t threads) { run_tcl_command("set_max_concurrency " + std::to_string(threads)); }
     void GuiProvider::set_label_min_size(double px) { run_tcl_command("set_label_min_size " + tcl_number(px)); }
     void GuiProvider::set_label_max_size(double px) { run_tcl_command("set_label_max_size " + tcl_number(px)); }
@@ -468,6 +470,13 @@ namespace le::gui
     bool GuiProvider::has_unsaved_design() const { return le_has_unsaved_database_changes(handle_) != 0; }
     bool GuiProvider::has_unsaved_settings() const { return le_has_unsaved_settings(handle_) != 0; }
     bool GuiProvider::save_settings_now() { return le_save_settings(handle_, "") == 0; }
+
+    bool GuiProvider::write_db_now(const std::string &path) { return !path.empty() && le_write_db(handle_, path.c_str(), 1) == 0; }
+
+    void GuiProvider::read_db(const std::string &path) { run_tcl_command("read_db " + tcl_quote(path)); }
+    void GuiProvider::write_db(const std::string &path) { run_tcl_command("write_db " + tcl_quote(path)); }
+    std::string GuiProvider::db_path() const { return le_db_path(handle_); }
+    bool GuiProvider::database_is_empty() const { return le_database_is_empty(handle_) != 0; }
 
     void GuiProvider::set_layer_color(const std::string &layer_name, uint8_t r, uint8_t g, uint8_t b)
     {

@@ -752,9 +752,9 @@ int write_def_cmd(const char *path, const char *layout_token)
     return le_write_def(session(), path, layout_id);
 }
 
-int write_db_cmd(const char *path) { return le_write_db(session(), path); }
+int write_db_cmd(const char *path, int with_session) { return le_write_db(session(), path, with_session); }
 
-int read_db_cmd(const char *path) { return le_read_db(session(), path); }
+int read_db_cmd(const char *path, int with_session) { return le_read_db(session(), path, with_session); }
 
 const char *db_info_cmd(const char *path) { return return_string(le_db_info(path)); }
 
@@ -1331,6 +1331,9 @@ void set_grid_spacing_um_command(double minor_um, double major_um)
 {
     le_set_grid_spacing_um(session(), minor_um, major_um);
 }
+
+int get_confirm_overwrite_command() { return le_confirm_overwrite(session()); }
+void set_confirm_overwrite_command(int confirm) { le_set_confirm_overwrite(session(), confirm); }
 
 double get_ruler_label_size_command()
 {

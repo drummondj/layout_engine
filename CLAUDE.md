@@ -104,7 +104,10 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   - `native_format.*`: the native `.led` database file (`write_db`/
     `read_db`), columnar and zstd-compressed, driven by codegen's
     `native_tables.hpp`; loads older schema versions by name plus the
-    migration chain. Design in `docs/NATIVE_FILE_FORMAT_RESEARCH.md`.
+    migration chain. An optional `SESS` chunk keeps the session (open
+    view, viewport, current objects, layer/purpose/filter visibility;
+    `write_db -no_session` skips it). Design in
+    `docs/NATIVE_FILE_FORMAT_RESEARCH.md`.
 - `src/editing/` — undo/redo: `CommandHistory` (one per handle),
   `Transaction`, `ICommand`. Every generated create/update/delete records
   itself into the recording transaction; `le_repl_eval` and GUI edits
@@ -141,7 +144,10 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   API. Every dockable panel but the design view, core and extension, is a
   `Panel` on one `PanelList` (`make_panels`): drawn with a close button,
   toggled from the main menu bar's Window menu, its open state saved in
-  `window_layout.ini`. `panels.*` and the extension GUI SDK run headless
+  `window_layout.ini`. The File menu opens and saves `.led` files
+  (`components/file_dialog.*`, shared with the Settings panel;
+  `components/design_saver.*` for Save/Save As and the overwrite question,
+  also used by the exit dialog). `panels.*` and the extension GUI SDK run headless
   (`gui_tests`).
   Rendering runs on a background thread woken by
   `le_wait_for_render_needed`; panels read under the shared lock so they
