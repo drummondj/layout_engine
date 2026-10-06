@@ -315,6 +315,72 @@ class TestExtensionMigrations(unittest.TestCase):
         self.assertEqual([(row[5], row[6]) for row in table], [("early", "early"), ("core one", ""), ("acme", "acme"), ("core two", "")])
 
 
+class TestExtensionOwnedShapes(unittest.TestCase):
+    """An extension class owning objects with polymorphic owners (Shape)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def core(self):
+        from tests.test_owner import _schema  # Root/Holder own Items through owner=True fields
+
+        return _schema()
+
+    def extension(self, body):
+        directory = self.root / "hello_ext"
+        directory.mkdir(exist_ok=True)
+        (directory / "le_extension.toml").write_text(
+            '[extension]\nname = "hello_ext"\nversion = "1.0.0"\nprefix = "Hello"\n\n'
+            '[compatibility]\nlayout_engine = ">=0.3"\nextension_api = 1\n\n[contents]\nschema = "schema_ext.py"\n'
+        )
+        (directory / "schema_ext.py").write_text(textwrap.dedent(body))
+        return extension_schema.load(directory)
+
+    BOX = """
+    from codegen.schema import Field, Klass
+
+    VERSION = "0.1.0"
+
+    def extend(schema):
+        schema.classes.append(Klass(name="HelloBox", description="A box", fields=[
+            Field(name="root", description="Owner", type="Root", parent="hello_boxes"),
+            Field(name="items", description="Its items", type="Item", is_list=True, is_child=True, owner=True),
+        ]))
+    """
+
+    def test_the_owner_option_is_synthesized_and_kept_out_of_the_core_descriptor(self):
+        core_fingerprint = fingerprint(build_descriptor(_linked(self.core())))
+        schema = self.core()
+        self.assertEqual(extension_schema.apply(schema, [self.extension(self.BOX)]), [])
+        option = next(f for f in schema.get_klass("Item").fields if f.name == "hello_box")
+        self.assertTrue(option.owner)
+        self.assertEqual(option.parent, "items")
+        self.assertEqual(option.synthesized_by, "hello_ext")
+        self.assertFalse(next(f for f in schema.get_klass("HelloBox").fields if f.name == "items").owner)
+
+        schema.link()
+        self.assertEqual(fingerprint(build_descriptor(schema)), core_fingerprint)
+        ext = build_extension_descriptor(schema, "hello_ext", "0.1.0")
+        items = next(f for f in ext["classes"][0]["fields"] if f["name"] == "items")
+        self.assertTrue(items["owner"], "the descriptor records the declaration on the list")
+        without = json.loads(json.dumps(ext))
+        del next(f for f in without["classes"][0]["fields"] if f["name"] == "items")["owner"]
+        self.assertNotEqual(fingerprint(ext), fingerprint(without), "it's part of the extension's shape")
+
+        with tempfile.TemporaryDirectory() as out:
+            self.assertEqual(generate(schema, out, logging.getLogger("test")), 0)
+            item = (Path(out) / "item.hpp").read_text()
+        self.assertIn("HelloBox,", item)
+        self.assertIn("static constexpr ItemOwner hello_box(HelloBoxId id) noexcept", item)
+
+    def test_owning_a_class_without_owner_fields_is_refused(self):
+        body = self.BOX.replace('type="Item", is_list=True, is_child=True, owner=True', 'type="Holder", is_list=True, is_child=True, owner=True')
+        errors = extension_schema.apply(self.core(), [self.extension(body)])
+        self.assertTrue(any("Holder has no owner fields to join" in e for e in errors), errors)
+
+
 def _linked(schema):
     schema.link()
     return schema

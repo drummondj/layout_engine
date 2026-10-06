@@ -1,0 +1,54 @@
+{
+  "version": "0.3.0",
+  "fingerprint": "ac5c29cc22c5d4ac",
+  "descriptor": {
+    "format": 1,
+    "name": "hello_ext",
+    "namespace": "le",
+    "version": "0.3.0",
+    "classes": [
+      {
+        "name": "HelloMarker",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "layout",
+            "kind": "parent",
+            "type": "Layout",
+            "parent_field": "hello_markers"
+          },
+          {
+            "name": "name",
+            "kind": "scalar",
+            "type": "str"
+          },
+          {
+            "name": "shapes",
+            "kind": "child",
+            "type": "Shape",
+            "list": true,
+            "owner": true
+          }
+        ]
+      },
+      {
+        "name": "HelloNote",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "library",
+            "kind": "parent",
+            "type": "Library",
+            "parent_field": "hello_notes"
+          },
+          {
+            "name": "body",
+            "kind": "scalar",
+            "type": "str"
+          }
+        ]
+      }
+    ]
+  },
+  "core_version": "0.50.0"
+}

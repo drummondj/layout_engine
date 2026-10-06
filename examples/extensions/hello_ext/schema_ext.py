@@ -4,10 +4,38 @@ from codegen.schema import Field, Klass
 
 # The schema's own version: bump it with any change below, and add a
 # migration (codegen --target makemigration --extension ...).
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 def extend(schema):
+    schema.classes.append(
+        Klass(
+            name="HelloMarker",
+            description="A named marker in a layout, drawn by its shapes, from the hello_ext example extension",
+            fields=[
+                Field(
+                    name="layout",
+                    description="The layout the marker is in",
+                    type="Layout",
+                    parent="hello_markers",
+                ),
+                Field(
+                    name="name",
+                    description="The marker's name",
+                    type="str",
+                    example="clock_root",
+                ),
+                Field(
+                    name="shapes",
+                    description="The marker's geometry",
+                    type="Shape",
+                    is_list=True,
+                    is_child=True,
+                    owner=True,
+                ),
+            ],
+        )
+    )
     schema.classes.append(
         Klass(
             name="HelloNote",

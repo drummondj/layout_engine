@@ -199,6 +199,17 @@ proc create_{{snake}} {args} {
         error "create_{{snake}}: exactly one of {% for pf in parent_fields %}-{{pf.name}}{% if not loop.last %}/{% endif %}{% endfor %} is required"
     }
     {%- endif %}
+    {%- if klass.get_owner_fields() %}
+    # The owner is passed as its option's name and token.
+    set owner_kind {}
+    set owner_id {}
+    foreach kind {{'{'}}{% for f in klass.get_owner_fields() %}{{f.name}}{% if not loop.last %} {% endif %}{% endfor %}{{'}'}} {
+        if {$opts(-$kind) ne {}} {
+            set owner_kind $kind
+            set owner_id $opts(-$kind)
+        }
+    }
+    {%- endif %}
     foreach required {{'{'}}{{klass.create_tcl_required_flags()}}{{'}'}} {
         if {$opts($required) eq {}} {
             error "create_{{snake}}: $required is required"

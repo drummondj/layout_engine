@@ -88,6 +88,8 @@ def _field_descriptor(field: Field) -> Dict[str, Any]:
         desc["presence"] = True
     if field.has_parent():
         desc["parent_field"] = field.parent
+    if field.declares_owner:
+        desc["owner"] = True  # an owner option on the child class is implied
     if field.index:
         desc["index"] = True
     if field.unique_per_parent:
@@ -106,7 +108,7 @@ def _owner_descriptor(klass: Klass) -> Dict[str, Any]:
     return {
         "name": "owner",
         "kind": "owner",
-        "options": [{"name": f.name, "type": f.type, "parent_field": f.parent} for f in klass.get_owner_fields()],
+        "options": [{"name": f.name, "type": f.type, "parent_field": f.parent} for f in klass.get_owner_fields() if f.synthesized_by is None],
     }
 
 
@@ -151,7 +153,11 @@ def build_descriptor(schema: Schema) -> Dict[str, Any]:
 
 
 def build_extension_descriptor(schema: Schema, extension: str, version: str) -> Dict[str, Any]:
-    """One extension's descriptor: its own classes only, at its schema `version`."""
+    """
+    One extension's descriptor: its own classes, at its schema `version`.
+    An owner option it adds to another class (Shape) shows as `"owner": true`
+    on the child list that declares it.
+    """
     return {
         "format": DESCRIPTOR_FORMAT,
         "name": extension,

@@ -732,7 +732,9 @@ class Klass:
         has_<field> companion for the ones that need one - see
         Field.create_needs_has_flag()).
         """
-        parts = [f"Le{pf.type}Id {pf.name}_id" for pf in self.get_parent_fields()]
+        parts = [f"Le{pf.type}Id {pf.name}_id" for pf in self.non_owner_parent_fields()]
+        if self.get_owner_fields():
+            parts.append(f"Le{self.owner_type_name()} owner")  # kind + id, not one id per owner option
         parts += [f"Le{rf.type}Id {rf.name}_id" for rf in self.get_reference_create_fields()]
         parts += self._create_field_param_parts("create")
         return ", ".join(parts)
@@ -751,7 +753,9 @@ class Klass:
         the create_<type> generation round's own notes for why those two
         are being replaced, not extended).
         """
-        parts = [f"const char *{pf.name}_id" for pf in self.get_parent_fields()]
+        parts = [f"const char *{pf.name}_id" for pf in self.non_owner_parent_fields()]
+        if self.get_owner_fields():
+            parts += ["const char *owner_kind", "const char *owner_id"]  # the owner option's name, and its token
         parts += [f"const char *{rf.name}_id" for rf in self.get_reference_create_fields()]
         parts += self._create_field_param_parts("create")
         return ", ".join(parts)
@@ -765,7 +769,9 @@ class Klass:
         own Field.cmd_forward_exprs() (identity for numeric/compound-leaf
         slots, empty-to-nullptr for an optional str/enum field).
         """
-        parts = [f"resolve_{pf._parent_klass.to_snake_case()}_id({pf.name}_id)" for pf in self.get_parent_fields()]
+        parts = [f"resolve_{pf._parent_klass.to_snake_case()}_id({pf.name}_id)" for pf in self.non_owner_parent_fields()]
+        if self.get_owner_fields():
+            parts.append(f"resolve_{self.to_snake_case()}_owner(owner_kind, owner_id)")
         parts += [f"resolve_{rf._type_klass.to_snake_case()}_id({rf.name}_id)" for rf in self.get_reference_create_fields()]
         parts += self._create_field_forward_parts("create")
         return ", ".join(parts)
@@ -824,7 +830,8 @@ class Klass:
             lines.append(f"{indent}{text}" if text else "")
 
         snake = self.to_snake_case()
-        parent_fields = self.get_parent_fields()
+        parent_fields = self.non_owner_parent_fields()
+        owner_fields = self.get_owner_fields()
         create_fields = self.get_create_fields()
         reference_fields = self.get_reference_create_fields()
         enum_fields = [f for f in create_fields if f.is_enum_type()]
@@ -869,6 +876,29 @@ class Klass:
                 )
                 add("    return invalid;")
                 add("}")
+
+        if owner_fields:
+            # The owner: its kind says which owner option, and so which class
+            # the id is of; it must exist.
+            owner_type = f"le::{self.owner_type_name()}"
+            add()
+            add(f"{owner_type} owner_value{{}};")
+            add("switch (owner.kind)")
+            add("{")
+            for f in owner_fields:
+                klass_snake = f._parent_klass.to_snake_case()
+                add(f"case {self.owner_c_kind(f)}:")
+                add(f"    if (!handle->root.get_{klass_snake}(le::{f.type}Id{{owner.index, owner.generation}}))")
+                add("    {")
+                add(f'        spdlog::error("create_{snake}: unknown {f.name} owner - no such {f.type} exists");')
+                add("        return invalid;")
+                add("    }")
+                add(f"    owner_value = {owner_type}::{f.name}(le::{f.type}Id{{owner.index, owner.generation}});")
+                add("    break;")
+            add("default:")
+            add(f'    spdlog::error("create_{snake}: an owner is required");')
+            add("    return invalid;")
+            add("}")
 
         if reference_fields:
             add()
@@ -950,15 +980,8 @@ class Klass:
         # anywhere relative to its class's other create fields, so this
         # single pass over self.fields is what keeps the emitted literal
         # in the one order C++ actually requires).
-        owner_fields = self.get_owner_fields()
         if owner_fields:
-            # `owner` is the struct's first member: whichever owner parameter
-            # was given (validation above guarantees at most one).
-            owner_type = f"le::{self.owner_type_name()}"
-            expr = f"{owner_type}{{}}"
-            for f in reversed(owner_fields):
-                expr = f"{f.name}.valid() ? {owner_type}::{f.name}({f.name}) : {expr}"
-            add(f"    .owner = {expr},")
+            add("    .owner = owner_value,")  # `owner` is the struct's first member
         for f in self.fields:
             if f.owner:
                 continue
@@ -1117,7 +1140,9 @@ class Klass:
         order - `$opts(-<parent_field>)` per parent token, then each
         create field's own Field.cmd_tcl_call_args("create").
         """
-        parts = [f"$opts(-{pf.name})" for pf in self.get_parent_fields()]
+        parts = [f"$opts(-{pf.name})" for pf in self.non_owner_parent_fields()]
+        if self.get_owner_fields():
+            parts += ["$owner_kind", "$owner_id"]  # set from whichever owner flag was given
         parts += [f"$opts(-{rf.name})" for rf in self.get_reference_create_fields()]
         for f in self.get_create_fields():
             parts.extend(f.cmd_tcl_call_args("create"))
@@ -2182,6 +2207,14 @@ class Klass:
             other_fields, key=lambda x: x.name
         )
 
+    def non_owner_parent_fields(self) -> List["Field"]:
+        """The parent fields that aren't owner options - each its own create parameter."""
+        return [f for f in self.get_parent_fields() if not f.owner]
+
+    def owner_c_kind(self, field: "Field") -> str:
+        """The C API's kind constant for one owner option: LE_SHAPE_OWNER_ROUTE."""
+        return f"LE_{self.to_snake_case().upper()}_OWNER_{field.name.upper()}"
+
     def get_owner_fields(self) -> List["Field"]:
         """The owner=True parent fields, stored together in one `owner` member."""
         return [f for f in self.fields if f.owner]
@@ -2454,6 +2487,10 @@ class Field:
     # descriptor: a child list isn't stored, and the class it's on doesn't
     # belong to that extension.
     synthesized_by: Optional[str] = field(default=None, repr=False, init=False, compare=False)
+    # An extension's child list declared with owner=True: the owner option it
+    # implies on the child class is synthesized (codegen.extension_schema),
+    # and the descriptor records the declaration here, on the list.
+    declares_owner: bool = field(default=False, repr=False, init=False, compare=False)
     _parent_klass: Optional[Klass] = field(default=None, repr=False, init=False)
     _parent_field: Optional["Field"] = field(default=None, repr=False, init=False)
     _child_klass: Optional[Klass] = field(default=None, repr=False, init=False)
