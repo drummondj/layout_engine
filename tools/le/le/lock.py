@@ -22,6 +22,7 @@ class LockError(Exception):
 class LockedSource:
     source: str  # "github:owner/repo" or "path:/abs/dir"
     rev: Optional[str] = None  # the commit, for a github source
+    tag: Optional[str] = None  # the tag it was resolved through, if any
     signer: Optional[str] = None  # the signing key's fingerprint, for a github source
     unsigned: bool = False
 
@@ -42,6 +43,10 @@ class Lock:
     extension_api: int
     layout_engine: LockedSource
     extensions: List[LockedExtension] = field(default_factory=list)
+    # "source": built from source; "release": a prebuilt release bundle,
+    # whose tarball's sha256 is pinned too.
+    layout_engine_bundle: str = "source"
+    release_sha256: Optional[str] = None
 
     def extension(self, name: str) -> Optional[LockedExtension]:
         return next((e for e in self.extensions if e.name == name), None)
@@ -57,6 +62,8 @@ def _string(value: str) -> str:
 
 def _source_lines(locked: LockedSource) -> List[str]:
     lines = [f"source = {_string(locked.source)}"]
+    if locked.tag:
+        lines.append(f"tag = {_string(locked.tag)}")
     if locked.rev:
         lines.append(f"rev = {_string(locked.rev)}")
     if locked.signer:
@@ -75,6 +82,8 @@ def dumps(lock: Lock) -> str:
         "[layout_engine]",
         f"version = {_string(lock.layout_engine_version)}",
         f"extension_api = {lock.extension_api}",
+        f"bundle = {_string(lock.layout_engine_bundle)}",
+        *([f"release_sha256 = {_string(lock.release_sha256)}"] if lock.release_sha256 else []),
         *_source_lines(lock.layout_engine),
     ]
     for e in lock.extensions:
@@ -91,7 +100,9 @@ def dumps(lock: Lock) -> str:
 
 
 def _locked_source(table: dict) -> LockedSource:
-    return LockedSource(source=table["source"], rev=table.get("rev"), signer=table.get("signer"), unsigned=table.get("unsigned", False))
+    return LockedSource(
+        source=table["source"], rev=table.get("rev"), tag=table.get("tag"), signer=table.get("signer"), unsigned=table.get("unsigned", False)
+    )
 
 
 def load(root: Path) -> Optional[Lock]:
@@ -108,6 +119,8 @@ def load(root: Path) -> Optional[Lock]:
             layout_engine_version=le["version"],
             extension_api=le["extension_api"],
             layout_engine=_locked_source(le),
+            layout_engine_bundle=le.get("bundle", "source"),
+            release_sha256=le.get("release_sha256"),
             extensions=[
                 LockedExtension(
                     name=e["name"],

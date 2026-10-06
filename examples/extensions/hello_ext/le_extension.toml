@@ -7,7 +7,7 @@ prefix = "Hello"
 description = "Example extension: counts libraries and adds a greeting library as one undo step, from C++ and Tcl"
 
 [compatibility]
-layout_engine = ">=0.2, <0.3"
+layout_engine = ">=0.3, <0.4"
 extension_api = 1
 
 [contents]

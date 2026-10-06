@@ -27,7 +27,7 @@ class TestProject(unittest.TestCase):
     def test_sources_are_validated(self):
         base = projectfile.template("chip", {"path": "le"})
         bad = {
-            'x = { github = "acme/x" }': "exactly one of tag or rev",
+            'x = { github = "acme/x" }': "exactly one of tag, rev or version",
             'x = { github = "acme/x", tag = "v1" }': "needs a publisher",
             'x = { github = "acme/x", tag = "v1", publisher = "acme" }': "no keys in [trust]",
             'x = { github = "nope", tag = "v1", publisher = "acme" }': "owner/repo",

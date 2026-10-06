@@ -2,7 +2,9 @@
 End to end: `le` builds a real project from this checkout - hello_ext from a
 local path, hello_script from a signed tag on a fake GitHub - runs both
 extensions' commands through `le shell`, then edits the path extension and
-checks `le shell` rebuilds. Slow (it builds Layout Engine), so it's a ctest
+checks `le shell` rebuilds. Then a script-only project gets a signed release
+bundle (this build reconfigured with no extensions, signed with a test key)
+and runs hello_script with no compiler or cmake on PATH. Slow (it builds Layout Engine), so it's a ctest
 only when LE_TEST_PACKAGE_MANAGER is ON. LE_DEPS_DIR can point at an existing
 build's _deps to avoid downloading the dependencies again.
 
@@ -17,12 +19,15 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from le import build  # noqa: E402
 from tests import helpers  # noqa: E402
 
 
-def le(project: Path, *args: str) -> str:
-    result = subprocess.run([sys.executable, "-m", "le", *args], cwd=project, capture_output=True, text=True,
-                            env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])})
+def le(project: Path, *args: str, path: str = None) -> str:
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+    if path is not None:
+        env["PATH"] = path
+    result = subprocess.run([sys.executable, "-m", "le", *args], cwd=project, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         raise SystemExit(f"le {' '.join(args)} failed:\n{result.stdout}\n{result.stderr}")
     return result.stdout
@@ -76,10 +81,46 @@ def main() -> int:
         for expected in ("hello_ext 0.1.0", "hello_script 0.1.0", "github:acme/hello_script@", "signed SHA256:"):
             if expected not in listing:
                 raise SystemExit(f"le list is missing {expected!r}:\n{listing}")
+
+        release_project(source, github, project / ".le" / "build", key)
         print("le integration test passed")
         return 0
     finally:
         github.close()
+
+
+def release_project(source: Path, github: helpers.FakeGithub, build_dir: Path, acme_key: Path) -> None:
+    """A script-only project on a signed release bundle, with no build tools on PATH."""
+    root = github.root
+    version, _ = build.layout_engine_versions(source)
+    helpers.run("cmake", "-S", str(source), "-B", str(build_dir), "-DLE_EXTENSION_DIRS=")
+    helpers.run("cmake", "--build", str(build_dir), "--target", "le_shell", "le_tcl", "-j", str(os.cpu_count() or 2))
+    bundle = root / "release_bundle"
+    helpers.run("cmake", "--install", str(build_dir), "--component", "bundle", "--prefix", str(bundle))
+    release_key = helpers.make_key(root, "release")
+    helpers.fake_release(github, release_key, version, bundle=bundle)
+
+    # Only what `le` needs for a release: git, ssh-keygen and tar.
+    tools = root / "tools"
+    tools.mkdir()
+    for tool in ("git", "ssh-keygen", "tar"):
+        (tools / tool).symlink_to(shutil.which(tool))
+    major, minor, _ = version.split(".")
+    project = root / "release_project"
+    le(root, "init", str(project), path=str(tools))
+    text = (project / "le_project.toml").read_text()
+    if f'version = ">={major}.{minor}, <{major}.{int(minor) + 1}"' not in text:
+        raise SystemExit(f"le init didn't default to this version's range:\n{text}")
+    le(project, "trust", "acme", "@" + str(acme_key) + ".pub", path=str(tools))
+    le(project, "add", "hello_script", "--github", "acme/hello_script", "--version", ">=0.1", "--publisher", "acme", path=str(tools))
+    script = project / "check.tcl"
+    script.write_text('puts [hello_script_greet release]\n')
+    out = le(project, "shell", str(script), path=str(tools))
+    if "Hello, release!" not in out:
+        raise SystemExit(f"unexpected le shell output from the release:\n{out}")
+    listing = le(project, "list", path=str(tools))
+    if "release" not in listing:
+        raise SystemExit(f"le list doesn't show the release:\n{listing}")
 
 
 if __name__ == "__main__":

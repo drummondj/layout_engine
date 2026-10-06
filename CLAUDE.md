@@ -170,11 +170,14 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   API changelog - update it with any change to the SDK.
 - `tools/le/` — `le`, the package manager (stdlib-only Python 3.11+,
   `tools/le/bin/le`): a project's `le_project.toml`/`le_project.lock`,
-  GitHub (SSH-signed tags/commits checked against `[trust]`) and path
-  sources, built from source into `.le/` with `LE_EXTENSION_DIRS`. Reuses
-  `codegen/codegen/extension_manifest.py`. Usage in `tools/le/README.md`;
-  unit tests run under ctest, the end-to-end build with
-  `-DLE_TEST_PACKAGE_MANAGER=ON`.
+  GitHub (SSH-signed tags/commits checked against `[trust]`, tag or
+  `version` range) and path sources. Script-only projects run a signed
+  release bundle (`releases.py`, cached); others build from source into
+  `.le/` with `LE_EXTENSION_DIRS`. Reuses
+  `codegen/codegen/extension_manifest.py`. `-DLE_BUILD_LE_BINARY=ON`
+  freezes it with PyInstaller into the bundle (the release build does).
+  Usage in `tools/le/README.md`; unit tests run under ctest, the
+  end-to-end build with `-DLE_TEST_PACKAGE_MANAGER=ON`.
 - `src/lefdef/` — vendored Si2 LEF/DEF 6.0.62-p004 parser source, built by
   its own Makefiles via `ExternalProject_Add` (`lef_lib`/`def_lib`). Never
   hand-edit.
