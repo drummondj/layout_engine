@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <atomic>
 #include <thread>
@@ -22,6 +23,7 @@ namespace
             ImGui::CreateContext();
             ImGuiIO &io = ImGui::GetIO();
             io.IniFilename = nullptr;
+            io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
             io.DisplaySize = ImVec2(800, 600);
             io.DeltaTime = 1.0f / 60.0f;
             unsigned char *pixels = nullptr;
@@ -77,6 +79,55 @@ TEST(Panels, OnlyOpenPanelsAreDrawn)
     EXPECT_EQ(b, 1);
     EXPECT_TRUE(panels.any_in(DockSlot::RIGHT));
     EXPECT_FALSE(panels.any_in(DockSlot::BOTTOM));
+}
+
+TEST(Panels, APanelTheSavedLayoutHasNeverSeenDocksBesideItsSlot)
+{
+    constexpr ImGuiID kDockSpace = 0x1234;
+    const auto saved_dock = [](const char *name)
+    {
+        const ImGuiWindowSettings *settings = ImGui::FindWindowSettingsByID(ImHashStr(name));
+        return settings != nullptr ? settings->DockId : 0u;
+    };
+
+    // A layout saved by a build without the Hello and Strip panels.
+    std::string ini;
+    ImGuiID right = 0;
+    ImGuiID center = 0;
+    {
+        HeadlessImGui imgui;
+        imgui.frame([&]
+                    {
+                        ImGui::DockBuilderAddNode(kDockSpace, ImGuiDockNodeFlags_DockSpace);
+                        ImGui::DockBuilderSetNodeSize(kDockSpace, ImVec2(800, 600));
+                        center = kDockSpace;
+                        right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.3f, nullptr, &center);
+                        ImGui::DockBuilderDockWindow("Properties", right);
+                        ImGui::DockBuilderDockWindow("Layout", center);
+                        ImGui::DockBuilderFinish(kDockSpace); });
+        for (int i = 0; i < 3; ++i)
+            imgui.frame([]
+                        {
+                            ImGui::DockSpaceOverViewport(kDockSpace);
+                            ImGui::Begin("Properties");
+                            ImGui::End();
+                            ImGui::Begin("Layout");
+                            ImGui::End(); });
+        ini = ImGui::SaveIniSettingsToMemory();
+    }
+
+    HeadlessImGui imgui;
+    ImGui::LoadIniSettingsFromMemory(ini.c_str());
+    PanelList panels;
+    panels.add({"Properties", "Properties", DockSlot::RIGHT, nullptr});
+    panels.add({"Hello", "ext.hello_ext.Hello", DockSlot::RIGHT, nullptr});
+    panels.add({"Strip", "ext.acme.Strip", DockSlot::BOTTOM, nullptr});
+    imgui.frame([&]
+                {
+                    panels.dock_panels_missing_from_saved_layout("Layout");
+                    EXPECT_EQ(saved_dock("Hello###ext.hello_ext.Hello"), right);
+                    EXPECT_EQ(saved_dock("Strip###ext.acme.Strip"), center);
+                    EXPECT_EQ(saved_dock("Properties"), right); });
 }
 
 TEST(Panels, OpenStateRoundTripsThroughTheIniAndKeepsUnknownPanels)

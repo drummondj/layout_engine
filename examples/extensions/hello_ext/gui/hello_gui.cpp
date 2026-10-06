@@ -25,10 +25,9 @@ namespace
         ImGui::Text("Libraries: %d", state.library_count);
         ImGui::Text("Libraries added this session: %d", ctx.data<hello::State>().libraries_added);
         ImGui::Text("Selected objects: %d", ctx.selection_count());
-        ImGui::BeginDisabled(ctx.is_busy());
+        // Queued, so it's safe to click mid-render: it runs when the console is free.
         if (ImGui::Button("Add library"))
             ctx.run_tcl_command("hello_add_library gui");
-        ImGui::EndDisabled();
     }
 }
 

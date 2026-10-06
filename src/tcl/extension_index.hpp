@@ -100,7 +100,8 @@ namespace le
             }
             for (const std::string &name : compiled)
                 if (std::ranges::none_of(index.extensions, [&](const ExtensionIndexEntry &e) { return e.name == name; }))
-                    return std::unexpected(where + ": doesn't list " + name + ", which this binary was built with");
+                    return std::unexpected(where + ": doesn't list " + name + ", which this binary was built with - "
+                                                   "rebuild le_shell if its extensions changed, or pass the matching -extensions");
             if (j.contains("startup"))
             {
                 index.startup = base / j.at("startup").get<std::string>();

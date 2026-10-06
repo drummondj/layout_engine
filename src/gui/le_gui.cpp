@@ -475,10 +475,11 @@ namespace le::gui
         // next real input event.
         constexpr double kMainLoopIdleWaitSeconds = 0.033;
 
-        // How long a Tcl command must have been running before the design
-        // view shows "running..." - long enough that quick commands (and
-        // the GUI's own queued ones, like a layer toggle) don't flicker it.
-        constexpr double kCommandIndicatorDelaySeconds = 0.25;
+        // How long a Tcl command or a render must have been running before
+        // the design view shows "running..."/the spinner - long enough that
+        // quick ones (the GUI's own queued commands, like a layer toggle;
+        // the render after every mouse move) don't flicker it.
+        constexpr double kBusyIndicatorDelaySeconds = 0.25;
 
         // Logical (window/point, not framebuffer-pixel) height reserved
         // at the bottom of the window for draw_status_bar
@@ -857,7 +858,7 @@ namespace le::gui
         // ~50% split width, since "Browser"/"Properties" haven't been
         // drawn (and so haven't claimed their own share of it) yet
         // either.
-        bool draw_dockspace_and_default_layout(bool &dockspace_built, const PanelList &panels)
+        bool draw_dockspace_and_default_layout(bool &dockspace_built, const PanelList &panels, bool first_frame)
         {
             const ImGuiViewport *viewport = ImGui::GetMainViewport();
             ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -922,6 +923,8 @@ namespace le::gui
                 ImGui::DockBuilderDockWindow(kLayoutWindowTitle, center_id);
                 ImGui::DockBuilderFinish(dockspace_id);
             }
+            else if (first_frame)
+                panels.dock_panels_missing_from_saved_layout(kLayoutWindowTitle);
             ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
             ImGui::End();
             return just_built;
@@ -1109,6 +1112,7 @@ namespace le::gui
             // glfwGetTime() when the running Tcl command was first seen; < 0
             // while none is running.
             double command_started_at = -1.0;
+            double render_started_at = -1.0;
 
             // The close button asks
             // (draw_close_dialog) rather than closing; close_gui closes
@@ -1206,31 +1210,28 @@ namespace le::gui
                 const bool is_rendering = provider.state().is_rendering;
 
                 // show_loading_overlay - whether to draw the spinner/
-                // "Loading design..." text. Previously a debounced,
-                // hysteresis-smoothed view of is_rendering, needed back
-                // when render_thread_loop called le_render_pixel_buffer
-                // back-to-back forever on a fixed poll interval - is_rendering
-                // could flip true/false many times a second even at
-                // idle, so showing it raw would have flickered
-                // constantly. Now that render_thread_loop only calls
-                // le_render_pixel_buffer once per real
-                // le_wait_for_render_needed() wake, and is_rendering_ is
-                // itself bracketed precisely around the pipeline's own
-                // real recompute (api.cpp's own le_render_pixel_buffer
-                // comment), a render is already a clean, one-shot
-                // true/false pulse - nothing left to smooth.
+                // "Loading design..." text: only once a render has run for
+                // kBusyIndicatorDelaySeconds. Every mouse move renders
+                // (the cursor box and other overlays), taking a few ms, and
+                // showing each of those would flicker the spinner while
+                // the mouse moves.
                 // A Tcl command holds renders until it ends
                 // (le_begin_command), so without this the view would sit
                 // still with no feedback; it gets the same overlay,
                 // labelled "running...".
+                const double now = glfwGetTime();
+                if (!is_rendering)
+                    render_started_at = -1.0;
+                else if (render_started_at < 0.0)
+                    render_started_at = now;
+                const bool show_rendering = is_rendering && now - render_started_at >= kBusyIndicatorDelaySeconds;
                 const bool is_command_running = provider.state().is_command_running;
                 if (!is_command_running)
                     command_started_at = -1.0;
                 else if (command_started_at < 0.0)
-                    command_started_at = glfwGetTime();
-                const bool show_running = is_command_running &&
-                                          glfwGetTime() - command_started_at >= kCommandIndicatorDelaySeconds;
-                const bool show_loading_overlay = is_rendering || show_running;
+                    command_started_at = now;
+                const bool show_running = is_command_running && now - command_started_at >= kBusyIndicatorDelaySeconds;
+                const bool show_loading_overlay = show_rendering || show_running;
 
                 // Input isn't forwarded to the handle while a command runs
                 // either: a click would otherwise select or Move
@@ -1253,7 +1254,7 @@ namespace le::gui
                 // one-frame distrust as a freshly built one (see
                 // draw_dockspace_and_default_layout's own comment).
                 draw_main_menu_bar(provider, handle, panels);
-                const bool dock_layout_just_built = draw_dockspace_and_default_layout(dockspace_built, panels) || first_frame;
+                const bool dock_layout_just_built = draw_dockspace_and_default_layout(dockspace_built, panels, first_frame) || first_frame;
                 first_frame = false;
 
                 // Every panel but the design view - make_panels. Drawn

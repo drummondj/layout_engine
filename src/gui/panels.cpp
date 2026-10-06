@@ -3,6 +3,7 @@
 #include "gui_provider.hpp"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <cstring>
@@ -54,6 +55,30 @@ namespace le::gui
             if (panel.slot == slot)
                 return true;
         return false;
+    }
+
+    void PanelList::dock_panels_missing_from_saved_layout(const char *center_window) const
+    {
+        const auto saved_dock = [](const std::string &name) -> ImGuiID
+        {
+            const ImGuiWindowSettings *settings = ImGui::FindWindowSettingsByID(ImHashStr(name.c_str()));
+            return settings != nullptr ? settings->DockId : 0;
+        };
+        const auto is_saved = [](const std::string &name) { return ImGui::FindWindowSettingsByID(ImHashStr(name.c_str())) != nullptr; };
+        const ImGuiID center = saved_dock(center_window);
+        for (const Panel &panel : panels_)
+        {
+            if (is_saved(panel.imgui_name()))
+                continue;
+            ImGuiID target = 0;
+            for (const Panel &other : panels_)
+                if (other.slot == panel.slot && is_saved(other.imgui_name()) && (target = saved_dock(other.imgui_name())) != 0)
+                    break;
+            if (target == 0)
+                target = center;
+            if (target != 0)
+                ImGui::DockBuilderDockWindow(panel.imgui_name().c_str(), target);
+        }
     }
 
     void PanelList::draw_window_menu_items()

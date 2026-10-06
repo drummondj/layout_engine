@@ -50,6 +50,12 @@ namespace le::gui
         /// @brief Begin/draw/End for each open panel, each with a close button.
         void draw();
 
+        /// @brief After a saved dock layout loads (before the first Begin):
+        /// docks each panel the layout has never seen beside a panel of the
+        /// same slot that it has, else beside `center_window` (the design
+        /// view) - without this a newly added panel would open floating.
+        void dock_panels_missing_from_saved_layout(const char *center_window) const;
+
         /// @brief The [LayoutEngine][Panels] ini section: one `id=0|1` line
         /// per panel. Lines for panels this build doesn't have are kept
         /// and written back, so a build without an extension doesn't

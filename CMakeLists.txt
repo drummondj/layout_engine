@@ -946,6 +946,7 @@ if(SWIG_FOUND AND TCL_FOUND)
     add_dependencies(le_shell generate_le_shell_version)
     target_include_directories(le_shell PRIVATE ${TCL_INCLUDE_PATH} ${CMAKE_BINARY_DIR})
     target_link_libraries(le_shell PRIVATE ${TCL_LIBRARY} api gui le_extensions le_extensions_gui)
+    add_dependencies(le_shell le_extensions_index)
 
     # Compile-time fallback for -module/-procs and their LE_TCL_MODULE/
     # LE_TCL_PROCS_PATH env-var equivalents (le_shell.cpp's own

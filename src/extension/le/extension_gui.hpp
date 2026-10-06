@@ -24,7 +24,9 @@ namespace le::ext
         ExtGuiContext(gui::GuiProvider &provider, LeHandle *handle, std::string_view extension_name);
 
         /// @brief A render or Tcl command is in progress, so the design may
-        /// be about to change.
+        /// be about to change. Renders happen on every mouse move and are
+        /// usually over within a frame or two, so don't flip visible UI on
+        /// it (disabling a button would make it flicker).
         bool is_busy() const;
 
         /// @brief How many objects are selected, and the `index`th of them

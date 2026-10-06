@@ -16,8 +16,9 @@
 #   %include'd by le_api.i.
 # - `le_extensions_gui`: every extension's GUI library plus a generated
 #   register_all_gui(), linked into le_shell.
-# - extensions.json (build tree) and the bundle's own copy, listing each
-#   extension's procs in load order for le_shell.
+# - extensions.json (build tree, written by the le_extensions_index target)
+#   and the bundle's own copy, listing each extension's procs in load order
+#   for le_shell.
 
 # le_add_extension(<name>
 #     CORE_SOURCES <file>...     the extension's C++, including le_ext_<name>_register
@@ -189,8 +190,18 @@ foreach(name IN LISTS LE_EXTENSIONS)
 endforeach()
 unset(LE_CURRENT_EXTENSION)
 
-file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/extensions.json CONTENT "${build_index}\n")
+# The build tree's index is staged at configure time and copied into place by
+# the build (le_extensions_index, which le_shell depends on), so it never
+# lists different extensions from the le_shell beside it - as it would after
+# a configure that isn't followed by a build.
+file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/generated/extensions/build_extensions.json CONTENT "${build_index}\n")
 set(LE_EXTENSIONS_INDEX ${CMAKE_BINARY_DIR}/extensions.json)
+add_custom_command(
+    OUTPUT ${LE_EXTENSIONS_INDEX}
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_BINARY_DIR}/generated/extensions/build_extensions.json ${LE_EXTENSIONS_INDEX}
+    DEPENDS ${CMAKE_BINARY_DIR}/generated/extensions/build_extensions.json
+    VERBATIM)
+add_custom_target(le_extensions_index DEPENDS ${LE_EXTENSIONS_INDEX})
 file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/generated/extensions/extensions.json CONTENT "${bundle_index}\n")
 install(FILES ${CMAKE_BINARY_DIR}/generated/extensions/extensions.json DESTINATION . COMPONENT bundle)
 
