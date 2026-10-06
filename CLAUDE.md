@@ -168,6 +168,13 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   holds the compiled (`hello_ext`) and script (`hello_script`) examples
   CI builds. `docs/EXTENSION_SDK.md` is the authors' reference and the
   API changelog - update it with any change to the SDK.
+- `tools/le/` — `le`, the package manager (stdlib-only Python 3.11+,
+  `tools/le/bin/le`): a project's `le_project.toml`/`le_project.lock`,
+  GitHub (SSH-signed tags/commits checked against `[trust]`) and path
+  sources, built from source into `.le/` with `LE_EXTENSION_DIRS`. Reuses
+  `codegen/codegen/extension_manifest.py`. Usage in `tools/le/README.md`;
+  unit tests run under ctest, the end-to-end build with
+  `-DLE_TEST_PACKAGE_MANAGER=ON`.
 - `src/lefdef/` — vendored Si2 LEF/DEF 6.0.62-p004 parser source, built by
   its own Makefiles via `ExternalProject_Add` (`lef_lib`/`def_lib`). Never
   hand-edit.

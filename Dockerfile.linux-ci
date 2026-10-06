@@ -17,6 +17,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential clang cmake ninja-build git python3 python3-pip pkg-config \
     ca-certificates curl unzip xz-utils bison flex \
+    # ssh-keygen: git checks SSH-signed tags with it (`le`, tools/le).
+    openssh-client \
     libboost-dev libspdlog-dev libfmt-dev \
     tcl8.6-dev tk8.6-dev swig \
     # GLFW's own Linux/X11 backend (src/gui/, le_shell's `show_gui`) -
@@ -84,6 +86,8 @@ WORKDIR /workspace
 #
 # The Debug tree builds the example extensions (examples/extensions/)
 # and runs their tests, so a change that breaks the extension SDK fails CI.
+# LE_TEST_PACKAGE_MANAGER also runs `le`'s end-to-end test, which builds a
+# project (Layout Engine plus both examples) through the package manager.
 #
 # pip install ./codegen: CMake runs the in-tree codegen itself (into each
 # build tree), but needs its Python dependencies (jinja2, click) installed.
@@ -100,7 +104,7 @@ CMD ["bash", "-c", "\
     rm -rf /build/debug/lef_lib-prefix /build/release/lef_lib-prefix && \
     rm -rf /build/debug/def_lib-prefix /build/release/def_lib-prefix && \
     python3 -m pip install --no-cache-dir --break-system-packages ./codegen && \
-    cmake -S . -B /build/debug -DCMAKE_BUILD_TYPE=Debug -DLE_EXTENSION_DIRS=\"$PWD/examples/extensions/hello_ext;$PWD/examples/extensions/hello_script\" && \
+    cmake -S . -B /build/debug -DCMAKE_BUILD_TYPE=Debug -DLE_EXTENSION_DIRS=\"$PWD/examples/extensions/hello_ext;$PWD/examples/extensions/hello_script\" -DLE_TEST_PACKAGE_MANAGER=ON && \
     cmake --build /build/debug -j ${BUILD_JOBS} && \
     ctest --test-dir /build/debug --output-on-failure && \
     cmake -S . -B /build/release -DCMAKE_BUILD_TYPE=Release && \
