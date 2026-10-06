@@ -4,6 +4,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace le::gui
@@ -105,6 +106,19 @@ namespace le::gui
     const std::vector<ExtensionMenuItem> &extension_menu_items()
     {
         return menu_items_storage();
+    }
+
+    std::vector<ExtensionMenu> extension_menus()
+    {
+        std::vector<ExtensionMenu> menus;
+        for (const ExtensionMenuItem &registered : menu_items_storage())
+        {
+            auto menu = std::find_if(menus.begin(), menus.end(), [&](const ExtensionMenu &m) { return m.extension == registered.extension; });
+            if (menu == menus.end())
+                menu = menus.insert(menus.end(), {registered.extension, {}});
+            menu->items.push_back(&registered.item);
+        }
+        return menus;
     }
 
     void clear_extension_gui_registrations()

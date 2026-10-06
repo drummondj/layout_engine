@@ -394,7 +394,7 @@ struct GuiWindow {
 
 There is no menu bar today. Add one, with:
 - **Window**: toggles every registered panel, core and extension alike. This is useful on its own, since panels currently can't be closed at all.
-- **Extensions**: items registered through `add_menu_item`.
+- **Extensions**: a submenu per extension, holding the items it registered through `add_menu_item`.
 
 ### `ExtGuiContext`
 

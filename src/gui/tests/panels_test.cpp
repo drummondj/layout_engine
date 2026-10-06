@@ -108,6 +108,25 @@ TEST(ExtensionGui, RegistrationsCarryTheirExtension)
     EXPECT_TRUE(le::gui::extension_windows().empty());
 }
 
+TEST(ExtensionGui, MenuItemsAreGroupedPerExtensionInRegistrationOrder)
+{
+    le::gui::clear_extension_gui_registrations();
+    le::ext::GuiRegistry acme("acme");
+    le::ext::GuiRegistry beta("beta");
+    acme.add_menu_item({.label = "Route", .action = [](le::ext::ExtGuiContext &) {}});
+    beta.add_menu_item({.label = "Check", .action = [](le::ext::ExtGuiContext &) {}});
+    acme.add_menu_item({.label = "Unroute", .action = [](le::ext::ExtGuiContext &) {}});
+    const std::vector<le::gui::ExtensionMenu> menus = le::gui::extension_menus();
+    ASSERT_EQ(menus.size(), 2u);
+    EXPECT_EQ(menus[0].extension, "acme");
+    ASSERT_EQ(menus[0].items.size(), 2u);
+    EXPECT_EQ(menus[0].items[0]->label, "Route");
+    EXPECT_EQ(menus[0].items[1]->label, "Unroute");
+    EXPECT_EQ(menus[1].extension, "beta");
+    ASSERT_EQ(menus[1].items.size(), 1u);
+    le::gui::clear_extension_gui_registrations();
+}
+
 TEST(ExtensionGui, ContextSharesStateWithTheExtensionAndNeverWaitsToRead)
 {
     Session session;

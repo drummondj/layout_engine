@@ -237,7 +237,8 @@ void le_ext_my_ext_register_gui(le::ext::GuiRegistry &registry)
   design view) in the default layout, get a close button, and are listed in
   the Window menu with the core panels. Whether each is open is saved with
   the window layout; `open_by_default = false` starts one closed.
-- **Menu items** go in the Extensions menu.
+- **Menu items** go in your extension's own submenu of the Extensions menu
+  (Extensions → my_ext → Do it).
 - **`ExtGuiContext`** is valid for one draw or menu call:
   - `read()` never waits. It returns an invalid view while an edit holds
     the database, so keep what you need in `data<T>()` and draw that instead.

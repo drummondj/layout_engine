@@ -75,6 +75,15 @@ namespace le::gui
     };
     const std::vector<ExtensionWindow> &extension_windows();
     const std::vector<ExtensionMenuItem> &extension_menu_items();
+
+    /// @brief The Extensions menu's submenus: one per extension with menu
+    /// items, in registration order, each with its items in order.
+    struct ExtensionMenu
+    {
+        std::string extension;
+        std::vector<const ext::GuiMenuItem *> items;
+    };
+    std::vector<ExtensionMenu> extension_menus();
     /// @brief Forgets every registration - for tests.
     void clear_extension_gui_registrations();
 }

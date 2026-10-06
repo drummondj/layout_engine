@@ -694,8 +694,8 @@ namespace le::gui
             return panels;
         }
 
-        // The main menu bar: Window toggles every panel; Extensions lists
-        // what extensions added.
+        // The main menu bar: Window toggles every panel; Extensions has a
+        // submenu of items per extension.
         void draw_main_menu_bar(GuiProvider &provider, LeHandle *handle, PanelList &panels)
         {
             if (!ImGui::BeginMainMenuBar())
@@ -708,19 +708,23 @@ namespace le::gui
                     provider.request_window_layout_reset();
                 ImGui::EndMenu();
             }
+            // One submenu per extension, so several extensions' items stay apart.
             if (ImGui::BeginMenu("Extensions"))
             {
-                if (extension_menu_items().empty())
+                const std::vector<ExtensionMenu> menus = extension_menus();
+                if (menus.empty())
                     ImGui::MenuItem("No extension menu items", nullptr, false, false);
-                for (const ExtensionMenuItem &registered : extension_menu_items())
+                for (const ExtensionMenu &menu : menus)
                 {
-                    ImGui::PushID(registered.extension.c_str());
-                    if (ImGui::MenuItem(registered.item.label.c_str()))
-                    {
-                        ext::ExtGuiContext context(provider, handle, registered.extension);
-                        registered.item.action(context);
-                    }
-                    ImGui::PopID();
+                    if (!ImGui::BeginMenu(menu.extension.c_str()))
+                        continue;
+                    for (const ext::GuiMenuItem *item : menu.items)
+                        if (ImGui::MenuItem(item->label.c_str()))
+                        {
+                            ext::ExtGuiContext context(provider, handle, menu.extension);
+                            item->action(context);
+                        }
+                    ImGui::EndMenu();
                 }
                 ImGui::EndMenu();
             }
