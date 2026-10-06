@@ -590,7 +590,7 @@ Phase 0 is groundwork that the package manager also needs. Package-manager phase
 | 1 ✅ | `LE_EXTENSION_DIRS`, `le_add_extension()`, dependency ordering, `Registry`, generated `register_all()`, `LeHandle` extension-data slots, `le::extension_sdk` | Customer C++ modules |
 | 2 ✅ | Generated `le_api_extensions.i`, the `extensions.json` index read by `app_init`, `TCL_INIT` hooks, `tcl_tests` | Customer TCL commands; script extensions in a prebuilt release |
 | 3 ✅ | Menu bar with Window/Extensions menus, `GuiWindow` list (core panels migrated), `ExtGuiContext` | Customer GUI windows |
-| 4 | Codegen `--extension`, prefix and collision validation | Customer schema objects |
+| 4 ✅ | Codegen `--extension`, prefix and collision validation; extension migrations | Customer schema objects |
 | 5 | Compose overlays, toolbar/key/font hooks, settings sections | Richer GUI integration |
 | 6 | `hello_ext` and `hello_script` examples and CI jobs, extension-SDK changelog | Upgrade safety |
 | 7 | Generated purpose registry, `LeObjectKind` dispatch, polymorphic `Shape.owner` (§8.4 steps 1-3) | Removes core's hand mirrors; smaller Shapes; prerequisite for extension rendering |

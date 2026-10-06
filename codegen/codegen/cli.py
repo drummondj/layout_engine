@@ -5,6 +5,7 @@ import click
 import logging
 
 from codegen import extension_schema, generator, render_generator, tcl_generator
+from codegen import migration as schema_migration
 
 """
 CLI for the codegen package (the `codegen` command).
@@ -51,6 +52,11 @@ codegen --schema <path to schema file> --output <backend src dir> --target tcl
 @click.option("--name", default=None, help="'makemigration' target: what changed, e.g. layer_kind_rename.")
 @click.option("--non-interactive", is_flag=True, help="'makemigration' target: leave possible renames as TODOs instead of asking.")
 @click.option(
+    "--migrate-extension",
+    default=None,
+    help="'makemigration' target: draft this extension's next migration (one of the --extension directories) instead of core's.",
+)
+@click.option(
     "--extension",
     "extension_dirs",
     multiple=True,
@@ -68,6 +74,7 @@ def cli(
     name: str | None,
     non_interactive: bool,
     extension_dirs: tuple,
+    migrate_extension: str | None,
 ):
     """
     Generate code from a schema file.
@@ -86,7 +93,8 @@ def cli(
 
     def load_schema():
         loaded = generator.schema_loader(schema)
-        errors = extension_schema.apply(loaded, extensions)
+        renames = schema_migration.core_renames_since(schema_migration.load_migrations(Path(migrations_dir)), None) if extensions else {}
+        errors = extension_schema.apply(loaded, extensions, renames)
         if errors:
             for error in errors:
                 logger.error(error)
@@ -101,11 +109,17 @@ def cli(
     if target == "makemigration":
         if not name:
             raise click.UsageError("--name is required for makemigration")
+        loaded = load_schema()
+        target_extension = None
+        if migrate_extension is not None:
+            target_extension = next((e for e in extensions if e.name == migrate_extension), None)
+            if target_extension is None:
+                raise click.UsageError(f"--migrate-extension {migrate_extension}: no --extension directory declares a schema for it")
         exit_code = generator.make_migration(
-            load_schema(), history_dir, migrations_dir, name, logger, interactive=not non_interactive
+            loaded, history_dir, migrations_dir, name, logger, interactive=not non_interactive, extension=target_extension
         )
     elif target == "checkmigrations":
-        exit_code = generator.check_migrations_only(load_schema(), history_dir, migrations_dir, logger)
+        exit_code = generator.check_migrations_only(load_schema(), history_dir, migrations_dir, logger, extensions)
     elif target == "tcl":
         exit_code = tcl_generator.generate(load_schema(), output, logger)
     elif target == "render":

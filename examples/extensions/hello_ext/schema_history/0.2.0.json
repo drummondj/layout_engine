@@ -1,11 +1,11 @@
 {
-  "version": "0.1.0",
-  "fingerprint": "6b04e0d0d3d181dd",
+  "version": "0.2.0",
+  "fingerprint": "5bc47dd2f8461d56",
   "descriptor": {
     "format": 1,
     "name": "hello_ext",
     "namespace": "le",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "classes": [
       {
         "name": "HelloNote",
@@ -18,7 +18,7 @@
             "parent_field": "hello_notes"
           },
           {
-            "name": "text",
+            "name": "body",
             "kind": "scalar",
             "type": "str"
           }

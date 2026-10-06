@@ -588,20 +588,46 @@ namespace le::persistence
         using EnumRenames = std::map<std::string, std::map<std::string, std::string, std::less<>>, std::less<>>;
 
         /// @brief Bring an older file's schema names up to date: apply every
-        /// op of every migration past `file_version`, in chain order.
+        /// op of every migration past the file's version, in merged-plan
+        /// order. A core op is past the file's core version; an extension's
+        /// op is past the file's version of that extension, and skipped if
+        /// the file holds none of its objects.
         void apply_migrations(Opened &file, EnumRenames &enum_renames, std::span<const migrations::Op> chain, std::vector<std::string> &applied)
         {
-            const std::string &file_version = file.schema.version;
+            const std::string &core_version = file.schema.version;
             std::string last_migration;
             for (const migrations::Op &op : chain)
             {
                 const std::string to_version(op.to_version);
-                if (!version_newer(to_version, file_version))
-                    continue;
-                if (to_version != last_migration)
+                const std::string extension(op.extension);
+                if (extension.empty())
                 {
-                    applied.push_back("applied migration to " + to_version + ": " + std::string(op.description));
-                    last_migration = to_version;
+                    if (!version_newer(to_version, core_version))
+                        continue;
+                }
+                else
+                {
+                    auto in_file = std::ranges::find(file.schema.extensions, extension, &FileExtension::name);
+                    if (in_file == file.schema.extensions.end() || !version_newer(to_version, in_file->version))
+                        continue;
+                    // Written against an older core than the file's: if core
+                    // renamed anything in between, this migration's names
+                    // are out of date for this file.
+                    const std::string depends_on(op.depends_on_core);
+                    for (const migrations::Op &core_op : chain)
+                        if (core_op.extension.empty() && version_newer(std::string(core_op.to_version), depends_on) &&
+                            !version_newer(std::string(core_op.to_version), core_version))
+                            throw FormatError("written with core schema " + core_version + " and " + extension + " schema " + in_file->version + ", but " +
+                                              extension + "'s migration to " + to_version + " was written against core " + depends_on +
+                                              ", before core's migration to " + std::string(core_op.to_version) + " - re-create it against core " +
+                                              core_version + " or later");
+                }
+                const std::string label = (extension.empty() ? "" : extension + " ") + to_version;
+                if (label != last_migration)
+                {
+                    applied.push_back("applied " + (extension.empty() ? std::string() : extension + " ") + "migration to " + to_version + ": " +
+                                      std::string(op.description));
+                    last_migration = label;
                 }
                 const std::string klass(op.klass), old_name(op.old_name), new_name(op.new_name);
                 switch (op.kind)
@@ -654,7 +680,8 @@ namespace le::persistence
                     break;
                 }
                 case migrations::OpKind::Unsupported:
-                    throw FormatError("written with schema version " + file_version + "; reading it needs the migration to " + to_version + " (" +
+                    throw FormatError("written with schema version " + core_version + "; reading it needs the " +
+                                      (extension.empty() ? std::string() : extension + " ") + "migration to " + to_version + " (" +
                                       std::string(op.description) + "), which this build can't apply to stored data yet");
                 }
             }

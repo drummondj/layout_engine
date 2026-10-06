@@ -3088,8 +3088,10 @@ extern "C"
         for (const std::string &warning : report.warnings)
             spdlog::warn("read_db: {}", warning);
         if (!report.schema_matches)
-            spdlog::info("read_db: {} was written with schema version {} (this build: {}); its fields were matched by name", path, report.file_schema_version,
-                         le::schema_info::kVersion);
+            spdlog::info("read_db: {} was written with {}; its fields were matched by name", path,
+                         report.file_schema_version == le::schema_info::kVersion
+                             ? std::string("older extension schemas")
+                             : fmt::format("schema version {} (this build: {})", report.file_schema_version, le::schema_info::kVersion));
 
         // Every object is new (Ids restart at {i, 0}): nothing that held an
         // Id from before may survive.

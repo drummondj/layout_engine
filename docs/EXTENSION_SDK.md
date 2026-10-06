@@ -8,8 +8,7 @@ is the reference.
 
 **Extension API version: 1** (Layout Engine 0.3.x, the first with extension support). See the [changelog](#changelog).
 
-Not available yet: extension schema migrations (#74, so a schema can't
-change after its first snapshot), GUI toolbar, key,
+Not available yet: GUI toolbar, key,
 overlay and settings hooks (#76), and drawing extension objects (#77).
 Projects install extensions with the `le` package manager
 (`tools/le/README.md`); while developing one, build it in with
@@ -89,6 +88,7 @@ other_ext = ">=2.0"
 [contents]                       # all optional
 cmake      = "le_extension.cmake"
 schema     = "schema_ext.py"
+migrations = "migrations/"       # default: migrations/ beside the schema
 tcl_procs  = ["tcl/my_ext.tcl"]
 tcl_tests  = ["tests/my_ext_test.tcl"]
 resources  = ["data/"]
@@ -104,6 +104,7 @@ resources  = ["data/"]
 | `[dependencies]` | Other extensions, each with a constraint. They must be in the same build, and they load before you. |
 | `cmake` | Your build file; its presence makes the extension compiled. |
 | `schema` | Your database classes (see [Database classes](#database-classes)); also makes the extension compiled. |
+| `migrations` | Your schema migrations; defaults to `migrations/` beside the schema. |
 | `tcl_procs` | Tcl files sourced at startup, after Layout Engine's own procs and your dependencies', in the order listed. |
 | `tcl_tests` | Tcl scripts run as ctests (see [Testing](#testing)). |
 | `resources` | Files or directories installed into the bundle under `ext/<name>/`, at the same relative paths. |
@@ -243,13 +244,33 @@ def extend(schema):
 - **History:** the build writes `schema_history/<VERSION>.json` beside
   `schema_ext.py`. Commit it. Changing the schema without bumping
   `VERSION` fails the build, as for core.
+- **Migrations:** once a version has shipped, changing the schema means
+  bumping `VERSION` and adding a migration, so files written by the old
+  version still load. Draft it with
+
+  ```
+  PYTHONPATH=layout_engine/codegen python3 -m codegen.cli --schema layout_engine/src/database/schema.py \
+      --extension /path/to/my_ext --target makemigration --migrate-extension my_ext --name what_changed
+  ```
+
+  It diffs your newest snapshot against `schema_ext.py`, asks about
+  renames, and writes `migrations/NNNN_what_changed.py`, recording the
+  core schema version it was written against (`depends_on_core`). Review
+  it, then build. The rules:
+  - your ops may only change your own classes;
+  - when loading a file, each of your migrations runs right after the core
+    migration it depends on, so the names it uses are the ones it was
+    written against;
+  - a core migration that renames a class you refer to carries your data
+    along: the build names the `schema_ext.py` line to update, and no
+    migration of yours is needed.
 - **Files:** a `.led` file records each extension it holds objects of,
   with its package and schema versions. A build without that extension, or
   with an older schema of it, refuses the file and names what's missing. A
   file holding none of your objects doesn't mention you, so it opens
   anywhere.
 - **Golden files:** keep a `.led` file per schema version and load them
-  all in your tests, as `hello_ext`'s `EverySchemaVersionsGoldenFileStillLoads`
+  all in your tests (old ones go through your migrations), as `hello_ext`'s `EverySchemaVersionsGoldenFileStillLoads`
   does, so a later change that breaks old files fails your CI.
 
 ## GUI: `<le/extension_gui.hpp>`
@@ -430,7 +451,7 @@ as new functions or new optional manifest keys, don't bump it.
 The first version.
 - `le_extension.toml` with `[extension]`, `[compatibility]`,
   `[dependencies]` and `[contents]` (`cmake`, `tcl_procs`, `tcl_tests`,
-  `resources`, `schema`; `migrations` is reserved for #74).
+  `resources`, `schema`, `migrations`).
 - `le_add_extension()` with `CORE_SOURCES`, `CORE_INCLUDE`, `TESTS`,
   `TCL_SWIG`, `TCL_SOURCES`, `TCL_INIT`, `GUI_SOURCES` and `LINK`.
 - `le::ext::Registry`, `register_all()`, `ExtensionContext` (`read`,
@@ -439,6 +460,8 @@ The first version.
 - GUI: `GuiRegistry` (`add_window`, `add_menu_item`), `GuiWindow`, `Dock`,
   `GuiMenuItem`, `ExtGuiContext`, `register_all_gui()`.
 - Database classes: `schema_ext.py` (`VERSION`, `extend(schema)`), its
-  `schema_history/`, and the `"extensions"` entry in `.led` files.
+  `schema_history/` and `migrations/` (`Migration(extension=...,
+  depends_on_core=...)`, `--migrate-extension`), and the `"extensions"`
+  entry in `.led` files.
 - C API: `le_extension_count`, `le_extension_name`, `le_extension_version`.
 - `extensions.json` format 1.

@@ -22,7 +22,7 @@ extension may own children of an earlier extension's classes.
 
 import copy
 from dataclasses import dataclass
-import importlib.util
+import types
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -41,6 +41,7 @@ class ExtensionSchema:
     prefix: str
     package_version: str  # le_extension.toml's version
     schema_path: Path
+    migrations: Optional[Path] = None  # the manifest's `migrations`, if set
     version: str = ""  # the schema's own VERSION, set by apply()
 
     @property
@@ -49,7 +50,7 @@ class ExtensionSchema:
 
     @property
     def migrations_dir(self) -> Path:
-        return self.schema_path.parent / "migrations"
+        return self.migrations or self.schema_path.parent / "migrations"
 
 
 def load(directory: Path) -> Optional[ExtensionSchema]:
@@ -60,7 +61,7 @@ def load(directory: Path) -> Optional[ExtensionSchema]:
         raise ExtensionSchemaError(str(e)) from e
     if manifest.schema is None:
         return None
-    return ExtensionSchema(manifest.name, manifest.prefix, manifest.version, manifest.schema)
+    return ExtensionSchema(manifest.name, manifest.prefix, manifest.version, manifest.schema, manifest.migrations)
 
 
 def _state(klass: Klass):
@@ -68,19 +69,24 @@ def _state(klass: Klass):
     return (klass.has_pool, klass.is_enum, [copy.copy(f) for f in klass.fields])
 
 
-def apply(schema: Schema, extensions: List[ExtensionSchema]) -> List[str]:
+def apply(schema: Schema, extensions: List[ExtensionSchema], core_renames: Optional[Dict[str, str]] = None) -> List[str]:
     """
     Runs each extension's extend() on `schema` in order, marking the classes
     it adds and synthesizing their parents' child lists. Returns every rule
-    broken (empty on success). The schema isn't linked yet.
+    broken (empty on success). The schema isn't linked yet. `core_renames`
+    (old -> current class name, from core's migrations) turns a reference
+    to a since-renamed core class into a precise message.
     """
     errors: List[str] = []
     for ext in extensions:
         before: Dict[str, tuple] = {k.name: _state(k) for k in schema.classes}
         try:
-            spec = importlib.util.spec_from_file_location(f"le_extension_schema_{ext.name}", ext.schema_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            # Compiled from source every time, never from __pycache__: an
+            # edit within the same second that keeps the file's size (a
+            # VERSION bump, say) would otherwise load the stale bytecode.
+            module = types.ModuleType(f"le_extension_schema_{ext.name}")
+            module.__file__ = str(ext.schema_path)
+            exec(compile(ext.schema_path.read_text(), str(ext.schema_path), "exec"), module.__dict__)
         except Exception as e:  # the module's own error, whatever it is
             errors.append(f"extension {ext.name}: couldn't load {ext.schema_path}: {e}")
             continue
@@ -98,11 +104,11 @@ def apply(schema: Schema, extensions: List[ExtensionSchema]) -> List[str]:
             errors.append(f"extension {ext.name}: {ext.schema_path} must define extend(schema)")
             continue
         module.extend(schema)
-        errors += _check_and_mark(schema, ext, before)
+        errors += _check_and_mark(schema, ext, before, core_renames or {})
     return errors
 
 
-def _check_and_mark(schema: Schema, ext: ExtensionSchema, before: Dict[str, tuple]) -> List[str]:
+def _check_and_mark(schema: Schema, ext: ExtensionSchema, before: Dict[str, tuple], core_renames: Dict[str, str]) -> List[str]:
     errors: List[str] = []
     where = f"extension {ext.name}"
     names = [k.name for k in schema.classes]
@@ -140,6 +146,11 @@ def _check_and_mark(schema: Schema, ext: ExtensionSchema, before: Dict[str, tupl
     by_name = {k.name: k for k in schema.classes}
     for klass in added:
         for field in klass.fields:
+            if field.type not in by_name and field.type in core_renames:
+                errors.append(
+                    f"{where}: a core migration renamed {field.type} to {core_renames[field.type]} - update {ext.schema_path.name}: "
+                    f"{klass.name}.{field.name} (its stored data already follows the rename; no migration needed)"
+                )
             if field.parent is None:
                 continue
             parent = by_name.get(field.type)

@@ -31,7 +31,7 @@ import copy
 import pprint
 import re
 from dataclasses import dataclass, field
-import importlib.util
+import types
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -318,6 +318,11 @@ class Migration:
     to_version: str
     description: str
     ops: List[Op] = field(default_factory=list)
+    # An extension's migration: its name, and the core schema version it was
+    # written against (filled in by makemigration), which places it in the
+    # merged core-and-extension plan.
+    extension: Optional[str] = None
+    depends_on_core: Optional[str] = None
     _path: Optional[Path] = field(default=None, repr=False)
 
     def label(self) -> str:
@@ -336,9 +341,11 @@ def load_migrations(migrations_dir: Path) -> List[Migration]:
     files = sorted(p for p in migrations_dir.iterdir() if _FILE_RE.match(p.name))
     migrations = []
     for path in files:
-        spec = importlib.util.spec_from_file_location(f"migration_{path.stem}", path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        # From source every time, never __pycache__ (a quick edit keeping the
+        # file's size would load stale bytecode).
+        module = types.ModuleType(f"migration_{path.stem}")
+        module.__file__ = str(path)
+        exec(compile(path.read_text(), str(path), "exec"), module.__dict__)
         migration = getattr(module, "migration", None)
         if not isinstance(migration, Migration):
             raise MigrationError(f"{path}: no `migration = Migration(...)`")
@@ -378,18 +385,27 @@ def diff_summary(a: Dict[str, Any], b: Dict[str, Any], limit: int = 12) -> List[
     return lines
 
 
-def replay(baseline: Dict[str, Any], migrations: List[Migration]) -> List[Tuple[Migration, Dict[str, Any]]]:
-    """Apply each migration's ops symbolically, returning the descriptor after each one."""
+def replay(
+    baseline: Dict[str, Any], migrations: List[Migration], external: frozenset = frozenset(), before_op=None
+) -> List[Tuple[Migration, Dict[str, Any]]]:
+    """
+    Apply each migration's ops symbolically, returning the descriptor after
+    each one. `external` names classes outside the descriptor that fields
+    may refer to (core classes, for an extension's chain); `before_op(desc,
+    op)` may raise MigrationError to refuse an op.
+    """
     desc = copy.deepcopy(baseline)
     results = []
     for migration in migrations:
         for index, op in enumerate(migration.ops):
             try:
+                if before_op is not None:
+                    before_op(desc, op)
                 op.apply(desc)
             except MigrationError as e:
                 raise MigrationError(f"{migration.label()}: op {index + 1} ({type(op).__name__}): {e}") from None
         desc["version"] = migration.to_version
-        _check_references(desc, migration)
+        _check_references(desc, migration, external)
         results.append((migration, copy.deepcopy(desc)))
     return results
 
@@ -400,8 +416,8 @@ def _typed(field: Dict[str, Any]) -> List[Dict[str, Any]]:
     return field.get("options", []) if field["kind"] == "owner" else [field]
 
 
-def _check_references(desc: Dict[str, Any], migration: Migration) -> None:
-    names = {k["name"] for k in _classes(desc)}
+def _check_references(desc: Dict[str, Any], migration: Migration, external: frozenset = frozenset()) -> None:
+    names = {k["name"] for k in _classes(desc)} | external
     for klass in _classes(desc):
         if klass["kind"] == "enum":
             continue
@@ -463,6 +479,178 @@ def check_migrations(current: Dict[str, Any], history_dir: Path, migrations_dir:
     if d.fingerprint(final) != d.fingerprint(current):
         errors.append("the migration chain doesn't reach the current schema:\n  " + "\n  ".join(diff_summary(final, current)))
     return errors
+
+
+# --- Extension chains ---------------------------------------------------------------
+#
+# An extension's chain is checked like core's, against its own snapshots and
+# descriptor, plus three rules (docs/NATIVE_FILE_FORMAT_RESEARCH.md §4.8):
+# - its ops may only change its own classes;
+# - each migration records the core version it was written against, never
+#   decreasing along the chain and never newer than the current core;
+# - a core migration that renamed a class the extension refers to has
+#   already carried the extension's data along, so the extension's
+#   descriptor is compared after following those renames - schema_ext.py
+#   is updated, but no extension migration is needed.
+
+
+def core_renames_since(core_migrations: List[Migration], since: Optional[str]) -> Dict[str, str]:
+    """old class name -> current name, for every core RenameClass in a migration past `since`."""
+    renames: Dict[str, str] = {}
+    for migration in core_migrations:
+        if since is not None and d.parse_version(migration.to_version) <= d.parse_version(since):
+            continue
+        for op in migration.ops:
+            if isinstance(op, RenameClass):
+                for old, new in list(renames.items()):
+                    if new == op.old:
+                        renames[old] = op.new
+                renames.setdefault(op.old, op.new)
+    return renames
+
+
+def retarget(desc: Dict[str, Any], renames: Dict[str, str]) -> Dict[str, Any]:
+    """`desc` with every reference to a renamed class following the rename."""
+    if not renames:
+        return desc
+    desc = copy.deepcopy(desc)
+    for klass in _classes(desc):
+        if klass["kind"] != "enum":
+            for f in klass["fields"]:
+                for typed in _typed(f):
+                    if typed.get("type") in renames:
+                        typed["type"] = renames[typed["type"]]
+    return desc
+
+
+def _op_classes(op: Op) -> Tuple[List[str], List[str]]:
+    """(existing classes the op changes, classes it creates)."""
+    if isinstance(op, AddClass):
+        return [], [op.klass["name"]]
+    if isinstance(op, RenameClass):
+        return [op.old], [op.new]
+    if isinstance(op, RemoveClass):
+        return [op.name], []
+    if hasattr(op, "enum"):
+        return [op.enum], []
+    if hasattr(op, "klass") and isinstance(op.klass, str):
+        return [op.klass], []
+    return [], []
+
+
+@dataclass
+class ExtensionChainContext:
+    """What checking an extension's chain needs to know about core."""
+
+    core_version: str
+    core_migrations: List[Migration]
+    core_class_names: frozenset  # every class core has, or had in any snapshot
+
+
+def check_extension_migrations(
+    current: Dict[str, Any], history_dir: Path, migrations_dir: Path, extension: str, prefix: str, core: ExtensionChainContext
+) -> List[str]:
+    """Every error in an extension's migration chain (see the section comment)."""
+    snapshots = d.read_snapshots(history_dir)
+    if not snapshots:
+        return []
+    try:
+        migrations = load_migrations(migrations_dir)
+    except MigrationError as e:
+        return [str(e)]
+
+    errors: List[str] = []
+    versions = sorted(snapshots, key=d.parse_version)
+    expected_from = versions[0]
+    previous_core = None
+    for migration in migrations:
+        where = migration.label()
+        if migration.extension != extension:
+            errors.append(f"{where}: an extension migration must say extension={extension!r}")
+        if migration.depends_on_core is None:
+            errors.append(f"{where}: missing depends_on_core (the core schema version it was written against)")
+        else:
+            dep = d.parse_version(migration.depends_on_core)
+            if previous_core is not None and dep < d.parse_version(previous_core):
+                errors.append(f"{where}: depends_on_core {migration.depends_on_core} is older than the previous migration's {previous_core}")
+            if dep > d.parse_version(core.core_version):
+                errors.append(f"{where}: depends_on_core {migration.depends_on_core} is newer than this core schema ({core.core_version})")
+            previous_core = migration.depends_on_core
+        if migration.from_version != expected_from:
+            errors.append(f"{where}: migrates from {migration.from_version}, but the chain is at {expected_from}")
+            return errors
+        if migration.to_version not in snapshots:
+            errors.append(f"{where}: no schema snapshot for its target version {migration.to_version}")
+            return errors
+        expected_from = migration.to_version
+    for version in versions[1:]:
+        if version not in {m.to_version for m in migrations}:
+            errors.append(
+                f"schema version {version} has no migration - run "
+                f"`codegen --schema <schema.py> --extension <dir> --target makemigration --migrate-extension {extension} --name <what_changed>`"
+            )
+    if errors:
+        return errors
+
+    def own_classes_only(desc, op):
+        existing, created = _op_classes(op)
+        for name in existing:
+            if not _has_class(desc, name):
+                raise MigrationError(f"{name} isn't one of {extension}'s classes - an extension's migrations may only change its own classes")
+        for name in created:
+            if not name.startswith(prefix):
+                raise MigrationError(f"{name} must be named with {extension}'s prefix {prefix}")
+
+    try:
+        results = replay(snapshots[versions[0]]["descriptor"], migrations, core.core_class_names, own_classes_only)
+    except MigrationError as e:
+        return [str(e)]
+    for migration, desc in results:
+        snapshot = snapshots[migration.to_version]
+        if d.fingerprint(desc) != snapshot["fingerprint"]:
+            diff = diff_summary(desc, snapshot["descriptor"])
+            return [f"{migration.label()} doesn't produce schema {migration.to_version}; still to account for:\n  " + "\n  ".join(diff)]
+    final = results[-1][1] if results else snapshots[versions[0]]["descriptor"]
+    aligned_with = migrations[-1].depends_on_core if migrations else snapshots[versions[0]].get("core_version")
+    final = retarget(final, core_renames_since(core.core_migrations, aligned_with))
+    if d.fingerprint(final) != d.fingerprint(current):
+        errors.append("the migration chain doesn't reach the current schema:\n  " + "\n  ".join(diff_summary(final, current)))
+    return errors
+
+
+def merged_runtime_table(
+    core_migrations: List[Migration], core_version: str, extension_chains: List[Tuple[str, List[Migration]]]
+) -> List[Tuple[str, str, str, str, str, str, str, str]]:
+    """
+    (to_version, kind, class, old, new, description, extension, depends_on_core)
+    for every op with a runtime effect, in merged-plan order: core migrations
+    in order, each extension migration right after the core migration that
+    reached its depends_on_core (before the next one), extensions tied at the
+    same point in name order. Core rows have an empty extension.
+    """
+    core_versions = [core_migrations[0].from_version] if core_migrations else [core_version]
+    core_versions += [m.to_version for m in core_migrations]
+
+    def position(version: Optional[str]) -> int:
+        if version is None:
+            return len(core_versions) - 1
+        target = d.parse_version(version)
+        return sum(1 for v in core_versions if d.parse_version(v) <= target) - 1
+
+    keyed = []
+    for index, migration in enumerate(core_migrations):
+        keyed.append(((index + 1, 0, "", 0), migration, ""))
+    for name, migrations in extension_chains:
+        for index, migration in enumerate(migrations):
+            keyed.append(((position(migration.depends_on_core), 1, name, index), migration, name))
+    keyed.sort(key=lambda entry: entry[0])
+
+    table = []
+    for _, migration, extension in keyed:
+        for op in migration.ops:
+            for kind, klass, old, new in op.runtime_entries():
+                table.append((migration.to_version, kind, klass, old, new, migration.description, extension, migration.depends_on_core or ""))
+    return table
 
 
 def runtime_table(migrations: List[Migration]) -> List[Tuple[str, str, str, str, str, str]]:
@@ -576,13 +764,24 @@ def draft_ops(old: Dict[str, Any], new: Dict[str, Any], ask_rename=None) -> List
     return todos + renames + adds + changes + removes
 
 
-def render_migration(migration_from: str, migration_to: str, description: str, ops: List[Op]) -> str:
+def render_migration(
+    migration_from: str,
+    migration_to: str,
+    description: str,
+    ops: List[Op],
+    extension: Optional[str] = None,
+    depends_on_core: Optional[str] = None,
+) -> str:
     lines = [
         f'"""Migration {migration_from} -> {migration_to}: {description}"""',
         "",
         "from codegen.migration import *",
         "",
         "migration = Migration(",
+    ]
+    if extension is not None:
+        lines += [f"    extension={extension!r},", f"    depends_on_core={depends_on_core!r},  # filled in by makemigration"]
+    lines += [
         f"    from_version={migration_from!r},",
         f"    to_version={migration_to!r},",
         f"    description={description!r},",

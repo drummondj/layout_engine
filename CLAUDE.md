@@ -177,7 +177,11 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   doesn't own read-only, parents' child lists synthesized. Its classes stay
   out of the core descriptor (its own descriptor and `schema_history/`), and
   `.led` files list the extensions they hold objects of (SCHM
-  `"extensions"`), refusing a missing or newer one on load. `examples/extensions/`
+  `"extensions"`), refusing a missing or newer one on load. Its migrations
+  (`Migration(extension=, depends_on_core=)`, drafted with
+  `--target makemigration --migrate-extension <name>`) may only change its
+  own classes and merge into one generated table, each right after the
+  core migration it depends on. `examples/extensions/`
   holds the compiled (`hello_ext`) and script (`hello_script`) examples
   CI builds. `docs/EXTENSION_SDK.md` is the authors' reference and the
   API changelog - update it with any change to the SDK.

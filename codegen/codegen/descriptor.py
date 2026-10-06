@@ -221,7 +221,8 @@ def read_snapshots(history_dir: Path) -> Dict[str, Dict[str, Any]]:
     return snapshots
 
 
-def write_snapshot(history_dir: Path, descriptor: Dict[str, Any]) -> Path:
+def write_snapshot(history_dir: Path, descriptor: Dict[str, Any], core_version: Optional[str] = None) -> Path:
+    """`core_version`: for an extension's snapshot, the core schema version it was taken against."""
     history_dir.mkdir(parents=True, exist_ok=True)
     path = snapshot_path(history_dir, descriptor["version"])
     snapshot = {
@@ -229,6 +230,8 @@ def write_snapshot(history_dir: Path, descriptor: Dict[str, Any]) -> Path:
         "fingerprint": fingerprint(descriptor),
         "descriptor": descriptor,
     }
+    if core_version is not None:
+        snapshot["core_version"] = core_version
     with open(path, "w") as f:
         json.dump(snapshot, f, indent=2)
         f.write("\n")
@@ -245,13 +248,18 @@ class HistoryCheck:
 
 
 def check_history(
-    descriptor: Dict[str, Any], history_dir: Path, update_snapshot: bool = False, bump_hint: str = "Bump version= in the Schema(...) call."
+    descriptor: Dict[str, Any],
+    history_dir: Path,
+    update_snapshot: bool = False,
+    bump_hint: str = "Bump version= in the Schema(...) call.",
+    align=None,
 ) -> HistoryCheck:
     """
     Compare `descriptor` against the snapshots in `history_dir`:
 
     - no snapshots yet: record this version as the baseline;
-    - a snapshot for this version exists with the same fingerprint: fine;
+    - a snapshot for this version exists with the same fingerprint (after
+      `align`, if given): fine;
     - a snapshot for this version exists with a different fingerprint: the
       schema changed without a version bump - an error, unless
       `update_snapshot` (for a version that hasn't been released or
@@ -277,7 +285,9 @@ def check_history(
 
     existing = snapshots.get(version)
     if existing is not None:
-        if existing["fingerprint"] == current_fp:
+        # align(snapshot) brings an extension's snapshot up to date with core
+        # classes renamed since it was taken, which aren't its own change.
+        if existing["fingerprint"] == current_fp or (align is not None and fingerprint(align(existing)) == current_fp):
             return result
         if update_snapshot:
             result.write = True
