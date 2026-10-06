@@ -15,4 +15,3 @@ cmake = "le_extension.cmake"
 schema = "schema_ext.py"
 tcl_procs = ["tcl/hello_ext.tcl"]
 tcl_tests = ["tests/hello_ext_test.tcl"]
-resources = ["fonts/"]

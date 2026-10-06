@@ -5,6 +5,7 @@
 
 #include <le/extension_gui.hpp>
 
+#include <IconsLucide.h>
 #include <imgui.h>
 
 namespace
@@ -31,9 +32,6 @@ namespace
         WindowState &state = ctx.data<WindowState>();
         if (const le::ext::ReadView view = ctx.read(); view.valid())
             state.library_count = static_cast<int>(view.root().get_library_ids().size());
-        ImGui::PushFont(ctx.font("heading"));
-        ImGui::TextUnformatted("Hello");
-        ImGui::PopFont();
         ImGui::Text("Libraries: %d", state.library_count);
         ImGui::Text("Libraries added this session: %d", ctx.data<hello::State>().libraries_added);
         ImGui::Text("Selected objects: %d", ctx.selection_count());
@@ -59,11 +57,7 @@ void le_ext_hello_ext_register_gui(le::ext::GuiRegistry &registry)
 {
     registry.add_window({.title = "Hello", .dock = le::ext::Dock::RIGHT, .draw = draw_hello_window});
     registry.add_menu_item({.label = "Add a library", .action = add_library});
-    registry.add_toolbar_button({.icon = "H", .label = "Hello", .tooltip = "Add a library (hello_ext) - H", .action = add_library});
+    registry.add_toolbar_button({.icon = ICON_LC_BOOK_PLUS, .label = "Hello", .tooltip = "Add a library (hello_ext) - H", .action = add_library});
     registry.add_key_binding({.key = ImGuiKey_H, .action = add_library});
     registry.add_settings_panel(draw_settings);
-    // The toolbar icon "H" is a glyph merged into the icon fonts, from a
-    // font shipped as a resource; the window heading uses the same font.
-    registry.add_icon_glyphs("fonts/Quicksand-Medium.ttf", {'H', 'H', 0});
-    registry.add_font("heading", "fonts/Quicksand-Medium.ttf", 24.0f);
 }

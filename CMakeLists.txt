@@ -721,7 +721,9 @@ add_library(gui STATIC
     src/gui/components/design_saver.cpp
 )
 target_include_directories(gui PUBLIC src/gui)
-target_include_directories(gui PRIVATE ${icon_font_header_SOURCE_DIR} ${portable_file_dialogs_header_SOURCE_DIR})
+# IconsLucide.h is PUBLIC: Lucide is the GUI's icon set, extensions' too.
+target_include_directories(gui PUBLIC ${icon_font_header_SOURCE_DIR})
+target_include_directories(gui PRIVATE ${portable_file_dialogs_header_SOURCE_DIR})
 # le_gui.cpp's own font-setup code loads this from disk at runtime
 # (ImGui merges icon glyphs into the text font atlas by loading a real
 # .ttf file, not compiling one in) - a build-tree path is fine for this
