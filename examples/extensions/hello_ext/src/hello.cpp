@@ -45,6 +45,22 @@ namespace hello
     }
 }
 
-void le_ext_hello_ext_register(le::ext::Registry &)
+namespace
 {
+    // hello_ext's section of settings.json: {"version": 1, "library_name": "..."}.
+    nlohmann::json save_settings(le::ext::ExtensionContext &ctx)
+    {
+        return {{"library_name", ctx.data<hello::State>().library_name}};
+    }
+
+    void load_settings(le::ext::ExtensionContext &ctx, const nlohmann::json &section, int /*version*/)
+    {
+        if (section.contains("library_name") && section["library_name"].is_string())
+            ctx.data<hello::State>().library_name = section["library_name"].get<std::string>();
+    }
+}
+
+void le_ext_hello_ext_register(le::ext::Registry &registry)
+{
+    registry.add_settings({.version = 1, .save = save_settings, .load = load_settings});
 }

@@ -21,6 +21,7 @@
 #include "../pipelines/pipeline_options.hpp"
 #include "../pipelines/via_shapes.hpp"
 #include "le_handle.hpp"
+#include "le/extension.hpp"
 // Generated apply_<snake>_snapshot(Root&, <Klass>Id, const <Klass>Data&)
 // helpers - a real standalone header, unlike every
 // other generated/api/*.inc fragment, so it's included here with the
@@ -757,6 +758,28 @@ namespace
         for (const auto &[row_name, color] : handle->layer_color_overrides())
             layer_colors[row_name] = hex_color(color);
         j["layer_colors"] = layer_colors;
+
+        // Each extension's section, with its own format version; sections of
+        // extensions this build lacks are written back as they were read.
+        nlohmann::json extensions =
+            handle->unknown_extension_settings_json.empty() ? nlohmann::json::object() : nlohmann::json::parse(handle->unknown_extension_settings_json);
+        for (const auto &[name, section] : le::ext::registry().settings())
+        {
+            if (!section.save)
+                continue;
+            le::ext::ExtensionContext ctx(const_cast<LeHandle *>(handle), name);
+            nlohmann::json body = section.save(ctx);
+            if (!body.is_object())
+            {
+                spdlog::warn("settings: extension {}'s section isn't a JSON object; not saved", name);
+                continue;
+            }
+            body["version"] = section.version;
+            extensions[name] = std::move(body);
+        }
+        if (!extensions.empty())
+            j["extensions"] = std::move(extensions);
+
         if (!handle->unknown_settings_json.empty())
         {
             const nlohmann::json unknown = nlohmann::json::parse(handle->unknown_settings_json);
@@ -827,6 +850,38 @@ namespace
             handle->set_flightline_max_fanout(static_cast<int>(*v));
         if (const auto v = number(j, "max_concurrency"))
             set_max_concurrency_unlocked(handle, static_cast<int32_t>(*v));
+        handle->unknown_extension_settings_json.clear();
+        if (j.contains("extensions"))
+        {
+            if (!j["extensions"].is_object())
+                warn("extensions");
+            else
+            {
+                nlohmann::json unknown = nlohmann::json::object();
+                for (const auto &[name, body] : j["extensions"].items())
+                {
+                    const auto &sections = le::ext::registry().settings();
+                    const auto section = sections.find(name);
+                    if (section == sections.end() || !section->second.load)
+                    {
+                        unknown[name] = body;
+                        continue;
+                    }
+                    if (!body.is_object())
+                    {
+                        spdlog::warn("load_settings: {}: ignoring extension {}'s section, which isn't an object", source, name);
+                        continue;
+                    }
+                    const int version = body.contains("version") && body["version"].is_number_integer() ? body["version"].get<int>() : 1;
+                    nlohmann::json keys = body;
+                    keys.erase("version");
+                    le::ext::ExtensionContext ctx(handle, name);
+                    section->second.load(ctx, keys, version);
+                }
+                if (!unknown.empty())
+                    handle->unknown_extension_settings_json = unknown.dump();
+            }
+        }
         if (j.contains("confirm_overwrite"))
         {
             if (j["confirm_overwrite"].is_boolean())

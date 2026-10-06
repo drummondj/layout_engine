@@ -23,7 +23,7 @@ namespace le::gui
         }
     }
 
-    void draw_settings_panel(GuiProvider &provider)
+    void draw_settings_panel(GuiProvider &provider, const std::function<void()> &extra)
     {
         const GuiProvider::State::Settings &settings = provider.state().settings;
         static constexpr const char *kNoTechnology = "Read a technology LEF first - grid spacing is set in microns";
@@ -159,5 +159,7 @@ namespace le::gui
                 status = "Loaded " + *path;
             }
         }
+        if (extra)
+            extra();
     }
 }

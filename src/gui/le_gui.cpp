@@ -672,6 +672,63 @@ namespace le::gui
             ImGui::AddSettingsHandler(&handler);
         }
 
+        // Each extension's Settings panel section, collapsible, under its name.
+        void draw_extension_settings(GuiProvider &provider, LeHandle *handle)
+        {
+            if (extension_settings_panels().empty())
+                return;
+            ImGui::Spacing();
+            ImGui::SeparatorText("Extensions");
+            for (const ExtensionSettingsPanel &panel : extension_settings_panels())
+            {
+                ImGui::PushID(panel.extension.c_str());
+                if (ImGui::CollapsingHeader(panel.extension.c_str()))
+                {
+                    ext::ExtGuiContext context(provider, handle, panel.extension);
+                    panel.draw(context);
+                }
+                ImGui::PopID();
+            }
+        }
+
+        // Extensions' toolbar buttons for the current mode, after the core's.
+        void draw_extension_toolbar_buttons(GuiProvider &provider, LeHandle *handle)
+        {
+            const int32_t mode = provider.state().mode;
+            const uint32_t mode_bit = mode == LE_MODE_EDIT ? ext::TOOLBAR_EDIT : mode == LE_MODE_RULER ? ext::TOOLBAR_RULER : ext::TOOLBAR_SELECT;
+            for (const ExtensionToolbarButton &registered : extension_toolbar_buttons())
+            {
+                const ext::GuiToolbarButton &button = registered.button;
+                if ((button.modes & mode_bit) == 0)
+                    continue;
+                ImGui::SameLine();
+                ImGui::PushID(&registered);
+                if (draw_toolbar_button(button.icon.c_str(), button.label.c_str(), button.tooltip.c_str()) && button.action)
+                {
+                    ext::ExtGuiContext context(provider, handle, registered.extension);
+                    button.action(context);
+                }
+                ImGui::PopID();
+            }
+        }
+
+        // Extensions' shortcuts - while the design view has the keyboard
+        // (see forward_keyboard_input's `active`).
+        void dispatch_extension_keys(GuiProvider &provider, LeHandle *handle)
+        {
+            const ImGuiIO &io = ImGui::GetIO();
+            for (const ExtensionKeyBinding &registered : extension_key_bindings())
+            {
+                const ext::GuiKeyBinding &binding = registered.binding;
+                if (ImGui::IsKeyPressed(binding.key, false) && io.KeyCtrl == binding.ctrl && io.KeyShift == binding.shift && io.KeyAlt == binding.alt &&
+                    binding.action)
+                {
+                    ext::ExtGuiContext context(provider, handle, registered.extension);
+                    binding.action(context);
+                }
+            }
+        }
+
         // Every panel but the design view, core ones first, then each
         // extension's windows in registration order.
         PanelList make_panels(GuiProvider &provider, LeHandle *handle)
@@ -680,7 +737,9 @@ namespace le::gui
             panels.add({kBrowserWindowTitle, kBrowserWindowTitle, DockSlot::LEFT, [&provider] { draw_library_browser(provider); }});
             panels.add({kPropertiesWindowTitle, kPropertiesWindowTitle, DockSlot::RIGHT, [&provider] { draw_property_viewer(provider); }});
             panels.add({kLayersWindowTitle, kLayersWindowTitle, DockSlot::RIGHT, [&provider] { draw_layer_manager(provider); }});
-            panels.add({kSettingsWindowTitle, kSettingsWindowTitle, DockSlot::RIGHT, [&provider] { draw_settings_panel(provider); }});
+            panels.add({kSettingsWindowTitle, kSettingsWindowTitle, DockSlot::RIGHT, [&provider, handle] {
+                            draw_settings_panel(provider, [&provider, handle] { draw_extension_settings(provider, handle); });
+                        }});
             // The current mode's instructions, below the Browser.
             panels.add({kInfoWindowTitle, kInfoWindowTitle, DockSlot::LEFT_BOTTOM, [&provider] { draw_info_panel(provider); }});
             for (const ExtensionWindow &registered : extension_windows())
@@ -1098,6 +1157,9 @@ namespace le::gui
             const std::string lucide_font_path = resolve_font_path(LE_LUCIDE_FONT_PATH, "lucide.ttf", "toolbar icons will render blank");
             if (!lucide_font_path.empty())
                 io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 16.0f, &icon_font_config, icon_ranges);
+            // Extensions' icon glyphs merge into each icon font right after
+            // it (merging targets the font added last).
+            merge_extension_icon_glyphs(io.Fonts, 16.0f);
 
             // A second, standalone (not MergeMode) copy of the same
             // Lucide font at 32px - components/icon_font.hpp's own
@@ -1124,10 +1186,13 @@ namespace le::gui
                 // away sub-pixel centering accuracy and is a likely
                 // source of the reported ~1px residual right-bias).
                 large_icon_font() = io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 32.0f, nullptr, icon_ranges);
+                merge_extension_icon_glyphs(io.Fonts, 32.0f);
                 // components/icon_font.hpp's small_icon_font() - the
                 // secondary toolbar's icons.
                 small_icon_font() = io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 20.0f, nullptr, icon_ranges);
+                merge_extension_icon_glyphs(io.Fonts, 20.0f);
             }
+            add_extension_fonts(io.Fonts);
 
             ImGui_ImplGlfw_InitForOpenGL(window, true);
             ImGui_ImplOpenGL3_Init("#version 150");
@@ -1424,7 +1489,7 @@ namespace le::gui
                 // Called unconditionally - draw_mode_toolbar's own
                 // le_get_mode/le_is_move_armed calls are std::shared_lock
                 // now (panels.draw()'s comment further up).
-                draw_mode_toolbar(provider);
+                draw_mode_toolbar(provider, [&provider, handle] { draw_extension_toolbar_buttons(provider, handle); });
                 draw_child_edge(ImGuiDir_Down);
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
@@ -1722,7 +1787,12 @@ namespace le::gui
                 // io.WantTextInput, not io.WantCaptureKeyboard, is the
                 // right flag here.
                 if (!input_blocked)
-                    forward_keyboard_input(provider, layout_view_hovered && !ImGui::GetIO().WantTextInput, escape_consumed);
+                {
+                    const bool keyboard_active = layout_view_hovered && !ImGui::GetIO().WantTextInput;
+                    forward_keyboard_input(provider, keyboard_active, escape_consumed);
+                    if (keyboard_active)
+                        dispatch_extension_keys(provider, handle);
+                }
 
                 // Called unconditionally - draw_status_bar's own
                 // le_get_mode/le_tooltip_message/le_snapped_mouse_position/

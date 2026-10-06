@@ -5,8 +5,12 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
+#include <system_error>
 
 namespace le::gui
 {
@@ -22,6 +26,63 @@ namespace le::gui
         {
             static std::vector<ExtensionMenuItem> items;
             return items;
+        }
+
+        std::vector<ExtensionToolbarButton> &toolbar_storage()
+        {
+            static std::vector<ExtensionToolbarButton> buttons;
+            return buttons;
+        }
+
+        std::vector<ExtensionKeyBinding> &key_storage()
+        {
+            static std::vector<ExtensionKeyBinding> bindings;
+            return bindings;
+        }
+
+        std::vector<ExtensionSettingsPanel> &settings_storage()
+        {
+            static std::vector<ExtensionSettingsPanel> panels;
+            return panels;
+        }
+
+        struct IconGlyphs
+        {
+            std::string extension;
+            std::string file;
+            std::vector<ImWchar> ranges;
+        };
+        std::vector<IconGlyphs> &icon_storage()
+        {
+            static std::vector<IconGlyphs> glyphs;
+            return glyphs;
+        }
+
+        struct NamedFont
+        {
+            std::string extension;
+            std::string name;
+            std::string file;
+            float size_px;
+            ImFont *loaded = nullptr; // in the current atlas
+        };
+        std::vector<NamedFont> &font_storage()
+        {
+            static std::vector<NamedFont> fonts;
+            return fonts;
+        }
+
+        // An extension's font file, or "" (with a warning) if it isn't there.
+        std::string font_path(const std::string &extension, const std::string &file)
+        {
+            const std::string path = ext::registry().resource(extension, file);
+            std::error_code ec;
+            if (path.empty() || !std::filesystem::exists(path, ec))
+            {
+                spdlog::warn("gui: extension {}'s font {} wasn't found{}", extension, file, path.empty() ? " (its directory isn't known)" : " at " + path);
+                return {};
+            }
+            return path;
         }
     }
 
@@ -146,10 +207,52 @@ namespace le::gui
         return menus;
     }
 
+    const std::vector<ExtensionToolbarButton> &extension_toolbar_buttons() { return toolbar_storage(); }
+    const std::vector<ExtensionKeyBinding> &extension_key_bindings() { return key_storage(); }
+    const std::vector<ExtensionSettingsPanel> &extension_settings_panels() { return settings_storage(); }
+
+    bool is_core_key(ImGuiKey key)
+    {
+        static constexpr ImGuiKey kCoreKeys[] = {
+            ImGuiKey_Z, ImGuiKey_F, ImGuiKey_D, ImGuiKey_S, ImGuiKey_E, ImGuiKey_R, ImGuiKey_M, ImGuiKey_0, ImGuiKey_1, ImGuiKey_2,
+            ImGuiKey_3, ImGuiKey_4, ImGuiKey_5, ImGuiKey_6, ImGuiKey_7, ImGuiKey_8, ImGuiKey_9, ImGuiKey_LeftArrow, ImGuiKey_RightArrow,
+            ImGuiKey_UpArrow, ImGuiKey_DownArrow, ImGuiKey_Escape, ImGuiKey_Delete,
+        };
+        return std::ranges::find(kCoreKeys, key) != std::end(kCoreKeys);
+    }
+
+    void merge_extension_icon_glyphs(ImFontAtlas *atlas, float size_px)
+    {
+        for (const IconGlyphs &glyphs : icon_storage())
+        {
+            const std::string path = font_path(glyphs.extension, glyphs.file);
+            if (path.empty())
+                continue;
+            ImFontConfig config;
+            config.MergeMode = true;
+            config.PixelSnapH = true;
+            atlas->AddFontFromFileTTF(path.c_str(), size_px, &config, glyphs.ranges.data());
+        }
+    }
+
+    void add_extension_fonts(ImFontAtlas *atlas)
+    {
+        for (NamedFont &font : font_storage())
+        {
+            const std::string path = font_path(font.extension, font.file);
+            font.loaded = path.empty() ? nullptr : atlas->AddFontFromFileTTF(path.c_str(), font.size_px);
+        }
+    }
+
     void clear_extension_gui_registrations()
     {
         windows_storage().clear();
         menu_items_storage().clear();
+        toolbar_storage().clear();
+        key_storage().clear();
+        settings_storage().clear();
+        icon_storage().clear();
+        font_storage().clear();
     }
 }
 
@@ -165,8 +268,55 @@ namespace le::ext
         gui::menu_items_storage().push_back({extension_name_, std::move(item)});
     }
 
+    void GuiRegistry::add_toolbar_button(GuiToolbarButton button)
+    {
+        gui::toolbar_storage().push_back({extension_name_, std::move(button)});
+    }
+
+    void GuiRegistry::add_key_binding(GuiKeyBinding binding)
+    {
+        if (gui::is_core_key(binding.key))
+        {
+            spdlog::warn("gui: extension {}'s shortcut on {} is ignored - Layout Engine uses that key", extension_name_, ImGui::GetKeyName(binding.key));
+            return;
+        }
+        for (const gui::ExtensionKeyBinding &other : gui::key_storage())
+            if (other.binding.key == binding.key && other.binding.ctrl == binding.ctrl && other.binding.shift == binding.shift && other.binding.alt == binding.alt)
+            {
+                spdlog::warn("gui: extension {}'s shortcut on {} is ignored - extension {} already uses it", extension_name_, ImGui::GetKeyName(binding.key),
+                             other.extension);
+                return;
+            }
+        gui::key_storage().push_back({extension_name_, binding});
+    }
+
+    void GuiRegistry::add_settings_panel(void (*draw)(ExtGuiContext &))
+    {
+        gui::settings_storage().push_back({extension_name_, draw});
+    }
+
+    void GuiRegistry::add_icon_glyphs(std::string file, std::vector<ImWchar> ranges)
+    {
+        if (ranges.empty() || ranges.back() != 0)
+            ranges.push_back(0);
+        gui::icon_storage().push_back({extension_name_, std::move(file), std::move(ranges)});
+    }
+
+    void GuiRegistry::add_font(std::string name, std::string file, float size_px)
+    {
+        gui::font_storage().push_back({extension_name_, std::move(name), std::move(file), size_px});
+    }
+
+    ImFont *ExtGuiContext::font(const std::string &name) const
+    {
+        for (const gui::NamedFont &font : gui::font_storage())
+            if (font.extension == extension_name_ && font.name == name && font.loaded)
+                return font.loaded;
+        return ImGui::GetFont();
+    }
+
     ExtGuiContext::ExtGuiContext(gui::GuiProvider &provider, LeHandle *handle, std::string_view extension_name)
-        : provider_(provider), extension_(handle, extension_name)
+        : provider_(provider), extension_(handle, extension_name), extension_name_(extension_name)
     {
     }
 

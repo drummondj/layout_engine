@@ -88,7 +88,9 @@ namespace le::gui
         }
     }
 
-    void draw_mode_toolbar(GuiProvider &provider)
+    bool draw_toolbar_button(const char *icon, const char *label, const char *tooltip) { return draw_button(icon, label, tooltip); }
+
+    void draw_mode_toolbar(GuiProvider &provider, const std::function<void()> &extra)
     {
         const int32_t mode = provider.state().mode;
         switch (mode)
@@ -146,5 +148,7 @@ namespace le::gui
         default:
             break;
         }
+        if (extra)
+            extra();
     }
 }

@@ -7,7 +7,11 @@
 
 #include "le/extension.hpp"
 
+#include <imgui.h>
+
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace le::gui
 {
@@ -51,9 +55,14 @@ namespace le::ext
             return extension_.data<T>();
         }
 
+        /// @brief A font this extension registered with add_font, or the
+        /// default font if it isn't loaded (its file is missing).
+        ImFont *font(const std::string &name) const;
+
     private:
         gui::GuiProvider &provider_;
         ExtensionContext extension_;
+        std::string extension_name_;
     };
 
     /// @brief Where a window docks in the default layout.
@@ -82,6 +91,37 @@ namespace le::ext
         void (*action)(ExtGuiContext &) = nullptr;
     };
 
+    /// @brief The design view's modes, for GuiToolbarButton::modes.
+    enum ToolbarModes : uint32_t
+    {
+        TOOLBAR_SELECT = 1u << 0,
+        TOOLBAR_EDIT = 1u << 1,
+        TOOLBAR_RULER = 1u << 2,
+        TOOLBAR_ALL_MODES = TOOLBAR_SELECT | TOOLBAR_EDIT | TOOLBAR_RULER,
+    };
+
+    /// @brief A button in the design view's toolbar, after the core ones.
+    struct GuiToolbarButton
+    {
+        std::string icon;    // UTF-8: text, or a glyph from add_icon_glyphs
+        std::string label;   // under the icon
+        std::string tooltip; // on hover (empty: none)
+        uint32_t modes = TOOLBAR_ALL_MODES;
+        void (*action)(ExtGuiContext &) = nullptr;
+    };
+
+    /// @brief A shortcut, live while the mouse is over the design view (and
+    /// no text field has focus). Keys the core uses - Z F D S E R M 0-9,
+    /// the arrows, Escape and Delete, with any modifiers - are refused.
+    struct GuiKeyBinding
+    {
+        ImGuiKey key = ImGuiKey_None;
+        bool ctrl = false;
+        bool shift = false;
+        bool alt = false;
+        void (*action)(ExtGuiContext &) = nullptr;
+    };
+
     /// @brief One extension's GUI registrations, passed to its
     /// `le_ext_<name>_register_gui(GuiRegistry &)`.
     class GuiRegistry
@@ -91,6 +131,18 @@ namespace le::ext
 
         void add_window(GuiWindow window);
         void add_menu_item(GuiMenuItem item);
+        void add_toolbar_button(GuiToolbarButton button);
+        void add_key_binding(GuiKeyBinding binding);
+        /// @brief A collapsible section of the Settings panel - for this
+        /// extension's settings (Registry::add_settings saves them).
+        void add_settings_panel(void (*draw)(ExtGuiContext &));
+        /// @brief Merges glyphs (`ranges`: ImGui pairs, 0-terminated) from a
+        /// font file into the GUI's icon fonts, for toolbar icons and text.
+        /// `file` is relative to the extension's directory (a resource).
+        void add_icon_glyphs(std::string file, std::vector<ImWchar> ranges);
+        /// @brief A font for this extension's windows, fetched with
+        /// ExtGuiContext::font(name). `file` as for add_icon_glyphs.
+        void add_font(std::string name, std::string file, float size_px);
 
     private:
         std::string extension_name_;

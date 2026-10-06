@@ -10,6 +10,8 @@ namespace hello
     struct State
     {
         int libraries_added = 0;
+        /// @brief What the GUI names the libraries it adds (a setting).
+        std::string library_name = "gui";
     };
 
     /// @brief How many libraries the session's database holds (a read).

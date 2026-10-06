@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <fstream>
 
 namespace
 {
@@ -152,4 +153,33 @@ TEST(HelloExt, DISABLED_WriteGoldenFileForThisSchemaVersion)
     add_two_notes(session.handle);
     std::filesystem::create_directories(kGoldenDir / kSchemaVersion);
     ASSERT_EQ(le_write_db(session.handle, (kGoldenDir / kSchemaVersion / "notes.led").c_str(), 1), 0);
+}
+
+// hello_ext's section of settings.json: saved with the core settings, its
+// own version beside it; another extension's section survives a build
+// without that extension.
+TEST(HelloExt, ItsSettingsSectionRoundTripsAndOthersAreKept)
+{
+    le::ext::register_all();
+    const std::filesystem::path path = std::filesystem::temp_directory_path() / "hello_ext_settings_test.json";
+    {
+        Session session;
+        le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+        ctx.data<hello::State>().library_name = "mine";
+        ASSERT_EQ(le_save_settings(session.handle, path.c_str()), 0);
+    }
+    std::ifstream in(path);
+    nlohmann::json saved = nlohmann::json::parse(in);
+    EXPECT_EQ(saved["extensions"]["hello_ext"], (nlohmann::json{{"library_name", "mine"}, {"version", 1}}));
+
+    saved["extensions"]["other_ext"] = {{"version", 3}, {"colour", "red"}};
+    std::ofstream(path) << saved.dump();
+    Session session;
+    ASSERT_EQ(le_load_settings(session.handle, path.c_str()), 0);
+    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    EXPECT_EQ(ctx.data<hello::State>().library_name, "mine");
+    ASSERT_EQ(le_save_settings(session.handle, path.c_str()), 0);
+    std::ifstream again(path);
+    EXPECT_EQ(nlohmann::json::parse(again)["extensions"]["other_ext"], (nlohmann::json{{"version", 3}, {"colour", "red"}}));
+    std::filesystem::remove(path);
 }
