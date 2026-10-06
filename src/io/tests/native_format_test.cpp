@@ -832,6 +832,72 @@ namespace le::persistence
         EXPECT_TRUE(loaded.get_layer_ids().empty());
     }
 
+    // An extension's ops apply by the file's version of that extension.
+    // These need a built-in extension schema (CI's build has hello_ext).
+    class NativeFormatExtensionChain : public NativeFormatOlderSchema
+    {
+    protected:
+        void SetUp() override
+        {
+            if (schema_info::kExtensionCount == 0)
+                GTEST_SKIP() << "needs a build with an extension schema (LE_EXTENSION_DIRS)";
+            NativeFormatOlderSchema::SetUp();
+            file.schema["core"]["version"] = "0.5.0";
+        }
+
+        std::string extension() const { return std::string(schema_info::kExtensions[0].name); }
+
+        void file_has_extension_at(const std::string &version)
+        {
+            file.schema["extensions"] = nlohmann::json::array({{{"name", extension()},
+                                                                 {"package_version", "1.0.0"},
+                                                                 {"version", version},
+                                                                 {"fingerprint", "0000000000000000"},
+                                                                 {"descriptor", nlohmann::json::parse(schema_info::kExtensions[0].descriptor_json)}}});
+        }
+
+        LoadReport load_with(std::span<const Op> chain)
+        {
+            file.write(path);
+            return load_native(loaded, path.string(), chain);
+        }
+    };
+
+    TEST_F(NativeFormatExtensionChain, OnlyMigrationsPastTheFilesExtensionVersionApply)
+    {
+        file_has_extension_at("0.0.2");
+        const std::string ext = extension(); // Op holds string_views
+        const std::array chain{
+            Op{"0.0.2", OpKind::RenameClass, "", "ExtOld", "ExtOlder", "already in the file", ext, "0.5.0"},
+            Op{"0.0.3", OpKind::RenameClass, "", "ExtA", "ExtB", "after the file", ext, "0.5.0"},
+        };
+        const LoadReport report = load_with(chain);
+        ASSERT_TRUE(report.ok()) << report.error;
+        EXPECT_TRUE(contains(report.warnings, "applied " + ext + " migration to 0.0.3: after the file"));
+        EXPECT_FALSE(contains(report.warnings, "already in the file"));
+    }
+
+    TEST_F(NativeFormatExtensionChain, AFileWithoutTheExtensionSkipsItsMigrations)
+    {
+        const std::string ext = extension(); // Op holds string_views
+        const std::array chain{Op{"9.0.0", OpKind::Unsupported, "", "x", "y", "would refuse the file", ext, "0.5.0"}};
+        const LoadReport report = load_with(chain);
+        ASSERT_TRUE(report.ok()) << report.error;
+    }
+
+    TEST_F(NativeFormatExtensionChain, AMigrationWrittenBeforeACoreRenameTheFileHasIsRefused)
+    {
+        file_has_extension_at("0.0.1");
+        const std::string ext = extension(); // Op holds string_views
+        const std::array chain{
+            Op{"0.3.0", OpKind::RenameClass, "", "Gone", "Library", "core rename", "", ""},
+            Op{"0.0.2", OpKind::RenameClass, "", "ExtA", "ExtB", "lagging", ext, "0.2.0"},
+        };
+        const LoadReport report = load_with(chain);
+        EXPECT_FALSE(report.ok());
+        EXPECT_NE(report.error.find("was written against core 0.2.0, before core's migration to 0.3.0"), std::string::npos) << report.error;
+    }
+
     TEST_F(NativeFormatOlderSchema, CurrentSchemaFilesIgnoreTheChain)
     {
         // A file already at this build's schema needs no migration, even if

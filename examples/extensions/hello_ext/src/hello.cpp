@@ -40,7 +40,7 @@ namespace hello
         if (!root.get_library(id))
             return texts;
         for (const le::HelloNoteId note : root.get_library_hello_notes(id))
-            texts.push_back(root.get_hello_note(note)->text);
+            texts.push_back(root.get_hello_note(note)->body);
         return texts;
     }
 }

@@ -34,9 +34,9 @@ if {![catch {hello_add_library ""}]} {
 # HelloNote, the extension's own database class, gets the generated commands
 # and is saved with the design.
 create_library -name notes_lib
-set note [create_hello_note -library library:notes_lib -text "route the clock first"]
+set note [create_hello_note -library library:notes_lib -body "route the clock first"]
 expect "notes" [get_hello_notes -of library:notes_lib] $note
-expect "note text" [dict get [get_properties $note] text] "route the clock first"
+expect "note body" [dict get [get_properties $note] body] "route the clock first"
 set path /tmp/hello_ext_test_[pid].led
 write_db $path
 delete_library library:notes_lib

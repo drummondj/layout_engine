@@ -4,7 +4,7 @@ from codegen.schema import Field, Klass
 
 # The schema's own version: bump it with any change below, and add a
 # migration (codegen --target makemigration --extension ...).
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 
 def extend(schema):
@@ -20,7 +20,7 @@ def extend(schema):
                     parent="hello_notes",
                 ),
                 Field(
-                    name="text",
+                    name="body",
                     description="The note's text",
                     type="str",
                     example="remember to route the clock first",

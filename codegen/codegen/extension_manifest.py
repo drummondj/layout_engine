@@ -255,6 +255,7 @@ def to_cmake(ordered: List[Manifest]) -> str:
             f"set({p}_COMPILED {'ON' if m.compiled else 'OFF'})",
             f"set({p}_CMAKE {_cmake_string(str(m.cmake) if m.cmake else '')})",
             f"set({p}_SCHEMA {_cmake_string(str(m.schema) if m.schema else '')})",
+            f"set({p}_MIGRATIONS {_cmake_string(str(m.migrations or (m.schema.parent / 'migrations' if m.schema else '')))})",
             f"set({p}_TCL_PROCS {_cmake_list(m.tcl_procs)})",
             f"set({p}_TCL_TESTS {_cmake_list(m.tcl_tests)})",
             f"set({p}_RESOURCES {_cmake_list(m.resources)})",

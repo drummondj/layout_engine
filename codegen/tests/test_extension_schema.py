@@ -6,8 +6,9 @@ import unittest
 from pathlib import Path
 
 from codegen import extension_schema
+from codegen import migration as m
 from codegen.descriptor import build_descriptor, build_extension_descriptor, fingerprint
-from codegen.generator import generate
+from codegen.generator import generate, make_migration
 from codegen.schema import Field, Klass, Schema
 
 
@@ -176,6 +177,142 @@ class TestExtensionSchema(unittest.TestCase):
         self.assertEqual(child_list.synthesized_by, "bye_ext")
         schema.link()
         self.assertNotIn("bye_tags", json.dumps(build_extension_descriptor(schema, "hello_ext", "0.1.0")))
+
+
+RENAMED = NOTE.replace('VERSION = "0.1.0"', 'VERSION = "0.2.0"').replace('name="text"', 'name="body"')
+
+RENAME_MIGRATION = """
+from codegen.migration import *
+
+migration = Migration(
+    extension="hello_ext",
+    depends_on_core="1.0.0",
+    from_version="0.1.0",
+    to_version="0.2.0",
+    description="text renamed to body",
+    ops=[RenameField("HelloNote", "text", "body")],
+)
+"""
+
+
+class TestExtensionMigrations(unittest.TestCase):
+    """An extension's own migration chain, and how it meets core's."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.log = logging.getLogger("test")
+        self.core_history = self.root / "core" / "schema_history"
+        self.core_migrations = self.root / "core" / "migrations"
+        self.ext_dir = self.root / "hello_ext"
+        self.ext_dir.mkdir()
+        (self.ext_dir / "le_extension.toml").write_text(
+            '[extension]\nname = "hello_ext"\nversion = "1.0.0"\nprefix = "Hello"\n\n'
+            '[compatibility]\nlayout_engine = ">=0.3"\nextension_api = 1\n\n[contents]\nschema = "schema_ext.py"\n'
+        )
+        self.set_schema(NOTE)
+
+    def set_schema(self, body):
+        (self.ext_dir / "schema_ext.py").write_text(textwrap.dedent(body))
+
+    def generate(self, core=None, renames=None):
+        schema = core or _core()
+        ext = extension_schema.load(self.ext_dir)
+        errors = extension_schema.apply(schema, [ext], renames)
+        if errors:
+            return errors, ""
+        with tempfile.TemporaryDirectory() as out:
+            with self.assertLogs("test", level="INFO") as logs:
+                code = generate(schema, out, self.log, history_dir=str(self.core_history), migrations_dir=str(self.core_migrations), extensions=[ext])
+            header = (Path(out) / "migrations.hpp").read_text() if code == 0 else ""
+        return ([] if code == 0 else [line for line in logs.output if "ERROR" in line]), header
+
+    def write_migration(self, text, name="0001_text_to_body.py"):
+        (self.ext_dir / "migrations").mkdir(exist_ok=True)
+        (self.ext_dir / "migrations" / name).write_text(textwrap.dedent(text))
+
+    def test_a_rename_migration_reaches_the_runtime_table_tagged_with_its_extension(self):
+        self.assertEqual(self.generate()[0], [])
+        snapshot = json.loads((self.ext_dir / "schema_history" / "0.1.0.json").read_text())
+        self.assertEqual(snapshot["core_version"], "1.0.0")
+
+        self.set_schema(RENAMED)
+        errors, _ = self.generate()
+        self.assertTrue(any("has no migration" in e and "--migrate-extension hello_ext" in e for e in errors), errors)
+        self.write_migration(RENAME_MIGRATION)
+        errors, header = self.generate()
+        self.assertEqual(errors, [])
+        self.assertIn('Op{ "0.2.0", OpKind::RenameField, "HelloNote", "text", "body", "text renamed to body", "hello_ext", "1.0.0" }', header)
+
+    def test_makemigration_drafts_into_the_extensions_directory_with_its_core_version(self):
+        self.assertEqual(self.generate()[0], [])
+        self.set_schema(RENAMED)
+        schema = _core()
+        ext = extension_schema.load(self.ext_dir)
+        self.assertEqual(extension_schema.apply(schema, [ext]), [])
+        code = make_migration(schema, str(self.core_history), str(self.core_migrations), "text_to_body", self.log, interactive=False, extension=ext)
+        self.assertEqual(code, 0)
+        drafted = (self.ext_dir / "migrations" / "0001_text_to_body.py").read_text()
+        self.assertIn("extension='hello_ext'", drafted)
+        self.assertIn("depends_on_core='1.0.0'", drafted)
+        self.assertIn("from_version='0.1.0'", drafted)
+        self.assertFalse(self.core_migrations.exists(), "core's migrations are untouched")
+
+    def test_an_extension_migration_may_only_change_its_own_classes(self):
+        self.assertEqual(self.generate()[0], [])
+        self.set_schema(RENAMED)
+        self.write_migration(RENAME_MIGRATION.replace('ops=[RenameField("HelloNote", "text", "body")]', 'ops=[RenameField("HelloNote", "text", "body"), RenameField("Library", "name", "title")]'))
+        errors, _ = self.generate()
+        self.assertTrue(any("Library isn't one of hello_ext's classes" in e for e in errors), errors)
+
+    def test_depends_on_core_is_required_and_never_newer_than_core(self):
+        self.assertEqual(self.generate()[0], [])
+        self.set_schema(RENAMED)
+        self.write_migration(RENAME_MIGRATION.replace('depends_on_core="1.0.0"', 'depends_on_core="9.0.0"'))
+        errors, _ = self.generate()
+        self.assertTrue(any("newer than this core schema (1.0.0)" in e for e in errors), errors)
+        self.write_migration(RENAME_MIGRATION.replace('    depends_on_core="1.0.0",\n', ""))
+        errors, _ = self.generate()
+        self.assertTrue(any("missing depends_on_core" in e for e in errors), errors)
+
+    def test_a_core_class_rename_needs_only_a_schema_edit(self):
+        self.assertEqual(self.generate()[0], [])
+        # Core 1.1.0 renames Library to Archive.
+        renamed_core = _core()
+        renamed_core.version = "1.1.0"
+        renamed_core.get_klass("Library").name = "Archive"
+        renamed_core.get_klass("Root").fields[0].type = "Archive"
+        renamed_core.get_klass("Archive").fields[0].parent = "libraries"
+        self.core_migrations.mkdir(parents=True)
+        (self.core_migrations / "0001_archive.py").write_text(
+            'from codegen.migration import *\nmigration = Migration(from_version="1.0.0", to_version="1.1.0", '
+            'description="Library renamed to Archive", ops=[RenameClass("Library", "Archive")])\n'
+        )
+        renames = m.core_renames_since(m.load_migrations(self.core_migrations), None)
+
+        # schema_ext.py still says Library: the build names the line to change.
+        errors, _ = self.generate(renamed_core, renames)
+        self.assertTrue(any("a core migration renamed Library to Archive - update schema_ext.py: HelloNote.library" in e for e in errors), errors)
+
+        # Updated, at the same VERSION and with no migration: fine.
+        self.set_schema(NOTE.replace('type="Library"', 'type="Archive"'))
+        renamed_core = _core()
+        renamed_core.version = "1.1.0"
+        renamed_core.get_klass("Library").name = "Archive"
+        renamed_core.get_klass("Root").fields[0].type = "Archive"
+        errors, _ = self.generate(renamed_core, renames)
+        self.assertEqual(errors, [])
+
+    def test_extension_migrations_run_right_after_the_core_migration_they_depend_on(self):
+        core = [
+            m.Migration("1.0.0", "1.1.0", "core one", [m.RenameClass("A", "B")]),
+            m.Migration("1.1.0", "1.2.0", "core two", [m.RenameClass("C", "D")]),
+        ]
+        acme = [m.Migration("0.1.0", "0.2.0", "acme", [m.RenameClass("AcmeX", "AcmeY")], extension="acme", depends_on_core="1.1.0")]
+        early = [m.Migration("0.1.0", "0.2.0", "early", [m.RenameClass("EarlyX", "EarlyY")], extension="early", depends_on_core="1.0.0")]
+        table = m.merged_runtime_table(core, "1.2.0", [("acme", acme), ("early", early)])
+        self.assertEqual([(row[5], row[6]) for row in table], [("early", "early"), ("core one", ""), ("acme", "acme"), ("core two", "")])
 
 
 def _linked(schema):

@@ -194,7 +194,7 @@ class TestGeneratorIntegration(unittest.TestCase):
             v12 = make_schema(version="1.2.0", extra_field=Field(name="span", description="w", type="int"))
             self.assertEqual(generator.generate(v12, str(out), logger, history_dir=str(history)), 0)
             header = (out / "migrations.hpp").read_text()
-            self.assertIn('Op{ "1.2.0", OpKind::RenameField, "Net", "width", "span", "width renamed" }', header)
+            self.assertIn('Op{ "1.2.0", OpKind::RenameField, "Net", "width", "span", "width renamed", "", "" }', header)
 
 
 if __name__ == "__main__":

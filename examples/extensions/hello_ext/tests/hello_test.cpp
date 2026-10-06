@@ -17,7 +17,7 @@ namespace
     const std::filesystem::path kGoldenDir = std::filesystem::path(__FILE__).parent_path() / "golden";
 
     // schema_ext.py's VERSION: the golden directory a new file goes in.
-    constexpr const char *kSchemaVersion = "0.1.0";
+    constexpr const char *kSchemaVersion = "0.2.0";
 
     LeLibraryId add_two_notes(LeHandle *handle)
     {
@@ -120,7 +120,7 @@ TEST(HelloExt, NotesRoundTripThroughANativeFile)
         ASSERT_EQ(le_write_db(session.handle, path.c_str()), 0);
     }
     const std::string info = le_db_info(path.c_str());
-    EXPECT_NE(info.find("extension hello_ext 0.1.0 (schema 0.1.0): this build has schema 0.1.0"), std::string::npos) << info;
+    EXPECT_NE(info.find("extension hello_ext 0.1.0 (schema 0.2.0): this build has schema 0.2.0"), std::string::npos) << info;
 
     Session session;
     ASSERT_EQ(le_read_db(session.handle, path.c_str()), 0);

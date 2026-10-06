@@ -35,6 +35,22 @@ def schema_loader(schema: str) -> Schema:
     return module.schema
 
 
+def _core_context(schema: Schema, history_dir: Optional[str], migrations_dir: Optional[str]) -> schema_migration.ExtensionChainContext:
+    """What checking or drafting an extension's migrations needs from core."""
+    descriptor = schema_descriptor.build_descriptor(schema)
+    names = {k["name"] for k in descriptor["classes"]}
+    if history_dir is not None:
+        for snapshot in schema_descriptor.read_snapshots(Path(history_dir)).values():
+            names |= {k["name"] for k in snapshot["descriptor"]["classes"]}
+    core_migrations = schema_migration.load_migrations(Path(migrations_dir)) if migrations_dir else []
+    return schema_migration.ExtensionChainContext(schema.version, core_migrations, frozenset(names))
+
+
+def _aligned(core: schema_migration.ExtensionChainContext, snapshot: dict) -> dict:
+    """An extension snapshot's descriptor with core classes renamed since it was taken followed."""
+    return schema_migration.retarget(snapshot["descriptor"], schema_migration.core_renames_since(core.core_migrations, snapshot.get("core_version")))
+
+
 HEADER_ONLY_CLASSES = [
     "ids",
     "pool",
@@ -46,11 +62,19 @@ HEADER_ONLY_CLASSES = [
 
 
 def make_migration(
-    schema: Schema, history_dir: str, migrations_dir: str, name: str, logger: Logger, interactive: bool = True
+    schema: Schema,
+    history_dir: str,
+    migrations_dir: str,
+    name: str,
+    logger: Logger,
+    interactive: bool = True,
+    extension: Optional[extension_schema.ExtensionSchema] = None,
 ) -> int:
     """
     Draft the migration from the newest earlier snapshot to the current
-    schema, into the next numbered file in `migrations_dir`.
+    schema, into the next numbered file in `migrations_dir` - or, with
+    `extension`, that extension's next migration, into its own directory,
+    recording the current core version as depends_on_core.
     """
     errors = SchemaRuleSet().validate(schema)
     if errors:
@@ -58,7 +82,13 @@ def make_migration(
             logger.error(error.message)
         return 1
     schema.link()
-    current = schema_descriptor.build_descriptor(schema)
+    core = None
+    if extension is not None:
+        core = _core_context(schema, history_dir, migrations_dir)
+        current = schema_descriptor.build_extension_descriptor(schema, extension.name, extension.version)
+        history_dir, migrations_dir = str(extension.history_dir), str(extension.migrations_dir)
+    else:
+        current = schema_descriptor.build_descriptor(schema)
     snapshots = schema_descriptor.read_snapshots(Path(history_dir))
     current_version = schema_descriptor.parse_version(current["version"])
     earlier = [v for v in snapshots if schema_descriptor.parse_version(v) < current_version]
@@ -79,18 +109,37 @@ def make_migration(
             place = f" in {where}" if where else ""
             return click.confirm(f"Was {kind} '{old}'{place} renamed to '{new}'?", default=True)
 
-    ops = schema_migration.draft_ops(snapshots[previous]["descriptor"], current, ask)
+    before = _aligned(core, snapshots[previous]) if core is not None else snapshots[previous]["descriptor"]
+    ops = schema_migration.draft_ops(before, current, ask)
     Path(migrations_dir).mkdir(parents=True, exist_ok=True)
     path = schema_migration.next_migration_path(Path(migrations_dir), name)
-    path.write_text(schema_migration.render_migration(previous, current["version"], name.replace("_", " "), ops))
+    path.write_text(
+        schema_migration.render_migration(
+            previous,
+            current["version"],
+            name.replace("_", " "),
+            ops,
+            extension=extension.name if extension is not None else None,
+            depends_on_core=schema.version if extension is not None else None,
+        )
+    )
     todos = sum(isinstance(op, schema_migration.Todo) for op in ops)
     logger.info(f"Wrote {path} ({len(ops)} ops{f', {todos} TODO to resolve' if todos else ''}) - review it, then regenerate")
     return 0
 
 
-def check_migrations_only(schema: Schema, history_dir: str, migrations_dir: str, logger: Logger) -> int:
+def check_migrations_only(
+    schema: Schema, history_dir: str, migrations_dir: str, logger: Logger, extensions: Optional[List[extension_schema.ExtensionSchema]] = None
+) -> int:
     schema.link()
     errors = schema_migration.check_migrations(schema_descriptor.build_descriptor(schema), Path(history_dir), Path(migrations_dir))
+    core = _core_context(schema, history_dir, migrations_dir)
+    for ext in extensions or []:
+        ext_descriptor = schema_descriptor.build_extension_descriptor(schema, ext.name, ext.version)
+        errors += [
+            f"extension {ext.name}: {e}"
+            for e in schema_migration.check_extension_migrations(ext_descriptor, ext.history_dir, ext.migrations_dir, ext.name, ext.prefix, core)
+        ]
     for error in errors:
         logger.error(error)
     if not errors:
@@ -150,18 +199,26 @@ def generate(
     # Each extension schema has its own history and migration chain, in its
     # own directory, checked the same way as core's.
     extension_info = []
+    core = _core_context(schema, history_dir, migrations_dir)
     for ext in extensions or []:
         ext_descriptor = schema_descriptor.build_extension_descriptor(schema, ext.name, ext.version)
         if history_dir is not None:
             check = schema_descriptor.check_history(
-                ext_descriptor, ext.history_dir, update_snapshot, bump_hint=f"Bump VERSION in {ext.schema_path}."
+                ext_descriptor,
+                ext.history_dir,
+                update_snapshot,
+                bump_hint=f"Bump VERSION in {ext.schema_path}.",
+                align=lambda snapshot: _aligned(core, snapshot),
             )
             errors = [f"extension {ext.name}: {e}" for e in check.errors]
             if not errors:
                 if check.write:
-                    path = schema_descriptor.write_snapshot(ext.history_dir, ext_descriptor)
+                    path = schema_descriptor.write_snapshot(ext.history_dir, ext_descriptor, core_version=schema.version)
                     logger.info(f"extension {ext.name}: {check.note}: {path}")
-                errors = [f"extension {ext.name}: {e}" for e in schema_migration.check_migrations(ext_descriptor, ext.history_dir, ext.migrations_dir)]
+                errors = [
+                    f"extension {ext.name}: {e}"
+                    for e in schema_migration.check_extension_migrations(ext_descriptor, ext.history_dir, ext.migrations_dir, ext.name, ext.prefix, core)
+                ]
             if errors:
                 for error in errors:
                     logger.error(error)
@@ -231,7 +288,7 @@ def generate(
             )
         )
 
-    migrations = schema_migration.load_migrations(Path(migrations_dir)) if migrations_dir else []
+    extension_chains = [(ext.name, schema_migration.load_migrations(ext.migrations_dir)) for ext in extensions or []]
     cpp = json.dumps  # a JSON string literal is a valid C++ one for these ASCII names
     ops = [
         {
@@ -246,8 +303,12 @@ def generate(
             "old": cpp(old),
             "new": cpp(new),
             "description": cpp(description),
+            "extension": cpp(extension),
+            "depends_on_core": cpp(depends_on_core),
         }
-        for to_version, kind, klass, old, new, description in schema_migration.runtime_table(migrations)
+        for to_version, kind, klass, old, new, description, extension, depends_on_core in schema_migration.merged_runtime_table(
+            core.core_migrations, schema.version, extension_chains
+        )
     ]
     with open(f"{output_dir}/migrations.hpp", "w") as f:
         f.write(jinja2.Template(migrations_hpp_j2.TEMPLATE).render(schema=schema, ops=ops))

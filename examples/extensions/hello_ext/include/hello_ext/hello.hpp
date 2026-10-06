@@ -20,7 +20,7 @@ namespace hello
     /// is empty or the library couldn't be created.
     bool add_library(le::ext::ExtensionContext &ctx, const std::string &name);
 
-    /// @brief The texts of the notes (HelloNote, this extension's own
+    /// @brief The bodies of the notes (HelloNote, this extension's own
     /// database class) on the library named `library`, in order; empty if
     /// there's no such library.
     std::vector<std::string> notes_on(le::ext::ExtensionContext &ctx, const std::string &library);
