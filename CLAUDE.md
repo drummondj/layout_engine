@@ -137,7 +137,12 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   main thread (GLFW requires it on macOS), one shared `LeHandle` injected
   via `set_session_handle`.
 - `src/gui/` — the Dear ImGui GUI (`le_gui.cpp`, `gui_provider.*`,
-  `components/`). `GuiProvider` is its only contact with the C API.
+  `panels.*`, `components/`). `GuiProvider` is its only contact with the C
+  API. Every dockable panel but the design view, core and extension, is a
+  `Panel` on one `PanelList` (`make_panels`): drawn with a close button,
+  toggled from the main menu bar's Window menu, its open state saved in
+  `window_layout.ini`. `panels.*` and the extension GUI SDK run headless
+  (`gui_tests`).
   Rendering runs on a background thread woken by
   `le_wait_for_render_needed`; panels read under the shared lock so they
   never block on a render. Actions that should appear in command history
@@ -164,7 +169,9 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   `extensions.json` (build tree, and the bundle's `ext/<name>/` copy),
   which `le_shell` (`-extensions`/`LE_EXTENSIONS_PATH`,
   `src/tcl/extension_index.hpp`) checks and sources after the core procs;
-  `tcl_tests` run through `le_shell` as ctests. `examples/extensions/`
+  `tcl_tests` run through `le_shell` as ctests. GUI: an extension's
+  `GUI_SOURCES` (`le/extension_gui.hpp`: `GuiRegistry`, `ExtGuiContext`)
+  build into `le_shell` only through a generated `register_all_gui()`. `examples/extensions/`
   holds the compiled (`hello_ext`) and script (`hello_script`) examples
   CI builds. `docs/EXTENSION_SDK.md` is the authors' reference and the
   API changelog - update it with any change to the SDK.

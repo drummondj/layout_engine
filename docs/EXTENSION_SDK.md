@@ -8,9 +8,10 @@ is the reference.
 
 **Extension API version: 1** (Layout Engine 0.3.x, the first with extension support). See the [changelog](#changelog).
 
-Not available yet: extension schema classes (#74), GUI windows and menus
-(#73, #76), drawing extension objects (#77), and the `le` package manager
-(#71). Until the package manager lands, you build extensions in through
+Not available yet: extension schema classes (#74), GUI toolbar, key,
+overlay and settings hooks (#76), and drawing extension objects (#77).
+Projects install extensions with the `le` package manager
+(`tools/le/README.md`); while developing one, build it in with
 `LE_EXTENSION_DIRS`, as below.
 
 ## Two kinds of extension
@@ -60,6 +61,7 @@ my_ext/
   tcl/my_ext.i               SWIG declarations of the Tcl commands
   tcl/my_ext_tcl.cpp         the commands' C++
   tcl/my_ext.tcl             procs: flags, help, calls into the commands
+  gui/my_ext_gui.cpp         windows and menu items (Dear ImGui)
   tests/...                  GoogleTest sources and Tcl test scripts
   data/...                   resources
 ```
@@ -121,13 +123,15 @@ le_add_extension(my_ext
     TCL_SWIG      tcl/my_ext.i            # SWIG declarations of your Tcl commands
     TCL_SOURCES   tcl/my_ext_tcl.cpp      # their C++ (needs Tcl; le_tcl only)
     TCL_INIT                              # TCL_SOURCES define le_ext_my_ext_init_tcl
+    GUI_SOURCES   gui/my_ext_gui.cpp      # windows and menus; define le_ext_my_ext_register_gui
     LINK          Boost::graph            # your own third-party dependencies
 )
 ```
 
 This builds `my_ext_core` (a static library linked against
-`le::extension_sdk`) and, with Tcl, `my_ext_tcl` (linked into the `le_tcl`
-module only). Your core library must not depend on Tcl or the GUI. Its tests
+`le::extension_sdk`), with Tcl `my_ext_tcl` (linked into the `le_tcl`
+module only), and with `GUI_SOURCES` `my_ext_gui` (linked into `le_shell`
+only). Your core library must not depend on Tcl or the GUI. Its tests
 can run without either.
 
 ## C++: `<le/extension.hpp>`
@@ -151,8 +155,8 @@ At startup, `le::ext::register_all()` adds each extension's name and version
 to the registry, then calls its register function, in dependency order and
 once. In API 1 the registry only lists extensions
 (`le::ext::registry().extensions()`, or `le_extension_count`/
-`le_extension_name`/`le_extension_version` from the C API); later versions
-add windows, menus and other hooks.
+`le_extension_name`/`le_extension_version` from the C API); windows and
+menus register separately, from `GUI_SOURCES` (below).
 
 ### `ExtensionContext`: working with a session
 
@@ -201,6 +205,48 @@ statics. `le_shell` and the `le_tcl` module each link their own copy of your
 extension, so a global would exist twice and the two copies would diverge.
 State is per extension and per type: `data<State>()` in `my_ext` and in
 `other_ext` are different objects.
+
+## GUI: `<le/extension_gui.hpp>`
+
+`GUI_SOURCES` define one more function, which adds windows and Extensions
+menu items. Draw with Dear ImGui (`<imgui.h>`):
+
+```cpp
+#include <le/extension_gui.hpp>
+#include <imgui.h>
+
+namespace
+{
+    void draw_window(le::ext::ExtGuiContext &ctx)
+    {
+        if (const le::ext::ReadView view = ctx.read(); view.valid())
+            ImGui::Text("Libraries: %zu", view.root().get_library_ids().size());
+        if (ImGui::Button("Add one"))
+            ctx.run_tcl_command("my_ext_add_thing");
+    }
+}
+
+void le_ext_my_ext_register_gui(le::ext::GuiRegistry &registry)
+{
+    registry.add_window({.title = "My Ext", .dock = le::ext::Dock::RIGHT, .draw = draw_window});
+    registry.add_menu_item({.label = "Do it", .action = [](le::ext::ExtGuiContext &ctx) { ctx.run_tcl_command("my_ext_do_it"); }});
+}
+```
+
+- **Windows** dock `LEFT`, `RIGHT`, `BOTTOM` or `CENTER` (a tab beside the
+  design view) in the default layout, get a close button, and are listed in
+  the Window menu with the core panels. Whether each is open is saved with
+  the window layout; `open_by_default = false` starts one closed.
+- **Menu items** go in the Extensions menu.
+- **`ExtGuiContext`** is valid for one draw or menu call:
+  - `read()` never waits. It returns an invalid view while an edit holds
+    the database, so keep what you need in `data<T>()` and draw that instead.
+  - `run_tcl_command()` queues a command for the console, as if typed. It's
+    the way to change the design from the GUI: the command shows in the
+    console's history and is one undo step.
+  - `data<T>()` is the same per-session state your Tcl commands see.
+  - `is_busy()`, `selection_count()` and `selected_object(i)` cover the
+    rest.
 
 ## Tcl commands
 
@@ -313,7 +359,7 @@ was used.
 
 Only these are the SDK. Anything else in Layout Engine may change in any
 release without notice.
-- `<le/extension.hpp>` and `<le/extension_tcl.hpp>`
+- `<le/extension.hpp>`, `<le/extension_tcl.hpp>` and `<le/extension_gui.hpp>`
 - `le_add_extension()` and the `le_extension.toml` format
 - the C API (`api.hpp`) and the database classes (`le::Root`, the
   `<Type>Data` structs and `<Type>Id` handles, generated from `schema.py`)
@@ -337,8 +383,11 @@ The first version.
   `[dependencies]` and `[contents]` (`cmake`, `tcl_procs`, `tcl_tests`,
   `resources`; `schema` and `migrations` are reserved for #74).
 - `le_add_extension()` with `CORE_SOURCES`, `CORE_INCLUDE`, `TESTS`,
-  `TCL_SWIG`, `TCL_SOURCES`, `TCL_INIT` and `LINK`.
+  `TCL_SWIG`, `TCL_SOURCES`, `TCL_INIT`, `GUI_SOURCES` and `LINK`.
 - `le::ext::Registry`, `register_all()`, `ExtensionContext` (`read`,
-  `write`, `transaction`, `data`), `tcl_session()`, `init_tcl()`.
+  `write`, `transaction`, `data`), `ReadView::valid()`, `tcl_session()`,
+  `init_tcl()`.
+- GUI: `GuiRegistry` (`add_window`, `add_menu_item`), `GuiWindow`, `Dock`,
+  `GuiMenuItem`, `ExtGuiContext`, `register_all_gui()`.
 - C API: `le_extension_count`, `le_extension_name`, `le_extension_version`.
 - `extensions.json` format 1.

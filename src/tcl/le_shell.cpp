@@ -35,6 +35,7 @@
 #include "generated/le_shell_version.hpp"
 #include "../core/resource_path.hpp"
 #include "extension_index.hpp"
+#include "le/extension_gui.hpp"
 #include "le/register_all.hpp"
 
 #include <readline/history.h>
@@ -592,6 +593,7 @@ int main(int argc, char **argv)
 {
     // Before anything can use the extensions this binary was built with.
     le::ext::register_all();
+    le::ext::register_all_gui();
 
     const char *module_arg = nullptr;
     const char *procs_arg = nullptr;

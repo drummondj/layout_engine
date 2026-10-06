@@ -399,11 +399,12 @@ There is no menu bar today. Add one, with:
 ### `ExtGuiContext`
 
 `ExtGuiContext` is a narrow facade built on `GuiProvider`. It never exposes `LeHandle`:
-- `state()`: the per-frame snapshot, covering mode, selection count, layers and settings.
-- `selected_objects()`
+- `is_busy()` (a render or command in progress), `selection_count()`, `selected_object(i)`. The rest of `GuiProvider`'s per-frame snapshot stays private until an extension needs it.
 - `run_tcl_command(std::string)`: **the recommended way to mutate state from the GUI.** Commands then appear in console history, in undo, and in any journaling, which matches how the core GUI already works.
-- `read()`: a guarded read-only view of `Root`. It returns empty while `state().is_rendering`, following `GuiProvider`'s existing locking rule.
-- `extension_data<T>()`
+- `read()`: a read-only view of `Root` taken with a try-lock, so it is invalid (rather than blocking the GUI thread) while an edit holds the database. Reading during a render is safe, since renders take the lock shared.
+- `data<T>()`, the same per-session slot as `ExtensionContext::data<T>()`.
+
+As built: windows and menu items are registered from the extension's `GUI_SOURCES` (`le_ext_<name>_register_gui(GuiRegistry &)`, collected by a generated `register_all_gui()` linked into `le_shell` only), not through the core `Registry`, because the core library is also linked into `le_tcl`, which has no GUI. Open/closed state is the `[LayoutEngine][Panels]` section of `window_layout.ini`; entries for windows this build lacks are kept.
 
 ### Smaller hooks
 
@@ -586,7 +587,7 @@ Phase 0 is groundwork that the package manager also needs. Package-manager phase
 | 0 | CMake runs codegen into the build dir; tagged, versioned releases; `le_extension.toml` schema and its CMake reader | Reproducible builds from a clean checkout |
 | 1 ✅ | `LE_EXTENSION_DIRS`, `le_add_extension()`, dependency ordering, `Registry`, generated `register_all()`, `LeHandle` extension-data slots, `le::extension_sdk` | Customer C++ modules |
 | 2 ✅ | Generated `le_api_extensions.i`, the `extensions.json` index read by `app_init`, `TCL_INIT` hooks, `tcl_tests` | Customer TCL commands; script extensions in a prebuilt release |
-| 3 | Menu bar with Window/Extensions menus, `GuiWindow` list (core panels migrated), `ExtGuiContext` | Customer GUI windows |
+| 3 ✅ | Menu bar with Window/Extensions menus, `GuiWindow` list (core panels migrated), `ExtGuiContext` | Customer GUI windows |
 | 4 | Codegen `--extension`, prefix and collision validation | Customer schema objects |
 | 5 | Compose overlays, toolbar/key/font hooks, settings sections | Richer GUI integration |
 | 6 | `hello_ext` and `hello_script` examples and CI jobs, extension-SDK changelog | Upgrade safety |

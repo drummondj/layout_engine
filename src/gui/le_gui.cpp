@@ -2,6 +2,7 @@
 
 #include "api.hpp"
 #include "gui_provider.hpp"
+#include "panels.hpp"
 #include "components/status_bar.hpp"
 #include "components/library_browser.hpp"
 #include "components/property_viewer.hpp"
@@ -616,34 +617,114 @@ namespace le::gui
             return false;
         }
 
-        // A "[LayoutEngine][Window]" section in that ini file - the GLFW
-        // window's size, which ImGui itself doesn't save (the dock layout's
-        // node sizes are in pixels, so they only fit the window they were
-        // saved from). Read when ImGui loads the file (its first NewFrame),
-        // written whenever ImGui saves it.
-        void add_window_size_settings_handler(GLFWwindow *window)
+        // The "[LayoutEngine][...]" sections of that ini file, read when
+        // ImGui loads it (its first NewFrame) and written whenever ImGui
+        // saves it: [Window], the GLFW window's size, which ImGui itself
+        // doesn't save (the dock layout's node sizes are in pixels, so they
+        // only fit the window they were saved from); and [Panels], which
+        // panels are open.
+        struct IniState
+        {
+            GLFWwindow *window;
+            PanelList *panels;
+        };
+
+        void add_layout_engine_settings_handler(IniState *state)
         {
             ImGuiSettingsHandler handler;
             handler.TypeName = "LayoutEngine";
             handler.TypeHash = ImHashStr("LayoutEngine");
-            handler.UserData = window;
+            handler.UserData = state;
+            // The entry pointer only tells ReadLineFn which section it's in.
             handler.ReadOpenFn = [](ImGuiContext *, ImGuiSettingsHandler *, const char *name) -> void *
-            { return std::strcmp(name, "Window") == 0 ? reinterpret_cast<void *>(1) : nullptr; };
-            handler.ReadLineFn = [](ImGuiContext *, ImGuiSettingsHandler *h, void *, const char *line)
             {
+                if (std::strcmp(name, "Window") == 0)
+                    return reinterpret_cast<void *>(1);
+                if (std::strcmp(name, "Panels") == 0)
+                    return reinterpret_cast<void *>(2);
+                return nullptr;
+            };
+            handler.ReadLineFn = [](ImGuiContext *, ImGuiSettingsHandler *h, void *entry, const char *line)
+            {
+                auto *ini = static_cast<IniState *>(h->UserData);
+                if (entry == reinterpret_cast<void *>(2))
+                {
+                    ini->panels->read_ini_line(line);
+                    return;
+                }
                 int width = 0;
                 int height = 0;
                 if (std::sscanf(line, "Size=%d,%d", &width, &height) == 2 && width >= 400 && height >= 300)
-                    glfwSetWindowSize(static_cast<GLFWwindow *>(h->UserData), width, height);
+                    glfwSetWindowSize(ini->window, width, height);
             };
             handler.WriteAllFn = [](ImGuiContext *, ImGuiSettingsHandler *h, ImGuiTextBuffer *out)
             {
+                auto *ini = static_cast<IniState *>(h->UserData);
                 int width = 0;
                 int height = 0;
-                glfwGetWindowSize(static_cast<GLFWwindow *>(h->UserData), &width, &height);
+                glfwGetWindowSize(ini->window, &width, &height);
                 out->appendf("[LayoutEngine][Window]\nSize=%d,%d\n\n", width, height);
+                out->append(ini->panels->ini_section().c_str());
             };
             ImGui::AddSettingsHandler(&handler);
+        }
+
+        // Every panel but the design view, core ones first, then each
+        // extension's windows in registration order.
+        PanelList make_panels(GuiProvider &provider, LeHandle *handle)
+        {
+            PanelList panels;
+            panels.add({kBrowserWindowTitle, kBrowserWindowTitle, DockSlot::LEFT, [&provider] { draw_library_browser(provider); }});
+            panels.add({kPropertiesWindowTitle, kPropertiesWindowTitle, DockSlot::RIGHT, [&provider] { draw_property_viewer(provider); }});
+            panels.add({kLayersWindowTitle, kLayersWindowTitle, DockSlot::RIGHT, [&provider] { draw_layer_manager(provider); }});
+            panels.add({kSettingsWindowTitle, kSettingsWindowTitle, DockSlot::RIGHT, [&provider] { draw_settings_panel(provider); }});
+            // The current mode's instructions, below the Browser.
+            panels.add({kInfoWindowTitle, kInfoWindowTitle, DockSlot::LEFT_BOTTOM, [&provider] { draw_info_panel(provider); }});
+            for (const ExtensionWindow &registered : extension_windows())
+            {
+                const ext::GuiWindow &window = registered.window;
+                panels.add({window.title, "ext." + registered.extension + "." + window.title, dock_slot(window.dock),
+                            [&provider, handle, &registered]
+                            {
+                                ext::ExtGuiContext context(provider, handle, registered.extension);
+                                registered.window.draw(context);
+                            },
+                            window.open_by_default});
+            }
+            return panels;
+        }
+
+        // The main menu bar: Window toggles every panel; Extensions lists
+        // what extensions added.
+        void draw_main_menu_bar(GuiProvider &provider, LeHandle *handle, PanelList &panels)
+        {
+            if (!ImGui::BeginMainMenuBar())
+                return;
+            if (ImGui::BeginMenu("Window"))
+            {
+                panels.draw_window_menu_items();
+                ImGui::Separator();
+                if (ImGui::MenuItem("Reset window layout"))
+                    provider.request_window_layout_reset();
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Extensions"))
+            {
+                if (extension_menu_items().empty())
+                    ImGui::MenuItem("No extension menu items", nullptr, false, false);
+                for (const ExtensionMenuItem &registered : extension_menu_items())
+                {
+                    ImGui::PushID(registered.extension.c_str());
+                    if (ImGui::MenuItem(registered.item.label.c_str()))
+                    {
+                        ext::ExtGuiContext context(provider, handle, registered.extension);
+                        registered.item.action(context);
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::EndMainMenuBar();
         }
 
         // How the window is closing.
@@ -750,9 +831,10 @@ namespace le::gui
         // ShowExampleAppDockSpace), and - only when there's no saved
         // layout to restore (window_layout.ini), or on "Reset window
         // layout" - programmatically splits it into a left/center/right
-        // layout: Browser on the left, the design view in the center,
-        // Properties/Layers/Settings tabs plus Info on the right (the Tcl
-        // console is le_shell's own terminal, not a panel).
+        // layout, each panel in its DockSlot: Browser above Info on the
+        // left, the design view in the center, Properties/Layers/Settings
+        // tabs on the right, and a bottom strip only if a panel asks for
+        // one (the Tcl console is le_shell's own terminal, not a panel).
         // `dockspace_built` is owned by (and reset
         // once per) open_and_run_window's own window-open/close cycle,
         // not a function-static - a fresh ImGui context (and so a fresh,
@@ -771,7 +853,7 @@ namespace le::gui
         // ~50% split width, since "Browser"/"Properties" haven't been
         // drawn (and so haven't claimed their own share of it) yet
         // either.
-        bool draw_dockspace_and_default_layout(bool &dockspace_built)
+        bool draw_dockspace_and_default_layout(bool &dockspace_built, const PanelList &panels)
         {
             const ImGuiViewport *viewport = ImGui::GetMainViewport();
             ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -802,20 +884,37 @@ namespace le::gui
                 const ImGuiID right_id = ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Right, 0.28f, nullptr, &center_id);
                 // The Info panel gets its own strip along the bottom of the
                 // left sidebar, below the Browser.
-                const ImGuiID info_id = ImGui::DockBuilderSplitNode(left_id, ImGuiDir_Down, 0.15f, nullptr, &left_id);
+                const ImGuiID left_bottom_id = ImGui::DockBuilderSplitNode(left_id, ImGuiDir_Down, 0.15f, nullptr, &left_id);
+                const ImGuiID bottom_id = panels.any_in(DockSlot::BOTTOM)
+                                              ? ImGui::DockBuilderSplitNode(center_id, ImGuiDir_Down, 0.25f, nullptr, &center_id)
+                                              : center_id;
 
-                ImGui::DockBuilderDockWindow(kBrowserWindowTitle, left_id);
-                // Docked into the same node as Properties, not a
-                // BeginTabBar/BeginTabItem pair inside one shared window
-                // - a real ImGui tab bar can't be dragged apart, but two
-                // separate windows docked into the same node still show
-                // as tabs of one panel by default while staying fully
-                // dockable - the user can drag "Layers" out to its own
-                // split/area.
-                ImGui::DockBuilderDockWindow(kPropertiesWindowTitle, right_id);
-                ImGui::DockBuilderDockWindow(kLayersWindowTitle, right_id);
-                ImGui::DockBuilderDockWindow(kSettingsWindowTitle, right_id);
-                ImGui::DockBuilderDockWindow(kInfoWindowTitle, info_id);
+                // Panels sharing a node show as its tabs, each still
+                // draggable out to its own split (a BeginTabBar inside one
+                // window couldn't be).
+                for (const Panel &panel : panels.panels())
+                {
+                    ImGuiID node = right_id;
+                    switch (panel.slot)
+                    {
+                    case DockSlot::LEFT:
+                        node = left_id;
+                        break;
+                    case DockSlot::LEFT_BOTTOM:
+                        node = left_bottom_id;
+                        break;
+                    case DockSlot::RIGHT:
+                        node = right_id;
+                        break;
+                    case DockSlot::BOTTOM:
+                        node = bottom_id;
+                        break;
+                    case DockSlot::CENTER:
+                        node = center_id;
+                        break;
+                    }
+                    ImGui::DockBuilderDockWindow(panel.imgui_name().c_str(), node);
+                }
                 ImGui::DockBuilderDockWindow(kLayoutWindowTitle, center_id);
                 ImGui::DockBuilderFinish(dockspace_id);
             }
@@ -840,6 +939,7 @@ namespace le::gui
             // (right where is_rendering is read), passed to every
             // component as GuiProvider& instead of the raw handle.
             GuiProvider provider(handle);
+            PanelList panels = make_panels(provider, handle);
 
             glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
             glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
@@ -880,12 +980,13 @@ namespace le::gui
             // (both end with this function). With no HOME, nothing is saved
             // and every window opens with the default layout.
             const std::string ini_path = window_layout_path();
+            IniState ini_state{window, &panels};
             if (!ini_path.empty())
             {
                 std::error_code ec;
                 std::filesystem::create_directories(std::filesystem::path(ini_path).parent_path(), ec);
                 io.IniFilename = ini_path.c_str();
-                add_window_size_settings_handler(window);
+                add_layout_engine_settings_handler(&ini_state);
             }
             else
                 io.IniFilename = nullptr;
@@ -1147,50 +1248,15 @@ namespace le::gui
                 // The first frame of a restored layout gets the same
                 // one-frame distrust as a freshly built one (see
                 // draw_dockspace_and_default_layout's own comment).
-                const bool dock_layout_just_built = draw_dockspace_and_default_layout(dockspace_built) || first_frame;
+                draw_main_menu_bar(provider, handle, panels);
+                const bool dock_layout_just_built = draw_dockspace_and_default_layout(dockspace_built, panels) || first_frame;
                 first_frame = false;
 
-                // Left sidebar - components/library_browser.hpp.
-                // Called unconditionally, even while is_rendering - every
-                // le_* function it calls (le_library_count/_at/
-                // _design_count/_at) takes only a std::shared_lock now
-                // (le_handle.hpp's own mutex_ doc comment), so it runs
-                // concurrently with an in-progress render instead of
-                // blocking behind it - panels must neither go blank nor
-                // block during a render.
-                ImGui::Begin(kBrowserWindowTitle);
-                draw_library_browser(provider);
-                ImGui::End();
-
-                // Right sidebar - two separate dockable panels docked
-                // into the same node by default (see
-                // draw_dockspace_and_default_layout's own comment on
-                // why not a single BeginTabBar/BeginTabItem pair):
-                // property_viewer.hpp and layer_manager.hpp.
-                // Called unconditionally - kBrowserWindowTitle's own
-                // comment above. GuiProvider::object_children
-                // (gui_provider.cpp) has one narrow, documented
-                // exception (a Design's own children specifically)
-                // still gated on state().is_rendering internally, for
-                // the one case with no shared-lock-safe accessor to
-                // switch to - see its own comment.
-                ImGui::Begin(kPropertiesWindowTitle);
-                draw_property_viewer(provider);
-                ImGui::End();
-
-                ImGui::Begin(kLayersWindowTitle);
-                draw_layer_manager(provider);
-                ImGui::End();
-
-                // A third tab in the same right-hand dock node.
-                ImGui::Begin(kSettingsWindowTitle);
-                draw_settings_panel(provider);
-                ImGui::End();
-
-                // The current mode's instructions, below the tabs above.
-                ImGui::Begin(kInfoWindowTitle);
-                draw_info_panel(provider);
-                ImGui::End();
+                // Every panel but the design view - make_panels. Drawn
+                // unconditionally, even mid-render: the panels' le_* calls
+                // take the handle's lock shared, so they run alongside a
+                // render instead of going blank or blocking behind it.
+                panels.draw();
 
                 // Zero window padding - the design view/status bar sizing
                 // below budgets against its own content region's *full*
@@ -1251,7 +1317,7 @@ namespace le::gui
                 // (asymmetric padding), not cosmetic preference.
                 ImGui::BeginChild("mode_selector_column", ImVec2(kModeSelectorWidth, full_panel_height), ImGuiChildFlags_AlwaysUseWindowPadding);
                 // Called unconditionally - draw_mode_selector's own
-                // le_get_mode call is std::shared_lock now (kBrowserWindowTitle's
+                // le_get_mode call is std::shared_lock now (panels.draw()'s
                 // own comment further up).
                 draw_mode_selector(provider);
                 draw_child_edge(ImGuiDir_Right);
@@ -1284,7 +1350,7 @@ namespace le::gui
                 ImGui::BeginChild("mode_toolbar_row", ImVec2(0.0f, kModeToolbarHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
                 // Called unconditionally - draw_mode_toolbar's own
                 // le_get_mode/le_is_move_armed calls are std::shared_lock
-                // now (kBrowserWindowTitle's own comment further up).
+                // now (panels.draw()'s comment further up).
                 draw_mode_toolbar(provider);
                 draw_child_edge(ImGuiDir_Down);
                 ImGui::EndChild();
@@ -1551,7 +1617,7 @@ namespace le::gui
                 // whole point of this spinner is to be the *one* reliable
                 // signal a render is in progress (Browser/Properties/
                 // Layers/status bar deliberately show nothing themselves
-                // now - see kBrowserWindowTitle's own comment further
+                // now - see panels.draw()'s comment further
                 // up), but tying it to mouse hover meant it silently
                 // never appeared whenever the mouse wasn't already over
                 // the design view - e.g. selecting an object then
@@ -1588,7 +1654,7 @@ namespace le::gui
                 // Called unconditionally - draw_status_bar's own
                 // le_get_mode/le_tooltip_message/le_snapped_mouse_position/
                 // le_selection_count calls are all std::shared_lock now
-                // (kBrowserWindowTitle's own comment further up).
+                // (panels.draw()'s comment further up).
                 draw_status_bar(provider, panel_width);
 
                 ImGui::EndChild(); // layout_content_column
