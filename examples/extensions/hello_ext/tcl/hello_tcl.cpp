@@ -25,15 +25,15 @@ int hello_library_count_cmd()
     return hello::library_count(ctx);
 }
 
-int hello_add_greeting_library_cmd(const char *name)
+int hello_add_library_cmd(const char *name)
 {
     le::ext::ExtensionContext ctx = context();
-    return hello::add_greeting_library(ctx, name ? name : "") ? 0 : 1;
+    return hello::add_library(ctx, name ? name : "") ? 0 : 1;
 }
 
-int hello_greeting_libraries_added_cmd()
+int hello_libraries_added_cmd()
 {
-    return context().data<hello::State>().greeting_libraries_added;
+    return context().data<hello::State>().libraries_added;
 }
 
 void le_ext_hello_ext_init_tcl(Tcl_Interp *interp)

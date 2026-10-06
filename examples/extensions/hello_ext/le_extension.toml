@@ -4,7 +4,7 @@
 name = "hello_ext"
 version = "0.1.0"
 prefix = "Hello"
-description = "Example extension: counts libraries and adds a greeting library as one undo step, from C++ and Tcl"
+description = "Example extension: counts libraries and adds a library as one undo step, from C++ and Tcl"
 
 [compatibility]
 layout_engine = ">=0.3, <0.4"
