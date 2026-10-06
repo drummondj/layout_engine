@@ -159,10 +159,26 @@ const char *get_{{klass.tcl_plural_snake_case()}}_at(int index)
 // class, hand-written or generated - see that overload's own comment)
 // rather than any class-specific field-taking overload some classes also
 // happen to have. ---
-{% for klass in create_classes %}
-const char *create_{{klass.api_name()}}_cmd({{klass.create_shim_params()}})
+{% for klass in classes if klass.get_owner_fields() %}
+// A {{klass.name}} owner from its option's name (the Tcl flag, e.g. "route")
+// and that owner's token; kind NONE if either is unknown.
+static Le{{klass.owner_type_name()}} resolve_{{klass.to_snake_case()}}_owner(const char *kind, const char *id)
 {
-    Le{{klass.name}}Id id = le_create_{{klass.api_name()}}(session(){% if klass.create_shim_forward_args() %}, {{klass.create_shim_forward_args()}}{% endif %});
+    const std::string name = kind ? kind : "";
+{%- for f in klass.get_owner_fields() %}
+    if (name == "{{f.name}}")
+    {
+        const Le{{f.type}}Id owner = resolve_{{f._parent_klass.to_snake_case()}}_id(id);
+        return le_{{klass.to_snake_case()}}_owner_{{f.name}}(owner);
+    }
+{%- endfor %}
+    return Le{{klass.owner_type_name()}}{ LE_{{klass.to_snake_case()|upper}}_OWNER_NONE, UINT32_MAX, 0 };
+}
+{% endfor %}
+{% for klass in classes %}
+const char *create_{{klass.to_snake_case()}}_cmd({{klass.create_shim_params()}})
+{
+    Le{{klass.name}}Id id = le_create_{{klass.to_snake_case()}}(session(){% if klass.create_shim_forward_args() %}, {{klass.create_shim_forward_args()}}{% endif %});
     if (id.index == UINT32_MAX)
         return return_string("");
     return return_string(format_{{klass.to_snake_case()}}_id(id));

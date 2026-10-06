@@ -31,7 +31,7 @@ namespace
         const LeLayoutId layout = le_create_layout(handle, design);
         const LeHelloMarkerId marker = le_create_hello_marker(handle, layout, "clock_root");
         const double rect[] = {0.0, 0.0, 2.0, 1.0};
-        le_create_shape_in_hello_marker(handle, marker, LeLayerId{UINT32_MAX, 0}, "DEBUG", 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0, 0, 0.0, 0);
+        le_create_shape(handle, le_shape_owner_hello_marker(marker), LeLayerId{UINT32_MAX, 0}, "DEBUG", 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0, 0, 0.0, 0);
         return marker;
     }
 
@@ -222,7 +222,7 @@ TEST(HelloExt, RegistersItsOverlay)
 }
 
 // HelloMarker owns Shapes (an owner option codegen adds to Shape for it):
-// created through le_create_shape_in_hello_marker, deleted with the marker,
+// created through le_create_shape with a hello_marker owner, deleted with the marker,
 // undone together and saved.
 TEST(HelloExt, MarkersOwnShapes)
 {

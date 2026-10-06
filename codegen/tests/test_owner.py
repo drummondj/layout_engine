@@ -99,3 +99,23 @@ class TestOwner(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOwnerApi(unittest.TestCase):
+    def test_create_takes_the_owner_as_one_kind_and_id(self):
+        from codegen import tcl_generator
+
+        with tempfile.TemporaryDirectory() as out:
+            self.assertEqual(tcl_generator.generate(_schema(), out, logging.getLogger("test")), 0)
+            declarations = (Path(out) / "api" / "declarations.inc").read_text()
+            shim = (Path(out) / "tcl" / "le_tcl_shim_generated.inc").read_text()
+            procs = (Path(out) / "tcl" / "le_tcl_procs_generated.tcl").read_text()
+        self.assertIn("} LeItemOwner;", declarations)
+        self.assertIn("LE_ITEM_OWNER_ROOT = 1,", declarations)
+        self.assertIn("LE_ITEM_OWNER_HOLDER = 2,", declarations)
+        self.assertIn("static inline LeItemOwner le_item_owner_holder(LeHolderId id)", declarations)
+        self.assertIn("LeItemId le_create_item(LeHandle *handle, LeItemOwner owner, int32_t size)", declarations)
+        self.assertIn("resolve_item_owner(owner_kind, owner_id)", shim)
+        # Tcl keeps a flag per owner and passes the given one's name and token.
+        self.assertIn("foreach kind {root holder}", procs)
+        self.assertIn("create_item_cmd $owner_kind $owner_id", procs)

@@ -172,9 +172,9 @@ register_command_help get_{{plural}} "{{usage_line}}" "Returns the {{klass.name}
 # reach the *_cmd form directly). `-help` is checked
 # before the unknown-flag loop below, since it never receives a paired
 # value the way every other flag does. ---
-{% for klass in create_classes %}
-{%- set snake = klass.api_name() %}
-{%- set parent_fields = klass.api_parent_fields() %}
+{% for klass in classes %}
+{%- set snake = klass.to_snake_case() %}
+{%- set parent_fields = klass.get_parent_fields() %}
 proc create_{{snake}} {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "{{klass.create_tcl_usage()}}"
@@ -197,6 +197,17 @@ proc create_{{snake}} {args} {
     {%- endfor %}
     if {$provided_parents != 1} {
         error "create_{{snake}}: exactly one of {% for pf in parent_fields %}-{{pf.name}}{% if not loop.last %}/{% endif %}{% endfor %} is required"
+    }
+    {%- endif %}
+    {%- if klass.get_owner_fields() %}
+    # The owner is passed as its option's name and token.
+    set owner_kind {}
+    set owner_id {}
+    foreach kind {{'{'}}{% for f in klass.get_owner_fields() %}{{f.name}}{% if not loop.last %} {% endif %}{% endfor %}{{'}'}} {
+        if {$opts(-$kind) ne {}} {
+            set owner_kind $kind
+            set owner_id $opts(-$kind)
+        }
     }
     {%- endif %}
     foreach required {{'{'}}{{klass.create_tcl_required_flags()}}{{'}'}} {

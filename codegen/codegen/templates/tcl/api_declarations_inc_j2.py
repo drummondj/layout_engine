@@ -100,8 +100,33 @@ Le{{klass.name}}Id le_search_result_{{klass.to_snake_case()}}_at(LeHandle *handl
 // "INPUT"), not a raw numeric code. A multi-parent class (e.g. Shape's
 // terminal_port/obstruction) takes one Id parameter per parent field;
 // le_create_<type> itself rejects zero or more than one resolving. ---
-{% for klass in create_classes %}
-Le{{klass.name}}Id le_create_{{klass.api_name()}}(LeHandle *handle{% if klass.create_api_params() %}, {{klass.create_api_params()}}{% endif %});
+{% for klass in classes if klass.get_owner_fields() %}
+// A {{klass.name}}'s owner: which owner option (one of the kinds below - an
+// extension's add kinds of their own, so the values are for this build only)
+// and that owner's id. Build one with the le_{{klass.to_snake_case()}}_owner_<kind>() helpers.
+typedef struct
+{
+    int32_t kind;
+    uint32_t index;
+    uint32_t generation;
+} Le{{klass.owner_type_name()}};
+enum
+{
+    LE_{{klass.to_snake_case()|upper}}_OWNER_NONE = 0,
+{%- for f in klass.get_owner_fields() %}
+    {{klass.owner_c_kind(f)}} = {{loop.index}},
+{%- endfor %}
+};
+{%- for f in klass.get_owner_fields() %}
+static inline Le{{klass.owner_type_name()}} le_{{klass.to_snake_case()}}_owner_{{f.name}}(Le{{f.type}}Id id)
+{
+    Le{{klass.owner_type_name()}} owner = { {{klass.owner_c_kind(f)}}, id.index, id.generation };
+    return owner;
+}
+{%- endfor %}
+{% endfor %}
+{% for klass in classes %}
+Le{{klass.name}}Id le_create_{{klass.to_snake_case()}}(LeHandle *handle{% if klass.create_api_params() %}, {{klass.create_api_params()}}{% endif %});
 {% endfor %}
 
 // --- update_<type> - the *only* way any TCL-readable class's fields are

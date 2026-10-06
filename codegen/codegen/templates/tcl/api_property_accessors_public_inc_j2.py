@@ -208,8 +208,8 @@ int le_set_current_{{klass.to_snake_case()}}(LeHandle *handle, Le{{klass.name}}I
 // fields, unique_per_parent handling) for the richer ones - generated
 // instead of duplicated per class (see Klass.create_api_body() for how
 // this body is actually built). ---
-{% for klass in create_classes %}
-Le{{klass.name}}Id le_create_{{klass.api_name()}}(LeHandle *handle{% if klass.create_api_params() %}, {{klass.create_api_params()}}{% endif %})
+{% for klass in classes %}
+Le{{klass.name}}Id le_create_{{klass.to_snake_case()}}(LeHandle *handle{% if klass.create_api_params() %}, {{klass.create_api_params()}}{% endif %})
 {
 {{klass.create_api_body()}}
 }

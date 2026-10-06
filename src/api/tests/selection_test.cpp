@@ -27,11 +27,7 @@ namespace
             const LeRouteId route = le_create_route(handle, layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", 0, 0, 0.0, 0, 0.0, nullptr);
             m1 = le_layer_by_name(handle, "M1");
             const double rect_um[4] = {0.0, 0.0, 2.0, 2.0};
-            shape = le_create_shape(handle, LeTerminalPortId{.index = UINT32_MAX, .generation = 0}, LeObstructionId{.index = UINT32_MAX, .generation = 0},
-                                    LePhysicalPortSegmentId{.index = UINT32_MAX, .generation = 0}, LeBlockageId{.index = UINT32_MAX, .generation = 0}, route,
-                                    LeLayoutId{.index = UINT32_MAX, .generation = 0}, LeAbstractId{.index = UINT32_MAX, .generation = 0},
-                                    LeAbstractId{.index = UINT32_MAX, .generation = 0}, LeLayoutId{.index = UINT32_MAX, .generation = 0}, m1, nullptr, 0, nullptr, 0, 0,
-                                    nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
+            shape = le_create_shape(handle, le_shape_owner_route(route), m1, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
             ASSERT_NE(shape.index, UINT32_MAX);
             placement = le_create_placement(handle, layout, testcell.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", 0, "PLACED", 1, 10.0, 10.0, "N", 0, 0.0, nullptr);
             ASSERT_NE(placement.index, UINT32_MAX);

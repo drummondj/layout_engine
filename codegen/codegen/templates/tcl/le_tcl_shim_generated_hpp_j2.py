@@ -46,8 +46,8 @@ const char *get_{{klass.tcl_plural_snake_case()}}_at(int index);
 // definition), same as every other resolve_X_id-taking shim function -
 // see api_declarations_inc_j2's own comment for the rest of the field
 // conventions this follows uniformly. ---
-{% for klass in create_classes %}
-const char *create_{{klass.api_name()}}_cmd({{klass.create_shim_params()}});
+{% for klass in classes %}
+const char *create_{{klass.to_snake_case()}}_cmd({{klass.create_shim_params()}});
 {% endfor %}
 
 // --- update_<type> - positional forms behind `update_<type> <id>
