@@ -6,7 +6,7 @@ The design and the reasons behind it are in
 [EXTENSION_MECHANISM_RESEARCH.md](EXTENSION_MECHANISM_RESEARCH.md); this page
 is the reference.
 
-**Extension API version: 1** (Layout Engine 0.2.x). See the [changelog](#changelog).
+**Extension API version: 1** (Layout Engine 0.3.x, the first with extension support). See the [changelog](#changelog).
 
 Not available yet: extension schema classes (#74), GUI windows and menus
 (#73, #76), drawing extension objects (#77), and the `le` package manager
@@ -77,7 +77,7 @@ prefix      = "MyExt"            # required
 description = "What it does"     # optional
 
 [compatibility]
-layout_engine = ">=0.2, <0.3"    # optional, recommended
+layout_engine = ">=0.3, <0.4"    # optional, recommended
 extension_api = 1                # required
 
 [dependencies]                   # optional
@@ -330,7 +330,7 @@ as new functions or new optional manifest keys, don't bump it.
 
 ## Changelog
 
-### API 1: Layout Engine 0.2
+### API 1: Layout Engine 0.3
 
 The first version.
 - `le_extension.toml` with `[extension]`, `[compatibility]`,

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from le import build, install as installer, lock as lockfile, project as projectfile, sources
+from le import build, install as installer, lock as lockfile, project as projectfile, releases, sources
 
 
 class CliError(Exception):
@@ -42,8 +42,8 @@ def cmd_init(args) -> int:
     if args.layout_engine_path:
         layout_engine = {"path": os.path.relpath(Path(args.layout_engine_path).resolve(), root)}
     else:
-        version, _ = build.layout_engine_versions(installer._REPO_ROOT)
-        layout_engine = {"github": "drummondj/layout_engine", "tag": f"v{version}"}
+        major, minor, _ = installer.own_layout_engine_version().split(".")
+        layout_engine = {"github": "drummondj/layout_engine", "version": f">={major}.{minor}, <{major}.{int(minor) + 1}"}
     path.write_text(projectfile.template(args.name or root.name, layout_engine))
     gitignore = root / ".gitignore"
     existing = gitignore.read_text() if gitignore.exists() else ""
@@ -58,16 +58,17 @@ def cmd_add(args) -> int:
     if args.path:
         entry = {"path": os.path.relpath(Path(args.path).resolve(), root)}
     else:
-        if not (args.tag or args.rev):
-            raise CliError("a --github source needs --tag or --rev")
-        entry = {"github": args.github, **({"tag": args.tag} if args.tag else {"rev": args.rev})}
+        if not (args.tag or args.rev or args.version):
+            raise CliError("a --github source needs --tag, --rev or --version")
+        pin = {"tag": args.tag} if args.tag else {"rev": args.rev} if args.rev else {"version": args.version}
+        entry = {"github": args.github, **pin}
         if args.publisher:
             entry["publisher"] = args.publisher
         if args.allow_unsigned:
             entry["allow_unsigned"] = True
     _edit(root, lambda text: projectfile.set_entry(text, "extensions", args.name, projectfile.inline_table(entry)))
     print(f"le: added {args.name}")
-    return 0 if args.no_install else _install(root, None)
+    return 0 if args.no_install else _install(root, None, False)
 
 
 def cmd_remove(args) -> int:
@@ -79,7 +80,7 @@ def cmd_remove(args) -> int:
             raise CliError(f"{', '.join(users)} depend{'s' if len(users) == 1 else ''} on {args.name} - remove {'it' if len(users) == 1 else 'them'} first")
     _edit(root, lambda text: projectfile.remove_entry(text, "extensions", args.name))
     print(f"le: removed {args.name}")
-    return 0 if args.no_install else _install(root, None)
+    return 0 if args.no_install else _install(root, None, False)
 
 
 def cmd_trust(args) -> int:
@@ -96,18 +97,18 @@ def cmd_trust(args) -> int:
     return 0
 
 
-def _install(root: Path, update) -> int:
-    bundle = installer.install(root, update)
-    print(f"le: installed into {bundle}")
+def _install(root: Path, update, allow_downgrade: bool) -> int:
+    le_shell = installer.install(root, update, allow_downgrade)
+    print(f"le: ready - `le shell` runs {le_shell}")
     return 0
 
 
 def cmd_install(args) -> int:
-    return _install(find_root(Path.cwd()), None)
+    return _install(find_root(Path.cwd()), None, args.allow_downgrade)
 
 
 def cmd_update(args) -> int:
-    return _install(find_root(Path.cwd()), set(args.names))
+    return _install(find_root(Path.cwd()), set(args.names), args.allow_downgrade)
 
 
 def cmd_list(args) -> int:
@@ -115,7 +116,8 @@ def cmd_list(args) -> int:
     lock = lockfile.load(root)
     if lock is None:
         raise CliError("nothing installed yet - run `le install`")
-    print(f"layout_engine {lock.layout_engine_version}  {_describe(lock.layout_engine)}")
+    how = "release" if lock.layout_engine_bundle == "release" else "built from source"
+    print(f"layout_engine {lock.layout_engine_version}  ({how})  {_describe(lock.layout_engine)}")
     for e in lock.extensions:
         print(f"{e.name} {e.version}  {e.tier}  {_describe(e.locked)}")
     return 0
@@ -123,7 +125,9 @@ def cmd_list(args) -> int:
 
 def _describe(locked: lockfile.LockedSource) -> str:
     text = locked.source
-    if locked.rev:
+    if locked.tag:
+        text += f"@{locked.tag}"
+    elif locked.rev:
         text += f"@{locked.rev[:12]}"
     if locked.unsigned:
         text += "  UNSIGNED"
@@ -134,10 +138,11 @@ def _describe(locked: lockfile.LockedSource) -> str:
 
 def cmd_shell(args) -> int:
     root = find_root(Path.cwd())
-    if not installer.is_current(root):
-        _install(root, None)
-    le_shell = root / installer.STATE_DIR / "bundle" / "le_shell"
-    os.execv(str(le_shell), [str(le_shell), *args.args])
+    command = installer.shell_command(root)
+    if command is None:
+        _install(root, None, False)
+        command = installer.shell_command(root)
+    os.execv(command[0], [*command, *args.args])
     return 0  # not reached
 
 
@@ -159,6 +164,7 @@ def parser() -> argparse.ArgumentParser:
     pin = s.add_mutually_exclusive_group()
     pin.add_argument("--tag")
     pin.add_argument("--rev")
+    pin.add_argument("--version", help='a range matched against vX.Y.Z tags, e.g. ">=1.4, <2"')
     s.add_argument("--publisher", help="whose key in [trust] signs it (github sources)")
     s.add_argument("--allow-unsigned", action="store_true", help="accept it unsigned - for development only")
     s.add_argument("--no-install", action="store_true")
@@ -174,11 +180,13 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("key", help="the public key, or @file")
     s.set_defaults(func=cmd_trust)
 
-    s = sub.add_parser("install", help="build and install what the lock (or le_project.toml) says")
+    s = sub.add_parser("install", help="install what the lock (or le_project.toml) says")
+    s.add_argument("--allow-downgrade", action="store_true", help="accept a lower version than the lock has")
     s.set_defaults(func=cmd_install)
 
     s = sub.add_parser("update", help="re-resolve entries ignoring the lock (all if none named), then install")
     s.add_argument("names", nargs="*")
+    s.add_argument("--allow-downgrade", action="store_true", help="accept a lower version than the lock has")
     s.set_defaults(func=cmd_update)
 
     s = sub.add_parser("list", help="what's installed")
@@ -201,6 +209,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         sources.SourceError,
         installer.InstallError,
         build.BuildError,
+        releases.ReleaseError,
     ) as e:
         print(f"le: error: {e}", file=sys.stderr)
         return 1

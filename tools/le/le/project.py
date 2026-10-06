@@ -7,8 +7,8 @@ le_project.toml: what a project wants. Read with tomllib; `add`, `remove` and
     startup = "init.tcl"                      # optional
 
     [layout_engine]
-    github = "drummondj/layout_engine"       # with tag or rev
-    tag = "v0.2.0"
+    github = "drummondj/layout_engine"       # with tag, rev or version
+    version = ">=0.3, <0.4"
     # path = "../layout_engine"              # or a local checkout
 
     [build]
@@ -16,7 +16,7 @@ le_project.toml: what a project wants. Read with tomllib; `add`, `remove` and
     jobs = 8                                  # optional
 
     [extensions]
-    acme = { github = "acme/acme", tag = "v1.0.0", publisher = "acme" }
+    acme = { github = "acme/acme", version = ">=1.0, <2", publisher = "acme" }
     mine = { path = "../mine" }
 
     [trust]
@@ -46,6 +46,7 @@ class Source:
     github: Optional[str] = None
     tag: Optional[str] = None
     rev: Optional[str] = None
+    version: Optional[str] = None  # a constraint, resolved against vX.Y.Z tags
     path: Optional[Path] = None
     publisher: Optional[str] = None
     allow_unsigned: bool = False
@@ -53,7 +54,7 @@ class Source:
     def describe(self) -> str:
         if self.path is not None:
             return f"path:{self.path}"
-        return f"github:{self.github}@{self.tag or self.rev}"
+        return f"github:{self.github}@{self.tag or self.rev or self.version}"
 
 
 @dataclass
@@ -75,7 +76,7 @@ class Project:
 def _source(table: dict, where: str, root: Path, is_extension: bool) -> Source:
     if not isinstance(table, dict):
         raise ProjectError(f"{where} must be a table")
-    known = {"github", "tag", "rev", "path", "publisher", "allow_unsigned"}
+    known = {"github", "tag", "rev", "version", "path", "publisher", "allow_unsigned"}
     unknown = set(table) - known
     if unknown:
         raise ProjectError(f"{where}: unknown keys {sorted(unknown)}")
@@ -83,6 +84,7 @@ def _source(table: dict, where: str, root: Path, is_extension: bool) -> Source:
         github=table.get("github"),
         tag=table.get("tag"),
         rev=table.get("rev"),
+        version=table.get("version"),
         path=(root / table["path"]).resolve() if "path" in table else None,
         publisher=table.get("publisher"),
         allow_unsigned=bool(table.get("allow_unsigned", False)),
@@ -92,12 +94,12 @@ def _source(table: dict, where: str, root: Path, is_extension: bool) -> Source:
     if source.github is not None:
         if not _REPO.match(source.github):
             raise ProjectError(f"{where}: github must be owner/repo, got {source.github!r}")
-        if (source.tag is None) == (source.rev is None):
-            raise ProjectError(f"{where}: a github source needs exactly one of tag or rev")
+        if sum(v is not None for v in (source.tag, source.rev, source.version)) != 1:
+            raise ProjectError(f"{where}: a github source needs exactly one of tag, rev or version")
         if is_extension and source.publisher is None and not source.allow_unsigned:
             raise ProjectError(f"{where}: a github extension needs a publisher (whose key in [trust] signs it)")
-    elif source.tag or source.rev or source.publisher:
-        raise ProjectError(f"{where}: a path source takes no tag, rev or publisher")
+    elif source.tag or source.rev or source.version or source.publisher:
+        raise ProjectError(f"{where}: a path source takes no tag, rev, version or publisher")
     return source
 
 

@@ -12,7 +12,7 @@ if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version - see comment above")
 endif()
 
-project(layout_engine_backend VERSION 0.2.0 LANGUAGES C CXX)
+project(layout_engine_backend VERSION 0.3.0 LANGUAGES C CXX)
 
 # The extension SDK's version (src/extension/le/extension.hpp): bumped on any
 # breaking change to it, and checked against each extension's manifest.
@@ -1033,6 +1033,39 @@ if(SWIG_FOUND AND TCL_FOUND)
         DESTINATION . COMPONENT bundle)
     install(DIRECTORY ${LE_FONT_DIR}/ DESTINATION fonts COMPONENT bundle)
     install(IMPORTED_RUNTIME_ARTIFACTS TBB::tbb DESTINATION . COMPONENT bundle)
+
+    # `le`, the package manager, frozen by PyInstaller into one executable
+    # with Layout Engine's release key and version, so a release user needs
+    # no Python of their own.
+    option(LE_BUILD_LE_BINARY "Build the le package manager as a PyInstaller binary into the bundle" OFF)
+    if(LE_BUILD_LE_BINARY)
+        execute_process(
+            COMMAND ${Python3_EXECUTABLE} -m PyInstaller --version
+            RESULT_VARIABLE pyinstaller_result OUTPUT_QUIET ERROR_QUIET)
+        if(NOT pyinstaller_result EQUAL 0)
+            message(FATAL_ERROR "LE_BUILD_LE_BINARY needs PyInstaller for ${Python3_EXECUTABLE}: "
+                "run `${Python3_EXECUTABLE} -m pip install pyinstaller`")
+        endif()
+        set(le_binary_dir ${CMAKE_BINARY_DIR}/le_binary)
+        file(WRITE ${le_binary_dir}/le_version.txt "${PROJECT_VERSION}\n")
+        file(GLOB_RECURSE le_python_sources CONFIGURE_DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/le/*.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/codegen/codegen/extension_manifest.py)
+        add_custom_command(
+            OUTPUT ${le_binary_dir}/dist/le
+            COMMAND ${Python3_EXECUTABLE} -m PyInstaller --onefile --name le --noconfirm --log-level WARN
+                --distpath ${le_binary_dir}/dist --workpath ${le_binary_dir}/work --specpath ${le_binary_dir}
+                --paths ${CMAKE_CURRENT_SOURCE_DIR}/tools/le --paths ${CMAKE_CURRENT_SOURCE_DIR}/codegen
+                --add-data ${CMAKE_CURRENT_SOURCE_DIR}/assets/keys/allowed_signers:keys
+                --add-data ${le_binary_dir}/le_version.txt:.
+                ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/bin/le
+            DEPENDS ${le_python_sources} ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/bin/le
+                ${CMAKE_CURRENT_SOURCE_DIR}/assets/keys/allowed_signers ${le_binary_dir}/le_version.txt
+            COMMENT "Freezing le with PyInstaller"
+            VERBATIM)
+        add_custom_target(le_binary ALL DEPENDS ${le_binary_dir}/dist/le)
+        install(PROGRAMS ${le_binary_dir}/dist/le DESTINATION . COMPONENT bundle)
+    endif()
 
     # The installed bundle runs on its own files: installed into a scratch
     # directory, le_shell (no -module/-procs flags or env vars) must load the

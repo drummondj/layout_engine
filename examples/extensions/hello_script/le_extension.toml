@@ -7,7 +7,7 @@ prefix = "HelloScript"
 description = "Example script extension: a greeting command"
 
 [compatibility]
-layout_engine = ">=0.2, <0.3"
+layout_engine = ">=0.3, <0.4"
 extension_api = 1
 
 [contents]

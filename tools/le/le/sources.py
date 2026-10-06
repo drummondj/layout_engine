@@ -104,6 +104,22 @@ def export(repo_dir: Path, commit: str, dest: Path) -> None:
     marker.write_text(commit + "\n")
 
 
+_VERSION_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+
+
+def best_tag(repo_dir: Path, spec: str, satisfies) -> str:
+    """The highest vX.Y.Z tag whose version meets `spec` (satisfies(version, spec))."""
+    tags = git("tag", "--list", "v*", cwd=repo_dir).stdout.split()
+    candidates = []
+    for tag in tags:
+        match = _VERSION_TAG.match(tag)
+        if match and satisfies(tag[1:], spec):
+            candidates.append((tuple(int(g) for g in match.groups()), tag))
+    if not candidates:
+        raise SourceError(f"{repo_dir.name}: no vX.Y.Z tag matches {spec} (tags: {', '.join(sorted(tags)) or 'none'})")
+    return max(candidates)[1]
+
+
 def resolve(repo_dir: Path, tag: Optional[str], rev: Optional[str]) -> Tuple[str, str, bool]:
     """(commit, the ref to verify, whether it's a tag) for a tag or revision pin."""
     if tag is not None:

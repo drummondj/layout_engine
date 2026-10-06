@@ -76,7 +76,7 @@ class FakeGithub:
     def __init__(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        self.saved = {k: os.environ.get(k) for k in ("LE_GITHUB_URL", "LE_CACHE_DIR")}
+        self.saved = {k: os.environ.get(k) for k in ("LE_GITHUB_URL", "LE_CACHE_DIR", "LE_RELEASES_URL", "LE_RELEASE_ALLOWED_SIGNERS")}
         os.environ["LE_GITHUB_URL"] = f"file://{self.root}/github/{{repo}}.git"
         os.environ["LE_CACHE_DIR"] = str(self.root / "cache")
 
@@ -104,3 +104,46 @@ def fake_layout_engine(directory: Path, version: str = "0.2.0", api: int = 1) ->
         f"project(layout_engine_backend VERSION {version} LANGUAGES C CXX)\nset(LE_EXTENSION_API_VERSION {api})\n"
     )
     return directory
+
+
+def fake_release(fake_github: "FakeGithub", key: Path, version: str = "0.3.0", api: int = 1, sign: bool = True, bundle: Path = None) -> Path:
+    """
+    A signed release of a fake Layout Engine: a tagged repo published as
+    drummondj/layout_engine (signed by `key`, the stand-in release key) and
+    a release tarball with its .sig, served through LE_RELEASES_URL. The
+    tarball holds `bundle`, or else a stub le_shell that prints its arguments.
+    """
+    import tarfile
+
+    os.environ["LE_RELEASES_URL"] = f"file://{fake_github.root}/releases/{{tag}}/{{asset}}"
+    signers = fake_github.root / "release_allowed_signers"
+    signers.write_text(f'release@layout-engine namespaces="git,layout_engine-release" {" ".join(public_key(key).split()[:2])}\n')
+    os.environ["LE_RELEASE_ALLOWED_SIGNERS"] = str(signers)
+
+    work = fake_github.root / "work" / "layout_engine"
+    if not work.exists():
+        work.mkdir(parents=True)
+        run("git", "init", "-q", cwd=work)
+    fake_layout_engine(work, version, api)
+    git_commit_all(work, f"v{version}")
+    git_tag(work, f"v{version}", key)
+    fake_github.publish(work, "drummondj/layout_engine")
+
+    if bundle is None:
+        bundle = fake_github.root / "bundle_src" / version
+        bundle.mkdir(parents=True, exist_ok=True)
+        (bundle / "le_shell").write_text('#!/bin/sh\necho "le_shell $*"\n')
+        (bundle / "le_shell").chmod(0o755)
+        (bundle / "extensions.json").write_text(
+            f'{{"format": 1, "layout_engine": "{version}", "extension_api": {api}, "extensions": []}}\n'
+        )
+    tag = f"v{version}"
+    out = fake_github.root / "releases" / tag
+    out.mkdir(parents=True, exist_ok=True)
+    tarball = out / f"layout_engine-linux-x86_64-{tag}.tar.gz"
+    with tarfile.open(tarball, "w:gz") as archive:
+        for p in bundle.iterdir():
+            archive.add(p, arcname=p.name)
+    if sign:
+        run("ssh-keygen", "-q", "-Y", "sign", "-f", str(key), "-n", "layout_engine-release", str(tarball))
+    return tarball

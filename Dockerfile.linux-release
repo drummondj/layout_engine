@@ -158,10 +158,10 @@ COPY . .
 # >= 3.11 (RHEL8's stock `python3` is 3.6), so they go into python3.12,
 # and the configure steps below point CMake at it. poetry-core is a
 # standard PEP 517 backend, so a plain `pip install .` works without the
-# poetry CLI. ----
+# poetry CLI. PyInstaller freezes `le` into the bundle (LE_BUILD_LE_BINARY). ----
 FROM source AS codegen
 WORKDIR /workspace/codegen
-RUN python3.12 -m pip install --no-cache-dir .
+RUN python3.12 -m pip install --no-cache-dir . pyinstaller
 
 # ---- build: build + test. ctest gates the whole release - a failing
 # test here fails this `docker build`, so nothing downstream ever runs.
@@ -188,12 +188,13 @@ ARG BUILD_JOBS=2
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPython3_EXECUTABLE=$(command -v python3.12) \
  && cmake --build build -j ${BUILD_JOBS} \
  && ctest --test-dir build --output-on-failure \
- && cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release -DLE_ENABLE_TRACY=OFF -DPython3_EXECUTABLE=$(command -v python3.12) \
- && cmake --build build_release --target api pipelines io le_shell le_tcl -j ${BUILD_JOBS}
+ && cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release -DLE_ENABLE_TRACY=OFF -DLE_BUILD_LE_BINARY=ON -DPython3_EXECUTABLE=$(command -v python3.12) \
+ && cmake --build build_release --target api pipelines io le_shell le_tcl le_binary -j ${BUILD_JOBS}
 
 # ---- bundle: the release asset's actual content - CMakeLists.txt's
 # `bundle` install component (le_shell, le_tcl.so, both procs files,
-# lucide.ttf, fonts/ and libtbb), not the raw build tree. ----
+# lucide.ttf, fonts/, libtbb, extensions.json and le), not the raw build
+# tree. ----
 FROM build AS bundle
 RUN cmake --install build_release --component bundle --prefix /bundle
 
@@ -219,6 +220,7 @@ RUN mkdir -p /tmp/bundle-smoke-test \
  && echo LE_SHELL_BUNDLE_SMOKE_OK > expected.log \
  && { { ./le_shell smoke.tcl > smoke.log 2>&1 && diff -u expected.log smoke.log; } \
       || { echo 'bundle smoke test failed - le_shell output:'; cat smoke.log; exit 1; }; } \
+ && ./le --help > /dev/null \
  && rm -rf /tmp/bundle-smoke-test
 
 # ---- export: `docker buildx build --target export --output
