@@ -247,3 +247,46 @@ TEST(HelloExt, MarkersOwnShapes)
     EXPECT_EQ(markers_and_shapes(loaded.handle), (std::pair<size_t, size_t>{1, 1}));
     std::filesystem::remove(path);
 }
+
+// HelloMarker has render=: its shapes draw on the HELLO_MARKER row of the
+// Layout view and are selected by a click, and an edit redraws them.
+TEST(HelloExt, MarkersDrawAndSelectInTheLayoutView)
+{
+    le::ext::register_all();
+    Session session;
+    LeHandle *h = session.handle;
+    const LeTechnologyId technology = le_create_technology(h, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, 0, 0,
+                         nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
+    ASSERT_EQ(le_set_current_technology(h, technology), 0); // as reading a LEF does
+    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), "top");
+    const LeLayoutId layout = le_create_layout(h, design);
+    const LeHelloMarkerId marker = le_create_hello_marker(h, layout, "clock_root");
+    const double rect[] = {0.0, 0.0, 2.0, 1.0};
+    const LeShapeId shape = le_create_shape(h, le_shape_owner_hello_marker(marker), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0,
+                                            0, 0.0, 0);
+    ASSERT_NE(shape.index, UINT32_MAX);
+    ASSERT_EQ(le_set_current_design_layout_by_id(h, design), 0);
+    le_set_viewport_size(h, 200, 100);
+    le_fit_scene(h, 10);
+
+    const auto lit = [&](int x, int y) {
+        const LePixelBuffer buffer = le_render_pixel_buffer(h);
+        if (!buffer.data || x >= buffer.width || y >= buffer.height)
+            return false;
+        const uint8_t *px = buffer.data + y * buffer.row_bytes + x * 4;
+        return px[0] + px[1] + px[2] > 30;
+    };
+    EXPECT_TRUE(lit(60, 30)) << "the marker's rect fills the view";
+
+    le_mouse_down(h, 100, 50);
+    le_mouse_up(h, 100, 50);
+    ASSERT_EQ(le_selection_count(h), 1);
+    const LeObjectRef selected = le_selected_object_ref(h, 0);
+    EXPECT_EQ(selected.kind, LE_OBJECT_KIND_SHAPE);
+    EXPECT_EQ(selected.index, shape.index);
+
+    // Moving the marker's shape out of the way redraws its chunk.
+    const double moved[] = {10.0, 10.0, 11.0, 11.0};
+    ASSERT_EQ(le_update_shape(h, shape, 0, LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved, 4, 0, 0.0, 0, 0.0, 0, 0), 0);
+    EXPECT_FALSE(lit(60, 30)) << "away from the cursor box the click left at (100, 50)";
+}

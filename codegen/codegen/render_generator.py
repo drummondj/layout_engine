@@ -13,8 +13,8 @@ from typing import List
 
 import jinja2
 
-from codegen.schema import Schema
-from codegen.templates.render import view_layer_purpose_hpp_j2
+from codegen.schema import Klass, Schema, to_snake_case
+from codegen.templates.render import renderable_classes_hpp_j2, view_layer_purpose_hpp_j2
 
 _NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _LABEL = re.compile(r"^[a-z][A-Za-z0-9]*$")
@@ -42,9 +42,46 @@ def validate_purposes(schema: Schema) -> List[str]:
     return errors
 
 
+def renderables(schema: Schema) -> tuple[list, List[str]]:
+    """
+    What renderable_classes.hpp needs for each class with render=, and every
+    problem: it needs a Layout parent and a list of Shapes it owns.
+    """
+    found, errors = [], []
+    shape = next((k for k in schema.classes if k.name == "Shape"), None)
+    for klass in schema.classes:
+        if klass.render is None:
+            continue
+        layout_parent = next((f for f in klass.get_parent_fields() if f.type == "Layout"), None)
+        shapes_list = next((f for f in klass.fields if f.is_child and f.is_list and f.type == "Shape"), None)
+        owner_option = None
+        if shape is not None and shapes_list is not None:
+            owner_option = next((f for f in shape.get_owner_fields() if f.type == klass.name and f.parent == shapes_list.name), None)
+        if layout_parent is None:
+            errors.append(f"{klass.name} has render= but no parent field of type Layout")
+        if owner_option is None:
+            errors.append(f"{klass.name} has render= but owns no Shapes (a Shape list with owner=True)")
+        if layout_parent is None or owner_option is None:
+            continue
+        found.append(
+            {
+                "klass": klass,
+                "snake": to_snake_case(klass.name),
+                "purpose": klass.render.purpose,
+                "layout_list": layout_parent.parent,
+                "layout_field": layout_parent.name,
+                "shapes_list": shapes_list.name,
+                "owner_option": owner_option.name,
+            }
+        )
+    return found, errors
+
+
 def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
-    """Write view_layer_purpose.hpp into `output_dir`, recreated from scratch."""
-    errors = validate_purposes(schema)
+    """Write view_layer_purpose.hpp and renderable_classes.hpp into `output_dir`, recreated from scratch."""
+    schema.link()
+    renderable, render_errors = renderables(schema)
+    errors = validate_purposes(schema) + render_errors
     if errors:
         for error in errors:
             logger.error(error)
@@ -58,4 +95,9 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
         namespace=schema.namespace, purposes=schema.purposes
     )
     (out / "view_layer_purpose.hpp").write_text(text)
+    (out / "renderable_classes.hpp").write_text(
+        jinja2.Template(renderable_classes_hpp_j2.TEMPLATE, trim_blocks=True, lstrip_blocks=True).render(
+            namespace=schema.namespace, renderables=renderable
+        )
+    )
     return 0

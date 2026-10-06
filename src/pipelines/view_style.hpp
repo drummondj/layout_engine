@@ -1,5 +1,6 @@
 #pragma once
 #include "../database/database.hpp"
+#include "generated/pipelines/renderable_classes.hpp"
 #include "generated/pipelines/view_layer_purpose.hpp"
 #include <algorithm>
 #include <array>
@@ -277,6 +278,17 @@ namespace le
             set.rows_.push_back(ViewLayerRow{
                 .name = "PORT_MARKER",
                 .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PORT_MARKER, .id = set.port_marker_id_}},
+            });
+
+            // Each renderable class's own row (render=), after every core
+            // one: their purposes follow core's, so purposes() index ==
+            // ordinal still holds. Colors continue the non-routing palette.
+            renderable::for_each([&]<class R>(R) {
+                const ViewLayerId id = set.add(std::string(R::row_name), std::string(R::row_name), R::purpose, LayerId{}, renderable_style(other_index++));
+                set.rows_.push_back(ViewLayerRow{
+                    .name = std::string(R::row_name),
+                    .columns = {ViewLayerColumn{.purpose = R::purpose, .id = id}},
+                });
             });
 
             return set;
@@ -588,6 +600,13 @@ namespace le
         static ViewLayerStyle debug_style()
         {
             return ViewLayerStyle{.outline_color = {120, 220, 255, 255}, .fill_color = {120, 220, 255, 100}};
+        }
+
+        // A renderable class's row: a palette color, outlined with a light fill.
+        static ViewLayerStyle renderable_style(size_t palette_index)
+        {
+            const Color color = other_color(palette_index);
+            return ViewLayerStyle{.outline_color = color, .fill_color = {color.r, color.g, color.b, 80}};
         }
 
         // Solid light gray - the PhysicalPort direction markers.

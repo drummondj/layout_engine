@@ -8,7 +8,8 @@ is the reference.
 
 **Extension API version: 1** (Layout Engine 0.3.x, the first with extension support). See the [changelog](#changelog).
 
-Not available yet: drawing extension objects as part of the design (#77).
+Not available yet: per-layer columns and text labels for extension objects,
+and spatial tiling for large counts (#78).
 Projects install extensions with the `le` package manager
 (`tools/le/README.md`); while developing one, build it in with
 `LE_EXTENSION_DIRS`, as below.
@@ -251,6 +252,26 @@ def extend(schema):
   an id (`LeShapeOwner`), and your class adds a kind - or
   `create_shape -my_ext_marker <token> ...` in Tcl. Deleting your object
   deletes its shapes, undoably.
+- **Drawing them:** give a class that owns shapes and has a `Layout`
+  parent a `render=`:
+
+  ```python
+  from codegen.schema import Purpose, Render
+
+  Klass(name="MyExtMarker", ...,
+        render=Render(purpose=Purpose(name="MY_EXT_MARKER", label="myExtMarker",
+                                      description="my_ext's markers", has_selectable_objects=True)),
+        fields=[Field(name="layout", type="Layout", parent="my_ext_markers"),
+                Field(name="shapes", type="Shape", is_list=True, is_child=True, owner=True)])
+  ```
+
+  Its shapes draw in the Layout view on the purpose's own row (whatever
+  their layers), which the Layers panel lists with visibility and
+  selection toggles. They're kept up to date incrementally as they're
+  edited, and a click selects their pieces like any shape's; the
+  Properties panel's trail leads to your object. The purpose's name and
+  label start with your prefix. `render=` isn't stored data, so adding it
+  doesn't change your schema version.
 - **History:** the build writes `schema_history/<VERSION>.json` beside
   `schema_ext.py`. Commit it. Changing the schema without bumping
   `VERSION` fails the build, as for core.
@@ -536,6 +557,7 @@ The first version.
 - Overlays: `Registry::add_overlay`, `OverlayContext`, `request_redraw()`.
 - Settings: `Registry::add_settings`, `SettingsSection`; `ExtensionInfo::directory`
   and `Registry::resource`.
+- Rendering: `Render(purpose=Purpose(...))` on a class.
 - Database classes: `schema_ext.py` (`VERSION`, `extend(schema)`), its
   `schema_history/` and `migrations/` (`Migration(extension=...,
   depends_on_core=...)`, `--migrate-extension`), and the `"extensions"`

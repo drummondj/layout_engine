@@ -267,6 +267,8 @@ namespace le
     /// and placements are nearly all of a real design, so they're split
     /// spatially and an edit rebuilds only the
     /// tiles it touched. An Abstract node has one chunk.
+    /// After the core kinds come one chunk per renderable class
+    /// (renderable_classes.hpp): chunk kCoreLayoutChunkCount + R::index.
     enum class LayoutChunk : std::uint8_t
     {
         DIEAREA_BLOCKAGES,
@@ -274,7 +276,12 @@ namespace le
         FREE_SHAPES,
         ROWS_TRACKS_GCELLS_REGIONS,
     };
-    inline constexpr std::size_t kFixedLayoutChunkCount = 4;
+    inline constexpr std::size_t kCoreLayoutChunkCount = 4;
+    inline constexpr std::size_t kFixedLayoutChunkCount = kCoreLayoutChunkCount + renderable::kCount;
+
+    /// @brief The fixed chunk holding renderable class R's objects.
+    template <class R>
+    constexpr LayoutChunk renderable_chunk() { return static_cast<LayoutChunk>(kCoreLayoutChunkCount + R::index); }
 
     /// @brief One placement tile's resolved child placements - immutable
     /// and shared between outputs like a chunk, so ViewportCullStage keys
@@ -822,8 +829,9 @@ namespace le
         {
             ChunkSources sources;
             ViewLayerShapes shapes = collect_layout_chunk(root, view_layers, layout_id, chunk, sources);
-            return make_chunk(std::move(shapes), "layout.shape_index",
-                              chunk == LayoutChunk::PORTS ? std::optional<ChunkSources>(std::move(sources)) : std::nullopt);
+            // PORTS and the renderable classes' chunks hold selectable shapes.
+            const bool selectable = chunk == LayoutChunk::PORTS || static_cast<std::size_t>(chunk) >= kCoreLayoutChunkCount;
+            return make_chunk(std::move(shapes), "layout.shape_index", selectable ? std::optional<ChunkSources>(std::move(sources)) : std::nullopt);
         }
 
         // One route tile's shapes - its member routes still in `layout_id`.
@@ -1216,7 +1224,18 @@ namespace le
                         dirty.declared_bbox_changed = true;
                     }
                     else
-                        dirty.everything = true;
+                    {
+                        bool renderable_owner = false;
+                        renderable::for_each([&]<class R>(R) {
+                            if (field == R::owner_option)
+                            {
+                                mark_fixed(layout, {renderable_chunk<R>()});
+                                renderable_owner = true;
+                            }
+                        });
+                        if (!renderable_owner)
+                            dirty.everything = true;
+                    }
                     return;
                 }
                 case ChangeKlass::Route:
@@ -1274,8 +1293,20 @@ namespace le
                 case ChangeKlass::PropertyDefinition:
                     return;
                 default: // technology, libraries, designs, vias, ...
-                    dirty.everything = true;
+                {
+                    // A renderable class's object: its Layout's chunk for it.
+                    bool renderable_object = false;
+                    renderable::for_each([&]<class R>(R) {
+                        if (entry.klass == R::klass)
+                        {
+                            mark_fixed(ancestor(entry.parent, ChangeKlass::Layout), {renderable_chunk<R>()});
+                            renderable_object = true;
+                        }
+                    });
+                    if (!renderable_object)
+                        dirty.everything = true;
                     return;
+                }
                 } });
             return dirty;
         }
@@ -2015,6 +2046,24 @@ namespace le
             }
             // Routes and placements are tiled: collect_route_tile,
             // collect_placement_tile.
+
+            // A renderable class's objects: every Shape they own, on the
+            // class's own row, each recorded for selection.
+            renderable::for_each([&]<class R>(R) {
+                if (chunk != renderable_chunk<R>())
+                    return;
+                const ResolverPhaseTimer timer("layout.renderable");
+                const ViewLayerId view_layer = view_layers.find(LayerId{}, R::purpose);
+                std::vector<RenderShape> &out = shapes_by_layer[view_layer];
+                std::vector<ShapeId> &recorded = sources.shapes[view_layer];
+                for (const typename R::Id object : R::in_layout(root, layout_id))
+                    for (const ShapeId shape_id : R::shapes(root, object))
+                        if (const Shape *shape = root.get_shape(shape_id))
+                        {
+                            out.push_back(to_render_shape(*shape));
+                            recorded.push_back(shape_id);
+                        }
+            });
 
             return shapes_by_layer;
         }

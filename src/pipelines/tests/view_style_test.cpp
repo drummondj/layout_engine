@@ -30,8 +30,9 @@ TEST_F(ViewStyleFixture, CreatesSevenPurposesPerLayerPlusNinePseudoLayers)
     // 2 layers x 7 purposes (TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
     // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/CUSTOM_SHAPE) + 9
     // pseudo-ViewLayers with no physical Layer (BOUNDARY/ROW/PLACEMENT/
-    // GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/FLIGHTLINE/PORT_MARKER) = 23.
-    EXPECT_EQ(view_layers.all().size(), 23u);
+    // GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/FLIGHTLINE/PORT_MARKER) = 23,
+    // plus one row per renderable class an extension adds.
+    EXPECT_EQ(view_layers.all().size(), 23u + renderable::kCount);
 }
 
 TEST_F(ViewStyleFixture, FindResolvesDistinctViewLayersPerLayerAndPurpose)
@@ -130,7 +131,7 @@ TEST_F(ViewStyleFixture, RowsHasRowThenBoundaryThenPlacementThenOneRowPerPhysica
     // BOUNDARY then PLACEMENT first (this declaration order is also the
     // real draw z-order, see rows()'s own doc comment).
     const auto &rows = view_layers.rows();
-    ASSERT_EQ(rows.size(), 11u);
+    ASSERT_EQ(rows.size(), 11u + renderable::kCount); // + extensions' rows, last
     EXPECT_EQ(rows[0].name, "ROW");
     EXPECT_EQ(rows[1].name, "BOUNDARY");
     EXPECT_EQ(rows[2].name, "PLACEMENT");
@@ -359,7 +360,7 @@ TEST_F(ViewStyleFixture, PurposesListsEachDistinctPurposeOnceInFirstEncounteredO
     // again); GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/FLIGHTLINE/PORT_MARKER each
     // contribute their own single new purpose last.
     const auto purposes = view_layers.purposes();
-    ASSERT_EQ(purposes.size(), 16u);
+    ASSERT_EQ(purposes.size(), 16u + renderable::kCount);
     EXPECT_EQ(purposes[0], ViewLayerPurpose::ROW);
     EXPECT_EQ(purposes[1], ViewLayerPurpose::BOUNDARY);
     EXPECT_EQ(purposes[2], ViewLayerPurpose::PLACEMENT);
@@ -553,9 +554,10 @@ TEST(ViewLayerPurposeRegistry, SelectableObjectsMatchWhatHitTestingWalks)
 {
     for (const ViewLayerPurposeInfo &info : kViewLayerPurposes)
     {
-        const bool expected = info.purpose == ViewLayerPurpose::TERMINAL || info.purpose == ViewLayerPurpose::OBSTRUCTION ||
-                              info.purpose == ViewLayerPurpose::ROUTE || info.purpose == ViewLayerPurpose::PLACEMENT ||
-                              info.purpose == ViewLayerPurpose::ROW;
+        bool expected = info.purpose == ViewLayerPurpose::TERMINAL || info.purpose == ViewLayerPurpose::OBSTRUCTION ||
+                        info.purpose == ViewLayerPurpose::ROUTE || info.purpose == ViewLayerPurpose::PLACEMENT || info.purpose == ViewLayerPurpose::ROW;
+        // A renderable class's shapes are walked too (for_each_layout_hit_shape).
+        renderable::for_each([&]<class R>(R) { expected = expected || info.purpose == R::purpose; });
         EXPECT_EQ(purpose_has_selectable_objects(info.purpose), expected) << info.label;
     }
 }

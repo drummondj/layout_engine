@@ -1756,3 +1756,28 @@ per compose. Release, `pipeline_benchmarks`, 5 repetitions, medians (ms):
 Within run-to-run noise (about ±3% here: the same build's two runs differ
 as much as before/after). An extension overlay itself costs whatever it
 draws, on every cursor move; the SDK asks overlays to stay quick.
+
+## 2026-10-07 — Renderable classes: resolver chunks per render= class (#77)
+
+`HierarchyResolverStage` gains one fixed chunk per renderable class
+(`renderable_classes.hpp`) after its four core chunks, `collect_dirty` maps
+their changes, and the Layout hit tests visit their shapes. A build without
+extensions has no renderable classes, so every added loop is over an empty
+list. Release, same machine; `pipeline_benchmarks` 5 repetitions (medians, ms)
+and one `resolver_profile 4x4 5` each:
+
+| | before | after |
+|---|---|---|
+| BM_HierarchyResolver/2x2 | 560 (sd 108) | 548 (sd 104) |
+| BM_HierarchyResolver/3x3 | 1452 (sd 202) | 1341 (sd 215) |
+| BM_ViewportCull/2x2 | 0.216 | 0.215 |
+| BM_ViewportCull/3x3 | 0.318 | 0.321 |
+| resolve_total_ms (4x4) | 2327 | 2218 |
+| resolve.layout.routes_ms | 1355 | 1256 |
+| edit.route_shape.resolve_ms | 10.13 | 10.09 |
+| edit.placement_move.resolve_ms | 1.58 | 1.58 |
+| rss_peak_mb | 3703 | 3746 |
+
+Within noise: the resolver's timings are bimodal on this machine (2026-10-05
+entry), and the stddevs are larger than the differences. With a renderable
+class, its chunk costs what its objects' shapes cost, like the PORTS chunk.

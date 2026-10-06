@@ -375,6 +375,21 @@ class TestExtensionOwnedShapes(unittest.TestCase):
         self.assertIn("HelloBox,", item)
         self.assertIn("static constexpr ItemOwner hello_box(HelloBoxId id) noexcept", item)
 
+    def test_a_render_purpose_joins_the_schema_and_carries_the_prefix(self):
+        body = self.BOX.replace('from codegen.schema import Field, Klass', 'from codegen.schema import Field, Klass, Purpose, Render').replace(
+            'schema.classes.append(Klass(name="HelloBox", description="A box", fields=[',
+            'schema.classes.append(Klass(name="HelloBox", description="A box", render=Render(Purpose("HELLO_BOX", "helloBox", "Boxes")), fields=[',
+        )
+        schema = self.core()
+        schema.purposes = []
+        self.assertEqual(extension_schema.apply(schema, [self.extension(body)]), [])
+        self.assertEqual([p.name for p in schema.purposes], ["HELLO_BOX"])
+
+        bad = body.replace('Purpose("HELLO_BOX", "helloBox", "Boxes")', 'Purpose("BOX", "box", "Boxes")')
+        errors = extension_schema.apply(self.core(), [self.extension(bad)])
+        self.assertTrue(any("purpose BOX must start with HELLO_" in e for e in errors), errors)
+        self.assertTrue(any("label 'box' must start with 'hello'" in e for e in errors), errors)
+
     def test_owning_a_class_without_owner_fields_is_refused(self):
         body = self.BOX.replace('type="Item", is_list=True, is_child=True, owner=True', 'type="Holder", is_list=True, is_child=True, owner=True')
         errors = extension_schema.apply(self.core(), [self.extension(body)])

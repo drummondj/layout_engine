@@ -441,6 +441,10 @@ class Klass:
     # ones other classes' defaults should anchor to.
     has_current_access: bool = False
 
+    # Draws this class in the Layout view (see Render). Only an extension's
+    # classes use it so far.
+    render: Optional["Render"] = None
+
     # The extension whose schema_ext.py added this class (None: core).
     # Set by codegen.extension_schema; such classes stay out of the core
     # descriptor and go in that extension's own.
@@ -3998,3 +4002,23 @@ class Purpose:
     visible_by_default: bool = True
     selectable_by_default: bool = True
     has_selectable_objects: bool = False
+
+
+@dataclass
+class Render:
+    """
+    Declares that a class is drawn in the Layout view: each object's owned
+    Shapes go on `purpose`'s own row (one pseudo-row, whatever their
+    layers), selectable as Shape pieces when the purpose has selectable
+    objects. The class needs a parent field of type Layout and a list of
+    Shapes it owns (owner=True). codegen --target render lists every such
+    class in renderable_classes.hpp, which the resolver, the hit tests and
+    collect_dirty read, so a renderable class needs no hand-written core
+    code.
+
+    Attributes:
+        purpose (Purpose): The class's own purpose, added after the core
+            purposes. An extension's purpose name and label carry its prefix.
+    """
+
+    purpose: "Purpose"

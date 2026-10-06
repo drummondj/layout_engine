@@ -281,6 +281,8 @@ namespace le
     /// (ROUTE) then its physical-port shapes (TERMINAL) - all of them, or
     /// only those in `candidates` (a LayoutSelectionIndex's, which holds
     /// exactly these shapes), in the same routes-then-ports order.
+    /// Then each renderable class's shapes (renderable_classes.hpp), with
+    /// the class's purpose.
     template <typename Visit>
     void for_each_layout_hit_shape(const Root &root, LayoutId layout_id, const std::vector<ShapeId> *candidates, Visit &&visit)
     {
@@ -292,6 +294,11 @@ namespace le
             for (const ShapeId shape_id : *candidates)
                 if (const Shape *shape = root.get_shape(shape_id); shape && !shape->route().valid() && shape->physical_port_segment().valid())
                     visit(shape_id, ViewLayerPurpose::TERMINAL);
+            renderable::for_each([&]<class R>(R) {
+                for (const ShapeId shape_id : *candidates)
+                    if (const Shape *shape = root.get_shape(shape_id); shape && R::owner_of(*shape).valid())
+                        visit(shape_id, R::purpose);
+            });
             return;
         }
         for (RouteId route_id : root.get_layout_routes(layout_id))
@@ -301,6 +308,23 @@ namespace le
             for (PhysicalPortSegmentId segment_id : root.get_physical_port_segments(port_id))
                 for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
                     visit(shape_id, ViewLayerPurpose::TERMINAL);
+        renderable::for_each([&]<class R>(R) {
+            for (const typename R::Id object : R::in_layout(root, layout_id))
+                for (const ShapeId shape_id : R::shapes(root, object))
+                    visit(shape_id, R::purpose);
+        });
+    }
+
+    /// @brief The view layer a Layout-view hit shape draws on: a renderable
+    /// class's own row (whatever the shape's layer), else its layer's
+    /// `purpose` column; invalid if it has neither.
+    inline ViewLayerId layout_hit_view_layer(const ViewLayerSet &view_layers, const Shape &shape, ViewLayerPurpose purpose)
+    {
+        bool own_row = false;
+        renderable::for_each([&]<class R>(R) { own_row = own_row || purpose == R::purpose; });
+        if (own_row)
+            return view_layers.find(LayerId{}, purpose);
+        return shape.layer.valid() ? view_layers.find(shape.layer, purpose) : ViewLayerId{};
     }
 
     inline std::vector<AbstractHitPiece> hit_test_layout_point_all(
@@ -312,8 +336,10 @@ namespace le
         for_each_layout_hit_shape(root, layout_id, candidates, [&](ShapeId shape_id, ViewLayerPurpose purpose)
                                   {
             const Shape *shape = root.get_shape(shape_id);
-            if (shape && shape->layer.valid())
-                by_layer[view_layers.find(shape->layer, purpose)].push_back(shape_id); });
+            if (!shape)
+                return;
+            if (const ViewLayerId view_layer = layout_hit_view_layer(view_layers, *shape, purpose); view_layer.valid())
+                by_layer[view_layer].push_back(shape_id); });
         return point_hits_topmost_first(root, view_layers, by_layer, dbu_point, scale, is_selectable, first_only);
     }
 
@@ -342,10 +368,11 @@ namespace le
         auto collect = [&](ShapeId shape_id, ViewLayerPurpose purpose)
         {
             const Shape *shape = root.get_shape(shape_id);
-            if (!shape || !shape->layer.valid())
+            if (!shape)
                 return;
-
-            const ViewLayerId view_layer = view_layers.find(shape->layer, purpose);
+            const ViewLayerId view_layer = layout_hit_view_layer(view_layers, *shape, purpose);
+            if (!view_layer.valid())
+                return;
             const ViewLayerData *data = view_layers.get(view_layer);
             if (data && !is_selectable(data->layer_name, data->purpose))
                 return;

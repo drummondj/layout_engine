@@ -3,6 +3,7 @@
 
 #include "gui/gui_provider.hpp"
 #include "api/le_handle.hpp"
+#include "generated/pipelines/renderable_classes.hpp"
 
 #include <gtest/gtest.h>
 
@@ -72,7 +73,9 @@ TEST_F(GuiProviderFixture, OnlyPurposesWithSelectableObjectsOfferASelectableTogg
         if (purpose.has_selectable_objects)
             with_toggle.push_back(purpose.ordinal);
     std::ranges::sort(with_toggle);
-    EXPECT_EQ(with_toggle, (std::vector<int32_t>{0 /* TERMINAL */, 1 /* OBSTRUCTION */, 6 /* ROW */, 9 /* ROUTE */, 11 /* PLACEMENT */}));
+    std::vector<int32_t> expected{0 /* TERMINAL */, 1 /* OBSTRUCTION */, 6 /* ROW */, 9 /* ROUTE */, 11 /* PLACEMENT */};
+    le::renderable::for_each([&]<class R>(R) { expected.push_back(static_cast<int32_t>(R::purpose)); }); // extensions' rows are selectable
+    EXPECT_EQ(with_toggle, expected);
 }
 
 // The Layers panel's indented Placement.type/Route.use rows, with each
