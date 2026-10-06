@@ -66,4 +66,6 @@ Engine's own tags are checked against its release key
 `python3 -m unittest discover -s tests -t .` from `tools/le` (ctest
 `le_package_manager_unit`), using fake GitHub repos and a stubbed build.
 `tests/integration_test.py <source dir>` builds a real project (ctest
-`le_package_manager_integration`, with `-DLE_TEST_PACKAGE_MANAGER=ON`).
+`le_package_manager_integration`, with `-DLE_TEST_PACKAGE_MANAGER=ON`). CI
+runs it in its own job (`le-integration`), only when a change touches what
+`le` depends on, plus nightly and on demand.

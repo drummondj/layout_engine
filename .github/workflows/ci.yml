@@ -12,6 +12,10 @@ name: CI
 # comment), unlike Dockerfile.linux-release's one-shot COPY build, so this
 # mirrors the existing local-dev command (`docker compose run --rm ci`)
 # directly rather than going through docker/build-push-action.
+#
+# The `le` package manager's end-to-end test builds Layout Engine a second
+# time, so it has its own job, run only when a change can affect it, nightly,
+# and on demand.
 
 # Pushes to main only: a PR branch is built by its pull_request run, so
 # building its pushes too would run every commit twice.
@@ -19,12 +23,61 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
 
 jobs:
   build-test:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Build and test (le_shell/le_tcl included)
         run: docker compose run --rm ci
+
+  # Whether this change touches anything the `le` end-to-end test depends on.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      le: ${{ steps.diff.outputs.le }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT}" == pull_request ]]; then
+            base="${PR_BASE}"
+          elif [[ "${EVENT}" == push && -n "${PUSH_BEFORE}" && "${PUSH_BEFORE}" != 0000000000000000000000000000000000000000 ]]; then
+            base="${PUSH_BEFORE}"
+          else
+            echo "le=true" >> "$GITHUB_OUTPUT"   # schedule, manual run, or a new branch
+            exit 0
+          fi
+          if git diff --name-only "${base}" HEAD | grep -qE '^(tools/le/|cmake/|examples/|CMakeLists\.txt$|codegen/codegen/extension_manifest\.py$|src/extension/|src/api/extension\.cpp$|src/tcl/(le_shell\.cpp|extension_index\.hpp|le_api\.i)$|Dockerfile\.linux-ci$|docker-compose\.yml$|\.github/workflows/ci\.yml$)'; then
+            echo "le=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "le=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # `le` builds a real project (Layout Engine plus both example extensions)
+  # from this checkout and runs it - tools/le/tests/integration_test.py.
+  le-integration:
+    needs: changes
+    if: needs.changes.outputs.le == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: le end-to-end test
+        run: >-
+          docker compose run --rm ci bash -c
+          "python3 -m pip install --no-cache-dir --break-system-packages ./codegen &&
+          python3 tools/le/tests/integration_test.py /workspace"
