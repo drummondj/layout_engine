@@ -8,8 +8,7 @@ is the reference.
 
 **Extension API version: 1** (Layout Engine 0.3.x, the first with extension support). See the [changelog](#changelog).
 
-Not available yet: drawing on the design view (Compose overlays, #76) and
-drawing extension objects (#77).
+Not available yet: drawing extension objects as part of the design (#77).
 Projects install extensions with the `le` package manager
 (`tools/le/README.md`); while developing one, build it in with
 `LE_EXTENSION_DIRS`, as below.
@@ -273,6 +272,39 @@ def extend(schema):
   all in your tests (old ones go through your migrations), as `hello_ext`'s `EverySchemaVersionsGoldenFileStillLoads`
   does, so a later change that breaks old files fails your CI.
 
+## Drawing on the design view: `<le/extension_overlay.hpp>`
+
+An overlay draws with Blend2D on the design view, after Layout Engine's own
+(selection, rulers, cursor), whenever the view is drawn. Register it from
+your core sources, so it also draws in `le_tcl`'s image exports:
+
+```cpp
+#include <le/extension_overlay.hpp>
+
+void draw_marker(le::ext::OverlayContext &ctx)
+{
+    const BLPoint p = ctx.to_pixel(le::Point{0, 0}); // dbu -> pixels
+    ctx.canvas().set_stroke_style(BLRgba32(0xFFFFC040));
+    ctx.canvas().stroke_circle(p.x, p.y, 8.0);
+}
+
+void le_ext_my_ext_register(le::ext::Registry &registry)
+{
+    registry.add_overlay(draw_marker);
+}
+```
+
+- `OverlayContext` gives the canvas, `to_pixel`, `scale()`,
+  `visible_area()` (dbu), `width()`/`height()`, `root()` and `data<T>()`.
+- It runs on the render thread with the session locked for reading: read
+  `root()` and `data<T>()`, but don't call `le_*` functions or
+  `read()`/`write()`. It runs on every mouse move, so keep it quick.
+- The canvas's state is restored after each overlay, so one can't affect
+  the next.
+- The view redraws on database changes and view changes. When only your
+  own state changed (`data<T>()`), call `request_redraw()` on an
+  `ExtensionContext` or `ExtGuiContext`.
+
 ## GUI: `<le/extension_gui.hpp>`
 
 `GUI_SOURCES` define one more function, which adds windows and Extensions
@@ -455,7 +487,8 @@ was used.
 
 Only these are the SDK. Anything else in Layout Engine may change in any
 release without notice.
-- `<le/extension.hpp>`, `<le/extension_tcl.hpp>` and `<le/extension_gui.hpp>`
+- `<le/extension.hpp>`, `<le/extension_tcl.hpp>`, `<le/extension_gui.hpp>`
+  and `<le/extension_overlay.hpp>` (with Blend2D, which overlays draw with)
 - `le_add_extension()` and the `le_extension.toml` format
 - `schema_ext.py`'s `VERSION`/`extend()` contract and the `codegen.schema`
   `Klass`/`Field` it uses
@@ -489,6 +522,7 @@ The first version.
   `add_key_binding`, `add_settings_panel`, `add_icon_glyphs`, `add_font`),
   `GuiWindow`, `Dock`, `GuiMenuItem`, `GuiToolbarButton`, `ToolbarModes`,
   `GuiKeyBinding`, `ExtGuiContext` (with `font`), `register_all_gui()`.
+- Overlays: `Registry::add_overlay`, `OverlayContext`, `request_redraw()`.
 - Settings: `Registry::add_settings`, `SettingsSection`; `ExtensionInfo::directory`
   and `Registry::resource`.
 - Database classes: `schema_ext.py` (`VERSION`, `extend(schema)`), its

@@ -22,6 +22,7 @@
 #include "../pipelines/via_shapes.hpp"
 #include "le_handle.hpp"
 #include "le/extension.hpp"
+#include "le/extension_overlay.hpp"
 // Generated apply_<snake>_snapshot(Root&, <Klass>Id, const <Klass>Data&)
 // helpers - a real standalone header, unlike every
 // other generated/api/*.inc fragment, so it's included here with the
@@ -1388,6 +1389,15 @@ namespace
                 for (size_t i = 0; i < geometry.size() && i < deltas->size(); ++i)
                     options.move_ghost_pieces_dbu.push_back(le::Geometry::transform(geometry[i], (*deltas)[i]));
         }
+
+        // Extensions' overlays, each drawn with an OverlayContext over this
+        // handle (the render holds its lock for reading).
+        for (const auto &[extension, draw] : le::ext::registry().overlays())
+            options.extension_overlays.push_back([handle, extension = extension, draw = draw](BLContext &ctx, const le::OverlayFrame &frame) {
+                le::ext::OverlayContext overlay(ctx, frame, const_cast<LeHandle *>(handle), extension);
+                draw(overlay);
+            });
+        options.extension_overlay_version = handle->extension_overlay_version.load(std::memory_order_relaxed);
 
         options.ruler_version = handle->ruler_version();
         options.ruler_dbu_per_um = technology_dbu_per_um(handle->root);

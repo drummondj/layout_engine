@@ -145,6 +145,18 @@ namespace le
             draw_move_ghost_overlay(ctx, options, height);
             draw_ruler_overlay(ctx, options, height);
             draw_cursor_overlay(ctx, options, height);
+            if (!options.extension_overlays.empty())
+            {
+                const OverlayFrame overlay_frame{options.viewport, options.scale, width, height};
+                for (const auto &overlay : options.extension_overlays)
+                {
+                    // Each pass starts from the same state, and can't leave
+                    // a transform, clip or style behind for the next.
+                    ctx.save();
+                    overlay(ctx, overlay_frame);
+                    ctx.restore();
+                }
+            }
 
             ctx.end();
 
@@ -226,6 +238,9 @@ namespace le
                 return true;
 
             if (last.mouse_version != current.mouse_version)
+                return true;
+
+            if (last.extension_overlay_version != current.extension_overlay_version)
                 return true;
 
             return last.ruler_version != current.ruler_version;

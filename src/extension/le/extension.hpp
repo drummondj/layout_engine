@@ -27,6 +27,7 @@
 namespace le::ext
 {
     class ExtensionContext;
+    class OverlayContext;
 
     /// @brief One extension built into this process.
     struct ExtensionInfo
@@ -70,6 +71,13 @@ namespace le::ext
         /// @brief Every settings section, by extension name.
         const std::map<std::string, SettingsSection> &settings() const { return settings_; }
 
+        /// @brief Draws on the design view, after Layout Engine's own
+        /// overlays (le/extension_overlay.hpp). Redrawn whenever the view
+        /// is, and on ExtensionContext::request_redraw.
+        void add_overlay(void (*draw)(OverlayContext &ctx));
+        /// @brief Every overlay: (extension name, draw), in registration order.
+        const std::vector<std::pair<std::string, void (*)(OverlayContext &)>> &overlays() const { return overlays_; }
+
         /// @brief Records where an extension's files are (le_shell does,
         /// from extensions.json).
         void set_directory(const std::string &extension, std::string directory);
@@ -80,6 +88,7 @@ namespace le::ext
     private:
         std::vector<ExtensionInfo> extensions_;
         std::map<std::string, SettingsSection> settings_;
+        std::vector<std::pair<std::string, void (*)(OverlayContext &)>> overlays_;
     };
 
     /// @brief This process's registry. Filled once by register_all() at
@@ -159,6 +168,10 @@ namespace le::ext
         ReadView read() const { return ReadView(handle_); }
         WriteView write() { return WriteView(handle_); }
         Transaction transaction(const std::string &label) { return Transaction(handle_, label); }
+
+        /// @brief Redraws the design view's overlays - for when what an
+        /// overlay draws changed without the database changing (its data<T>()).
+        void request_redraw();
 
         /// @brief This extension's state of type T for this session, created
         /// (default-constructed) on first use and destroyed with the session.

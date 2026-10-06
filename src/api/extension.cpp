@@ -2,6 +2,7 @@
 // `api` because it needs LeHandle's internals, which extensions never see.
 
 #include "le/extension.hpp"
+#include "le/extension_overlay.hpp"
 #include "le_handle.hpp"
 
 #include <filesystem>
@@ -18,6 +19,35 @@ namespace le::ext
         if (!extensions_.empty())
             settings_[extensions_.back().name] = section;
     }
+
+    void Registry::add_overlay(void (*draw)(OverlayContext &ctx))
+    {
+        if (!extensions_.empty())
+            overlays_.emplace_back(extensions_.back().name, draw);
+    }
+
+    void ExtensionContext::request_redraw()
+    {
+        handle_->extension_overlay_version.fetch_add(1, std::memory_order_relaxed);
+        handle_->notify_render_needed();
+    }
+
+    OverlayContext::OverlayContext(BLContext &canvas, const OverlayFrame &frame, LeHandle *handle, std::string_view extension_name)
+        : canvas_(canvas), frame_(frame), handle_(handle), extension_(handle, extension_name)
+    {
+    }
+
+    BLPoint OverlayContext::to_pixel(Point dbu) const
+    {
+        return BLPoint(static_cast<double>(dbu.x - frame_.viewport.ll.x) * frame_.scale,
+                       static_cast<double>(frame_.pixel_height) - static_cast<double>(dbu.y - frame_.viewport.ll.y) * frame_.scale);
+    }
+
+    double OverlayContext::scale() const { return frame_.scale; }
+    Rect OverlayContext::visible_area() const { return frame_.viewport; }
+    int OverlayContext::width() const { return frame_.pixel_width; }
+    int OverlayContext::height() const { return frame_.pixel_height; }
+    const Root &OverlayContext::root() const { return handle_->root; }
 
     void Registry::set_directory(const std::string &extension, std::string directory)
     {

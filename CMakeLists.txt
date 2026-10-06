@@ -669,7 +669,7 @@ target_compile_definitions(api PRIVATE LE_EXTENSION_API_VERSION=${LE_EXTENSION_A
 add_library(extension_sdk INTERFACE)
 add_library(le::extension_sdk ALIAS extension_sdk)
 target_include_directories(extension_sdk INTERFACE src/extension ${nlohmann_json_header_SOURCE_DIR})
-target_link_libraries(extension_sdk INTERFACE api database)
+target_link_libraries(extension_sdk INTERFACE api database blend2d::blend2d) # Blend2D: overlays draw with it
 target_compile_definitions(extension_sdk INTERFACE LE_EXTENSION_API_VERSION=${LE_EXTENSION_API_VERSION})
 
 target_include_directories(api PRIVATE ${nlohmann_json_header_SOURCE_DIR})

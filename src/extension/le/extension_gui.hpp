@@ -55,6 +55,9 @@ namespace le::ext
             return extension_.data<T>();
         }
 
+        /// @brief Redraws the design view's overlays (ExtensionContext::request_redraw).
+        void request_redraw() { extension_.request_redraw(); }
+
         /// @brief A font this extension registered with add_font, or the
         /// default font if it isn't loaded (its file is missing).
         ImFont *font(const std::string &name) const;
