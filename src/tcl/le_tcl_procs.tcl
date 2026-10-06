@@ -2731,6 +2731,37 @@ register_command_help get_grid_spacing \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+proc set_confirm_overwrite {value} {
+    if {$value eq "-help"} {
+        return "set_confirm_overwrite <0|1> \[-help\] - Sets whether the GUI asks before a Save overwrites a design file"
+    }
+    if {![string is boolean -strict $value]} {
+        error "set_confirm_overwrite: expected 0 or 1, got \"$value\""
+    }
+    set_confirm_overwrite_command [expr {$value ? 1 : 0}]
+    return ""
+}
+register_command_help set_confirm_overwrite \
+    "set_confirm_overwrite <0|1> \[-help\]" \
+    "Sets whether the GUI asks for confirmation before File > Save (or the exit dialog's Save) overwrites an existing design file. On (1) by default; saved with the settings." \
+    {
+        {<0|1> {type bool required 1 description {1 to ask before overwriting, 0 to save straight away}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_confirm_overwrite {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_confirm_overwrite \[-help\] - Returns whether the GUI asks before a Save overwrites a design file"
+    }
+    return [get_confirm_overwrite_command]
+}
+register_command_help get_confirm_overwrite \
+    "get_confirm_overwrite \[-help\]" \
+    "Returns 1 if the GUI asks before a Save overwrites an existing design file, else 0." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 proc set_ruler_label_size {px} {
     if {$px eq "-help"} {
         return "set_ruler_label_size <px> \[-help\] - Sets the ruler label font size"

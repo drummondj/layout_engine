@@ -12,6 +12,7 @@
 #include "components/secondary_toolbar.hpp"
 #include "components/settings_panel.hpp"
 #include "components/info_panel.hpp"
+#include "components/design_saver.hpp"
 #include "components/file_dialog.hpp"
 #include "components/compact_button.hpp"
 #include "components/icon_font.hpp"
@@ -698,18 +699,12 @@ namespace le::gui
 
         const std::vector<std::string> kDbFilters = {"Layout Engine databases (*.led)", "*.led", "All files", "*"};
 
-        // File > Open/Save/Save As: the chosen .led file is read or written
-        // through queued Tcl commands, like the console would.
+        // File > Open/Save/Save As: reads and writes go through queued Tcl
+        // commands, like the console's (DesignSaver for the saves).
         struct DbFileMenu
         {
-            FileDialog dialog;
-            FileDialog::Mode mode = FileDialog::Mode::SAVE;
-
-            void ask(FileDialog::Mode m, const char *title, const std::string &default_path)
-            {
-                mode = m;
-                dialog.start(m, title, default_path, kDbFilters);
-            }
+            FileDialog open_dialog;
+            DesignSaver saver{false};
 
             void draw(GuiProvider &provider)
             {
@@ -717,22 +712,17 @@ namespace le::gui
                 {
                     const bool empty = provider.database_is_empty();
                     const std::string path = provider.db_path();
-                    ImGui::BeginDisabled(dialog.active());
+                    ImGui::BeginDisabled(open_dialog.active() || saver.busy());
                     if (ImGui::MenuItem("Open...", nullptr, false, empty))
-                        ask(FileDialog::Mode::OPEN, "Open design", path);
+                        open_dialog.start(FileDialog::Mode::OPEN, "Open design", path, kDbFilters);
                     if (!empty && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                         ImGui::SetTooltip("Open loads into an empty session - start a new le_shell to open another design");
                     if (ImGui::MenuItem("Save", nullptr, false, !empty))
-                    {
-                        if (path.empty())
-                            ask(FileDialog::Mode::SAVE, "Save design", "design.led");
-                        else
-                            provider.write_db(path);
-                    }
+                        saver.save(provider);
                     if (!path.empty() && ImGui::IsItemHovered())
                         ImGui::SetTooltip("Save to %s", path.c_str());
                     if (ImGui::MenuItem("Save As...", nullptr, false, !empty))
-                        ask(FileDialog::Mode::SAVE, "Save design as", path.empty() ? std::string("design.led") : path);
+                        saver.save_as(provider);
                     ImGui::EndDisabled();
                     ImGui::EndMenu();
                 }
@@ -740,13 +730,9 @@ namespace le::gui
 
             void poll(GuiProvider &provider)
             {
-                if (const std::optional<std::string> path = dialog.poll())
-                {
-                    if (mode == FileDialog::Mode::OPEN)
-                        provider.read_db(*path);
-                    else
-                        provider.write_db(*path);
-                }
+                if (const std::optional<std::string> path = open_dialog.poll())
+                    provider.read_db(*path);
+                saver.draw(provider);
             }
         };
 
@@ -821,7 +807,7 @@ namespace le::gui
         // unsaved (the design since its last write_db/write_def/write_lef, the
         // settings since their last save/load) first, with a shortcut to
         // save the settings.
-        void draw_close_dialog(GuiProvider &provider, bool &open_requested, CloseChoice &choice)
+        void draw_close_dialog(GuiProvider &provider, bool &open_requested, CloseChoice &choice, DesignSaver &saver)
         {
             constexpr const char *kTitle = "Close Layout Engine###close_dialog";
             if (open_requested)
@@ -850,12 +836,20 @@ namespace le::gui
             ImGui::TextUnformatted("Close just the window (le_shell keeps running in the\nterminal, show_gui reopens it), or exit le_shell?");
             ImGui::Spacing();
 
-            if (design && !provider.db_path().empty())
+            if (design)
             {
-                if (ImGui::Button("Save design"))
-                    provider.save_design_now();
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Save to %s", provider.db_path().c_str());
+                ImGui::BeginDisabled(saver.busy());
+                if (!provider.db_path().empty())
+                {
+                    if (ImGui::Button("Save design"))
+                        saver.save(provider);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Save to %s", provider.db_path().c_str());
+                    ImGui::SameLine();
+                }
+                if (ImGui::Button("Save design as..."))
+                    saver.save_as(provider);
+                ImGui::EndDisabled();
                 ImGui::SameLine();
             }
             if (settings)
@@ -878,8 +872,12 @@ namespace le::gui
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+            if ((ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) && !saver.busy())
                 ImGui::CloseCurrentPopup();
+            if (!saver.status().empty())
+                ImGui::TextDisabled("%s", saver.status().c_str());
+            // Inside this popup, so its file dialog and overwrite question open on top.
+            saver.draw(provider);
             ImGui::EndPopup();
         }
 
@@ -1015,6 +1013,7 @@ namespace le::gui
             GuiProvider provider(handle);
             PanelList panels = make_panels(provider, handle);
             DbFileMenu file_menu;
+            DesignSaver close_saver{true};
 
             glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
             glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
@@ -1737,7 +1736,7 @@ namespace le::gui
                 ImGui::PopStyleColor(2); // ChildBg, WindowBg
                 ImGui::PopStyleVar();
 
-                draw_close_dialog(provider, close_dialog_requested, close_choice);
+                draw_close_dialog(provider, close_dialog_requested, close_choice, close_saver);
 
                 ImGui::Render();
                 glViewport(0, 0, fb_width, fb_height);

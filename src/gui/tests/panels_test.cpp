@@ -1,12 +1,15 @@
 #include "panels.hpp"
 
 #include "gui_provider.hpp"
+#include "components/design_saver.hpp"
 
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 
 #include <atomic>
+#include <filesystem>
+#include <unistd.h>
 #include <thread>
 
 namespace
@@ -212,4 +215,68 @@ TEST(ExtensionGui, ContextSharesStateWithTheExtensionAndNeverWaitsToRead)
     release = true;
     writer.join();
     EXPECT_TRUE(gui.read().valid());
+}
+
+// DesignSaver: Save asks before replacing an existing file unless the
+// confirm_overwrite setting is off, and writes straight away otherwise.
+class DesignSaverTest : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        le_create_library(session.handle, "lib");
+        path = (std::filesystem::temp_directory_path() / ("design_saver_" + std::to_string(::getpid()) + ".led")).string();
+        std::filesystem::remove(path);
+    }
+    void TearDown() override { std::filesystem::remove(path); }
+
+    void refresh() { provider.refresh(); }
+
+    Session session;
+    le::gui::GuiProvider provider{session.handle};
+    HeadlessImGui imgui;
+    std::string path;
+};
+
+TEST_F(DesignSaverTest, SaveAsksBeforeOverwritingAnExistingFile)
+{
+    ASSERT_EQ(le_write_db(session.handle, path.c_str(), 1), 0); // the design's file now exists
+    le_create_library(session.handle, "edited");
+    refresh();
+    le::gui::DesignSaver saver(true);
+    imgui.frame([&] {
+        saver.save(provider);
+        saver.draw(provider);
+    });
+    EXPECT_TRUE(saver.busy()) << "waiting for the overwrite answer";
+    EXPECT_TRUE(saver.status().empty()) << "nothing written yet";
+    EXPECT_TRUE(provider.has_unsaved_design());
+}
+
+TEST_F(DesignSaverTest, SaveWritesStraightAwayWhenTheQuestionIsOff)
+{
+    ASSERT_EQ(le_write_db(session.handle, path.c_str(), 1), 0);
+    le_create_library(session.handle, "edited");
+    le_set_confirm_overwrite(session.handle, 0);
+    refresh();
+    le::gui::DesignSaver saver(true);
+    imgui.frame([&] {
+        saver.save(provider);
+        saver.draw(provider);
+    });
+    EXPECT_FALSE(saver.busy());
+    EXPECT_EQ(saver.status(), "Saved to " + path);
+    EXPECT_FALSE(provider.has_unsaved_design());
+}
+
+TEST_F(DesignSaverTest, TheMenusSaverQueuesWriteDb)
+{
+    ASSERT_EQ(le_write_db(session.handle, path.c_str(), 1), 0);
+    std::filesystem::remove(path); // nothing to overwrite now
+    refresh();
+    le::gui::DesignSaver saver(false);
+    imgui.frame([&] { saver.save(provider); });
+    const char *command = le_take_next_pending_tcl_command(session.handle);
+    ASSERT_NE(command, nullptr);
+    EXPECT_EQ(std::string(command).rfind("write_db ", 0), 0u) << command;
 }

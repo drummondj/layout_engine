@@ -818,6 +818,11 @@ extern "C"
     void le_set_flightline_max_fanout(LeHandle *handle, int32_t max_fanout);
 
     /// @brief The flightline fanout limit. 0 if handle is null.
+    /// @brief Whether the GUI asks before a Save overwrites an existing
+    /// design file - a setting (settings.json), 1 by default.
+    void le_set_confirm_overwrite(LeHandle *handle, int32_t confirm);
+    int32_t le_confirm_overwrite(LeHandle *handle);
+
     int32_t le_flightline_max_fanout(LeHandle *handle);
 
     /// @brief How many Placements are currently selected - nonzero (in Edit

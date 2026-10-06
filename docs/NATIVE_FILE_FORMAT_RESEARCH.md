@@ -458,7 +458,7 @@ Built:
 - A successful `write_db` or `read_db` marks the database saved, so the GUI's exit dialog stops warning about unsaved changes.
 
 - `write_db -no_session` and `read_db -no_session`; `db_info` says whether a file has a session and lists its extensions.
-- **GUI:** File → Open / Save / Save As in the menu bar (queued `read_db`/`write_db` commands, so they're in the console history; Open only while the session is empty). The exit dialog offers "Save design" once the design has a file.
+- **GUI:** File → Open / Save / Save As in the menu bar (queued `read_db`/`write_db` commands, so they're in the console history; Open only while the session is empty). The exit dialog offers "Save design" once the design has a file, and "Save design as...". A Save over an existing file asks first unless the `confirm_overwrite` setting (`set_confirm_overwrite`, the Settings panel) is off; Save As's system dialog asks itself, following the same setting.
 
 Planned:
 - `db_info` also lists the migrations that would run on a file. Useful for support, and the package manager reads the extensions list (PACKAGE_MANAGER_RESEARCH.md §8).

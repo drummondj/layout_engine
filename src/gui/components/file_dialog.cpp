@@ -15,6 +15,7 @@ namespace le::gui
         std::string title;
         std::unique_ptr<pfd::save_file> save_dialog;
         std::unique_ptr<pfd::open_file> open_dialog;
+        bool system_confirms = false; // the system save dialog asks before overwriting
         bool prompt_open = false;
         std::array<char, 1024> prompt_path{};
     };
@@ -22,7 +23,7 @@ namespace le::gui
     FileDialog::FileDialog() : state_(std::make_unique<State>()) {}
     FileDialog::~FileDialog() = default;
 
-    void FileDialog::start(Mode mode, std::string title, const std::string &default_path, std::vector<std::string> filters)
+    void FileDialog::start(Mode mode, std::string title, const std::string &default_path, std::vector<std::string> filters, bool confirm_overwrite)
     {
         *state_ = State{};
         state_->active = true;
@@ -35,9 +36,11 @@ namespace le::gui
             // renderer always works. A user's own GSK_RENDERER wins.
             setenv("GSK_RENDERER", "cairo", 0);
             if (mode == Mode::SAVE)
-                state_->save_dialog = std::make_unique<pfd::save_file>(state_->title, default_path, filters, pfd::opt::none);
+                state_->save_dialog = std::make_unique<pfd::save_file>(state_->title, default_path, filters,
+                                                                       confirm_overwrite ? pfd::opt::none : pfd::opt::force_overwrite);
             else
                 state_->open_dialog = std::make_unique<pfd::open_file>(state_->title, default_path, filters, pfd::opt::none);
+            state_->system_confirms = mode == Mode::SAVE && confirm_overwrite;
             return;
         }
         default_path.copy(state_->prompt_path.data(), state_->prompt_path.size() - 1);
@@ -52,6 +55,7 @@ namespace le::gui
         if (!s.active)
             return std::nullopt;
         const auto finish = [&](const std::string &path) -> std::optional<std::string> {
+            overwrite_confirmed_ = s.system_confirms && (s.save_dialog != nullptr);
             s = State{};
             return path.empty() ? std::nullopt : std::optional<std::string>(path);
         };

@@ -159,12 +159,12 @@ TEST_F(GuiProviderFixture, RefreshReportsARunningCommand)
     EXPECT_FALSE(provider.state().is_command_running);
 }
 
-TEST_F(GuiProviderFixture, DbFileQueriesAndSaveDesignNow)
+TEST_F(GuiProviderFixture, DbFileQueriesAndWriteDbNow)
 {
     le::gui::GuiProvider provider(handle);
     EXPECT_TRUE(provider.database_is_empty());
     EXPECT_EQ(provider.db_path(), "");
-    EXPECT_FALSE(provider.save_design_now()) << "nowhere to save yet";
+    EXPECT_FALSE(provider.write_db_now("")) << "nowhere to save";
 
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_FALSE(provider.database_is_empty());
@@ -174,7 +174,7 @@ TEST_F(GuiProviderFixture, DbFileQueriesAndSaveDesignNow)
 
     le_create_library(handle, "edited");
     EXPECT_TRUE(provider.has_unsaved_design());
-    EXPECT_TRUE(provider.save_design_now());
+    EXPECT_TRUE(provider.write_db_now(provider.db_path()));
     EXPECT_FALSE(provider.has_unsaved_design());
     std::filesystem::remove(path);
 }

@@ -1509,6 +1509,12 @@ Returns the Blockage objects matching the given names and filters, as tokens. Bl
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
+## get_confirm_overwrite
+
+`get_confirm_overwrite [-help]`
+
+Returns 1 if the GUI asks before a Save overwrites an existing design file, else 0.
+
 ## get_designs
 
 `get_designs [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
@@ -2391,6 +2397,16 @@ Adds each token to the selection, keeping what's already selected (use deselect_
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<tokens>` | `token` | yes | One or more shape:/row:/placement:/region: tokens to select |
+
+## set_confirm_overwrite
+
+`set_confirm_overwrite <0|1> [-help]`
+
+Sets whether the GUI asks for confirmation before File > Save (or the exit dialog's Save) overwrites an existing design file. On (1) by default; saved with the settings.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<0|1>` | `bool` | yes | 1 to ask before overwriting, 0 to save straight away |
 
 ## set_flightline_max_fanout
 

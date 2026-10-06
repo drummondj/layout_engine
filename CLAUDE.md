@@ -145,7 +145,9 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   `Panel` on one `PanelList` (`make_panels`): drawn with a close button,
   toggled from the main menu bar's Window menu, its open state saved in
   `window_layout.ini`. The File menu opens and saves `.led` files
-  (`components/file_dialog.*`, shared with the Settings panel). `panels.*` and the extension GUI SDK run headless
+  (`components/file_dialog.*`, shared with the Settings panel;
+  `components/design_saver.*` for Save/Save As and the overwrite question,
+  also used by the exit dialog). `panels.*` and the extension GUI SDK run headless
   (`gui_tests`).
   Rendering runs on a background thread woken by
   `le_wait_for_render_needed`; panels read under the shared lock so they

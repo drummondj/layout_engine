@@ -492,6 +492,8 @@ void set_flightline_max_fanout_command(int max_fanout);
 // commands return 0 on success, nonzero on failure.
 double get_grid_spacing_um_command(int major);
 void set_grid_spacing_um_command(double minor_um, double major_um);
+int get_confirm_overwrite_command();
+void set_confirm_overwrite_command(int confirm);
 double get_ruler_label_size_command();
 void set_ruler_label_size_command(double px);
 double get_label_min_size_command();

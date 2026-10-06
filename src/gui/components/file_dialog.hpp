@@ -26,7 +26,12 @@ namespace le::gui
         FileDialog &operator=(const FileDialog &) = delete;
 
         /// @brief Starts asking. `filters` are pfd's (label, pattern) pairs.
-        void start(Mode mode, std::string title, const std::string &default_path, std::vector<std::string> filters);
+        /// A SAVE in the system dialog asks before overwriting a file if
+        /// `confirm_overwrite`.
+        void start(Mode mode, std::string title, const std::string &default_path, std::vector<std::string> filters, bool confirm_overwrite = true);
+        /// @brief Whether the path poll() last returned has had its
+        /// overwrite confirmed already (by the system dialog).
+        bool overwrite_confirmed() const { return overwrite_confirmed_; }
         /// @brief Whether a request is in progress.
         bool active() const;
         /// @brief Call once per frame: the chosen path, once, when there is
@@ -36,5 +41,6 @@ namespace le::gui
     private:
         struct State;
         std::unique_ptr<State> state_;
+        bool overwrite_confirmed_ = false;
     };
 }

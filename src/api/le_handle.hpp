@@ -1648,6 +1648,9 @@ struct LeHandle
         // The native database file last read or written (read_db/write_db),
         // the GUI's File > Save target; empty until there is one.
         std::string db_path;
+        // Whether the GUI asks before a Save overwrites a design file (a
+        // setting, saved in settings.json).
+        bool confirm_overwrite = true;
         std::string saved_settings_json;
         // The last loaded settings file's top-level keys this version
         // doesn't know (a JSON object, or "" for none) - written back by

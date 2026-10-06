@@ -109,6 +109,7 @@ namespace le::gui
                 int32_t hierarchy_depth = 0;
                 int32_t flightline_max_fanout = 0;
                 int32_t max_concurrency = 0; // "CPUs"
+                bool confirm_overwrite = true; // ask before a Save overwrites a design file
             } settings;
 
             // secondary_toolbar.cpp's placement toolbar - shown in Edit mode
@@ -219,6 +220,7 @@ namespace le::gui
         void set_max_concurrency(int32_t threads);
         void set_label_min_size(double px);
         void set_label_max_size(double px);
+        void set_confirm_overwrite(bool confirm);
         void save_settings(const std::string &path);
         // The close dialog. Direct calls,
         // not queued Tcl commands: the dialog needs the answer this frame,
@@ -226,9 +228,9 @@ namespace le::gui
         bool has_unsaved_design() const;
         bool has_unsaved_settings() const;
         bool save_settings_now();
-        // Writes the design to db_path() now, with its session (the close
-        // dialog's Save); false if there's no such file or the save failed.
-        bool save_design_now();
+        // Writes the design to `path` now, with its session (the close
+        // dialog's saves); false if the save failed.
+        bool write_db_now(const std::string &path);
         // The File menu: read_db/write_db, queued as Tcl commands so they
         // land in the console's history; db_path() is the .led file last
         // read or written ("" if none), and read_db only loads into an

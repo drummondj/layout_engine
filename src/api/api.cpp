@@ -746,6 +746,7 @@ namespace
         j["label_max_size_px"] = handle->label_max_size_px();
         j["hierarchy_depth"] = handle->hierarchy_depth();
         j["flightline_max_fanout"] = handle->flightline_max_fanout();
+        j["confirm_overwrite"] = handle->confirm_overwrite;
         j["max_concurrency"] = handle->max_concurrency_;
         j["placement_snap_mode"] = kPlacementSnapNames[static_cast<size_t>(handle->placement_snap_mode())];
         nlohmann::json shape_snap = nlohmann::json::object();
@@ -826,6 +827,13 @@ namespace
             handle->set_flightline_max_fanout(static_cast<int>(*v));
         if (const auto v = number(j, "max_concurrency"))
             set_max_concurrency_unlocked(handle, static_cast<int32_t>(*v));
+        if (j.contains("confirm_overwrite"))
+        {
+            if (j["confirm_overwrite"].is_boolean())
+                handle->confirm_overwrite = j["confirm_overwrite"].get<bool>();
+            else
+                warn("confirm_overwrite");
+        }
 
         if (j.contains("placement_snap_mode"))
         {
@@ -3882,6 +3890,22 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         handle->set_flightline_max_fanout(max_fanout);
+    }
+
+    void le_set_confirm_overwrite(LeHandle *handle, int32_t confirm)
+    {
+        if (!handle)
+            return;
+        HandleWriteLock lock(handle);
+        handle->confirm_overwrite = confirm != 0;
+    }
+
+    int32_t le_confirm_overwrite(LeHandle *handle)
+    {
+        if (!handle)
+            return 1;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->confirm_overwrite ? 1 : 0;
     }
 
     int32_t le_flightline_max_fanout(LeHandle *handle)

@@ -6742,6 +6742,21 @@ TEST_F(ApiFixture, SettingsLoadReadsTheOldSingleLabelSizeAsTheMax)
     EXPECT_DOUBLE_EQ(le_label_min_size(handle), 12.0);
 }
 
+// Whether Save asks before overwriting is a saved setting, on by default.
+TEST_F(ApiFixture, ConfirmOverwriteIsASavedSettingOnByDefault)
+{
+    EXPECT_EQ(le_confirm_overwrite(handle), 1);
+    le_set_confirm_overwrite(handle, 0);
+    EXPECT_EQ(le_has_unsaved_settings(handle), 1);
+    const std::string path = scratch_path("le_settings_confirm_overwrite.json");
+    ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
+    LeHandle *other = le_create();
+    EXPECT_EQ(le_confirm_overwrite(other), 1);
+    ASSERT_EQ(le_load_settings(other, path.c_str()), 0);
+    EXPECT_EQ(le_confirm_overwrite(other), 0);
+    le_destroy(other);
+}
+
 // Every settings format ever written has a golden file in
 // fixtures/settings/; each must keep loading into the same settings.
 TEST_F(ApiFixture, SettingsGoldenFilesFromEveryFormatVersionLoad)

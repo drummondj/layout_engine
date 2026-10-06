@@ -95,6 +95,13 @@ namespace le::gui
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Most threads rendering may use at once - at least 2");
 
+        section("Saving designs");
+        bool confirm_overwrite = settings.confirm_overwrite;
+        if (ImGui::Checkbox("Ask before overwriting a design file", &confirm_overwrite))
+            provider.set_confirm_overwrite(confirm_overwrite);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("File > Save and the exit dialog's Save ask before replacing an existing .led file");
+
         section("Settings file");
         static FileDialog dialog;
         static bool dialog_saves = false;
