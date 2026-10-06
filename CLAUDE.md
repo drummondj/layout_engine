@@ -176,8 +176,11 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   which `le_shell` (`-extensions`/`LE_EXTENSIONS_PATH`,
   `src/tcl/extension_index.hpp`) checks and sources after the core procs;
   `tcl_tests` run through `le_shell` as ctests. GUI: an extension's
-  `GUI_SOURCES` (`le/extension_gui.hpp`: `GuiRegistry`, `ExtGuiContext`)
-  build into `le_shell` only through a generated `register_all_gui()`. Database classes: an extension's `schema_ext.py` (`VERSION`,
+  `GUI_SOURCES` (`le/extension_gui.hpp`: `GuiRegistry` - windows, menu
+  items, toolbar buttons, shortcuts, fonts, Settings panel sections -
+  and `ExtGuiContext`) build into `le_shell` only through a generated
+  `register_all_gui()`. Settings sections (`Registry::add_settings`) are
+  saved as `settings.json`'s `"extensions"`. Database classes: an extension's `schema_ext.py` (`VERSION`,
   `extend(schema)`) is merged in by codegen (`--extension <dir>`,
   `codegen/codegen/extension_schema.py`): prefixed class names, classes it
   doesn't own read-only, parents' child lists synthesized. Its classes stay

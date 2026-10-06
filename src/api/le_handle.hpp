@@ -1657,6 +1657,10 @@ struct LeHandle
         // save_settings so a newer layout_engine's settings survive a save
         // from this one.
         std::string unknown_settings_json;
+        // settings.json's "extensions" sections whose extension this build
+        // doesn't have (a JSON object, or empty): kept and written back, so
+        // a build without an extension doesn't lose its settings.
+        std::string unknown_extension_settings_json;
 
     private:
         // Minimum on-screen distance (px, converted via the current

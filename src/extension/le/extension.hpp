@@ -9,6 +9,9 @@
 #include "database.hpp"
 #include "le/register_all.hpp"
 
+#include <json.hpp>
+
+#include <map>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -23,11 +26,33 @@
 
 namespace le::ext
 {
+    class ExtensionContext;
+
     /// @brief One extension built into this process.
     struct ExtensionInfo
     {
         std::string name;
         std::string version;
+        /// @brief Its directory - procs and resources live under it. Set by
+        /// le_shell from extensions.json; empty elsewhere.
+        std::string directory;
+    };
+
+    /// @brief An extension's section of settings.json:
+    /// `"extensions": {"<name>": {"version": N, ...}}`, saved and loaded with
+    /// the core settings (nlohmann::json, which the SDK provides). Both
+    /// callbacks run with the session locked, so they may only use
+    /// ctx.data<T>() - no read()/write() or le_* calls.
+    struct SettingsSection
+    {
+        /// @brief The section's format version, written beside its keys.
+        int version = 1;
+        /// @brief The section's keys (a JSON object).
+        nlohmann::json (*save)(ExtensionContext &ctx) = nullptr;
+        /// @brief Applies a saved section written at `version`: whatever
+        /// keys it has, so missing or unexpected ones must be tolerated;
+        /// migrating an older version is the extension's to do.
+        void (*load)(ExtensionContext &ctx, const nlohmann::json &section, int version) = nullptr;
     };
 
     /// @brief What the extensions built into this process registered.
@@ -39,8 +64,22 @@ namespace le::ext
         void add(ExtensionInfo info);
         const std::vector<ExtensionInfo> &extensions() const { return extensions_; }
 
+        /// @brief Gives the extension being registered (the one added last)
+        /// a settings.json section.
+        void add_settings(SettingsSection section);
+        /// @brief Every settings section, by extension name.
+        const std::map<std::string, SettingsSection> &settings() const { return settings_; }
+
+        /// @brief Records where an extension's files are (le_shell does,
+        /// from extensions.json).
+        void set_directory(const std::string &extension, std::string directory);
+        /// @brief `relative` under the extension's directory ("" if the
+        /// directory isn't known); an absolute path is returned unchanged.
+        std::string resource(const std::string &extension, const std::string &relative) const;
+
     private:
         std::vector<ExtensionInfo> extensions_;
+        std::map<std::string, SettingsSection> settings_;
     };
 
     /// @brief This process's registry. Filled once by register_all() at

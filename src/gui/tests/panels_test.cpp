@@ -280,3 +280,70 @@ TEST_F(DesignSaverTest, TheMenusSaverQueuesWriteDb)
     ASSERT_NE(command, nullptr);
     EXPECT_EQ(std::string(command).rfind("write_db ", 0), 0u) << command;
 }
+
+TEST(ExtensionGui, KeyBindingsOnCoreKeysOrTakenCombinationsAreRefused)
+{
+    le::gui::clear_extension_gui_registrations();
+    le::ext::GuiRegistry acme("acme");
+    le::ext::GuiRegistry beta("beta");
+    acme.add_key_binding({.key = ImGuiKey_Z, .action = [](le::ext::ExtGuiContext &) {}});              // core key
+    acme.add_key_binding({.key = ImGuiKey_M, .ctrl = true, .action = [](le::ext::ExtGuiContext &) {}}); // core, any modifiers
+    acme.add_key_binding({.key = ImGuiKey_H, .action = [](le::ext::ExtGuiContext &) {}});
+    beta.add_key_binding({.key = ImGuiKey_H, .action = [](le::ext::ExtGuiContext &) {}});              // taken by acme
+    beta.add_key_binding({.key = ImGuiKey_H, .shift = true, .action = [](le::ext::ExtGuiContext &) {}});
+    ASSERT_EQ(le::gui::extension_key_bindings().size(), 2u);
+    EXPECT_EQ(le::gui::extension_key_bindings()[0].extension, "acme");
+    EXPECT_EQ(le::gui::extension_key_bindings()[1].extension, "beta");
+    EXPECT_TRUE(le::gui::extension_key_bindings()[1].binding.shift);
+    le::gui::clear_extension_gui_registrations();
+}
+
+TEST(ExtensionGui, ToolbarButtonsAndSettingsPanelsCarryTheirExtension)
+{
+    le::gui::clear_extension_gui_registrations();
+    le::ext::GuiRegistry acme("acme");
+    acme.add_toolbar_button({.icon = "A", .label = "Acme", .modes = le::ext::TOOLBAR_EDIT, .action = [](le::ext::ExtGuiContext &) {}});
+    acme.add_settings_panel([](le::ext::ExtGuiContext &) {});
+    ASSERT_EQ(le::gui::extension_toolbar_buttons().size(), 1u);
+    EXPECT_EQ(le::gui::extension_toolbar_buttons()[0].extension, "acme");
+    EXPECT_EQ(le::gui::extension_toolbar_buttons()[0].button.modes, static_cast<uint32_t>(le::ext::TOOLBAR_EDIT));
+    ASSERT_EQ(le::gui::extension_settings_panels().size(), 1u);
+    EXPECT_EQ(le::gui::extension_settings_panels()[0].extension, "acme");
+    le::gui::clear_extension_gui_registrations();
+}
+
+TEST(ExtensionGui, FontsLoadIntoTheAtlasAndAreFoundByName)
+{
+    le::gui::clear_extension_gui_registrations();
+    const std::string font = std::string(LE_FONT_DIR) + "/Quicksand-Medium.ttf";
+    le::ext::GuiRegistry acme("acme");
+    acme.add_font("heading", font, 24.0f);
+    acme.add_font("missing", "no/such/font.ttf", 12.0f);
+    acme.add_icon_glyphs(font, {'A', 'A'});
+
+    ImGui::CreateContext();
+    ImGuiIO &io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    ImFontConfig base_config;
+    base_config.SizePixels = 13.0f; // merging needs an explicitly sized font, as in le_gui.cpp
+    ImFont *base = io.Fonts->AddFontDefault(&base_config);
+    const int fonts_before = io.Fonts->Fonts.Size;
+    le::gui::merge_extension_icon_glyphs(io.Fonts, 13.0f);
+    EXPECT_EQ(io.Fonts->Fonts.Size, fonts_before) << "glyphs merge into the font added last";
+    le::gui::add_extension_fonts(io.Fonts);
+    EXPECT_EQ(io.Fonts->Fonts.Size, fonts_before + 1) << "a missing font file is skipped";
+    unsigned char *pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    Session session;
+    le::gui::GuiProvider provider(session.handle);
+    le::ext::ExtGuiContext ctx(provider, session.handle, "acme");
+    io.DisplaySize = ImVec2(100, 100);
+    ImGui::NewFrame();
+    EXPECT_NE(ctx.font("heading"), base);
+    EXPECT_EQ(ctx.font("missing"), ImGui::GetFont()) << "falls back to the current font";
+    ImGui::Render();
+    ImGui::DestroyContext();
+    le::gui::clear_extension_gui_registrations();
+}

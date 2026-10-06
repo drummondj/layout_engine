@@ -35,6 +35,7 @@
 #include "generated/le_shell_version.hpp"
 #include "../core/resource_path.hpp"
 #include "extension_index.hpp"
+#include "le/extension.hpp"
 #include "le/extension_gui.hpp"
 #include "le/register_all.hpp"
 
@@ -650,6 +651,8 @@ int main(int argc, char **argv)
     g_module_path = resolve_path(module_arg, "LE_TCL_MODULE", module_default, "the le_tcl module (-module)");
     g_procs_path = resolve_path(procs_arg, "LE_TCL_PROCS_PATH", procs_default, "le_tcl_procs.tcl (-procs)");
     g_extensions = load_extension_index(extensions_arg);
+    for (const le::ExtensionIndexEntry &extension : g_extensions.extensions)
+        le::ext::registry().set_directory(extension.name, extension.directory.string());
 
     g_injected_handle = le_create();
 

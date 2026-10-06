@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 namespace le::gui
 {
     class GuiProvider;
@@ -11,5 +13,10 @@ namespace le::gui
     // own separate dock panel. Draws directly
     // into whatever ImGui window is currently active - call once per
     // frame from within that window.
-    void draw_mode_toolbar(GuiProvider &provider);
+    // `extra` draws more buttons after the mode's own (extensions').
+    void draw_mode_toolbar(GuiProvider &provider, const std::function<void()> &extra = {});
+
+    // One momentary button in the toolbar's style: `icon` over `label`,
+    // `tooltip` on hover (null or empty: none). True when clicked.
+    bool draw_toolbar_button(const char *icon, const char *label, const char *tooltip);
 }

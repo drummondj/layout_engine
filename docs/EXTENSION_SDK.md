@@ -8,8 +8,8 @@ is the reference.
 
 **Extension API version: 1** (Layout Engine 0.3.x, the first with extension support). See the [changelog](#changelog).
 
-Not available yet: GUI toolbar, key,
-overlay and settings hooks (#76), and drawing extension objects (#77).
+Not available yet: drawing on the design view (Compose overlays, #76) and
+drawing extension objects (#77).
 Projects install extensions with the `le` package manager
 (`tools/le/README.md`); while developing one, build it in with
 `LE_EXTENSION_DIRS`, as below.
@@ -306,6 +306,34 @@ void le_ext_my_ext_register_gui(le::ext::GuiRegistry &registry)
   the window layout; `open_by_default = false` starts one closed.
 - **Menu items** go in your extension's own submenu of the Extensions menu
   (Extensions → my_ext → Do it).
+- **Toolbar buttons** (`add_toolbar_button`) follow the core ones in the
+  design view's toolbar, in the modes you choose (`TOOLBAR_SELECT`,
+  `TOOLBAR_EDIT`, `TOOLBAR_RULER`; all by default).
+- **Shortcuts** (`add_key_binding`: an `ImGuiKey` plus Ctrl/Shift/Alt)
+  work while the mouse is over the design view and no text field has
+  focus. Keys Layout Engine uses (Z F D S E R M, 0-9, the arrows, Escape,
+  Delete, with any modifiers) are refused, and so is a combination another
+  extension took first; each refusal is logged.
+- **Icons:** Lucide is the built-in icon set, used for every core button.
+  `#include <IconsLucide.h>` and use its `ICON_LC_*` names, for a toolbar
+  `icon` or in text (`ImGui::Text(ICON_LC_BOOK_PLUS " Add")`), for a
+  consistent look. Prefer them to fonts of your own.
+- **Fonts**, when Lucide can't do: `add_icon_glyphs(file, ranges)`
+  merges glyphs from a font file into the icon fonts, so a toolbar `icon`
+  can use them; `add_font(name, file, size)` adds a font for your
+  windows, fetched with `ctx.font(name)`. Files are relative to your
+  extension directory: list them under `resources` so the bundle installs
+  them.
+- **Settings:** register a section with `Registry::add_settings` (in
+  `le_ext_my_ext_register`): a format `version` and `save`/`load`
+  callbacks over `nlohmann::json` (the SDK provides it). It's saved in
+  `settings.json` as `"extensions": {"my_ext": {"version": 1, ...}}`, and
+  the Settings panel's Save/Load and unsaved-changes check include it. The
+  callbacks run with the session locked: use only `ctx.data<T>()`.
+  `load` gets the version the section was written at, so migrating an
+  older one is up to you. A build without your extension keeps your
+  section as it was. `GuiRegistry::add_settings_panel` adds a collapsible
+  section to the Settings panel to edit them.
 - **`ExtGuiContext`** is valid for one draw or menu call:
   - `read()` never waits. It returns an invalid view while an edit holds
     the database, so keep what you need in `data<T>()` and draw that instead.
@@ -457,8 +485,12 @@ The first version.
 - `le::ext::Registry`, `register_all()`, `ExtensionContext` (`read`,
   `write`, `transaction`, `data`), `ReadView::valid()`, `tcl_session()`,
   `init_tcl()`.
-- GUI: `GuiRegistry` (`add_window`, `add_menu_item`), `GuiWindow`, `Dock`,
-  `GuiMenuItem`, `ExtGuiContext`, `register_all_gui()`.
+- GUI: `<IconsLucide.h>` (the built-in icon set), `GuiRegistry` (`add_window`, `add_menu_item`, `add_toolbar_button`,
+  `add_key_binding`, `add_settings_panel`, `add_icon_glyphs`, `add_font`),
+  `GuiWindow`, `Dock`, `GuiMenuItem`, `GuiToolbarButton`, `ToolbarModes`,
+  `GuiKeyBinding`, `ExtGuiContext` (with `font`), `register_all_gui()`.
+- Settings: `Registry::add_settings`, `SettingsSection`; `ExtensionInfo::directory`
+  and `Registry::resource`.
 - Database classes: `schema_ext.py` (`VERSION`, `extend(schema)`), its
   `schema_history/` and `migrations/` (`Migration(extension=...,
   depends_on_core=...)`, `--migrate-extension`), and the `"extensions"`

@@ -4,11 +4,36 @@
 #include "le/extension.hpp"
 #include "le_handle.hpp"
 
+#include <filesystem>
+
 namespace le::ext
 {
     void Registry::add(ExtensionInfo info)
     {
         extensions_.push_back(std::move(info));
+    }
+
+    void Registry::add_settings(SettingsSection section)
+    {
+        if (!extensions_.empty())
+            settings_[extensions_.back().name] = section;
+    }
+
+    void Registry::set_directory(const std::string &extension, std::string directory)
+    {
+        for (ExtensionInfo &info : extensions_)
+            if (info.name == extension)
+                info.directory = std::move(directory);
+    }
+
+    std::string Registry::resource(const std::string &extension, const std::string &relative) const
+    {
+        if (std::filesystem::path(relative).is_absolute())
+            return relative;
+        for (const ExtensionInfo &info : extensions_)
+            if (info.name == extension && !info.directory.empty())
+                return (std::filesystem::path(info.directory) / relative).string();
+        return {};
     }
 
     Registry &registry()

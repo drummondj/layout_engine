@@ -668,7 +668,7 @@ target_compile_definitions(api PRIVATE LE_EXTENSION_API_VERSION=${LE_EXTENSION_A
 # [compatibility] extension_api. ---
 add_library(extension_sdk INTERFACE)
 add_library(le::extension_sdk ALIAS extension_sdk)
-target_include_directories(extension_sdk INTERFACE src/extension)
+target_include_directories(extension_sdk INTERFACE src/extension ${nlohmann_json_header_SOURCE_DIR})
 target_link_libraries(extension_sdk INTERFACE api database)
 target_compile_definitions(extension_sdk INTERFACE LE_EXTENSION_API_VERSION=${LE_EXTENSION_API_VERSION})
 
@@ -721,7 +721,9 @@ add_library(gui STATIC
     src/gui/components/design_saver.cpp
 )
 target_include_directories(gui PUBLIC src/gui)
-target_include_directories(gui PRIVATE ${icon_font_header_SOURCE_DIR} ${portable_file_dialogs_header_SOURCE_DIR})
+# IconsLucide.h is PUBLIC: Lucide is the GUI's icon set, extensions' too.
+target_include_directories(gui PUBLIC ${icon_font_header_SOURCE_DIR})
+target_include_directories(gui PRIVATE ${portable_file_dialogs_header_SOURCE_DIR})
 # le_gui.cpp's own font-setup code loads this from disk at runtime
 # (ImGui merges icon glyphs into the text font atlas by loading a real
 # .ttf file, not compiling one in) - a build-tree path is fine for this
@@ -1247,6 +1249,7 @@ add_test(NAME codegen_unit
 # extension GUI SDK) - Dear ImGui with no window or backend. ---
 add_executable(gui_tests src/gui/tests/panels_test.cpp)
 target_link_libraries(gui_tests PRIVATE gui GTest::gtest_main)
+target_compile_definitions(gui_tests PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
 gtest_discover_tests(gui_tests)
 
 # --- pipelines_tests: the pipelines module's own test binary, separate

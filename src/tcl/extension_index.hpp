@@ -31,6 +31,7 @@ namespace le
         std::string name;
         std::string version;
         bool compiled = false;
+        std::filesystem::path directory;
         std::vector<std::filesystem::path> procs; // absolute, in source order
     };
 
@@ -89,6 +90,7 @@ namespace le
                 if (entry.compiled && std::ranges::find(compiled, entry.name) == compiled.end())
                     return std::unexpected(where + ": lists compiled extension " + entry.name + ", which this binary wasn't built with");
                 const std::filesystem::path dir = base / e.at("dir").get<std::string>();
+                entry.directory = dir;
                 for (const auto &p : e.value("procs", nlohmann::json::array()))
                 {
                     const std::filesystem::path procs = dir / p.get<std::string>();

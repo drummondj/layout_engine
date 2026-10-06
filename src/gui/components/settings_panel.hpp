@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 namespace le::gui
 {
     class GuiProvider;
@@ -11,5 +13,6 @@ namespace le::gui
     // picked with the system file dialog. Draws directly into whatever
     // ImGui window is currently active - call once per frame from within
     // that window.
-    void draw_settings_panel(GuiProvider &provider);
+    // `extra` draws more sections at the end (extensions').
+    void draw_settings_panel(GuiProvider &provider, const std::function<void()> &extra = {});
 }
