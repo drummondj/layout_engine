@@ -1651,6 +1651,9 @@ struct LeHandle
         // Whether the GUI asks before a Save overwrites a design file (a
         // setting, saved in settings.json).
         bool confirm_overwrite = true;
+        // Bumped by ExtensionContext::request_redraw (from any thread): the
+        // render's extension_overlay_version, so Compose redraws.
+        std::atomic<uint64_t> extension_overlay_version{0};
         std::string saved_settings_json;
         // The last loaded settings file's top-level keys this version
         // doesn't know (a JSON object, or "" for none) - written back by

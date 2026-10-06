@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -14,8 +15,22 @@
 #include <variant>
 #include <vector>
 
+class BLContext;
+
 namespace le
 {
+    /// @brief What an overlay pass gets besides the canvas: the visible
+    /// area (dbu), the zoom (pixels per dbu) and the frame's pixel size.
+    /// A dbu point (x, y) is at pixel ((x - viewport.ll.x) * scale,
+    /// pixel_height - (y - viewport.ll.y) * scale).
+    struct OverlayFrame
+    {
+        Rect viewport;
+        double scale = 1.0;
+        int pixel_width = 0;
+        int pixel_height = 0;
+    };
+
     /// @brief Options shared by every stage of ViewRenderPipeline (see
     /// docs/PIPELINE_REFACTOR.md's "Structure" section) - Cold, Warm, and
     /// Hot alike. Every stage wired into the same
@@ -278,5 +293,14 @@ namespace le
         /// `RasterizeBlend2DStage` alongside the grid
         /// above, for the same "only for top_level itself" reason.
         std::optional<Point> abstract_origin_dbu;
+
+        /// @brief Extensions' overlays (le::ext::OverlayContext), drawn by
+        /// `ComposeStage` after the core ones, on the composed view, in
+        /// registration order. Each gets the frame's viewport, scale and
+        /// size; it maps dbu to pixels as the core overlays do.
+        std::vector<std::function<void(BLContext &ctx, const OverlayFrame &frame)>> extension_overlays;
+        /// @brief Bumped when an extension asks for its overlays to be
+        /// redrawn (its state changed, not the database).
+        std::uint64_t extension_overlay_version = 0;
     };
 }

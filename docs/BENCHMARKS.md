@@ -1737,3 +1737,22 @@ which mode a run hit. Compared mode for mode:
 The routes phase is about 3% slower in the fast mode (the owner accessor's
 extra comparison per Shape read); nothing else moved. Cull and rasterize
 were within noise (fit rasterize warm 581 -> 576 ms).
+
+## 2026-10-06 — Compose: extension overlay passes (#76)
+
+`ComposeStage` now runs `ViewRenderOptions::extension_overlays` after its own
+overlays, each between a `save()`/`restore()`, and redraws on a new
+`extension_overlay_version`. With no extension overlays (this build has
+none registered in the benchmark), the added work is one empty-vector check
+per compose. Release, `pipeline_benchmarks`, 5 repetitions, medians (ms):
+
+| | before | after | after (rerun) |
+|---|---|---|---|
+| BM_Compose/2x2 | 6.84 | 6.98 | 6.92 |
+| BM_Compose/3x3 | 7.73 | 7.82 | 7.82 |
+| BM_ComposeCursorMove/2x2 | 0.462 | 0.483 | 0.470 |
+| BM_ComposeCursorMove/3x3 | 0.466 | 0.468 | 0.489 |
+
+Within run-to-run noise (about ±3% here: the same build's two runs differ
+as much as before/after). An extension overlay itself costs whatever it
+draws, on every cursor move; the SDK asks overlays to stay quick.

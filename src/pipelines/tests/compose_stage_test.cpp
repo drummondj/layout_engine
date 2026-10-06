@@ -246,3 +246,40 @@ TEST_F(ComposeStageFixture, CursorMoveRedrawsOnlyTheOverlay)
     EXPECT_FALSE(region_contains_color_near(second, 395, 395, 406, 406, kCursorBoxColor, 5));
     EXPECT_TRUE(region_contains_color_near(second, 204, 592, 216, 596, terminal_color, 5));
 }
+
+// Extensions' overlays draw after the core ones, each from a clean canvas
+// state, and a new extension_overlay_version alone redraws them.
+TEST_F(ComposeStageFixture, ExtensionOverlaysDrawAfterTheCoreOnesAndRedrawOnRequest)
+{
+    build_fixture(Orientation::N);
+    int calls = 0;
+    OverlayFrame seen;
+    // Empty TOP-local areas: pixels (400,400) and (600,200) at kScale 4.
+    options.extension_overlays.push_back([&](BLContext &ctx, const OverlayFrame &overlay_frame) {
+        ++calls;
+        seen = overlay_frame;
+        ctx.set_fill_style(BLRgba32(0xFFFF0000));
+        ctx.fill_rect(BLRect(398, 398, 4, 4));
+        ctx.set_comp_op(BL_COMP_OP_SRC_COPY); // must not leak into the next pass
+    });
+    options.extension_overlays.push_back([&](BLContext &ctx, const OverlayFrame &) {
+        EXPECT_EQ(ctx.comp_op(), BL_COMP_OP_SRC_OVER) << "each pass starts from the same state";
+        ctx.set_fill_style(BLRgba32(0xFF0000FF));
+        ctx.fill_rect(BLRect(598, 198, 4, 4));
+    });
+    ++options.extension_overlay_version;
+    const RasterizedFrame &drawn = compose_runner.run(rasterize_runner.last_handle(), 0, options);
+    EXPECT_EQ(calls, 1);
+    EXPECT_EQ(seen.pixel_width, 800);
+    EXPECT_EQ(seen.pixel_height, 800);
+    EXPECT_DOUBLE_EQ(seen.scale, kScale);
+    EXPECT_TRUE(region_contains_color_near(drawn, 398, 398, 402, 402, Color{255, 0, 0, 255}, 2));
+    EXPECT_TRUE(region_contains_color_near(drawn, 598, 198, 602, 202, Color{0, 0, 255, 255}, 2));
+
+    // Same options: memoized, not redrawn. A new version alone: redrawn.
+    compose_runner.run(rasterize_runner.last_handle(), 0, options);
+    EXPECT_EQ(calls, 1);
+    ++options.extension_overlay_version;
+    compose_runner.run(rasterize_runner.last_handle(), 0, options);
+    EXPECT_EQ(calls, 2);
+}

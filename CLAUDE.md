@@ -73,7 +73,9 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
     `BLImage` (fill patterns, labels via a cached monospace glyph atlas,
     port markers, the background grid for the top level); `ComposeStage`
     composites children and draws the overlays (selection, flightlines,
-    Move ghost, Resize hover, cursor box, rulers, drag rectangle).
+    Move ghost, Resize hover, cursor box, rulers, drag rectangle), then
+    extensions' (`ViewRenderOptions::extension_overlays`, from
+    `Registry::add_overlay`; `le/extension_overlay.hpp`).
   - `via_shapes.hpp` expands vias/via arrays at render time;
     `draw_helpers.hpp` holds style constants and shared drawing helpers.
   - `view_style.hpp` — `ViewLayerSet`/`ViewLayer`: the rendering-layer

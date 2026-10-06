@@ -1,5 +1,7 @@
 #include "hello_ext/hello.hpp"
 
+#include <le/extension_overlay.hpp>
+
 static_assert(LE_EXTENSION_API_VERSION == 1, "hello_ext targets extension API v1");
 
 namespace hello
@@ -58,9 +60,24 @@ namespace
         if (section.contains("library_name") && section["library_name"].is_string())
             ctx.data<hello::State>().library_name = section["library_name"].get<std::string>();
     }
+
+    // Marks the design's origin (0, 0) with a ring, when it's in view.
+    void draw_origin(le::ext::OverlayContext &ctx)
+    {
+        if (!ctx.data<hello::State>().show_origin)
+            return;
+        const le::Rect area = ctx.visible_area();
+        if (area.ll.x > 0 || area.ll.y > 0 || area.ur.x < 0 || area.ur.y < 0)
+            return;
+        const BLPoint origin = ctx.to_pixel(le::Point{0, 0});
+        ctx.canvas().set_stroke_style(BLRgba32(0xFFFFC040));
+        ctx.canvas().set_stroke_width(2.0);
+        ctx.canvas().stroke_circle(origin.x, origin.y, 8.0);
+    }
 }
 
 void le_ext_hello_ext_register(le::ext::Registry &registry)
 {
     registry.add_settings({.version = 1, .save = save_settings, .load = load_settings});
+    registry.add_overlay(draw_origin);
 }

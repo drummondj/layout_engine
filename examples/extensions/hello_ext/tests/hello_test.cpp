@@ -183,3 +183,12 @@ TEST(HelloExt, ItsSettingsSectionRoundTripsAndOthersAreKept)
     EXPECT_EQ(nlohmann::json::parse(again)["extensions"]["other_ext"], (nlohmann::json{{"version", 3}, {"colour", "red"}}));
     std::filesystem::remove(path);
 }
+
+TEST(HelloExt, RegistersItsOverlay)
+{
+    le::ext::register_all();
+    int overlays = 0;
+    for (const auto &[extension, draw] : le::ext::registry().overlays())
+        overlays += extension == "hello_ext" && draw != nullptr;
+    EXPECT_EQ(overlays, 1);
+}

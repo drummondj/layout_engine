@@ -57,6 +57,12 @@ void le_ext_hello_ext_register_gui(le::ext::GuiRegistry &registry)
 {
     registry.add_window({.title = "Hello", .dock = le::ext::Dock::RIGHT, .draw = draw_hello_window});
     registry.add_menu_item({.label = "Add a library", .action = add_library});
+    // Not a database change, so the overlay is asked to redraw.
+    registry.add_menu_item({.label = "Show/hide the origin marker", .action = [](le::ext::ExtGuiContext &ctx) {
+                                bool &show = ctx.data<hello::State>().show_origin;
+                                show = !show;
+                                ctx.request_redraw();
+                            }});
     registry.add_toolbar_button({.icon = ICON_LC_BOOK_PLUS, .label = "Hello", .tooltip = "Add a library (hello_ext) - H", .action = add_library});
     registry.add_key_binding({.key = ImGuiKey_H, .action = add_library});
     registry.add_settings_panel(draw_settings);
