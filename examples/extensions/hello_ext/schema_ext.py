@@ -4,10 +4,42 @@ from codegen.schema import Field, Klass, Purpose, Render
 
 # The schema's own version: bump it with any change below, and add a
 # migration (codegen --target makemigration --extension ...).
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 
 def extend(schema):
+    schema.classes.append(
+        Klass(
+            name="HelloPin",
+            description="A pin in a layout, drawn by its shapes, from the hello_ext example extension - there can be many",
+            # Many per layout, so tiled: an edit redraws only the pins near it.
+            render=Render(
+                purpose=Purpose(
+                    name="HELLO_PIN",
+                    label="helloPin",
+                    description="hello_ext's pins",
+                    has_selectable_objects=True,
+                ),
+                tiled=True,
+            ),
+            fields=[
+                Field(
+                    name="layout",
+                    description="The layout the pin is in",
+                    type="Layout",
+                    parent="hello_pins",
+                ),
+                Field(
+                    name="shapes",
+                    description="The pin's geometry",
+                    type="Shape",
+                    is_list=True,
+                    is_child=True,
+                    owner=True,
+                ),
+            ],
+        )
+    )
     schema.classes.append(
         Klass(
             name="HelloMarker",

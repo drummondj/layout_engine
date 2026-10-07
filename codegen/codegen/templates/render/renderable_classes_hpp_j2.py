@@ -19,6 +19,8 @@ namespace {{namespace}}::renderable
     {
         using Id = {{r.klass.name}}Id;
         static constexpr std::size_t index = {{loop.index0}};
+        /// @brief Whether a Layout's objects are split into spatial tiles.
+        static constexpr bool tiled = {{ 'true' if r.klass.render.tiled else 'false' }};
         static constexpr ChangeKlass klass = ChangeKlass::{{r.klass.name}};
         static constexpr ViewLayerPurpose purpose = ViewLayerPurpose::{{r.purpose.name}};
         /// @brief Its pseudo-row's name in the Layers panel.

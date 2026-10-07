@@ -18,7 +18,7 @@ namespace
     const std::filesystem::path kGoldenDir = std::filesystem::path(__FILE__).parent_path() / "golden";
 
     // schema_ext.py's VERSION: the golden directory a new file goes in.
-    constexpr const char *kSchemaVersion = "0.3.0";
+    constexpr const char *kSchemaVersion = "0.4.0";
 
     // A HelloMarker owning one Shape (a 2x1 um DEBUG rect), in a new layout.
     LeHelloMarkerId add_marker(LeHandle *handle)
@@ -179,6 +179,11 @@ TEST(HelloExt, DISABLED_WriteGoldenFileForThisSchemaVersion)
     Session session;
     add_two_notes(session.handle);
     add_marker(session.handle);
+    // And a HelloPin (schema 0.4.0) owning a shape, in a layout of its own.
+    const LeLayoutId pins = le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "pins"), "top"));
+    const double rect[] = {1.0, 1.0, 2.0, 2.0};
+    le_create_shape(session.handle, le_shape_owner_hello_pin(le_create_hello_pin(session.handle, pins)), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1,
+                    rect, 4, 0, 0.0, 0, 0.0, 0);
     std::filesystem::create_directories(kGoldenDir / kSchemaVersion);
     ASSERT_EQ(le_write_db(session.handle, (kGoldenDir / kSchemaVersion / "notes.led").c_str(), 1), 0);
 }
@@ -289,4 +294,60 @@ TEST(HelloExt, MarkersDrawAndSelectInTheLayoutView)
     const double moved[] = {10.0, 10.0, 11.0, 11.0};
     ASSERT_EQ(le_update_shape(h, shape, 0, LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved, 4, 0, 0.0, 0, 0.0, 0, 0), 0);
     EXPECT_FALSE(lit(60, 30)) << "away from the cursor box the click left at (100, 50)";
+}
+
+// HelloPin has render=Render(..., tiled=True): a layout's pins are split into
+// spatial tiles. Enough pins for several tiles draw and select, and moving
+// one into another tile redraws both tiles.
+TEST(HelloExt, TiledPinsDrawSelectAndMoveBetweenTiles)
+{
+    le::ext::register_all();
+    Session session;
+    LeHandle *h = session.handle;
+    const LeTechnologyId technology = le_create_technology(h, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0,
+                                                           0.0, 0, 0.0, nullptr, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
+    ASSERT_EQ(le_set_current_technology(h, technology), 0);
+    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), "top");
+    const LeLayoutId layout = le_create_layout(h, design);
+    // A 100 x 100 um die area, which the view fits.
+    const double die[] = {1, 4, 0, 0, 100, 0, 100, 100, 0, 100};
+    ASSERT_NE(le_create_shape(h, le_shape_owner_layout(layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index,
+              UINT32_MAX);
+
+    const auto add_pin = [&](double x, double y, double size) {
+        const LeHelloPinId pin = le_create_hello_pin(h, layout);
+        const double rect[] = {x, y, x + size, y + size};
+        return le_create_shape(h, le_shape_owner_hello_pin(pin), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0, 0, 0.0, 0);
+    };
+    // 6000 small pins in the left half (three tiles' worth), and one big
+    // one alone at (73..77, 73..77) um.
+    for (int i = 0; i < 6000; ++i)
+        add_pin(0.8 * (i % 60), (i / 60) * 1.0, 0.4);
+    const LeShapeId lone = add_pin(73, 73, 4);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(h, design), 0);
+    le_set_viewport_size(h, 400, 400);
+    le_fit_scene(h, 0); // 4 px per um: (x, y) um is pixel (4x, 400 - 4y)
+    const auto lit = [&](int x, int y) {
+        const LePixelBuffer buffer = le_render_pixel_buffer(h);
+        if (!buffer.data || x >= buffer.width || y >= buffer.height)
+            return false;
+        const uint8_t *px = buffer.data + y * buffer.row_bytes + x * 4;
+        return px[0] + px[1] + px[2] > 30;
+    };
+    EXPECT_TRUE(lit(300, 100)) << "the lone pin at (75, 75) um";
+    EXPECT_FALSE(lit(300, 300)) << "nothing at (75, 25) um yet";
+
+    le_mouse_down(h, 300, 100);
+    le_mouse_up(h, 300, 100);
+    ASSERT_EQ(le_selection_count(h), 1);
+    EXPECT_EQ(le_selected_object_ref(h, 0).index, lone.index);
+    le_mouse_down(h, 10, 10); // click empty space: deselect, and move the cursor box away
+    le_mouse_up(h, 10, 10);
+
+    // Into another tile: drawn there, gone from where it was.
+    const double moved[] = {73.0, 23.0, 77.0, 27.0};
+    ASSERT_EQ(le_update_shape(h, lone, 0, LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved, 4, 0, 0.0, 0, 0.0, 0, 0), 0);
+    EXPECT_TRUE(lit(300, 300));
+    EXPECT_FALSE(lit(300, 100));
 }

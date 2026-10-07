@@ -8,8 +8,8 @@ is the reference.
 
 **Extension API version: 1** (Layout Engine 0.3.x, the first with extension support). See the [changelog](#changelog).
 
-Not available yet: per-layer columns and text labels for extension objects,
-and spatial tiling for large counts (#78).
+Not available yet: per-layer columns (#120) and text labels (#121) for
+extension objects.
 Projects install extensions with the `le` package manager
 (`tools/le/README.md`); while developing one, build it in with
 `LE_EXTENSION_DIRS`, as below.
@@ -271,7 +271,10 @@ def extend(schema):
   edited, and a click selects their pieces like any shape's; the
   Properties panel's trail leads to your object. The purpose's name and
   label start with your prefix. `render=` isn't stored data, so adding it
-  doesn't change your schema version.
+  doesn't change your schema version. For a class with many objects per
+  layout, pass `Render(..., tiled=True)`: its objects are split into
+  spatial tiles of about 2000, like routes, so an edit redraws only the
+  tiles it touches.
 - **History:** the build writes `schema_history/<VERSION>.json` beside
   `schema_ext.py`. Commit it. Changing the schema without bumping
   `VERSION` fails the build, as for core.
@@ -557,7 +560,7 @@ The first version.
 - Overlays: `Registry::add_overlay`, `OverlayContext`, `request_redraw()`.
 - Settings: `Registry::add_settings`, `SettingsSection`; `ExtensionInfo::directory`
   and `Registry::resource`.
-- Rendering: `Render(purpose=Purpose(...))` on a class.
+- Rendering: `Render(purpose=Purpose(...), tiled=...)` on a class.
 - Database classes: `schema_ext.py` (`VERSION`, `extend(schema)`), its
   `schema_history/` and `migrations/` (`Migration(extension=...,
   depends_on_core=...)`, `--migrate-extension`), and the `"extensions"`

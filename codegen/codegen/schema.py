@@ -4019,6 +4019,10 @@ class Render:
     Attributes:
         purpose (Purpose): The class's own purpose, added after the core
             purposes. An extension's purpose name and label carry its prefix.
+        tiled (bool): Split a Layout's objects into spatial tiles, like
+            routes, so an edit rebuilds a tile or two rather than all of
+            them - for classes with many objects per Layout.
     """
 
     purpose: "Purpose"
+    tiled: bool = False
