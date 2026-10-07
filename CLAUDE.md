@@ -207,7 +207,7 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   GitHub (SSH-signed tags/commits checked against `[trust]`, tag or
   `version` range) and path sources. Script-only projects run a signed
   release bundle (`releases.py`, cached); others build from source into
-  `.le/` with `LE_EXTENSION_DIRS`. Authoring (`authoring.py`):
+  `.le/` as a generated `add_subdirectory` superbuild. Authoring (`authoring.py`):
   `new-extension` copies `hello_ext`/`hello_script` renamed (so both
   examples are its templates), `test`, `makemigration`, and `check`
   (parses `db_info` from the project's `le_shell`). Reuses
@@ -342,6 +342,10 @@ spdlog/fmt/Boost (headers) via `find_package` with
 GLFW (fallback), GoogleTest/Benchmark and others via `FetchContent`.
 
 Gotchas:
+- Layout Engine must stay embeddable with `add_subdirectory`: users add
+  extensions only through `le` projects, which build that way (so
+  `le-integration` covers it). Use `PROJECT_SOURCE_DIR`/
+  `PROJECT_BINARY_DIR`, never `CMAKE_SOURCE_DIR`/`CMAKE_BINARY_DIR`.
 - The vendored LEF/DEF Makefiles race under a parallel jobserver; the
   `ExternalProject_Add` steps force `make -j1` with `MAKEFLAGS` unset.
 - They build in-source (`src/lefdef/{lef,def}/`) and trust timestamps, so

@@ -19,8 +19,8 @@ class Recorder:
     def __init__(self):
         self.calls = []
 
-    def __call__(self, le_source, extension_dirs, state_dir, build_type, jobs, version, startup):
-        self.calls.append({"le_source": le_source, "extension_dirs": list(extension_dirs), "startup": startup})
+    def __call__(self, le_source, extension_dirs, state_dir, build_type, jobs, version, startup, cmake_args=None):
+        self.calls.append({"le_source": le_source, "extension_dirs": list(extension_dirs), "startup": startup, "cmake_args": cmake_args})
         bundle = state_dir / "bundle"
         bundle.mkdir(parents=True, exist_ok=True)
         (bundle / "le_shell").write_text("")
@@ -48,6 +48,11 @@ class TestInstall(unittest.TestCase):
         os.chdir(self.project)
         self.addCleanup(os.chdir, self.cwd)
 
+    def add(self, *args) -> int:
+        """`le add`, then `le install` (add only edits le_project.toml)."""
+        code = self.le("add", *args)
+        return code if code != 0 else self.le("install")
+
     def le(self, *args) -> int:
         err = io.StringIO()
         with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
@@ -74,8 +79,8 @@ class TestInstall(unittest.TestCase):
         self.trust_acme()
         self.publish_extension("base", "Base", key=self.acme_key)
         local = helpers.write_script_extension(self.root / "local", "local", "Local", deps='base = ">=1.0"')
-        self.assertEqual(self.le("add", "base", "--github", "acme/base", "--tag", "v1.0.0", "--publisher", "acme", "--no-install"), 0, self.last_error)
-        self.assertEqual(self.le("add", "local", "--path", str(local)), 0, self.last_error)
+        self.assertEqual(self.le("add", "base", "--github", "acme/base", "--tag", "v1.0.0", "--publisher", "acme"), 0, self.last_error)
+        self.assertEqual(self.add("local", "--path", str(local)), 0, self.last_error)
 
         lock = lockfile.load(self.project)
         self.assertEqual([e.name for e in lock.extensions], ["base", "local"])
@@ -91,7 +96,7 @@ class TestInstall(unittest.TestCase):
     def test_the_lock_is_replayed_and_a_moved_tag_is_refused(self):
         self.trust_acme()
         work = self.publish_extension("base", "Base", key=self.acme_key)
-        self.assertEqual(self.le("add", "base", "--github", "acme/base", "--tag", "v1.0.0", "--publisher", "acme"), 0, self.last_error)
+        self.assertEqual(self.add("base", "--github", "acme/base", "--tag", "v1.0.0", "--publisher", "acme"), 0, self.last_error)
         first = lockfile.load(self.project).extension("base").locked.rev
 
         # Re-point v1.0.0 at a new commit upstream: the locked install refuses it.
@@ -111,9 +116,9 @@ class TestInstall(unittest.TestCase):
         self.trust_acme()
         self.publish_extension("plain", "Plain")  # lightweight, unsigned tag
         self.publish_extension("forged", "Forged", key=self.other_key)
-        self.assertEqual(self.le("add", "plain", "--github", "acme/plain", "--tag", "v1.0.0", "--publisher", "acme"), 1)
+        self.assertEqual(self.add("plain", "--github", "acme/plain", "--tag", "v1.0.0", "--publisher", "acme"), 1)
         self.assertIn("isn't signed by a trusted key of acme", self.last_error)
-        self.assertEqual(self.le("add", "forged", "--github", "acme/forged", "--tag", "v1.0.0", "--publisher", "acme"), 1)
+        self.assertEqual(self.add("forged", "--github", "acme/forged", "--tag", "v1.0.0", "--publisher", "acme"), 1)
         self.assertIn("isn't signed by a trusted key of acme", self.last_error)
         self.assertEqual(self.recorder.calls, [])
 
@@ -122,12 +127,12 @@ class TestInstall(unittest.TestCase):
         self.publish_extension("base", "Base", key=self.acme_key)
         real_which = installer.sources.shutil.which
         with mock.patch.object(installer.sources.shutil, "which", lambda name: None if name == "ssh-keygen" else real_which(name)):
-            self.assertEqual(self.le("add", "base", "--github", "acme/base", "--tag", "v1.0.0", "--publisher", "acme"), 1)
+            self.assertEqual(self.add("base", "--github", "acme/base", "--tag", "v1.0.0", "--publisher", "acme"), 1)
         self.assertIn("needs ssh-keygen", self.last_error)
 
     def test_allow_unsigned_is_recorded(self):
         self.publish_extension("plain", "Plain")
-        self.assertEqual(self.le("add", "plain", "--github", "acme/plain", "--tag", "v1.0.0", "--allow-unsigned"), 0, self.last_error)
+        self.assertEqual(self.add("plain", "--github", "acme/plain", "--tag", "v1.0.0", "--allow-unsigned"), 0, self.last_error)
         self.assertIn("installed unsigned", self.last_error)
         self.assertTrue(lockfile.load(self.project).extension("plain").locked.unsigned)
 
@@ -138,43 +143,80 @@ class TestInstall(unittest.TestCase):
         helpers.git_commit_all(work, "unsigned")
         self.github.publish(work, "acme/base")
         rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=work, capture_output=True, text=True).stdout.strip()
-        self.assertEqual(self.le("add", "base", "--github", "acme/base", "--rev", rev, "--publisher", "acme"), 1)
+        self.assertEqual(self.add("base", "--github", "acme/base", "--rev", rev, "--publisher", "acme"), 1)
         self.assertIn(f"commit {rev}", self.last_error)
         (work / "y").write_text("y")
         helpers.git_commit_all(work, "signed", signing_key=self.acme_key)
         self.github.publish(work, "acme/base")
         rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=work, capture_output=True, text=True).stdout.strip()
-        self.assertEqual(self.le("add", "base", "--github", "acme/base", "--rev", rev, "--publisher", "acme"), 0, self.last_error)
+        self.assertEqual(self.add("base", "--github", "acme/base", "--rev", rev, "--publisher", "acme"), 0, self.last_error)
 
     def test_incompatible_and_unlisted_extensions_are_refused(self):
         too_new = helpers.write_script_extension(self.root / "too_new", "too_new", "TooNew", layout_engine=">=0.3")
-        self.assertEqual(self.le("add", "too_new", "--path", str(too_new)), 1)
+        self.assertEqual(self.add("too_new", "--path", str(too_new)), 1)
         self.assertIn("needs layout_engine >=0.3", self.last_error)
-        self.le("remove", "too_new", "--no-install")
+        self.le("remove", "too_new")
         needy = helpers.write_script_extension(self.root / "needy", "needy", "Needy", deps='missing = ">=1"')
-        self.assertEqual(self.le("add", "needy", "--path", str(needy)), 1)
+        self.assertEqual(self.add("needy", "--path", str(needy)), 1)
         self.assertIn("depends on missing: add it", self.last_error)
-        self.le("remove", "needy", "--no-install")
+        self.le("remove", "needy")
         misnamed = helpers.write_script_extension(self.root / "misnamed", "real_name", "Real")
-        self.assertEqual(self.le("add", "other_name", "--path", str(misnamed)), 1)
+        self.assertEqual(self.add("other_name", "--path", str(misnamed)), 1)
         self.assertIn("its manifest names it real_name", self.last_error)
 
     def test_remove_refuses_a_dependency_still_in_use(self):
         base = helpers.write_script_extension(self.root / "base", "base", "Base")
         user = helpers.write_script_extension(self.root / "user", "user", "User", deps='base = ">=1.0"')
-        self.assertEqual(self.le("add", "base", "--path", str(base), "--no-install"), 0)
-        self.assertEqual(self.le("add", "user", "--path", str(user)), 0, self.last_error)
+        self.assertEqual(self.le("add", "base", "--path", str(base)), 0)
+        self.assertEqual(self.add("user", "--path", str(user)), 0, self.last_error)
         self.assertEqual(self.le("remove", "base"), 1)
         self.assertIn("user depends on base", self.last_error)
         self.assertEqual(self.le("remove", "user"), 0, self.last_error)
         self.assertEqual(self.le("remove", "base"), 0, self.last_error)
+
+    def test_cmake_args_reach_the_build(self):
+        text = (self.project / "le_project.toml").read_text().replace('type = "Release"', 'type = "Release"\ncmake_args = ["-DLE_ENABLE_TRACY=OFF"]')
+        (self.project / "le_project.toml").write_text(text)
+        self.assertEqual(self.le("install"), 0, self.last_error)
+        self.assertEqual(self.recorder.calls[-1]["cmake_args"], ["-DLE_ENABLE_TRACY=OFF"])
+
+    def test_cmake_args_cant_set_what_le_does(self):
+        for bad in ('["-DLE_EXTENSION_DIRS=/x"]', '["-DCMAKE_BUILD_TYPE=Debug"]', '"-DX=1"', "[1]"):
+            text = (self.project / "le_project.toml").read_text()
+            original = text
+            (self.project / "le_project.toml").write_text(text.replace('type = "Release"', f'type = "Release"\ncmake_args = {bad}'))
+            self.assertEqual(self.le("install"), 1, bad)
+            self.assertIn("cmake_args", self.last_error)
+            (self.project / "le_project.toml").write_text(original)
+
+    def test_bundle_copies_the_build_with_its_startup_script(self):
+        (self.project / "init.tcl").write_text("puts hi\n")
+        text = (self.project / "le_project.toml").read_text().replace("[project]\n", '[project]\nstartup = "init.tcl"\n')
+        (self.project / "le_project.toml").write_text(text)
+        destination = self.root / "deploy"
+        self.assertEqual(self.le("bundle", str(destination)), 0, self.last_error)
+        self.assertTrue((destination / "le_shell").is_file())
+        self.assertEqual((destination / "init.tcl").read_text(), "puts hi\n")
+        self.assertEqual(json.loads((destination / "extensions.json").read_text())["startup"], "init.tcl")
+        self.assertEqual(self.le("bundle", str(destination)), 1, "not over a non-empty directory")
+        self.assertIn("isn't an empty directory", self.last_error)
+
+    def test_add_and_remove_only_edit_the_project(self):
+        ext = helpers.write_script_extension(self.root / "quiet", "quiet", "Quiet")
+        self.assertEqual(self.le("add", "quiet", "--path", str(ext)), 0, self.last_error)
+        self.assertEqual(self.recorder.calls, [], "add doesn't build")
+        self.assertIsNone(lockfile.load(self.project))
+        self.assertEqual(self.le("remove", "quiet"), 0, self.last_error)
+        self.assertEqual(self.recorder.calls, [], "nor does remove")
+        self.assertEqual(self.le("add", "quiet", "--path", str(self.root / "nowhere")), 1, "a path without a manifest fails at once")
+        self.assertNotIn("quiet", (self.project / "le_project.toml").read_text())
 
     def test_startup_and_staleness(self):
         ext = helpers.write_script_extension(self.root / "ext", "ext", "Ext")
         (self.project / "init.tcl").write_text("puts hi\n")
         text = (self.project / projectfile.PROJECT_FILE).read_text().replace('# startup = "init.tcl"', 'startup = "init.tcl"')
         (self.project / projectfile.PROJECT_FILE).write_text(text)
-        self.assertEqual(self.le("add", "ext", "--path", str(ext)), 0, self.last_error)
+        self.assertEqual(self.add("ext", "--path", str(ext)), 0, self.last_error)
         self.assertEqual(self.recorder.calls[-1]["startup"], (self.project / "init.tcl").resolve())
         self.assertTrue(installer.is_current(self.project))
         # Editing a path extension makes the install stale.
@@ -183,7 +225,7 @@ class TestInstall(unittest.TestCase):
 
     def test_an_invalid_edit_is_rolled_back(self):
         before = (self.project / projectfile.PROJECT_FILE).read_text()
-        self.assertEqual(self.le("add", "x", "--github", "acme/x", "--tag", "v1", "--publisher", "nobody", "--no-install"), 1)
+        self.assertEqual(self.le("add", "x", "--github", "acme/x", "--tag", "v1", "--publisher", "nobody"), 1)
         self.assertIn("no keys in [trust]", self.last_error)
         self.assertEqual((self.project / projectfile.PROJECT_FILE).read_text(), before)
 

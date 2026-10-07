@@ -19,7 +19,7 @@ Their code must live **completely outside** the layout_engine tree, yet be **com
 
 | Concern | Recommendation |
 |---|---|
-| Packaging | **An extension is a directory with a declarative manifest, `le_extension.toml`** (name, version, prefix, compatible layout_engine versions, dependencies, what it contains). The package manager reads it to resolve and fetch; CMake reads it to build. **Superbuild:** layout_engine's CMake takes extension directories in `LE_EXTENSION_DIRS`. The package manager generates that list for a project, and a hand-made superbuild (layout_engine as a git submodule) still works. |
+| Packaging | **An extension is a directory with a declarative manifest, `le_extension.toml`** (name, version, prefix, compatible layout_engine versions, dependencies, what it contains). The package manager reads it to resolve and fetch; CMake reads it to build. **Superbuild:** layout_engine's CMake takes extension directories in `LE_EXTENSION_DIRS`. Users add extensions through one route, a package-manager project (`le_project.toml`); `le` generates a superbuild that adds layout_engine with `add_subdirectory`. |
 | Tiers | **Script extensions** (Tcl procs and data files only) need no compiler and install into a prebuilt release. **Compiled extensions** (C++, schema, GUI) need a project build of `le_shell`. |
 | Build | layout_engine provides an `le_add_extension()` CMake function. Each extension builds as up to three static libraries (`_core`, `_tcl`, `_gui`) that are linked into the existing host targets. |
 | Registration | CMake generates an init file that calls `le_ext_<name>_register(Registry&)` for each extension. This is explicit; nothing relies on static self-registration. |
@@ -79,7 +79,7 @@ Layout Engine is a closed world today: there are no extension points anywhere. R
 
 ## 2. Packaging: a superbuild with extension directories
 
-An extension is one directory. It never refers to paths inside layout_engine, so the same directory works as a package-manager install, in a hand-made superbuild, and in layout_engine's own CI.
+An extension is one directory. It never refers to paths inside layout_engine, so the same directory works in a project and in layout_engine's own CI.
 
 ```
 acme_router/                      <- the extension (its own repo, proprietary)
@@ -96,24 +96,20 @@ acme_router/                      <- the extension (its own repo, proprietary)
   tests/...
 ```
 
-**With the package manager** (the normal route), the user lists `acme_router` in their project's `le_project.toml`. `le install` fetches layout_engine and the extension at the locked versions and configures a build with `LE_EXTENSION_DIRS` set. See [PACKAGE_MANAGER_RESEARCH.md](PACKAGE_MANAGER_RESEARCH.md).
-
-**By hand**, a superbuild repo includes layout_engine as a git submodule:
+**Users add extensions one way: a package-manager project** (EXTENSION_SDK.md). They list `acme_router` in `le_project.toml`, as a path in their own repository or a signed GitHub source. `le install` fetches layout_engine and the extensions at the locked versions and generates a superbuild in `.le/superbuild/`:
 
 ```cmake
 cmake_minimum_required(VERSION 3.25)
-project(acme_le CXX)
-set(LE_EXTENSION_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/ext/acme_router CACHE STRING "" FORCE)
-add_subdirectory(layout_engine)
+project(le_project CXX)
+enable_testing()
+add_subdirectory(<layout_engine source> layout_engine)
 ```
 
-or passes the list at configure time:
+configured with `-DLE_EXTENSION_DIRS=<ordered dirs>`. See [PACKAGE_MANAGER_RESEARCH.md](PACKAGE_MANAGER_RESEARCH.md). layout_engine's CMake uses `PROJECT_SOURCE_DIR`/`PROJECT_BINARY_DIR`, never `CMAKE_SOURCE_DIR`/`CMAKE_BINARY_DIR`, so it builds the same embedded as on its own, and `le`'s end-to-end test covers the embedded build.
 
-```
-cmake -S layout_engine -B build -DLE_EXTENSION_DIRS="/path/ext/acme_router;/path/ext/acme_drc"
-```
+layout_engine's own developers and CI also configure it directly, `cmake -S layout_engine -B build -DLE_EXTENSION_DIRS=...` (how CI builds the examples); that isn't a user route.
 
-Either way, no extension file lives inside layout_engine, and no layout_engine file is edited.
+No extension file lives inside layout_engine, and no layout_engine file is edited.
 
 ### `le_extension.toml`
 

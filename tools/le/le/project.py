@@ -14,6 +14,7 @@ le_project.toml: what a project wants. Read with tomllib; `add`, `remove` and
     [build]
     type = "Release"                          # optional
     jobs = 8                                  # optional
+    cmake_args = ["-DLE_ENABLE_TRACY=OFF"]    # optional: passed to cmake when configuring
 
     [extensions]
     acme = { github = "acme/acme", version = ">=1.0, <2", publisher = "acme" }
@@ -66,6 +67,7 @@ class Project:
     build_type: str
     jobs: Optional[int]
     extensions: Dict[str, Source] = field(default_factory=dict)
+    cmake_args: List[str] = field(default_factory=list)
     trust: Dict[str, List[str]] = field(default_factory=dict)
 
     @property
@@ -122,6 +124,12 @@ def load(root: Path) -> Project:
     jobs = build.get("jobs")
     if jobs is not None and (not isinstance(jobs, int) or jobs < 1):
         raise ProjectError(f"{path}: [build] jobs must be a positive integer")
+    cmake_args = build.get("cmake_args", [])
+    if not isinstance(cmake_args, list) or not all(isinstance(a, str) for a in cmake_args):
+        raise ProjectError(f"{path}: [build] cmake_args must be a list of strings")
+    reserved = [a for a in cmake_args if a.split("=", 1)[0] in ("-DLE_EXTENSION_DIRS", "-DCMAKE_BUILD_TYPE", "-S", "-B")]
+    if reserved:
+        raise ProjectError(f"{path}: [build] cmake_args can't set {', '.join(reserved)} - le does ([extensions], [build] type)")
 
     extensions = {}
     for name, table in data.get("extensions", {}).items():
@@ -144,6 +152,7 @@ def load(root: Path) -> Project:
         layout_engine=_source(data["layout_engine"], f"{path}: [layout_engine]", root, False),
         build_type=build.get("type", "Release"),
         jobs=jobs,
+        cmake_args=cmake_args,
         extensions=extensions,
         trust=trust,
     )
@@ -229,6 +238,7 @@ name = {_quote(name)}
 
 [build]
 type = "Release"
+# cmake_args = ["-DLE_ENABLE_TRACY=OFF"]    # passed to cmake when configuring
 
 [extensions]
 

@@ -18,7 +18,8 @@ How Layout Engine itself is installed:
   and runs its `le_shell`. No compiler or cmake needed.
 - **Built from source**: otherwise (a compiled extension, a `--rev` pin, a
   local `path`), it builds Layout Engine with the extensions, which needs
-  everything a source build needs (`BUILD.md`).
+  everything a source build needs (`BUILD.md`). It generates a superbuild
+  in `.le/superbuild/` that embeds Layout Engine with `add_subdirectory`.
 
 ## Quick start
 
@@ -36,14 +37,15 @@ le shell                               # builds if needed, then runs le_shell
 | Command | What it does |
 |---|---|
 | `le init [dir] [--name N] [--layout-engine-path P]` | Creates `le_project.toml`, asking for this `le`'s Layout Engine minor series (e.g. `">=0.3, <0.4"`), or a local checkout with `--layout-engine-path`. |
-| `le add <name> --github OWNER/REPO (--tag T \| --rev R \| --version RANGE) --publisher P` | Adds a GitHub extension, then installs. A range picks the highest matching signed `vX.Y.Z` tag. `--allow-unsigned` accepts it unsigned (development only). |
-| `le add <name> --path DIR` | Adds a local extension (never signed or locked), then installs. |
-| `le remove <name>` | Removes one, refusing if another extension depends on it, then installs. |
+| `le add <name> --github OWNER/REPO (--tag T \| --rev R \| --version RANGE) --publisher P` | Adds a GitHub extension to `le_project.toml`. A range picks the highest matching signed `vX.Y.Z` tag. `--allow-unsigned` accepts it unsigned (development only). |
+| `le add <name> --path DIR` | Adds a local extension (never signed or locked), checking its manifest. |
+| `le remove <name>` | Removes one, refusing if another extension depends on it. |
 | `le trust <publisher> <key \| @file>` | Trusts an SSH public key to sign that publisher's releases. |
 | `le install` | Installs exactly what the lock says, or resolves and writes the lock if `le_project.toml` changed. |
 | `le update [name...]` | Resolves the named entries again (all if none), ignoring the lock, then installs. |
 | `le list` | What's installed: versions, sources, commits, signers, release or source build. |
 | `le shell [args...]` | Runs Layout Engine's `le_shell` with the project's extensions, reinstalling first if anything changed (including files in a `--path` extension). |
+| `le bundle <dir>` | Copies the installed project (Layout Engine, its extensions, the startup script) into a new or empty directory: self-contained and relocatable, to deploy. |
 | `le check <file.led>` | Whether a `.led` file loads in this project: for Layout Engine and each extension the file holds objects of, `matches`, `will migrate`, `missing` (with the `le add` line) or `too new`. Exits 1 if it can't load. |
 
 Writing extensions:
@@ -58,12 +60,15 @@ A tag must match the version in its `le_extension.toml`. `install` and
 `update` refuse to move anything to a lower version than the lock has
 unless given `--allow-downgrade`.
 
-`add` and `remove` take `--no-install` to edit `le_project.toml` only.
+`add` and `remove` only edit `le_project.toml`; `le shell`, `le test`,
+`le check`, `le bundle` and `le install` build what changed first.
 `add`, `remove` and `trust` keep the file's comments.
 
 ## Files
 
-- `le_project.toml`: what you want. Commit it.
+- `le_project.toml`: what you want. Commit it. Its `[build]` table sets
+  `type` (default `Release`), `jobs`, and `cmake_args`: other CMake
+  options for the source build, e.g. `["-DLE_ENABLE_TRACY=OFF"]`.
 - `le_project.lock`: what was installed, i.e. each GitHub source's tag,
   commit and signing key, and the release bundle's sha256. Commit it, so everyone builds the same thing. A
   locked install refuses a tag that now points elsewhere, or a different
