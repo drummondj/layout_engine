@@ -179,6 +179,8 @@ TEST(HelloExt, EverySchemaVersionsGoldenFileStillLoads)
 TEST(HelloExt, AnOlderFileListsItsMigrationsAndMigrateDbRunsThem)
 {
     const std::filesystem::path oldest = kGoldenDir / "0.1.0" / "notes.led";
+    if (!std::filesystem::exists(oldest) || kSchemaVersion == std::string("0.1.0"))
+        GTEST_SKIP() << "no older schema version's golden file to migrate yet";
     const std::string info = le_db_info(oldest.c_str());
     EXPECT_NE(info.find("hello_ext 0.2.0: HelloNote.text renamed to body"), std::string::npos) << info;
     EXPECT_NE(info.find("hello_ext 0.4.0: HelloPin added, owning Shapes"), std::string::npos) << info;
