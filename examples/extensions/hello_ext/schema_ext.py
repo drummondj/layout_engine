@@ -1,6 +1,6 @@
 """hello_ext's database classes, merged into Layout Engine's schema at build time."""
 
-from codegen.schema import Field, Klass
+from codegen.schema import Field, Klass, Purpose, Render
 
 # The schema's own version: bump it with any change below, and add a
 # migration (codegen --target makemigration --extension ...).
@@ -12,6 +12,15 @@ def extend(schema):
         Klass(
             name="HelloMarker",
             description="A named marker in a layout, drawn by its shapes, from the hello_ext example extension",
+            # Drawn in the Layout view on its own row, and selectable.
+            render=Render(
+                purpose=Purpose(
+                    name="HELLO_MARKER",
+                    label="helloMarker",
+                    description="hello_ext's markers",
+                    has_selectable_objects=True,
+                )
+            ),
             fields=[
                 Field(
                     name="layout",

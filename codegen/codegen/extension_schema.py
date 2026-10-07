@@ -142,6 +142,9 @@ def _check_and_mark(schema: Schema, ext: ExtensionSchema, before: Dict[str, tupl
 
     taken = {to_snake_case(name): name for name in before}
     for klass in added:
+        if klass.render is not None:
+            errors += _add_render_purpose(schema, ext, klass)
+    for klass in added:
         klass.extension = ext.name
         if not klass.name.startswith(ext.prefix) or klass.name == ext.prefix:
             errors.append(f"{where}: class {klass.name} must be named with the extension's prefix {ext.prefix} (e.g. {ext.prefix}{klass.name})")
@@ -205,3 +208,18 @@ def _synthesize_owner_option(by_name: Dict[str, Klass], ext: ExtensionSchema, kl
     child_list.owner = False  # the list itself is an ordinary derived child list...
     child_list.declares_owner = True  # ...whose descriptor records the declaration
     return []
+
+
+def _add_render_purpose(schema: Schema, ext: ExtensionSchema, klass: Klass) -> List[str]:
+    """A renderable class's purpose joins the schema's, after core's; its name and label carry the prefix."""
+    purpose = klass.render.purpose
+    snake = to_snake_case(ext.prefix)
+    name_prefix = snake.upper() + "_"
+    label_prefix = snake.split("_")[0] + "".join(part.capitalize() for part in snake.split("_")[1:])
+    errors = []
+    if not purpose.name.startswith(name_prefix):
+        errors.append(f"extension {ext.name}: {klass.name}'s purpose {purpose.name} must start with {name_prefix}")
+    if not purpose.label.startswith(label_prefix):
+        errors.append(f"extension {ext.name}: {klass.name}'s purpose label {purpose.label!r} must start with {label_prefix!r}")
+    schema.purposes.append(purpose)
+    return errors

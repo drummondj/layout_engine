@@ -1,4 +1,5 @@
 #include "../api.hpp"
+#include "generated/pipelines/renderable_classes.hpp"
 #include <algorithm>
 #include <set>
 #include <atomic>
@@ -1479,7 +1480,7 @@ TEST_F(ApiFixture, LayerAtOutOfRangeReturnsInvalidRow)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
-    const LeLayerRow row = le_layer_at(handle, 10);
+    const LeLayerRow row = le_layer_at(handle, 10 + static_cast<int32_t>(le::renderable::kCount)); // + extensions' rows
     EXPECT_EQ(row.name, nullptr);
 }
 
@@ -1490,11 +1491,12 @@ TEST_F(ApiFixture, LayerAtListsRowThenBoundaryThenEveryPhysicalLayer)
     // testcell.lef declares one physical Layer (M1) - the API doesn't
     // special-case BOUNDARY, it's just another row, so the count is
     // M1 + ROW + GCELLGRID + PLACEMENT_BLOCKAGE + REGION + BOUNDARY +
-    // PLACEMENT + DEBUG + FLIGHTLINE + PORT_MARKER = 10 (see
+    // PLACEMENT + DEBUG + FLIGHTLINE + PORT_MARKER = 10, plus a row per
+    // renderable class an extension adds (see
     // ViewLayerSet::build_for_technology). ROW then BOUNDARY then
     // PLACEMENT come first (this declaration order is also the real draw
     // z-order, see ViewLayerSet::rows()'s own doc comment).
-    ASSERT_EQ(le_layer_count(handle), 10);
+    ASSERT_EQ(le_layer_count(handle), 10 + static_cast<int32_t>(le::renderable::kCount));
 
     const LeLayerRow boundary_row = le_layer_at(handle, 1);
     ASSERT_NE(boundary_row.name, nullptr);
@@ -1528,7 +1530,7 @@ TEST_F(ApiFixture, PurposeAtOutOfRangeReturnsInvalid)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
 
-    EXPECT_EQ(le_purpose_at(handle, 16), -1);
+    EXPECT_EQ(le_purpose_at(handle, 16 + static_cast<int32_t>(le::renderable::kCount)), -1);
     EXPECT_EQ(le_purpose_at(handle, -1), -1);
 }
 
@@ -1545,7 +1547,7 @@ TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
     // the GCELLGRID/PLACEMENT_BLOCKAGE/REGION/... pseudo-rows. The raw ordinal values
     // below are le::ViewLayerPurpose's own declaration order, unrelated to
     // this traversal order.
-    ASSERT_EQ(le_purpose_count(handle), 16);
+    ASSERT_EQ(le_purpose_count(handle), 16 + static_cast<int32_t>(le::renderable::kCount)); // + extensions' purposes, last
     EXPECT_EQ(le_purpose_at(handle, 0), 6);   // ROW
     EXPECT_EQ(le_purpose_at(handle, 1), 2);   // BOUNDARY
     EXPECT_EQ(le_purpose_at(handle, 2), 11);  // PLACEMENT

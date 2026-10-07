@@ -59,6 +59,9 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
     `ViewShapeChunk`s (a Layout's fixed chunks plus spatial tiles of ~2000
     routes/placements), and only touched chunks rebuild; anything it can't
     place falls back to a full resolve (`last_compute_was_incremental()`).
+    Classes with `render=` (`generated/pipelines/renderable_classes.hpp`)
+    each get a fixed chunk after the core four and a pseudo-row; nothing
+    core is hand-written per class.
     Chunks carry `ChunkSources` so Layout-view selection queries the last
     resolved render tree (`ViewRenderPipeline::resolved_output()`, api.cpp's
     `layout_candidates`) instead of scanning the Layout.

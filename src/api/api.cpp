@@ -421,8 +421,20 @@ namespace
             case le::ChangeKlass::PropertyDefinition:
                 return;
             default: // via definitions, designs, abstracts, layouts, technology, ...
-                usable = false;
+            {
+                // A renderable class's object: its shapes are candidates.
+                bool renderable_object = false;
+                le::renderable::for_each([&]<class R>(R) {
+                    if (entry.klass != R::klass)
+                        return;
+                    renderable_object = true;
+                    for (const le::ShapeId shape : R::shapes(root, typename R::Id{entry.index, entry.generation}))
+                        out.shapes.push_back(shape);
+                });
+                if (!renderable_object)
+                    usable = false;
                 return;
+            }
             } });
         if (!usable)
             return std::nullopt;
@@ -461,8 +473,8 @@ namespace
             }
         }
 
-        // Only this Layout's route/port shapes and placements (edits
-        // anywhere are in the log), each once.
+        // Only this Layout's route/port/renderable-class shapes and
+        // placements (edits anywhere are in the log), each once.
         std::erase_if(out.shapes, [&](le::ShapeId id)
                       {
             const le::ShapeData *shape = root.get_shape(id);
@@ -473,7 +485,12 @@ namespace
             if (const le::PhysicalPortSegmentData *segment = root.get_physical_port_segment(shape->physical_port_segment()))
                 if (const le::PhysicalPortData *port = root.get_physical_port(segment->physical_port))
                     return port->layout != layout_id;
-            return true; });
+            bool in_layout = false;
+            le::renderable::for_each([&]<class R>(R) {
+                if (const auto owner = R::owner_of(*shape); owner.valid())
+                    in_layout = R::layout_of(root, owner) == layout_id;
+            });
+            return !in_layout; });
         std::erase_if(out.placements, [&](le::PlacementId id)
                       {
             const le::PlacementData *placement = root.get_placement(id);
