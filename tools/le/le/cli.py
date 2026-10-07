@@ -57,6 +57,10 @@ def cmd_init(args) -> int:
 def cmd_add(args) -> int:
     root = find_root(Path.cwd())
     if args.path:
+        # Checked now, so a wrong path fails here rather than at the next build.
+        manifest = installer.extension_manifest.load(Path(args.path).resolve())
+        if manifest.name != args.name:
+            raise CliError(f"{args.path}: its manifest names it {manifest.name}, not {args.name}")
         entry = {"path": os.path.relpath(Path(args.path).resolve(), root)}
     else:
         if not (args.tag or args.rev or args.version):
@@ -68,20 +72,31 @@ def cmd_add(args) -> int:
         if args.allow_unsigned:
             entry["allow_unsigned"] = True
     _edit(root, lambda text: projectfile.set_entry(text, "extensions", args.name, projectfile.inline_table(entry)))
-    print(f"le: added {args.name}")
-    return 0 if args.no_install else _install(root, None, False)
+    print(f"le: added {args.name} - `le shell`, `le test` or `le install` builds it")
+    return 0
 
 
 def cmd_remove(args) -> int:
     root = find_root(Path.cwd())
-    lock = lockfile.load(root)
-    if lock is not None:
-        users = [e.name for e in lock.extensions if args.name in e.dependencies]
-        if users:
-            raise CliError(f"{', '.join(users)} depend{'s' if len(users) == 1 else ''} on {args.name} - remove {'it' if len(users) == 1 else 'them'} first")
+    users = [name for name in projectfile.load(root).extensions if name != args.name and args.name in _dependencies(root, name)]
+    if users:
+        raise CliError(f"{', '.join(users)} depend{'s' if len(users) == 1 else ''} on {args.name} - remove {'it' if len(users) == 1 else 'them'} first")
     _edit(root, lambda text: projectfile.remove_entry(text, "extensions", args.name))
     print(f"le: removed {args.name}")
-    return 0 if args.no_install else _install(root, None, False)
+    return 0
+
+
+def _dependencies(root: Path, name: str) -> List[str]:
+    """What extension `name` depends on: a path extension's manifest says now; otherwise the lock, if it was installed."""
+    source = projectfile.load(root).extensions[name]
+    if source.path is not None:
+        try:
+            return list(installer.extension_manifest.load(source.path).dependencies)
+        except installer.extension_manifest.ManifestError:
+            return []
+    lock = lockfile.load(root)
+    entry = lock.extension(name) if lock is not None else None
+    return entry.dependencies if entry is not None else []
 
 
 def cmd_trust(args) -> int:
@@ -200,7 +215,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--layout-engine-path", help="build a local Layout Engine checkout instead of a release tag")
     s.set_defaults(func=cmd_init)
 
-    s = sub.add_parser("add", help="add an extension, then install")
+    s = sub.add_parser("add", help="add an extension to le_project.toml (the next shell/test/install builds it)")
     s.add_argument("name")
     where = s.add_mutually_exclusive_group(required=True)
     where.add_argument("--github", metavar="OWNER/REPO")
@@ -211,12 +226,10 @@ def parser() -> argparse.ArgumentParser:
     pin.add_argument("--version", help='a range matched against vX.Y.Z tags, e.g. ">=1.4, <2"')
     s.add_argument("--publisher", help="whose key in [trust] signs it (github sources)")
     s.add_argument("--allow-unsigned", action="store_true", help="accept it unsigned - for development only")
-    s.add_argument("--no-install", action="store_true")
     s.set_defaults(func=cmd_add)
 
-    s = sub.add_parser("remove", help="remove an extension, then install")
+    s = sub.add_parser("remove", help="remove an extension from le_project.toml")
     s.add_argument("name")
-    s.add_argument("--no-install", action="store_true")
     s.set_defaults(func=cmd_remove)
 
     s = sub.add_parser("trust", help="trust an SSH key to sign a publisher's releases")

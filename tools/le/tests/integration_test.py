@@ -74,10 +74,10 @@ def main() -> int:
         project = root / "project"
         le(root, "init", str(project), "--layout-engine-path", str(source))
         le(project, "trust", "acme", "@" + str(key) + ".pub")
-        le(project, "add", "hello_script", "--github", "acme/hello_script", "--tag", "v0.1.0", "--publisher", "acme", "--no-install")
+        le(project, "add", "hello_script", "--github", "acme/hello_script", "--tag", "v0.1.0", "--publisher", "acme")
         my_ext = root / "my_ext"
         le(root, "new-extension", "my_ext", "--directory", str(my_ext))
-        le(project, "add", "my_ext", "--path", str(my_ext), "--no-install")
+        le(project, "add", "my_ext", "--path", str(my_ext))
         le(project, "add", "hello_ext", "--path", str(hello_ext))
 
         script = project / "check.tcl"

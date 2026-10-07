@@ -230,9 +230,9 @@ my_chip/
 | Command | What it does |
 |---|---|
 | `le init [dir]` | Writes a minimal `le_project.toml` and a `.gitignore` entry for `.le/`. |
-| `le add <name> --github OWNER/REPO --publisher P [--tag T \| --rev R \| --version RANGE]` / `--path DIR` | Adds an extension, then runs `install`. |
+| `le add <name> --github OWNER/REPO --publisher P [--tag T \| --rev R \| --version RANGE]` / `--path DIR` | Adds an extension to `le_project.toml` (a path's manifest is checked); the next command that needs the build installs. |
 | `le trust <publisher> <key>` | Adds a publisher key to `[trust]`. |
-| `le remove <name>` | Removes it (refusing if another extension depends on it), then runs `install`. |
+| `le remove <name>` | Removes it (refusing if another extension depends on it). |
 | `le install` | §6. Idempotent; does nothing if the bundle matches the lock. |
 | `le update [name...]` | Re-resolves the named entries (all if none), ignoring the lock for them; §5 downgrade rule. |
 | `le shell [args...]` | Runs the project's `le_shell`, first rebuilding if a `path` extension changed (like `cargo run`). |

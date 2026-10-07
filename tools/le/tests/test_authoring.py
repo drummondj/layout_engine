@@ -231,6 +231,7 @@ class TestProjectCommands(unittest.TestCase):
 
     def test_test_runs_tcl_tests_through_a_release_le_shell(self):
         self.assertEqual(le("add", "acme", "--path", str(self.ext))[0], 0)
+        self.assertEqual(le("install")[0], 0)
         lock_path = self.project / "le_project.lock"
         lock_path.write_text(lock_path.read_text().replace('bundle = "source"', 'bundle = "release"'))
         release_shell = mock.patch.object(installer, "shell_command", lambda root: ["le_shell", "-extensions", "index.json"])
@@ -244,6 +245,7 @@ class TestProjectCommands(unittest.TestCase):
         compiled = self.root / "comp"
         authoring.new_extension("comp", compiled, False, None, None)
         self.assertEqual(le("add", "comp", "--path", str(compiled))[0], 0)
+        self.assertEqual(le("install")[0], 0)
         with self.record():
             code, _, err = le("makemigration", "comp", "--name", "note_author", "--non-interactive")
         self.assertEqual(code, 0, err)
@@ -256,7 +258,7 @@ class TestProjectCommands(unittest.TestCase):
         self.assertIn("--non-interactive", command)
 
     def test_makemigration_refusals(self):
-        self.assertEqual(le("add", "acme", "--path", str(self.ext), "--no-install")[0], 0)
+        self.assertEqual(le("add", "acme", "--path", str(self.ext))[0], 0)
         self.assertIn("nothing installed yet", le("makemigration", "acme", "--name", "x")[2])
         self.assertEqual(le("install")[0], 0)
         self.assertIn("has no schema", le("makemigration", "acme", "--name", "x")[2])
