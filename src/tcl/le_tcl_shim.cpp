@@ -757,6 +757,7 @@ int write_db_cmd(const char *path, int with_session) { return le_write_db(sessio
 int read_db_cmd(const char *path, int with_session) { return le_read_db(session(), path, with_session); }
 
 const char *db_info_cmd(const char *path) { return return_string(le_db_info(path)); }
+const char *migrate_db_cmd(const char *in_path, const char *out_path) { return return_string(le_migrate_db(in_path, out_path)); }
 
 // get_selection/select. Only Shape/Row/Placement/Region friendly ids are
 // meaningful here (the kinds LeHandle::SelectedObject covers - see le_select_object_ref's

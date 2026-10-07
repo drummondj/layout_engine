@@ -113,6 +113,7 @@ int write_def_cmd(const char *path, const char *layout_token);
 int write_db_cmd(const char *path, int with_session);
 int read_db_cmd(const char *path, int with_session);
 const char *db_info_cmd(const char *path);
+const char *migrate_db_cmd(const char *in_path, const char *out_path);
 int selection_count_cmd();
 const char *get_selection_at_cmd(int index);
 int select_cmd(const char *token);

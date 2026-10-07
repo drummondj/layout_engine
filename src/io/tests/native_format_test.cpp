@@ -943,6 +943,84 @@ namespace le::persistence
         EXPECT_NE(report.error.find("was written against core 0.2.0, before core's migration to 0.3.0"), std::string::npos) << report.error;
     }
 
+    // inspect_native lists what loading would run: every migration of the
+    // plan past the file's versions, additive ones included.
+    TEST_F(NativeFormatOlderSchema, InspectListsTheMigrationsLoadingWouldRun)
+    {
+        file.write(path); // core schema 0.0.1, no extensions
+        const std::array plan{
+            migrations::Migration{"0.0.1", "already in the file", "", false},
+            migrations::Migration{"0.2.0", "Thing added", "", false},
+            migrations::Migration{"0.3.0", "Layer.kind converted", "", true},
+            migrations::Migration{"0.0.2", "an extension the file doesn't hold", "acme", false},
+        };
+        const FileInfo info = inspect_native(path.string(), plan);
+        ASSERT_TRUE(info.ok()) << info.error;
+        ASSERT_EQ(info.migrations.size(), 2u);
+        EXPECT_EQ(info.migrations[0].to_version, "0.2.0");
+        EXPECT_EQ(info.migrations[0].description, "Thing added");
+        EXPECT_EQ(info.migrations[0].extension, "");
+        EXPECT_FALSE(info.migrations[0].unsupported);
+        EXPECT_EQ(info.migrations[1].to_version, "0.3.0");
+        EXPECT_TRUE(info.migrations[1].unsupported);
+    }
+
+    TEST_F(NativeFormatExtensionChain, InspectListsAnExtensionsMigrationsPastTheFilesVersionOfIt)
+    {
+        file_has_extension_at("0.0.2");
+        file.write(path);
+        const std::string ext = extension(); // Migration holds string_views
+        const std::array plan{
+            migrations::Migration{"0.0.2", "already in the file", ext, false},
+            migrations::Migration{"0.0.3", "after the file", ext, false},
+        };
+        const FileInfo info = inspect_native(path.string(), plan);
+        ASSERT_TRUE(info.ok()) << info.error;
+        ASSERT_EQ(info.migrations.size(), 1u);
+        EXPECT_EQ(info.migrations[0].extension, ext);
+        EXPECT_EQ(info.migrations[0].description, "after the file");
+    }
+
+    TEST(NativeFormatMigrate, RewritesAFileKeepingItsObjectsAndSession)
+    {
+        TempDir dir;
+        SmallDesign original;
+        const auto in = dir.file("in.led");
+        const auto out = dir.file("out.led");
+        const LibraryId library = original.library;
+        const std::string session =
+            R"({"view": {"$ref": "Library", "index": )" + std::to_string(library.index) + R"(, "generation": )" + std::to_string(library.generation) + "}}";
+        ASSERT_TRUE(save_native(original.root, in.string(), SaveOptions{.session_json = session}).ok());
+
+        const MigrateReport report = migrate_native(in.string(), out.string());
+        ASSERT_TRUE(report.ok()) << report.error;
+        EXPECT_EQ(report.from_schema_version, schema_info::kVersion);
+        EXPECT_GT(report.objects, 0u);
+
+        Root migrated;
+        const LoadReport loaded = load_native(migrated, out.string());
+        ASSERT_TRUE(loaded.ok()) << loaded.error;
+        EXPECT_EQ(loaded.objects, report.objects);
+        const auto json = nlohmann::json::parse(loaded.session_json);
+        EXPECT_EQ(json["view"]["$ref"], "Library");
+        EXPECT_EQ(migrated.get_library(LibraryId{json["view"]["index"].get<uint32_t>(), json["view"]["generation"].get<uint32_t>()})->name,
+                  original.root.get_library(library)->name);
+    }
+
+    TEST(NativeFormatMigrate, InPlaceAndErrors)
+    {
+        TempDir dir;
+        SmallDesign original;
+        const auto path = dir.file("design.led");
+        ASSERT_TRUE(save_native(original.root, path.string()).ok());
+        EXPECT_TRUE(migrate_native(path.string(), path.string()).ok());
+        EXPECT_TRUE(inspect_native(path.string()).ok());
+
+        const MigrateReport missing = migrate_native(dir.file("absent.led").string(), dir.file("x.led").string());
+        EXPECT_FALSE(missing.ok());
+        EXPECT_FALSE(std::filesystem::exists(dir.file("x.led")));
+    }
+
     TEST_F(NativeFormatOlderSchema, CurrentSchemaFilesIgnoreTheChain)
     {
         // A file already at this build's schema needs no migration, even if

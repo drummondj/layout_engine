@@ -40,5 +40,21 @@ namespace {{schema.namespace}}::migrations
         Op{ {{op.to_version}}, OpKind::{{op.kind}}, {{op.klass}}, {{op.old}}, {{op.new}}, {{op.description}}, {{op.extension}}, {{op.depends_on_core}} },
     {%- endfor %}
     } };
+
+    /// One migration of the merged plan, whatever its ops: what `db_info`
+    /// lists for a file that needs it.
+    struct Migration
+    {
+        std::string_view to_version;
+        std::string_view description;
+        std::string_view extension; // "" for core
+        bool unsupported;           // has an op the loader can't apply yet: a file needing it is refused
+    };
+
+    inline constexpr std::array<Migration, {{migrations | length}}> kMigrations{ {
+    {%- for m in migrations %}
+        Migration{ {{m.to_version}}, {{m.description}}, {{m.extension}}, {{m.unsupported}} },
+    {%- endfor %}
+    } };
 }
 """

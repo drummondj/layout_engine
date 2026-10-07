@@ -648,6 +648,17 @@ namespace le::persistence
     {
         using EnumRenames = std::map<std::string, std::map<std::string, std::string, std::less<>>, std::less<>>;
 
+        /// @brief Whether loading the file runs `extension`'s (core's, if
+        /// empty) migration to `to_version`: it's past the file's version,
+        /// and for an extension, the file holds that extension's objects.
+        bool migration_pending(const FileSchema &schema, const std::string &extension, const std::string &to_version)
+        {
+            if (extension.empty())
+                return version_newer(to_version, schema.version);
+            auto in_file = std::ranges::find(schema.extensions, extension, &FileExtension::name);
+            return in_file != schema.extensions.end() && version_newer(to_version, in_file->version);
+        }
+
         /// @brief Bring an older file's schema names up to date: apply every
         /// op of every migration past the file's version, in merged-plan
         /// order. A core op is past the file's core version; an extension's
@@ -661,16 +672,11 @@ namespace le::persistence
             {
                 const std::string to_version(op.to_version);
                 const std::string extension(op.extension);
-                if (extension.empty())
-                {
-                    if (!version_newer(to_version, core_version))
-                        continue;
-                }
-                else
+                if (!migration_pending(file.schema, extension, to_version))
+                    continue;
+                if (!extension.empty())
                 {
                     auto in_file = std::ranges::find(file.schema.extensions, extension, &FileExtension::name);
-                    if (in_file == file.schema.extensions.end() || !version_newer(to_version, in_file->version))
-                        continue;
                     // Written against an older core than the file's: if core
                     // renamed anything in between, this migration's names
                     // are out of date for this file.
@@ -1044,7 +1050,9 @@ namespace le::persistence
         return report;
     }
 
-    FileInfo inspect_native(const std::string &path)
+    FileInfo inspect_native(const std::string &path) { return inspect_native(path, migrations::kMigrations); }
+
+    FileInfo inspect_native(const std::string &path, std::span<const migrations::Migration> plan)
     {
         FileInfo info;
         try
@@ -1064,12 +1072,36 @@ namespace le::persistence
             }
             for (const FileClass &klass : file.classes)
                 info.classes.emplace_back(klass.name, klass.rows);
+            for (const migrations::Migration &m : plan)
+                if (migration_pending(file.schema, std::string(m.extension), std::string(m.to_version)))
+                    info.migrations.push_back({std::string(m.extension), std::string(m.to_version), std::string(m.description), m.unsupported});
         }
         catch (const std::exception &e)
         {
             info.error = e.what();
         }
         return info;
+    }
+
+    MigrateReport migrate_native(const std::string &in, const std::string &out, const SaveOptions &options)
+    {
+        MigrateReport migrate;
+        Root root;
+        const LoadReport loaded = load_native(root, in);
+        if (!loaded.ok())
+        {
+            migrate.error = loaded.error;
+            return migrate;
+        }
+        migrate.from_schema_version = loaded.file_schema_version;
+        migrate.warnings = loaded.warnings;
+        SaveOptions save = options;
+        save.session_json = loaded.session_json; // its references are the loaded objects' ids, as a save expects
+        const SaveReport saved = save_native(root, out, save);
+        migrate.error = saved.error;
+        migrate.objects = saved.objects;
+        migrate.file_bytes = saved.file_bytes;
+        return migrate;
     }
 
     bool database_is_empty(const Root &root)

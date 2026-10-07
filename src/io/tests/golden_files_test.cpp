@@ -36,6 +36,9 @@ namespace le::persistence
 
         const fs::path kGoldenDir = fs::path(NATIVE_FORMAT_GOLDEN_DIR);
 
+        // complete.5.8.lef: RX's PITCH 1.8, at 20000 database units per micron.
+        constexpr int64_t kRxPitch = 36000;
+
         std::vector<uint8_t> read_bytes(const fs::path &path)
         {
             std::ifstream in(path, std::ios::binary);
@@ -46,7 +49,17 @@ namespace le::persistence
         {
             std::string name;
             std::function<void(Root &)> build;
+            /// Spot values the file must still hold after loading with this
+            /// build, whichever version wrote it.
+            std::function<void(const Root &)> check;
         };
+
+        /// The Schematic of Design `name`, or an invalid id.
+        SchematicId schematic_of(const Root &root, const std::string &name)
+        {
+            const DesignId design = root.get_design_by_name(name);
+            return design.valid() ? root.get_design_schematic(design) : SchematicId{};
+        }
 
         std::vector<Sample> samples()
         {
@@ -62,14 +75,78 @@ namespace le::persistence
                      for (const char *name : {"A", "B", "CHK3A"})
                          root.create_design(DesignData{.library = library, .name = name});
                      ASSERT_EQ(DEFReader().read_def(std::string(DEF_TEST_DIR) + "/complete.5.8.def", root, "def_lib"), 0);
+                 },
+                 [](const Root &root) {
+                     const LayerData *rx = root.get_layer(root.get_layer_by_name("RX"));
+                     ASSERT_NE(rx, nullptr);
+                     EXPECT_EQ(rx->type, "ROUTING");
+                     EXPECT_EQ(rx->pitch, kRxPitch);
+                     const DesignId design = root.get_design_by_name("design"); // the DEF's DESIGN
+                     ASSERT_TRUE(design.valid());
+                     const PlacementData *i1 = root.get_placement(root.get_placement_by_name(root.get_design_layout(design), "I1"));
+                     ASSERT_NE(i1, nullptr);
+                     EXPECT_EQ(root.get_design(i1->reference_design)->name, "B");
+                     // PLACED ( 100 100 ) at the DEF's 1000 units, rescaled to the LEF's 20000.
+                     ASSERT_TRUE(i1->location.has_value());
+                     EXPECT_EQ(i1->location->x, 2000);
+                     EXPECT_EQ(i1->location->y, 2000);
+                     EXPECT_EQ(i1->weight, 100.0);
                  }},
                 {"testcell",
                  [](Root &root) {
                      ASSERT_EQ(LEFReader().read_lef(std::string(API_TEST_FIXTURES_DIR) + "/testcell.lef", root, "testcell"), 0);
                      ASSERT_EQ(DEFReader().read_def(std::string(API_TEST_FIXTURES_DIR) + "/testcell.def", root, "testcell"), 0);
+                 },
+                 [](const Root &root) {
+                     const LayerData *m1 = root.get_layer(root.get_layer_by_name("M1"));
+                     ASSERT_NE(m1, nullptr);
+                     EXPECT_EQ(m1->width, 1000);
+                     EXPECT_EQ(m1->pitch, 2000);
+                     EXPECT_EQ(m1->direction, RoutingDirection::H);
+                     const AbstractId cell = root.get_design_abstract(root.get_design_by_name("TESTCELL"));
+                     ASSERT_TRUE(cell.valid());
+                     const std::optional<Point> size = root.get_abstract(cell)->size;
+                     ASSERT_TRUE(size.has_value());
+                     EXPECT_EQ(size->x, 10000);
+                     EXPECT_EQ(size->y, 10000);
+                     const TerminalData *a = root.get_terminal(root.get_terminal_by_name(cell, "A"));
+                     ASSERT_NE(a, nullptr);
+                     EXPECT_EQ(a->direction, SignalDirection::INPUT);
                  }},
                 {"netlist",
-                 [](Root &root) { ASSERT_EQ(SVReader().read_netlist({std::string(IO_TEST_FIXTURES_DIR) + "/gate_netlist_clean.v"}, root, "sv_lib"), 0); }},
+                 [](Root &root) { ASSERT_EQ(SVReader().read_netlist({std::string(IO_TEST_FIXTURES_DIR) + "/gate_netlist_clean.v"}, root, "sv_lib"), 0); },
+                 [](const Root &root) {
+                     const SchematicId top = schematic_of(root, "top");
+                     ASSERT_TRUE(top.valid());
+                     EXPECT_TRUE(root.get_net_by_name(top, "clk").valid());
+                     const InstanceData *and0 = root.get_instance(root.get_instance_by_name(top, "u_and0"));
+                     ASSERT_NE(and0, nullptr);
+                     EXPECT_EQ(root.get_design(and0->reference_design)->name, "AND2");
+                 }},
+                // read_rtl keeps what it can't elaborate as source text.
+                {"rtl",
+                 [](Root &root) {
+                     ASSERT_EQ(SVReader().read_rtl({std::string(IO_TEST_FIXTURES_DIR) + "/rtl_invalid_body.sv"}, root, "rtl_lib"), 0);
+                     // No machine's paths in a committed file.
+                     for (const InstanceId id : root.get_instance_ids())
+                         for (auto *text : {&root.get_instance(id)->source_file, &root.get_instance(id)->diagnostic_summary})
+                             if (text->has_value())
+                                 for (size_t at; (at = (*text)->find(IO_TEST_FIXTURES_DIR "/")) != std::string::npos;)
+                                     (*text)->erase(at, std::string_view(IO_TEST_FIXTURES_DIR "/").size());
+                 },
+                 [](const Root &root) {
+                     EXPECT_TRUE(root.get_port_by_name(schematic_of(root, "BUFX1"), "A").valid());
+                     const SchematicId spike = schematic_of(root, "spike_mixed");
+                     ASSERT_TRUE(spike.valid());
+                     bool kept_always_ff = false;
+                     for (const InstanceId id : root.get_schematic_instances(spike))
+                     {
+                         const InstanceData *instance = root.get_instance(id);
+                         if (instance->rtl_text && instance->rtl_text->find("always_ff") != std::string::npos)
+                             kept_always_ff = instance->diagnostic_summary.has_value();
+                     }
+                     EXPECT_TRUE(kept_always_ff);
+                 }},
             };
         }
 
@@ -84,6 +161,16 @@ namespace le::persistence
         }
 
         std::string file_name(const std::string &sample) { return sample + ".c" + std::to_string(kContainerVersion) + ".led"; }
+
+        /// The sample a golden file was written from (its name before ".c<container>.led").
+        const Sample *sample_named(const std::string &file)
+        {
+            static const std::vector<Sample> all = samples();
+            for (const Sample &sample : all)
+                if (file.starts_with(sample.name + ".c"))
+                    return &sample;
+            return nullptr;
+        }
     }
 
     TEST(GoldenFiles, DISABLED_WriteForCurrentSchemaVersion)
@@ -142,6 +229,9 @@ namespace le::persistence
                         EXPECT_EQ(counts.contains(klass) ? counts.at(klass) : 0u, rows.get<uint64_t>()) << klass;
                 }
 
+                if (const Sample *sample = sample_named(name))
+                    sample->check(root);
+
                 // A file of the current version and container re-saves
                 // byte-identically: the encoding hasn't drifted.
                 if (version == schema_info::kVersion && name.ends_with(".c" + std::to_string(kContainerVersion) + ".led"))
@@ -154,6 +244,6 @@ namespace le::persistence
                 }
             }
         }
-        EXPECT_GE(files, 3);
+        EXPECT_GE(files, 4);
     }
 }

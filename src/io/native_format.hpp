@@ -124,12 +124,42 @@ namespace le::persistence
             std::string built_schema_version; // this build's, or empty if it doesn't have the extension
         };
         std::vector<Extension> extensions;
+        /// The migrations loading the file runs, in order: core's past the
+        /// file's version, and each extension's past the file's version of it.
+        struct Migration
+        {
+            std::string extension; // "" for core
+            std::string to_version;
+            std::string description;
+            bool unsupported = false; // can't be applied yet, so the file can't be opened
+        };
+        std::vector<Migration> migrations;
         bool has_session = false;
         bool ok() const { return error.empty(); }
     };
 
     /// @brief Describe a file without loading it.
     FileInfo inspect_native(const std::string &path);
+
+    /// @brief inspect_native() against an explicit migration plan instead of
+    /// the schema's own (migrations::kMigrations) - for tests.
+    FileInfo inspect_native(const std::string &path, std::span<const migrations::Migration> plan);
+
+    struct MigrateReport
+    {
+        std::string error; // empty on success
+        std::string from_schema_version;
+        /// The load's report: migrations applied, anything dropped or defaulted.
+        std::vector<std::string> warnings;
+        uint64_t objects = 0;
+        uint64_t file_bytes = 0;
+        bool ok() const { return error.empty(); }
+    };
+
+    /// @brief Load `in` and save it as `out` with this build's schema,
+    /// keeping its session. `out` may be `in`: the save replaces it only
+    /// once complete.
+    MigrateReport migrate_native(const std::string &in, const std::string &out, const SaveOptions &options = {});
 
     /// @brief Whether `root` holds no objects at all.
     bool database_is_empty(const Root &root);

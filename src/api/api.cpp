@@ -3413,6 +3413,10 @@ extern "C"
             text += fmt::format("extension {} {} (schema {}): {}\n", ext.name, ext.package_version, ext.schema_version,
                                 ext.built_schema_version.empty() ? "not in this build - the file can't be opened here"
                                                                  : "this build has schema " + ext.built_schema_version);
+        text += info.migrations.empty() ? "migrations to run: none\n" : fmt::format("migrations to run: {}\n", info.migrations.size());
+        for (const auto &m : info.migrations)
+            text += fmt::format("  {} {}: {}{}\n", m.extension.empty() ? "core" : m.extension, m.to_version, m.description,
+                                m.unsupported ? " (can't be applied yet - the file can't be opened here)" : "");
         uint64_t total = 0;
         for (const auto &[name, rows] : info.classes)
         {
@@ -3420,6 +3424,28 @@ extern "C"
             total += rows;
         }
         text += fmt::format("objects: {}\nsession: {}", total, info.has_session ? "yes" : "no");
+        return text.c_str();
+    }
+
+    const char *le_migrate_db(const char *in_path, const char *out_path)
+    {
+        thread_local std::string text;
+        if (!in_path || !in_path[0] || !out_path || !out_path[0])
+        {
+            text = "error: an input and an output file path are required";
+            return text.c_str();
+        }
+        const le::persistence::MigrateReport report = le::persistence::migrate_native(in_path, out_path);
+        if (!report.ok())
+        {
+            text = "error: " + report.error;
+            return text.c_str();
+        }
+        text = fmt::format("migrated {} (schema {}) to {} (schema {}): {} objects, {} bytes", in_path, report.from_schema_version, out_path,
+                           le::schema_info::kVersion, report.objects, report.file_bytes);
+        for (const std::string &warning : report.warnings)
+            text += "\n" + warning;
+        spdlog::info("migrate_db: {}", text);
         return text.c_str();
     }
 

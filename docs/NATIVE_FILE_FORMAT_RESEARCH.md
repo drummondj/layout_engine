@@ -284,14 +284,14 @@ The check runs as part of `codegen --target database` (the `regen-database` flow
 
 ### 4.6 Data-level guarantee: the golden corpus
 
-Symbolic replay proves the chain produces the right *shape*. It can't prove the data survives, for example that a `LookupBy` actually finds the layers. So `src/io/tests/golden/<version>/` holds small but representative `.led` files written by each version. Today, version 0.50.0 has `lef_def` (the vendored `complete.5.8` LEF and DEF), `testcell` (a small LEF+DEF) and `netlist` (a gate-level Verilog netlist). Still to add: an RTL (`read_rtl`) sample, and an extension object once `hello_ext` exists.
+Symbolic replay proves the chain produces the right *shape*. It can't prove the data survives, for example that a `LookupBy` actually finds the layers. So `src/io/tests/golden/<version>/` holds small but representative `.led` files written by each version. Today, version 0.50.0 has `lef_def` (the vendored `complete.5.8` LEF and DEF), `testcell` (a small LEF+DEF), `netlist` (a gate-level Verilog netlist) and `rtl` (`read_rtl` of a module it can't elaborate, so its source text is kept). Extension objects have their own corpus in each extension (`hello_ext`'s `tests/golden/<version>/`).
 
-`GoldenFiles.EveryVersionsFilesStillLoad` (`src/io/tests/golden_files_test.cpp`) loads every file with the current build, which runs the full chain from that version. It checks that every class the build still has keeps its object count from `manifest.json`, and that a current-version file re-saves byte-identically, so the encoding can't drift silently. Spot-value checks are still to add. Adding a version's golden files is part of the schema-change commit (§4.1). As long as this test passes, "reads every older version" is being checked on every build, not just claimed.
+`GoldenFiles.EveryVersionsFilesStillLoad` (`src/io/tests/golden_files_test.cpp`) loads every file with the current build, which runs the full chain from that version. It checks that every class the build still has keeps its object count from `manifest.json`, that each sample's spot values (a layer's pitch, a placement's location and weight, a net and an instance by name, the kept RTL text) survive, and that a current-version file re-saves byte-identically, so the encoding can't drift silently. Adding a version's golden files is part of the schema-change commit (§4.1). As long as this test passes, "reads every older version" is being checked on every build, not just claimed.
 
 ### 4.7 Other uses of the same machinery
 
-- **`migrate_db old.led new.led`** (planned TCL command and command-line tool): an offline upgrade, useful for batch-converting archives. Until it exists, `read_db` then `write_db` does the same.
-- **`db_info <file>`**: lists the migrations that would run on a file, with their descriptions.
+- **`migrate_db old.led new.led`**: an offline upgrade (load with every migration it needs, save with this build's schema, keeping the session), useful for batch-converting archives; `le_shell script.tcl` runs it from the command line.
+- **`db_info <file>`**: lists the migrations that would run on a file, with their descriptions, from codegen's `migrations::kMigrations` (every migration of the merged plan, including those name matching handles alone), flagging any that can't be applied yet.
 - **Extensions:** each extension keeps its own `migrations/` directory and snapshot history, keyed to *its own* version. Its migrations are interleaved with the core chain (§4.8).
 - **Live migration after an extension upgrade:** dump the in-memory `Root` to a `DynamicDb`, run the extension's pending migrations, then re-materialize. This is the same code path, with no file involved.
 
@@ -457,12 +457,9 @@ Built:
 - **Developer:** `codegen --target makemigration --name <slug>` drafts the next migration file; `codegen --target checkmigrations` runs the symbolic replay (§4.5).
 - A successful `write_db` or `read_db` marks the database saved, so the GUI's exit dialog stops warning about unsaved changes.
 
-- `write_db -no_session` and `read_db -no_session`; `db_info` says whether a file has a session and lists its extensions.
+- `write_db -no_session` and `read_db -no_session`; `db_info` says whether a file has a session and lists its extensions and the migrations loading it would run. The package manager's `le check` reads it (PACKAGE_MANAGER_RESEARCH.md §8).
+- **Offline upgrade:** `migrate_db <in.led> <out.led>` (`le_migrate_db`, `persistence::migrate_native`).
 - **GUI:** File → Open / Save / Save As in the menu bar (queued `read_db`/`write_db` commands, so they're in the console history; Open only while the session is empty). The exit dialog offers "Save design" once the design has a file, and "Save design as...". A Save over an existing file asks first unless the `confirm_overwrite` setting (`set_confirm_overwrite`, the Settings panel) is off; Save As's system dialog asks itself, following the same setting.
-
-Planned:
-- `db_info` also lists the migrations that would run on a file. Useful for support, and the package manager reads the extensions list (PACKAGE_MANAGER_RESEARCH.md §8).
-- **Offline upgrade:** `migrate_db <in.led> <out.led>`.
 
 ---
 

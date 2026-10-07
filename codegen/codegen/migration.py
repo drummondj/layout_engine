@@ -618,15 +618,15 @@ def check_extension_migrations(
     return errors
 
 
-def merged_runtime_table(
+def merged_plan(
     core_migrations: List[Migration], core_version: str, extension_chains: List[Tuple[str, List[Migration]]]
-) -> List[Tuple[str, str, str, str, str, str, str, str]]:
+) -> List[Tuple[Migration, str]]:
     """
-    (to_version, kind, class, old, new, description, extension, depends_on_core)
-    for every op with a runtime effect, in merged-plan order: core migrations
-    in order, each extension migration right after the core migration that
-    reached its depends_on_core (before the next one), extensions tied at the
-    same point in name order. Core rows have an empty extension.
+    (migration, extension) for every migration in merged-plan order: core
+    migrations in order, each extension migration right after the core
+    migration that reached its depends_on_core (before the next one),
+    extensions tied at the same point in name order. Core migrations have an
+    empty extension.
     """
     core_versions = [core_migrations[0].from_version] if core_migrations else [core_version]
     core_versions += [m.to_version for m in core_migrations]
@@ -644,9 +644,19 @@ def merged_runtime_table(
         for index, migration in enumerate(migrations):
             keyed.append(((position(migration.depends_on_core), 1, name, index), migration, name))
     keyed.sort(key=lambda entry: entry[0])
+    return [(migration, extension) for _, migration, extension in keyed]
 
+
+def merged_runtime_table(
+    core_migrations: List[Migration], core_version: str, extension_chains: List[Tuple[str, List[Migration]]]
+) -> List[Tuple[str, str, str, str, str, str, str, str]]:
+    """
+    (to_version, kind, class, old, new, description, extension, depends_on_core)
+    for every op with a runtime effect, in merged-plan order (merged_plan).
+    Core rows have an empty extension.
+    """
     table = []
-    for _, migration, extension in keyed:
+    for migration, extension in merged_plan(core_migrations, core_version, extension_chains):
         for op in migration.ops:
             for kind, klass, old, new in op.runtime_entries():
                 table.append((migration.to_version, kind, klass, old, new, migration.description, extension, migration.depends_on_core or ""))

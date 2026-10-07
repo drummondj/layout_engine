@@ -313,6 +313,8 @@ class TestExtensionMigrations(unittest.TestCase):
         early = [m.Migration("0.1.0", "0.2.0", "early", [m.RenameClass("EarlyX", "EarlyY")], extension="early", depends_on_core="1.0.0")]
         table = m.merged_runtime_table(core, "1.2.0", [("acme", acme), ("early", early)])
         self.assertEqual([(row[5], row[6]) for row in table], [("early", "early"), ("core one", ""), ("acme", "acme"), ("core two", "")])
+        plan = m.merged_plan(core, "1.2.0", [("acme", acme), ("early", early)])
+        self.assertEqual([(mig.description, ext) for mig, ext in plan], [("early", "early"), ("core one", ""), ("acme", "acme"), ("core two", "")])
 
 
 class TestExtensionOwnedShapes(unittest.TestCase):
