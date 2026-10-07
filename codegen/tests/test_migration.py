@@ -195,6 +195,10 @@ class TestGeneratorIntegration(unittest.TestCase):
             self.assertEqual(generator.generate(v12, str(out), logger, history_dir=str(history)), 0)
             header = (out / "migrations.hpp").read_text()
             self.assertIn('Op{ "1.2.0", OpKind::RenameField, "Net", "width", "span", "width renamed", "", "" }', header)
+            # Every migration is listed for db_info, additive ones too, though only the rename has an op.
+            self.assertIn("std::array<Migration, 2>", header)
+            self.assertIn('Migration{ "1.1.0", "add width", "", false }', header)
+            self.assertIn('Migration{ "1.2.0", "width renamed", "", false }', header)
 
 
 if __name__ == "__main__":

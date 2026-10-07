@@ -112,7 +112,9 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
     `native_tables.hpp`; loads older schema versions by name plus the
     migration chain. An optional `SESS` chunk keeps the session (open
     view, viewport, current objects, layer/purpose/filter visibility;
-    `write_db -no_session` skips it). Design in
+    `write_db -no_session` skips it). `db_info` describes a file without
+    loading it, including the migrations it needs (`kMigrations`);
+    `migrate_db` rewrites one with the current schema. Design in
     `docs/NATIVE_FILE_FORMAT_RESEARCH.md`.
 - `src/editing/` — undo/redo: `CommandHistory` (one per handle),
   `Transaction`, `ICommand`. Every generated create/update/delete records

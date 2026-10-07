@@ -381,10 +381,18 @@ extern "C"
     int32_t le_database_is_empty(LeHandle *handle);
 
     /// @brief A human-readable description of a native database file
-    /// (schema version, whether this build's schema matches, per-class
-    /// object counts) without loading it - or an "error: ..." line. The
+    /// (schema version, whether this build's schema matches, its
+    /// extensions, the migrations loading it runs, per-class object counts)
+    /// without loading it - or an "error: ..." line. The
     /// returned string is valid until the next call on this thread.
     const char *le_db_info(const char *path);
+
+    /// @brief Rewrites a native database file with this build's schema,
+    /// running the migrations it needs and keeping its session, without
+    /// touching any session's database. `out_path` may equal `in_path`.
+    /// Returns a summary (the migrations applied, anything dropped), or
+    /// text starting "error: " - valid until the next call on this thread.
+    const char *le_migrate_db(const char *in_path, const char *out_path);
 
     /// @brief Number of Designs currently loaded across every LEF file
     /// read into this handle so far. 0 if handle is null.

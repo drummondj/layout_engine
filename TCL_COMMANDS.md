@@ -917,7 +917,7 @@ Returns the current Technology (empty if none is set); with <id>, selects it fir
 
 `db_info <filename> [-help]`
 
-Returns a description of a database file written by write_db: its schema version, whether it matches this build's schema, and how many objects of each class it holds.
+Returns a description of a database file written by write_db: its schema version, whether it matches this build's schema, the extensions whose objects it holds, the migrations loading it would run, and how many objects of each class it holds.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2245,6 +2245,17 @@ Loads settings written by save_settings from <path>, or ~/.layout_engine/setting
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<path>` | `file` | no | JSON file to read - ~/.layout_engine/settings.json if omitted |
+
+## migrate_db
+
+`migrate_db <in> <out> [-help]`
+
+Loads a database file written by any earlier version, runs the migrations it needs (db_info lists them) and writes it to <out> with this build's schema, keeping its saved session. The current session's database is not touched. <out> may be <in>: it is replaced only once the new file is complete. Returns a summary, including anything the migration dropped.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<in>` | `file` | yes | .led file to read |
+| `<out>` | `file` | yes | .led file to write |
 
 ## open_design
 

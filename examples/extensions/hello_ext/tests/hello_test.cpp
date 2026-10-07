@@ -174,6 +174,26 @@ TEST(HelloExt, EverySchemaVersionsGoldenFileStillLoads)
     EXPECT_GE(loaded, 1);
 }
 
+// db_info lists the extension migrations an older file needs; migrate_db
+// runs them and leaves none.
+TEST(HelloExt, AnOlderFileListsItsMigrationsAndMigrateDbRunsThem)
+{
+    const std::filesystem::path oldest = kGoldenDir / "0.1.0" / "notes.led";
+    const std::string info = le_db_info(oldest.c_str());
+    EXPECT_NE(info.find("hello_ext 0.2.0: HelloNote.text renamed to body"), std::string::npos) << info;
+    EXPECT_NE(info.find("hello_ext 0.4.0: HelloPin added, owning Shapes"), std::string::npos) << info;
+
+    const std::string path = (std::filesystem::temp_directory_path() / "hello_ext_migrated.led").string();
+    const std::string summary = le_migrate_db(oldest.c_str(), path.c_str());
+    EXPECT_NE(summary.find("applied hello_ext migration to 0.2.0"), std::string::npos) << summary;
+    EXPECT_NE(std::string(le_db_info(path.c_str())).find("migrations to run: none"), std::string::npos);
+    Session session;
+    ASSERT_EQ(le_read_db(session.handle, path.c_str(), 1), 0);
+    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    EXPECT_EQ(hello::notes_on(ctx, "lib1"), (std::vector<std::string>{"route the clock first", "then the resets"}));
+    std::filesystem::remove(path);
+}
+
 // Run once per new schema version (--gtest_also_run_disabled_tests
 // --gtest_filter='*WriteGolden*'), then commit the file.
 TEST(HelloExt, DISABLED_WriteGoldenFileForThisSchemaVersion)

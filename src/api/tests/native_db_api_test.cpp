@@ -99,9 +99,29 @@ TEST_F(NativeDbApi, DbInfoDescribesTheFile)
     EXPECT_NE(info.find("same schema"), std::string::npos) << info;
     EXPECT_NE(info.find("Technology"), std::string::npos) << info;
     EXPECT_NE(info.find("Layout"), std::string::npos) << info;
+    EXPECT_NE(info.find("migrations to run: none"), std::string::npos) << info;
 
     const std::string missing = le_db_info((dir / "absent.led").string().c_str());
     EXPECT_EQ(missing.rfind("error: ", 0), 0u) << missing;
+}
+
+// migrate_db rewrites a file without touching any session's database.
+TEST_F(NativeDbApi, MigrateDbRewritesAFile)
+{
+    ASSERT_EQ(le_write_db(source, path.c_str(), 1), 0);
+    const std::string out = (dir / "migrated.led").string();
+    const std::string summary = le_migrate_db(path.c_str(), out.c_str());
+    EXPECT_EQ(summary.rfind("migrated " + path, 0), 0u) << summary;
+    EXPECT_NE(std::string(le_db_info(out.c_str())).find("session: yes"), std::string::npos);
+
+    LeHandle *loaded = le_create();
+    EXPECT_EQ(le_read_db(loaded, out.c_str(), 1), 0);
+    EXPECT_EQ(le_design_count(loaded), le_design_count(source));
+    le_destroy(loaded);
+
+    EXPECT_EQ(std::string(le_migrate_db((dir / "absent.led").string().c_str(), out.c_str())).rfind("error: ", 0), 0u);
+    EXPECT_EQ(std::string(le_migrate_db(path.c_str(), "")).rfind("error: ", 0), 0u);
+    EXPECT_EQ(std::string(le_migrate_db(nullptr, out.c_str())).rfind("error: ", 0), 0u);
 }
 
 // The session saved beside the database: the open view, viewport, current

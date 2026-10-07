@@ -237,11 +237,12 @@ int write_lef_cmd(const char *path, const char *abstract_tokens, const char *lib
 int write_def_cmd(const char *path, const char *layout_token);
 
 /// @brief Backing for the native database file commands write_db/read_db/
-/// db_info (docs/NATIVE_FILE_FORMAT_RESEARCH.md) - thin wrappers over
-/// le_write_db/le_read_db/le_db_info.
+/// db_info/migrate_db (docs/NATIVE_FILE_FORMAT_RESEARCH.md) - thin
+/// wrappers over le_write_db/le_read_db/le_db_info/le_migrate_db.
 int write_db_cmd(const char *path, int with_session);
 int read_db_cmd(const char *path, int with_session);
 const char *db_info_cmd(const char *path);
+const char *migrate_db_cmd(const char *in_path, const char *out_path);
 
 /// @brief Backing for `get_selection` -
 /// le_selection_count(session()) directly, no extra logic needed.

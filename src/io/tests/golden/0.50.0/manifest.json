@@ -56,6 +56,14 @@
     "PortBus": 2,
     "Schematic": 3
   },
+  "rtl.c1.led": {
+    "Design": 2,
+    "Instance": 3,
+    "Library": 1,
+    "Net": 4,
+    "Port": 4,
+    "Schematic": 2
+  },
   "testcell.c1.led": {
     "Abstract": 1,
     "Design": 1,

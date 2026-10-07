@@ -310,8 +310,17 @@ def generate(
             core.core_migrations, schema.version, extension_chains
         )
     ]
+    migrations = [
+        {
+            "to_version": cpp(migration.to_version),
+            "description": cpp(migration.description),
+            "extension": cpp(extension),
+            "unsupported": "true" if any(entry[0] == schema_migration.RUNTIME_UNSUPPORTED for op in migration.ops for entry in op.runtime_entries()) else "false",
+        }
+        for migration, extension in schema_migration.merged_plan(core.core_migrations, schema.version, extension_chains)
+    ]
     with open(f"{output_dir}/migrations.hpp", "w") as f:
-        f.write(jinja2.Template(migrations_hpp_j2.TEMPLATE).render(schema=schema, ops=ops))
+        f.write(jinja2.Template(migrations_hpp_j2.TEMPLATE).render(schema=schema, ops=ops, migrations=migrations))
 
     # cmakelists_file = f"{output_dir}/CMakeLists.txt"
     # with open(cmakelists_file, "w") as f:
