@@ -13,8 +13,8 @@ extension objects.
 Extensions are added to Layout Engine with a **superbuild**: your own
 repository, with Layout Engine as a git submodule and your extensions
 beside it (below). The `le` package manager (`tools/le/README.md`)
-generates the same superbuild for a project, adding signed GitHub sources
-and a lock file.
+generates the same superbuild for a project ([an `le`
+project](#or-an-le-project)), adding signed GitHub sources and a lock file.
 
 ## Two kinds of extension
 
@@ -82,6 +82,31 @@ Without a repository of your own, configuring Layout Engine directly does
 the same: `cmake -S layout_engine -B build -DLE_EXTENSION_DIRS="/path/to/acme_router;/path/to/acme_drc"`
 (`le_shell` is then in `build/`).
 
+## Or: an `le` project
+
+The `le` package manager (`layout_engine/tools/le/bin/le`, or `le` in a
+release bundle) writes and builds the superbuild for you. A project is a
+directory holding `le_project.toml`:
+
+```
+my_chip/
+  le_project.toml    what you want: Layout Engine (release range, tag, or local checkout) and your extensions
+  le_project.lock    what was installed: exact commits and signing keys (written by le; commit it)
+  .le/               le's work area: fetched sources, the generated superbuild, the build, the bundle
+```
+
+```
+le init --layout-engine-path ../layout_engine    # or omit it for a signed release
+le add acme_router --path ext/acme_router         # or --github acme/acme_router --version ">=1.4, <2" --publisher acme
+le test acme_router
+le shell
+```
+
+Use it when extensions come from other publishers' GitHub repositories
+(signed tags, checked against keys you trust), to pin everyone to the same
+versions with the lock, or to run script-only extensions on a prebuilt
+release with no compiler. Full reference: `tools/le/README.md`.
+
 ## Writing one: quick start
 
 1. Create it: `layout_engine/tools/le/bin/le new-extension my_ext
@@ -92,8 +117,8 @@ the same: `cmake -S layout_engine -B build -DLE_EXTENSION_DIRS="/path/to/acme_ro
    name doesn't matter; the manifest's `name` does.
 2. Add its directory to `LE_EXTENSION_DIRS`, then build and run its tests:
    `cmake --build build --target my_ext_test_deps && ctest --test-dir build
-   -R "^my_ext\."`. In an `le` project: `le add my_ext --path ext/my_ext`,
-   then `le test my_ext` and `le shell`.
+   -R "^my_ext\."`. In an [`le` project](#or-an-le-project): `le add my_ext
+   --path ext/my_ext`, then `le test my_ext` and `le shell`.
 
 ## Directory layout
 
