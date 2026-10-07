@@ -1,5 +1,6 @@
 # A minimal script extension: Tcl procs only, so it needs no compiler and
-# installs into a prebuilt release. The in-tree example CI builds and tests.
+# installs into a prebuilt release. The in-tree example CI builds and tests;
+# `le new-extension --script` copies it (renamed, without this comment).
 [extension]
 name = "hello_script"
 version = "0.1.0"

@@ -1,5 +1,6 @@
 # A minimal compiled extension: the in-tree example CI builds, so a change
 # that breaks the extension SDK fails here before it reaches anyone else.
+# `le new-extension` copies it (renamed, without this comment).
 [extension]
 name = "hello_ext"
 version = "0.1.0"

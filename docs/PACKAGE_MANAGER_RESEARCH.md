@@ -271,7 +271,7 @@ Extension-mechanism phases are in EXTENSION_MECHANISM_RESEARCH.md §10. Package-
 |---|---|---|
 | 1 ✅ | `le` skeleton: `init`/`add`/`remove`/`install`/`shell`/`list` (and `update`); GitHub (tag/rev) and path sources; signed-tag verification and `trust`; lock file; compiled-tier superbuild; CMake `install` target with `extensions.json` | Projects with compiled extensions |
 | 2 ✅ | Tagged, published, signed releases; `-extensions` flag; script tier on release bundles; `version` ranges against tags; `update` with the downgrade rule; `le` as a PyInstaller binary in the bundle | Projects with no compiler |
-| 3 | `new-extension`, `test`, `makemigration`; `check <file.led>` (needs SCHM `"extensions"`, native-format phase 5) | Extension authoring and file checks |
+| 3 ✅ | `new-extension`, `test`, `makemigration`; `check <file.led>` (needs SCHM `"extensions"`, native-format phase 5) | Extension authoring and file checks |
 | later | Package index (a signed git repo of TOML entries, so it can be private), other git hosts, `--container` builds, `doctor` | Discovery; servers without a toolchain |
 
 Each phase is tested against `hello_ext` and `hello_script`: install from a path and from a signed-tag repo, refuse an unsigned or wrongly signed tag, rebuild after an edit, and refuse an incompatible range.

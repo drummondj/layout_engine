@@ -1,4 +1,5 @@
-"""The `le` command line: init, add, remove, trust, install, update, list, shell."""
+"""The `le` command line: init, add, remove, trust, install, update, list, shell, and the authoring
+commands new-extension, test, makemigration and check."""
 
 import argparse
 import os
@@ -6,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from le import build, install as installer, lock as lockfile, project as projectfile, releases, sources
+from le import authoring, build, install as installer, lock as lockfile, project as projectfile, releases, sources
 
 
 class CliError(Exception):
@@ -138,12 +139,39 @@ def _describe(locked: lockfile.LockedSource) -> str:
 
 def cmd_shell(args) -> int:
     root = find_root(Path.cwd())
+    command = _installed_shell(root)
+    os.execv(command[0], [*command, *args.args])
+    return 0  # not reached
+
+
+def _installed_shell(root: Path) -> List[str]:
     command = installer.shell_command(root)
     if command is None:
         _install(root, None, False)
         command = installer.shell_command(root)
-    os.execv(command[0], [*command, *args.args])
-    return 0  # not reached
+    return command
+
+
+def cmd_new_extension(args) -> int:
+    directory = authoring.new_extension(args.name, Path(args.directory or args.name).resolve(), args.script, args.prefix, args.description)
+    print(f"le: created {directory}")
+    print(f"le: next, in a project: `le add {args.name} --path {args.directory or args.name}`, then `le test {args.name}`")
+    return 0
+
+
+def cmd_test(args) -> int:
+    root = find_root(Path.cwd())
+    return authoring.run_tests(root, args.names, _installed_shell(root))
+
+
+def cmd_makemigration(args) -> int:
+    root = find_root(Path.cwd())
+    return authoring.make_migration(root, args.extension, args.name, args.non_interactive)
+
+
+def cmd_check(args) -> int:
+    root = find_root(Path.cwd())
+    return authoring.check(_installed_shell(root), Path(args.file))
 
 
 def parser() -> argparse.ArgumentParser:
@@ -195,6 +223,28 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("shell", help="run the project's le_shell (installing first if needed)")
     s.add_argument("args", nargs=argparse.REMAINDER)
     s.set_defaults(func=cmd_shell)
+
+    s = sub.add_parser("new-extension", help="create an extension directory from the examples")
+    s.add_argument("name", help="snake_case, e.g. acme_router")
+    s.add_argument("--script", action="store_true", help="Tcl procs only (no compiler needed), from hello_script; default: compiled, from hello_ext")
+    s.add_argument("--prefix", help="PascalCase prefix for its classes and purposes (default: from the name, e.g. AcmeRouter)")
+    s.add_argument("--description", help="the manifest's description")
+    s.add_argument("--directory", help="where to create it (default: ./<name>)")
+    s.set_defaults(func=cmd_new_extension)
+
+    s = sub.add_parser("test", help="build and run extensions' tests (all if none named)")
+    s.add_argument("names", nargs="*")
+    s.set_defaults(func=cmd_test)
+
+    s = sub.add_parser("makemigration", help="draft a path extension's next schema migration")
+    s.add_argument("extension")
+    s.add_argument("--name", required=True, help="what changed, e.g. note_text_to_body")
+    s.add_argument("--non-interactive", action="store_true", help="leave possible renames as TODOs instead of asking")
+    s.set_defaults(func=cmd_makemigration)
+
+    s = sub.add_parser("check", help="whether a .led file's extensions load in this project")
+    s.add_argument("file")
+    s.set_defaults(func=cmd_check)
     return p
 
 
@@ -210,6 +260,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         installer.InstallError,
         build.BuildError,
         releases.ReleaseError,
+        authoring.AuthoringError,
+        authoring.extension_manifest.ManifestError,
     ) as e:
         print(f"le: error: {e}", file=sys.stderr)
         return 1

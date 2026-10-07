@@ -3,7 +3,7 @@
 from codegen.schema import Field, Klass, Purpose, Render
 
 # The schema's own version: bump it with any change below, and add a
-# migration (codegen --target makemigration --extension ...).
+# migration (`le makemigration hello_ext --name what_changed`).
 VERSION = "0.4.0"
 
 

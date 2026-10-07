@@ -159,6 +159,8 @@ TEST(HelloExt, NotesRoundTripThroughANativeFile)
 
 TEST(HelloExt, EverySchemaVersionsGoldenFileStillLoads)
 {
+    if (!std::filesystem::exists(kGoldenDir))
+        GTEST_SKIP() << "no golden files yet - write the first with --gtest_also_run_disabled_tests --gtest_filter='*WriteGolden*'";
     int loaded = 0;
     for (const auto &version : std::filesystem::directory_iterator(kGoldenDir))
     {
@@ -179,7 +181,7 @@ TEST(HelloExt, DISABLED_WriteGoldenFileForThisSchemaVersion)
     Session session;
     add_two_notes(session.handle);
     add_marker(session.handle);
-    // And a HelloPin (schema 0.4.0) owning a shape, in a layout of its own.
+    // And a HelloPin owning a shape, in a layout of its own.
     const LeLayoutId pins = le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "pins"), "top"));
     const double rect[] = {1.0, 1.0, 2.0, 2.0};
     le_create_shape(session.handle, le_shape_owner_hello_pin(le_create_hello_pin(session.handle, pins)), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1,

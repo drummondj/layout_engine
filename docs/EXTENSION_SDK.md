@@ -29,10 +29,14 @@ together with Layout Engine.
 
 ## Quick start
 
-1. Copy `examples/extensions/hello_script` (or `hello_ext`) into your own
-   repository and rename it. The directory name doesn't matter; the
-   manifest's `name` does.
-2. Build Layout Engine with it. Paths are absolute, or relative to the
+1. Create it: `le new-extension my_ext` copies `hello_ext` (or, with
+   `--script`, `hello_script`) into `./my_ext`, renamed: the name, the
+   prefix (`--prefix`, default `MyExt`) and every class, purpose, function
+   and Tcl command derived from them. It starts at schema `0.1.0` with no
+   history. The directory name doesn't matter; the manifest's `name` does.
+2. In a project (`tools/le/README.md`): `le add my_ext --path ../my_ext`,
+   then `le shell`, and `le test my_ext` for its tests. Or build Layout
+   Engine with it yourself. Paths are absolute, or relative to the
    Layout Engine source tree; separate several with `;` and quote them:
 
    ```
@@ -287,7 +291,9 @@ def extend(schema):
       --extension /path/to/my_ext --target makemigration --migrate-extension my_ext --name what_changed
   ```
 
-  It diffs your newest snapshot against `schema_ext.py`, asks about
+  or, in a project with your extension as a path source, `le makemigration
+  my_ext --name what_changed`. It diffs your newest snapshot against
+  `schema_ext.py`, asks about
   renames, and writes `migrations/NNNN_what_changed.py`, recording the
   core schema version it was written against (`depends_on_core`). Review
   it, then build. The rules:
@@ -517,6 +523,13 @@ was used.
       error "expected no things, got [my_ext_thing_count]"
   }
   ```
+- In a project, `le test [name...]` builds what the named extensions'
+  tests need (the `<name>_test_deps` target) and runs `ctest -R
+  "^<name>\."`. A project on a release bundle runs each `tcl_tests` script
+  through the release's `le_shell`.
+- **Golden files:** a new extension has none, so its golden test skips
+  until you write the first (see `hello_ext`'s
+  `DISABLED_WriteGoldenFileForThisSchemaVersion`).
 
 ## What's public
 
