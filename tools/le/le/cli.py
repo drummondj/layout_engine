@@ -155,7 +155,15 @@ def _installed_shell(root: Path) -> List[str]:
 def cmd_new_extension(args) -> int:
     directory = authoring.new_extension(args.name, Path(args.directory or args.name).resolve(), args.script, args.prefix, args.description)
     print(f"le: created {directory}")
-    print(f"le: next, in a project: `le add {args.name} --path {args.directory or args.name}`, then `le test {args.name}`")
+    try:
+        root = find_root(Path.cwd())
+    except CliError:
+        root = None
+    if root is not None:
+        print(f"le: next: `le add {args.name} --path {os.path.relpath(directory, root)}` (in {root}), then `le test {args.name}`")
+    else:
+        print(f"le: next, either add {directory} to your superbuild's LE_EXTENSION_DIRS (docs/EXTENSION_SDK.md), or make this an le project:")
+        print(f"le:   `le init --layout-engine-path <layout_engine checkout>`, then `le add {args.name} --path {os.path.relpath(directory)}`")
     return 0
 
 
