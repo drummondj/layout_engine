@@ -1073,6 +1073,10 @@ if(SWIG_FOUND AND TCL_FOUND)
         file(GLOB_RECURSE le_python_sources CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/le/*.py
             ${CMAKE_CURRENT_SOURCE_DIR}/codegen/codegen/extension_manifest.py)
+        # `le new-extension` copies these examples.
+        file(GLOB_RECURSE le_templates CONFIGURE_DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/examples/extensions/hello_ext/*
+            ${CMAKE_CURRENT_SOURCE_DIR}/examples/extensions/hello_script/*)
         add_custom_command(
             OUTPUT ${le_binary_dir}/dist/le
             COMMAND ${Python3_EXECUTABLE} -m PyInstaller --onefile --name le --noconfirm --log-level WARN
@@ -1080,8 +1084,10 @@ if(SWIG_FOUND AND TCL_FOUND)
                 --paths ${CMAKE_CURRENT_SOURCE_DIR}/tools/le --paths ${CMAKE_CURRENT_SOURCE_DIR}/codegen
                 --add-data ${CMAKE_CURRENT_SOURCE_DIR}/assets/keys/allowed_signers:keys
                 --add-data ${le_binary_dir}/le_version.txt:.
+                --add-data ${CMAKE_CURRENT_SOURCE_DIR}/examples/extensions/hello_ext:templates/hello_ext
+                --add-data ${CMAKE_CURRENT_SOURCE_DIR}/examples/extensions/hello_script:templates/hello_script
                 ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/bin/le
-            DEPENDS ${le_python_sources} ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/bin/le
+            DEPENDS ${le_python_sources} ${le_templates} ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/bin/le
                 ${CMAKE_CURRENT_SOURCE_DIR}/assets/keys/allowed_signers ${le_binary_dir}/le_version.txt
             COMMENT "Freezing le with PyInstaller"
             VERBATIM)

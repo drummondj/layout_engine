@@ -44,6 +44,15 @@ le shell                               # builds if needed, then runs le_shell
 | `le update [name...]` | Resolves the named entries again (all if none), ignoring the lock, then installs. |
 | `le list` | What's installed: versions, sources, commits, signers, release or source build. |
 | `le shell [args...]` | Runs Layout Engine's `le_shell` with the project's extensions, reinstalling first if anything changed (including files in a `--path` extension). |
+| `le check <file.led>` | Whether a `.led` file loads in this project: for Layout Engine and each extension the file holds objects of, `matches`, `will migrate`, `missing` (with the `le add` line) or `too new`. Exits 1 if it can't load. |
+
+Writing extensions:
+
+| Command | What it does |
+|---|---|
+| `le new-extension <name> [--script] [--prefix P] [--description D] [--directory DIR]` | Creates an extension from `hello_ext` (compiled) or `hello_script` (`--script`), renamed throughout, at schema 0.1.0 with no history. Needs no project. |
+| `le test [name...]` | Builds and runs the named extensions' tests (all if none) in the project build; on a release bundle, runs their `tcl_tests` through its `le_shell`. |
+| `le makemigration <name> --name <slug> [--non-interactive]` | Drafts a path extension's next schema migration with codegen, against the project's Layout Engine source. Bump `VERSION` in `schema_ext.py` first; it doesn't rebuild, since the new version doesn't build until its migration exists. |
 
 A tag must match the version in its `le_extension.toml`. `install` and
 `update` refuse to move anything to a lower version than the lock has
