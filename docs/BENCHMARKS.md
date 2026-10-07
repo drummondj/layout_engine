@@ -1781,3 +1781,23 @@ and one `resolver_profile 4x4 5` each:
 Within noise: the resolver's timings are bimodal on this machine (2026-10-05
 entry), and the stddevs are larger than the differences. With a renderable
 class, its chunk costs what its objects' shapes cost, like the PORTS chunk.
+
+## 2026-10-07 — Tiled renderable classes (#78)
+
+A renderable class with `tiled=True` gets spatial tiles after the placement
+tiles instead of a fixed chunk; `collect_dirty` records touched objects for
+`retile`. Without extensions every added loop is over an empty list. Release,
+same machine; "before" is the previous entry's "after":
+
+| | before | after |
+|---|---|---|
+| BM_HierarchyResolver/2x2 | 548 (sd 104) | 539 (sd 107) |
+| BM_HierarchyResolver/3x3 | 1341 (sd 215) | 1264 (sd 213) |
+| resolve_total_ms (4x4) | 2218 | 2111 |
+| resolve.layout.routes_ms | 1256 | 1238 |
+| edit.route_shape.resolve_ms | 10.09 | 9.87 |
+| edit.placement_move.resolve_ms | 1.58 | 1.60 |
+| rss_peak_mb | 3746 | 3802 |
+
+Within noise. hello_ext's `TiledPinsDrawSelectAndMoveBetweenTiles` (6001
+pins, four tiles) checks that a move between tiles updates incrementally.

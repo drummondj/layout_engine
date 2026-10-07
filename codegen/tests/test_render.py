@@ -113,6 +113,15 @@ class TestRenderableClasses(unittest.TestCase):
         self.assertIn("return root.get_marker_shapes(id);", text)
         self.assertIn("return object ? object->layout : LayoutId{};", text)
         self.assertIn("inline constexpr std::size_t kCount = 1;", text)
+        self.assertIn("static constexpr bool tiled = false;", text)
+
+    def test_tiled_is_passed_through(self):
+        schema = self.schema(self.fields())
+        schema.get_klass("Marker").render.tiled = True
+        schema.purposes.append(schema.get_klass("Marker").render.purpose)
+        with tempfile.TemporaryDirectory() as out:
+            self.assertEqual(generate(schema, out, logging.getLogger("test")), 0)
+            self.assertIn("static constexpr bool tiled = true;", (Path(out) / "renderable_classes.hpp").read_text())
 
     def test_a_renderable_class_needs_a_layout_parent_and_owned_shapes(self):
         from codegen.render_generator import renderables

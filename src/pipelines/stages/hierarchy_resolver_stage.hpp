@@ -279,7 +279,21 @@ namespace le
     inline constexpr std::size_t kCoreLayoutChunkCount = 4;
     inline constexpr std::size_t kFixedLayoutChunkCount = kCoreLayoutChunkCount + renderable::kCount;
 
-    /// @brief The fixed chunk holding renderable class R's objects.
+    /// @brief A renderable class's object id, whichever class (its R::Id's
+    /// index and generation) - so one tiling type serves every class.
+    struct RenderableObjectId
+    {
+        std::uint32_t index = 0;
+        std::uint32_t generation = 0;
+        bool operator==(const RenderableObjectId &) const = default;
+    };
+    struct RenderableObjectIdHash
+    {
+        std::size_t operator()(const RenderableObjectId &id) const noexcept { return (std::size_t{id.generation} << 32) ^ id.index; }
+    };
+
+    /// @brief The fixed chunk holding renderable class R's objects (empty
+    /// for a tiled class, whose objects are in its own tiles).
     template <class R>
     constexpr LayoutChunk renderable_chunk() { return static_cast<LayoutChunk>(kCoreLayoutChunkCount + R::index); }
 
@@ -717,6 +731,7 @@ namespace le
         // per frame (one per-layer lookup each) and per resolve.
         static constexpr std::size_t kRoutesPerTile = 2000;
         static constexpr std::size_t kPlacementsPerTile = 2000;
+        static constexpr std::size_t kRenderablesPerTile = 2000;
         static constexpr std::size_t kMaxTilesPerSide = 64;
 
         // An n x n grid over `bounds`; points outside land in edge tiles.
@@ -784,14 +799,37 @@ namespace le
             }
         };
 
+        // A Layout's tiles: route tiles, then placement tiles, then each
+        // tiled renderable class's (an untiled class has a 0-tile grid).
         struct LayoutTiling
         {
             TileMembership<RouteId> routes;
             TileMembership<PlacementId> placements;
+            std::array<TileMembership<RenderableObjectId>, renderable::kCount> renderables;
 
             std::size_t route_chunk(std::size_t tile) const { return kFixedLayoutChunkCount + tile; }
             std::size_t placement_chunk(std::size_t tile) const { return kFixedLayoutChunkCount + routes.grid.count() + tile; }
+            std::size_t renderable_chunk(std::size_t r, std::size_t tile) const
+            {
+                std::size_t chunk = placement_chunk(0) + placements.grid.count();
+                for (std::size_t i = 0; i < r; ++i)
+                    chunk += renderables[i].grid.count();
+                return chunk + tile;
+            }
+            std::size_t chunk_count() const { return renderable_chunk(renderable::kCount, 0); }
         };
+
+        // A renderable object's tile anchor: the center of its first shape
+        // with geometry, as for a route.
+        template <class R>
+        static std::optional<Point> renderable_anchor(const Root &root, RenderableObjectId id)
+        {
+            for (const ShapeId shape_id : R::shapes(root, typename R::Id{id.index, id.generation}))
+                if (const Shape *shape = root.get_shape(shape_id))
+                    if (const std::optional<Rect> box = Geometry::bbox(*shape))
+                        return Point{.x = box->ll.x + (box->ur.x - box->ll.x) / 2, .y = box->ll.y + (box->ur.y - box->ll.y) / 2};
+            return std::nullopt;
+        }
 
         // A route's tile anchor: the center of its first shape with geometry.
         static std::optional<Point> route_anchor(const Root &root, RouteId route)
@@ -957,6 +995,41 @@ namespace le
             return shapes;
         }
 
+        // A renderable class's objects in one place - a tile's members, or a
+        // whole untiled Layout's - still in `layout_id`: their shapes on the
+        // class's row, each recorded for selection.
+        template <class R, class Objects>
+        static void collect_renderable_objects(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const Objects &objects,
+                                               ViewLayerShapes &shapes_by_layer, ChunkSources &sources)
+        {
+            const ResolverPhaseTimer timer("layout.renderable");
+            const ViewLayerId view_layer = view_layers.find(LayerId{}, R::purpose);
+            std::vector<RenderShape> &out = shapes_by_layer[view_layer];
+            std::vector<ShapeId> &recorded = sources.shapes[view_layer];
+            for (const auto object : objects)
+            {
+                const typename R::Id id{object.index, object.generation};
+                if (R::layout_of(root, id) != layout_id)
+                    continue;
+                for (const ShapeId shape_id : R::shapes(root, id))
+                    if (const Shape *shape = root.get_shape(shape_id))
+                    {
+                        out.push_back(to_render_shape(*shape));
+                        recorded.push_back(shape_id);
+                    }
+            }
+        }
+
+        template <class R>
+        static void rebuild_renderable_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const LayoutTiling &tiling,
+                                            std::size_t tile, ViewData &data)
+        {
+            ChunkSources sources;
+            ViewLayerShapes shapes;
+            collect_renderable_objects<R>(root, view_layers, layout_id, tiling.renderables[R::index].members[tile], shapes, sources);
+            data.chunks[tiling.renderable_chunk(R::index, tile)] = make_chunk(std::move(shapes), "layout.shape_index", std::move(sources));
+        }
+
         static void rebuild_route_tile(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const LayoutTiling &tiling,
                                        std::size_t tile, ViewData &data)
         {
@@ -1009,6 +1082,18 @@ namespace le
                     { return route_anchor(root, id); }, kRoutesPerTile);
             lay_out(tiling.placements, root.get_layout_placements(layout_id), [&](PlacementId id)
                     { return placement_anchor(root, id); }, kPlacementsPerTile);
+            renderable::for_each([&]<class R>(R) {
+                if constexpr (R::tiled)
+                {
+                    std::vector<RenderableObjectId> ids;
+                    for (const typename R::Id id : R::in_layout(root, layout_id))
+                        ids.push_back(RenderableObjectId{id.index, id.generation});
+                    lay_out(tiling.renderables[R::index], ids, [&](RenderableObjectId id)
+                            { return renderable_anchor<R>(root, id); }, kRenderablesPerTile);
+                }
+                else
+                    tiling.renderables[R::index].grid.n = 0; // no tiles - its fixed chunk holds it
+            });
             return tiling;
         }
 
@@ -1017,7 +1102,7 @@ namespace le
                                std::vector<WorkItem> &children)
         {
             LayoutTiling &tiling = tilings_[layout_id] = make_tiling(root, layout_id);
-            data.chunks.assign(kFixedLayoutChunkCount + tiling.routes.grid.count() + tiling.placements.grid.count(), ViewShapeChunk{});
+            data.chunks.assign(tiling.chunk_count(), ViewShapeChunk{});
             data.placement_chunk_offset = tiling.placement_chunk(0);
             for (std::size_t c = 0; c < kFixedLayoutChunkCount; ++c)
                 data.chunks[c] = build_fixed_chunk(root, view_layers, layout_id, static_cast<LayoutChunk>(c));
@@ -1026,6 +1111,10 @@ namespace le
             data.placement_tiles.assign(tiling.placements.grid.count(), empty_placement_tile());
             for (std::size_t t = 0; t < tiling.placements.grid.count(); ++t)
                 rebuild_placement_tile(root, view_layers, layout_id, tiling, t, data, fresh, children);
+            renderable::for_each([&]<class R>(R) {
+                for (std::size_t t = 0; t < tiling.renderables[R::index].grid.count(); ++t)
+                    rebuild_renderable_tile<R>(root, view_layers, layout_id, tiling, t, data);
+            });
         }
 
         static const ViewPlacements &empty_placement_tile()
@@ -1112,6 +1201,8 @@ namespace le
             std::array<bool, kFixedLayoutChunkCount> fixed{};
             std::unordered_set<RouteId> routes;
             std::unordered_set<PlacementId> placements;
+            // A tiled renderable class's touched objects, by R::index.
+            std::array<std::unordered_set<RenderableObjectId, RenderableObjectIdHash>, renderable::kCount> renderables;
             bool all_routes = false;
             bool all_placements = false;
         };
@@ -1227,11 +1318,13 @@ namespace le
                     {
                         bool renderable_owner = false;
                         renderable::for_each([&]<class R>(R) {
-                            if (field == R::owner_option)
-                            {
+                            if (field != R::owner_option)
+                                return;
+                            renderable_owner = true;
+                            if (!R::tiled)
                                 mark_fixed(layout, {renderable_chunk<R>()});
-                                renderable_owner = true;
-                            }
+                            else if (LayoutDirty *d = layout_dirty(layout))
+                                d->renderables[R::index].insert(RenderableObjectId{entry.parent.index, entry.parent.generation});
                         });
                         if (!renderable_owner)
                             dirty.everything = true;
@@ -1297,11 +1390,14 @@ namespace le
                     // A renderable class's object: its Layout's chunk for it.
                     bool renderable_object = false;
                     renderable::for_each([&]<class R>(R) {
-                        if (entry.klass == R::klass)
-                        {
-                            mark_fixed(ancestor(entry.parent, ChangeKlass::Layout), {renderable_chunk<R>()});
-                            renderable_object = true;
-                        }
+                        if (entry.klass != R::klass)
+                            return;
+                        renderable_object = true;
+                        const std::optional<ChangeParent> layout = ancestor(entry.parent, ChangeKlass::Layout);
+                        if (!R::tiled)
+                            mark_fixed(layout, {renderable_chunk<R>()});
+                        else if (LayoutDirty *d = layout_dirty(layout))
+                            d->renderables[R::index].insert(RenderableObjectId{entry.index, entry.generation});
                     });
                     if (!renderable_object)
                         dirty.everything = true;
@@ -1314,8 +1410,8 @@ namespace le
         // Moves each of `changed` from its old tile to the one its anchor is
         // in now (none if it's gone or left the Layout), adding both tiles
         // to `tiles`.
-        template <typename IdT, typename AnchorFn>
-        static void retile(TileMembership<IdT> &membership, const std::unordered_set<IdT> &changed, AnchorFn &&anchor_in_layout,
+        template <typename IdT, typename Changed, typename AnchorFn>
+        static void retile(TileMembership<IdT> &membership, const Changed &changed, AnchorFn &&anchor_in_layout,
                            std::set<std::size_t> &tiles)
         {
             for (const IdT id : changed)
@@ -1418,6 +1514,20 @@ namespace le
                 for (const std::size_t t : placement_tiles)
                     rebuild_placement_tile(root, view_layers, layout_id, tiling, t, data, fresh, children);
                 placements_rebuilt = placements_rebuilt || !placement_tiles.empty();
+
+                renderable::for_each([&]<class R>(R) {
+                    if constexpr (R::tiled)
+                    {
+                        std::set<std::size_t> tiles;
+                        retile(tiling.renderables[R::index], layout_dirty.renderables[R::index], [&](RenderableObjectId id) -> std::optional<std::optional<Point>>
+                               {
+                            if (R::layout_of(root, typename R::Id{id.index, id.generation}) != layout_id)
+                                return std::nullopt;
+                            return renderable_anchor<R>(root, id); }, tiles);
+                        for (const std::size_t t : tiles)
+                            rebuild_renderable_tile<R>(root, view_layers, layout_id, tiling, t, data);
+                    }
+                });
                 new_children.insert(new_children.end(), children.begin(), children.end());
             }
             for (const AbstractId abstract_id : dirty.abstracts)
@@ -2050,19 +2160,8 @@ namespace le
             // A renderable class's objects: every Shape they own, on the
             // class's own row, each recorded for selection.
             renderable::for_each([&]<class R>(R) {
-                if (chunk != renderable_chunk<R>())
-                    return;
-                const ResolverPhaseTimer timer("layout.renderable");
-                const ViewLayerId view_layer = view_layers.find(LayerId{}, R::purpose);
-                std::vector<RenderShape> &out = shapes_by_layer[view_layer];
-                std::vector<ShapeId> &recorded = sources.shapes[view_layer];
-                for (const typename R::Id object : R::in_layout(root, layout_id))
-                    for (const ShapeId shape_id : R::shapes(root, object))
-                        if (const Shape *shape = root.get_shape(shape_id))
-                        {
-                            out.push_back(to_render_shape(*shape));
-                            recorded.push_back(shape_id);
-                        }
+                if (!R::tiled && chunk == renderable_chunk<R>())
+                    collect_renderable_objects<R>(root, view_layers, layout_id, R::in_layout(root, layout_id), shapes_by_layer, sources);
             });
 
             return shapes_by_layer;
