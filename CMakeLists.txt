@@ -474,8 +474,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(lucide_font)
 # Also copied into the build tree next to where le_shell/le_tcl.so land
-# (not just left in FetchContent's own cache dir under CMAKE_BINARY_DIR/
-# _deps) - LE_LUCIDE_FONT_PATH (below) is this build machine's own
+# (not just left in FetchContent's own cache dir under FETCHCONTENT_BASE_DIR)
+# - LE_LUCIDE_FONT_PATH (below) is this build machine's own
 # absolute FetchContent cache path, correct for a local dev/ctest run but
 # never valid once le_shell is copied to another machine; le_gui.cpp's
 # own runtime fallback looks for a file named exactly "lucide.ttf" right
@@ -485,7 +485,7 @@ FetchContent_MakeAvailable(lucide_font)
 # Dockerfile.linux-release's own bundle stage can just `cp` it alongside
 # le_shell the same simple way it already does for every other bundled
 # file, rather than needing to know this FetchContent-internal path.
-file(COPY "${lucide_font_SOURCE_DIR}/lucide.ttf" DESTINATION "${CMAKE_BINARY_DIR}")
+file(COPY "${lucide_font_SOURCE_DIR}/lucide.ttf" DESTINATION "${PROJECT_BINARY_DIR}")
 
 enable_testing()
 include(GoogleTest)
@@ -513,7 +513,7 @@ endif()
 # src/ is on several targets' include paths, so a src/generated/ directory
 # would shadow the build tree's "generated/<module>/..." headers.
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
-    message(FATAL_ERROR "src/generated/ would shadow the generated code in ${CMAKE_BINARY_DIR}/generated/ - "
+    message(FATAL_ERROR "src/generated/ would shadow the generated code in ${PROJECT_BINARY_DIR}/generated/ - "
         "delete it (debuggers and compile_commands.json already point at the build tree's copy)")
 endif()
 include(cmake/le_extension_manifests.cmake)
@@ -532,7 +532,7 @@ foreach(name IN LISTS LE_EXTENSIONS)
     endif()
 endforeach()
 
-set(LE_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated)
+set(LE_GENERATED_DIR ${PROJECT_BINARY_DIR}/generated)
 set(LE_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/src/database/schema.py)
 file(GLOB_RECURSE LE_CODEGEN_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/codegen/codegen/*.py)
 file(GLOB LE_SCHEMA_HISTORY CONFIGURE_DEPENDS
@@ -557,7 +557,7 @@ add_custom_target(le_codegen DEPENDS ${LE_GENERATED_DIR}/codegen.stamp)
 add_library(database INTERFACE)
 # Generated code is included as "generated/<module>/...", from the build
 # tree's root.
-target_include_directories(database INTERFACE src/database ${CMAKE_BINARY_DIR})
+target_include_directories(database INTERFACE src/database ${PROJECT_BINARY_DIR})
 add_dependencies(database le_codegen)
 
 # --- geometry: header-only Boost.Geometry wrapper over database types ---
@@ -655,7 +655,7 @@ le_enable_coverage_instrumentation(io)
 add_library(api STATIC src/api/api.cpp src/api/extension.cpp)
 # api.hpp includes "generated/api/..." itself, so its consumers need the
 # build tree's root on their include path (and the codegen step) too.
-target_include_directories(api PUBLIC src/api ${CMAKE_BINARY_DIR})
+target_include_directories(api PUBLIC src/api ${PROJECT_BINARY_DIR})
 add_dependencies(api le_codegen)
 target_link_libraries(api PRIVATE database geometry editing pipelines io)
 # extension.cpp implements the extension SDK (src/extension/le/extension.hpp).
@@ -782,8 +782,8 @@ if(SWIG_FOUND AND TCL_FOUND)
         LANGUAGE tcl
         SOURCES src/tcl/le_api.i src/tcl/le_tcl_shim.cpp
     )
-    set_property(TARGET le_tcl PROPERTY SWIG_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/src/api ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl ${CMAKE_BINARY_DIR})
-    target_include_directories(le_tcl PRIVATE src/api src/tcl ${CMAKE_BINARY_DIR} ${TCL_INCLUDE_PATH})
+    set_property(TARGET le_tcl PROPERTY SWIG_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/src/api ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl ${PROJECT_BINARY_DIR})
+    target_include_directories(le_tcl PRIVATE src/api src/tcl ${PROJECT_BINARY_DIR} ${TCL_INCLUDE_PATH})
     # Where le_tcl_procs.tcl finds le_tcl_procs_generated.tcl in a build
     # tree; a release bundle keeps it beside le_tcl_procs.tcl instead.
     target_compile_definitions(le_tcl PRIVATE
@@ -954,17 +954,17 @@ if(SWIG_FOUND AND TCL_FOUND)
     # configure_file() call.
     add_custom_target(generate_le_shell_version ALL
         COMMAND ${CMAKE_COMMAND}
-            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
             -DPROJECT_VERSION=${PROJECT_VERSION}
-            -DOUTPUT_FILE=${CMAKE_BINARY_DIR}/generated/le_shell_version.hpp
-            -P ${CMAKE_SOURCE_DIR}/cmake/generate_le_shell_version.cmake
-        BYPRODUCTS ${CMAKE_BINARY_DIR}/generated/le_shell_version.hpp
+            -DOUTPUT_FILE=${PROJECT_BINARY_DIR}/generated/le_shell_version.hpp
+            -P ${PROJECT_SOURCE_DIR}/cmake/generate_le_shell_version.cmake
+        BYPRODUCTS ${PROJECT_BINARY_DIR}/generated/le_shell_version.hpp
         COMMENT "Generating le_shell version header"
     )
 
     add_executable(le_shell src/tcl/le_shell.cpp)
     add_dependencies(le_shell generate_le_shell_version)
-    target_include_directories(le_shell PRIVATE ${TCL_INCLUDE_PATH} ${CMAKE_BINARY_DIR})
+    target_include_directories(le_shell PRIVATE ${TCL_INCLUDE_PATH} ${PROJECT_BINARY_DIR})
     target_link_libraries(le_shell PRIVATE ${TCL_LIBRARY} api gui le_extensions le_extensions_gui)
     add_dependencies(le_shell le_extensions_index)
 
@@ -1051,7 +1051,7 @@ if(SWIG_FOUND AND TCL_FOUND)
     install(FILES
         src/tcl/le_tcl_procs.tcl
         ${LE_GENERATED_DIR}/tcl/le_tcl_procs_generated.tcl
-        ${CMAKE_BINARY_DIR}/lucide.ttf
+        ${PROJECT_BINARY_DIR}/lucide.ttf
         DESTINATION . COMPONENT bundle)
     install(DIRECTORY ${LE_FONT_DIR}/ DESTINATION fonts COMPONENT bundle)
     install(IMPORTED_RUNTIME_ARTIFACTS TBB::tbb DESTINATION . COMPONENT bundle)
@@ -1068,7 +1068,7 @@ if(SWIG_FOUND AND TCL_FOUND)
             message(FATAL_ERROR "LE_BUILD_LE_BINARY needs PyInstaller for ${Python3_EXECUTABLE}: "
                 "run `${Python3_EXECUTABLE} -m pip install pyinstaller`")
         endif()
-        set(le_binary_dir ${CMAKE_BINARY_DIR}/le_binary)
+        set(le_binary_dir ${PROJECT_BINARY_DIR}/le_binary)
         file(WRITE ${le_binary_dir}/le_version.txt "${PROJECT_VERSION}\n")
         file(GLOB_RECURSE le_python_sources CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/le/*.py
@@ -1101,7 +1101,7 @@ if(SWIG_FOUND AND TCL_FOUND)
     add_test(
         NAME le_shell_install
         COMMAND ${CMAKE_COMMAND}
-            -DBUILD_DIR=${CMAKE_BINARY_DIR}
+            -DBUILD_DIR=${PROJECT_BINARY_DIR}
             -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/install_test
             -P ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/install_test.cmake
     )
@@ -1190,7 +1190,7 @@ if(SWIG_FOUND AND TCL_FOUND)
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/tests/integration_test.py ${CMAKE_CURRENT_SOURCE_DIR})
         set_tests_properties(le_package_manager_integration PROPERTIES
             TIMEOUT 7200
-            ENVIRONMENT "LE_DEPS_DIR=${CMAKE_BINARY_DIR}/_deps")
+            ENVIRONMENT "LE_DEPS_DIR=${FETCHCONTENT_BASE_DIR}")
     endif()
 else()
     message(STATUS "SWIG and/or Tcl not found - skipping le_tcl target")
@@ -1395,10 +1395,10 @@ le_enable_coverage_instrumentation(lef_roundtrip_diff)
 
 # --- coverage: `cmake --build build --target coverage` (requires -DENABLE_COVERAGE=ON at configure time) ---
 if(ENABLE_COVERAGE)
-    set(COVERAGE_DIR ${CMAKE_BINARY_DIR}/coverage)
+    set(COVERAGE_DIR ${PROJECT_BINARY_DIR}/coverage)
     # LE_GENERATED_DIR is codegen output (mostly boilerplate getters/to_string);
     # excluded for now rather than chasing coverage on generated code.
-    set(COVERAGE_IGNORE_REGEX "${CMAKE_BINARY_DIR}/_deps|${CMAKE_SOURCE_DIR}/src/lefdef|${LE_GENERATED_DIR}")
+    set(COVERAGE_IGNORE_REGEX "${FETCHCONTENT_BASE_DIR}|${PROJECT_SOURCE_DIR}/src/lefdef|${LE_GENERATED_DIR}")
 
     add_custom_target(coverage
         COMMAND ${CMAKE_COMMAND} -E make_directory ${COVERAGE_DIR}
@@ -1407,7 +1407,7 @@ if(ENABLE_COVERAGE)
         COMMAND sh -c "${LLVM_COV_EXE} report $<TARGET_FILE:backend_tests> -instr-profile=${COVERAGE_DIR}/backend_tests.profdata --show-branch-summary --ignore-filename-regex='${COVERAGE_IGNORE_REGEX}' | tee ${COVERAGE_DIR}/report.txt"
         COMMAND sh -c "${LLVM_COV_EXE} export $<TARGET_FILE:backend_tests> -instr-profile=${COVERAGE_DIR}/backend_tests.profdata -format=lcov --ignore-filename-regex='${COVERAGE_IGNORE_REGEX}' > ${COVERAGE_DIR}/lcov.info"
         DEPENDS backend_tests
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
         COMMENT "Running backend_tests with coverage instrumentation, then reporting line+branch coverage"
         USES_TERMINAL
         VERBATIM

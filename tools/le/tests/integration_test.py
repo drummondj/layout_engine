@@ -1,7 +1,8 @@
 """
 End to end: `le` builds a real project from this checkout - hello_ext from a
 local path, hello_script from a signed tag on a fake GitHub, my_ext from `le
-new-extension` - runs their commands through `le shell`, then edits the path
+new-extension`, as a superbuild embedding Layout Engine with add_subdirectory
+(the route users write by hand too) - runs their commands through `le shell`, then edits the path
 extension and checks `le shell` rebuilds. `le test` runs my_ext's and
 hello_script's tests, and `le check` reads a file of my_ext's objects before
 and after a schema change drafted by `le makemigration`. Then a script-only
@@ -135,7 +136,7 @@ def release_project(source: Path, github: helpers.FakeGithub, build_dir: Path, a
     """A script-only project on a signed release bundle, with no build tools on PATH."""
     root = github.root
     version, _ = build.layout_engine_versions(source)
-    helpers.run("cmake", "-S", str(source), "-B", str(build_dir), "-DLE_EXTENSION_DIRS=")
+    helpers.run("cmake", "-S", str(build_dir.parent / "superbuild"), "-B", str(build_dir), "-DLE_EXTENSION_DIRS=")
     helpers.run("cmake", "--build", str(build_dir), "--target", "le_shell", "le_tcl", "-j", str(os.cpu_count() or 2))
     bundle = root / "release_bundle"
     helpers.run("cmake", "--install", str(build_dir), "--component", "bundle", "--prefix", str(bundle))

@@ -19,7 +19,7 @@ Their code must live **completely outside** the layout_engine tree, yet be **com
 
 | Concern | Recommendation |
 |---|---|
-| Packaging | **An extension is a directory with a declarative manifest, `le_extension.toml`** (name, version, prefix, compatible layout_engine versions, dependencies, what it contains). The package manager reads it to resolve and fetch; CMake reads it to build. **Superbuild:** layout_engine's CMake takes extension directories in `LE_EXTENSION_DIRS`. The package manager generates that list for a project, and a hand-made superbuild (layout_engine as a git submodule) still works. |
+| Packaging | **An extension is a directory with a declarative manifest, `le_extension.toml`** (name, version, prefix, compatible layout_engine versions, dependencies, what it contains). The package manager reads it to resolve and fetch; CMake reads it to build. **Superbuild:** layout_engine's CMake takes extension directories in `LE_EXTENSION_DIRS`. A hand-made superbuild (layout_engine as a git submodule, added with `add_subdirectory`) is the primary route for end users; the package manager generates the same superbuild for a project. |
 | Tiers | **Script extensions** (Tcl procs and data files only) need no compiler and install into a prebuilt release. **Compiled extensions** (C++, schema, GUI) need a project build of `le_shell`. |
 | Build | layout_engine provides an `le_add_extension()` CMake function. Each extension builds as up to three static libraries (`_core`, `_tcl`, `_gui`) that are linked into the existing host targets. |
 | Registration | CMake generates an init file that calls `le_ext_<name>_register(Registry&)` for each extension. This is explicit; nothing relies on static self-registration. |
@@ -96,16 +96,19 @@ acme_router/                      <- the extension (its own repo, proprietary)
   tests/...
 ```
 
-**With the package manager** (the normal route), the user lists `acme_router` in their project's `le_project.toml`. `le install` fetches layout_engine and the extension at the locked versions and configures a build with `LE_EXTENSION_DIRS` set. See [PACKAGE_MANAGER_RESEARCH.md](PACKAGE_MANAGER_RESEARCH.md).
-
-**By hand**, a superbuild repo includes layout_engine as a git submodule:
+**By hand** (the primary route, documented in EXTENSION_SDK.md), a superbuild repo includes layout_engine as a git submodule:
 
 ```cmake
 cmake_minimum_required(VERSION 3.25)
 project(acme_le CXX)
 set(LE_EXTENSION_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/ext/acme_router CACHE STRING "" FORCE)
+enable_testing()
 add_subdirectory(layout_engine)
 ```
+
+layout_engine's CMake uses `PROJECT_SOURCE_DIR`/`PROJECT_BINARY_DIR`, never `CMAKE_SOURCE_DIR`/`CMAKE_BINARY_DIR`, so it builds the same embedded as on its own.
+
+**With the package manager**, the user lists `acme_router` in their project's `le_project.toml`. `le install` fetches layout_engine and the extension at the locked versions and generates the same superbuild in `.le/superbuild/`, passing `LE_EXTENSION_DIRS` when it configures; its end-to-end test therefore covers the embedded build. See [PACKAGE_MANAGER_RESEARCH.md](PACKAGE_MANAGER_RESEARCH.md).
 
 or passes the list at configure time:
 

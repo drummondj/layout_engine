@@ -18,7 +18,9 @@ How Layout Engine itself is installed:
   and runs its `le_shell`. No compiler or cmake needed.
 - **Built from source**: otherwise (a compiled extension, a `--rev` pin, a
   local `path`), it builds Layout Engine with the extensions, which needs
-  everything a source build needs (`BUILD.md`).
+  everything a source build needs (`BUILD.md`). It generates a superbuild
+  in `.le/superbuild/` that embeds Layout Engine with `add_subdirectory`,
+  the same as a hand-written one (`docs/EXTENSION_SDK.md`).
 
 ## Quick start
 

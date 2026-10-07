@@ -17,14 +17,14 @@ execute_process(
         ${Python3_EXECUTABLE} -m codegen.extension_manifest
         --layout-engine-version ${PROJECT_VERSION}
         --extension-api ${LE_EXTENSION_API_VERSION}
-        --output ${CMAKE_BINARY_DIR}/generated/extensions/manifests.cmake
+        --output ${PROJECT_BINARY_DIR}/generated/extensions/manifests.cmake
         ${le_extension_dirs}
     RESULT_VARIABLE manifest_result
     ERROR_VARIABLE manifest_errors)
 if(NOT manifest_result EQUAL 0)
     message(FATAL_ERROR "LE_EXTENSION_DIRS: ${manifest_errors}")
 endif()
-include(${CMAKE_BINARY_DIR}/generated/extensions/manifests.cmake)
+include(${PROJECT_BINARY_DIR}/generated/extensions/manifests.cmake)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/codegen/codegen/extension_manifest.py)
 

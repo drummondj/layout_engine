@@ -10,9 +10,11 @@ is the reference.
 
 Not available yet: per-layer columns (#120) and text labels (#121) for
 extension objects.
-Projects install extensions with the `le` package manager
-(`tools/le/README.md`); while developing one, build it in with
-`LE_EXTENSION_DIRS`, as below.
+Extensions are added to Layout Engine with a **superbuild**: your own
+repository, with Layout Engine as a git submodule and your extensions
+beside it (below). The `le` package manager (`tools/le/README.md`)
+generates the same superbuild for a project, adding signed GitHub sources
+and a lock file.
 
 ## Two kinds of extension
 
@@ -27,32 +29,71 @@ A compiled extension is compiled into `le_shell` and the `le_tcl` module.
 There's no binary plugin interface, because extensions are built from source
 together with Layout Engine.
 
-## Quick start
+## Adding extensions: the superbuild
 
-1. Create it: `le new-extension my_ext` copies `hello_ext` (or, with
-   `--script`, `hello_script`) into `./my_ext`, renamed: the name, the
-   prefix (`--prefix`, default `MyExt`) and every class, purpose, function
-   and Tcl command derived from them. It starts at schema `0.1.0` with no
-   history. The directory name doesn't matter; the manifest's `name` does.
-2. In a project (`tools/le/README.md`): `le add my_ext --path ../my_ext`,
-   then `le shell`, and `le test my_ext` for its tests. Or build Layout
-   Engine with it yourself. Paths are absolute, or relative to the
-   Layout Engine source tree; separate several with `;` and quote them:
+```
+acme_le/                  your repository
+  CMakeLists.txt
+  layout_engine/          git submodule, at a release tag
+  ext/acme_router/        an extension (le_extension.toml, ...)
+  ext/acme_drc/
+```
 
-   ```
-   cmake -S layout_engine -B build -DLE_EXTENSION_DIRS="/path/to/my_ext;/path/to/other_ext"
-   cmake --build build -j
-   ctest --test-dir build -R my_ext
-   ./build/le_shell
-   ```
+```cmake
+cmake_minimum_required(VERSION 3.25)
+project(acme_le CXX)
+set(LE_EXTENSION_DIRS
+    "${CMAKE_CURRENT_SOURCE_DIR}/ext/acme_router;${CMAKE_CURRENT_SOURCE_DIR}/ext/acme_drc"
+    CACHE STRING "" FORCE)
+enable_testing()            # so ctest runs from build/ too
+add_subdirectory(layout_engine)
+```
 
-   Configure prints `-- Extension my_ext 0.1.0 (compiled, /path/to/my_ext)`
-   for each extension, or every problem it found with the manifests.
-3. To ship a self-contained copy, install the bundle (extensions included):
+```
+git submodule add https://github.com/drummondj/layout_engine.git layout_engine
+git -C layout_engine checkout vX.Y.Z      # a release tag
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+ctest --test-dir build -R "^acme_router\."                    # one extension's tests
+./build/layout_engine/le_shell
+cmake --install build --component bundle --prefix /opt/acme_le  # a self-contained copy
+```
 
-   ```
-   cmake --install build --component bundle --prefix /path/to/bundle
-   ```
+- Configure prints `-- Extension acme_router 1.4.0 (compiled, ...)` for
+  each extension, or every problem it found with the manifests (an
+  incompatible `[compatibility]` range, a missing dependency, a shared
+  prefix).
+- Give `LE_EXTENSION_DIRS` absolute paths: a relative one is taken
+  relative to Layout Engine's own source directory. Separate several
+  with `;`.
+- `le_shell` and `le_tcl.so` are built in `build/layout_engine/`. The
+  installed bundle is relocatable: it runs on its own files wherever it's
+  copied.
+- `<name>_test_deps` builds what one extension's tests need, so `cmake
+  --build build --target acme_router_test_deps` before `ctest` avoids
+  building Layout Engine's own tests.
+- **Upgrading:** check out the new tag in the submodule and rebuild. An
+  extension needs changes only if its `[compatibility]` range doesn't cover
+  the new version, the extension API version changed (see the
+  [changelog](#changelog)), or a core migration renamed a class its
+  schema refers to (the build names the `schema_ext.py` line to update).
+
+Without a repository of your own, configuring Layout Engine directly does
+the same: `cmake -S layout_engine -B build -DLE_EXTENSION_DIRS="/path/to/acme_router;/path/to/acme_drc"`
+(`le_shell` is then in `build/`).
+
+## Writing one: quick start
+
+1. Create it: `layout_engine/tools/le/bin/le new-extension my_ext
+   --directory ext/my_ext` copies `hello_ext` (or, with `--script`,
+   `hello_script`), renamed: the name, the prefix (`--prefix`, default
+   `MyExt`) and every class, purpose, function and Tcl command derived
+   from them. It starts at schema `0.1.0` with no history. The directory
+   name doesn't matter; the manifest's `name` does.
+2. Add its directory to `LE_EXTENSION_DIRS`, then build and run its tests:
+   `cmake --build build --target my_ext_test_deps && ctest --test-dir build
+   -R "^my_ext\."`. In an `le` project: `le add my_ext --path ext/my_ext`,
+   then `le test my_ext` and `le shell`.
 
 ## Directory layout
 
