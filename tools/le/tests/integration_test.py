@@ -3,7 +3,8 @@ End to end: `le` builds a real project from this checkout - hello_ext from a
 local path, hello_script from a signed tag on a fake GitHub, my_ext from `le
 new-extension`, as a superbuild embedding Layout Engine with add_subdirectory
 (the route users write by hand too) - runs their commands through `le shell`, then edits the path
-extension and checks `le shell` rebuilds. `le test` runs my_ext's and
+extension and checks `le shell` rebuilds. `le bundle` copies each project
+into a directory that runs on its own after being moved. `le test` runs my_ext's and
 hello_script's tests, and `le check` reads a file of my_ext's objects before
 and after a schema change drafted by `le makemigration`. Then a script-only
 project gets a signed release bundle (this build reconfigured with no
@@ -35,6 +36,16 @@ def le(project: Path, *args: str, path: str = None, expect_failure: bool = False
     if (result.returncode != 0) != expect_failure:
         raise SystemExit(f"le {' '.join(args)} {'succeeded' if expect_failure else 'failed'}:\n{result.stdout}\n{result.stderr}")
     return result.stdout
+
+
+def run_bundle(project: Path, destination: Path, script: Path, expected: str, path: str = None) -> None:
+    """`le bundle`, then the copy - moved away from the project - runs the script on its own."""
+    le(project, "bundle", str(destination), path=path)
+    moved = destination.parent / (destination.name + "_moved")
+    destination.rename(moved)
+    result = subprocess.run([str(moved / "le_shell"), str(script)], capture_output=True, text=True, cwd=moved.parent)
+    if result.returncode != 0 or expected not in result.stdout:
+        raise SystemExit(f"the bundle in {moved} didn't run the script:\n{result.stdout}\n{result.stderr}")
 
 
 def has_line(out: str, *words: str) -> bool:
@@ -79,6 +90,7 @@ def main() -> int:
         out = le(project, "shell", str(script))
         if "hello_ext 0.1.0" not in out:
             raise SystemExit(f"unexpected le shell output:\n{out}")
+        run_bundle(project, root / "deployed", script, "hello_ext 0.1.0")
 
         # Edit the path extension's procs: `le shell` notices and rebuilds.
         procs = hello_ext / "tcl" / "hello_ext.tcl"
@@ -161,6 +173,7 @@ def release_project(source: Path, github: helpers.FakeGithub, build_dir: Path, a
     out = le(project, "shell", str(script), path=str(tools))
     if "Hello, release!" not in out:
         raise SystemExit(f"unexpected le shell output from the release:\n{out}")
+    run_bundle(project, root / "deployed_release", script, "Hello, release!", path=str(tools))
     out = le(project, "test", path=str(tools))
     if "1 tests passed" not in out:
         raise SystemExit(f"unexpected le test output from the release:\n{out}")

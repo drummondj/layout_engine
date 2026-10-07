@@ -75,6 +75,7 @@ def build(
     jobs: Optional[int],
     layout_engine_version: str,
     startup: Optional[Path],
+    cmake_args: Optional[List[str]] = None,
 ) -> Path:
     """Configures, builds and installs; returns the bundle directory."""
     build_dir = state_dir / "build"
@@ -91,6 +92,7 @@ def build(
         "-DLE_EXTENSION_DIRS=" + ";".join(str(d) for d in extension_dirs),
         f"-DFETCHCONTENT_BASE_DIR={os.environ.get('LE_DEPS_DIR') or sources.cache_dir() / 'deps' / layout_engine_version}",
     ]
+    configure += cmake_args or []
     if shutil.which("ccache"):
         configure += ["-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"]
     _run(configure, "configuring")

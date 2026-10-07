@@ -10,11 +10,9 @@ is the reference.
 
 Not available yet: per-layer columns (#120) and text labels (#121) for
 extension objects.
-Extensions are added to Layout Engine with a **superbuild**: your own
-repository, with Layout Engine as a git submodule and your extensions
-beside it (below). The `le` package manager (`tools/le/README.md`)
-generates the same superbuild for a project ([an `le`
-project](#or-an-le-project)), adding signed GitHub sources and a lock file.
+Extensions are added to Layout Engine through a **project**: a directory
+whose `le_project.toml` names a Layout Engine and the extensions to build
+into it. The `le` tool builds, tests, runs and bundles it (below).
 
 ## Two kinds of extension
 
@@ -29,96 +27,64 @@ A compiled extension is compiled into `le_shell` and the `le_tcl` module.
 There's no binary plugin interface, because extensions are built from source
 together with Layout Engine.
 
-## Adding extensions: the superbuild
+## Adding extensions: a project
+
+`le` is `tools/le/bin/le` in a Layout Engine checkout (Python 3.11+), or
+`le` in a release bundle.
 
 ```
-acme_le/                  your repository
-  CMakeLists.txt
-  layout_engine/          git submodule, at a release tag
-  ext/acme_router/        an extension (le_extension.toml, ...)
-  ext/acme_drc/
-```
-
-```cmake
-cmake_minimum_required(VERSION 3.25)
-project(acme_le CXX)
-set(LE_EXTENSION_DIRS
-    "${CMAKE_CURRENT_SOURCE_DIR}/ext/acme_router;${CMAKE_CURRENT_SOURCE_DIR}/ext/acme_drc"
-    CACHE STRING "" FORCE)
-enable_testing()            # so ctest runs from build/ too
-add_subdirectory(layout_engine)
+my_chip/                  your repository
+  le_project.toml         what you want: a Layout Engine and your extensions (commit it)
+  le_project.lock         what was installed: exact commits and signing keys (written by le; commit it)
+  layout_engine/          optional: a git submodule, if you build from a checkout
+  ext/acme_router/        your own extensions (le_extension.toml, ...)
+  .le/                    le's work area: sources, build, bundle (don't commit it)
 ```
 
 ```
+cd my_chip
 git submodule add https://github.com/drummondj/layout_engine.git layout_engine
-git -C layout_engine checkout vX.Y.Z      # a release tag
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-ctest --test-dir build -R "^acme_router\."                    # one extension's tests
-./build/layout_engine/le_shell
-cmake --install build --component bundle --prefix /opt/acme_le  # a self-contained copy
+layout_engine/tools/le/bin/le init --layout-engine-path layout_engine   # or omit it for a signed release
+le add acme_router --path ext/acme_router                     # an extension in this repository
+le add acme_drc --github acme/acme_drc --version ">=1.4, <2" --publisher acme   # one from GitHub (le trust acme ... first)
+le test acme_router                                           # its tests
+le shell                                                      # rebuilds if anything changed, then runs le_shell
+le bundle /opt/my_chip                                        # a self-contained, relocatable copy to deploy
 ```
 
-- Configure prints `-- Extension acme_router 1.4.0 (compiled, ...)` for
-  each extension, or every problem it found with the manifests (an
+- `le` builds Layout Engine from source with the project's extensions
+  (with `add_subdirectory`, in `.le/build`; `compile_commands.json` is
+  there for editors). A project whose extensions are all Tcl-only, with
+  Layout Engine from a GitHub release, uses the signed release bundle and
+  needs no compiler.
+- Every install prints `-- Extension acme_router 1.4.0 (compiled, ...)`
+  for each extension, or every problem it found with the manifests (an
   incompatible `[compatibility]` range, a missing dependency, a shared
   prefix).
-- Give `LE_EXTENSION_DIRS` absolute paths: a relative one is taken
-  relative to Layout Engine's own source directory. Separate several
-  with `;`.
-- `le_shell` and `le_tcl.so` are built in `build/layout_engine/`. The
-  installed bundle is relocatable: it runs on its own files wherever it's
-  copied.
-- `<name>_test_deps` builds what one extension's tests need, so `cmake
-  --build build --target acme_router_test_deps` before `ctest` avoids
-  building Layout Engine's own tests.
-- **Upgrading:** check out the new tag in the submodule and rebuild. An
-  extension needs changes only if its `[compatibility]` range doesn't cover
-  the new version, the extension API version changed (see the
-  [changelog](#changelog)), or a core migration renamed a class its
-  schema refers to (the build names the `schema_ext.py` line to update).
+- `[build]` in `le_project.toml` sets the build type, `jobs`, and
+  `cmake_args` for any other CMake option, e.g.
+  `cmake_args = ["-DLE_ENABLE_TRACY=OFF"]`.
+- **Upgrading:** move the submodule to the new tag (or change the
+  `[layout_engine]` version range and `le update layout_engine`), then
+  `le install`. An extension needs changes only if its `[compatibility]`
+  range doesn't cover the new version, the extension API version changed
+  (see the [changelog](#changelog)), or a core migration renamed a class
+  its schema refers to (the build names the `schema_ext.py` line to
+  update).
+- `le check design.led` says whether a saved file opens in this project.
 
-Without a repository of your own, configuring Layout Engine directly does
-the same: `cmake -S layout_engine -B build -DLE_EXTENSION_DIRS="/path/to/acme_router;/path/to/acme_drc"`
-(`le_shell` is then in `build/`).
-
-## Or: an `le` project
-
-The `le` package manager (`layout_engine/tools/le/bin/le`, or `le` in a
-release bundle) writes and builds the superbuild for you. A project is a
-directory holding `le_project.toml`:
-
-```
-my_chip/
-  le_project.toml    what you want: Layout Engine (release range, tag, or local checkout) and your extensions
-  le_project.lock    what was installed: exact commits and signing keys (written by le; commit it)
-  .le/               le's work area: fetched sources, the generated superbuild, the build, the bundle
-```
-
-```
-le init --layout-engine-path ../layout_engine    # or omit it for a signed release
-le add acme_router --path ext/acme_router         # or --github acme/acme_router --version ">=1.4, <2" --publisher acme
-le test acme_router
-le shell
-```
-
-Use it when extensions come from other publishers' GitHub repositories
-(signed tags, checked against keys you trust), to pin everyone to the same
-versions with the lock, or to run script-only extensions on a prebuilt
-release with no compiler. Full reference: `tools/le/README.md`.
+Reference for every command and file: `tools/le/README.md`.
 
 ## Writing one: quick start
 
-1. Create it: `layout_engine/tools/le/bin/le new-extension my_ext
-   --directory ext/my_ext` copies `hello_ext` (or, with `--script`,
+1. Create it: `le new-extension my_ext --directory ext/my_ext` copies `hello_ext` (or, with `--script`,
    `hello_script`), renamed: the name, the prefix (`--prefix`, default
    `MyExt`) and every class, purpose, function and Tcl command derived
    from them. It starts at schema `0.1.0` with no history. The directory
    name doesn't matter; the manifest's `name` does.
-2. Add its directory to `LE_EXTENSION_DIRS`, then build and run its tests:
-   `cmake --build build --target my_ext_test_deps && ctest --test-dir build
-   -R "^my_ext\."`. In an [`le` project](#or-an-le-project): `le add my_ext
-   --path ext/my_ext`, then `le test my_ext` and `le shell`.
+2. Add it to the project, run its tests and try it: `le add my_ext --path
+   ext/my_ext`, `le test my_ext`, `le shell`. Edit, then `le test` or
+   `le shell` again: they rebuild what changed.
 
 ## Directory layout
 
@@ -176,11 +142,11 @@ resources  = ["data/"]
 | `schema` | Your database classes (see [Database classes](#database-classes)); also makes the extension compiled. |
 | `migrations` | Your schema migrations; defaults to `migrations/` beside the schema. |
 | `tcl_procs` | Tcl files sourced at startup, after Layout Engine's own procs and your dependencies', in the order listed. |
-| `tcl_tests` | Tcl scripts run as ctests (see [Testing](#testing)). |
+| `tcl_tests` | Tcl test scripts, run by `le test` (see [Testing](#testing)). |
 | `resources` | Files or directories installed into the bundle under `ext/<name>/`, at the same relative paths. |
 
 Extensions load in dependency order; extensions that don't depend on each
-other load in name order. Configure reports every manifest problem at once:
+other load in name order. `le install` reports every manifest problem at once:
 bad names, a clashing name or prefix, an incompatible version, a missing
 dependency or a cycle.
 
@@ -350,17 +316,9 @@ def extend(schema):
   `VERSION` fails the build, as for core.
 - **Migrations:** once a version has shipped, changing the schema means
   bumping `VERSION` and adding a migration, so files written by the old
-  version still load. Draft it with
-
-  ```
-  PYTHONPATH=layout_engine/codegen python3 -m codegen.cli --schema layout_engine/src/database/schema.py \
-      --extension /path/to/my_ext --target makemigration --migrate-extension my_ext --name what_changed
-  ```
-
-  or, in a project with your extension as a path source, `le makemigration
-  my_ext --name what_changed`. It diffs your newest snapshot against
-  `schema_ext.py`, asks about
-  renames, and writes `migrations/NNNN_what_changed.py`, recording the
+  version still load. Draft it with `le makemigration my_ext --name
+  what_changed` (your extension added with `--path`). It diffs your newest
+  snapshot against `schema_ext.py`, asks about renames, and writes `migrations/NNNN_what_changed.py`, recording the
   core schema version it was written against (`depends_on_core`). Review
   it, then build. The rules:
   - your ops may only change your own classes;
@@ -560,9 +518,9 @@ wins, but it isn't supported.
 
 ## At run time
 
-`le_shell` loads extensions from an index, `extensions.json`. The build
-writes one in the build directory, and `cmake --install` writes the bundle's
-own beside `le_shell`, with your procs and resources under `ext/<name>/`.
+`le_shell` loads extensions from an index, `extensions.json`, which the
+build writes. A bundle (`le bundle`) has its own beside `le_shell`, with
+your procs and resources under `ext/<name>/`.
 `le_shell` uses the first of:
 1. `-extensions <file>`
 2. the `LE_EXTENSIONS_PATH` environment variable
@@ -576,23 +534,21 @@ was used.
 
 ## Testing
 
-- **C++:** `TESTS` sources build into `<name>_tests` and run under `ctest`
-  as `<name>.<Suite>.<Test>`. They link every extension, so
+`le test [name...]` builds and runs the named extensions' tests (all if
+none named).
+- **C++:** `TESTS` sources build into `<name>_tests`, each test reported as
+  `<name>.<Suite>.<Test>`. They link every extension, so
   `le::ext::register_all()` works in them.
   Make sessions with `le_create()`/`le_destroy()`, as `hello_ext`'s tests do.
-- **Tcl:** each `tcl_tests` script runs as a ctest (`<name>.<script>`)
-  through the build's `le_shell`, with every extension loaded. It passes if
-  the script finishes, and fails if it raises an error:
+- **Tcl:** each `tcl_tests` script (`<name>.<script>`) runs through
+  `le_shell`, with every extension loaded. It passes if the script
+  finishes, and fails if it raises an error:
 
   ```tcl
   if {[my_ext_thing_count] != 0} {
       error "expected no things, got [my_ext_thing_count]"
   }
   ```
-- In a project, `le test [name...]` builds what the named extensions'
-  tests need (the `<name>_test_deps` target) and runs `ctest -R
-  "^<name>\."`. A project on a release bundle runs each `tcl_tests` script
-  through the release's `le_shell`.
 - **Golden files:** a new extension has none, so its golden test skips
   until you write the first (see `hello_ext`'s
   `DISABLED_WriteGoldenFileForThisSchemaVersion`).

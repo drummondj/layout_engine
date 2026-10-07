@@ -75,6 +75,17 @@ class TestReleases(unittest.TestCase):
         self.assertTrue(command[0].endswith("releases/v0.3.0/bundle/le_shell"))
         self.assertEqual(command[1:], ["-extensions", str(self.project / ".le" / "extensions.json")])
 
+    def test_bundle_of_a_release_project_carries_its_script_extensions(self):
+        helpers.fake_release(self.github, self.release_key, "0.3.0")
+        self.publish("greet", "Greet", "1.0.0")
+        self.assertEqual(self.le("add", "greet", "--github", "acme/greet", "--version", ">=1.0", "--publisher", "acme"), 0, self.last_error)
+        destination = self.root / "deploy"
+        self.assertEqual(self.le("bundle", str(destination)), 0, self.last_error)
+        self.assertTrue((destination / "le_shell").exists())
+        self.assertTrue((destination / "ext" / "greet" / "tcl" / "greet.tcl").is_file())
+        index = json.loads((destination / "extensions.json").read_text())
+        self.assertEqual([(e["name"], e["dir"]) for e in index["extensions"]], [("greet", "ext/greet")])
+
     def test_a_tampered_or_unsigned_release_is_refused(self):
         tarball = helpers.fake_release(self.github, self.release_key, "0.3.0")
         with open(tarball, "ab") as f:

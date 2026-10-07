@@ -19,8 +19,7 @@ How Layout Engine itself is installed:
 - **Built from source**: otherwise (a compiled extension, a `--rev` pin, a
   local `path`), it builds Layout Engine with the extensions, which needs
   everything a source build needs (`BUILD.md`). It generates a superbuild
-  in `.le/superbuild/` that embeds Layout Engine with `add_subdirectory`,
-  the same as a hand-written one (`docs/EXTENSION_SDK.md`).
+  in `.le/superbuild/` that embeds Layout Engine with `add_subdirectory`.
 
 ## Quick start
 
@@ -46,6 +45,7 @@ le shell                               # builds if needed, then runs le_shell
 | `le update [name...]` | Resolves the named entries again (all if none), ignoring the lock, then installs. |
 | `le list` | What's installed: versions, sources, commits, signers, release or source build. |
 | `le shell [args...]` | Runs Layout Engine's `le_shell` with the project's extensions, reinstalling first if anything changed (including files in a `--path` extension). |
+| `le bundle <dir>` | Copies the installed project (Layout Engine, its extensions, the startup script) into a new or empty directory: self-contained and relocatable, to deploy. |
 | `le check <file.led>` | Whether a `.led` file loads in this project: for Layout Engine and each extension the file holds objects of, `matches`, `will migrate`, `missing` (with the `le add` line) or `too new`. Exits 1 if it can't load. |
 
 Writing extensions:
@@ -65,7 +65,9 @@ unless given `--allow-downgrade`.
 
 ## Files
 
-- `le_project.toml`: what you want. Commit it.
+- `le_project.toml`: what you want. Commit it. Its `[build]` table sets
+  `type` (default `Release`), `jobs`, and `cmake_args`: other CMake
+  options for the source build, e.g. `["-DLE_ENABLE_TRACY=OFF"]`.
 - `le_project.lock`: what was installed, i.e. each GitHub source's tag,
   commit and signing key, and the release bundle's sha256. Commit it, so everyone builds the same thing. A
   locked install refuses a tag that now points elsewhere, or a different

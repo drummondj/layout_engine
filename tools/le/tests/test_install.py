@@ -19,8 +19,8 @@ class Recorder:
     def __init__(self):
         self.calls = []
 
-    def __call__(self, le_source, extension_dirs, state_dir, build_type, jobs, version, startup):
-        self.calls.append({"le_source": le_source, "extension_dirs": list(extension_dirs), "startup": startup})
+    def __call__(self, le_source, extension_dirs, state_dir, build_type, jobs, version, startup, cmake_args=None):
+        self.calls.append({"le_source": le_source, "extension_dirs": list(extension_dirs), "startup": startup, "cmake_args": cmake_args})
         bundle = state_dir / "bundle"
         bundle.mkdir(parents=True, exist_ok=True)
         (bundle / "le_shell").write_text("")
@@ -168,6 +168,33 @@ class TestInstall(unittest.TestCase):
         self.assertIn("user depends on base", self.last_error)
         self.assertEqual(self.le("remove", "user"), 0, self.last_error)
         self.assertEqual(self.le("remove", "base"), 0, self.last_error)
+
+    def test_cmake_args_reach_the_build(self):
+        text = (self.project / "le_project.toml").read_text().replace('type = "Release"', 'type = "Release"\ncmake_args = ["-DLE_ENABLE_TRACY=OFF"]')
+        (self.project / "le_project.toml").write_text(text)
+        self.assertEqual(self.le("install"), 0, self.last_error)
+        self.assertEqual(self.recorder.calls[-1]["cmake_args"], ["-DLE_ENABLE_TRACY=OFF"])
+
+    def test_cmake_args_cant_set_what_le_does(self):
+        for bad in ('["-DLE_EXTENSION_DIRS=/x"]', '["-DCMAKE_BUILD_TYPE=Debug"]', '"-DX=1"', "[1]"):
+            text = (self.project / "le_project.toml").read_text()
+            original = text
+            (self.project / "le_project.toml").write_text(text.replace('type = "Release"', f'type = "Release"\ncmake_args = {bad}'))
+            self.assertEqual(self.le("install"), 1, bad)
+            self.assertIn("cmake_args", self.last_error)
+            (self.project / "le_project.toml").write_text(original)
+
+    def test_bundle_copies_the_build_with_its_startup_script(self):
+        (self.project / "init.tcl").write_text("puts hi\n")
+        text = (self.project / "le_project.toml").read_text().replace("[project]\n", '[project]\nstartup = "init.tcl"\n')
+        (self.project / "le_project.toml").write_text(text)
+        destination = self.root / "deploy"
+        self.assertEqual(self.le("bundle", str(destination)), 0, self.last_error)
+        self.assertTrue((destination / "le_shell").is_file())
+        self.assertEqual((destination / "init.tcl").read_text(), "puts hi\n")
+        self.assertEqual(json.loads((destination / "extensions.json").read_text())["startup"], "init.tcl")
+        self.assertEqual(self.le("bundle", str(destination)), 1, "not over a non-empty directory")
+        self.assertIn("isn't an empty directory", self.last_error)
 
     def test_startup_and_staleness(self):
         ext = helpers.write_script_extension(self.root / "ext", "ext", "Ext")

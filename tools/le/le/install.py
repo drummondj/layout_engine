@@ -231,7 +231,7 @@ def install(root: Path, update: Optional[Set[str]] = None, allow_downgrade: bool
         command = [str(le_shell), "-extensions", str(index)]
     else:
         bundle = build.build(le_fetched.directory, [fetched[m.name].directory for m in ordered], state, project.build_type,
-                             project.jobs, version, project.startup)
+                             project.jobs, version, project.startup, project.cmake_args)
         command = [str(bundle / "le_shell")]
     _write_stamp(state, project, new, command)
     return Path(command[0])
@@ -312,3 +312,32 @@ def shell_command(root: Path) -> Optional[List[str]]:
 
 def is_current(root: Path) -> bool:
     return shell_command(root) is not None
+
+
+def export_bundle(root: Path, destination: Path) -> Path:
+    """Copies the installed project - Layout Engine, its extensions and the
+    startup script - into `destination` as one self-contained, relocatable
+    bundle; returns it. The project must be installed and current."""
+    command = shell_command(root)
+    if command is None:
+        raise InstallError("the project isn't installed or is out of date - run `le install`")
+    if destination.exists() and (not destination.is_dir() or any(destination.iterdir())):
+        raise InstallError(f"{destination} already exists and isn't an empty directory")
+    project = projectfile.load(root)
+    state = project.root / STATE_DIR
+    shutil.copytree(Path(command[0]).parent, destination, symlinks=True, dirs_exist_ok=True)
+    if "-extensions" in command:
+        # A release's le_shell with the project's own index: the script
+        # extensions' files go in beside it, and the index replaces the release's.
+        if (state / "ext").is_dir():
+            shutil.copytree(state / "ext", destination / "ext", dirs_exist_ok=True)
+        index = json.loads((state / "extensions.json").read_text())
+    else:
+        index = json.loads((destination / "extensions.json").read_text())
+    # The startup script's path pointed into the project; the copy carries its own.
+    index.pop("startup", None)
+    if project.startup is not None:
+        shutil.copy2(project.startup, destination / project.startup.name)
+        index["startup"] = project.startup.name
+    (destination / "extensions.json").write_text(json.dumps(index, indent=2) + "\n")
+    return destination

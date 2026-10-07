@@ -342,9 +342,9 @@ spdlog/fmt/Boost (headers) via `find_package` with
 GLFW (fallback), GoogleTest/Benchmark and others via `FetchContent`.
 
 Gotchas:
-- Layout Engine must stay embeddable with `add_subdirectory` (a
-  superbuild is how end users add extensions; `le` generates one, so
-  `le-integration` covers it): use `PROJECT_SOURCE_DIR`/
+- Layout Engine must stay embeddable with `add_subdirectory`: users add
+  extensions only through `le` projects, which build that way (so
+  `le-integration` covers it). Use `PROJECT_SOURCE_DIR`/
   `PROJECT_BINARY_DIR`, never `CMAKE_SOURCE_DIR`/`CMAKE_BINARY_DIR`.
 - The vendored LEF/DEF Makefiles race under a parallel jobserver; the
   `ExternalProject_Add` steps force `make -j1` with `MAKEFLAGS` unset.

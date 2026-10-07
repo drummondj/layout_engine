@@ -111,7 +111,7 @@ class TestNewExtension(unittest.TestCase):
         self.addCleanup(os.chdir, REPO)
         code, out, _ = le("new-extension", "acme", "--script")
         self.assertEqual(code, 0)
-        self.assertIn("superbuild's LE_EXTENSION_DIRS", out, "outside a project, both routes are offered")
+        self.assertIn("make this directory a project", out)
         self.assertIn("`le init --layout-engine-path <layout_engine checkout>`, then `le add acme --path acme`", out)
         self.assertTrue((self.root / "acme" / "le_extension.toml").is_file())
         code, _, err = le("new-extension", "acme", "--script")
@@ -180,7 +180,7 @@ class TestCheckFindings(unittest.TestCase):
 class Recorder:
     """Stands in for build.build (and fakes a project build tree)."""
 
-    def __call__(self, le_source, extension_dirs, state_dir, build_type, jobs, version, startup):
+    def __call__(self, le_source, extension_dirs, state_dir, build_type, jobs, version, startup, cmake_args=None):
         bundle = state_dir / "bundle"
         bundle.mkdir(parents=True, exist_ok=True)
         (bundle / "le_shell").write_text("")

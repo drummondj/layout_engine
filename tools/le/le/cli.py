@@ -1,4 +1,4 @@
-"""The `le` command line: init, add, remove, trust, install, update, list, shell, and the authoring
+"""The `le` command line: init, add, remove, trust, install, update, list, shell, bundle, and the authoring
 commands new-extension, test, makemigration and check."""
 
 import argparse
@@ -152,6 +152,14 @@ def _installed_shell(root: Path) -> List[str]:
     return command
 
 
+def cmd_bundle(args) -> int:
+    root = find_root(Path.cwd())
+    _installed_shell(root)
+    destination = installer.export_bundle(root, Path(args.directory).resolve())
+    print(f"le: bundled into {destination} - run {destination / 'le_shell'}")
+    return 0
+
+
 def cmd_new_extension(args) -> int:
     directory = authoring.new_extension(args.name, Path(args.directory or args.name).resolve(), args.script, args.prefix, args.description)
     print(f"le: created {directory}")
@@ -162,7 +170,7 @@ def cmd_new_extension(args) -> int:
     if root is not None:
         print(f"le: next: `le add {args.name} --path {os.path.relpath(directory, root)}` (in {root}), then `le test {args.name}`")
     else:
-        print(f"le: next, either add {directory} to your superbuild's LE_EXTENSION_DIRS (docs/EXTENSION_SDK.md), or make this an le project:")
+        print("le: next, make this directory a project (see docs/EXTENSION_SDK.md) and add it:")
         print(f"le:   `le init --layout-engine-path <layout_engine checkout>`, then `le add {args.name} --path {os.path.relpath(directory)}`")
     return 0
 
@@ -231,6 +239,10 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("shell", help="run the project's le_shell (installing first if needed)")
     s.add_argument("args", nargs=argparse.REMAINDER)
     s.set_defaults(func=cmd_shell)
+
+    s = sub.add_parser("bundle", help="copy the installed project into a self-contained directory, e.g. for deployment")
+    s.add_argument("directory", help="where to put it (new, or empty)")
+    s.set_defaults(func=cmd_bundle)
 
     s = sub.add_parser("new-extension", help="create an extension directory from the examples")
     s.add_argument("name", help="snake_case, e.g. acme_router")
