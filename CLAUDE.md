@@ -336,9 +336,9 @@ cmake --build build -j4
 ctest --test-dir build --output-on-failure
 ```
 
-Keep a second tree, `build_release` (Release), up to date too - it's what
-`le_shell` users and benchmarks run. See the `build-test` skill and
-`BUILD.md` (rootless Rocky Linux 8 build). Docker: `docker compose run --rm
+A Release tree, `build_release`, is built on demand for benchmarks and
+performance testing - don't rebuild it after every change. See the
+`build-test` skill and `BUILD.md` (rootless Rocky Linux 8 build). Docker: `docker compose run --rm
 ci` (`Dockerfile.linux-ci`); releases come from `Dockerfile.linux-release`,
 which packages the `bundle` install component (`cmake --install <build>
 --component bundle --prefix <dir>`: a flat, relocatable directory whose own
