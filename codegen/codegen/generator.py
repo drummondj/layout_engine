@@ -209,6 +209,9 @@ def generate(
                 update_snapshot,
                 bump_hint=f"Bump VERSION in {ext.schema_path}.",
                 align=lambda snapshot: _aligned(core, snapshot),
+                # An extension's codegen runs inside the CMake build, so it
+                # can't be given --update-snapshot.
+                rerecord_hint=f"delete {ext.history_dir / (ext.version + '.json')} and rebuild instead.",
             )
             errors = [f"extension {ext.name}: {e}" for e in check.errors]
             if not errors:

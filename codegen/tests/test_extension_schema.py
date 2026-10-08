@@ -129,7 +129,16 @@ class TestExtensionSchema(unittest.TestCase):
             self.assertEqual(extension_schema.apply(changed, [ext2]), [])
             with self.assertLogs("test", level="ERROR") as logs:
                 self.assertEqual(generate(changed, out, log, history_dir=str(self.root / "h"), extensions=[ext2]), 1)
-        self.assertIn("Bump VERSION in", "\n".join(logs.output))
+            message = "\n".join(logs.output)
+            self.assertIn("Bump VERSION in", message)
+            # The build runs codegen, so an extension author can't pass
+            # --update-snapshot; deleting the snapshot re-records it.
+            snapshot = ext2.history_dir / "0.1.0.json"
+            self.assertIn(f"delete {snapshot} and rebuild instead.", message)
+            self.assertNotIn("--update-snapshot", message)
+            snapshot.unlink()
+            self.assertEqual(generate(changed, out, log, history_dir=str(self.root / "h"), extensions=[ext2]), 0)
+            self.assertIn("size", snapshot.read_text())
 
     def test_classes_it_does_not_own_are_read_only(self):
         body = NOTE + textwrap.dedent(
