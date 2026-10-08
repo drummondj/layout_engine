@@ -10,12 +10,15 @@ and after a schema change drafted by `le makemigration`. Then a script-only
 project gets a signed release bundle (this build reconfigured with no
 extensions, signed with a test key), runs hello_script and its test with no
 compiler or cmake on PATH, and `le check` finds hello_ext missing. Slow (it builds Layout Engine), so it's a ctest
-only when LE_TEST_PACKAGE_MANAGER is ON. LE_DEPS_DIR can point at an existing
-build's _deps to avoid downloading the dependencies again.
+only when LE_TEST_PACKAGE_MANAGER is ON. A second project of another build
+type then configures from the shared dependency sources without downloading
+any or touching the first project's dependency builds. LE_DEPS_DIR sets the
+shared source cache (ctest points it into its build tree).
 
     python3 tools/le/tests/integration_test.py <layout_engine source dir>
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -106,11 +109,30 @@ def main() -> int:
                 raise SystemExit(f"le list is missing {expected!r}:\n{listing}")
 
         authoring(project, my_ext)
+        shares_sources_only(source, root, project / ".le" / "build")
         release_project(source, github, project / ".le" / "build", key)
         print("le integration test passed")
         return 0
     finally:
         github.close()
+
+
+def shares_sources_only(source: Path, root: Path, first_build: Path) -> None:
+    """A second project, of another build type, takes every dependency source
+    from the cache and leaves the first project's dependency builds alone."""
+
+    def dependency_builds() -> dict:
+        return {str(p): p.stat().st_mtime_ns for d in (first_build / "_deps").glob("*-build") for p in d.rglob("*") if p.is_file()}
+
+    before = dependency_builds()
+    second = build.configure(source, [], root / "second_project" / ".le", "Debug")
+    if dependency_builds() != before:
+        raise SystemExit("configuring a second project touched the first project's dependency builds")
+    listing = json.loads((second / "layout_engine" / "le_fetched_sources.json").read_text())
+    cache = build.source_cache_dir().resolve()
+    downloaded = [d["name"] for d in listing if not Path(d["source_dir"]).resolve().is_relative_to(cache)]
+    if not listing or downloaded:
+        raise SystemExit(f"the second project downloaded {downloaded} instead of using the shared sources")
 
 
 AUTHOR_FIELD = '                Field(name="author", description="Who wrote the note", type="str", is_optional=True),\n'

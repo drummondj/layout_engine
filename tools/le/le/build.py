@@ -3,8 +3,8 @@ Building a project: Layout Engine from source with the project's extensions
 (LE_EXTENSION_DIRS), as a superbuild - .le/superbuild/CMakeLists.txt adds
 Layout Engine with add_subdirectory, the way a hand-written one does -
 configured in .le/build and installed as a bundle in .le/bundle. Fetched
-dependencies' sources are shared between projects in the cache (or
-LE_DEPS_DIR), and ccache is used when it's on PATH.
+dependencies' sources - never their builds - are shared between projects in
+the source cache (source_cache_dir()), and ccache is used when it's on PATH.
 """
 
 import json
@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -67,35 +68,100 @@ def _cached_source(build_dir: Path) -> Optional[str]:
     return found.group(1) if found else None
 
 
+def source_cache_dir() -> Path:
+    """Where fetched dependency sources are shared: LE_DEPS_DIR, else <cache>/sources."""
+    return Path(os.environ.get("LE_DEPS_DIR") or sources.cache_dir() / "sources")
+
+
+def remove_old_dependency_cache() -> None:
+    """Older le shared whole dependency builds in <cache>/deps/<version>; nothing uses it now."""
+    old = sources.cache_dir() / "deps"
+    if old.is_dir():
+        print(f"le: removing the old shared dependency builds in {old} (only sources are shared now)", flush=True)
+        shutil.rmtree(old, ignore_errors=True)
+
+
+def configure_command(superbuild: Path, build_dir: Path, build_type: str, extension_dirs: List[Path],
+                      cmake_args: Optional[List[str]] = None) -> List[str]:
+    """The cmake configure command. Dependencies build in build_dir's own _deps
+    (-U drops a shared FETCHCONTENT_BASE_DIR an older le cached there); only
+    their sources come from the shared cache."""
+    command = [
+        "cmake",
+        "-S", str(superbuild),
+        "-B", str(build_dir),
+        f"-DCMAKE_BUILD_TYPE={build_type}",
+        "-DLE_EXTENSION_DIRS=" + ";".join(str(d) for d in extension_dirs),
+        "-UFETCHCONTENT_BASE_DIR",
+        f"-DLE_SOURCE_CACHE_DIR={source_cache_dir()}",
+    ]
+    command += cmake_args or []
+    if shutil.which("ccache"):
+        command += ["-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"]
+    return command
+
+
+def populate_source_cache(build_dir: Path, cache: Path) -> List[str]:
+    """Copies each dependency source the configure in build_dir downloaded into
+    `cache` (listed in layout_engine/le_fetched_sources.json); returns the
+    entries added. Each copy is renamed into place whole, so a concurrent
+    `le` never sees half of one, and the first to finish wins."""
+    listing = build_dir / "layout_engine" / "le_fetched_sources.json"
+    if not listing.is_file():
+        return []
+    added = []
+    for dependency in json.loads(listing.read_text()):
+        target = cache / dependency["entry"]
+        source = Path(dependency["source_dir"])
+        if target.exists() or not source.is_dir() or source.resolve() == target.resolve():
+            continue
+        cache.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=f".{dependency['entry']}-", dir=cache))
+        try:
+            copy = staging / "source"
+            shutil.copytree(source, copy, symlinks=True)
+            copy.rename(target)
+            added.append(dependency["entry"])
+        except OSError:
+            if not target.exists():
+                raise
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+    return added
+
+
+def configure(
+    le_source: Path,
+    extension_dirs: List[Path],
+    state_dir: Path,
+    build_type: str,
+    cmake_args: Optional[List[str]] = None,
+) -> Path:
+    """Writes the superbuild and configures it in state_dir/build, sharing
+    dependency sources through the cache; returns the build directory."""
+    build_dir = state_dir / "build"
+    superbuild = write_superbuild(le_source, state_dir / "superbuild")
+    cached = _cached_source(build_dir)
+    if cached is not None and Path(cached).resolve() != superbuild.resolve():
+        shutil.rmtree(build_dir)  # configured from another source tree (an older le): cmake refuses to switch
+    remove_old_dependency_cache()
+    _run(configure_command(superbuild, build_dir, build_type, extension_dirs, cmake_args), "configuring")
+    populate_source_cache(build_dir, source_cache_dir())
+    return build_dir
+
+
 def build(
     le_source: Path,
     extension_dirs: List[Path],
     state_dir: Path,
     build_type: str,
     jobs: Optional[int],
-    layout_engine_version: str,
     startup: Optional[Path],
     cmake_args: Optional[List[str]] = None,
 ) -> Path:
     """Configures, builds and installs; returns the bundle directory."""
-    build_dir = state_dir / "build"
+    build_dir = configure(le_source, extension_dirs, state_dir, build_type, cmake_args)
     bundle_dir = state_dir / "bundle"
-    superbuild = write_superbuild(le_source, state_dir / "superbuild")
-    cached = _cached_source(build_dir)
-    if cached is not None and Path(cached).resolve() != superbuild.resolve():
-        shutil.rmtree(build_dir)  # configured from another source tree (an older le): cmake refuses to switch
-    configure = [
-        "cmake",
-        "-S", str(superbuild),
-        "-B", str(build_dir),
-        f"-DCMAKE_BUILD_TYPE={build_type}",
-        "-DLE_EXTENSION_DIRS=" + ";".join(str(d) for d in extension_dirs),
-        f"-DFETCHCONTENT_BASE_DIR={os.environ.get('LE_DEPS_DIR') or sources.cache_dir() / 'deps' / layout_engine_version}",
-    ]
-    configure += cmake_args or []
-    if shutil.which("ccache"):
-        configure += ["-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"]
-    _run(configure, "configuring")
     _run(["cmake", "--build", str(build_dir), "--target", "le_shell", "le_tcl", "-j", str(jobs or os.cpu_count() or 2)], "building")
     if bundle_dir.exists():
         shutil.rmtree(bundle_dir)  # so a removed extension's files don't linger

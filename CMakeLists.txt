@@ -62,6 +62,7 @@ endfunction()
 
 include(ExternalProject)
 include(FetchContent)
+include(cmake/le_fetch_cache.cmake)
 
 # --- Vendored LEF parser (src/lefdef/lef) ---
 # Built via its own Makefile; produces liblef.a and generates lefdef/lef/include/*.h.
@@ -149,7 +150,7 @@ add_dependencies(def_static def_lib)
 # build a second, colliding copy.
 find_package(fmt 11.0.2 EXACT CONFIG QUIET)
 if(NOT fmt_FOUND)
-    FetchContent_Declare(fmt URL https://github.com/fmtlib/fmt/archive/refs/tags/11.0.2.zip)
+    le_fetch_declare(fmt URL https://github.com/fmtlib/fmt/archive/refs/tags/11.0.2.zip)
     FetchContent_MakeAvailable(fmt)
 endif()
 
@@ -181,7 +182,7 @@ if(NOT spdlog_FOUND)
     # Without this, spdlog vendors its own internal fmt copy, conflicting
     # with the many targets in this file that link fmt::fmt directly.
     set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
-    FetchContent_Declare(spdlog URL https://github.com/gabime/spdlog/archive/refs/tags/v1.14.1.zip)
+    le_fetch_declare(spdlog URL https://github.com/gabime/spdlog/archive/refs/tags/v1.14.1.zip)
     FetchContent_MakeAvailable(spdlog)
 endif()
 
@@ -226,7 +227,7 @@ endif()
 set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER)
 set(SLANG_INCLUDE_TESTS OFF CACHE BOOL "" FORCE)
 set(SLANG_INCLUDE_TOOLS OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
+le_fetch_declare(
     slang
     URL https://github.com/MikePopoloski/slang/archive/refs/tags/v11.0.zip
 )
@@ -252,7 +253,7 @@ FetchContent_MakeAvailable(slang)
 # colliding with it the way this failed when the order was reversed.
 find_package(Boost REQUIRED)
 
-FetchContent_Declare(
+le_fetch_declare(
     googletest
     URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip
 )
@@ -260,7 +261,7 @@ set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
-FetchContent_Declare(
+le_fetch_declare(
     googlebenchmark
     URL https://github.com/google/benchmark/archive/refs/tags/v1.9.1.zip
 )
@@ -290,7 +291,7 @@ FetchContent_MakeAvailable(googlebenchmark)
 # set, so calling MakeAvailable(asmjit) ourselves as well would add the
 # same source directory to the build twice - a real CMake error, not just
 # redundant work.
-FetchContent_Declare(
+le_fetch_declare(
     asmjit
     URL https://github.com/asmjit/asmjit/archive/e24347521858616d2d070375ad0d52512e6e44ba.zip
 )
@@ -302,7 +303,7 @@ set(ASMJIT_DIR "${asmjit_SOURCE_DIR}" CACHE PATH "Location of 'asmjit' (fetched,
 
 set(BLEND2D_STATIC ON CACHE BOOL "" FORCE)
 set(BLEND2D_TEST OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
+le_fetch_declare(
     blend2d
     URL https://github.com/blend2d/blend2d/archive/58ca9460b4138af6e793184682e9324e0a8053b2.zip
 )
@@ -340,7 +341,7 @@ find_package(TBB REQUIRED CONFIG)
 # configure passes -DLE_ENABLE_TRACY=OFF for exactly this.
 option(LE_ENABLE_TRACY "Enable Tracy profiling instrumentation" ON)
 set(TRACY_ENABLE ${LE_ENABLE_TRACY} CACHE BOOL "" FORCE)
-FetchContent_Declare(
+le_fetch_declare(
     tracy
     URL https://github.com/wolfpld/tracy/archive/refs/tags/v0.13.1.zip
 )
@@ -381,7 +382,7 @@ if(NOT glfw3_FOUND)
     # installs Wayland dev packages on purpose, matching le_gui's own
     # X11-only scope). GLFW_BUILD_X11 stays at its own default (ON).
     set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(glfw URL https://github.com/glfw/glfw/archive/refs/tags/3.5.1.zip)
+    le_fetch_declare(glfw URL https://github.com/glfw/glfw/archive/refs/tags/3.5.1.zip)
     FetchContent_MakeAvailable(glfw)
 endif()
 
@@ -393,7 +394,7 @@ endif()
 # being pinned to a specific tag/version - bump this by hand (check
 # https://github.com/ocornut/imgui/commits/docking) when a newer commit
 # is wanted, same as bumping any other pinned dependency version.
-FetchContent_Declare(
+le_fetch_declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
     GIT_TAG fd13a1e8923a0a7077b404fc36fd063b25a0c0b5 # docking branch, 2026-09-01
@@ -422,7 +423,7 @@ FetchContent_MakeAvailable(imgui)
 # le_save_settings/le_load_settings). The release's own
 # single-header amalgamation, pinned by version, same loose-file
 # DOWNLOAD_NO_EXTRACT treatment as the icon header below.
-FetchContent_Declare(
+le_fetch_declare(
     nlohmann_json_header
     URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp
     URL_HASH SHA256=9bea4c8066ef4a1c206b2be5a36302f8926f7fdc6087af5d20b417d0cf103ea6
@@ -440,7 +441,7 @@ set(ZSTD_BUILD_STATIC ON CACHE BOOL "" FORCE)
 set(ZSTD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ZSTD_LEGACY_SUPPORT OFF CACHE BOOL "" FORCE)
 set(ZSTD_MULTITHREAD_SUPPORT OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
+le_fetch_declare(
     zstd
     URL https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz
     URL_HASH SHA256=8c29e06cf42aacc1eafc4077ae2ec6c6fcb96a626157e0593d5e82a34fd403c1
@@ -452,7 +453,7 @@ FetchContent_MakeAvailable(zstd)
 # Header-only; at runtime it drives the platform's own dialog
 # (zenity/kdialog on Linux, osascript on macOS, the Win32 API on Windows)
 # - no build-time GTK/Qt dependency. Pinned to a commit.
-FetchContent_Declare(
+le_fetch_declare(
     portable_file_dialogs_header
     URL https://raw.githubusercontent.com/samhocevar/portable-file-dialogs/7f852d88a480020d7f91957cbcefe514fc95000c/portable-file-dialogs.h
     URL_HASH SHA256=5cb1e6e63af588a274c676519be4cd763ce77904632c58a5b1393b438d1c7c6a
@@ -460,19 +461,20 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(portable_file_dialogs_header)
 
-FetchContent_Declare(
+le_fetch_declare(
     icon_font_header
     URL https://raw.githubusercontent.com/juliettef/IconFontCppHeaders/780f04406084230c1b034c2c34c0c0b8b9b1829b/IconsLucide.h
     DOWNLOAD_NO_EXTRACT TRUE
 )
 FetchContent_MakeAvailable(icon_font_header)
 
-FetchContent_Declare(
+le_fetch_declare(
     lucide_font
     URL https://unpkg.com/lucide-static@1.17.0/font/lucide.ttf
     DOWNLOAD_NO_EXTRACT TRUE
 )
 FetchContent_MakeAvailable(lucide_font)
+le_write_fetched_sources()
 # Also copied into the build tree next to where le_shell/le_tcl.so land
 # (not just left in FetchContent's own cache dir under FETCHCONTENT_BASE_DIR)
 # - LE_LUCIDE_FONT_PATH (below) is this build machine's own
@@ -1190,7 +1192,7 @@ if(SWIG_FOUND AND TCL_FOUND)
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/tests/integration_test.py ${CMAKE_CURRENT_SOURCE_DIR})
         set_tests_properties(le_package_manager_integration PROPERTIES
             TIMEOUT 7200
-            ENVIRONMENT "LE_DEPS_DIR=${FETCHCONTENT_BASE_DIR}")
+            ENVIRONMENT "LE_DEPS_DIR=${PROJECT_BINARY_DIR}/le_source_cache")
     endif()
 else()
     message(STATUS "SWIG and/or Tcl not found - skipping le_tcl target")

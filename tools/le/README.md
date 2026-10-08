@@ -75,8 +75,12 @@ unless given `--allow-downgrade`.
   signing key; `le update` accepts the change.
 - `.le/`: sources, the build tree and the bundle. Never commit it; it can be
   deleted and rebuilt.
-- `~/.layout_engine/cache/` (or `$LE_CACHE_DIR`): git mirrors, unpacked
-  release bundles and dependency sources shared by every project.
+- `~/.layout_engine/cache/` (or `$LE_CACHE_DIR`): git mirrors and unpacked
+  release bundles shared by every project, and `sources/` (or `$LE_DEPS_DIR`):
+  fetched dependencies' sources (slang, Blend2D, ...), one directory per
+  dependency and declared URL or tag, downloaded once per machine. Only
+  sources are shared: each project builds its dependencies in its own
+  `.le/build`, so build types, compilers and `cmake_args` never collide.
 
 ## Signatures
 
