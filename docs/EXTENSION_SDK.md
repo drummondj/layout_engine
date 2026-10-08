@@ -263,6 +263,38 @@ while you hold a `ReadView` or `WriteView`; that deadlocks. The same goes for
 a view is open: inside a view, use the view's own members. Keep views short,
 because a view blocks rendering (`write()`) or edits (`read()`).
 
+### Microns and shapes
+
+The database stores lengths in dbu. `units()` on a `ReadView` or `WriteView`
+converts at the Technology's scale (DATABASE MICRONS), rounding microns to
+the nearest dbu as Tcl does. It's an error until a Technology has been read:
+
+```cpp
+const auto units = view.units();                     // std::expected<le::ext::Units, std::string>
+const le::Rect rect = units->to_dbu(le::ext::RectUm{{0, 0}, {2, 1}});
+const le::ext::RectUm box = units->to_um(view.shape_bbox({shape}).value());
+```
+
+`Units` has `to_dbu` for a length, `PointUm` and `RectUm`, and `to_um` for a
+length, `Point`, `Rect` and a `Polygon`'s points.
+
+`WriteView::build_shape(owner)` builds one Shape from geometry in microns
+and creates it undoably, like `create_shape`:
+
+```cpp
+const auto shape = view.build_shape(le::ShapeOwner::my_ext_marker(marker))
+                       .layer(metal1)                  // or .purpose(le::ShapePurpose::DEBUG)
+                       .rect(0, 0, 2, 1)
+                       .polygon({{0, 0}, {1, 0}, {0.5, 0.75}})
+                       .path(0.1, {{0, 5}, {10, 5}})   // width, then points
+                       .create();                      // std::expected<le::ShapeId, std::string>
+```
+
+`create()` returns the first problem instead: no Technology, a polygon with
+fewer than 3 points, a path with fewer than 2 or a width that isn't
+positive, or whatever `create_shape` rejects. Use the builder while the
+view it came from is open.
+
 ### Shape operations
 
 The views run the `shape_*` Tcl commands' operations on shape ids, in dbu
@@ -615,6 +647,7 @@ release without notice.
 - the C API (`api.hpp`) and the database classes (`le::Root`, the
   `<Type>Data` structs, `<Type>Changes` and `<Type>Id` handles, generated
   from `schema.py`), and `le::ext::to_c`/`from_c` between their ids
+- `le::ext::Units`, `PointUm`, `RectUm` and `ShapeBuilder`
 - the shape operations' types: `le::shape_ops::LayerOrPurpose`,
   `le::shape_ops::ShapeParent`, `le::BooleanOp`, `le::FractureDirection`
 - the Tcl helpers `register_command_help`, `help` and `man`
@@ -651,6 +684,8 @@ The first version.
   `shape_copy`, `shape_boolean`, `shape_to_polygons`, `shape_to_rects`,
   `shape_size`, `shape_outline_paths` and `shape_change_layer` on
   `WriteView`.
+- Microns: `units()` on `ReadView` and `WriteView` (`Units`, `PointUm`,
+  `RectUm`), and `WriteView::build_shape` (`ShapeBuilder`).
 - GUI: `<IconsLucide.h>` (the built-in icon set), `GuiRegistry` (`add_window`, `add_menu_item`, `add_toolbar_button`,
   `add_key_binding`, `add_settings_panel`, `add_icon_glyphs`, `add_font`),
   `GuiWindow`, `Dock`, `GuiMenuItem`, `GuiToolbarButton`, `ToolbarModes`,

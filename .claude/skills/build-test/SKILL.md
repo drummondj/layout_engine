@@ -25,19 +25,16 @@ allowed-tools:
    ctest --test-dir build --output-on-failure
    ```
 
-3. **Also keep `build_release/` (Release) up to date**, not just `build/`
-   (Debug) - `le_shell` users and benchmarks run it, and
-   `Dockerfile.linux-release`'s `export` stage bundles a Release build for
-   every GitHub Release:
+3. **Don't rebuild `build_release/` (Release) as routine** - the user
+   builds it when they need it for benchmarks or performance testing. Only
+   build it when asked, or when running a benchmark:
 
    ```
    cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release
    cmake --build build_release --target api pipelines io le_shell le_tcl -j4
    ```
 
-   Rebuild both trees after any backend source change that touches
-   `le_shell`/`le_gui`; a stale `le_shell`/`le_tcl.so` in one tree is easy
-   to miss. `build_release/` is `.gitignore`d, same as `build/`.
+   `build_release/` is `.gitignore`d, same as `build/`.
 
 6. **If `lef_lib` fails to build** with something like
    `ranlib: liblef.a is not writable` or `mv: lef.tab.c: No such file or

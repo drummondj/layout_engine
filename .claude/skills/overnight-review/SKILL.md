@@ -46,7 +46,8 @@ genuinely risky cases only, not as a default hedge.
      - write tests alongside the code (failing before, passing after, where
        that's meaningful)
      - benchmark before any performance-motivated change
-     - rebuild **both** `build` and `build_release` after a C++ change
+     - build and test in `build` (Debug); `build_release` is only for
+       benchmarks
      - fix root causes rather than papering over failures
      - comments describe current behaviour only, per CLAUDE.md's Comments
        section

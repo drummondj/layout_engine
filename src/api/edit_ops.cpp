@@ -11,6 +11,17 @@ namespace le::edit
 {
 #include "generated/api/edit_ops_defs.inc"
 
+    std::optional<double> dbu_per_um(const Root &root)
+    {
+        const auto &technology_ids = root.get_technology_ids();
+        if (technology_ids.empty())
+            return std::nullopt;
+        const TechnologyData *technology = root.get_technology(technology_ids.front());
+        if (!technology || technology->database_units_microns <= 0.0)
+            return std::nullopt;
+        return technology->database_units_microns;
+    }
+
     namespace
     {
         // An explicit parent, else the current view's own Abstract/Layout

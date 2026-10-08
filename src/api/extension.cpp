@@ -104,6 +104,95 @@ namespace le::ext
         handle_->notify_render_needed();
     }
 
+    namespace
+    {
+        std::expected<Units, std::string> units_of(const Root &root)
+        {
+            const std::optional<double> scale = edit::dbu_per_um(root);
+            if (!scale)
+                return std::unexpected("no Technology with a DATABASE MICRONS scale has been read yet");
+            return Units(*scale);
+        }
+    }
+
+    std::expected<Units, std::string> ReadView::units() const { return units_of(*root_); }
+
+    std::expected<Units, std::string> WriteView::units() const { return units_of(*root_); }
+
+    ShapeBuilder WriteView::build_shape(ShapeOwner owner) { return ShapeBuilder(*this, owner); }
+
+    ShapeBuilder::ShapeBuilder(WriteView &view, ShapeOwner owner) : view_(&view), units_(view.units()), data_{.owner = owner} {}
+
+    void ShapeBuilder::fail(std::string error)
+    {
+        if (error_.empty())
+            error_ = std::move(error);
+    }
+
+    ShapeBuilder &ShapeBuilder::layer(LayerId layer)
+    {
+        data_.layer = layer;
+        data_.purpose.reset();
+        return *this;
+    }
+
+    ShapeBuilder &ShapeBuilder::purpose(ShapePurpose purpose)
+    {
+        data_.layer = LayerId{};
+        data_.purpose = purpose;
+        return *this;
+    }
+
+    ShapeBuilder &ShapeBuilder::rect(double llx, double lly, double urx, double ury) { return rect(RectUm{{llx, lly}, {urx, ury}}); }
+
+    ShapeBuilder &ShapeBuilder::rect(RectUm rect)
+    {
+        if (units_)
+            data_.rects.push_back(units_->to_dbu(rect));
+        return *this;
+    }
+
+    ShapeBuilder &ShapeBuilder::polygon(const std::vector<PointUm> &points)
+    {
+        if (points.size() < 3)
+            fail("a polygon needs at least 3 points");
+        else if (units_)
+        {
+            Polygon polygon;
+            polygon.points.reserve(points.size());
+            for (const PointUm p : points)
+                polygon.points.push_back(units_->to_dbu(p));
+            data_.polygons.push_back(std::move(polygon));
+        }
+        return *this;
+    }
+
+    ShapeBuilder &ShapeBuilder::path(double width, const std::vector<PointUm> &points)
+    {
+        if (points.size() < 2)
+            fail("a path needs at least 2 points");
+        else if (width <= 0.0)
+            fail("a path's width must be positive");
+        else if (units_)
+        {
+            Path path{.width = units_->to_dbu(width)};
+            path.polygon.points.reserve(points.size());
+            for (const PointUm p : points)
+                path.polygon.points.push_back(units_->to_dbu(p));
+            data_.paths.push_back(std::move(path));
+        }
+        return *this;
+    }
+
+    std::expected<ShapeId, std::string> ShapeBuilder::create()
+    {
+        if (!units_)
+            return std::unexpected(units_.error());
+        if (!error_.empty())
+            return std::unexpected(error_);
+        return view_->create_shape(data_);
+    }
+
     std::expected<Rect, std::string> ReadView::shape_bbox(const std::vector<ShapeId> &shapes) const { return shape_ops::bbox(*root_, shapes); }
 
     std::expected<Rect, std::string> WriteView::shape_bbox(const std::vector<ShapeId> &shapes) const { return shape_ops::bbox(*root_, shapes); }

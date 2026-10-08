@@ -29,10 +29,7 @@ namespace
         const le::DesignId design = view.create_design({.library = library, .name = "top"}).value();
         const le::LayoutId layout = view.create_layout({.design = design}).value();
         const le::HelloMarkerId marker = view.create_hello_marker({.layout = layout, .name = "clock_root"}).value();
-        view.create_shape({.owner = le::ShapeOwner::hello_marker(marker),
-                           .purpose = le::ShapePurpose::DEBUG,
-                           .rects = {le::Rect{{0, 0}, {2000, 1000}}}})
-            .value();
+        view.build_shape(le::ShapeOwner::hello_marker(marker)).purpose(le::ShapePurpose::DEBUG).rect(0, 0, 2, 1).create().value();
         return le::ext::to_c(marker);
     }
 

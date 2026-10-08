@@ -179,8 +179,8 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   (`le::ext::Registry`, `ExtensionContext` with `read()`/`write()`/
   `write(label)`/`transaction()`/`data<T>()`/`current_<type>()`, generated
   `to_c`/`from_c` id conversions; `WriteView`'s undoable
-  `create_/update_/delete_<type>` and the views' `shape_*` ops over
-  `le::edit`; implemented in `src/api/extension.cpp`),
+  `create_/update_/delete_<type>`, the views' `shape_*` ops over
+  `le::edit`, and micron helpers (`units()`, `build_shape`); implemented in `src/api/extension.cpp`),
   versioned by `LE_EXTENSION_API_VERSION`. `cmake/le_extensions.cmake`
   builds each directory in `LE_EXTENSION_DIRS` (its `le_extension.toml`
   checked and ordered by `codegen/codegen/extension_manifest.py`, its
@@ -336,9 +336,9 @@ cmake --build build -j4
 ctest --test-dir build --output-on-failure
 ```
 
-Keep a second tree, `build_release` (Release), up to date too - it's what
-`le_shell` users and benchmarks run. See the `build-test` skill and
-`BUILD.md` (rootless Rocky Linux 8 build). Docker: `docker compose run --rm
+A Release tree, `build_release`, is built on demand for benchmarks and
+performance testing - don't rebuild it after every change. See the
+`build-test` skill and `BUILD.md` (rootless Rocky Linux 8 build). Docker: `docker compose run --rm
 ci` (`Dockerfile.linux-ci`); releases come from `Dockerfile.linux-release`,
 which packages the `bundle` install component (`cmake --install <build>
 --component bundle --prefix <dir>`: a flat, relocatable directory whose own
