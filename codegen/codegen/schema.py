@@ -3294,6 +3294,10 @@ class Field:
         and `dbu_per_um` already exists for a field with cmd_uses_dbu().
         """
         if self.is_compound_create_field():
+            # The flag is optional either way; a non-optional field
+            # defaults to the zero value when it's omitted.
+            if not self.is_optional:
+                return f"has_{self.name} ? {self.cmd_value_expr()} : le::{self.type}{{}}"
             return f"has_{self.name} ? std::optional<le::{self.type}>({self.cmd_value_expr()}) : std::nullopt"
         if self.list_compound_kind() is not None:
             # Klass.create_api_body() already parsed the flat wire
