@@ -2411,13 +2411,13 @@ Adds each token to the selection, keeping what's already selected (use deselect_
 
 ## set_confirm_overwrite
 
-`set_confirm_overwrite <0|1> [-help]`
+`set_confirm_overwrite <true|false> [-help]`
 
-Sets whether the GUI asks for confirmation before File > Save (or the exit dialog's Save) overwrites an existing design file. On (1) by default; saved with the settings.
+Sets whether the GUI asks for confirmation before File > Save (or the exit dialog's Save) overwrites an existing design file. True by default; saved with the settings.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<0|1>` | `bool` | yes | 1 to ask before overwriting, 0 to save straight away |
+| `<true|false>` | `bool` | yes | true to ask before overwriting, false to save straight away |
 
 ## set_flightline_max_fanout
 
@@ -2490,7 +2490,7 @@ Sets whether shapes on the layer <layer_name> can be selected. Layers are select
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<layer_name>` | `str` | yes | Layer name, e.g. "M1" |
-| `<selectable>` | `bool` | yes | 0/1 or true/false |
+| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
 
 ## set_layer_visible
 
@@ -2501,7 +2501,7 @@ Shows or hides everything on the layer <layer_name> - its pins, obstructions, ro
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<layer_name>` | `str` | yes | Layer name, e.g. "M1" |
-| `<visible>` | `bool` | yes | 0/1 or true/false - hide/show |
+| `<visible>` | `bool` | yes | true to show, false to hide |
 
 ## set_max_concurrency
 
@@ -2542,7 +2542,7 @@ Sets whether placements whose type (the placed cell's LEF MACRO CLASS) is <type>
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
-| `<selectable>` | `bool` | yes | 0/1 or true/false |
+| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
 
 ## set_placement_type_visible
 
@@ -2553,7 +2553,7 @@ Shows or hides placements whose type (the placed cell's LEF MACRO CLASS) is <typ
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
-| `<visible>` | `bool` | yes | 0/1 or true/false |
+| `<visible>` | `bool` | yes | true to show, false to hide |
 
 ## set_purpose_selectable
 
@@ -2564,7 +2564,7 @@ Sets whether shapes of one purpose - e.g. obstructions - can be selected, across
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
-| `<selectable>` | `bool` | yes | 0/1 or true/false |
+| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
 
 ## set_purpose_visible
 
@@ -2575,7 +2575,7 @@ Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> i
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
-| `<visible>` | `bool` | yes | 0/1 or true/false - hide/show |
+| `<visible>` | `bool` | yes | true to show, false to hide |
 
 ## set_route_use_selectable
 
@@ -2586,7 +2586,7 @@ Sets whether routes whose DEF USE is <use> can be selected. Everything is select
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
-| `<selectable>` | `bool` | yes | 0/1 or true/false |
+| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
 
 ## set_route_use_visible
 
@@ -2597,7 +2597,7 @@ Shows or hides routes whose DEF USE is <use> - their shapes and vias. Everything
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
-| `<visible>` | `bool` | yes | 0/1 or true/false |
+| `<visible>` | `bool` | yes | true to show, false to hide |
 
 ## set_ruler_label_size
 
