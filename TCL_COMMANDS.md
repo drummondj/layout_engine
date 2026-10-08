@@ -2393,7 +2393,7 @@ Rotates each selected placement 90 degrees counterclockwise about its center (N,
 
 `save_settings [<path>] [-help]`
 
-Saves the settings - grid spacing, font sizes, hierarchy depth, flightline fanout limit, CPUs, snap modes and layer colors - as JSON to <path>, or to ~/.layout_engine/settings.json if omitted, which le_shell loads when it starts. Settings from a newer layout_engine that this one doesn't know are kept.
+Saves the settings - grid spacing, font sizes, flightline fanout limit, CPUs, snap modes and layer colors - as JSON to <path>, or to ~/.layout_engine/settings.json if omitted, which le_shell loads when it starts. Settings from a newer layout_engine that this one doesn't know are kept.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |

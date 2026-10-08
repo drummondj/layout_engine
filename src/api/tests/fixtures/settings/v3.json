@@ -1,0 +1,22 @@
+{
+  "confirm_overwrite": true,
+  "flightline_max_fanout": 7,
+  "grid": {
+    "major_um": 2.0,
+    "minor_um": 0.2
+  },
+  "label_max_size_px": 18.0,
+  "label_min_size_px": 10.0,
+  "layer_colors": {
+    "M1": "#ff8000"
+  },
+  "max_concurrency": 5,
+  "placement_snap_mode": "manufacturing",
+  "ruler_label_size_px": 14.0,
+  "shape_snap_modes": {
+    "path": "tracks",
+    "polygon": "none",
+    "rect": "user"
+  },
+  "version": 3
+}

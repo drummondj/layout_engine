@@ -2943,7 +2943,7 @@ proc save_settings {args} {
 }
 register_command_help save_settings \
     "save_settings \[<path>\] \[-help\]" \
-    "Saves the settings - grid spacing, font sizes, hierarchy depth, flightline fanout limit, CPUs, snap modes and layer colors - as JSON to <path>, or to ~/.layout_engine/settings.json if omitted, which le_shell loads when it starts. Settings from a newer layout_engine that this one doesn't know are kept." \
+    "Saves the settings - grid spacing, font sizes, flightline fanout limit, CPUs, snap modes and layer colors - as JSON to <path>, or to ~/.layout_engine/settings.json if omitted, which le_shell loads when it starts. Settings from a newer layout_engine that this one doesn't know are kept." \
     {
         {<path> {type file required 0 description {JSON file to write - ~/.layout_engine/settings.json if omitted}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}

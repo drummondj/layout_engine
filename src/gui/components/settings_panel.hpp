@@ -7,7 +7,8 @@ namespace le::gui
     class GuiProvider;
 
     // The Settings panel - grid spacing, ruler and label font sizes,
-    // hierarchy depth and the flightline fanout limit, plus saving
+    // hierarchy depth (for this session only) and the flightline fanout
+    // limit, plus saving
     // them to / loading them from a JSON settings file: the default one
     // (le_default_settings_path - le_shell loads it at startup) or one
     // picked with the system file dialog. Draws directly into whatever

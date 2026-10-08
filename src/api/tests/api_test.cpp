@@ -6464,6 +6464,7 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsEverySetting)
     const std::string text = read_file(path);
     EXPECT_NE(text.find("\"minor_um\": 0.2"), std::string::npos) << text;
     EXPECT_NE(text.find("\"placement_snap_mode\": \"manufacturing\""), std::string::npos) << text;
+    EXPECT_EQ(text.find("hierarchy_depth"), std::string::npos) << text;
 
     LeHandle *other = le_create();
     ASSERT_EQ(le_read_lef(other, fixture_path("testcell.lef").c_str(), "testcell"), 0);
@@ -6473,7 +6474,7 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsEverySetting)
     EXPECT_DOUBLE_EQ(le_ruler_label_size(other), 14.0);
     EXPECT_DOUBLE_EQ(le_label_min_size(other), 10.0);
     EXPECT_DOUBLE_EQ(le_label_max_size(other), 18.0);
-    EXPECT_EQ(le_hierarchy_depth(other), 3);
+    EXPECT_EQ(le_hierarchy_depth(other), 0); // a per-session view choice, not saved
     EXPECT_EQ(le_flightline_max_fanout(other), 7);
     EXPECT_EQ(le_max_concurrency(other), 5);
     EXPECT_EQ(le_get_placement_snap_mode(other), LE_PLACEMENT_SNAP_MANUFACTURING_GRID);
@@ -6505,18 +6506,18 @@ TEST_F(ApiFixture, SettingsLoadedBeforeAnyTechnologyApplyTheGridOnceOneIsRead)
 TEST_F(ApiFixture, SettingsLoadSkipsInvalidKeysAndRejectsMalformedFiles)
 {
     const std::string path = scratch_path("le_settings_partial.json");
-    write_file(path, R"({"label_max_size_px": "big", "hierarchy_depth": 2, "placement_snap_mode": "nowhere",
+    write_file(path, R"({"label_max_size_px": "big", "flightline_max_fanout": 2, "placement_snap_mode": "nowhere",
                           "shape_snap_modes": {"rect": "tracks", "path": "none"}})");
     ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
     EXPECT_DOUBLE_EQ(le_label_max_size(handle), 24.0);
-    EXPECT_EQ(le_hierarchy_depth(handle), 2);
+    EXPECT_EQ(le_flightline_max_fanout(handle), 2);
     EXPECT_EQ(le_get_placement_snap_mode(handle), LE_PLACEMENT_SNAP_SITE);
     EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_RECT), LE_SHAPE_SNAP_USER_GRID); // rects can't snap to tracks
     EXPECT_EQ(le_get_shape_snap_mode(handle, LE_PIECE_KIND_PATH), LE_SHAPE_SNAP_NONE);
 
     write_file(path, "not json");
     EXPECT_NE(le_load_settings(handle, path.c_str()), 0);
-    EXPECT_EQ(le_hierarchy_depth(handle), 2);
+    EXPECT_EQ(le_flightline_max_fanout(handle), 2);
     EXPECT_NE(le_load_settings(handle, scratch_path("le_settings_missing.json").c_str()), 0);
 }
 
@@ -6753,7 +6754,7 @@ TEST_F(ApiFixture, ConfirmOverwriteIsASavedSettingOnByDefault)
 // fixtures/settings/; each must keep loading into the same settings.
 TEST_F(ApiFixture, SettingsGoldenFilesFromEveryFormatVersionLoad)
 {
-    for (const char *name : {"v1_original.json", "v1_latest.json", "v2.json"})
+    for (const char *name : {"v1_original.json", "v1_latest.json", "v2.json", "v3.json"})
     {
         SCOPED_TRACE(name);
         LeHandle *other = le_create();
@@ -6762,7 +6763,7 @@ TEST_F(ApiFixture, SettingsGoldenFilesFromEveryFormatVersionLoad)
         EXPECT_EQ(le_minor_grid_spacing(other), 200);
         EXPECT_EQ(le_major_grid_spacing(other), 2000);
         EXPECT_DOUBLE_EQ(le_ruler_label_size(other), 14.0);
-        EXPECT_EQ(le_hierarchy_depth(other), 3);
+        EXPECT_EQ(le_hierarchy_depth(other), 0); // a v1/v2 file's hierarchy_depth isn't restored
         EXPECT_EQ(le_flightline_max_fanout(other), 7);
         EXPECT_EQ(le_get_placement_snap_mode(other), LE_PLACEMENT_SNAP_MANUFACTURING_GRID);
         EXPECT_EQ(le_get_shape_snap_mode(other, LE_PIECE_KIND_RECT), LE_SHAPE_SNAP_USER_GRID);
@@ -6787,6 +6788,7 @@ TEST_F(ApiFixture, SettingsGoldenFilesFromEveryFormatVersionLoad)
         ASSERT_EQ(le_save_settings(other, saved.c_str()), 0);
         EXPECT_EQ(read_file(saved).find("\"label_size_px\""), std::string::npos);
         EXPECT_EQ(read_file(saved).find("\"via\""), std::string::npos);
+        EXPECT_EQ(read_file(saved).find("\"hierarchy_depth\""), std::string::npos);
         le_destroy(other);
     }
 }
@@ -6798,10 +6800,10 @@ TEST_F(ApiFixture, SettingsGoldenFilesFromEveryFormatVersionLoad)
 TEST_F(ApiFixture, SettingsSaveMatchesTheCurrentFormatsGoldenFile)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    ASSERT_EQ(le_load_settings(handle, fixture_path("settings/v2.json").c_str()), 0);
+    ASSERT_EQ(le_load_settings(handle, fixture_path("settings/v3.json").c_str()), 0);
     const std::string path = scratch_path("le_settings_current_format.json");
     ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
-    EXPECT_EQ(read_file(path), read_file(fixture_path("settings/v2.json")));
+    EXPECT_EQ(read_file(path), read_file(fixture_path("settings/v3.json")));
 }
 
 // A file from a newer layout_engine loads the settings this one knows, and
@@ -6810,21 +6812,21 @@ TEST_F(ApiFixture, SettingsSaveMatchesTheCurrentFormatsGoldenFile)
 TEST_F(ApiFixture, SettingsFromANewerVersionLoadAndKeepUnknownKeysOnSave)
 {
     const std::string path = scratch_path("le_settings_newer.json");
-    write_file(path, R"({"version": 99, "hierarchy_depth": 2, "future_panel": {"open": true}, "future_size": 3})");
+    write_file(path, R"({"version": 99, "flightline_max_fanout": 2, "future_panel": {"open": true}, "future_size": 3})");
     ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
-    EXPECT_EQ(le_hierarchy_depth(handle), 2);
+    EXPECT_EQ(le_flightline_max_fanout(handle), 2);
     EXPECT_EQ(le_has_unsaved_settings(handle), 0);
 
-    le_set_hierarchy_depth(handle, 4);
+    le_set_flightline_max_fanout(handle, 4);
     ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
     const std::string text = read_file(path);
     EXPECT_NE(text.find("\"future_panel\": {\n    \"open\": true\n  }"), std::string::npos) << text;
     EXPECT_NE(text.find("\"future_size\": 3"), std::string::npos) << text;
-    EXPECT_NE(text.find("\"hierarchy_depth\": 4"), std::string::npos) << text;
-    EXPECT_NE(text.find("\"version\": 2"), std::string::npos) << text; // this version's format
+    EXPECT_NE(text.find("\"flightline_max_fanout\": 4"), std::string::npos) << text;
+    EXPECT_NE(text.find("\"version\": 3"), std::string::npos) << text; // this version's format
 
     // Loading a file without them forgets them.
-    write_file(path, R"({"version": 2})");
+    write_file(path, R"({"version": 3})");
     ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
     ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
     EXPECT_EQ(read_file(path).find("future"), std::string::npos);
@@ -6839,6 +6841,22 @@ TEST_F(ApiFixture, SettingsMigrationPrefersANewerKeyAlreadyPresent)
     write_file(path, R"({"version": 1, "label_size_px": 30, "label_max_size_px": 18})");
     ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
     EXPECT_DOUBLE_EQ(le_label_max_size(handle), 18.0);
+}
+
+// The hierarchy depth is a per-session view choice: a v2 file's saved depth
+// is dropped on load, so it isn't restored or written back, and changing
+// the depth leaves the settings saved.
+TEST_F(ApiFixture, SettingsDropASavedHierarchyDepth)
+{
+    const std::string path = scratch_path("le_settings_v2_depth.json");
+    write_file(path, R"({"version": 2, "hierarchy_depth": 3, "flightline_max_fanout": 7})");
+    ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
+    EXPECT_EQ(le_hierarchy_depth(handle), 0);
+    EXPECT_EQ(le_flightline_max_fanout(handle), 7);
+    le_set_hierarchy_depth(handle, 2);
+    EXPECT_EQ(le_has_unsaved_settings(handle), 0);
+    ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
+    EXPECT_EQ(read_file(path).find("hierarchy_depth"), std::string::npos) << read_file(path);
 }
 
 // --- Placement.type / Route.use filters ---
