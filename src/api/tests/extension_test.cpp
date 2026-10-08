@@ -38,6 +38,13 @@ namespace
     {
         return le_create_layout(handle, le_create_design(handle, le_create_library(handle, "lib"), "top"));
     }
+
+    le::AbstractId add_abstract(le::ext::WriteView &view)
+    {
+        const le::LibraryId library = view.create_library({.name = "lib"}).value();
+        const le::DesignId design = view.create_design({.library = library, .name = "cell"}).value();
+        return view.create_abstract({.design = design}).value();
+    }
 }
 
 TEST(ExtensionIds, RoundTripBetweenTheCApiAndTheDatabase)
@@ -111,5 +118,216 @@ TEST(ExtensionContext, CurrentObjectsAreReadableInsideViewsAndTransactions)
     ASSERT_TRUE(in_transaction.has_value()) << "ExtensionContext::current_layout deadlocked in a transaction";
     EXPECT_EQ(*in_transaction, expected);
 
+    le_destroy(handle);
+}
+
+TEST(WriteViewEdits, ALabelledViewIsOneUndoStep)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    le::LibraryId library;
+    {
+        le::ext::WriteView view = ctx.write("add library");
+        library = view.create_library({.name = "lib"}).value();
+        ASSERT_TRUE(view.update_library(library, {.name = "renamed"}));
+    }
+    ASSERT_EQ(le_command_history_count(handle), 1);
+    EXPECT_STREQ(le_command_history_at(handle, 0), "add library");
+    EXPECT_EQ(ctx.read().root().get_library(library)->name, "renamed");
+
+    ASSERT_EQ(le_undo(handle), 1);
+    EXPECT_TRUE(ctx.read().root().get_library_ids().empty());
+    ASSERT_EQ(le_redo(handle), 1);
+    {
+        const le::ext::ReadView view = ctx.read();
+        ASSERT_EQ(view.root().get_library_ids().size(), 1u);
+        EXPECT_EQ(view.root().get_library(view.root().get_library_ids().front())->name, "renamed");
+    }
+    le_destroy(handle);
+}
+
+TEST(WriteViewEdits, AnUnlabelledViewRecordsNothing)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    {
+        le::ext::WriteView view = ctx.write();
+        ASSERT_TRUE(view.create_library({.name = "lib"}));
+    }
+    EXPECT_EQ(le_command_history_count(handle), 0);
+    EXPECT_EQ(le_can_undo(handle), 0);
+    le_destroy(handle);
+}
+
+TEST(WriteViewEdits, ALabelledViewJoinsAnOpenStep)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    le_begin_command(handle, "outer");
+    {
+        le::ext::WriteView view = ctx.write("inner");
+        ASSERT_TRUE(view.create_library({.name = "lib"}));
+    }
+    EXPECT_EQ(le_is_command_running(handle), 1);
+    le_end_command(handle, 1);
+    ASSERT_EQ(le_command_history_count(handle), 1);
+    EXPECT_STREQ(le_command_history_at(handle, 0), "outer");
+    ASSERT_EQ(le_undo(handle), 1);
+    EXPECT_TRUE(ctx.read().root().get_library_ids().empty());
+    le_destroy(handle);
+}
+
+TEST(WriteViewEdits, ErrorsComeBackAsValues)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    {
+        le::ext::WriteView view = ctx.write("errors");
+
+        const auto orphan = view.create_design({.library = le::LibraryId{}, .name = "cell"});
+        ASSERT_FALSE(orphan);
+        EXPECT_EQ(orphan.error(), "unknown library - no such Library exists");
+
+        const le::AbstractId abstract = add_abstract(view);
+        ASSERT_TRUE(view.create_terminal({.abstract = abstract, .name = "A"}));
+        const auto clash = view.create_terminal({.abstract = abstract, .name = "A"});
+        ASSERT_FALSE(clash);
+        EXPECT_EQ(clash.error(), "a sibling Terminal with this name ('A') already exists");
+
+        const auto unknown_update = view.update_library(le::LibraryId{}, {.name = "x"});
+        ASSERT_FALSE(unknown_update);
+        EXPECT_EQ(unknown_update.error(), "unknown id");
+        const auto bad_move = view.update_abstract(abstract, {.design = le::DesignId{}});
+        ASSERT_FALSE(bad_move);
+        EXPECT_EQ(bad_move.error(), "unknown design - no such Design exists");
+        EXPECT_FALSE(view.delete_library(le::LibraryId{}));
+
+        const auto ownerless = view.create_shape({.rects = {le::Rect{{0, 0}, {10, 10}}}});
+        ASSERT_FALSE(ownerless);
+        EXPECT_EQ(ownerless.error(), "an owner is required");
+    }
+    le_destroy(handle);
+}
+
+TEST(WriteViewEdits, ACascadingDeleteUndoes)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    {
+        le::ext::WriteView view = ctx.write("setup");
+        const le::AbstractId abstract = add_abstract(view);
+        ASSERT_TRUE(view.create_terminal({.abstract = abstract, .name = "A"}));
+        ASSERT_TRUE(view.create_terminal({.abstract = abstract, .name = "B"}));
+    }
+    const auto abstract_of = [&ctx]() {
+        const le::ext::ReadView view = ctx.read();
+        const le::DesignId design = view.root().get_library_designs(view.root().get_library_by_name("lib")).front();
+        return view.root().get_design_abstract(design);
+    };
+    {
+        const le::AbstractId abstract = abstract_of();
+        le::ext::WriteView view = ctx.write("delete");
+        ASSERT_TRUE(view.delete_abstract(abstract));
+    }
+    EXPECT_FALSE(abstract_of().valid());
+
+    ASSERT_EQ(le_undo(handle), 1);
+    const le::AbstractId restored = abstract_of();
+    ASSERT_TRUE(restored.valid());
+    EXPECT_EQ(ctx.read().root().get_abstract_terminals(restored).size(), 2u);
+    le_destroy(handle);
+}
+
+namespace
+{
+    // A Technology (1000 dbu per micron), layers M1/M2 and a Layout holding
+    // two free-standing M1 rects, all made through the WriteView API.
+    struct ShapeScene
+    {
+        le::LayerId m1;
+        le::LayerId m2;
+        le::LayoutId layout;
+        std::vector<le::ShapeId> rects;
+    };
+
+    ShapeScene add_shape_scene(le::ext::WriteView &view)
+    {
+        ShapeScene scene;
+        const le::TechnologyId technology = view.create_technology({.database_units_microns = 1000}).value();
+        scene.m1 = view.create_layer({.technology = technology, .name = "M1", .type = "ROUTING"}).value();
+        scene.m2 = view.create_layer({.technology = technology, .name = "M2", .type = "ROUTING"}).value();
+        const le::LibraryId library = view.create_library({.name = "lib"}).value();
+        const le::DesignId design = view.create_design({.library = library, .name = "top"}).value();
+        scene.layout = view.create_layout({.design = design}).value();
+        for (const le::Rect rect : {le::Rect{{0, 0}, {1000, 2000}}, le::Rect{{500, 500}, {4000, 4000}}})
+            scene.rects.push_back(view.create_shape({.owner = le::ShapeOwner::in_layout(scene.layout), .layer = scene.m1, .rects = {rect}}).value());
+        return scene;
+    }
+}
+
+TEST(ViewShapeOps, BboxMatchesTheCApi)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    ShapeScene scene;
+    {
+        le::ext::WriteView view = ctx.write();
+        scene = add_shape_scene(view);
+        const auto box = view.shape_bbox(scene.rects);
+        ASSERT_TRUE(box);
+        EXPECT_EQ(box->ll.x, 0);
+        EXPECT_EQ(box->ll.y, 0);
+        EXPECT_EQ(box->ur.x, 4000);
+        EXPECT_EQ(box->ur.y, 4000);
+    }
+    const auto one = ctx.read().shape_bbox({scene.rects[0]});
+    ASSERT_TRUE(one);
+    EXPECT_EQ(one->ur.x, 1000);
+    EXPECT_EQ(one->ur.y, 2000);
+
+    const std::vector<LeShapeId> c_ids{le::ext::to_c(scene.rects[0]), le::ext::to_c(scene.rects[1])};
+    const LeShapeBbox c_box = le_shape_bbox(handle, c_ids.data(), 2);
+    ASSERT_EQ(c_box.valid, 1);
+    EXPECT_DOUBLE_EQ(c_box.ur_x_um, 4.0);
+    EXPECT_DOUBLE_EQ(c_box.ur_y_um, 4.0);
+
+    const auto none = ctx.read().shape_bbox({});
+    ASSERT_FALSE(none);
+    EXPECT_EQ(none.error(), "no shapes given");
+    le_destroy(handle);
+}
+
+TEST(ViewShapeOps, CreatingOpsReturnTheirIdsAndUndo)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    ShapeScene scene;
+    {
+        le::ext::WriteView view = ctx.write();
+        scene = add_shape_scene(view);
+    }
+    ASSERT_EQ(le_set_current_layout(handle, le::ext::to_c(scene.layout)), 0);
+    {
+        le::ext::WriteView view = ctx.write("shape ops");
+        // No parent: the open Layout's free shapes.
+        const auto copies = view.shape_copy(scene.rects, {.layer = scene.m2});
+        ASSERT_TRUE(copies) << copies.error();
+        ASSERT_EQ(copies->size(), 2u);
+        EXPECT_EQ(view.root().get_shape(copies->front())->layer, scene.m2);
+
+        const auto merged = view.shape_boolean({scene.rects[0]}, {scene.rects[1]}, le::BooleanOp::Or, std::nullopt, scene.layout);
+        ASSERT_TRUE(merged) << merged.error();
+        ASSERT_EQ(merged->size(), 1u);
+        EXPECT_EQ(view.root().get_shape(merged->front())->layer, scene.m1);
+
+        ASSERT_TRUE(view.shape_change_layer({scene.rects[0]}, {.layer = scene.m2}));
+        EXPECT_EQ(view.root().get_layout_free_shapes(scene.layout).size(), 5u);
+    }
+    ASSERT_EQ(le_undo(handle), 1);
+    {
+        const le::ext::ReadView view = ctx.read();
+        EXPECT_EQ(view.root().get_layout_free_shapes(scene.layout).size(), 2u);
+        EXPECT_EQ(view.root().get_shape(scene.rects[0])->layer, scene.m1);
+    }
     le_destroy(handle);
 }

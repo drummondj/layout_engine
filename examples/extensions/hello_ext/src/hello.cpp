@@ -14,16 +14,10 @@ namespace hello
 
     bool add_library(le::ext::ExtensionContext &ctx, const std::string &name)
     {
-        le::ext::Transaction transaction = ctx.transaction("hello_add_library " + name);
-        if (name.empty())
+        le::ext::WriteView view = ctx.write("hello_add_library " + name);
+        if (name.empty() || !view.create_library({.name = "hello_" + name}))
         {
-            transaction.fail();
-            return false;
-        }
-        const LeLibraryId library = le_create_library(ctx.handle(), ("hello_" + name).c_str());
-        if (library.index == UINT32_MAX)
-        {
-            transaction.fail();
+            view.fail();
             return false;
         }
         ++ctx.data<State>().libraries_added;
@@ -32,12 +26,10 @@ namespace hello
 
     bool add_marker(le::ext::ExtensionContext &ctx, const std::string &name)
     {
-        le::ext::Transaction transaction = ctx.transaction("hello_add_marker " + name);
-        const le::LayoutId layout = ctx.current_layout();
-        if (name.empty() || !layout.valid() ||
-            le_create_hello_marker(ctx.handle(), le::ext::to_c(layout), name.c_str()).index == UINT32_MAX)
+        le::ext::WriteView view = ctx.write("hello_add_marker " + name);
+        if (name.empty() || !view.create_hello_marker({.layout = view.current_layout(), .name = name}))
         {
-            transaction.fail();
+            view.fail();
             return false;
         }
         return true;

@@ -652,7 +652,7 @@ le_enable_coverage_instrumentation(io)
 # Compiled (not header-only): the opaque LeHandle's real definition must
 # stay out of api.hpp, which is a plain-C header - see api.hpp's own
 # comment. ---
-add_library(api STATIC src/api/api.cpp src/api/extension.cpp)
+add_library(api STATIC src/api/api.cpp src/api/edit_ops.cpp src/api/extension.cpp)
 # api.hpp includes "generated/api/..." itself, so its consumers need the
 # build tree's root on their include path (and the codegen step) too.
 target_include_directories(api PUBLIC src/api ${PROJECT_BINARY_DIR})
@@ -669,7 +669,7 @@ target_compile_definitions(api PRIVATE LE_EXTENSION_API_VERSION=${LE_EXTENSION_A
 add_library(extension_sdk INTERFACE)
 add_library(le::extension_sdk ALIAS extension_sdk)
 target_include_directories(extension_sdk INTERFACE src/extension ${nlohmann_json_header_SOURCE_DIR})
-target_link_libraries(extension_sdk INTERFACE api database blend2d::blend2d) # Blend2D: overlays draw with it
+target_link_libraries(extension_sdk INTERFACE api database geometry blend2d::blend2d) # Blend2D: overlays draw with it; geometry: the shape-op types
 target_compile_definitions(extension_sdk INTERFACE LE_EXTENSION_API_VERSION=${LE_EXTENSION_API_VERSION})
 
 target_include_directories(api PRIVATE ${nlohmann_json_header_SOURCE_DIR})
