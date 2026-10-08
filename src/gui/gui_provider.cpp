@@ -460,7 +460,7 @@ namespace le::gui
     }
 
     void GuiProvider::set_ruler_label_size(double px) { run_tcl_command("set_ruler_label_size " + tcl_number(px)); }
-    void GuiProvider::set_confirm_overwrite(bool confirm) { run_tcl_command(confirm ? "set_confirm_overwrite 1" : "set_confirm_overwrite 0"); }
+    void GuiProvider::set_confirm_overwrite(bool confirm) { run_tcl_command(confirm ? "set_confirm_overwrite true" : "set_confirm_overwrite false"); }
     void GuiProvider::set_max_concurrency(int32_t threads) { run_tcl_command("set_max_concurrency " + std::to_string(threads)); }
     void GuiProvider::set_label_min_size(double px) { run_tcl_command("set_label_min_size " + tcl_number(px)); }
     void GuiProvider::set_label_max_size(double px) { run_tcl_command("set_label_max_size " + tcl_number(px)); }
@@ -492,22 +492,22 @@ namespace le::gui
 
     void GuiProvider::set_layer_visible(const std::string &layer_name, bool value)
     {
-        run_tcl_command("set_layer_visible {" + layer_name + "} " + (value ? "1" : "0"));
+        run_tcl_command("set_layer_visible {" + layer_name + "} " + (value ? "true" : "false"));
     }
 
     void GuiProvider::set_layer_selectable(const std::string &layer_name, bool value)
     {
-        run_tcl_command("set_layer_selectable {" + layer_name + "} " + (value ? "1" : "0"));
+        run_tcl_command("set_layer_selectable {" + layer_name + "} " + (value ? "true" : "false"));
     }
 
     void GuiProvider::set_purpose_visible(const std::string &purpose_name, bool value)
     {
-        run_tcl_command("set_purpose_visible " + purpose_name + " " + (value ? "1" : "0"));
+        run_tcl_command("set_purpose_visible " + purpose_name + " " + (value ? "true" : "false"));
     }
 
     void GuiProvider::set_purpose_selectable(const std::string &purpose_name, bool value)
     {
-        run_tcl_command("set_purpose_selectable " + purpose_name + " " + (value ? "1" : "0"));
+        run_tcl_command("set_purpose_selectable " + purpose_name + " " + (value ? "true" : "false"));
     }
 
     namespace
@@ -520,12 +520,12 @@ namespace le::gui
 
     void GuiProvider::set_object_filter_visible(int32_t filter, const std::string &value, bool visible)
     {
-        run_tcl_command(std::string("set_") + object_filter_command_noun(filter) + "_visible {" + value + "} " + (visible ? "1" : "0"));
+        run_tcl_command(std::string("set_") + object_filter_command_noun(filter) + "_visible {" + value + "} " + (visible ? "true" : "false"));
     }
 
     void GuiProvider::set_object_filter_selectable(int32_t filter, const std::string &value, bool selectable)
     {
-        run_tcl_command(std::string("set_") + object_filter_command_noun(filter) + "_selectable {" + value + "} " + (selectable ? "1" : "0"));
+        run_tcl_command(std::string("set_") + object_filter_command_noun(filter) + "_selectable {" + value + "} " + (selectable ? "true" : "false"));
     }
 
     void GuiProvider::run_tcl_command(const std::string &script)

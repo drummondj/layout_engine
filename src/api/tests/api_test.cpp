@@ -3816,12 +3816,12 @@ TEST_F(ApiFixture, PendingTclCommandQueueIsFifoAndDrainsToEmpty)
     // drainage instead of just "consumed exactly once".
     EXPECT_EQ(le_take_next_pending_tcl_command(handle), nullptr) << "nothing queued yet";
 
-    le_enqueue_tcl_command(handle, "set_layer_visible {M1} 1");
+    le_enqueue_tcl_command(handle, "set_layer_visible {M1} true");
     le_enqueue_tcl_command(handle, "set_hierarchy_depth 2");
 
     const char *first = le_take_next_pending_tcl_command(handle);
     ASSERT_NE(first, nullptr);
-    EXPECT_STREQ(first, "set_layer_visible {M1} 1") << "FIFO order, not LIFO";
+    EXPECT_STREQ(first, "set_layer_visible {M1} true") << "FIFO order, not LIFO";
 
     const char *second = le_take_next_pending_tcl_command(handle);
     ASSERT_NE(second, nullptr);

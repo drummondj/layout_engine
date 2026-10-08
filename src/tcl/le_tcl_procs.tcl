@@ -855,7 +855,7 @@ register_command_help set_layer_visible \
     "Shows or hides everything on the layer <layer_name> - its pins, obstructions, routes, tracks and so on. Layers are visible by default." \
     {
         {<layer_name> {type str required 1 description {Layer name, e.g. "M1"}}}
-        {<visible> {type bool required 1 description {0/1 or true/false - hide/show}}}
+        {<visible> {type bool required 1 description {true to show, false to hide}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
@@ -888,7 +888,7 @@ register_command_help set_layer_selectable \
     "Sets whether shapes on the layer <layer_name> can be selected. Layers are selectable by default." \
     {
         {<layer_name> {type str required 1 description {Layer name, e.g. "M1"}}}
-        {<selectable> {type bool required 1 description {0/1 or true/false}}}
+        {<selectable> {type bool required 1 description {true to allow selecting, false to prevent it}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
@@ -958,7 +958,7 @@ register_command_help set_purpose_visible \
     "Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: [lsort $::_le_purpose_labels]. Everything is visible by default except [_le_english_list $::_le_purposes_hidden_by_default]." \
     "
         {<purpose> {type str required 1 description {One of [join $::_le_purpose_labels {, }]}}}
-        {<visible> {type bool required 1 description {0/1 or true/false - hide/show}}}
+        {<visible> {type bool required 1 description {true to show, false to hide}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     "
 
@@ -991,7 +991,7 @@ register_command_help set_purpose_selectable \
     "Sets whether shapes of one purpose - e.g. obstructions - can be selected, across every layer. See set_purpose_visible for the purposes." \
     "
         {<purpose> {type str required 1 description {One of [join $::_le_purpose_labels {, }]}}}
-        {<selectable> {type bool required 1 description {0/1 or true/false}}}
+        {<selectable> {type bool required 1 description {true to allow selecting, false to prevent it}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     "
 
@@ -1030,7 +1030,7 @@ register_command_help set_placement_type_visible \
     "Shows or hides placements whose type (the placed cell's LEF MACRO CLASS) is <type> - their outline, name and content. Everything is visible by default." \
     {
         {<type> {type str required 1 description {Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET}}}
-        {<visible> {type bool required 1 description {0/1 or true/false}}}
+        {<visible> {type bool required 1 description {true to show, false to hide}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
@@ -1063,7 +1063,7 @@ register_command_help set_placement_type_selectable \
     "Sets whether placements whose type (the placed cell's LEF MACRO CLASS) is <type> can be selected. Everything is selectable by default." \
     {
         {<type> {type str required 1 description {Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET}}}
-        {<selectable> {type bool required 1 description {0/1 or true/false}}}
+        {<selectable> {type bool required 1 description {true to allow selecting, false to prevent it}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
@@ -1096,7 +1096,7 @@ register_command_help set_route_use_visible \
     "Shows or hides routes whose DEF USE is <use> - their shapes and vias. Everything is visible by default." \
     {
         {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
-        {<visible> {type bool required 1 description {0/1 or true/false}}}
+        {<visible> {type bool required 1 description {true to show, false to hide}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
@@ -1129,7 +1129,7 @@ register_command_help set_route_use_selectable \
     "Sets whether routes whose DEF USE is <use> can be selected. Everything is selectable by default." \
     {
         {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
-        {<selectable> {type bool required 1 description {0/1 or true/false}}}
+        {<selectable> {type bool required 1 description {true to allow selecting, false to prevent it}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
@@ -2755,19 +2755,19 @@ register_command_help get_grid_spacing \
 
 proc set_confirm_overwrite {value} {
     if {$value eq "-help"} {
-        return "set_confirm_overwrite <0|1> \[-help\] - Sets whether the GUI asks before a Save overwrites a design file"
+        return "set_confirm_overwrite <true|false> \[-help\] - Sets whether the GUI asks before a Save overwrites a design file"
     }
     if {![string is boolean -strict $value]} {
-        error "set_confirm_overwrite: expected 0 or 1, got \"$value\""
+        error "set_confirm_overwrite: expected true or false, got \"$value\""
     }
     set_confirm_overwrite_command [expr {$value ? 1 : 0}]
     return ""
 }
 register_command_help set_confirm_overwrite \
-    "set_confirm_overwrite <0|1> \[-help\]" \
-    "Sets whether the GUI asks for confirmation before File > Save (or the exit dialog's Save) overwrites an existing design file. On (1) by default; saved with the settings." \
+    "set_confirm_overwrite <true|false> \[-help\]" \
+    "Sets whether the GUI asks for confirmation before File > Save (or the exit dialog's Save) overwrites an existing design file. True by default; saved with the settings." \
     {
-        {<0|1> {type bool required 1 description {1 to ask before overwriting, 0 to save straight away}}}
+        {<true|false> {type bool required 1 description {true to ask before overwriting, false to save straight away}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
