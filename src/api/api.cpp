@@ -748,7 +748,7 @@ namespace
     // moved or changes meaning, add the step to migrate_settings_json, and
     // add the new format's golden file under src/api/tests/fixtures/
     // settings/. Adding a key needs neither - an older file just lacks it.
-    constexpr int64_t kSettingsVersion = 2;
+    constexpr int64_t kSettingsVersion = 3;
 
     nlohmann::json settings_to_json(const LeHandle *handle)
     {
@@ -763,7 +763,6 @@ namespace
         j["ruler_label_size_px"] = handle->ruler_label_size_px();
         j["label_min_size_px"] = handle->label_min_size_px();
         j["label_max_size_px"] = handle->label_max_size_px();
-        j["hierarchy_depth"] = handle->hierarchy_depth();
         j["flightline_max_fanout"] = handle->flightline_max_fanout();
         j["confirm_overwrite"] = handle->confirm_overwrite;
         j["max_concurrency"] = handle->max_concurrency_;
@@ -825,6 +824,10 @@ namespace
             if (j.contains("shape_snap_modes") && j["shape_snap_modes"].is_object())
                 j["shape_snap_modes"].erase("via");
         }
+        // 2 -> 3: the hierarchy depth is a per-session view choice, not a
+        // setting; every session starts at 0.
+        if (version < 3)
+            j.erase("hierarchy_depth");
     }
 
     // Applies whatever `j` holds - a missing key keeps its current value,
@@ -862,8 +865,6 @@ namespace
             handle->set_label_min_size_px(*v);
         if (const auto v = number(j, "label_max_size_px"))
             handle->set_label_max_size_px(*v);
-        if (const auto v = number(j, "hierarchy_depth"); v && *v >= 0)
-            handle->set_hierarchy_depth(static_cast<int>(*v));
         if (const auto v = number(j, "flightline_max_fanout"); v && *v >= 0)
             handle->set_flightline_max_fanout(static_cast<int>(*v));
         if (const auto v = number(j, "max_concurrency"))

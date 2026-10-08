@@ -79,6 +79,8 @@ namespace le::gui
         draw_committed_int_field("##hierarchy_depth", "Hierarchy Depth", settings.hierarchy_depth, depth_field,
                                  [&](int32_t value)
                                  { provider.set_hierarchy_depth(value); });
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How many levels of placed cells to draw - not saved; every session starts at 0");
         static CommittedField<int32_t> fanout_field;
         draw_committed_int_field("##flightline_max_fanout", "Flightline Max Fanout", settings.flightline_max_fanout, fanout_field,
                                  [&](int32_t value)
