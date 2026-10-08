@@ -338,7 +338,9 @@ ctest --test-dir build --output-on-failure
 ```
 
 A Release tree, `build_release`, is built on demand for benchmarks and
-performance testing - don't rebuild it after every change. See the
+performance testing - don't rebuild it after every change. Tracy
+instrumentation is on only in a `-DCMAKE_BUILD_TYPE=Profile` tree (Release
+plus `-g`) unless `LE_ENABLE_TRACY` says otherwise. See the
 `build-test` skill and `BUILD.md` (rootless Rocky Linux 8 build). Docker: `docker compose run --rm
 ci` (`Dockerfile.linux-ci`); releases come from `Dockerfile.linux-release`,
 which packages the `bundle` install component (`cmake --install <build>

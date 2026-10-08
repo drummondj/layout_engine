@@ -180,15 +180,11 @@ WORKDIR /workspace
 # under full parallelism on this Mac's Docker Desktop VM. Override via
 # --build-arg BUILD_JOBS=N on a machine/runner with more memory
 # available.
-#
-# -DLE_ENABLE_TRACY=OFF on the Release-tree configure only (not the
-# Debug/ctest tree, which isn't shipped either way) - a shipped release
-# binary shouldn't carry Tracy's own profiling instrumentation.
 ARG BUILD_JOBS=2
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPython3_EXECUTABLE=$(command -v python3.12) \
  && cmake --build build -j ${BUILD_JOBS} \
  && ctest --test-dir build --output-on-failure \
- && cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release -DLE_ENABLE_TRACY=OFF -DLE_BUILD_LE_BINARY=ON -DPython3_EXECUTABLE=$(command -v python3.12) \
+ && cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release -DLE_BUILD_LE_BINARY=ON -DPython3_EXECUTABLE=$(command -v python3.12) \
  && cmake --build build_release --target api pipelines io le_shell le_tcl le_binary -j ${BUILD_JOBS}
 
 # ---- bundle: the release asset's actual content - CMakeLists.txt's
