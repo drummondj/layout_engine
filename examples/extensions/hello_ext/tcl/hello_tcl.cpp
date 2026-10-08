@@ -31,6 +31,12 @@ int hello_add_library_cmd(const char *name)
     return hello::add_library(ctx, name ? name : "") ? 0 : 1;
 }
 
+int hello_add_marker_cmd(const char *name)
+{
+    le::ext::ExtensionContext ctx = context();
+    return hello::add_marker(ctx, name ? name : "") ? 0 : 1;
+}
+
 int hello_libraries_added_cmd()
 {
     return context().data<hello::State>().libraries_added;

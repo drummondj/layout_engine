@@ -57,4 +57,11 @@ le_repl_eval "delete_hello_marker $marker"
 expect "the marker is gone" [llength [get_hello_markers -of $layout]] 0
 expect "the shape went with its marker (no properties left)" [get_properties $shape] {}
 
+# hello_add_marker acts on the current layout, as one undo step.
+current_layout $layout
+hello_add_marker reset_root
+expect "a marker on the current layout" [dict get [get_properties [get_hello_markers -of $layout]] name] reset_root
+undo
+expect "the marker is undone" [llength [get_hello_markers -of $layout]] 0
+
 puts "hello_ext Tcl test passed"

@@ -169,7 +169,8 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   automated coverage of the render/input loop itself.
 - `src/extension/` — the extension SDK header, `le/extension.hpp`
   (`le::ext::Registry`, `ExtensionContext` with `read()`/`write()`/
-  `transaction()`/`data<T>()`; implemented in `src/api/extension.cpp`),
+  `transaction()`/`data<T>()`/`current_<type>()`, generated `to_c`/`from_c`
+  id conversions; implemented in `src/api/extension.cpp`),
   versioned by `LE_EXTENSION_API_VERSION`. `cmake/le_extensions.cmake`
   builds each directory in `LE_EXTENSION_DIRS` (its `le_extension.toml`
   checked and ordered by `codegen/codegen/extension_manifest.py`, its

@@ -57,6 +57,11 @@
 
 namespace
 {
+    // The generated id conversions (generated/api/id_conversions.hpp), the
+    // same ones extensions use, overloaded with this file's own to_c's.
+    using le::ext::from_c;
+    using le::ext::to_c;
+
     // Tracy's FrameMarkStart/FrameMarkEnd send the raw pointer value of
     // `name`, not a copy of the string (see TracyProfiler.hpp's
     // SendFrameMark) - the server pairs a Start with its matching End by
@@ -1701,7 +1706,7 @@ namespace
     }
 
     // Generated TCL property-reading surface (internal helpers only -
-    // build_X_properties/to_c/from_c overloads, for every TCL-readable
+    // build_X_properties, for every TCL-readable
     // class - these stay inside this anonymous namespace since they're
     // never called from another translation unit; see
     // generated/api/property_accessors_public.inc, included later in

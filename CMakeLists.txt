@@ -1217,6 +1217,7 @@ add_executable(backend_tests
     src/io/tests/golden_files_test.cpp
     src/api/tests/api_test.cpp
     src/api/tests/le_handle_test.cpp
+    src/api/tests/extension_test.cpp
     src/api/tests/native_db_api_test.cpp
     src/api/tests/selection_test.cpp
     src/api/tests/power_grid_port_markers_test.cpp
@@ -1231,7 +1232,7 @@ add_executable(backend_tests
     src/gui/gui_provider.cpp
     src/gui/tests/gui_provider_test.cpp
 )
-target_link_libraries(backend_tests PRIVATE database geometry editing pipelines io api fmt::fmt GTest::gtest_main)
+target_link_libraries(backend_tests PRIVATE database geometry editing pipelines io api le::extension_sdk fmt::fmt GTest::gtest_main)
 target_include_directories(backend_tests PRIVATE ${nlohmann_json_header_SOURCE_DIR})
 target_compile_definitions(backend_tests PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
