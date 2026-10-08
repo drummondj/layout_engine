@@ -173,3 +173,48 @@ class TestSingularOwnerSlot(unittest.TestCase):
         self.assertIn("if (value.kind == ItemOwnerKind::Holder && index_.holder_item.contains(HolderId{value.index, value.generation}))", root)
         # Deleting or moving an Item only clears the slot if it's still this Item's.
         self.assertIn("if (it != index_.holder_item.end() && it->second == id)", root)
+
+
+class TestGlobalUniqueIndex(unittest.TestCase):
+    """A plain index=True field is unique across the Root; a unique_per_parent one isn't global."""
+
+    def _schema(self):
+        return Schema(
+            name="t",
+            description="",
+            namespace="t",
+            version="1.0.0",
+            classes=[
+                Klass(
+                    name="Shelf",
+                    description="Shelf",
+                    fields=[
+                        Field(name="name", description="Name", type="str", example="a", index=True),
+                        Field(name="books", description="Books", type="Book", is_list=True, is_child=True),
+                    ],
+                ),
+                Klass(
+                    name="Book",
+                    description="Book",
+                    fields=[
+                        Field(name="shelf", description="Shelf", type="Shelf", parent="books"),
+                        Field(name="name", description="Name", type="str", example="b", index=True, unique_per_parent=True),
+                    ],
+                ),
+            ],
+        )
+
+    def test_only_the_global_index_is_globally_unique(self):
+        schema = self._schema()
+        schema.link()
+        self.assertEqual([f.name for f in schema.get_klass("Shelf").get_global_unique_fields()], ["name"])
+        self.assertEqual(schema.get_klass("Book").get_global_unique_fields(), [])
+
+    def test_create_update_and_rebuild_refuse_a_clash(self):
+        with tempfile.TemporaryDirectory() as out:
+            self.assertEqual(generate(self._schema(), out, logging.getLogger("test")), 0)
+            root = (Path(out) / "root.hpp").read_text()
+        self.assertIn("if (index_.shelf_by_name.contains(data.name))\n                return ShelfId{};", root)
+        self.assertIn("if (index_.shelf_by_name.contains(*name))", root)
+        self.assertIn("if (index_.shelf_by_name.contains(value))\n                return false;", root)
+        self.assertIn('": duplicate name"', root)

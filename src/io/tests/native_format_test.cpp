@@ -797,6 +797,17 @@ namespace le::persistence
         EXPECT_NE(report.error.find("inconsistent data"), std::string::npos) << report.error;
     }
 
+    TEST_F(NativeFormatOlderSchema, DuplicateGlobalNameIsRejected)
+    {
+        // Rename layer M2 to M1: an older schema allowed two layers of one
+        // name, Layer.name is now unique.
+        auto &strings = file.strings;
+        std::replace(strings.begin(), strings.end(), std::string("M2"), std::string("M1"));
+        const LoadReport report = load();
+        EXPECT_FALSE(report.ok());
+        EXPECT_NE(report.error.find("duplicate name"), std::string::npos) << report.error;
+    }
+
     // --- Migration chains (renames applied before name matching) ----------------
 
     using migrations::Op;

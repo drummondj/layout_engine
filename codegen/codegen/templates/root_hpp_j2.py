@@ -181,6 +181,11 @@ namespace {{schema.namespace}} {
         /// {{field.name}}'s {{field.parent}} is already set (one per
         /// {{field.type}}).
         {%- endfor %}
+        {%- for field in klass.get_global_unique_fields() %}
+        ///
+        /// Fallible: returns an invalid {{klass.name}}Id if another
+        /// {{klass.name}} already has this {{field.name}} (unique across the Root).
+        {%- endfor %}
         {{klass.name}}Id create_{{klass.to_snake_case()}}({{klass.name}}Data data) {
         {%- for field in klass.get_ordered_fields() %}
             {%- if field.unique_per_parent %}
@@ -193,6 +198,10 @@ namespace {{schema.namespace}} {
         {%- endfor %}
         {%- for field in klass.get_singular_parent_fields() %}
             if (data.{{field.accessor}}.valid() && index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.contains(data.{{field.accessor}}))
+                return {{klass.name}}Id{};
+        {%- endfor %}
+        {%- for field in klass.get_global_unique_fields() %}
+            if (index_.{{klass.to_snake_case()}}_by_{{field.name}}.contains(data.{{field.name}}))
                 return {{klass.name}}Id{};
         {%- endfor %}
             {{klass.name}}Id id = {{klass.to_snake_case()}}_.create(std::move(data));
@@ -214,6 +223,9 @@ namespace {{schema.namespace}} {
         {%- if klass.get_parent_fields() | length == 1 and klass.get_singular_parent_fields() %}
         /// Also false if the new {{klass.get_parent_fields()[0].name}} already has a {{klass.get_parent_fields()[0].parent}}.
         {%- endif %}
+        {%- for field in klass.get_global_unique_fields() %}
+        /// Also false if another {{klass.name}} already has the requested {{field.name}}.
+        {%- endfor %}
         {%- if klass.get_parent_fields() | length > 1 %}
         /// {{klass.name}} has multiple parent fields ({%- for pf in klass.get_parent_fields() -%}{{pf.name}}{% if not loop.last %}, {% endif %}{%- endfor -%}) -
         /// no parent flag is generated at all here, since reassigning one
@@ -339,7 +351,7 @@ namespace {{schema.namespace}} {
         /// @brief Set {{klass.name}}'s {{field.name}}, keeping the relevant
         /// Root index in sync (unlike assigning through
         /// get_{{klass.to_snake_case()}}() directly, which would leave a
-        /// stale index entry behind). False (no-op) if id doesn't exist{% if field.unique_per_parent %}, or if a sibling {{klass.name}} sharing the current {{klass.get_parent_field().name}} already has this {{field.name}} (unique_per_parent){% elif field.parent and not field.owner and not field._parent_field.is_list %}, or if the new {{field.name}} already has a {{field.parent}}{% endif %}.
+        /// stale index entry behind). False (no-op) if id doesn't exist{% if field.unique_per_parent %}, or if a sibling {{klass.name}} sharing the current {{klass.get_parent_field().name}} already has this {{field.name}} (unique_per_parent){% elif field.parent and not field.owner and not field._parent_field.is_list %}, or if the new {{field.name}} already has a {{field.parent}}{% elif field.index %}, or if another {{klass.name}} already has this {{field.name}}{% endif %}.
                 {%- if field.parent and klass.fields | selectattr("unique_per_parent") | list %}
         /// NOTE: this Klass has a unique_per_parent field
         /// ({%- for f in klass.fields | selectattr("unique_per_parent") -%}{{f.name}}{% if not loop.last %}, {% endif %}{%- endfor -%}) -
@@ -403,12 +415,9 @@ namespace {{schema.namespace}} {
                 {%- endif %}
             return true;
             {%- else %}
-            {
-                // Another object may hold the old name; leave its entry.
-                auto old_it = index_.{{klass.to_snake_case()}}_by_{{field.name}}.find(existing->{{field.name}});
-                if (old_it != index_.{{klass.to_snake_case()}}_by_{{field.name}}.end() && old_it->second == id)
-                    index_.{{klass.to_snake_case()}}_by_{{field.name}}.erase(old_it);
-            }
+            if (index_.{{klass.to_snake_case()}}_by_{{field.name}}.contains(value))
+                return false;
+            index_.{{klass.to_snake_case()}}_by_{{field.name}}.erase(existing->{{field.name}});
 
             existing->{{field.name}} = value;
 
@@ -543,7 +552,7 @@ namespace {{schema.namespace}} {
         /// live slots in index order - what create_<klass>() would have
         /// built had each object been created in that order. For after
         /// Pool::load_dense(). Returns a description of every
-        /// unique_per_parent violation found (the duplicate keeps the
+        /// unique_per_parent or global-index uniqueness violation found (the duplicate keeps the
         /// index entry of whichever came later, as create_ would never
         /// have allowed); empty means the data is consistent. Saturates
         /// the change log.
@@ -574,6 +583,9 @@ namespace {{schema.namespace}} {
                     if (siblings.find(d.{{field.name}}) != siblings.end())
                         problems.push_back("{{klass.name}} " + std::to_string(id.index) + ": duplicate {{field.name}} under the same {{klass.get_parent_field().name}}");
                 }
+                {%- elif field.index %}
+                if (index_.{{klass.to_snake_case()}}_by_{{field.name}}.contains(d.{{field.name}}))
+                    problems.push_back("{{klass.name}} " + std::to_string(id.index) + ": duplicate {{field.name}}");
                 {%- endif %}
             {%- endfor %}
                 index_insert_{{klass.to_snake_case()}}_(id, d);

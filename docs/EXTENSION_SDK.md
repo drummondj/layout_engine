@@ -238,11 +238,14 @@ bool add_marker(le::ext::ExtensionContext &ctx, const std::string &name)
 ```
 
 - `create_<type>(<Type>Data)` checks that the parent, owner and references
-  in the data exist, and that a name unique among its siblings is.
+  in the data exist, and that the name is unique: among its siblings
+  (a Terminal in its Abstract, a Design in its Library) or in the whole
+  database (a Library, Layer, Site, Via, ViaRule or NonDefaultRule).
 - `update_<type>(id, <Type>Changes)` applies the members you set:
   `view.update_shape(shape, {.layer = metal2})`. `<Type>Changes` has one
   `std::optional` per field `update_<type>` in Tcl can change, including
-  the parent, which moves the object.
+  the parent, which moves the object. A rename or move is checked the same
+  way.
 - `delete_<type>(id)` also deletes everything the object owns, as Tcl's
   `delete_<type>` does.
 

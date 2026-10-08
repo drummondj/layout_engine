@@ -389,11 +389,10 @@ namespace le
     {
         auto reader = static_cast<DEFReader *>(user_data);
 
-        // The named library, created if
-        // needed; the design by (global) name, created in that library if
-        // new - see get_or_create_design's own comment.
+        // The named library, created if needed; the design that gets this
+        // Layout - see get_or_create_design.
         reader->library_id_ = get_or_create_library(*reader->root_, reader->library_name_);
-        reader->design_id_ = get_or_create_design(*reader->root_, reader->library_id_, name, "read_def");
+        reader->design_id_ = get_or_create_design(*reader->root_, reader->library_id_, name, DesignView::Layout, "read_def");
 
         // Each view can only be read once per design - a real error that
         // aborts the read.
@@ -601,10 +600,15 @@ namespace le
         // LEF(s) must be read before the DEF that references them (the
         // normal real-world flow anyway - a router/placer always has the
         // cell library loaded first).
-        const DesignId reference_design = reader->root_->get_design_by_name(component->name());
+        std::vector<DesignId> candidates;
+        const DesignId reference_design = find_design_by_name(*reader->root_, component->name(), reader->library_id_, &candidates);
         if (!reference_design.valid())
         {
-            log_error("COMPONENT {} references unknown macro/design '{}' - ignored.", component->id(), component->name());
+            if (candidates.empty())
+                log_error("COMPONENT {} references unknown macro/design '{}' - ignored.", component->id(), component->name());
+            else
+                log_error("COMPONENT {} references macro/design '{}', which libraries {} all have - ignored.", component->id(),
+                          component->name(), library_names_of(*reader->root_, candidates));
             return 0;
         }
 

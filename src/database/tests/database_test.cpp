@@ -1,4 +1,5 @@
 #include "../database.hpp"
+#include "../library_helpers.hpp"
 #include <algorithm>
 #include <gtest/gtest.h>
 
@@ -55,20 +56,53 @@ TEST(Database, UpdateLibraryRenameMovesTheGlobalNameIndex)
     EXPECT_EQ(root.get_library_by_name("lib"), LibraryId{});
 }
 
-TEST(Database, RenamingAwayFromANameAnotherObjectHoldsLeavesItsEntry)
+TEST(Database, GloballyIndexedNamesAreUnique)
 {
     Root root;
     const LibraryId first = root.create_library(LibraryData{.name = "lib"});
-    const LibraryId second = root.create_library(LibraryData{.name = "lib"}); // takes over the "lib" entry
+    const LibraryId other = root.create_library(LibraryData{.name = "other"});
 
-    ASSERT_TRUE(root.update_library(first, std::string("other")));
-    EXPECT_EQ(root.get_library_by_name("lib"), second);
-    EXPECT_EQ(root.get_library_by_name("other"), first);
+    EXPECT_FALSE(root.create_library(LibraryData{.name = "lib"}).valid());
+    EXPECT_FALSE(root.update_library(other, std::string("lib")));
+    EXPECT_FALSE(root.set_library_name(other, "lib"));
+    EXPECT_EQ(root.get_library(other)->name, "other");
+    EXPECT_EQ(root.get_library_by_name("lib"), first);
+    EXPECT_EQ(root.get_library_by_name("other"), other);
+    EXPECT_EQ(root.get_library_size(), 2u);
 
-    ASSERT_TRUE(root.set_library_name(first, "third"));
-    EXPECT_EQ(root.get_library_by_name("lib"), second);
-    EXPECT_EQ(root.get_library_by_name("third"), first);
-    EXPECT_EQ(root.get_library_by_name("other"), LibraryId{});
+    // Renaming to its own name is a no-op, not a clash.
+    EXPECT_TRUE(root.update_library(first, std::string("lib")));
+}
+
+TEST(Database, DesignNamesAreUniquePerLibrary)
+{
+    Root root;
+    const LibraryId lib_a = root.create_library(LibraryData{.name = "a"});
+    const LibraryId lib_b = root.create_library(LibraryData{.name = "b"});
+    const DesignId inv_a = root.create_design(DesignData{.library = lib_a, .name = "INV"});
+    const DesignId inv_b = root.create_design(DesignData{.library = lib_b, .name = "INV"});
+
+    ASSERT_TRUE(inv_a.valid());
+    ASSERT_TRUE(inv_b.valid());
+    EXPECT_FALSE(root.create_design(DesignData{.library = lib_a, .name = "INV"}).valid());
+    EXPECT_EQ(root.get_design_by_name(lib_a, "INV"), inv_a);
+    EXPECT_EQ(root.get_design_by_name(lib_b, "INV"), inv_b);
+
+    // Deleting one leaves the other findable.
+    ASSERT_TRUE(root.delete_design(inv_a));
+    EXPECT_EQ(root.get_design_by_name(lib_b, "INV"), inv_b);
+}
+
+TEST(Database, RebuildIndexesReportsADuplicateGlobalName)
+{
+    Root root;
+    root.create_library(LibraryData{.name = "lib"});
+    const LibraryId other = root.create_library(LibraryData{.name = "other"});
+    root.get_library(other)->name = "lib"; // what an older file could hold
+
+    const std::vector<std::string> problems = root.rebuild_indexes();
+    ASSERT_EQ(problems.size(), 1u);
+    EXPECT_NE(problems.front().find("duplicate name"), std::string::npos) << problems.front();
 }
 
 TEST(Database, SetLayerNameOnNonExistentIdReturnsFalse)
@@ -811,4 +845,74 @@ TEST_F(SingularSlotFixture, ASecondLayoutForOneDesignIsRejected)
     EXPECT_EQ(root.get_layout(other_layout)->design, other_design);
     EXPECT_EQ(root.get_design_layout(design), layout);
     EXPECT_EQ(root.get_design_layout(other_design), other_layout);
+}
+
+namespace
+{
+    // INV in two libraries; BUF only in `a`.
+    struct DesignLookupFixture : ::testing::Test
+    {
+        Root root;
+        LibraryId lib_a = root.create_library(LibraryData{.name = "a"});
+        LibraryId lib_b = root.create_library(LibraryData{.name = "b"});
+        DesignId inv_a = root.create_design(DesignData{.library = lib_a, .name = "INV"});
+        DesignId inv_b = root.create_design(DesignData{.library = lib_b, .name = "INV"});
+        DesignId buf = root.create_design(DesignData{.library = lib_a, .name = "BUF"});
+    };
+}
+
+TEST_F(DesignLookupFixture, FindByNamePrefersItsLibraryThenAnUnambiguousName)
+{
+    EXPECT_EQ(find_design_by_name(root, "BUF"), buf);
+    EXPECT_EQ(find_design_by_name(root, "BUF", lib_b), buf);
+    EXPECT_EQ(find_design_by_name(root, "INV", lib_b), inv_b);
+
+    std::vector<DesignId> matches;
+    EXPECT_FALSE(find_design_by_name(root, "INV", LibraryId{}, &matches).valid());
+    EXPECT_EQ(matches, (std::vector<DesignId>{inv_a, inv_b}));
+    EXPECT_EQ(library_names_of(root, matches), "a, b");
+    EXPECT_FALSE(find_design_by_name(root, "NAND").valid());
+}
+
+TEST_F(DesignLookupFixture, ReferencesAreQualifiedOnlyWhenAmbiguous)
+{
+    EXPECT_EQ(design_reference(root, buf), "BUF");
+    EXPECT_EQ(design_reference(root, inv_a), "a/INV");
+    EXPECT_EQ(design_reference(root, inv_b), "b/INV");
+
+    EXPECT_EQ(resolve_design_reference(root, "BUF"), buf);
+    EXPECT_EQ(resolve_design_reference(root, "a/BUF"), buf);
+    EXPECT_EQ(resolve_design_reference(root, "b/INV"), inv_b);
+    EXPECT_FALSE(resolve_design_reference(root, "INV").valid());
+    EXPECT_FALSE(resolve_design_reference(root, "b/BUF").valid());
+}
+
+TEST_F(DesignLookupFixture, ReferencesSplitAtWhicheverSlashNamesALibrary)
+{
+    const LibraryId slashed = root.create_library(LibraryData{.name = "x/y"});
+    const DesignId odd = root.create_design(DesignData{.library = slashed, .name = "INV"});
+    const DesignId named_with_slash = root.create_design(DesignData{.library = lib_b, .name = "p/q"});
+
+    EXPECT_EQ(resolve_design_reference(root, "x/y/INV"), odd);
+    EXPECT_EQ(resolve_design_reference(root, "p/q"), named_with_slash);
+    EXPECT_EQ(resolve_design_reference(root, design_reference(root, odd)), odd);
+}
+
+TEST_F(DesignLookupFixture, GetOrCreateReusesAnotherLibrarysDesignOnlyIfItLacksTheView)
+{
+    // BUF (library a) has no Abstract: a LEF read into library c gives it one.
+    const LibraryId lib_c = root.create_library(LibraryData{.name = "c"});
+    EXPECT_EQ(get_or_create_design(root, lib_c, "BUF", DesignView::Abstract, ""), buf);
+    root.create_abstract(AbstractData{.design = buf});
+
+    // Now it has one, so a second library's BUF gets its own Design.
+    const DesignId buf_c = get_or_create_design(root, lib_c, "BUF", DesignView::Abstract, "");
+    EXPECT_NE(buf_c, buf);
+    EXPECT_EQ(root.get_design(buf_c)->library, lib_c);
+
+    // The target library's own Design always wins.
+    EXPECT_EQ(get_or_create_design(root, lib_b, "INV", DesignView::Abstract, ""), inv_b);
+    // Several elsewhere and none here: a new one.
+    const DesignId inv_c = get_or_create_design(root, lib_c, "INV", DesignView::Schematic, "");
+    EXPECT_EQ(root.get_design(inv_c)->library, lib_c);
 }

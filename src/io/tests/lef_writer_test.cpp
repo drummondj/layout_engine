@@ -1,3 +1,4 @@
+#include "../../database/library_helpers.hpp"
 #include "../lef_reader.hpp"
 #include "../lef_writer.hpp"
 #include <algorithm>
@@ -114,7 +115,7 @@ protected:
         ASSERT_EQ(reader.read_lef(fixture_path("writer_roundtrip.lef"), original_root, "test_lib"), 0);
 
         const std::string out_path = scratch_output_path();
-        ASSERT_EQ(writer.write_lef(out_path, original_root, original_root.get_design_abstract(original_root.get_design_by_name("WRITERTEST")), LEFWriter::LayerWriteMode::IncludeWithAbstract), 0)
+        ASSERT_EQ(writer.write_lef(out_path, original_root, original_root.get_design_abstract(find_design_by_name(original_root, "WRITERTEST")), LEFWriter::LayerWriteMode::IncludeWithAbstract), 0)
             << (writer.messages().empty() ? "" : writer.messages().front());
 
         LEFReader reread;
@@ -660,8 +661,8 @@ TEST_F(LEFWriterRoundtripFixture, RoundTripsPropertyDefinitionsAndPerConstructPr
     EXPECT_EQ(original_via1->properties[0].name, written_via1->properties[0].name);
     EXPECT_DOUBLE_EQ(original_via1->properties[0].number_value, written_via1->properties[0].number_value);
 
-    const AbstractId original_abstract_id = original_root.get_design_abstract(original_root.get_design_by_name("WRITERTEST"));
-    const AbstractId written_abstract_id = written_root.get_design_abstract(written_root.get_design_by_name("WRITERTEST"));
+    const AbstractId original_abstract_id = original_root.get_design_abstract(find_design_by_name(original_root, "WRITERTEST"));
+    const AbstractId written_abstract_id = written_root.get_design_abstract(find_design_by_name(written_root, "WRITERTEST"));
     const AbstractData *original_abstract = original_root.get_abstract(original_abstract_id);
     const AbstractData *written_abstract = written_root.get_abstract(written_abstract_id);
     ASSERT_TRUE(original_abstract != nullptr);
@@ -696,7 +697,7 @@ protected:
         ASSERT_EQ(reader.read_lef(fixture_path("antenna_roundtrip.lef"), original_root, "test_lib"), 0);
 
         const std::string out_path = scratch_output_path("le_lef_antenna_roundtrip.lef");
-        ASSERT_EQ(writer.write_lef(out_path, original_root, original_root.get_design_abstract(original_root.get_design_by_name("ANTENNATEST")), LEFWriter::LayerWriteMode::IncludeWithAbstract), 0)
+        ASSERT_EQ(writer.write_lef(out_path, original_root, original_root.get_design_abstract(find_design_by_name(original_root, "ANTENNATEST")), LEFWriter::LayerWriteMode::IncludeWithAbstract), 0)
             << (writer.messages().empty() ? "" : writer.messages().front());
 
         LEFReader reread;
@@ -756,8 +757,8 @@ TEST_F(LEFAntennaRoundtripFixture, RoundTripsAntennaModelsOnRoutingAndCutLayersA
     ASSERT_EQ(original_v1_model.area_ratio.has_value(), written_v1_model.area_ratio.has_value());
     EXPECT_DOUBLE_EQ(*original_v1_model.area_ratio, *written_v1_model.area_ratio);
 
-    const AbstractId original_abstract_id = original_root.get_design_abstract(original_root.get_design_by_name("ANTENNATEST"));
-    const AbstractId written_abstract_id = written_root.get_design_abstract(written_root.get_design_by_name("ANTENNATEST"));
+    const AbstractId original_abstract_id = original_root.get_design_abstract(find_design_by_name(original_root, "ANTENNATEST"));
+    const AbstractId written_abstract_id = written_root.get_design_abstract(find_design_by_name(written_root, "ANTENNATEST"));
     const TerminalId original_pin_id = original_root.get_abstract_terminals(original_abstract_id).front();
     const TerminalId written_pin_id = written_root.get_abstract_terminals(written_abstract_id).front();
     const TerminalData *original_pin = original_root.get_terminal(original_pin_id);
@@ -981,8 +982,8 @@ TEST_F(LEFAntennaRoundtripFixture, RoundTripsCutLayerArraySpacingEnclosureAndCur
 
 TEST_F(LEFAntennaRoundtripFixture, RoundTripsPinScalarFieldsDirectionEnumPortClassViaAndSiteArrayPlacementsAddedInPhase7)
 {
-    const AbstractId original_abstract_id = original_root.get_design_abstract(original_root.get_design_by_name("ANTENNATEST"));
-    const AbstractId written_abstract_id = written_root.get_design_abstract(written_root.get_design_by_name("ANTENNATEST"));
+    const AbstractId original_abstract_id = original_root.get_design_abstract(find_design_by_name(original_root, "ANTENNATEST"));
+    const AbstractId written_abstract_id = written_root.get_design_abstract(find_design_by_name(written_root, "ANTENNATEST"));
     const AbstractData *original_abstract = original_root.get_abstract(original_abstract_id);
     const AbstractData *written_abstract = written_root.get_abstract(written_abstract_id);
     ASSERT_TRUE(original_abstract != nullptr);
@@ -1076,8 +1077,8 @@ TEST_F(LEFAntennaRoundtripFixture, RoundTripsPinScalarFieldsDirectionEnumPortCla
 
 TEST_F(LEFWriterRoundtripFixture, RoundTripsMacroClassOriginSizeSymmetryAndSite)
 {
-    const DesignId original_design_id = original_root.get_design_by_name("WRITERTEST");
-    const DesignId written_design_id = written_root.get_design_by_name("WRITERTEST");
+    const DesignId original_design_id = find_design_by_name(original_root, "WRITERTEST");
+    const DesignId written_design_id = find_design_by_name(written_root, "WRITERTEST");
     ASSERT_TRUE(original_design_id.valid());
     ASSERT_TRUE(written_design_id.valid());
 
@@ -1112,8 +1113,8 @@ TEST_F(LEFWriterRoundtripFixture, RoundTripsMacroClassOriginSizeSymmetryAndSite)
 
 TEST_F(LEFWriterRoundtripFixture, RoundTripsPinDirectionAndPortGeometryIncludingAMixedRectPolygonPath)
 {
-    const DesignId original_design_id = original_root.get_design_by_name("WRITERTEST");
-    const DesignId written_design_id = written_root.get_design_by_name("WRITERTEST");
+    const DesignId original_design_id = find_design_by_name(original_root, "WRITERTEST");
+    const DesignId written_design_id = find_design_by_name(written_root, "WRITERTEST");
     const AbstractId original_abstract_id = original_root.get_design_abstract(original_design_id);
     const AbstractId written_abstract_id = written_root.get_design_abstract(written_design_id);
 
@@ -1150,8 +1151,8 @@ TEST_F(LEFWriterRoundtripFixture, RoundTripsPinDirectionAndPortGeometryIncluding
 
 TEST_F(LEFWriterRoundtripFixture, RoundTripsObstructionRectIterateAndPathIterateAsRawStatementsNotExpanded)
 {
-    const DesignId original_design_id = original_root.get_design_by_name("WRITERTEST");
-    const DesignId written_design_id = written_root.get_design_by_name("WRITERTEST");
+    const DesignId original_design_id = find_design_by_name(original_root, "WRITERTEST");
+    const DesignId written_design_id = find_design_by_name(written_root, "WRITERTEST");
     const AbstractId original_abstract_id = original_root.get_design_abstract(original_design_id);
     const AbstractId written_abstract_id = written_root.get_design_abstract(written_design_id);
 
@@ -1182,7 +1183,7 @@ TEST_F(LEFWriterRoundtripFixture, LayerWriteModeNoneWritesNoLayers)
 {
     const std::string out_path = scratch_output_path();
     LEFWriter local_writer;
-    ASSERT_EQ(local_writer.write_lef(out_path, original_root, original_root.get_design_abstract(original_root.get_design_by_name("WRITERTEST")), LEFWriter::LayerWriteMode::None), 0);
+    ASSERT_EQ(local_writer.write_lef(out_path, original_root, original_root.get_design_abstract(find_design_by_name(original_root, "WRITERTEST")), LEFWriter::LayerWriteMode::None), 0);
 
     // LayerWriteMode::None deliberately omits UNITS too (see write_lef's
     // own comment - it's gated on the same `mode != None` check as the
@@ -1196,20 +1197,20 @@ TEST_F(LEFWriterRoundtripFixture, LayerWriteModeNoneWritesNoLayers)
     LEFReader reread;
     ASSERT_EQ(reread.read_lef(out_path, reread_root, "test_lib"), 0);
     EXPECT_TRUE(reread_root.is_layer_empty());
-    EXPECT_TRUE(reread_root.get_design_by_name("WRITERTEST").valid());
+    EXPECT_TRUE(find_design_by_name(reread_root, "WRITERTEST").valid());
 }
 
 TEST_F(LEFWriterRoundtripFixture, LayerWriteModeTechnologyOnlyWritesNoMacro)
 {
     const std::string out_path = scratch_output_path();
     LEFWriter local_writer;
-    ASSERT_EQ(local_writer.write_lef(out_path, original_root, original_root.get_design_abstract(original_root.get_design_by_name("WRITERTEST")), LEFWriter::LayerWriteMode::TechnologyOnly), 0);
+    ASSERT_EQ(local_writer.write_lef(out_path, original_root, original_root.get_design_abstract(find_design_by_name(original_root, "WRITERTEST")), LEFWriter::LayerWriteMode::TechnologyOnly), 0);
 
     Root reread_root;
     LEFReader reread;
     ASSERT_EQ(reread.read_lef(out_path, reread_root, "test_lib"), 0);
     EXPECT_TRUE(reread_root.get_layer_by_name("M1").valid());
-    EXPECT_FALSE(reread_root.get_design_by_name("WRITERTEST").valid());
+    EXPECT_FALSE(find_design_by_name(reread_root, "WRITERTEST").valid());
 }
 
 TEST(LEFWriterTwoWordMacroClass, SplitsATwoWordAbstractTypeIntoBaseAndSubtypeInsteadOfFailingTheWholeWrite)
@@ -1243,7 +1244,7 @@ TEST(LEFWriterTwoWordMacroClass, SplitsATwoWordAbstractTypeIntoBaseAndSubtypeIns
     LEFReader reread;
     ASSERT_EQ(reread.read_lef(out_path, reread_root, "test_lib"), 0);
 
-    const DesignId reread_design_id = reread_root.get_design_by_name("WELLTAPTEST");
+    const DesignId reread_design_id = find_design_by_name(reread_root, "WELLTAPTEST");
     ASSERT_TRUE(reread_design_id.valid());
     const AbstractData *reread_abstract = reread_root.get_abstract(reread_root.get_design_abstract(reread_design_id));
     ASSERT_TRUE(reread_abstract != nullptr);
@@ -1304,7 +1305,7 @@ TEST(LEFWriterLefdiffFidelity, WriterRoundtripFixtureMatchesTheOriginalPerLefdif
 
     const std::string written_path = (std::filesystem::temp_directory_path() / "le_lefdiff_written.lef").string();
     LEFWriter writer;
-    ASSERT_EQ(writer.write_lef(written_path, root, root.get_design_abstract(root.get_design_by_name("WRITERTEST")), LEFWriter::LayerWriteMode::IncludeWithAbstract), 0);
+    ASSERT_EQ(writer.write_lef(written_path, root, root.get_design_abstract(find_design_by_name(root, "WRITERTEST")), LEFWriter::LayerWriteMode::IncludeWithAbstract), 0);
 
     const std::string dump1_path = (std::filesystem::temp_directory_path() / "le_lefdiff_dump1.txt").string();
     const std::string dump2_path = (std::filesystem::temp_directory_path() / "le_lefdiff_dump2.txt").string();

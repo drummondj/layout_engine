@@ -1472,11 +1472,9 @@ namespace le
         if (!reader->library_id_.valid())
             reader->library_id_ = get_or_create_library(*reader->root_, reader->library_name_);
 
-        // A design is identified by name alone (Design.name is one global
-        // index): an existing one gains this Abstract view - e.g. a DEF or
-        // Verilog read made it first - and only a brand-new one is created
-        // in the named library.
-        const DesignId design_id = get_or_create_design(*reader->root_, reader->library_id_, name, "read_lef");
+        // An existing Design without an Abstract gains this one - e.g. a DEF
+        // or Verilog read made it first (see get_or_create_design).
+        const DesignId design_id = get_or_create_design(*reader->root_, reader->library_id_, name, DesignView::Abstract, "read_lef");
 
         // Each view can only be read once per design.
         if (reader->root_->get_design_abstract(design_id).valid())

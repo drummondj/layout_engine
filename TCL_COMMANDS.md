@@ -117,7 +117,7 @@ Creates a Design and returns its token. Design: A library cell or logical module
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-library` | `token` | yes | Parent Library token |
-| `-name` | `str` | yes | The name of the design |
+| `-name` | `str` | yes | The name of the design, unique within its library |
 
 ## create_enclosure_entry
 
@@ -2261,11 +2261,11 @@ Loads a database file written by any earlier version, runs the migrations it nee
 
 `open_design <name> [-view abstract|layout] [-help]`
 
-Opens the design <name> as the current view - its abstract (the default) or its layout. Commands with an -of flag search the current view when it's omitted.
+Opens the design <name> as the current view - its abstract (the default) or its layout. A design's name is unique only within its library: when several libraries have one of that name, give it as <library>/<name>. Commands with an -of flag search the current view when it's omitted.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<name>` | `str` | yes | Name of the Design to open |
+| `<name>` | `str` | yes | Name of the Design to open, or <library>/<name> if several libraries have one |
 | `-view` | `str` | no | "abstract" (the default) or "layout" |
 
 ## placement_snap_mode_available
@@ -2293,7 +2293,7 @@ Loads a database file written by write_db. Only works in an empty session (befor
 
 `read_def -library <name> <path> [-help]`
 
-Reads a DEF file as a layout. The technology and cells it uses must already be read with read_lef. The design goes into the -library library, which is created if it doesn't exist; an existing design of that name (e.g. from read_verilog) gets the layout view instead, but one that already has a layout is an error. Returns 0 on success, nonzero on an error (the details are printed).
+Reads a DEF file as a layout. The technology and cells it uses must already be read with read_lef. The design goes into the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no layout (e.g. from read_verilog), that design gets the layout instead. A design in the -library library that already has a layout is an error. Each component's cell is looked up in the -library library first, then in whichever library alone has a cell of that name. Returns 0 on success, nonzero on an error (the details are printed).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2304,7 +2304,7 @@ Reads a DEF file as a layout. The technology and cells it uses must already be r
 
 `read_lef -library <name> <path> [-help]`
 
-Reads a LEF file - technology, cells, or both - into the session. Call it more than once to add a technology file and then cell libraries. Each MACRO becomes a design in the -library library, which is created if it doesn't exist; a design that already has an abstract view is an error. Returns 0 on success, nonzero on an error (the details are printed).
+Reads a LEF file - technology, cells, or both - into the session. Call it more than once to add a technology file and then cell libraries. Each MACRO becomes a design in the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no abstract (e.g. from read_def or read_verilog), that design gets the abstract instead. A design in the -library library that already has an abstract view is an error. Returns 0 on success, nonzero on an error (the details are printed).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2315,7 +2315,7 @@ Reads a LEF file - technology, cells, or both - into the session. Call it more t
 
 `read_verilog -netlist|-rtl -library <name> <path> [<path> ...] [-help]`
 
-Reads one or more SystemVerilog/Verilog files, compiled together, as schematics. -netlist elaborates a gate-level netlist fully (parameters, generate blocks); cells read with read_lef but with no Verilog of their own get stub modules automatically, so their instances resolve. -rtl only parses, keeping anything it can't read as a placeholder instance. New designs go into the -library library, which is created if it doesn't exist; an existing design (e.g. from read_lef) gets the schematic view instead, but one that already has a schematic is an error. Instances are linked to known designs afterwards (see link). Returns 0 on success, nonzero on an error (the details are printed).
+Reads one or more SystemVerilog/Verilog files, compiled together, as schematics. -netlist elaborates a gate-level netlist fully (parameters, generate blocks); cells read with read_lef but with no Verilog of their own get stub modules automatically, so their instances resolve. -rtl only parses, keeping anything it can't read as a placeholder instance. New designs go into the -library library, which is created if it doesn't exist; if that library has no design of a module's name but another library has exactly one with no schematic (e.g. a cell from read_lef), that design gets the schematic instead. A design in the -library library that already has a schematic is an error. Instances are linked to known designs afterwards (see link). Returns 0 on success, nonzero on an error (the details are printed).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2908,7 +2908,7 @@ Changes the given fields of a Design; omitted flags leave a field unchanged.
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-library` | `token` | no | Move it to this Library (token) |
-| `-name` | `str` | no | The name of the design |
+| `-name` | `str` | no | The name of the design, unique within its library |
 
 ## update_enclosure_entry
 

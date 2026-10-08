@@ -180,6 +180,30 @@ TEST(WriteViewEdits, RenamesKeepTheGlobalNameIndexThroughUndoAndRedo)
     le_destroy(handle);
 }
 
+TEST(WriteViewEdits, ADuplicateGlobalNameIsAnErrorAndRecordsNothing)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    le::LibraryId other;
+    {
+        le::ext::WriteView view = ctx.write("create");
+        ASSERT_TRUE(view.create_library({.name = "lib"}));
+        other = view.create_library({.name = "other"}).value();
+    }
+    {
+        le::ext::WriteView view = ctx.write("clash");
+        const auto created = view.create_library({.name = "lib"});
+        ASSERT_FALSE(created.has_value());
+        EXPECT_EQ(created.error(), "a Library with this name ('lib') already exists");
+        const auto renamed = view.update_library(other, {.name = "lib"});
+        ASSERT_FALSE(renamed.has_value());
+        EXPECT_EQ(renamed.error(), "a Library with this name ('lib') already exists");
+    }
+    EXPECT_EQ(ctx.read().root().get_library_ids().size(), 2u);
+    EXPECT_EQ(ctx.read().root().get_library(other)->name, "other");
+    le_destroy(handle);
+}
+
 TEST(WriteViewEdits, AnUnlabelledViewRecordsNothing)
 {
     LeHandle *handle = le_create();

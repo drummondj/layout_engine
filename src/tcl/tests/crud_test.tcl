@@ -806,4 +806,19 @@ check "get_libraries finds a library by its new name" library:RENAMED_LIB [get_l
 check "library:<new name> resolves after a rename" RENAMED_LIB [dict get [get_properties library:RENAMED_LIB] name]
 check "library:<old name> no longer resolves after a rename" {} [get_properties library:RENAME_ME]
 
+# Library names are unique; a Design's only within its Library, and its
+# friendly id gains the library once the name is ambiguous.
+check_true "create_library with a taken name fails" [catch {create_library -name RENAMED_LIB}]
+check_true "update_library onto a taken name fails" [catch {update_library $scratch_library -name RENAMED_LIB}]
+set lib_a [create_library -name DUP_A]
+set lib_b [create_library -name DUP_B]
+set only_a [create_design -library $lib_a -name DUPCELL]
+check "an unambiguous design name is its friendly id" design:DUPCELL $only_a
+set in_b [create_design -library $lib_b -name DUPCELL]
+check "a second library's same-named design is qualified" design:DUP_B/DUPCELL $in_b
+check "the first is qualified too once ambiguous" design:DUP_A/DUPCELL [get_designs -of $lib_a]
+check "design:LIB/NAME resolves" DUPCELL [dict get [get_properties design:DUP_B/DUPCELL] name]
+check "an ambiguous design:NAME resolves to nothing" {} [get_properties design:DUPCELL]
+check_true "a design name clash within one library fails" [catch {create_design -library $lib_a -name DUPCELL}]
+
 puts "le_tcl CRUD test passed"

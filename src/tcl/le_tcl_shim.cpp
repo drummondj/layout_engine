@@ -84,6 +84,33 @@ namespace
     // --- Friendly id formatting/parsing (see le_tcl_shim.hpp's own "IDs"
     // comment for the full contract) ---
 
+    // design:NAME, or design:LIB/NAME when several Libraries have a Design
+    // of that name - le_design_by_name accepts either.
+    constexpr std::string_view kDesignPrefix = "design:";
+
+    std::string format_design_id(LeDesignId id)
+    {
+        const char *name = le_design_name_by_id(session(), id);
+        if (!name)
+            return std::string(kDesignPrefix);
+        const LeDesignId by_name = le_design_by_name(session(), name);
+        if (by_name.index == id.index && by_name.generation == id.generation)
+            return std::string(kDesignPrefix) + name;
+        const char *library = le_library_name_by_id(session(), le_design_library_by_id(session(), id));
+        return std::string(kDesignPrefix) + (library ? library : "") + "/" + name;
+    }
+
+    LeDesignId resolve_design_id(const char *s)
+    {
+        const LeDesignId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!s)
+            return invalid;
+        std::string_view sv(s);
+        if (sv.substr(0, kDesignPrefix.size()) != kDesignPrefix)
+            return invalid;
+        return le_design_by_name(session(), std::string(sv.substr(kDesignPrefix.size())).c_str());
+    }
+
     constexpr std::string_view kTerminalPrefix = "terminal:";
 
     std::string format_terminal_id(const char *name)

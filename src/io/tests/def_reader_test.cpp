@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <gtest/gtest.h>
+#include "../../database/library_helpers.hpp"
 #include "../def_reader.hpp"
 
 namespace le
@@ -50,7 +52,7 @@ namespace le
 
     TEST_F(DEFReaderCompleteFixture, CreatesTheDesignAndItsLayout)
     {
-        const DesignId design_id = root.get_design_by_name("design");
+        const DesignId design_id = find_design_by_name(root, "design");
         ASSERT_TRUE(design_id.valid());
         const LayoutId layout_id = root.get_design_layout(design_id);
         EXPECT_TRUE(layout_id.valid());
@@ -58,7 +60,7 @@ namespace le
 
     TEST_F(DEFReaderCompleteFixture, DieAreaBecomesABoundaryShapeWithEveryPoint)
     {
-        const DesignId design_id = root.get_design_by_name("design");
+        const DesignId design_id = find_design_by_name(root, "design");
         const LayoutId layout_id = root.get_design_layout(design_id);
         const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id));
         ASSERT_NE(diearea, nullptr);
@@ -77,7 +79,7 @@ namespace le
 
     TEST_F(DEFReaderCompleteFixture, CreatesEveryRowWithCorrectFields)
     {
-        const DesignId design_id = root.get_design_by_name("design");
+        const DesignId design_id = find_design_by_name(root, "design");
         const LayoutId layout_id = root.get_design_layout(design_id);
         const std::vector<RowId> row_ids = root.get_layout_rows(layout_id);
         ASSERT_EQ(row_ids.size(), 24u);
@@ -115,7 +117,7 @@ namespace le
 
     TEST_F(DEFReaderCompleteFixture, CreatesEveryTrackWithLayersAndMasks)
     {
-        const DesignId design_id = root.get_design_by_name("design");
+        const DesignId design_id = find_design_by_name(root, "design");
         const LayoutId layout_id = root.get_design_layout(design_id);
         const std::vector<TrackId> track_ids = root.get_layout_tracks(layout_id);
         // TRACKS Y 52 DO 857 STEP 104 MASK 1 ;
@@ -149,7 +151,7 @@ namespace le
 
     TEST_F(DEFReaderCompleteFixture, CreatesEveryGcellGrid)
     {
-        const DesignId design_id = root.get_design_by_name("design");
+        const DesignId design_id = find_design_by_name(root, "design");
         const LayoutId layout_id = root.get_design_layout(design_id);
         const std::vector<GCellGridId> grid_ids = root.get_layout_gcell_grids(layout_id);
         // GCELLGRID X 0 DO 100 STEP 600 ;
@@ -173,7 +175,7 @@ namespace le
 
     TEST_F(DEFReaderCompleteFixture, CreatesEveryPlacementWithCorrectFields)
     {
-        const DesignId design_id = root.get_design_by_name("design");
+        const DesignId design_id = find_design_by_name(root, "design");
         const LayoutId layout_id = root.get_design_layout(design_id);
         const std::vector<PlacementId> placement_ids = root.get_layout_placements(layout_id);
         // COMPONENTS declares a stale count of 13, but the fixture actually
@@ -241,7 +243,7 @@ namespace le
 
     TEST_F(DEFReaderCompleteFixture, CreatesEveryPhysicalPortWithCorrectFields)
     {
-        const DesignId design_id = root.get_design_by_name("design");
+        const DesignId design_id = find_design_by_name(root, "design");
         const LayoutId layout_id = root.get_design_layout(design_id);
         const std::vector<PhysicalPortId> port_ids = root.get_layout_physical_ports(layout_id);
         // PINS declares a stale count of 11 (same kind of mismatch as
@@ -384,7 +386,7 @@ namespace le
 
     TEST_F(DEFReaderCompleteFixture, CreatesEveryBlockageWithCorrectFields)
     {
-        const DesignId design_id = root.get_design_by_name("design");
+        const DesignId design_id = find_design_by_name(root, "design");
         const LayoutId layout_id = root.get_design_layout(design_id);
         const std::vector<BlockageId> blockage_ids = root.get_layout_blockages(layout_id);
         // BLOCKAGES declares a stale count of 8 (same stale-count pattern
@@ -478,7 +480,7 @@ namespace le
 
     TEST_F(DEFReaderCompleteFixture, CreatesEveryLayoutViaWithCorrectFields)
     {
-        const DesignId design_id = root.get_design_by_name("design");
+        const DesignId design_id = find_design_by_name(root, "design");
         const LayoutId layout_id = root.get_design_layout(design_id);
         const std::vector<LayoutViaId> via_ids = root.get_layout_vias(layout_id);
         ASSERT_EQ(via_ids.size(), 11u);
@@ -564,7 +566,7 @@ namespace le
 
     TEST_F(DEFReaderCompleteFixture, CreatesEveryRegionWithCorrectFields)
     {
-        const DesignId design_id = root.get_design_by_name("design");
+        const DesignId design_id = find_design_by_name(root, "design");
         const LayoutId layout_id = root.get_design_layout(design_id);
         const std::vector<RegionId> region_ids = root.get_layout_regions(layout_id);
         ASSERT_EQ(region_ids.size(), 2u);
@@ -604,7 +606,7 @@ namespace le
 
     TEST_F(DEFReaderCompleteFixture, CreatesRoutesWithRoutedGeometry)
     {
-        const DesignId design_id = root.get_design_by_name("design");
+        const DesignId design_id = find_design_by_name(root, "design");
         const LayoutId layout_id = root.get_design_layout(design_id);
         const std::vector<RouteId> route_ids = root.get_layout_routes(layout_id);
 
@@ -758,7 +760,7 @@ namespace le
         DEFReader reader;
         ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/unit_scale_mismatch.def", root, "test_lib"), 0);
 
-        const DesignId design_id = root.get_design_by_name("unit_scale_test");
+        const DesignId design_id = find_design_by_name(root, "unit_scale_test");
         ASSERT_TRUE(design_id.valid());
         const LayoutId layout_id = root.get_design_layout(design_id);
         ASSERT_TRUE(layout_id.valid());
@@ -811,7 +813,7 @@ namespace le
         DEFReader reader;
         ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/route_default_width.def", root, "test_lib"), 0);
 
-        const DesignId design_id = root.get_design_by_name("route_width_test");
+        const DesignId design_id = find_design_by_name(root, "route_width_test");
         ASSERT_TRUE(design_id.valid());
         const LayoutId layout_id = root.get_design_layout(design_id);
         ASSERT_TRUE(layout_id.valid());
@@ -861,7 +863,7 @@ namespace le
             root.create_layer(LayerData{.technology = technology_id, .name = "V1", .type = "CUT"});
             ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/via_rule_reference.def", root, "test_lib"), 0);
 
-            design_id = root.get_design_by_name("via_rule_reference_test");
+            design_id = find_design_by_name(root, "via_rule_reference_test");
             layout_id = design_id.valid() ? root.get_design_layout(design_id) : LayoutId{};
         }
 
@@ -954,4 +956,49 @@ namespace le
         ASSERT_TRUE(width_no_override.has_value());
         EXPECT_EQ(*width_no_override, 300);
     }
+
+    // component_weight.def places two instances of CELL.
+    namespace
+    {
+        std::string component_weight_path() { return std::string(IO_TEST_FIXTURES_DIR) + "/component_weight.def"; }
+
+        size_t placement_count(const Root &root, LibraryId library)
+        {
+            const DesignId design = root.get_design_by_name(library, "component_weight_test");
+            return design.valid() ? root.get_layout_placements(root.get_design_layout(design)).size() : 0;
+        }
+    }
+
+    TEST(DEFReaderComponents, AComponentPrefersTheCellInTheDefsOwnLibrary)
+    {
+        Root root;
+        root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+        const LibraryId top = root.create_library(LibraryData{.name = "top"});
+        const LibraryId other = root.create_library(LibraryData{.name = "other"});
+        const DesignId own_cell = root.create_design(DesignData{.library = top, .name = "CELL"});
+        root.create_design(DesignData{.library = other, .name = "CELL"});
+
+        DEFReader reader;
+        ASSERT_EQ(reader.read_def(component_weight_path(), root, "top"), 0);
+        ASSERT_EQ(placement_count(root, top), 2u);
+        const DesignId design = root.get_design_by_name(top, "component_weight_test");
+        for (const PlacementId placement : root.get_layout_placements(root.get_design_layout(design)))
+            EXPECT_EQ(root.get_placement(placement)->reference_design, own_cell);
+    }
+
+    TEST(DEFReaderComponents, AnAmbiguousCellNameIsReportedAndSkipped)
+    {
+        Root root;
+        root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+        root.create_design(DesignData{.library = root.create_library(LibraryData{.name = "x"}), .name = "CELL"});
+        root.create_design(DesignData{.library = root.create_library(LibraryData{.name = "y"}), .name = "CELL"});
+
+        DEFReader reader;
+        reader.read_def(component_weight_path(), root, "top");
+        EXPECT_EQ(placement_count(root, root.get_library_by_name("top")), 0u);
+        const bool reported = std::ranges::any_of(reader.messages(), [](const std::string &m)
+                                                  { return m.find("'CELL', which libraries x, y all have") != std::string::npos; });
+        EXPECT_TRUE(reported);
+    }
+
 }

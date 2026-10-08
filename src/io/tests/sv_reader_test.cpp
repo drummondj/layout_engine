@@ -1,3 +1,4 @@
+#include "../../database/library_helpers.hpp"
 #include "../sv_reader.hpp"
 #include <gtest/gtest.h>
 #include <string>
@@ -127,7 +128,7 @@ TEST(SVReader, NetlistReadPopulatesPortsInstancesAndPins)
     SVReader reader;
     ASSERT_EQ(reader.read_netlist({fixture_path("gate_netlist_clean.v")}, root, "test_lib"), 0);
 
-    const DesignId top_id = root.get_design_by_name("top");
+    const DesignId top_id = find_design_by_name(root, "top");
     ASSERT_TRUE(top_id.valid());
     const SchematicId schematic_id = root.get_design_schematic(top_id);
     ASSERT_TRUE(schematic_id.valid());
@@ -227,7 +228,7 @@ TEST(SVReader, OutputOnlyConnectionsStillResolveToRealNets)
     SVReader reader;
     ASSERT_EQ(reader.read_netlist({fixture_path("gate_netlist_output_only_net.v")}, root, "test_lib"), 0);
 
-    const DesignId top_id = root.get_design_by_name("top");
+    const DesignId top_id = find_design_by_name(root, "top");
     ASSERT_TRUE(top_id.valid());
     const SchematicId schematic_id = root.get_design_schematic(top_id);
     ASSERT_TRUE(schematic_id.valid());
@@ -276,7 +277,7 @@ TEST(SVReader, UndefinedLeafCellStaysUnresolvedUntilLinked)
     SVReader reader;
     ASSERT_EQ(reader.read_netlist({fixture_path("gate_netlist_undefined_leaf.v")}, root, "test_lib"), 0);
 
-    const DesignId top_id = root.get_design_by_name("top");
+    const DesignId top_id = find_design_by_name(root, "top");
     ASSERT_TRUE(top_id.valid());
     const SchematicId schematic_id = root.get_design_schematic(top_id);
     const auto instance_ids = root.get_schematic_instances(schematic_id);
@@ -316,7 +317,7 @@ TEST(SVReader, EscapedIdentifierConnectionsResolveToTheSameBracketedNetNameAsAPl
     SVReader reader;
     ASSERT_EQ(reader.read_netlist({fixture_path("gate_netlist_escaped_identifiers.v")}, root, "test_lib"), 0);
 
-    const DesignId top_id = root.get_design_by_name("top");
+    const DesignId top_id = find_design_by_name(root, "top");
     ASSERT_TRUE(top_id.valid());
     const SchematicId schematic_id = root.get_design_schematic(top_id);
 
@@ -363,7 +364,7 @@ TEST(SVReader, RtlReadExtractsTopLevelInstantiationsAndFallsBackForGenerateRegio
     SVReader reader;
     ASSERT_EQ(reader.read_rtl({fixture_path("gate_netlist_clean.v")}, root, "test_lib"), 0);
 
-    const DesignId top_id = root.get_design_by_name("top");
+    const DesignId top_id = find_design_by_name(root, "top");
     ASSERT_TRUE(top_id.valid());
     const SchematicId schematic_id = root.get_design_schematic(top_id);
     ASSERT_TRUE(root.get_port_by_name(schematic_id, "clk").valid());
@@ -422,14 +423,14 @@ TEST(SVReader, RtlReadCreatesLogicCloudForBrokenAlwaysBlockWithoutDisturbingOthe
     SVReader reader;
     ASSERT_EQ(reader.read_rtl({fixture_path("rtl_invalid_body.sv")}, root, "test_lib"), 0);
 
-    const DesignId bufx1_id = root.get_design_by_name("BUFX1");
+    const DesignId bufx1_id = find_design_by_name(root, "BUFX1");
     ASSERT_TRUE(bufx1_id.valid());
     const SchematicId bufx1_schematic = root.get_design_schematic(bufx1_id);
     EXPECT_TRUE(root.get_port_by_name(bufx1_schematic, "A").valid());
     EXPECT_TRUE(root.get_port_by_name(bufx1_schematic, "Z").valid());
     EXPECT_TRUE(root.get_schematic_instances(bufx1_schematic).empty());
 
-    const DesignId spike_id = root.get_design_by_name("spike_mixed");
+    const DesignId spike_id = find_design_by_name(root, "spike_mixed");
     ASSERT_TRUE(spike_id.valid());
     const SchematicId spike_schematic = root.get_design_schematic(spike_id);
     const PortId out_port = root.get_port_by_name(spike_schematic, "out");
@@ -448,4 +449,39 @@ TEST(SVReader, RtlReadCreatesLogicCloudForBrokenAlwaysBlockWithoutDisturbingOthe
         }
     }
     EXPECT_TRUE(found_always_ff_logic_cloud);
+}
+
+// A netlist's leaf modules attach to same-named cells another library
+// already has (e.g. from LEF) - every instance of a cell to the same one,
+// even after the first gave it a Schematic.
+TEST(SVReaderLibraries, LeafModulesAttachToAnotherLibrarysCellsOnce)
+{
+    for (const bool netlist : {true, false})
+    {
+        Root root;
+        const LibraryId cells = root.create_library(LibraryData{.name = "cells"});
+        const DesignId inv = root.create_design(DesignData{.library = cells, .name = "INV"});
+        const DesignId and2 = root.create_design(DesignData{.library = cells, .name = "AND2"});
+        root.create_abstract(AbstractData{.design = inv});
+        root.create_abstract(AbstractData{.design = and2});
+
+        SVReader reader;
+        const std::vector<std::string> files{fixture_path("gate_netlist_clean.v")};
+        ASSERT_EQ(netlist ? reader.read_netlist(files, root, "top_lib") : reader.read_rtl(files, root, "top_lib"), 0);
+
+        EXPECT_EQ(root.get_design_size(), 3u) << (netlist ? "netlist" : "rtl");
+        EXPECT_TRUE(root.get_design_schematic(inv).valid());
+        const DesignId top = root.get_design_by_name(root.get_library_by_name("top_lib"), "top");
+        ASSERT_TRUE(top.valid());
+        size_t resolved = 0;
+        for (const InstanceId instance : root.get_schematic_instances(root.get_design_schematic(top)))
+        {
+            const DesignId reference = root.get_instance(instance)->reference_design;
+            if (!reference.valid())
+                continue; // read_rtl's logic clouds reference nothing
+            ++resolved;
+            EXPECT_TRUE(reference == inv || reference == and2) << root.get_instance(instance)->name;
+        }
+        EXPECT_EQ(resolved, netlist ? 4u : 2u); // read_rtl leaves the generate loop unexpanded
+    }
 }

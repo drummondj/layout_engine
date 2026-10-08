@@ -1,3 +1,4 @@
+#include "../../database/library_helpers.hpp"
 #include "codec.hpp"
 #include "native_format.hpp"
 #include "generated/database/schema_version.hpp"
@@ -57,7 +58,7 @@ namespace le::persistence
         /// The Schematic of Design `name`, or an invalid id.
         SchematicId schematic_of(const Root &root, const std::string &name)
         {
-            const DesignId design = root.get_design_by_name(name);
+            const DesignId design = find_design_by_name(root, name);
             return design.valid() ? root.get_design_schematic(design) : SchematicId{};
         }
 
@@ -81,7 +82,7 @@ namespace le::persistence
                      ASSERT_NE(rx, nullptr);
                      EXPECT_EQ(rx->type, "ROUTING");
                      EXPECT_EQ(rx->pitch, kRxPitch);
-                     const DesignId design = root.get_design_by_name("design"); // the DEF's DESIGN
+                     const DesignId design = find_design_by_name(root, "design"); // the DEF's DESIGN
                      ASSERT_TRUE(design.valid());
                      const PlacementData *i1 = root.get_placement(root.get_placement_by_name(root.get_design_layout(design), "I1"));
                      ASSERT_NE(i1, nullptr);
@@ -103,7 +104,7 @@ namespace le::persistence
                      EXPECT_EQ(m1->width, 1000);
                      EXPECT_EQ(m1->pitch, 2000);
                      EXPECT_EQ(m1->direction, RoutingDirection::H);
-                     const AbstractId cell = root.get_design_abstract(root.get_design_by_name("TESTCELL"));
+                     const AbstractId cell = root.get_design_abstract(find_design_by_name(root, "TESTCELL"));
                      ASSERT_TRUE(cell.valid());
                      const std::optional<Point> size = root.get_abstract(cell)->size;
                      ASSERT_TRUE(size.has_value());

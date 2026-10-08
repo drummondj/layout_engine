@@ -1917,6 +1917,21 @@ extern "C"
     /// Terminal on this handle.
     const char *le_terminal_name(LeHandle *handle, LeTerminalId id);
 
+    /// @brief The Design `name` refers to: `NAME` when only one Library
+    /// has a Design of that name, else `LIB/NAME` (a Design's name is
+    /// unique only within its Library). Returns an invalid id
+    /// (index == UINT32_MAX) if handle/name is null or nothing matches.
+    LeDesignId le_design_by_name(LeHandle *handle, const char *name);
+
+    /// @brief The name of the Design at `id`. Owned by the handle's Root -
+    /// valid until the handle is destroyed. Returns nullptr if handle is
+    /// null or id doesn't name a Design on this handle.
+    const char *le_design_name_by_id(LeHandle *handle, LeDesignId id);
+
+    /// @brief The Library that holds the Design at `id`. Invalid if handle
+    /// is null or id doesn't name a Design on this handle.
+    LeLibraryId le_design_library_by_id(LeHandle *handle, LeDesignId id);
+
     /// @brief Row/Placement/PhysicalPort/Route/Region/LayoutVia friendly-id lookup
     /// pair, one per class - same reasoning as le_terminal_by_name/
     /// le_terminal_name above: each of these classes' own `name` field is

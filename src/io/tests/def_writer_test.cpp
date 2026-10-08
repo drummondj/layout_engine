@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <fstream>
 #include <fmt/format.h>
+#include "../../database/library_helpers.hpp"
 #include "../def_reader.hpp"
 #include "../def_writer.hpp"
 
@@ -52,7 +53,7 @@ namespace le
         Root root;
         populate_technology_and_designs(root);
         ASSERT_EQ(DEFReader().read_def(def_path, root, "test_lib"), 0);
-        const LayoutId layout_id = root.get_design_layout(root.get_design_by_name("pins"));
+        const LayoutId layout_id = root.get_design_layout(find_design_by_name(root, "pins"));
         ASSERT_TRUE(layout_id.valid());
         const auto &ports = root.get_layout_physical_ports(layout_id);
         ASSERT_EQ(ports.size(), 1u);
@@ -75,7 +76,7 @@ namespace le
         Root reread;
         populate_technology_and_designs(reread);
         ASSERT_EQ(DEFReader().read_def(written_path, reread, "test_lib"), 0);
-        const LayoutId reread_layout = reread.get_design_layout(reread.get_design_by_name("pins"));
+        const LayoutId reread_layout = reread.get_design_layout(find_design_by_name(reread, "pins"));
         const auto &reread_ports = reread.get_layout_physical_ports(reread_layout);
         ASSERT_EQ(reread_ports.size(), 1u);
         const ShapeData *reread_shape = reread.get_shape(reread.get_physical_port_segment_shapes(reread.get_physical_port_segments(reread_ports[0])[0])[0]);
@@ -99,7 +100,7 @@ namespace le
             DEFReader reader;
             ASSERT_EQ(reader.read_def(complete_fixture_path(), original_root, "test_lib"), 0);
 
-            const DesignId design_id = original_root.get_design_by_name("design");
+            const DesignId design_id = find_design_by_name(original_root, "design");
             ASSERT_TRUE(design_id.valid());
             const LayoutId layout_id = original_root.get_design_layout(design_id);
             ASSERT_TRUE(layout_id.valid());
@@ -123,7 +124,7 @@ namespace le
             DEFReader reread_reader;
             ASSERT_EQ(reread_reader.read_def(written_path, written_root, "test_lib"), 0);
 
-            const DesignId reread_design_id = written_root.get_design_by_name("design");
+            const DesignId reread_design_id = find_design_by_name(written_root, "design");
             ASSERT_TRUE(reread_design_id.valid());
             written_layout_id = written_root.get_design_layout(reread_design_id);
             ASSERT_TRUE(written_layout_id.valid());
@@ -188,7 +189,7 @@ namespace le
 
             DEFReader reader;
             ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/component_weight.def", original_root, "weight_test_lib"), 0);
-            const DesignId design_id = original_root.get_design_by_name("component_weight_test");
+            const DesignId design_id = find_design_by_name(original_root, "component_weight_test");
             ASSERT_TRUE(design_id.valid());
             original_layout_id = original_root.get_design_layout(design_id);
             ASSERT_TRUE(original_layout_id.valid());
@@ -202,7 +203,7 @@ namespace le
             written_root.create_design(DesignData{.library = reread_library_id, .name = "CELL"});
             DEFReader reread_reader;
             ASSERT_EQ(reread_reader.read_def(written_path, written_root, "weight_test_lib"), 0);
-            const DesignId reread_design_id = written_root.get_design_by_name("component_weight_test");
+            const DesignId reread_design_id = find_design_by_name(written_root, "component_weight_test");
             ASSERT_TRUE(reread_design_id.valid());
             written_layout_id = written_root.get_design_layout(reread_design_id);
             ASSERT_TRUE(written_layout_id.valid());
@@ -270,7 +271,7 @@ namespace le
             for (const char *name : {"M1", "M2", "V1"})
                 original_root.create_layer(LayerData{.technology = technology_id, .name = name, .type = "ROUTING"});
             ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/via_rule_reference.def", original_root, "test_lib"), 0);
-            const DesignId design_id = original_root.get_design_by_name("via_rule_reference_test");
+            const DesignId design_id = find_design_by_name(original_root, "via_rule_reference_test");
             ASSERT_TRUE(design_id.valid());
             original_layout_id = original_root.get_design_layout(design_id);
             ASSERT_TRUE(original_layout_id.valid());
@@ -290,7 +291,7 @@ namespace le
                 written_root.create_layer(LayerData{.technology = reread_technology_id, .name = name, .type = "ROUTING"});
             DEFReader reread_reader;
             ASSERT_EQ(reread_reader.read_def(written_path, written_root, "test_lib"), 0);
-            const DesignId reread_design_id = written_root.get_design_by_name("via_rule_reference_test");
+            const DesignId reread_design_id = find_design_by_name(written_root, "via_rule_reference_test");
             ASSERT_TRUE(reread_design_id.valid());
             written_layout_id = written_root.get_design_layout(reread_design_id);
             ASSERT_TRUE(written_layout_id.valid());
@@ -362,7 +363,7 @@ namespace le
             for (const char *name : {"metal1", "metal2"})
                 original_root.create_layer(LayerData{.technology = technology_id, .name = name, .type = "ROUTING"});
             ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/net_via_no_path.def", original_root, "test_lib"), 0);
-            const DesignId design_id = original_root.get_design_by_name("net_via_no_path_test");
+            const DesignId design_id = find_design_by_name(original_root, "net_via_no_path_test");
             ASSERT_TRUE(design_id.valid());
             original_layout_id = original_root.get_design_layout(design_id);
             ASSERT_TRUE(original_layout_id.valid());
@@ -392,7 +393,7 @@ namespace le
                     joined += m + "\n";
                 return joined;
             }();
-            const DesignId reread_design_id = written_root.get_design_by_name("net_via_no_path_test");
+            const DesignId reread_design_id = find_design_by_name(written_root, "net_via_no_path_test");
             ASSERT_TRUE(reread_design_id.valid());
             written_layout_id = written_root.get_design_layout(reread_design_id);
             ASSERT_TRUE(written_layout_id.valid());
@@ -582,7 +583,7 @@ namespace le
         populate_technology_and_designs(root);
         DEFReader reader;
         ASSERT_EQ(reader.read_def(complete_fixture_path(), root, "test_lib"), 0);
-        const DesignId design_id = root.get_design_by_name("design");
+        const DesignId design_id = find_design_by_name(root, "design");
         ASSERT_TRUE(design_id.valid());
         const LayoutId layout_id = root.get_design_layout(design_id);
         ASSERT_TRUE(layout_id.valid());

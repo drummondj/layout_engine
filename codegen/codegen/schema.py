@@ -702,6 +702,14 @@ class Klass:
         """
         return [f for f in self.get_parent_fields() if not f._parent_field.is_list]
 
+    def get_global_unique_fields(self) -> List["Field"]:
+        """
+        Every index=True field that isn't unique_per_parent: one global
+        by-<field> map, so its value is unique across the whole Root and
+        create/update refuse a clash.
+        """
+        return [f for f in self.fields if f.index and not f.unique_per_parent]
+
     def get_unique_per_parent_fields(self) -> List["Field"]:
         """
         Every field on this class with unique_per_parent=True - used by
@@ -1019,6 +1027,10 @@ class Klass:
         for sf in self.get_singular_parent_fields():
             add(f"if (data.{sf.accessor}.valid() && root.get_{sf._parent_klass.to_snake_case()}_{sf.parent}(data.{sf.accessor}).valid())")
             add(f'    return std::unexpected("the {sf.name} already has a {sf.parent} - delete or update that {self.name} instead");')
+
+        for gf in self.get_global_unique_fields():
+            add(f"if (root.get_{snake}_by_{gf.name}(data.{gf.name}).valid())")
+            add(f'    return std::unexpected(fmt::format("a {self.name} with this {gf.name} (\'{{}}\') already exists", data.{gf.name}));')
 
         add()
         # The data is only copied when the open transaction keeps it.
@@ -1660,6 +1672,9 @@ class Klass:
         for rf in reference_fields:
             add(f"if (changes.{rf.name} && !root.get_{rf._type_klass.to_snake_case()}(*changes.{rf.name}))")
             add(f'    return std::unexpected("unknown {rf.name} - no such {rf.type} exists");')
+        for gf in self.get_global_unique_fields():
+            add(f"if (changes.{gf.name} && *changes.{gf.name} != before.{gf.name} && root.get_{snake}_by_{gf.name}(*changes.{gf.name}).valid())")
+            add(f'    return std::unexpected(fmt::format("a {self.name} with this {gf.name} (\'{{}}\') already exists", *changes.{gf.name}));')
 
         call_args = ["id"]
         if single_parent is not None:
@@ -1876,15 +1891,13 @@ class Klass:
                 add(f"    siblings[*{f.name}] = id;")
                 add("}")
             elif f.index:
-                # A global by-<field> index: move this object's entry to
-                # the new key. The old key is erased only while it still
-                # maps to this id - another object may hold that name.
+                # A global by-<field> index, unique across the whole Root.
                 add()
                 add(f"if ({f.name} && *{f.name} != existing->{f.name})")
                 add("{")
-                add(f"    auto old_it = index_.{snake}_by_{f.name}.find(existing->{f.name});")
-                add(f"    if (old_it != index_.{snake}_by_{f.name}.end() && old_it->second == id)")
-                add(f"        index_.{snake}_by_{f.name}.erase(old_it);")
+                add(f"    if (index_.{snake}_by_{f.name}.contains(*{f.name}))")
+                add("        return false;")
+                add(f"    index_.{snake}_by_{f.name}.erase(existing->{f.name});")
                 add(f"    existing->{f.name} = *{f.name};")
                 add(f"    index_.{snake}_by_{f.name}[*{f.name}] = id;")
                 add("}")

@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.50.0",
+    version="0.51.0",
     classes=[
         Klass(
             name="Technology",
@@ -1802,10 +1802,11 @@ schema = Schema(
                 ),
                 Field(
                     name="name",
-                    description="The name of the design",
+                    description="The name of the design, unique within its library",
                     type="str",
                     example="top_level",
                     index=True,
+                    unique_per_parent=True,
                 ),
                 Field(
                     name="abstract",
