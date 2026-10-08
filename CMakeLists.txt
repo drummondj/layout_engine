@@ -20,6 +20,22 @@ set(LE_EXTENSION_API_VERSION 1)
 set(LE_EXTENSION_DIRS "" CACHE STRING
     "Extension directories (each with an le_extension.toml) to build into le_shell/le_tcl, ;-separated")
 
+# Profile: a Release build with debug info and Tracy instrumentation
+# (LE_ENABLE_TRACY below defaults ON only for it), for profiling with the
+# Tracy viewer. Release and Debug builds carry no instrumentation.
+# project() leaves an empty entry for a custom build type, so fill it in
+# while it's still empty, keeping any value set on the command line.
+foreach(lang C CXX)
+    if(NOT CMAKE_${lang}_FLAGS_PROFILE)
+        set(CMAKE_${lang}_FLAGS_PROFILE "${CMAKE_${lang}_FLAGS_RELEASE} -g" CACHE STRING "${lang} flags for the Profile build type" FORCE)
+    endif()
+endforeach()
+foreach(kind EXE SHARED MODULE)
+    if(NOT CMAKE_${kind}_LINKER_FLAGS_PROFILE)
+        set(CMAKE_${kind}_LINKER_FLAGS_PROFILE "${CMAKE_${kind}_LINKER_FLAGS_RELEASE}" CACHE STRING "Linker flags for the Profile build type" FORCE)
+    endif()
+endforeach()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -334,11 +350,14 @@ find_package(TBB REQUIRED CONFIG)
 # TRACY_ENABLE ON - Tracy's profiler thread depends on every object file
 # sharing one macOS deployment target (see CMAKE_OSX_DEPLOYMENT_TARGET at
 # the top of this file).
-# LE_ENABLE_TRACY: defaults ON everywhere (unchanged behavior for local
-# dev builds), overridable to OFF for a build that shouldn't carry
-# profiling instrumentation - Dockerfile.linux-release's own Release-tree
-# configure passes -DLE_ENABLE_TRACY=OFF for exactly this.
-option(LE_ENABLE_TRACY "Enable Tracy profiling instrumentation" ON)
+# LE_ENABLE_TRACY defaults ON only for the Profile build type (see the top of
+# this file); any build can still set it explicitly.
+if(CMAKE_BUILD_TYPE STREQUAL "Profile")
+    set(LE_TRACY_DEFAULT ON)
+else()
+    set(LE_TRACY_DEFAULT OFF)
+endif()
+option(LE_ENABLE_TRACY "Enable Tracy profiling instrumentation" ${LE_TRACY_DEFAULT})
 set(TRACY_ENABLE ${LE_ENABLE_TRACY} CACHE BOOL "" FORCE)
 FetchContent_Declare(
     tracy

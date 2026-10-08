@@ -136,6 +136,11 @@ links — see `CLAUDE.md`'s Build section. Step 5 below needs
 `build_release` to already exist, so don't skip it even though
 `ctest` doesn't touch it.
 
+Neither carries Tracy profiling instrumentation. For a profiling build,
+configure a third tree with `-DCMAKE_BUILD_TYPE=Profile` (Release
+optimisation plus debug info, with `LE_ENABLE_TRACY` defaulting ON); any
+tree can also set `-DLE_ENABLE_TRACY=ON` or `OFF` explicitly.
+
 **Expect real test failures here** — beyond the "does it link at all"
 question, `ctest`'s actual pass/fail results are the first real signal
 about whether the RHEL8-specific choices in `CMakeLists.txt`
