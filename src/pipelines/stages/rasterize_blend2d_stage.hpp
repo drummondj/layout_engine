@@ -148,8 +148,7 @@ namespace le
     /// `compute()` sets up before any real geometry draws), so every dot/
     /// line below is drawn directly in dbu coordinates and left to that
     /// transform; every *fixed on-screen size* (dot radius, axis-line
-    /// width isn't fixed but colors/style are unaffected either way) is
-    /// divided by `scale` first, the same "1.0 / scale" convention this
+    /// width) is divided by `scale` first, the same "1.0 / scale" convention this
     /// module's own `kViaCrossStrokeWidth` already uses, so it still
     /// renders at a constant pixel size regardless of zoom.
     ///
@@ -162,6 +161,7 @@ namespace le
             return;
 
         ctx.set_stroke_style(to_bl_color(kAxisLineColor));
+        ctx.set_stroke_width(kAxisLineStrokeWidth / scale);
         if (visible_dbu.ll.x <= 0 && visible_dbu.ur.x >= 0)
             ctx.stroke_line(BLLine(0.0, static_cast<double>(visible_dbu.ll.y), 0.0, static_cast<double>(visible_dbu.ur.y)));
         if (visible_dbu.ll.y <= 0 && visible_dbu.ur.y >= 0)

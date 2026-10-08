@@ -199,6 +199,7 @@ namespace le
     inline constexpr Color kMinorGridColor = {128, 128, 128, 120};
     inline constexpr Color kMajorGridColor = {255, 255, 255, 230};
     inline constexpr Color kAxisLineColor = {255, 255, 255, 160};
+    inline constexpr double kAxisLineStrokeWidth = 1.0;
     inline constexpr Color kOriginMarkerColor = {255, 200, 0, 255};
     inline constexpr double kOriginMarkerStrokeWidth = 2.0;
     inline constexpr double kOriginMarkerSizePx = 16.0;
