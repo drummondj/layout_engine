@@ -321,3 +321,45 @@ TEST(PatternBlend2D, DotsTileDrawsOneSmallCrispDotAtThePixelCenter)
             coverage += sample(tile, x, y).a / 255.0;
     EXPECT_NEAR(coverage, std::numbers::pi * kDotPatternRadius * kDotPatternRadius, 0.5);
 }
+
+namespace
+{
+    // Total alpha (in pixels' worth of full coverage) along image row `y`
+    // across columns [x0, x1].
+    double row_coverage(const BLImage &image, int y, int x0, int x1)
+    {
+        double coverage = 0.0;
+        for (int x = x0; x <= x1; ++x)
+            coverage += sample(image, x, y).a / 255.0;
+        return coverage;
+    }
+
+    // Draws only the axis lines (no dot tiers) into a 100x100 image whose
+    // centre is dbu (0,0) at `scale` pixels per dbu.
+    BLImage draw_axes_at_scale(double scale)
+    {
+        BLImage image(100, 100, BL_FORMAT_PRGB32);
+        BLContext ctx(image);
+        ctx.clear_all();
+        ctx.translate(50.0, 50.0);
+        ctx.scale(scale, -scale);
+        const auto half = static_cast<int64_t>(50.0 / scale);
+        draw_grid_blend2d(ctx, Rect{{-half, -half}, {half, half}}, scale, 0, 0);
+        ctx.end();
+        return image;
+    }
+}
+
+TEST(GridBlend2D, AxisLinesStayOnePixelWideAtAnyZoom)
+{
+    const double axis_alpha = kAxisLineColor.a / 255.0;
+    for (const double scale : {0.001, 1.0, 50.0})
+    {
+        const BLImage image = draw_axes_at_scale(scale);
+        // Row 10 crosses the vertical axis (x = 0, device column 50) away
+        // from the horizontal one: its ink there adds up to one pixel's
+        // worth, whether zoomed far out or far in.
+        EXPECT_NEAR(row_coverage(image, 10, 40, 60), axis_alpha, 0.05) << "scale " << scale;
+        EXPECT_EQ(sample(image, 45, 10).a, 0u) << "scale " << scale;
+    }
+}
