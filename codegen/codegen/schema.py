@@ -1852,6 +1852,19 @@ class Klass:
                 add(f"    existing->{f.name} = *{f.name};")
                 add(f"    siblings[*{f.name}] = id;")
                 add("}")
+            elif f.index:
+                # A global by-<field> index: move this object's entry to
+                # the new key. The old key is erased only while it still
+                # maps to this id - another object may hold that name.
+                add()
+                add(f"if ({f.name} && *{f.name} != existing->{f.name})")
+                add("{")
+                add(f"    auto old_it = index_.{snake}_by_{f.name}.find(existing->{f.name});")
+                add(f"    if (old_it != index_.{snake}_by_{f.name}.end() && old_it->second == id)")
+                add(f"        index_.{snake}_by_{f.name}.erase(old_it);")
+                add(f"    existing->{f.name} = *{f.name};")
+                add(f"    index_.{snake}_by_{f.name}[*{f.name}] = id;")
+                add("}")
             else:
                 add(f"if ({f.name}) existing->{f.name} = *{f.name};")
 
