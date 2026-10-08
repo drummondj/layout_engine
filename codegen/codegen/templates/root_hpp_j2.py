@@ -175,6 +175,12 @@ namespace {{schema.namespace}} {
         /// new failure signal.
             {%- endif %}
         {%- endfor %}
+        {%- for field in klass.get_singular_parent_fields() %}
+        ///
+        /// Fallible: returns an invalid {{klass.name}}Id if the
+        /// {{field.name}}'s {{field.parent}} is already set (one per
+        /// {{field.type}}).
+        {%- endfor %}
         {{klass.name}}Id create_{{klass.to_snake_case()}}({{klass.name}}Data data) {
         {%- for field in klass.get_ordered_fields() %}
             {%- if field.unique_per_parent %}
@@ -184,6 +190,10 @@ namespace {{schema.namespace}} {
                     return {{klass.name}}Id{};
             }
             {%- endif %}
+        {%- endfor %}
+        {%- for field in klass.get_singular_parent_fields() %}
+            if (data.{{field.accessor}}.valid() && index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.contains(data.{{field.accessor}}))
+                return {{klass.name}}Id{};
         {%- endfor %}
             {{klass.name}}Id id = {{klass.to_snake_case()}}_.create(std::move(data));
             log_change_(ChangeKlass::{{klass.name}}, ChangeOp::CREATE, id, change_parent_(id, *{{klass.to_snake_case()}}_.get(id)));
@@ -201,6 +211,9 @@ namespace {{schema.namespace}} {
         /// create_{{klass.to_snake_case()}}()'s own "omitted means unset"
         /// convention. False (no-op, nothing applied) if `id` doesn't
         /// exist{% if klass.get_parent_fields() | length == 1 and klass.get_unique_per_parent_fields() %}, if the new parent already has a sibling {{klass.name}} sharing the current {{klass.get_unique_per_parent_fields()[0].name}} (reparenting), or if a sibling under the (possibly just-reassigned) parent already has the requested {{klass.get_unique_per_parent_fields()[0].name}} (renaming){% elif klass.get_unique_per_parent_fields() %}, or if a sibling {{klass.name}} sharing the same {{klass.get_parent_field().name}} already has the requested {{klass.get_unique_per_parent_fields()[0].name}}{% endif %}.
+        {%- if klass.get_parent_fields() | length == 1 and klass.get_singular_parent_fields() %}
+        /// Also false if the new {{klass.get_parent_fields()[0].name}} already has a {{klass.get_parent_fields()[0].parent}}.
+        {%- endif %}
         {%- if klass.get_parent_fields() | length > 1 %}
         /// {{klass.name}} has multiple parent fields ({%- for pf in klass.get_parent_fields() -%}{{pf.name}}{% if not loop.last %}, {% endif %}{%- endfor -%}) -
         /// no parent flag is generated at all here, since reassigning one
@@ -255,7 +268,11 @@ namespace {{schema.namespace}} {
                 }
             }
                 {%- else %}
-            index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.erase(d.{{field.accessor}});
+            {
+                auto it = index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.find(d.{{field.accessor}});
+                if (it != index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.end() && it->second == id)
+                    index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.erase(it);
+            }
                 {%- endif %}
             {%- elif field.index and field.unique_per_parent %}
             {
@@ -274,11 +291,16 @@ namespace {{schema.namespace}} {
 
         /// @brief Set {{klass.name}}'s owner (which owner field, and that
         /// parent), moving it from the old owner's child list to the new
-        /// one's. False (no-op) if id doesn't exist.
+        /// one's. False (no-op) if id doesn't exist{% if klass.get_singular_parent_fields() | selectattr("owner") | list %}, or if the new owner's
+        /// single slot for it ({%- for field in klass.get_singular_parent_fields() | selectattr("owner") -%}{{field._parent_klass.name}}.{{field.parent}}{% if not loop.last %}, {% endif %}{%- endfor -%}) is already taken{% endif %}.
         bool set_{{klass.to_snake_case()}}_owner({{klass.name}}Id id, {{klass.owner_type_name()}} value) {
             auto* existing = {{klass.to_snake_case()}}_.get(id);
             if (!existing) return false;
             if (existing->owner == value) return true;
+            {%- for field in klass.get_singular_parent_fields() | selectattr("owner") %}
+            if (value.kind == {{klass.name}}OwnerKind::{{field.owner_kind()}} && index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.contains({{field.type}}Id{value.index, value.generation}))
+                return false;
+            {%- endfor %}
             const ChangeParent parent_before = change_parent_(id, *existing);
             log_change_(ChangeKlass::{{klass.name}}, ChangeOp::UPDATE, id, parent_before);
             switch (existing->owner.kind)
@@ -292,8 +314,12 @@ namespace {{schema.namespace}} {
                 break;
             }
                 {%- else %}
-                index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.erase(existing->{{field.accessor}});
+            {
+                auto it = index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.find(existing->{{field.accessor}});
+                if (it != index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.end() && it->second == id)
+                    index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.erase(it);
                 break;
+            }
                 {%- endif %}
             {%- endfor %}
             case {{klass.name}}OwnerKind::None:
@@ -313,7 +339,7 @@ namespace {{schema.namespace}} {
         /// @brief Set {{klass.name}}'s {{field.name}}, keeping the relevant
         /// Root index in sync (unlike assigning through
         /// get_{{klass.to_snake_case()}}() directly, which would leave a
-        /// stale index entry behind). False (no-op) if id doesn't exist{% if field.unique_per_parent %}, or if a sibling {{klass.name}} sharing the current {{klass.get_parent_field().name}} already has this {{field.name}} (unique_per_parent){% endif %}.
+        /// stale index entry behind). False (no-op) if id doesn't exist{% if field.unique_per_parent %}, or if a sibling {{klass.name}} sharing the current {{klass.get_parent_field().name}} already has this {{field.name}} (unique_per_parent){% elif field.parent and not field.owner and not field._parent_field.is_list %}, or if the new {{field.name}} already has a {{field.parent}}{% endif %}.
                 {%- if field.parent and klass.fields | selectattr("unique_per_parent") | list %}
         /// NOTE: this Klass has a unique_per_parent field
         /// ({%- for f in klass.fields | selectattr("unique_per_parent") -%}{{f.name}}{% if not loop.last %}, {% endif %}{%- endfor -%}) -
@@ -334,6 +360,10 @@ namespace {{schema.namespace}} {
             auto* existing = {{klass.to_snake_case()}}_.get(id);
             if (!existing) return false;
             if (existing->{{field.name}} == value) return true;
+            {%- if field.parent and not field._parent_field.is_list %}
+            if (value.valid() && index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.contains(value))
+                return false;
+            {%- endif %}
             log_change_(ChangeKlass::{{klass.name}}, ChangeOp::UPDATE, id, change_parent_(id, *existing));
 
             {%- if field.unique_per_parent %}
@@ -353,7 +383,11 @@ namespace {{schema.namespace}} {
                 old_siblings.erase(std::remove(old_siblings.begin(), old_siblings.end(), id), old_siblings.end());
             }
                 {%- else %}
-            index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.erase(existing->{{field.name}});
+            {
+                auto it = index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.find(existing->{{field.name}});
+                if (it != index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.end() && it->second == id)
+                    index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.erase(it);
+            }
                 {%- endif %}
 
             existing->{{field.name}} = value;

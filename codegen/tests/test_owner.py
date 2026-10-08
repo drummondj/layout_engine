@@ -119,3 +119,57 @@ class TestOwnerApi(unittest.TestCase):
         # Tcl keeps a flag per owner and passes the given one's name and token.
         self.assertIn("foreach kind {root holder}", procs)
         self.assertIn("create_item_cmd $owner_kind $owner_id", procs)
+
+
+class TestSingularOwnerSlot(unittest.TestCase):
+    """An owner whose child field isn't a list holds at most one child."""
+
+    def _schema(self):
+        return Schema(
+            name="t",
+            description="",
+            namespace="t",
+            version="1.0.0",
+            classes=[
+                Klass(
+                    name="Root",
+                    description="Root",
+                    fields=[
+                        Field(name="holders", description="Holders", type="Holder", is_list=True, is_child=True),
+                        Field(name="items", description="Items", type="Item", is_list=True, is_child=True),
+                    ],
+                ),
+                Klass(
+                    name="Holder",
+                    description="Holder",
+                    fields=[
+                        Field(name="root", description="Root", type="Root", parent="holders"),
+                        Field(name="item", description="The one item", type="Item", is_child=True),
+                    ],
+                ),
+                Klass(
+                    name="Item",
+                    description="Item",
+                    fields=[
+                        Field(name="root", description="Owning root", type="Root", parent="items", owner=True),
+                        Field(name="holder", description="Owning holder", type="Holder", parent="item", owner=True),
+                    ],
+                ),
+            ],
+        )
+
+    def test_only_the_non_list_owner_is_singular(self):
+        schema = self._schema()
+        schema.link()
+        item = schema.get_klass("Item")
+        self.assertEqual([f.name for f in item.get_singular_parent_fields()], ["holder"])
+        self.assertEqual(schema.get_klass("Holder").get_singular_parent_fields(), [])
+
+    def test_create_and_set_owner_refuse_a_taken_slot(self):
+        with tempfile.TemporaryDirectory() as out:
+            self.assertEqual(generate(self._schema(), out, logging.getLogger("test")), 0)
+            root = (Path(out) / "root.hpp").read_text()
+        self.assertIn("if (data.holder().valid() && index_.holder_item.contains(data.holder()))", root)
+        self.assertIn("if (value.kind == ItemOwnerKind::Holder && index_.holder_item.contains(HolderId{value.index, value.generation}))", root)
+        # Deleting or moving an Item only clears the slot if it's still this Item's.
+        self.assertIn("if (it != index_.holder_item.end() && it->second == id)", root)

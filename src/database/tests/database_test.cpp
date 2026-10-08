@@ -724,3 +724,64 @@ TEST(DatabaseChangeLog, ClearingAPoolSaturates)
     root.clear_library();
     EXPECT_FALSE(root.change_log().covers(since));
 }
+
+namespace
+{
+    struct SingularSlotFixture : ::testing::Test
+    {
+        Root root;
+        DesignId design = root.create_design(DesignData{.library = root.create_library(LibraryData{.name = "lib"}), .name = "top"});
+        LayoutId layout = root.create_layout(LayoutData{.design = design});
+        ShapeId diearea = root.create_shape(ShapeData{.owner = ShapeOwner::layout(layout), .rects = {Rect{{0, 0}, {10, 10}}}});
+    };
+}
+
+TEST_F(SingularSlotFixture, ASecondDieareaForOneLayoutIsRejected)
+{
+    ASSERT_TRUE(diearea.valid());
+    const ShapeId second = root.create_shape(ShapeData{.owner = ShapeOwner::layout(layout), .rects = {Rect{{0, 0}, {5, 5}}}});
+
+    EXPECT_FALSE(second.valid());
+    EXPECT_EQ(root.get_layout_diearea(layout), diearea);
+    EXPECT_EQ(root.get_shape_size(), 1u);
+}
+
+TEST_F(SingularSlotFixture, MovingAShapeOntoATakenDieareaIsRejected)
+{
+    const ShapeId free_shape = root.create_shape(ShapeData{.owner = ShapeOwner::in_layout(layout)});
+
+    EXPECT_FALSE(root.set_shape_owner(free_shape, ShapeOwner::layout(layout)));
+    EXPECT_FALSE(root.set_shape_layout(free_shape, layout));
+    EXPECT_EQ(root.get_shape(free_shape)->in_layout(), layout);
+    EXPECT_EQ(root.get_layout_diearea(layout), diearea);
+}
+
+TEST_F(SingularSlotFixture, MovingTheDieareaToAnotherLayoutFreesTheSlot)
+{
+    const LayoutId other = root.create_layout(LayoutData{.design = root.create_design(DesignData{.library = root.get_design(design)->library, .name = "other"})});
+
+    ASSERT_TRUE(root.set_shape_owner(diearea, ShapeOwner::layout(other)));
+    EXPECT_FALSE(root.get_layout_diearea(layout).valid());
+    EXPECT_EQ(root.get_layout_diearea(other), diearea);
+
+    // The freed slot takes a new diearea; deleting the moved one leaves it.
+    const ShapeId replacement = root.create_shape(ShapeData{.owner = ShapeOwner::layout(layout)});
+    ASSERT_TRUE(replacement.valid());
+    ASSERT_TRUE(root.delete_shape(diearea));
+    EXPECT_EQ(root.get_layout_diearea(layout), replacement);
+    EXPECT_FALSE(root.get_layout_diearea(other).valid());
+}
+
+TEST_F(SingularSlotFixture, ASecondLayoutForOneDesignIsRejected)
+{
+    EXPECT_FALSE(root.create_layout(LayoutData{.design = design}).valid());
+    EXPECT_EQ(root.get_design_layout(design), layout);
+
+    // Reparenting another Design's Layout onto this one is refused too.
+    const DesignId other_design = root.create_design(DesignData{.library = root.get_design(design)->library, .name = "other"});
+    const LayoutId other_layout = root.create_layout(LayoutData{.design = other_design});
+    EXPECT_FALSE(root.update_layout(other_layout, design));
+    EXPECT_EQ(root.get_layout(other_layout)->design, other_design);
+    EXPECT_EQ(root.get_design_layout(design), layout);
+    EXPECT_EQ(root.get_design_layout(other_design), other_layout);
+}
