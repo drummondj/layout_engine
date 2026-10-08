@@ -85,3 +85,43 @@ class TestSchema(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCompoundCreateField(unittest.TestCase):
+    """create_<type>'s initializer for an embedded-struct field (Point)."""
+
+    def setUp(self):
+        point = Klass(
+            name="Point",
+            description="A point",
+            has_pool=False,
+            fields=[
+                Field(name="x", description="X", type="int", example=0),
+                Field(name="y", description="Y", type="int", example=0),
+            ],
+        )
+        self.klass = Klass(
+            name="Marker",
+            description="A marker",
+            fields=[
+                Field(name="location", description="Required location", type="Point"),
+                Field(name="origin", description="Optional origin", type="Point", is_optional=True),
+            ],
+        )
+        self.schema = Schema(name="t", description="", namespace="t", classes=[point, self.klass], version="1.0.0")
+        self.schema.link()
+
+    def test_non_optional_field_defaults_to_the_zero_value(self):
+        field = self.schema.get_field("Marker", "location")
+        self.assertTrue(field.is_compound_create_field())
+        self.assertEqual(
+            field.create_struct_init_expr(),
+            "has_location ? le::Point{.x = location_x, .y = location_y} : le::Point{}",
+        )
+
+    def test_optional_field_stays_optional(self):
+        field = self.schema.get_field("Marker", "origin")
+        self.assertEqual(
+            field.create_struct_init_expr(),
+            "has_origin ? std::optional<le::Point>(le::Point{.x = origin_x, .y = origin_y}) : std::nullopt",
+        )
