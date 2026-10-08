@@ -64,6 +64,22 @@ file delete $migrated_path
 check "migrate_db on a missing file errors" 1 [catch {migrate_db $db_path.missing $migrated_path}]
 check "migrate_db needs two filenames" 1 [catch {migrate_db $db_path}]
 
+check "_expand_path ~" $::env(HOME) [_expand_path ~]
+check "_expand_path ~/a" "$::env(HOME)/a" [_expand_path ~/a]
+check "_expand_path absolute" /abs/a [_expand_path /abs/a]
+check "_expand_path relative" rel/a [_expand_path rel/a]
+check "_expand_path ~user is left alone" ~other/a [_expand_path ~other/a]
+check "_expand_path inner ~" a~b [_expand_path a~b]
+set real_home $::env(HOME)
+set ::env(HOME) [file join $tmp_dir "native_db_test_home_[pid]"]
+file mkdir $::env(HOME)
+check "write_db ~/..." "" [write_db -no_session ~/tilde.led]
+check "write_db ~/... lands in HOME" 1 [file exists [file join $::env(HOME) tilde.led]]
+check "db_info ~/..." 1 [string match "*session: no*" [db_info ~/tilde.led]]
+check "migrate_db ~/... ~/..." 1 [string match "migrated *" [migrate_db ~/tilde.led ~/tilde2.led]]
+file delete -force $::env(HOME)
+set ::env(HOME) $real_home
+
 set output [exec [info nameofexecutable] [info script] load $module_path $procs_path $db_path $nets]
 puts $output
 file delete $db_path

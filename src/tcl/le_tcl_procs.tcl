@@ -1510,6 +1510,15 @@ register_command_help flip_placement \
 # command would have (a variable a sourced script sets lands in the
 # right scope whether `source` is called at top level or from inside
 # another proc).
+# Expands a leading `~` or `~/` to $HOME in a file argument; the C API
+# opens paths as given, and Tcl 9's file commands no longer expand `~`.
+proc _expand_path {path} {
+    if {$path eq "~" || [string match "~/*" $path]} {
+        return "$::env(HOME)[string range $path 1 end]"
+    }
+    return $path
+}
+
 # Shared by read_lef/read_def/read_verilog: pulls the required
 # `-library <name>` flag out of `arglist`,
 # returning {library_name remaining_args}.
@@ -1544,7 +1553,7 @@ proc read_lef {args} {
     if {[llength $positional] != 1} {
         error "read_lef: expected exactly one <path> argument, got \"$positional\""
     }
-    return [_read_lef_cmd [lindex $positional 0] $library]
+    return [_read_lef_cmd [_expand_path [lindex $positional 0]] $library]
 }
 register_command_help read_lef \
     "read_lef -library <name> <path> \[-help\] - Reads a LEF file into the shared Technology and a named Library" \
@@ -1563,7 +1572,7 @@ proc read_def {args} {
     if {[llength $positional] != 1} {
         error "read_def: expected exactly one <path> argument, got \"$positional\""
     }
-    return [_read_def_cmd [lindex $positional 0] $library]
+    return [_read_def_cmd [_expand_path [lindex $positional 0]] $library]
 }
 register_command_help read_def \
     "read_def -library <name> <path> \[-help\] - Reads a DEF file into a new Layout in a named Library" \
@@ -1614,7 +1623,7 @@ proc read_verilog {args} {
     if {[llength $positional] < 1} {
         error "read_verilog: expected at least one <path> argument, got \"$args\""
     }
-    return [read_verilog_cmd [join $positional] $is_netlist $library]
+    return [read_verilog_cmd [join [lmap p $positional {_expand_path $p}]] $is_netlist $library]
 }
 register_command_help read_verilog \
     "read_verilog -netlist|-rtl -library <name> <path> \[<path> ...\] \[-help\] - Reads one or more SystemVerilog/Verilog files" \
@@ -1654,7 +1663,7 @@ proc write_verilog_stubs {args} {
     if {[llength $positional] != 1} {
         error "write_verilog_stubs: expected exactly one <filename> argument, got \"$args\""
     }
-    set filename [lindex $positional 0]
+    set filename [_expand_path [lindex $positional 0]]
     if {[write_verilog_stubs_cmd $filename $opts(-library)] != 0} {
         error "write_verilog_stubs: failed to write \"$filename\" - see the terminal log for the specific reason"
     }
@@ -1761,7 +1770,7 @@ proc write_lef {args} {
     } elseif {$opts(-include_tech)} {
         set mode 1
     }
-    set filename [lindex $positional 0]
+    set filename [_expand_path [lindex $positional 0]]
     # A plain space-separated word list - write_lef_cmd (le_tcl_shim.cpp)
     # splits it back apart the same way, safe since no friendly id this
     # codebase generates ever contains whitespace. -abstract (singular)
@@ -1813,7 +1822,7 @@ proc write_def {args} {
     if {[llength $positional] != 1} {
         error "write_def: expected exactly one <filename> argument, got \"$args\""
     }
-    set filename [lindex $positional 0]
+    set filename [_expand_path [lindex $positional 0]]
     if {[write_def_cmd $filename $opts(-layout)] != 0} {
         error "write_def: failed to write DEF to \"$filename\" - see the terminal log for the specific reason"
     }
@@ -1847,7 +1856,7 @@ proc ::db_command_args {command args_list} {
     if {[llength $positional] != 1} {
         error "$command: expected exactly one <filename> argument, got \"$args_list\""
     }
-    return [list [lindex $positional 0] $with_session]
+    return [list [_expand_path [lindex $positional 0]] $with_session]
 }
 
 proc write_db {args} {
@@ -1892,7 +1901,7 @@ proc db_info {args} {
     if {[llength $args] != 1} {
         error "db_info: expected exactly one <filename> argument, got \"$args\""
     }
-    set text [db_info_cmd [lindex $args 0]]
+    set text [db_info_cmd [_expand_path [lindex $args 0]]]
     if {[string match "error: *" $text]} {
         error "db_info: [string range $text 7 end]"
     }
@@ -1913,7 +1922,7 @@ proc migrate_db {args} {
     if {[llength $args] != 2} {
         error "migrate_db: expected <in> and <out> filenames, got \"$args\""
     }
-    set text [migrate_db_cmd [lindex $args 0] [lindex $args 1]]
+    set text [migrate_db_cmd [_expand_path [lindex $args 0]] [_expand_path [lindex $args 1]]]
     if {[string match "error: *" $text]} {
         error "migrate_db: [string range $text 7 end]"
     }
@@ -1956,7 +1965,7 @@ proc dump_png { path } {
     if {$path eq "-help"} {
         return "dump_png <path> \[-help\] - Writes the current render as a PNG file"
     }
-    if {[dump_png_cmd $path] != 0} {
+    if {[dump_png_cmd [_expand_path $path]] != 0} {
         error "dump_png: failed to write PNG to \"$path\""
     }
     return ""
@@ -2926,7 +2935,7 @@ proc save_settings {args} {
     if {[llength $args] > 1} {
         error "save_settings: expected at most one <path>, got \"$args\""
     }
-    set path [lindex $args 0]
+    set path [_expand_path [lindex $args 0]]
     if {[save_settings_command $path] != 0} {
         error "save_settings: couldn't write [expr {$path eq "" ? [default_settings_path_command] : $path}] - see the terminal log"
     }
@@ -2947,7 +2956,7 @@ proc load_settings {args} {
     if {[llength $args] > 1} {
         error "load_settings: expected at most one <path>, got \"$args\""
     }
-    set path [lindex $args 0]
+    set path [_expand_path [lindex $args 0]]
     if {[load_settings_command $path] != 0} {
         error "load_settings: couldn't read [expr {$path eq "" ? [default_settings_path_command] : $path}] - see the terminal log"
     }
