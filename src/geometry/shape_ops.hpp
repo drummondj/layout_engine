@@ -3,10 +3,8 @@
 // Business logic for the shape_* TCL commands: resolves input Shapes,
 // runs the matching Geometry operation,
 // and persists each result as a new Shape. Takes a plain Root& and no
-// locks - api.cpp's le_shape_* functions call this from inside their own
-// HandleWriteLock and handle mutation-version bumping and undo recording,
-// the same split generate_verilog_stubs (src/io/verilog_stub_writer.hpp)
-// already uses.
+// locks - le::edit's shape ops (api/edit_ops.cpp) call this under the
+// handle's lock and do the mutation-version bump and undo recording.
 
 #include "geometry.hpp"
 
@@ -17,22 +15,8 @@
 
 namespace le::shape_ops
 {
-    /// @brief Where a shape_* command's new Shapes go. An Abstract/Layout
-    /// means that object's own free-standing shapes (Shape.in_abstract/
-    /// in_layout - never written by write_lef/write_def); every other kind
-    /// is that object's own regular shapes list.
-    using ShapeParent = std::variant<AbstractId, LayoutId, ObstructionId, TerminalPortId, RouteId, BlockageId, PhysicalPortSegmentId>;
-
     /// @brief The new Shapes' own ids, or a user-facing error message.
     using Result = std::expected<std::vector<ShapeId>, std::string>;
-
-    /// @brief A Shape's layer-or-purpose - exactly one is ever set (see
-    /// Shape.layer's own schema.py comment).
-    struct LayerOrPurpose
-    {
-        LayerId layer;
-        std::optional<ShapePurpose> purpose;
-    };
 
     namespace detail
     {

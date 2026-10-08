@@ -23,16 +23,17 @@ namespace
     // A HelloMarker owning one Shape (a 2x1 um DEBUG rect), in a new layout.
     LeHelloMarkerId add_marker(LeHandle *handle)
     {
-        // 1000 dbu per micron; every optional field unset.
-        le_create_technology(handle, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0.0, 0, 0.0,
-                             nullptr, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
-        const LeLibraryId library = le_create_library(handle, "markers");
-        const LeDesignId design = le_create_design(handle, library, "top");
-        const LeLayoutId layout = le_create_layout(handle, design);
-        const LeHelloMarkerId marker = le_create_hello_marker(handle, layout, "clock_root");
-        const double rect[] = {0.0, 0.0, 2.0, 1.0};
-        le_create_shape(handle, le_shape_owner_hello_marker(marker), LeLayerId{UINT32_MAX, 0}, "DEBUG", 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0, 0, 0.0, 0);
-        return marker;
+        le::ext::WriteView view = le::ext::ExtensionContext(handle, "hello_ext").write();
+        view.create_technology({.database_units_microns = 1000}).value(); // 1000 dbu per micron
+        const le::LibraryId library = view.create_library({.name = "markers"}).value();
+        const le::DesignId design = view.create_design({.library = library, .name = "top"}).value();
+        const le::LayoutId layout = view.create_layout({.design = design}).value();
+        const le::HelloMarkerId marker = view.create_hello_marker({.layout = layout, .name = "clock_root"}).value();
+        view.create_shape({.owner = le::ShapeOwner::hello_marker(marker),
+                           .purpose = le::ShapePurpose::DEBUG,
+                           .rects = {le::Rect{{0, 0}, {2000, 1000}}}})
+            .value();
+        return le::ext::to_c(marker);
     }
 
     // How many markers the session has, and how many shapes they own.
@@ -100,6 +101,15 @@ TEST(HelloExt, StateIsPerSessionAndPerExtension)
     EXPECT_EQ(in_a.data<hello::State>().libraries_added, 2);
     EXPECT_EQ(in_b.data<hello::State>().libraries_added, 0);
     EXPECT_EQ(other_extension.data<hello::State>().libraries_added, 0);
+}
+
+TEST(HelloExt, AnEditIsRecalledByItsLabel)
+{
+    Session session;
+    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    ASSERT_TRUE(hello::add_library(ctx, "world"));
+    ASSERT_EQ(le_command_history_count(session.handle), 1);
+    EXPECT_STREQ(le_command_history_at(session.handle, 0), "hello_add_library world");
 }
 
 TEST(HelloExt, AFailedEditLeavesNothingToUndo)
@@ -285,8 +295,8 @@ TEST(HelloExt, RegistersItsOverlay)
 }
 
 // HelloMarker owns Shapes (an owner option codegen adds to Shape for it):
-// created through le_create_shape with a hello_marker owner, deleted with the marker,
-// undone together and saved.
+// created with a hello_marker owner, deleted with the marker, undone
+// together and saved.
 TEST(HelloExt, MarkersOwnShapes)
 {
     Session session;

@@ -815,17 +815,13 @@ class Klass:
     def create_api_body(self) -> str:
         """
         The full statement-list body of le_create_<type>(LeHandle *handle,
-        <create_api_params()>) - built as one Python string rather than
-        deeply nested Jinja {%- if %} chains, since the per-field-type/
-        per-optionality branching (required-null checks, enum parsing,
-        the exactly-one-parent check for a multi-parent class, the shared
-        dbu_per_um lookup) is easier to get right and keep readable as
-        real Python control flow than as template logic. Mirrors the
-        hand-written le_create_terminal_port/le_create_obstruction shape
-        for the common case (one parent, no optional/enum/dbu fields) and
-        le_create_terminal's own shape (str/enum fields, is_optional
-        handling) for the richer ones - generated instead of duplicated
-        per class.
+        <create_api_params()>): the C-to-C++ half - required-null checks,
+        enum parsing, micron-to-dbu conversion, flat coordinate lists, id
+        conversion - building a <Klass>Data for le::edit::create_<type>
+        (create_op_body()), which validates, creates and records undo.
+        Built as one Python string rather than nested Jinja conditionals,
+        since the per-field-type/per-optionality branching is easier to
+        keep readable as real Python control flow.
         """
         indent = "        "
         lines: List[str] = []
@@ -840,7 +836,6 @@ class Klass:
         reference_fields = self.get_reference_create_fields()
         enum_fields = [f for f in create_fields if f.is_enum_type()]
         dbu_fields = [f for f in create_fields if f.cmd_uses_dbu()]
-        unique_fields = self.get_unique_per_parent_fields()
 
         add(f"const Le{self.name}Id invalid{{.index = UINT32_MAX, .generation = 0}};")
         add("if (!handle)")
@@ -858,46 +853,18 @@ class Klass:
             add()
             for pf in parent_fields:
                 add(f"const le::{pf.type}Id {pf.name} = from_c({pf.name}_id);")
-            if len(parent_fields) == 1:
-                pf = parent_fields[0]
-                add(f"if (!handle->root.get_{pf._parent_klass.to_snake_case()}({pf.name}))")
-                add("{")
-                add(f'    spdlog::error("create_{snake}: unknown {pf.name} - no such {pf.type} exists");')
-                add("    return invalid;")
-                add("}")
-            else:
-                add("// Exactly one parent must resolve - a {} belongs to exactly one of these, never zero or several (see its own schema.py comment).".format(self.name))
-                add("int32_t provided_parent_count = 0;")
-                for pf in parent_fields:
-                    add(f"if (handle->root.get_{pf._parent_klass.to_snake_case()}({pf.name}))")
-                    add("    ++provided_parent_count;")
-                add("if (provided_parent_count != 1)")
-                add("{")
-                add(
-                    f'    spdlog::error("create_{snake}: exactly one of '
-                    f'{"/".join(p.name for p in parent_fields)} must resolve to a valid parent, got {{}}", '
-                    f'provided_parent_count);'
-                )
-                add("    return invalid;")
-                add("}")
 
         if owner_fields:
-            # The owner: its kind says which owner option, and so which class
-            # the id is of; it must exist.
+            # Only the kind is checked here; le::edit::create_<type> checks
+            # that the owner exists.
             owner_type = f"le::{self.owner_type_name()}"
             add()
             add(f"{owner_type} owner_value{{}};")
             add("switch (owner.kind)")
             add("{")
             for f in owner_fields:
-                klass_snake = f._parent_klass.to_snake_case()
                 add(f"case {self.owner_c_kind(f)}:")
-                add(f"    if (!handle->root.get_{klass_snake}(le::{f.type}Id{{owner.index, owner.generation}}))")
-                add("    {")
-                add(f'        spdlog::error("create_{snake}: unknown {f.name} owner - no such {f.type} exists");')
-                add("        return invalid;")
-                add("    }")
-                add(f"    owner_value = {owner_type}::{f.name}(le::{f.type}Id{{owner.index, owner.generation}});")
+                add(f"    owner_value = {owner_type}{{le::{self.owner_type_name()}Kind::{f.owner_kind()}, owner.index, owner.generation}};")
                 add("    break;")
             add("default:")
             add(f'    spdlog::error("create_{snake}: an owner is required");')
@@ -908,29 +875,6 @@ class Klass:
             add()
             for rf in reference_fields:
                 add(f"const le::{rf.type}Id {rf.name} = from_c({rf.name}_id);")
-                # A required field must resolve unconditionally (an
-                # invalid/omitted token is itself an error, same as a
-                # single parent's own token). An optional one only
-                # errors if a real (non-default-invalid) token was
-                # actually provided but didn't resolve - an omitted one
-                # (the caller's own default-invalid sentinel) just stays
-                # unset, no error - see Field.is_plain_reference_field()'s
-                # own docstring on why this mirrors a parent token's
-                # "omitted means unset" convention rather than needing a
-                # has_<field> companion flag.
-                condition = (
-                    f"!handle->root.get_{rf._type_klass.to_snake_case()}({rf.name})"
-                    if rf.create_required()
-                    else f"{rf.name}.valid() && !handle->root.get_{rf._type_klass.to_snake_case()}({rf.name})"
-                )
-                add(f"if ({condition})")
-                add("{")
-                add(
-                    f'    spdlog::error("create_{snake}: unknown '
-                    f'{rf.name} - no such {rf.type} exists");'
-                )
-                add("    return invalid;")
-                add("}")
 
         if enum_fields:
             add()
@@ -975,7 +919,7 @@ class Klass:
             lines.extend(f.list_compound_parse_lines("create", "return invalid;", f"create_{snake}"))
 
         add()
-        add(f"const le::{self.name}Data new_data{{")
+        add(f"le::{self.name}Data new_data{{")
         # Designated initializers must appear in declaration order
         # (self.fields, not the separate parent_fields/reference_fields/
         # create_fields groupings above - those are grouped by role for
@@ -996,33 +940,94 @@ class Klass:
             elif f in create_fields:
                 add(f"    .{f.name} = {f.create_struct_init_expr()},")
         add("};")
-        add(f"const le::{self.name}Id created = handle->root.create_{snake}(new_data);")
+        add(f"const std::expected<le::{self.name}Id, std::string> created = le::edit::create_{snake}(*handle, std::move(new_data));")
+        add("if (!created)")
+        add("{")
+        add(f'    spdlog::error("create_{snake}: {{}}", created.error());')
+        add("    return invalid;")
+        add("}")
+        add("return to_c(*created);")
 
+        return "\n".join(lines)
+
+    def create_op_body(self) -> str:
+        """
+        The statement-list body of le::edit::create_<type>(LeHandle &handle,
+        <Klass>Data data) (edit_ops_defs.inc): checks that every parent,
+        owner and reference in `data` exists, creates the object, bumps the
+        mutation version and records the create into the open transaction.
+        The caller holds the handle's exclusive lock. Errors are returned
+        without the "create_<type>: " prefix the C API adds when it logs.
+        """
+        indent = "        "
+        lines: List[str] = []
+
+        def add(text: str = "") -> None:
+            lines.append(f"{indent}{text}" if text else "")
+
+        snake = self.to_snake_case()
+        parent_fields = self.non_owner_parent_fields()
+        owner_fields = self.get_owner_fields()
+        reference_fields = self.get_reference_create_fields()
+        unique_fields = self.get_unique_per_parent_fields()
+
+        add("le::Root &root = handle.root;")
+        if len(parent_fields) == 1:
+            pf = parent_fields[0]
+            add(f"if (!root.get_{pf._parent_klass.to_snake_case()}(data.{pf.name}))")
+            add(f'    return std::unexpected("unknown {pf.name} - no such {pf.type} exists");')
+        elif parent_fields:
+            add(f"// Exactly one parent must resolve - a {self.name} belongs to exactly one of these.")
+            add("int32_t provided_parent_count = 0;")
+            for pf in parent_fields:
+                add(f"if (root.get_{pf._parent_klass.to_snake_case()}(data.{pf.name}))")
+                add("    ++provided_parent_count;")
+            add("if (provided_parent_count != 1)")
+            add(
+                f'    return std::unexpected(fmt::format("exactly one of '
+                f'{"/".join(p.name for p in parent_fields)} must resolve to a valid parent, got {{}}", '
+                f"provided_parent_count));"
+            )
+
+        if owner_fields:
+            add("switch (data.owner.kind)")
+            add("{")
+            for f in owner_fields:
+                add(f"case le::{self.owner_type_name()}Kind::{f.owner_kind()}:")
+                add(f"    if (!root.get_{f._parent_klass.to_snake_case()}(le::{f.type}Id{{data.owner.index, data.owner.generation}}))")
+                add(f'        return std::unexpected("unknown {f.name} owner - no such {f.type} exists");')
+                add("    break;")
+            add("default:")
+            add('    return std::unexpected("an owner is required");')
+            add("}")
+
+        for rf in reference_fields:
+            getter = f"root.get_{rf._type_klass.to_snake_case()}(data.{rf.name})"
+            # An optional reference may be left unset; a set one must exist.
+            condition = f"!{getter}" if rf.create_required() else f"data.{rf.name}.valid() && !{getter}"
+            add(f"if ({condition})")
+            add(f'    return std::unexpected("unknown {rf.name} - no such {rf.type} exists");')
+
+        add()
+        # The data is only copied when the open transaction keeps it.
+        add("const bool recording = handle.command_history.is_recording();")
+        if unique_fields:
+            add(f"const auto {unique_fields[0].name}_for_error = data.{unique_fields[0].name};")
+        add(f"const le::{self.name}Id created = recording ? root.create_{snake}(data) : root.create_{snake}(std::move(data));")
         if unique_fields:
             field = unique_fields[0]
             add("if (!created.valid())")
-            add("{")
             add(
-                f'    spdlog::error("create_{snake}: a sibling {self.name} with this '
-                f"{field.name} (\'{{}}\') already exists\", {field.create_c_param_name()});"
+                f'    return std::unexpected(fmt::format("a sibling {self.name} with this '
+                f"{field.name} ('{{}}') already exists\", {field.name}_for_error));"
             )
-            add("    return invalid;")
-            add("}")
-
-        add("handle->root.bump_mutation_version();")
-        add()
-        add("// Record this mutation into whatever")
-        add("// transaction is currently recording (a typed Tcl command via")
-        add("// le_repl_eval, or a GUI edit like Move), so Ctrl-Z can undo it.")
-        add("if (handle->command_history.is_recording())")
-        add("{")
-        add(f"    handle->command_history.current()->record_create<le::{self.name}Id, le::{self.name}Data>(")
-        add("        created, new_data,")
+        add("root.bump_mutation_version();")
+        add("if (recording)")
+        add(f"    handle.command_history.current()->record_create<le::{self.name}Id, le::{self.name}Data>(")
+        add("        created, std::move(data),")
         add(f"        [](le::Root &r, const le::{self.name}Data &d) {{ return r.create_{snake}(d); }},")
         add(f"        [](le::Root &r, le::{self.name}Id i) {{ return r.delete_{snake}(i); }});")
-        add("}")
-        add("return to_c(created);")
-
+        add("return created;")
         return "\n".join(lines)
 
     def create_tcl_flag_defaults(self) -> str:
@@ -1494,28 +1499,14 @@ class Klass:
     def update_api_body(self) -> str:
         """
         The full statement-list body of le_update_<type>(LeHandle
-        *handle, <update_api_params()>) - built the same "Python
-        string" way create_api_body() is, for the same reason. Unlike
-        create_api_body(), every enum field is parsed the way create's
-        *optional* branch already does (create_required("update") is
-        always False, so there's only one branch here, not two);
-        dbu_per_um is fetched unconditionally whenever this class has
-        any dbu-using create field (cmd_uses_dbu()), matching
-        create_api_body()'s own unconditional fetch - safe because
-        Field.update_root_arg_expr()'s `has_<field> ? std::optional<T>
-        (cmd_value_expr()) : std::nullopt` is a ternary, which only
-        evaluates the branch it selects, so a `*dbu_per_um` dereference
-        inside a field's own value expression never runs unless that
-        field's own has-flag is true (this is the same reasoning that
-        already makes create_api_body()'s identical unconditional fetch
-        safe for an *optional* dbu create field today).
-
-        Ends with exactly one call into Root::update_<klass>(), passing
-        every field as an always-std::optional<T> argument (see Field.
-        update_root_arg_expr()) - Root itself decides per field whether
-        "provided" (has_value()) means apply it, mirroring how
-        Root::create_<klass>() is the only place that ever touches
-        index_ for creation.
+        *handle, <update_api_params()>): the C-to-C++ half, turning each
+        has-flag/value slot into a <Klass>Changes member for
+        le::edit::update_<type> (update_op_body()). Every enum field is
+        parsed the way create's optional branch does. dbu_per_um is
+        fetched whenever this class has a dbu-using create field; that's
+        safe because each Field.update_root_arg_expr() is a ternary that
+        only evaluates its value (and dereferences dbu_per_um) when the
+        field's has-flag is set.
         """
         indent = "        "
         lines: List[str] = []
@@ -1529,7 +1520,6 @@ class Klass:
         reference_fields = self.get_reference_create_fields()
         enum_fields = [f for f in create_fields if f.is_enum_type()]
         dbu_fields = [f for f in create_fields if f.cmd_uses_dbu()]
-        unique_fields = self.get_unique_per_parent_fields()
         single_parent = parent_fields[0] if len(parent_fields) == 1 else None
 
         add("if (!handle)")
@@ -1537,50 +1527,6 @@ class Klass:
         add("HandleWriteLock lock(handle);  // writer - mutates Root")
         add()
         add(f"const le::{self.name}Id typed_id = from_c(id);")
-        add(f"const le::{self.name}Data *existing_{snake} = handle->root.get_{snake}(typed_id);")
-        add(f"if (!existing_{snake})")
-        add("{")
-        add(f'    spdlog::error("update_{snake}: unknown id");')
-        add("    return 1;")
-        add("}")
-        add()
-        add("// Snapshotted before the mutation below,")
-        add("// so a currently-recording transaction can undo back to this")
-        add("// exact state (see the record_update call further down).")
-        add(f"const le::{self.name}Data before_{snake} = *existing_{snake};")
-
-        if single_parent is not None:
-            add()
-            add(f"le::{single_parent.type}Id {single_parent.name} = le::{single_parent.type}Id{{}};")
-            add(f"if (has_{single_parent.name})")
-            add("{")
-            add(f"    {single_parent.name} = from_c({single_parent.name}_id);")
-            add(f"    if (!handle->root.get_{single_parent._parent_klass.to_snake_case()}({single_parent.name}))")
-            add("    {")
-            add(
-                f'        spdlog::error("update_{snake}: unknown '
-                f'{single_parent.name} - no such {single_parent.type} exists");'
-            )
-            add("        return 1;")
-            add("    }")
-            add("}")
-
-        if reference_fields:
-            add()
-            for rf in reference_fields:
-                add(f"le::{rf.type}Id {rf.name} = le::{rf.type}Id{{}};")
-                add(f"if (has_{rf.name})")
-                add("{")
-                add(f"    {rf.name} = from_c({rf.name}_id);")
-                add(f"    if (!handle->root.get_{rf._type_klass.to_snake_case()}({rf.name}))")
-                add("    {")
-                add(
-                    f'        spdlog::error("update_{snake}: unknown '
-                    f'{rf.name} - no such {rf.type} exists");'
-                )
-                add("        return 1;")
-                add("    }")
-                add("}")
 
         if enum_fields:
             add()
@@ -1602,8 +1548,13 @@ class Klass:
         if dbu_fields:
             add()
             if self._owns_dbu_scale():
-                # Same reasoning as create_api_body's own branch - the
-                # scale is this object's own (possibly being updated too).
+                # The scale is this object's own, possibly being updated too.
+                add(f"const le::{self.name}Data *existing_{snake} = handle->root.get_{snake}(typed_id);")
+                add(f"if (!existing_{snake})")
+                add("{")
+                add(f'    spdlog::error("update_{snake}: unknown id");')
+                add("    return 1;")
+                add("}")
                 add(f"const double own_dbu_per_um = has_database_units_microns ? database_units_microns : existing_{snake}->database_units_microns;")
                 add("const std::optional<double> dbu_per_um = own_dbu_per_um > 0.0 ? std::optional<double>{own_dbu_per_um} : std::nullopt;")
                 add("if (!dbu_per_um)")
@@ -1623,42 +1574,94 @@ class Klass:
             lines.extend(f.list_compound_parse_lines("update", "return 1;", f"update_{snake}"))
 
         add()
-        call_args = ["typed_id"]
+        add(f"le::{self.name}Changes changes;")
         if single_parent is not None:
-            call_args.append(single_parent.name)
+            add(f"if (has_{single_parent.name})")
+            add(f"    changes.{single_parent.name} = from_c({single_parent.name}_id);")
         for rf in reference_fields:
-            call_args.append(f"has_{rf.name} ? std::optional<le::{rf.type}Id>({rf.name}) : std::nullopt")
+            add(f"if (has_{rf.name})")
+            add(f"    changes.{rf.name} = from_c({rf.name}_id);")
         for f in create_fields:
-            call_args.append(f.update_root_arg_expr())
-        add(f"const bool ok = handle->root.update_{snake}({', '.join(call_args)});")
-
-        if unique_fields:
-            add("if (!ok)")
-            add("{")
-            add(
-                f'    spdlog::error("update_{snake}: a sibling {self.name} '
-                f'with this {unique_fields[0].name} already exists");'
-            )
-            add("    return 1;")
-            add("}")
-        else:
-            add("if (!ok)")
-            add("{")
-            add(f'    spdlog::error("update_{snake}: update failed");')
-            add("    return 1;")
-            add("}")
-
-        add("handle->root.bump_mutation_version();")
-        add()
-        add("// See create_api_body()'s own comment.")
-        add("if (handle->command_history.is_recording())")
+            add(f"changes.{f.name} = {f.update_root_arg_expr()};")
+        add(f"const std::expected<void, std::string> updated = le::edit::update_{snake}(*handle, typed_id, std::move(changes));")
+        add("if (!updated)")
         add("{")
-        add(f"    const le::{self.name}Data after_{snake} = *handle->root.get_{snake}(typed_id);")
-        add(f"    handle->command_history.current()->record_update<le::{self.name}Id, le::{self.name}Data>(")
-        add(f"        typed_id, before_{snake}, after_{snake}, &le::apply_{snake}_snapshot);")
+        add(f'    spdlog::error("update_{snake}: {{}}", updated.error());')
+        add("    return 1;")
         add("}")
         add("return 0;")
 
+        return "\n".join(lines)
+
+    def edit_changes_members(self) -> List[tuple]:
+        """
+        (C++ type, name) of each <Klass>Changes member (edit_types.hpp), in
+        update_api_params() order: the parent (single-parent classes only,
+        to move the object), each plain reference, then each create field -
+        everything le_update_<type> can change. Types are bare, for use
+        inside `namespace le`.
+        """
+        members = []
+        parent_fields = self.get_parent_fields()
+        if len(parent_fields) == 1:
+            members.append((f"{parent_fields[0].type}Id", parent_fields[0].name))
+        for rf in self.get_reference_create_fields():
+            members.append((f"{rf.type}Id", rf.name))
+        for f in self.get_create_fields():
+            members.append((f.root_value_cpp_type(qualified=False), f.name))
+        return members
+
+    def update_op_body(self) -> str:
+        """
+        The statement-list body of le::edit::update_<type>(LeHandle &handle,
+        <Klass>Id id, <Klass>Changes changes) (edit_ops_defs.inc): checks
+        the object and every new parent/reference exist, applies the
+        changes with one Root::update_<type>() call, bumps the mutation
+        version and records the before/after snapshots into the open
+        transaction. The caller holds the handle's exclusive lock.
+        """
+        indent = "        "
+        lines: List[str] = []
+
+        def add(text: str = "") -> None:
+            lines.append(f"{indent}{text}" if text else "")
+
+        snake = self.to_snake_case()
+        parent_fields = self.get_parent_fields()
+        create_fields = self.get_create_fields()
+        reference_fields = self.get_reference_create_fields()
+        unique_fields = self.get_unique_per_parent_fields()
+        single_parent = parent_fields[0] if len(parent_fields) == 1 else None
+
+        add("le::Root &root = handle.root;")
+        add(f"const le::{self.name}Data *existing = root.get_{snake}(id);")
+        add("if (!existing)")
+        add('    return std::unexpected("unknown id");')
+        add(f"const le::{self.name}Data before = *existing;")
+        if single_parent is not None:
+            add(f"if (changes.{single_parent.name} && !root.get_{single_parent._parent_klass.to_snake_case()}(*changes.{single_parent.name}))")
+            add(f'    return std::unexpected("unknown {single_parent.name} - no such {single_parent.type} exists");')
+        for rf in reference_fields:
+            add(f"if (changes.{rf.name} && !root.get_{rf._type_klass.to_snake_case()}(*changes.{rf.name}))")
+            add(f'    return std::unexpected("unknown {rf.name} - no such {rf.type} exists");')
+
+        call_args = ["id"]
+        if single_parent is not None:
+            call_args.append(f"changes.{single_parent.name}.value_or(le::{single_parent.type}Id{{}})")
+        for rf in reference_fields:
+            call_args.append(f"changes.{rf.name}")
+        for f in create_fields:
+            call_args.append(f"std::move(changes.{f.name})")
+        add(f"if (!root.update_{snake}({', '.join(call_args)}))")
+        if unique_fields:
+            add(f'    return std::unexpected("a sibling {self.name} with this {unique_fields[0].name} already exists");')
+        else:
+            add('    return std::unexpected("update failed");')
+        add("root.bump_mutation_version();")
+        add("if (handle.command_history.is_recording())")
+        add(f"    handle.command_history.current()->record_update<le::{self.name}Id, le::{self.name}Data>(")
+        add(f"        id, before, *root.get_{snake}(id), &le::apply_{snake}_snapshot);")
+        add("return {};")
         return "\n".join(lines)
 
     def apply_snapshot_body(self) -> str:
@@ -1859,8 +1862,25 @@ class Klass:
     def delete_api_body(self) -> str:
         """
         The full statement-list body of le_delete_<type>(LeHandle *handle,
-        Le<Klass>Id id) - built the same "Python string" way
-        create_api_body()/update_api_body() are. Unlike those two, most of
+        Le<Klass>Id id): locks and calls le::edit::delete_<type>
+        (delete_op_body()). Returns 1, without logging, if the id is unknown.
+        """
+        snake = self.to_snake_case()
+        return "\n".join(
+            [
+                "        if (!handle)",
+                "            return 1;",
+                "        HandleWriteLock lock(handle);  // writer - mutates Root",
+                f"        return le::edit::delete_{snake}(*handle, from_c(id)) ? 0 : 1;",
+            ]
+        )
+
+    def delete_op_body(self) -> str:
+        """
+        The statement-list body of le::edit::delete_<type>(LeHandle &handle,
+        <Klass>Id id) (edit_ops_defs.inc); the caller holds the handle's
+        exclusive lock. Built the same "Python string" way
+        create_op_body()/update_op_body() are. Unlike those two, most of
         the work here is cascading: every tcl_child_list_fields() entry is
         an owned pool-backed child collection that would otherwise become
         permanently unreachable garbage if left behind after this object is
@@ -1922,35 +1942,33 @@ class Klass:
         snake = self.to_snake_case()
         root_fields = self.tcl_child_list_fields()
 
-        add("if (!handle)")
-        add("    return 1;")
-        add("HandleWriteLock lock(handle);  // writer - mutates Root")
-        add()
-        add(f"const le::{self.name}Id {snake}_id = from_c(id);")
-        add(f"const le::{self.name}Data *existing_{snake} = handle->root.get_{snake}({snake}_id);")
+        add(f"const le::{self.name}Id {snake}_id = id;")
+        add(f"const le::{self.name}Data *existing_{snake} = handle.root.get_{snake}({snake}_id);")
         add(f"if (!existing_{snake})")
-        add("    return 1;")
+        add('    return std::unexpected("unknown id");')
         add(f"const le::{self.name}Data {snake}_snapshot = *existing_{snake};")
 
         if not root_fields:
             # Trivial, non-cascading leaf delete - no owned children to walk.
             add()
-            add(f"const bool deleted = handle->root.delete_{snake}({snake}_id);")
-            add("handle->root.bump_mutation_version();")
+            add(f"const bool deleted = handle.root.delete_{snake}({snake}_id);")
+            add("handle.root.bump_mutation_version();")
             add()
             add("// A leaf delete (no tcl_child_list_fields()),")
             add("// so no id-cell indirection is needed the way a cascading delete")
             add("// needs it below - this object's own parent field(s), if any, aren't")
             add("// touched by this call, so the snapshot above stays valid regardless")
             add("// of undo/redo.")
-            add("if (le::editing::Transaction *txn = handle->command_history.current())")
+            add("if (le::editing::Transaction *txn = handle.command_history.current())")
             add("{")
             add(f"    txn->record_delete<le::{self.name}Id, le::{self.name}Data>(")
             add(f"        {snake}_id, {snake}_snapshot,")
             add(f"        [](le::Root &r, const le::{self.name}Data &d) {{ return r.create_{snake}(d); }},")
             add(f"        [](le::Root &r, le::{self.name}Id i) {{ return r.delete_{snake}(i); }});")
             add("}")
-            add("return deleted ? 0 : 1;")
+            add("if (!deleted)")
+            add('    return std::unexpected("delete failed");')
+            add("return {};")
             return "\n".join(lines)
 
         # --- Cascading delete plan - see this method's own docstring for
@@ -1983,11 +2001,11 @@ class Klass:
 
             add()
             if owner_is_scalar:
-                add(f"const std::vector<le::{fld.type}Id> {ids_var} = handle->root.get_{owner_snake}_{fld.name}({owner_ids_expr});")
+                add(f"const std::vector<le::{fld.type}Id> {ids_var} = handle.root.get_{owner_snake}_{fld.name}({owner_ids_expr});")
                 add(f"std::vector<le::{fld.type}Data> {snap_var};")
                 add(f"{snap_var}.reserve({ids_var}.size());")
                 add(f"for (const le::{fld.type}Id child_id : {ids_var})")
-                add(f"    {snap_var}.push_back(*handle->root.get_{child_snake}(child_id));")
+                add(f"    {snap_var}.push_back(*handle.root.get_{child_snake}(child_id));")
             else:
                 add(f"std::vector<le::{fld.type}Id> {ids_var};")
                 add(f"std::vector<le::{fld.type}Data> {snap_var};")
@@ -1995,10 +2013,10 @@ class Klass:
                 add(f"for (size_t i = 0; i < {owner_ids_expr}.size(); ++i)")
                 add("{")
                 add(f"    const le::{owner_klass.name}Id owner_id = {owner_ids_expr}[i];")
-                add(f"    for (const le::{fld.type}Id child_id : handle->root.get_{owner_snake}_{fld.name}(owner_id))")
+                add(f"    for (const le::{fld.type}Id child_id : handle.root.get_{owner_snake}_{fld.name}(owner_id))")
                 add("    {")
                 add(f"        {ids_var}.push_back(child_id);")
-                add(f"        {snap_var}.push_back(*handle->root.get_{child_snake}(child_id));")
+                add(f"        {snap_var}.push_back(*handle.root.get_{child_snake}(child_id));")
                 add("        if (txn)")
                 add(f"            {parent_cell_var}.push_back({owner_cell_expr}[i]);")
                 add("    }")
@@ -2031,7 +2049,7 @@ class Klass:
             )
 
         add()
-        add("le::editing::Transaction *txn = handle->command_history.current();")
+        add("le::editing::Transaction *txn = handle.command_history.current();")
         add(f"le::editing::IdCellPtr<le::{self.name}Id> {snake}_cell = txn ? txn->id_cell_for({snake}_id) : nullptr;")
 
         for fld in root_fields:
@@ -2044,9 +2062,9 @@ class Klass:
         for e in edges:
             child_snake = e["child_klass"].to_snake_case()
             add(f"for (const le::{e['field'].type}Id child_id : {e['ids_var']})")
-            add(f"    handle->root.delete_{child_snake}(child_id);")
-        add(f"const bool deleted = handle->root.delete_{snake}({snake}_id);")
-        add("handle->root.bump_mutation_version();")
+            add(f"    handle.root.delete_{child_snake}(child_id);")
+        add(f"const bool deleted = handle.root.delete_{snake}({snake}_id);")
+        add("handle.root.bump_mutation_version();")
 
         add()
         add("// Same deepest-first/self-last recording order")
@@ -2084,7 +2102,9 @@ class Klass:
         add(f"        [](le::Root &r, const le::{self.name}Data &d) {{ return r.create_{snake}(d); }},")
         add(f"        [](le::Root &r, le::{self.name}Id i) {{ return r.delete_{snake}(i); }});")
         add("}")
-        add("return deleted ? 0 : 1;")
+        add("if (!deleted)")
+        add('    return std::unexpected("delete failed");')
+        add("return {};")
 
         return "\n".join(lines)
 

@@ -211,48 +211,82 @@ le::ext::ExtensionContext ctx(handle, "my_ext");
 |---|---|
 | `handle()` | The `LeHandle *`, for any C API call (`le_*`, `api.hpp`). |
 | `read()` | A `ReadView`: `view.root()` is a `const le::Root &`, held under a shared lock for the view's lifetime. |
-| `write()` | A `WriteView`: `view.root()` is a writable `le::Root &`, held under an exclusive lock. When it ends, it bumps the database's mutation version and wakes the renderer. |
-| `transaction(label)` | A `Transaction`: the C API edits made while it lives become one undo step named `label`. Call `fail()` if the operation failed. It does nothing if a transaction is already open, e.g. inside a typed Tcl command, which already is one. |
+| `write(label)` | A `WriteView` whose edits are one undo step named `label` (below). Call `view.fail()` if the operation failed. Inside a typed Tcl command, which is already a step, it joins that one. |
+| `write()` | A `WriteView` that opens no undo step. `view.root()` is a writable `le::Root &`, held under an exclusive lock. When the view ends, it bumps the database's mutation version and wakes the renderer. |
+| `transaction(label)` | A `Transaction`: the C API edits made while it lives become one undo step named `label`. Call `fail()` if the operation failed. It does nothing if a transaction is already open. |
 | `data<T>()` | Your state of type `T` for this session, default-constructed on first use and destroyed with the session. |
 | `current_layout()`, `current_schematic()`, `current_abstract()`, `current_technology()` | The session's current object (what Tcl's `current_layout` etc. set), as an `le::LayoutId` etc.; invalid if none. `ReadView` and `WriteView` have the same accessors. |
 
-**Ids.** The C API's ids (`LeLayoutId`) and the database's (`le::LayoutId`)
-hold the same `{index, generation}`. Convert with `le::ext::from_c` and
-`le::ext::to_c`, which exist for every class, your own included; an invalid
-id stays invalid:
+**Editing.** A `WriteView` has `create_<type>`, `update_<type>` and
+`delete_<type>` for every database class, your own included. They take and
+return database types (`le::LayoutId`, `<Type>Data`, lengths in dbu) and
+return `std::expected`, whose error is a message:
 
 ```cpp
-const le::LayoutId layout = ctx.current_layout();
-if (layout.valid())
-    le_create_hello_marker(ctx.handle(), le::ext::to_c(layout), "clock_root");
-```
-
-**Undo.** Only the C API's create, update and delete calls
-(`le_create_<type>`, `le_update_<type>`, `le_delete_<type>`, ...) record undo
-steps. For an undoable edit, call them through `handle()` inside a
-`transaction()`:
-
-```cpp
-bool add_thing(le::ext::ExtensionContext &ctx, const std::string &name)
+bool add_marker(le::ext::ExtensionContext &ctx, const std::string &name)
 {
-    le::ext::Transaction transaction = ctx.transaction("my_ext_add " + name);
-    if (le_create_library(ctx.handle(), name.c_str()).index == UINT32_MAX)
+    le::ext::WriteView view = ctx.write("my_ext_add_marker " + name);
+    const auto marker = view.create_my_ext_marker({.layout = view.current_layout(), .name = name});
+    if (!marker)
     {
-        transaction.fail();
+        view.fail();
+        spdlog::error("my_ext_add_marker: {}", marker.error());
         return false;
     }
     return true;
 }
 ```
 
-Edits through `write()` are not undoable. Use it for bulk work, such as
-importing data, where undo isn't wanted.
+- `create_<type>(<Type>Data)` checks that the parent, owner and references
+  in the data exist, and that a name unique among its siblings is.
+- `update_<type>(id, <Type>Changes)` applies the members you set:
+  `view.update_shape(shape, {.layer = metal2})`. `<Type>Changes` has one
+  `std::optional` per field `update_<type>` in Tcl can change, including
+  the parent, which moves the object.
+- `delete_<type>(id)` also deletes everything the object owns, as Tcl's
+  `delete_<type>` does.
+
+**Undo.** These calls record into the open undo step: the one
+`write(label)` opened, or the typed Tcl command's. Edits made straight
+through `view.root()` (`root().create_library(...)`) are not recorded and
+can't be undone; use them for bulk work, such as importing data, where undo
+isn't wanted.
+
+**Ids.** The C API's ids (`LeLayoutId`) and the database's (`le::LayoutId`)
+hold the same `{index, generation}`. For C API calls, convert with
+`le::ext::from_c` and `le::ext::to_c`, which exist for every class, your own
+included; an invalid id stays invalid.
 
 **Locks.** Every `le_*` function takes the session's lock, so call none
 while you hold a `ReadView` or `WriteView`; that deadlocks. The same goes for
-`ExtensionContext`'s `current_*()`: inside a view, use the view's own. A
-`Transaction` holds no lock, so C API calls inside one are fine. Keep views
-short, because a view blocks rendering (`write()`) or edits (`read()`).
+`ExtensionContext`'s `current_*()` and for `write(label)`/`transaction()` while
+a view is open: inside a view, use the view's own members. Keep views short,
+because a view blocks rendering (`write()`) or edits (`read()`).
+
+### Shape operations
+
+The views run the `shape_*` Tcl commands' operations on shape ids, in dbu
+(`le::shape_ops` types, from `<le/extension.hpp>`):
+
+| Member | Result |
+|---|---|
+| `shape_bbox(shapes)` (`ReadView` and `WriteView`) | The bbox of the shapes together, as an `le::Rect`. |
+| `shape_copy(shapes, layer, parent)` | One new Shape per input, on `layer`. |
+| `shape_boolean(a, b, op, layer, parent)` | One new Shape: `le::BooleanOp::Or`, `And` or `Not` (a minus b) of the two sets. |
+| `shape_to_polygons(shapes, layer, parent)` | One polygon-only Shape per input. |
+| `shape_to_rects(shapes, direction, layer, parent)` | One rect-only Shape per input, cut along `le::FractureDirection`. |
+| `shape_size(shapes, dx, dy, layer, parent)` | One Shape per input, grown (or, negative, shrunk) by `dx`/`dy`. |
+| `shape_outline_paths(shapes, width, layer, parent)` | One path-only Shape per input, along its outline. |
+| `shape_change_layer(shapes, layer)` | Moves each input onto `layer` in place. |
+
+`shapes` is a `std::vector<le::ShapeId>`, so `{id}` or `{a, b}` works too. `layer` is a `le::shape_ops::LayerOrPurpose`,
+`{.layer = id}` or a layer-less `{.purpose = le::ShapePurpose::DEBUG}`;
+where it's optional, leaving it out keeps each input's own. `parent` is
+optional: an Abstract or Layout puts the new shapes in its free-standing
+shapes (never written to LEF/DEF), and an Obstruction, TerminalPort, Route,
+Blockage or PhysicalPortSegment in its own shapes. Left out, it's the open
+view's Abstract or Layout. The operations that create shapes return their
+ids and, like the rest of `WriteView`'s edits, are undoable.
 
 **State.** Keep per-session state in `data<T>()`, never in globals or
 statics. `le_shell` and the `le_tcl` module each link their own copy of your
@@ -297,10 +331,10 @@ def extend(schema):
   `Field(name="shapes", type="Shape", is_list=True, is_child=True,
   owner=True)`. Layout Engine adds the matching owner option to `Shape`
   (named after your class, `my_ext_marker`) without changing Shape's own
-  fields. Create your shapes as any owner's: `le_create_shape(handle,
-  le_shape_owner_my_ext_marker(marker), ...)` - the owner is a kind plus
-  an id (`LeShapeOwner`), and your class adds a kind - or
-  `create_shape -my_ext_marker <token> ...` in Tcl. Deleting your object
+  fields. Create your shapes as any owner's:
+  `view.create_shape({.owner = le::ShapeOwner::my_ext_marker(marker), ...})`,
+  `le_create_shape(handle, le_shape_owner_my_ext_marker(marker), ...)` from
+  the C API, or `create_shape -my_ext_marker <token> ...` in Tcl. Deleting your object
   deletes its shapes, undoably.
 - **Drawing them:** give a class that owns shapes and has a `Layout`
   parent a `render=`:
@@ -579,8 +613,10 @@ release without notice.
 - `schema_ext.py`'s `VERSION`/`extend()` contract and the `codegen.schema`
   `Klass`/`Field` it uses
 - the C API (`api.hpp`) and the database classes (`le::Root`, the
-  `<Type>Data` structs and `<Type>Id` handles, generated from `schema.py`),
-  and `le::ext::to_c`/`from_c` between their ids
+  `<Type>Data` structs, `<Type>Changes` and `<Type>Id` handles, generated
+  from `schema.py`), and `le::ext::to_c`/`from_c` between their ids
+- the shape operations' types: `le::shape_ops::LayerOrPurpose`,
+  `le::shape_ops::ShapeParent`, `le::BooleanOp`, `le::FractureDirection`
 - the Tcl helpers `register_command_help`, `help` and `man`
 - the `extensions.json` format and `le_shell`'s `-extensions`/`LE_EXTENSIONS_PATH`
 
@@ -608,6 +644,13 @@ The first version.
 - `current_layout()`, `current_schematic()`, `current_abstract()` and
   `current_technology()` on `ExtensionContext`, `ReadView` and `WriteView`;
   `le::ext::to_c`/`from_c` for every class's id.
+- Editing: `ExtensionContext::write(label)`, `WriteView::fail()`, and
+  `create_<type>`/`update_<type>`/`delete_<type>` on `WriteView` with
+  `<Type>Changes`, recorded for undo.
+- Shape operations: `shape_bbox` on `ReadView` and `WriteView`;
+  `shape_copy`, `shape_boolean`, `shape_to_polygons`, `shape_to_rects`,
+  `shape_size`, `shape_outline_paths` and `shape_change_layer` on
+  `WriteView`.
 - GUI: `<IconsLucide.h>` (the built-in icon set), `GuiRegistry` (`add_window`, `add_menu_item`, `add_toolbar_button`,
   `add_key_binding`, `add_settings_panel`, `add_icon_glyphs`, `add_font`),
   `GuiWindow`, `Dock`, `GuiMenuItem`, `GuiToolbarButton`, `ToolbarModes`,

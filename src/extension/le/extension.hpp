@@ -7,14 +7,18 @@
 
 #include "api.hpp"
 #include "database.hpp"
+#include "generated/api/edit_types.hpp"
 #include "generated/api/id_conversions.hpp"
+#include "geometry/shape_op_types.hpp"
 #include "le/register_all.hpp"
 
 #include <json.hpp>
 
+#include <expected>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
@@ -96,6 +100,9 @@ namespace le::ext
     /// startup and read-only afterwards.
     Registry &registry();
 
+    /// @brief New Shapes' ids, or a user-facing error.
+    using ShapeOpResult = std::expected<std::vector<ShapeId>, std::string>;
+
     /// @brief A shared-locked, read-only view of the handle's database for
     /// as long as it lives. Don't call le_* functions that take the handle's
     /// lock while holding one.
@@ -111,6 +118,8 @@ namespace le::ext
         bool valid() const { return lock_.owns_lock(); }
         /// @brief Only when valid().
         const Root &root() const { return *root_; }
+        /// @brief Only when valid(): the bbox of `shapes` together, in dbu.
+        std::expected<Rect, std::string> shape_bbox(const std::vector<ShapeId> &shapes) const;
         // Only when valid().
 #include "generated/api/extension_current_decls.inc"
 
@@ -121,25 +130,67 @@ namespace le::ext
     };
 
     /// @brief An exclusively locked, writable view of the handle's database.
-    /// When it ends it bumps the database's mutation version and wakes the
-    /// renderer. Edits made through it are NOT undoable - for undoable edits,
-    /// call the C API (le_create_<type>/le_update_<type>/le_delete_<type>)
-    /// inside a Transaction instead. Don't call le_* functions while holding one.
+    /// Its create_<type>/update_<type>/delete_<type> are undoable: they
+    /// record into the open undo step, which write(label) opens. Edits made
+    /// straight through root() are NOT undoable - use it for bulk work such
+    /// as importing. When the view ends it bumps the database's mutation
+    /// version and wakes the renderer. Don't call le_* functions while
+    /// holding one.
     class WriteView
     {
     public:
         explicit WriteView(LeHandle *handle);
+        /// @brief Also opens an undo step labelled `label`, closed when the
+        /// view ends. Joins the step already open, if any (e.g. inside a
+        /// typed Tcl command).
+        WriteView(LeHandle *handle, const std::string &label);
         ~WriteView();
         WriteView(const WriteView &) = delete;
         WriteView &operator=(const WriteView &) = delete;
 
+        /// @brief Records the undo step this view opened as failed.
+        void fail() { succeeded_ = false; }
+
         Root &root() { return *root_; }
 #include "generated/api/extension_current_decls.inc"
+#include "generated/api/extension_edit_decls.inc"
+
+        // The shape operations, in dbu. New Shapes go to `parent`, else the
+        // open view's Abstract/Layout; an unset `layer` keeps each input's own.
+
+        /// @brief The bbox of `shapes` together.
+        std::expected<Rect, std::string> shape_bbox(const std::vector<ShapeId> &shapes) const;
+        /// @brief One new Shape per input, same geometry, on `layer`.
+        ShapeOpResult shape_copy(const std::vector<ShapeId> &shapes, const shape_ops::LayerOrPurpose &layer,
+                                 const std::optional<shape_ops::ShapeParent> &parent = std::nullopt);
+        /// @brief One new Shape holding `op` of `a` against `b` (Not is a minus b), on a[0]'s layer unless `layer` is set.
+        ShapeOpResult shape_boolean(const std::vector<ShapeId> &a, const std::vector<ShapeId> &b, BooleanOp op,
+                                    const std::optional<shape_ops::LayerOrPurpose> &layer = std::nullopt,
+                                    const std::optional<shape_ops::ShapeParent> &parent = std::nullopt);
+        /// @brief One new polygon-only Shape per input.
+        ShapeOpResult shape_to_polygons(const std::vector<ShapeId> &shapes, const std::optional<shape_ops::LayerOrPurpose> &layer = std::nullopt,
+                                        const std::optional<shape_ops::ShapeParent> &parent = std::nullopt);
+        /// @brief One new rect-only Shape per input, cut in `direction`.
+        ShapeOpResult shape_to_rects(const std::vector<ShapeId> &shapes, FractureDirection direction,
+                                     const std::optional<shape_ops::LayerOrPurpose> &layer = std::nullopt,
+                                     const std::optional<shape_ops::ShapeParent> &parent = std::nullopt);
+        /// @brief One new Shape per input, grown (positive) or shrunk (negative) by dx/dy.
+        ShapeOpResult shape_size(const std::vector<ShapeId> &shapes, int64_t dx, int64_t dy,
+                                 const std::optional<shape_ops::LayerOrPurpose> &layer = std::nullopt,
+                                 const std::optional<shape_ops::ShapeParent> &parent = std::nullopt);
+        /// @brief One new path-only Shape per input along its outline, `width` wide.
+        ShapeOpResult shape_outline_paths(const std::vector<ShapeId> &shapes, int64_t width,
+                                          const std::optional<shape_ops::LayerOrPurpose> &layer = std::nullopt,
+                                          const std::optional<shape_ops::ShapeParent> &parent = std::nullopt);
+        /// @brief Moves each shape in place onto `layer`; all or nothing.
+        std::expected<void, std::string> shape_change_layer(const std::vector<ShapeId> &shapes, const shape_ops::LayerOrPurpose &layer);
 
     private:
         LeHandle *handle_;
         std::unique_lock<std::shared_mutex> lock_;
         Root *root_;
+        bool owns_step_ = false;
+        bool succeeded_ = true;
     };
 
     /// @brief Groups the C API edits made while it lives into one undo step
@@ -172,6 +223,8 @@ namespace le::ext
         LeHandle *handle() const { return handle_; }
         ReadView read() const { return ReadView(handle_); }
         WriteView write() { return WriteView(handle_); }
+        /// @brief A WriteView whose edits are one undo step labelled `label`.
+        WriteView write(const std::string &label) { return WriteView(handle_, label); }
         Transaction transaction(const std::string &label) { return Transaction(handle_, label); }
         // These take the session's lock for the read: inside a read() or
         // write(), use the view's own accessors instead.

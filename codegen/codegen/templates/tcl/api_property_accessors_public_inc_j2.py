@@ -200,14 +200,10 @@ int le_set_current_{{klass.to_snake_case()}}(LeHandle *handle, Le{{klass.name}}I
 }
 {% endfor %}
 
-// --- create_<type> - see api_declarations_inc_j2's own comment for the
-// field-scope/optionality/dbu-microns/multi-parent conventions every one
-// of these follows uniformly. Mirrors le_create_terminal_port/
-// le_create_obstruction's own shape for the common case (one parent, no
-// optional/enum/dbu fields) and le_create_terminal's own shape (str/enum
-// fields, unique_per_parent handling) for the richer ones - generated
-// instead of duplicated per class (see Klass.create_api_body() for how
-// this body is actually built). ---
+// --- create_<type>/update_<type>/delete_<type>: the C-to-C++ half
+// (argument parsing, micron-to-dbu, id conversion, locking, logging),
+// calling le::edit's ops (edit_ops_defs.inc) for the rest. Bodies:
+// Klass.create_api_body()/update_api_body()/delete_api_body(). ---
 {% for klass in classes %}
 Le{{klass.name}}Id le_create_{{klass.to_snake_case()}}(LeHandle *handle{% if klass.create_api_params() %}, {{klass.create_api_params()}}{% endif %})
 {
@@ -215,12 +211,6 @@ Le{{klass.name}}Id le_create_{{klass.to_snake_case()}}(LeHandle *handle{% if kla
 }
 {% endfor %}
 
-// --- update_<type> - see api_declarations_inc_j2's own comment for the
-// "omitted means leave unchanged" convention and the single-parent-only
-// reparent flag every one of these follows uniformly (see
-// Klass.update_api_body() for how this body is actually built). Ends
-// with exactly one call into Root::update_<klass>(), the only place
-// this class's fields are ever mutated (root.hpp). ---
 {% for klass in classes %}
 int le_update_{{klass.to_snake_case()}}(LeHandle *handle, {{klass.update_api_params()}})
 {
@@ -228,12 +218,6 @@ int le_update_{{klass.to_snake_case()}}(LeHandle *handle, {{klass.update_api_par
 }
 {% endfor %}
 
-// --- delete_<type> - see api_declarations_inc_j2's own comment for the
-// cascade-to-owned-children convention every one of these follows
-// uniformly (see Klass.delete_api_body() for how this body is actually
-// built - the recursive cascade plan, the deepest-first/self-last
-// Transaction::record_delete ordering, and why a leaf class's own delete
-// needs none of that machinery). ---
 {% for klass in classes %}
 int le_delete_{{klass.to_snake_case()}}(LeHandle *handle, Le{{klass.name}}Id id)
 {

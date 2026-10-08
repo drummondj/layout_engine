@@ -3,6 +3,8 @@
 
 #include "le/extension.hpp"
 #include "le/extension_overlay.hpp"
+#include "edit_ops.hpp"
+#include "../geometry/shape_ops.hpp"
 #include "le_handle.hpp"
 
 #include <filesystem>
@@ -78,11 +80,73 @@ namespace le::ext
 
     WriteView::WriteView(LeHandle *handle) : handle_(handle), lock_(handle->mutex_), root_(&handle->root) {}
 
+    // Opens the step under this view's lock, as le_begin_command does
+    // under its own.
+    WriteView::WriteView(LeHandle *handle, const std::string &label) : WriteView(handle)
+    {
+        if (!handle_->command_history.is_recording())
+        {
+            handle_->command_history.begin(label);
+            handle_->hold_renders();
+            owns_step_ = true;
+        }
+    }
+
     WriteView::~WriteView()
     {
+        if (owns_step_)
+        {
+            handle_->command_history.end(succeeded_);
+            handle_->release_renders();
+        }
         root_->bump_mutation_version();
         lock_.unlock();
         handle_->notify_render_needed();
+    }
+
+    std::expected<Rect, std::string> ReadView::shape_bbox(const std::vector<ShapeId> &shapes) const { return shape_ops::bbox(*root_, shapes); }
+
+    std::expected<Rect, std::string> WriteView::shape_bbox(const std::vector<ShapeId> &shapes) const { return shape_ops::bbox(*root_, shapes); }
+
+    ShapeOpResult WriteView::shape_copy(const std::vector<ShapeId> &shapes, const shape_ops::LayerOrPurpose &layer,
+                                        const std::optional<shape_ops::ShapeParent> &parent)
+    {
+        return edit::shape_copy(*handle_, shapes, layer, parent);
+    }
+
+    ShapeOpResult WriteView::shape_boolean(const std::vector<ShapeId> &a, const std::vector<ShapeId> &b, BooleanOp op,
+                                           const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent)
+    {
+        return edit::shape_boolean(*handle_, a, b, op, layer, parent);
+    }
+
+    ShapeOpResult WriteView::shape_to_polygons(const std::vector<ShapeId> &shapes, const std::optional<shape_ops::LayerOrPurpose> &layer,
+                                               const std::optional<shape_ops::ShapeParent> &parent)
+    {
+        return edit::shape_to_polygons(*handle_, shapes, layer, parent);
+    }
+
+    ShapeOpResult WriteView::shape_to_rects(const std::vector<ShapeId> &shapes, FractureDirection direction,
+                                            const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent)
+    {
+        return edit::shape_to_rects(*handle_, shapes, direction, layer, parent);
+    }
+
+    ShapeOpResult WriteView::shape_size(const std::vector<ShapeId> &shapes, int64_t dx, int64_t dy,
+                                        const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent)
+    {
+        return edit::shape_size(*handle_, shapes, dx, dy, layer, parent);
+    }
+
+    ShapeOpResult WriteView::shape_outline_paths(const std::vector<ShapeId> &shapes, int64_t width,
+                                                 const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent)
+    {
+        return edit::shape_outline_paths(*handle_, shapes, width, layer, parent);
+    }
+
+    std::expected<void, std::string> WriteView::shape_change_layer(const std::vector<ShapeId> &shapes, const shape_ops::LayerOrPurpose &layer)
+    {
+        return edit::shape_change_layer(*handle_, shapes, layer);
     }
 
     Transaction::Transaction(LeHandle *handle, const std::string &label) : handle_(handle)
@@ -103,6 +167,7 @@ namespace le::ext
     ExtensionContext::ExtensionContext(LeHandle *handle, std::string_view extension_name) : handle_(handle), extension_name_(extension_name) {}
 
 #include "generated/api/extension_current_defs.inc"
+#include "generated/api/extension_edit_defs.inc"
 
     void *ExtensionContext::data_slot(const char *type_name, std::shared_ptr<void> (*make)())
     {

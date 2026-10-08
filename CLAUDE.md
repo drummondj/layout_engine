@@ -117,10 +117,18 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
     `migrate_db` rewrites one with the current schema. Design in
     `docs/NATIVE_FILE_FORMAT_RESEARCH.md`.
 - `src/editing/` — undo/redo: `CommandHistory` (one per handle),
-  `Transaction`, `ICommand`. Every generated create/update/delete records
-  itself into the recording transaction; `le_repl_eval` and GUI edits
-  (Move, Resize, Delete) bracket one.
+  `Transaction`, `ICommand`. Every generated create/update/delete and
+  shape op records itself into the recording transaction (in `le::edit`,
+  below); `le_repl_eval`, GUI edits (Move, Resize, Delete) and
+  `ExtensionContext::write(label)` bracket one.
 - `src/api/` — `api.hpp`/`api.cpp`, the plain-C API every front end calls.
+  Its edits are a shim (C arguments, microns to dbu, locking, logging)
+  over `le::edit` (`edit_ops.hpp`/`edit_ops.cpp`): the generated
+  create/update/delete per class (`generated/api/edit_ops_*.inc`, with
+  `<Type>Changes` in `edit_types.hpp`) and the shape ops, in native types
+  with `std::expected` errors, validating, bumping the mutation version
+  and recording undo; the caller holds the exclusive lock. Extensions
+  reach them through `le::ext::WriteView`.
   Its header-only helpers: `hit_test.hpp` (Placement, Abstract-view and
   Layout-view hit-tests), `placement_move.hpp`/`fin_grid.hpp` (Placement
   Move planning and snapping: SITE rows for CORE cells, fin grid,
@@ -169,8 +177,10 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   automated coverage of the render/input loop itself.
 - `src/extension/` — the extension SDK header, `le/extension.hpp`
   (`le::ext::Registry`, `ExtensionContext` with `read()`/`write()`/
-  `transaction()`/`data<T>()`/`current_<type>()`, generated `to_c`/`from_c`
-  id conversions; implemented in `src/api/extension.cpp`),
+  `write(label)`/`transaction()`/`data<T>()`/`current_<type>()`, generated
+  `to_c`/`from_c` id conversions; `WriteView`'s undoable
+  `create_/update_/delete_<type>` and the views' `shape_*` ops over
+  `le::edit`; implemented in `src/api/extension.cpp`),
   versioned by `LE_EXTENSION_API_VERSION`. `cmake/le_extensions.cmake`
   builds each directory in `LE_EXTENSION_DIRS` (its `le_extension.toml`
   checked and ordered by `codegen/codegen/extension_manifest.py`, its

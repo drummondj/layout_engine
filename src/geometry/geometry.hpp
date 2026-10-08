@@ -1,5 +1,6 @@
 #pragma once
 #include "../database/database.hpp"
+#include "shape_op_types.hpp"
 #include <algorithm>
 #include <boost/geometry.hpp>
 #include <boost/geometry/algorithms/buffer.hpp>
@@ -40,24 +41,6 @@ namespace le
         PieceKind kind;
         size_t index;
         Shape outline;
-    };
-
-    /// @brief Which combination Geometry::boolean_shapes computes between
-    /// its two input groups (NOT is "a minus b").
-    enum class BooleanOp
-    {
-        Or,
-        And,
-        Not,
-    };
-
-    /// @brief Cut-line direction for Geometry::shape_to_rects. Horizontal
-    /// cuts with horizontal lines, giving horizontal strips (each rect as
-    /// wide as the shape allows); Vertical is the transpose.
-    enum class FractureDirection
-    {
-        Horizontal,
-        Vertical,
     };
 
     /// @brief Area geometry in the only two forms a Shape can store it -

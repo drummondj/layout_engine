@@ -12,6 +12,11 @@ import jinja2
 
 from codegen.templates.tcl import (
     api_declarations_inc_j2,
+    api_edit_ops_decls_inc_j2,
+    api_edit_ops_defs_inc_j2,
+    api_edit_types_hpp_j2,
+    api_extension_edit_decls_inc_j2,
+    api_extension_edit_defs_inc_j2,
     api_extension_current_decls_inc_j2,
     api_extension_current_defs_inc_j2,
     api_filter_tables_inc_j2,
@@ -100,6 +105,11 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
         (api_dir / "id_conversions.hpp", api_id_conversions_hpp_j2.TEMPLATE, True),
         (api_dir / "extension_current_decls.inc", api_extension_current_decls_inc_j2.TEMPLATE, True),
         (api_dir / "extension_current_defs.inc", api_extension_current_defs_inc_j2.TEMPLATE, True),
+        (api_dir / "edit_types.hpp", api_edit_types_hpp_j2.TEMPLATE, True),
+        (api_dir / "edit_ops_decls.inc", api_edit_ops_decls_inc_j2.TEMPLATE, True),
+        (api_dir / "edit_ops_defs.inc", api_edit_ops_defs_inc_j2.TEMPLATE, True),
+        (api_dir / "extension_edit_decls.inc", api_extension_edit_decls_inc_j2.TEMPLATE, True),
+        (api_dir / "extension_edit_defs.inc", api_extension_edit_defs_inc_j2.TEMPLATE, True),
         (api_dir / "declarations.inc", api_declarations_inc_j2.TEMPLATE),
         (api_dir / "handle_fields.inc", api_handle_fields_inc_j2.TEMPLATE),
         (
