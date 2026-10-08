@@ -4,6 +4,9 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
+#include <optional>
+#include <stdexcept>
 #include <cstdlib>
 #include <memory>
 
@@ -282,4 +285,169 @@ TEST_F(ComposeStageFixture, ExtensionOverlaysDrawAfterTheCoreOnesAndRedrawOnRequ
     ++options.extension_overlay_version;
     compose_runner.run(rasterize_runner.last_handle(), 0, options);
     EXPECT_EQ(calls, 2);
+}
+
+namespace
+{
+    // TOP places BLOCK at the origin and BLOCK places LEAF there too. LEAF's
+    // M1 pin fills (0,0)-(10,10); BLOCK routes M2 across it, TOP routes M3
+    // across it, and TOP's diearea's left edge (x = 5) runs through it.
+    struct ComposeStackingFixture : public ::testing::Test
+    {
+        void SetUp() override
+        {
+            technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            m1 = root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING"});
+            m2 = root.create_layer(LayerData{.technology = technology_id, .name = "M2", .type = "ROUTING"});
+            m3 = root.create_layer(LayerData{.technology = technology_id, .name = "M3", .type = "ROUTING"});
+            view_layers_handle = std::make_shared<const ViewLayerSet>(ViewLayerSet::build_for_technology(root, technology_id));
+
+            const LibraryId library_id = root.create_library(LibraryData{.name = "LIB"});
+            const DesignId leaf_design = root.create_design(DesignData{.library = library_id, .name = "LEAF"});
+            leaf = root.create_abstract(AbstractData{.design = leaf_design});
+            root.create_shape(ShapeData{.owner = ShapeOwner::abstract(leaf), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{{0, 0}, {10, 10}}}});
+            const TerminalId terminal = root.create_terminal(TerminalData{.abstract = leaf, .name = "A", .direction = SignalDirection::INPUT});
+            const TerminalPortId port = root.create_terminal_port(TerminalPortData{.terminal = terminal});
+            root.create_shape(ShapeData{.owner = ShapeOwner::terminal_port(port), .layer = m1, .rects = {Rect{{0, 0}, {10, 10}}}});
+
+            const DesignId block_design = root.create_design(DesignData{.library = library_id, .name = "BLOCK"});
+            block = root.create_layout(LayoutData{.design = block_design});
+            root.create_shape(ShapeData{.owner = ShapeOwner::layout(block), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{{0, 0}, {10, 10}}}});
+            root.create_placement(PlacementData{.layout = block, .name = "leaf0", .reference_design = leaf_design, .placement_status = PlacementStatus::PLACED, .location = Point{0, 0}, .orientation = Orientation::N});
+            const RouteId block_route = root.create_route(RouteData{.layout = block, .name = "n1"});
+            root.create_shape(ShapeData{.owner = ShapeOwner::route(block_route), .layer = m2, .rects = {Rect{{1, 4}, {9, 6}}}});
+
+            const DesignId top_design = root.create_design(DesignData{.library = library_id, .name = "TOP"});
+            top = root.create_layout(LayoutData{.design = top_design});
+            root.create_shape(ShapeData{.owner = ShapeOwner::layout(top), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{{5, -20}, {40, 40}}}});
+            root.create_placement(PlacementData{.layout = top, .name = "block0", .reference_design = block_design, .placement_status = PlacementStatus::PLACED, .location = Point{0, 0}, .orientation = Orientation::N});
+            const RouteId top_route = root.create_route(RouteData{.layout = top, .name = "n2"});
+            root.create_shape(ShapeData{.owner = ShapeOwner::route(top_route), .layer = m3, .rects = {Rect{{7, 1}, {9, 9}}}});
+        }
+
+        void run(int32_t depth)
+        {
+            options = ViewRenderOptions{
+                .root = &root, .root_mutation_version = root.mutation_version(), .top_level = HierarchyId{top},
+                .hierarchy_depth = depth, .viewport = Rect{.ll = Point{-10, -10}, .ur = Point{20, 20}}, .scale = kScale,
+            };
+            options.purpose_visible[ViewLayerPurpose::PLACEMENT] = false; // labels
+            options.minor_grid_spacing_dbu = 0;                            // grid dots
+            // A new data version each run, so each stage recomputes.
+            ++version;
+            hierarchy_resolver_runner.run(view_layers_handle, version, options);
+            rasterize_runner.run(hierarchy_resolver_runner.last_handle(), version, options);
+        }
+
+        const RasterizedImage &image_of(bool top_level) const
+        {
+            for (const auto &[id, image] : rasterize_runner.last_handle()->images)
+                if ((id == HierarchyId{top}) == top_level)
+                    return image;
+            throw std::runtime_error("no such image");
+        }
+
+        // Whether `image` (drawn over the whole viewport) has ink anywhere
+        // in dbu rect `area`.
+        static bool has_ink(const BLImage &image, Rect area)
+        {
+            BLImageData data;
+            if (image.is_empty() || image.get_data(&data) != BL_SUCCESS)
+                return false;
+            for (int y = py(area.ur.y); y < py(area.ll.y); ++y)
+                for (int x = px(area.ll.x); x < px(area.ur.x); ++x)
+                    if (static_cast<const uint8_t *>(data.pixel_data)[static_cast<std::ptrdiff_t>(y) * data.stride + x * 4 + 3] > 0)
+                        return true;
+            return false;
+        }
+
+        // Device pixel of dbu (x, y) in the 30x30-dbu viewport above.
+        static int px(int64_t dbu) { return static_cast<int>((dbu + 10) * kScale); }
+        static int py(int64_t dbu) { return static_cast<int>((20 - dbu) * kScale); }
+
+        static constexpr double kScale = 8.0;
+
+        Root root;
+        TechnologyId technology_id;
+        LayerId m1, m2, m3;
+        AbstractId leaf;
+        LayoutId block;
+        LayoutId top;
+        ViewLayerSetHandle view_layers_handle;
+        HierarchyResolverRunner hierarchy_resolver_runner{"HierarchyResolver"};
+        RasterizeRunner rasterize_runner{"Rasterize"};
+        ComposeRunner compose_runner{"Compose"};
+        ViewRenderOptions options;
+        std::uint64_t version = 0;
+    };
+}
+
+TEST_F(ComposeStackingFixture, ANodeWithChildContentRasterizesItsRoutesSeparatelyFromItsBackground)
+{
+    const Rect top_route{{7, 1}, {9, 9}};
+    const Rect boundary_edge{{4, -8}, {6, -2}}; // below the pin and the routes
+
+    // Depth 1 resolves BLOCK: TOP's routes go over it, its diearea under.
+    run(1);
+    const RasterizedImage &top_image = image_of(true);
+    EXPECT_TRUE(has_ink(top_image.over_placements, top_route));
+    EXPECT_FALSE(has_ink(top_image.over_placements, boundary_edge));
+    EXPECT_TRUE(has_ink(top_image.image, boundary_edge));
+    EXPECT_FALSE(has_ink(top_image.image, top_route));
+    EXPECT_TRUE(image_of(false).over_placements.is_empty()); // LEAF isn't resolved yet
+
+    // Depth 2 resolves LEAF too: BLOCK splits, LEAF (no children) doesn't.
+    run(2);
+    int split = 0;
+    int whole = 0;
+    for (const auto &[id, image] : rasterize_runner.last_handle()->images)
+        if (!(id == HierarchyId{top}))
+            ++(image.over_placements.is_empty() ? whole : split);
+    EXPECT_EQ(split, 1);
+    EXPECT_EQ(whole, 1);
+
+    // Depth 0 has no child content: one image with everything.
+    run(0);
+    EXPECT_TRUE(image_of(true).over_placements.is_empty());
+    EXPECT_TRUE(has_ink(image_of(true).image, top_route));
+}
+
+// ComposeStage's order, with each node's images replaced by flat colors:
+// a node's image, then its children, then its over_placements.
+TEST_F(ComposeStackingFixture, ComposeDrawsChildrenBetweenANodesTwoImages)
+{
+    run(1); // TOP and BLOCK
+    RasterizeOutput output = *rasterize_runner.last_handle();
+    const auto fill = [](BLImage &image, BLRgba32 color, std::optional<Rect> only = std::nullopt)
+    {
+        BLContext ctx(image);
+        ctx.clear_all();
+        ctx.set_fill_style(color);
+        if (only)
+            ctx.fill_rect(BLRect(px(only->ll.x), py(only->ur.y), px(only->ur.x) - px(only->ll.x), py(only->ll.y) - py(only->ur.y)));
+        else
+            ctx.fill_all();
+        ctx.end();
+    };
+    for (auto &[id, image] : output.images)
+    {
+        if (id == HierarchyId{top})
+        {
+            fill(image.image, BLRgba32(255, 0, 0, 255));                                  // red background everywhere
+            fill(image.over_placements, BLRgba32(0, 0, 255, 255), Rect{{-5, -5}, {2, 2}}); // a blue square half over BLOCK
+        }
+        else
+            fill(image.image, BLRgba32(0, 255, 0, 255)); // BLOCK all green
+    }
+    const RasterizedFrame &frame = compose_runner.run(std::make_shared<const RasterizeOutput>(std::move(output)), version, options);
+    ASSERT_FALSE(frame.empty);
+    const auto rgb = [&](int64_t x, int64_t y)
+    {
+        const uint8_t *p = frame.buffer.data + static_cast<std::size_t>(py(y)) * frame.buffer.row_bytes + static_cast<std::size_t>(px(x)) * 4;
+        return std::array<int, 3>{p[0], p[1], p[2]};
+    };
+    EXPECT_EQ(rgb(-8, -8), (std::array<int, 3>{255, 0, 0})); // TOP's background, outside BLOCK
+    EXPECT_EQ(rgb(5, 5), (std::array<int, 3>{0, 255, 0}));   // BLOCK over TOP's background
+    EXPECT_EQ(rgb(1, 1), (std::array<int, 3>{0, 0, 255}));   // TOP's over image over BLOCK
+    EXPECT_EQ(rgb(-3, -3), (std::array<int, 3>{0, 0, 255})); // ...and outside it
 }

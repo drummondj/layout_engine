@@ -24,6 +24,14 @@ namespace le
         /// needs this to place the image correctly; a BLImage alone
         /// carries no notion of *where* in dbu space it represents.
         Point local_origin;
+
+        /// @brief The node's shapes on purposes not drawn under its
+        /// placements (purpose_draws_under_placements), same size and
+        /// origin as `image`, which then holds only the rest. ComposeStage
+        /// draws it after the children, so a design's own wires and pins
+        /// cover its cells' content. Empty when the node has no child
+        /// content to go between, and `image` holds every shape.
+        BLImage over_placements;
     };
 
     /// @brief A Rasterize stage's own output - one RasterizedImage per

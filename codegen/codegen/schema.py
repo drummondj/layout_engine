@@ -4018,6 +4018,9 @@ class Purpose:
         selectable_by_default (bool): Selectable until the user turns it off.
         has_selectable_objects (bool): Whether anything drawn on it can be
             selected at all; false hides its selectable toggle.
+        under_placements (bool): Background, drawn beneath a design's placed
+            cells' content (rows, outlines); otherwise drawn over it (wires,
+            pins), so a design's own routes stay visible over its cells.
     """
 
     name: str
@@ -4026,6 +4029,7 @@ class Purpose:
     visible_by_default: bool = True
     selectable_by_default: bool = True
     has_selectable_objects: bool = False
+    under_placements: bool = False
 
 
 @dataclass

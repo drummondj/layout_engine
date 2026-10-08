@@ -30,12 +30,14 @@ namespace {{namespace}}
         bool selectable_by_default;
         /// @brief Whether anything drawn on it can be selected at all.
         bool has_selectable_objects;
+        /// @brief Drawn beneath a node's child placements rather than over them.
+        bool under_placements;
     };
 
     /// @brief Every purpose, indexed by ordinal.
     inline constexpr std::array<ViewLayerPurposeInfo, kViewLayerPurposeCount> kViewLayerPurposes{ {
 {% for p in purposes %}
-        {ViewLayerPurpose::{{p.name}}, "{{p.label}}", {{p.visible_by_default|lower}}, {{p.selectable_by_default|lower}}, {{p.has_selectable_objects|lower}}},
+        {ViewLayerPurpose::{{p.name}}, "{{p.label}}", {{p.visible_by_default|lower}}, {{p.selectable_by_default|lower}}, {{p.has_selectable_objects|lower}}, {{p.under_placements|lower}}},
 {% endfor %}
     } };
 
@@ -50,6 +52,14 @@ namespace {{namespace}}
     constexpr bool purpose_has_selectable_objects(ViewLayerPurpose purpose)
     {
         return purpose_info(purpose).has_selectable_objects;
+    }
+
+    /// @brief Whether a node's shapes on `purpose` are background, drawn
+    /// beneath its child placements' content (rows, outlines, regions)
+    /// rather than over it (wires, pins).
+    constexpr bool purpose_draws_under_placements(ViewLayerPurpose purpose)
+    {
+        return purpose_info(purpose).under_placements;
     }
 
     /// @brief The purpose whose label is `label`, if any.
