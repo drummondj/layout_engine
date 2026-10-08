@@ -645,7 +645,8 @@ namespace le
         /// @brief Draws `own`'s own image onto `ctx` (already at
         /// `own.image`'s own pixel dimensions), then each of `id`'s own
         /// surviving placements' fully-composed child image on top, at
-        /// the position/orientation its own transform implies.
+        /// the position/orientation its own transform implies, then
+        /// `own.over_placements` (its wires and pins) over those.
         static void draw_node_and_children(
             BLContext &ctx, const HierarchyId &id, const RasterizedImage &own,
             const HierarchyResolverOutput &culled,
@@ -695,6 +696,9 @@ namespace le
                     ctx.restore();
                 }
             }
+
+            if (!own.over_placements.is_empty())
+                ctx.blit_image(BLPoint(0, 0), own.over_placements);
         }
 
         /// @brief `id`'s own fully-composed image (its own
@@ -720,7 +724,7 @@ namespace le
             const RasterizedImage &own = rasterized_it->second;
             const auto view_data_it = culled.view_data.find(id);
             const bool has_placements = view_data_it != culled.view_data.end() && placement_count(view_data_it->second) > 0;
-            if (!has_placements)
+            if (!has_placements && own.over_placements.is_empty())
             {
                 // No children to draw on top - this node's own already-
                 // rasterized image already IS its own final composed
