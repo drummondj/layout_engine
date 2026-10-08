@@ -612,6 +612,15 @@ check "layer name is back to M1 after undo" M1 [get_properties $scratch_shape .l
 check "redo re-applies the rename" 1 [redo]
 check "layer name is M2 again after redo" M2 [get_properties $scratch_shape .layer.name]
 
+# remove_shape_rect is undoable like any other edit.
+update_shape $scratch_shape -rects {{{0 0} {1 1}} {{2 2} {3 3}}}
+le_repl_eval "remove_shape_rect $scratch_shape 0"
+check "remove_shape_rect via le_repl_eval leaves one rect" 1 [llength [dict get [get_properties $scratch_shape] rects]]
+check "undo restores the removed rect" 1 [undo]
+check "both rects are back, in order, after undo" {{{0 0} {1 1}} {{2 2} {3 3}}} [dict get [get_properties $scratch_shape] rects]
+check "redo removes it again" 1 [redo]
+check "one rect left after redo" {{{2 2} {3 3}}} [dict get [get_properties $scratch_shape] rects]
+
 # A deliberately-errored command is still added to command_history -
 # unlike every other entry so far, its
 # own text is the literal, unresolved command as submitted (there's no

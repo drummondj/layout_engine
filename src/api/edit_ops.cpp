@@ -108,6 +108,59 @@ namespace le::edit
                             { return shape_ops::outline_paths(handle.root, shapes, width, layer, owner); });
     }
 
+    std::expected<void, std::string> remove_shape_piece(LeHandle &handle, ShapeId shape, PieceKind kind, size_t index)
+    {
+        ShapeData *data = handle.root.get_shape(shape);
+        if (!data)
+            return std::unexpected("unknown shape");
+        const bool recording = handle.command_history.is_recording();
+        // The masks are parallel to their pieces (and may be shorter), so a
+        // piece's mask goes with it. The whole ShapeData is the undo
+        // snapshot, since apply_shape_snapshot doesn't restore masks.
+        const ShapeData before = recording ? *data : ShapeData{};
+        auto erase = [index](auto &pieces, std::vector<int> &masks)
+        {
+            if (index >= pieces.size())
+                return false;
+            pieces.erase(pieces.begin() + static_cast<std::ptrdiff_t>(index));
+            if (index < masks.size())
+                masks.erase(masks.begin() + static_cast<std::ptrdiff_t>(index));
+            return true;
+        };
+        bool removed = false;
+        switch (kind)
+        {
+        case PieceKind::RECT:
+            removed = erase(data->rects, data->rect_masks);
+            break;
+        case PieceKind::POLYGON:
+            removed = erase(data->polygons, data->polygon_masks);
+            break;
+        case PieceKind::PATH:
+            removed = erase(data->paths, data->path_masks);
+            break;
+        default:
+            return std::unexpected("only a rect, polygon or path can be removed");
+        }
+        if (!removed)
+            return std::unexpected("index out of range");
+        handle.root.note_shape_changed(shape);
+        handle.root.bump_mutation_version();
+        if (recording)
+            handle.command_history.current()->record_update<ShapeId, ShapeData>(
+                shape, before, *data,
+                [](Root &r, ShapeId id, const ShapeData &snapshot)
+                {
+                    ShapeData *target = r.get_shape(id);
+                    if (!target)
+                        return false;
+                    *target = snapshot;
+                    r.note_shape_changed(id);
+                    return true;
+                });
+        return {};
+    }
+
     std::expected<void, std::string> shape_change_layer(LeHandle &handle, const std::vector<ShapeId> &shapes, const shape_ops::LayerOrPurpose &layer)
     {
         const auto changed = shape_ops::change_layer(handle.root, shapes, layer);

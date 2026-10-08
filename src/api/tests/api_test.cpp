@@ -4616,6 +4616,46 @@ TEST_F(ApiFixture, CreateShapeWithPathThenRemoveShapePathWorks)
     EXPECT_EQ(le_shape_path_count(handle, shape_id), 0);
 }
 
+TEST_F(ApiFixture, RemovingAShapePieceIsUndoable)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    const LeObstructionId obstruction_id = le_create_obstruction(handle, testcell_abstract_id(handle));
+    constexpr double rects[] = {0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0};
+    constexpr double triangles[] = {2, 3, 0.0, 0.0, 1.0, 0.0, 0.5, 1.0, 3, 5.0, 5.0, 6.0, 5.0, 5.5, 6.0};
+    constexpr double centerlines[] = {2, 0.1, 2, 0.0, 0.0, 1.0, 0.0, 0.2, 2, 0.0, 4.0, 1.0, 4.0};
+    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M4"), nullptr, 1, centerlines, 13, 1,
+                                               triangles, 16, 1, rects, 8, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(shape_id.index, UINT32_MAX);
+
+    struct Kind
+    {
+        int (*remove)(LeHandle *, LeShapeId, int32_t);
+        int32_t (*count)(LeHandle *, LeShapeId);
+    };
+    for (const Kind kind : {Kind{le_remove_shape_rect, le_shape_rect_count}, Kind{le_remove_shape_polygon, le_shape_polygon_count},
+                            Kind{le_remove_shape_path, le_shape_path_count}})
+    {
+        le_begin_command(handle, "remove piece");
+        ASSERT_EQ(kind.remove(handle, shape_id, 0), 0);
+        le_end_command(handle, 1);
+        EXPECT_EQ(kind.count(handle, shape_id), 1);
+        ASSERT_EQ(le_undo(handle), 1);
+        EXPECT_EQ(kind.count(handle, shape_id), 2) << "undo puts the removed piece back";
+        ASSERT_EQ(le_redo(handle), 1);
+        EXPECT_EQ(kind.count(handle, shape_id), 1);
+        ASSERT_EQ(le_undo(handle), 1);
+    }
+
+    // Undo restores the order too, not just the count.
+    EXPECT_DOUBLE_EQ(le_shape_rect_at(handle, shape_id, 0).ur_x_um, 1.0);
+    EXPECT_DOUBLE_EQ(le_shape_polygon_point_at(handle, shape_id, 0, 1).x_um, 1.0);
+    EXPECT_DOUBLE_EQ(le_shape_path_width_um(handle, shape_id, 0), 0.1);
+    le_begin_command(handle, "remove second rect");
+    ASSERT_EQ(le_remove_shape_rect(handle, shape_id, 0), 0);
+    le_end_command(handle, 1);
+    EXPECT_DOUBLE_EQ(le_shape_rect_at(handle, shape_id, 0).ur_x_um, 3.0) << "the later rect shifts down";
+}
+
 TEST_F(ApiFixture, DeleteShapeRemovesItAndParentCountDropsButParentSurvives)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);

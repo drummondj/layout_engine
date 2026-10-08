@@ -310,6 +310,7 @@ The views run the `shape_*` Tcl commands' operations on shape ids, in dbu
 | `shape_size(shapes, dx, dy, layer, parent)` | One Shape per input, grown (or, negative, shrunk) by `dx`/`dy`. |
 | `shape_outline_paths(shapes, width, layer, parent)` | One path-only Shape per input, along its outline. |
 | `shape_change_layer(shapes, layer)` | Moves each input onto `layer` in place. |
+| `remove_shape_piece(shape, kind, index)` | Removes one rect, polygon or path (`le::PieceKind`) and its mask; later ones shift down. |
 
 `shapes` is a `std::vector<le::ShapeId>`, so `{id}` or `{a, b}` works too. `layer` is a `le::shape_ops::LayerOrPurpose`,
 `{.layer = id}` or a layer-less `{.purpose = le::ShapePurpose::DEBUG}`;
@@ -682,8 +683,8 @@ The first version.
   `<Type>Changes`, recorded for undo.
 - Shape operations: `shape_bbox` on `ReadView` and `WriteView`;
   `shape_copy`, `shape_boolean`, `shape_to_polygons`, `shape_to_rects`,
-  `shape_size`, `shape_outline_paths` and `shape_change_layer` on
-  `WriteView`.
+  `shape_size`, `shape_outline_paths`, `shape_change_layer` and
+  `remove_shape_piece` on `WriteView`.
 - Microns: `units()` on `ReadView` and `WriteView` (`Units`, `PointUm`,
   `RectUm`), and `WriteView::build_shape` (`ShapeBuilder`).
 - GUI: `<IconsLucide.h>` (the built-in icon set), `GuiRegistry` (`add_window`, `add_menu_item`, `add_toolbar_button`,
