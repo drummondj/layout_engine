@@ -326,7 +326,8 @@ enumeration, `get_<type>`, and `create_<type>`/`update_<type>`/
 - Plain (non-parent) references like `Shape.layer` take a token flag via
   `Field.is_plain_reference_field()`, deliberately separate from
   `get_parent_fields()` (ownership).
-- The only hand-written CRUD left is `remove_shape_rect/_polygon/_path`.
+- The only hand-written CRUD left is `remove_shape_rect/_polygon/_path`
+  (`le::edit::remove_shape_piece`).
 
 ## Build
 

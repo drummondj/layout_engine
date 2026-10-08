@@ -5912,14 +5912,7 @@ extern "C"
         if (!handle || index < 0)
             return 1;
         HandleWriteLock lock(handle);
-
-        le::ShapeData *shape = handle->root.get_shape(from_c(id));
-        if (!shape || static_cast<size_t>(index) >= shape->rects.size())
-            return 1;
-        shape->rects.erase(shape->rects.begin() + index);
-        handle->root.note_shape_changed(from_c(id));
-        handle->root.bump_mutation_version();
-        return 0;
+        return le::edit::remove_shape_piece(*handle, from_c(id), le::PieceKind::RECT, static_cast<size_t>(index)) ? 0 : 1;
     }
 
     int32_t le_shape_polygon_count(LeHandle *handle, LeShapeId id)
@@ -5971,14 +5964,7 @@ extern "C"
         if (!handle || polygon_index < 0)
             return 1;
         HandleWriteLock lock(handle);
-
-        le::ShapeData *shape = handle->root.get_shape(from_c(id));
-        if (!shape || static_cast<size_t>(polygon_index) >= shape->polygons.size())
-            return 1;
-        shape->polygons.erase(shape->polygons.begin() + polygon_index);
-        handle->root.note_shape_changed(from_c(id));
-        handle->root.bump_mutation_version();
-        return 0;
+        return le::edit::remove_shape_piece(*handle, from_c(id), le::PieceKind::POLYGON, static_cast<size_t>(polygon_index)) ? 0 : 1;
     }
 
     int32_t le_shape_path_count(LeHandle *handle, LeShapeId id)
@@ -6046,14 +6032,7 @@ extern "C"
         if (!handle || path_index < 0)
             return 1;
         HandleWriteLock lock(handle);
-
-        le::ShapeData *shape = handle->root.get_shape(from_c(id));
-        if (!shape || static_cast<size_t>(path_index) >= shape->paths.size())
-            return 1;
-        shape->paths.erase(shape->paths.begin() + path_index);
-        handle->root.note_shape_changed(from_c(id));
-        handle->root.bump_mutation_version();
-        return 0;
+        return le::edit::remove_shape_piece(*handle, from_c(id), le::PieceKind::PATH, static_cast<size_t>(path_index)) ? 0 : 1;
     }
 
     int32_t le_shape_copy(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent)

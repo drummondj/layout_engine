@@ -238,6 +238,11 @@ namespace le::ext
         return edit::shape_change_layer(*handle_, shapes, layer);
     }
 
+    std::expected<void, std::string> WriteView::remove_shape_piece(ShapeId shape, PieceKind kind, size_t index)
+    {
+        return edit::remove_shape_piece(*handle_, shape, kind, index);
+    }
+
     Transaction::Transaction(LeHandle *handle, const std::string &label) : handle_(handle)
     {
         if (le_is_command_running(handle) == 0)

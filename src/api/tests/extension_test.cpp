@@ -454,3 +454,39 @@ TEST(ShapeBuilder, ReportsTheFirstErrorAndCreatesNothing)
     }
     le_destroy(handle);
 }
+
+TEST(WriteViewEdits, RemovingAShapePieceTakesItsMaskAndUndoes)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    le::ShapeId shape;
+    {
+        le::ext::WriteView view = ctx.write();
+        const ShapeScene scene = add_shape_scene(view);
+        le::ShapeData data{.owner = le::ShapeOwner::in_layout(scene.layout), .layer = scene.m1};
+        data.rects = {le::Rect{{0, 0}, {1, 1}}, le::Rect{{2, 2}, {3, 3}}, le::Rect{{4, 4}, {5, 5}}};
+        data.rect_masks = {1, 2, 3};
+        shape = view.create_shape(data).value();
+    }
+    {
+        le::ext::WriteView view = ctx.write("remove");
+        ASSERT_TRUE(view.remove_shape_piece(shape, le::PieceKind::RECT, 1));
+        const le::ShapeData &data = *view.root().get_shape(shape);
+        ASSERT_EQ(data.rects.size(), 2u);
+        EXPECT_EQ(data.rects[1].ll.x, 4);
+        EXPECT_EQ(data.rect_masks, (std::vector<int>{1, 3}));
+
+        const auto out_of_range = view.remove_shape_piece(shape, le::PieceKind::RECT, 5);
+        ASSERT_FALSE(out_of_range);
+        EXPECT_EQ(out_of_range.error(), "index out of range");
+        EXPECT_FALSE(view.remove_shape_piece(shape, le::PieceKind::VIA, 0));
+        EXPECT_FALSE(view.remove_shape_piece(le::ShapeId{}, le::PieceKind::RECT, 0));
+    }
+    ASSERT_EQ(le_undo(handle), 1);
+    {
+        const le::ext::ReadView view = ctx.read();
+        EXPECT_EQ(view.root().get_shape(shape)->rects.size(), 3u);
+        EXPECT_EQ(view.root().get_shape(shape)->rect_masks, (std::vector<int>{1, 2, 3}));
+    }
+    le_destroy(handle);
+}

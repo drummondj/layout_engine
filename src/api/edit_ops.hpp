@@ -51,4 +51,8 @@ namespace le::edit
                                       const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent);
     /// @brief Moves each shape in place onto `layer`; all or nothing.
     std::expected<void, std::string> shape_change_layer(LeHandle &handle, const std::vector<ShapeId> &shapes, const shape_ops::LayerOrPurpose &layer);
+
+    /// @brief Removes the rect, polygon or path at `index` from `shape`,
+    /// with its mask if it has one; later pieces' indexes shift down by one.
+    std::expected<void, std::string> remove_shape_piece(LeHandle &handle, ShapeId shape, PieceKind kind, size_t index);
 }
