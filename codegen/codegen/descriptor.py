@@ -259,6 +259,7 @@ def check_history(
     update_snapshot: bool = False,
     bump_hint: str = "Bump version= in the Schema(...) call.",
     align=None,
+    rerecord_hint: str = "rerun with --update-snapshot instead.",
 ) -> HistoryCheck:
     """
     Compare `descriptor` against the snapshots in `history_dir`:
@@ -269,7 +270,8 @@ def check_history(
     - a snapshot for this version exists with a different fingerprint: the
       schema changed without a version bump - an error, unless
       `update_snapshot` (for a version that hasn't been released or
-      committed yet, while its schema is still being iterated on);
+      committed yet, while its schema is still being iterated on;
+      `rerecord_hint` tells the user how to do that);
     - no snapshot for this version: it must be newer than every recorded
       version, and gets a new snapshot.
     """
@@ -302,7 +304,7 @@ def check_history(
         result.errors.append(
             f"The schema changed (fingerprint {existing['fingerprint']} -> {current_fp}) but its version is still "
             f"{version}. {bump_hint} If {version} has not been committed or released "
-            f"yet, rerun with --update-snapshot instead."
+            f"yet, {rerecord_hint}"
         )
         return result
 

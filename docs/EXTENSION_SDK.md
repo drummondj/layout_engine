@@ -313,7 +313,9 @@ def extend(schema):
   tiles it touches.
 - **History:** the build writes `schema_history/<VERSION>.json` beside
   `schema_ext.py`. Commit it. Changing the schema without bumping
-  `VERSION` fails the build, as for core.
+  `VERSION` fails the build, as for core. While a version is not yet
+  committed or released, delete its snapshot and rebuild to re-record it
+  instead.
 - **Migrations:** once a version has shipped, changing the schema means
   bumping `VERSION` and adding a migration, so files written by the old
   version still load. Draft it with `le makemigration my_ext --name
