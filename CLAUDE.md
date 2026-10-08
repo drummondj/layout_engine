@@ -179,8 +179,8 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   (`le::ext::Registry`, `ExtensionContext` with `read()`/`write()`/
   `write(label)`/`transaction()`/`data<T>()`/`current_<type>()`, generated
   `to_c`/`from_c` id conversions; `WriteView`'s undoable
-  `create_/update_/delete_<type>` and the views' `shape_*` ops over
-  `le::edit`; implemented in `src/api/extension.cpp`),
+  `create_/update_/delete_<type>`, the views' `shape_*` ops over
+  `le::edit`, and micron helpers (`units()`, `build_shape`); implemented in `src/api/extension.cpp`),
   versioned by `LE_EXTENSION_API_VERSION`. `cmake/le_extensions.cmake`
   builds each directory in `LE_EXTENSION_DIRS` (its `le_extension.toml`
   checked and ordered by `codegen/codegen/extension_manifest.py`, its

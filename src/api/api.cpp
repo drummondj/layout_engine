@@ -1639,15 +1639,7 @@ namespace
     // been read yet (le_read_lef) or it has no usable scale.
     std::optional<double> database_units_microns(const le::Root &root)
     {
-        const auto technology_ids = root.get_technology_ids();
-        if (technology_ids.empty())
-            return std::nullopt;
-
-        const le::TechnologyData *technology = root.get_technology(technology_ids.front());
-        if (!technology || technology->database_units_microns <= 0.0)
-            return std::nullopt;
-
-        return technology->database_units_microns;
+        return le::edit::dbu_per_um(root);
     }
 
     // Rounds to the nearest dbu rather than truncating - a caller passing

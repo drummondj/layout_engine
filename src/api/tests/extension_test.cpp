@@ -331,3 +331,126 @@ TEST(ViewShapeOps, CreatingOpsReturnTheirIdsAndUndo)
     }
     le_destroy(handle);
 }
+
+TEST(Units, ConvertAtTheTechnologysScaleRoundingToTheNearestDbu)
+{
+    const le::ext::Units units(1000.0);
+    EXPECT_EQ(units.to_dbu(0.1), 100);
+    EXPECT_EQ(units.to_dbu(-0.0016), -2);
+    EXPECT_DOUBLE_EQ(units.to_um(int64_t{2500}), 2.5);
+    const le::Rect rect = units.to_dbu(le::ext::RectUm{{0.5, 1.0}, {2.0, 3.25}});
+    EXPECT_EQ(rect.ll.x, 500);
+    EXPECT_EQ(rect.ur.y, 3250);
+    const le::ext::RectUm back = units.to_um(rect);
+    EXPECT_DOUBLE_EQ(back.ll.x, 0.5);
+    EXPECT_DOUBLE_EQ(back.ur.y, 3.25);
+}
+
+TEST(Units, NeedATechnology)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    const auto units = ctx.read().units();
+    ASSERT_FALSE(units);
+    EXPECT_EQ(units.error(), "no Technology with a DATABASE MICRONS scale has been read yet");
+    {
+        le::ext::WriteView view = ctx.write();
+        ASSERT_TRUE(view.create_technology({.database_units_microns = 2000}));
+        ASSERT_TRUE(view.units());
+        EXPECT_DOUBLE_EQ(view.units()->dbu_per_um(), 2000.0);
+    }
+    le_destroy(handle);
+}
+
+TEST(ShapeBuilder, BuildsAShapeInMicronsAsOneUndoStep)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    ShapeScene scene;
+    {
+        le::ext::WriteView view = ctx.write();
+        scene = add_shape_scene(view);
+    }
+    le::ShapeId shape;
+    {
+        le::ext::WriteView view = ctx.write("build");
+        const auto built = view.build_shape(le::ShapeOwner::in_layout(scene.layout))
+                               .layer(scene.m2)
+                               .rect(0, 0, 2, 1)
+                               .rect({{3, 3}, {4, 4}})
+                               .polygon({{0, 0}, {1, 0}, {0.5, 0.75}})
+                               .path(0.1, {{0, 5}, {10, 5}})
+                               .create();
+        ASSERT_TRUE(built) << built.error();
+        shape = *built;
+
+        const le::ShapeData &data = *view.root().get_shape(shape);
+        EXPECT_EQ(data.layer, scene.m2);
+        EXPECT_EQ(data.owner.kind, le::ShapeOwnerKind::InLayout);
+        ASSERT_EQ(data.rects.size(), 2u);
+        EXPECT_EQ(data.rects[0].ur.x, 2000);
+        EXPECT_EQ(data.rects[0].ur.y, 1000);
+        EXPECT_EQ(data.rects[1].ll.x, 3000);
+        ASSERT_EQ(data.polygons.size(), 1u);
+        EXPECT_EQ(data.polygons[0].points[2].y, 750);
+        ASSERT_EQ(data.paths.size(), 1u);
+        EXPECT_EQ(data.paths[0].width, 100);
+        EXPECT_EQ(data.paths[0].polygon.points[1].x, 10000);
+
+        // Reading back in microns; the path reaches half its width past its ends.
+        const le::ext::RectUm box = view.units()->to_um(view.shape_bbox({shape}).value());
+        EXPECT_DOUBLE_EQ(box.ll.x, -0.05);
+        EXPECT_DOUBLE_EQ(box.ll.y, 0.0);
+        EXPECT_DOUBLE_EQ(box.ur.x, 10.05);
+        EXPECT_DOUBLE_EQ(box.ur.y, 5.05);
+        EXPECT_DOUBLE_EQ(view.units()->to_um(data.polygons[0])[1].x, 1.0);
+    }
+    ASSERT_EQ(le_undo(handle), 1);
+    EXPECT_EQ(ctx.read().root().get_shape(shape), nullptr);
+    le_destroy(handle);
+}
+
+TEST(ShapeBuilder, ALayerlessShapeTakesAPurpose)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    {
+        le::ext::WriteView view = ctx.write();
+        const ShapeScene scene = add_shape_scene(view);
+        const auto built = view.build_shape(le::ShapeOwner::in_layout(scene.layout)).layer(scene.m1).purpose(le::ShapePurpose::DEBUG).rect(0, 0, 1, 1).create();
+        ASSERT_TRUE(built) << built.error();
+        EXPECT_FALSE(view.root().get_shape(*built)->layer.valid());
+        EXPECT_EQ(view.root().get_shape(*built)->purpose, le::ShapePurpose::DEBUG);
+    }
+    le_destroy(handle);
+}
+
+TEST(ShapeBuilder, ReportsTheFirstErrorAndCreatesNothing)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    {
+        le::ext::WriteView view = ctx.write();
+        const auto no_technology = view.build_shape(le::ShapeOwner{}).rect(0, 0, 1, 1).create();
+        ASSERT_FALSE(no_technology);
+        EXPECT_EQ(no_technology.error(), "no Technology with a DATABASE MICRONS scale has been read yet");
+
+        const ShapeScene scene = add_shape_scene(view);
+        const size_t shapes = view.root().get_shape_ids().size();
+        const auto owner = le::ShapeOwner::in_layout(scene.layout);
+        const auto flat = view.build_shape(owner).layer(scene.m1).polygon({{0, 0}, {1, 1}}).path(0.1, {{0, 0}}).create();
+        ASSERT_FALSE(flat);
+        EXPECT_EQ(flat.error(), "a polygon needs at least 3 points");
+        const auto short_path = view.build_shape(owner).layer(scene.m1).path(0.1, {{0, 0}}).create();
+        ASSERT_FALSE(short_path);
+        EXPECT_EQ(short_path.error(), "a path needs at least 2 points");
+        const auto thin_path = view.build_shape(owner).layer(scene.m1).path(0, {{0, 0}, {1, 0}}).create();
+        ASSERT_FALSE(thin_path);
+        EXPECT_EQ(thin_path.error(), "a path's width must be positive");
+        const auto ownerless = view.build_shape(le::ShapeOwner{}).layer(scene.m1).rect(0, 0, 1, 1).create();
+        ASSERT_FALSE(ownerless);
+        EXPECT_EQ(ownerless.error(), "an owner is required");
+        EXPECT_EQ(view.root().get_shape_ids().size(), shapes);
+    }
+    le_destroy(handle);
+}

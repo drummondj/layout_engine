@@ -20,6 +20,10 @@ namespace le::edit
 {
 #include "generated/api/edit_ops_decls.inc"
 
+    /// @brief The Technology's dbu per micron (DATABASE MICRONS), if one
+    /// with a positive scale has been read. The session has one Technology.
+    std::optional<double> dbu_per_um(const Root &root);
+
     /// @brief New Shapes' ids, or a user-facing error.
     using ShapeOpResult = std::expected<std::vector<ShapeId>, std::string>;
 

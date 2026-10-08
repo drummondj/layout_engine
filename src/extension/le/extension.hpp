@@ -18,6 +18,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <cmath>
+#include <cstdint>
 #include <optional>
 #include <shared_mutex>
 #include <string>
@@ -100,6 +102,52 @@ namespace le::ext
     /// startup and read-only afterwards.
     Registry &registry();
 
+    /// @brief A point in microns.
+    struct PointUm
+    {
+        double x = 0.0;
+        double y = 0.0;
+    };
+
+    /// @brief A rect in microns: lower-left and upper-right corners.
+    struct RectUm
+    {
+        PointUm ll;
+        PointUm ur;
+    };
+
+    /// @brief Converts between microns and dbu at the session Technology's
+    /// scale (DATABASE MICRONS), from ReadView/WriteView::units(). Microns
+    /// round to the nearest dbu, as the C API and Tcl do.
+    class Units
+    {
+    public:
+        explicit Units(double dbu_per_um) : dbu_per_um_(dbu_per_um) {}
+
+        double dbu_per_um() const { return dbu_per_um_; }
+
+        int64_t to_dbu(double um) const { return static_cast<int64_t>(std::llround(um * dbu_per_um_)); }
+        Point to_dbu(PointUm p) const { return Point{to_dbu(p.x), to_dbu(p.y)}; }
+        Rect to_dbu(RectUm r) const { return Rect{to_dbu(r.ll), to_dbu(r.ur)}; }
+
+        double to_um(int64_t dbu) const { return static_cast<double>(dbu) / dbu_per_um_; }
+        PointUm to_um(Point p) const { return PointUm{to_um(p.x), to_um(p.y)}; }
+        RectUm to_um(Rect r) const { return RectUm{to_um(r.ll), to_um(r.ur)}; }
+        std::vector<PointUm> to_um(const Polygon &polygon) const
+        {
+            std::vector<PointUm> points;
+            points.reserve(polygon.points.size());
+            for (const Point p : polygon.points)
+                points.push_back(to_um(p));
+            return points;
+        }
+
+    private:
+        double dbu_per_um_;
+    };
+
+    class ShapeBuilder;
+
     /// @brief New Shapes' ids, or a user-facing error.
     using ShapeOpResult = std::expected<std::vector<ShapeId>, std::string>;
 
@@ -120,6 +168,8 @@ namespace le::ext
         const Root &root() const { return *root_; }
         /// @brief Only when valid(): the bbox of `shapes` together, in dbu.
         std::expected<Rect, std::string> shape_bbox(const std::vector<ShapeId> &shapes) const;
+        /// @brief Only when valid(): micron conversion; an error if no Technology has been read.
+        std::expected<Units, std::string> units() const;
         // Only when valid().
 #include "generated/api/extension_current_decls.inc"
 
@@ -154,6 +204,12 @@ namespace le::ext
         Root &root() { return *root_; }
 #include "generated/api/extension_current_decls.inc"
 #include "generated/api/extension_edit_decls.inc"
+
+        /// @brief Micron conversion; an error if no Technology has been read.
+        std::expected<Units, std::string> units() const;
+        /// @brief Builds a Shape owned by `owner` from geometry in microns;
+        /// its create() calls create_shape.
+        ShapeBuilder build_shape(ShapeOwner owner);
 
         // The shape operations, in dbu. New Shapes go to `parent`, else the
         // open view's Abstract/Layout; an unset `layer` keeps each input's own.
@@ -191,6 +247,42 @@ namespace le::ext
         Root *root_;
         bool owns_step_ = false;
         bool succeeded_ = true;
+    };
+
+    /// @brief Builds one Shape from geometry in microns, converted to dbu at
+    /// the Technology's scale, then creates it through the WriteView it came
+    /// from (WriteView::build_shape), undoably. Use it while that view is open.
+    class ShapeBuilder
+    {
+    public:
+        /// @brief Puts the shape on `layer` (clearing any purpose).
+        ShapeBuilder &layer(LayerId layer);
+        /// @brief Makes the shape layer-less, drawn on `purpose`'s row (e.g. DEBUG).
+        ShapeBuilder &purpose(ShapePurpose purpose);
+        /// @brief Adds a rect from (llx, lly) to (urx, ury).
+        ShapeBuilder &rect(double llx, double lly, double urx, double ury);
+        ShapeBuilder &rect(RectUm rect);
+        /// @brief Adds a polygon (at least 3 points).
+        ShapeBuilder &polygon(const std::vector<PointUm> &points);
+        /// @brief Adds a path `width` wide through `points` (at least 2).
+        ShapeBuilder &path(double width, const std::vector<PointUm> &points);
+
+        /// @brief The Shape so far, in dbu.
+        const ShapeData &data() const { return data_; }
+        /// @brief Creates the Shape; the first error from building it, if
+        /// any, or create_shape's.
+        std::expected<ShapeId, std::string> create();
+
+    private:
+        friend class WriteView;
+        ShapeBuilder(WriteView &view, ShapeOwner owner);
+        // Records only the first error.
+        void fail(std::string error);
+
+        WriteView *view_;
+        std::expected<Units, std::string> units_;
+        ShapeData data_;
+        std::string error_;
     };
 
     /// @brief Groups the C API edits made while it lives into one undo step
