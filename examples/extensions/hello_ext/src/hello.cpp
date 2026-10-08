@@ -29,6 +29,19 @@ namespace hello
         ++ctx.data<State>().libraries_added;
         return true;
     }
+
+    bool add_marker(le::ext::ExtensionContext &ctx, const std::string &name)
+    {
+        le::ext::Transaction transaction = ctx.transaction("hello_add_marker " + name);
+        const le::LayoutId layout = ctx.current_layout();
+        if (name.empty() || !layout.valid() ||
+            le_create_hello_marker(ctx.handle(), le::ext::to_c(layout), name.c_str()).index == UINT32_MAX)
+        {
+            transaction.fail();
+            return false;
+        }
+        return true;
+    }
 }
 
 namespace hello

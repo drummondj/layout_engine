@@ -24,6 +24,11 @@ namespace hello
     /// is empty or the library couldn't be created.
     bool add_library(le::ext::ExtensionContext &ctx, const std::string &name);
 
+    /// @brief Adds a marker (HelloMarker) named `name` to the current layout,
+    /// as one undo step. False, changing nothing, if `name` is empty or no
+    /// layout is current.
+    bool add_marker(le::ext::ExtensionContext &ctx, const std::string &name);
+
     /// @brief The bodies of the notes (HelloNote, this extension's own
     /// database class) on the library named `library`, in order; empty if
     /// there's no such library.

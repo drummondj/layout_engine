@@ -111,6 +111,40 @@ TEST(HelloExt, AFailedEditLeavesNothingToUndo)
     EXPECT_EQ(le_undo(session.handle), 0);
 }
 
+TEST(HelloExt, ItsIdsConvertBetweenTheCApiAndTheDatabase)
+{
+    Session session;
+    const LeHelloMarkerId marker = add_marker(session.handle);
+    const le::HelloMarkerId id = le::ext::from_c(marker);
+    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    EXPECT_EQ(ctx.read().root().get_hello_marker(id)->name, "clock_root");
+    EXPECT_EQ(le::ext::to_c(id).index, marker.index);
+    EXPECT_EQ(le::ext::to_c(id).generation, marker.generation);
+}
+
+TEST(HelloExt, AddsAMarkerToTheCurrentLayoutAsOneUndoStep)
+{
+    Session session;
+    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    const LeLayoutId layout = le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "lib"), "top"));
+    ASSERT_EQ(le_set_current_layout(session.handle, layout), 0);
+
+    ASSERT_TRUE(hello::add_marker(ctx, "clock_root"));
+    EXPECT_EQ(ctx.read().root().get_layout_hello_markers(le::ext::from_c(layout)).size(), 1u);
+    ASSERT_NE(le_undo(session.handle), 0);
+    EXPECT_EQ(ctx.read().root().get_layout_hello_markers(le::ext::from_c(layout)).size(), 0u);
+}
+
+TEST(HelloExt, AddingAMarkerWithNoCurrentLayoutFails)
+{
+    Session session;
+    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "lib"), "top"));
+    EXPECT_FALSE(hello::add_marker(ctx, "clock_root"));
+    EXPECT_EQ(markers_and_shapes(session.handle).first, 0u);
+    EXPECT_EQ(le_undo(session.handle), 0);
+}
+
 TEST(HelloExt, AWriteViewEditIsSeenByReaders)
 {
     Session session;

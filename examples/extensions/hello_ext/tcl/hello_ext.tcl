@@ -30,6 +30,23 @@ register_command_help hello_add_library \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+proc hello_add_marker {name args} {
+    if {$name eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "hello_add_marker <name> \[-help\] - Adds a marker named <name> to the current layout"
+    }
+    if {[hello_add_marker_cmd $name] != 0} {
+        error "hello_add_marker: couldn't add $name (is a layout current?)"
+    }
+    return ""
+}
+register_command_help hello_add_marker \
+    "hello_add_marker <name> \[-help\]" \
+    "Adds a marker named <name> to the current layout, as one undo step. From the hello_ext example extension." \
+    {
+        {<name> {type str required 1 description {The new marker's name}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 proc hello_libraries_added {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "hello_libraries_added \[-help\] - Returns how many libraries this session added"

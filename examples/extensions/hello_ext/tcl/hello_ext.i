@@ -5,4 +5,5 @@
 
 int hello_library_count_cmd();
 int hello_add_library_cmd(const char *name);
+int hello_add_marker_cmd(const char *name);
 int hello_libraries_added_cmd();

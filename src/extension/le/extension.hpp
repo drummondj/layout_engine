@@ -7,6 +7,7 @@
 
 #include "api.hpp"
 #include "database.hpp"
+#include "generated/api/id_conversions.hpp"
 #include "le/register_all.hpp"
 
 #include <json.hpp>
@@ -110,8 +111,11 @@ namespace le::ext
         bool valid() const { return lock_.owns_lock(); }
         /// @brief Only when valid().
         const Root &root() const { return *root_; }
+        // Only when valid().
+#include "generated/api/extension_current_decls.inc"
 
     private:
+        LeHandle *handle_;
         std::shared_lock<std::shared_mutex> lock_;
         const Root *root_;
     };
@@ -130,6 +134,7 @@ namespace le::ext
         WriteView &operator=(const WriteView &) = delete;
 
         Root &root() { return *root_; }
+#include "generated/api/extension_current_decls.inc"
 
     private:
         LeHandle *handle_;
@@ -168,6 +173,9 @@ namespace le::ext
         ReadView read() const { return ReadView(handle_); }
         WriteView write() { return WriteView(handle_); }
         Transaction transaction(const std::string &label) { return Transaction(handle_, label); }
+        // These take the session's lock for the read: inside a read() or
+        // write(), use the view's own accessors instead.
+#include "generated/api/extension_current_decls.inc"
 
         /// @brief Redraws the design view's overlays - for when what an
         /// overlay draws changed without the database changing (its data<T>()).

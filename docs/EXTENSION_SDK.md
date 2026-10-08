@@ -214,6 +214,18 @@ le::ext::ExtensionContext ctx(handle, "my_ext");
 | `write()` | A `WriteView`: `view.root()` is a writable `le::Root &`, held under an exclusive lock. When it ends, it bumps the database's mutation version and wakes the renderer. |
 | `transaction(label)` | A `Transaction`: the C API edits made while it lives become one undo step named `label`. Call `fail()` if the operation failed. It does nothing if a transaction is already open, e.g. inside a typed Tcl command, which already is one. |
 | `data<T>()` | Your state of type `T` for this session, default-constructed on first use and destroyed with the session. |
+| `current_layout()`, `current_schematic()`, `current_abstract()`, `current_technology()` | The session's current object (what Tcl's `current_layout` etc. set), as an `le::LayoutId` etc.; invalid if none. `ReadView` and `WriteView` have the same accessors. |
+
+**Ids.** The C API's ids (`LeLayoutId`) and the database's (`le::LayoutId`)
+hold the same `{index, generation}`. Convert with `le::ext::from_c` and
+`le::ext::to_c`, which exist for every class, your own included; an invalid
+id stays invalid:
+
+```cpp
+const le::LayoutId layout = ctx.current_layout();
+if (layout.valid())
+    le_create_hello_marker(ctx.handle(), le::ext::to_c(layout), "clock_root");
+```
 
 **Undo.** Only the C API's create, update and delete calls
 (`le_create_<type>`, `le_update_<type>`, `le_delete_<type>`, ...) record undo
@@ -236,9 +248,11 @@ bool add_thing(le::ext::ExtensionContext &ctx, const std::string &name)
 Edits through `write()` are not undoable. Use it for bulk work, such as
 importing data, where undo isn't wanted.
 
-**Locks.** Don't call `le_*` functions while you hold a `ReadView` or
-`WriteView`: they take the same lock. Keep views short, because a view
-blocks rendering (`write()`) or edits (`read()`).
+**Locks.** Every `le_*` function takes the session's lock, so call none
+while you hold a `ReadView` or `WriteView`; that deadlocks. The same goes for
+`ExtensionContext`'s `current_*()`: inside a view, use the view's own. A
+`Transaction` holds no lock, so C API calls inside one are fine. Keep views
+short, because a view blocks rendering (`write()`) or edits (`read()`).
 
 **State.** Keep per-session state in `data<T>()`, never in globals or
 statics. `le_shell` and the `le_tcl` module each link their own copy of your
@@ -565,7 +579,8 @@ release without notice.
 - `schema_ext.py`'s `VERSION`/`extend()` contract and the `codegen.schema`
   `Klass`/`Field` it uses
 - the C API (`api.hpp`) and the database classes (`le::Root`, the
-  `<Type>Data` structs and `<Type>Id` handles, generated from `schema.py`)
+  `<Type>Data` structs and `<Type>Id` handles, generated from `schema.py`),
+  and `le::ext::to_c`/`from_c` between their ids
 - the Tcl helpers `register_command_help`, `help` and `man`
 - the `extensions.json` format and `le_shell`'s `-extensions`/`LE_EXTENSIONS_PATH`
 
@@ -590,6 +605,9 @@ The first version.
 - `le::ext::Registry`, `register_all()`, `ExtensionContext` (`read`,
   `write`, `transaction`, `data`), `ReadView::valid()`, `tcl_session()`,
   `init_tcl()`.
+- `current_layout()`, `current_schematic()`, `current_abstract()` and
+  `current_technology()` on `ExtensionContext`, `ReadView` and `WriteView`;
+  `le::ext::to_c`/`from_c` for every class's id.
 - GUI: `<IconsLucide.h>` (the built-in icon set), `GuiRegistry` (`add_window`, `add_menu_item`, `add_toolbar_button`,
   `add_key_binding`, `add_settings_panel`, `add_icon_glyphs`, `add_font`),
   `GuiWindow`, `Dock`, `GuiMenuItem`, `GuiToolbarButton`, `ToolbarModes`,

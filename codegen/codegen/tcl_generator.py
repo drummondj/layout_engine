@@ -12,8 +12,11 @@ import jinja2
 
 from codegen.templates.tcl import (
     api_declarations_inc_j2,
+    api_extension_current_decls_inc_j2,
+    api_extension_current_defs_inc_j2,
     api_filter_tables_inc_j2,
     api_handle_fields_inc_j2,
+    api_id_conversions_hpp_j2,
     api_ids_inc_j2,
     api_object_dispatch_inc_j2,
     api_object_kinds_inc_j2,
@@ -94,6 +97,9 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
 
     files = [
         (api_dir / "ids.inc", api_ids_inc_j2.TEMPLATE),
+        (api_dir / "id_conversions.hpp", api_id_conversions_hpp_j2.TEMPLATE, True),
+        (api_dir / "extension_current_decls.inc", api_extension_current_decls_inc_j2.TEMPLATE, True),
+        (api_dir / "extension_current_defs.inc", api_extension_current_defs_inc_j2.TEMPLATE, True),
         (api_dir / "declarations.inc", api_declarations_inc_j2.TEMPLATE),
         (api_dir / "handle_fields.inc", api_handle_fields_inc_j2.TEMPLATE),
         (

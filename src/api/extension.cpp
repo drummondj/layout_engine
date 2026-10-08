@@ -72,9 +72,9 @@ namespace le::ext
         return instance;
     }
 
-    ReadView::ReadView(LeHandle *handle) : lock_(handle->mutex_), root_(&handle->root) {}
+    ReadView::ReadView(LeHandle *handle) : handle_(handle), lock_(handle->mutex_), root_(&handle->root) {}
 
-    ReadView::ReadView(LeHandle *handle, std::try_to_lock_t) : lock_(handle->mutex_, std::try_to_lock), root_(&handle->root) {}
+    ReadView::ReadView(LeHandle *handle, std::try_to_lock_t) : handle_(handle), lock_(handle->mutex_, std::try_to_lock), root_(&handle->root) {}
 
     WriteView::WriteView(LeHandle *handle) : handle_(handle), lock_(handle->mutex_), root_(&handle->root) {}
 
@@ -101,6 +101,8 @@ namespace le::ext
     }
 
     ExtensionContext::ExtensionContext(LeHandle *handle, std::string_view extension_name) : handle_(handle), extension_name_(extension_name) {}
+
+#include "generated/api/extension_current_defs.inc"
 
     void *ExtensionContext::data_slot(const char *type_name, std::shared_ptr<void> (*make)())
     {
