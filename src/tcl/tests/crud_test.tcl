@@ -798,4 +798,12 @@ check "get_selection is still empty after both rejected select calls" {} [get_se
 
 deselect_all
 
+# Renaming a globally indexed name moves the index: the new name resolves
+# both as a friendly id and through a filter, and the old one doesn't.
+set rename_library [create_library -name RENAME_ME]
+update_library $rename_library -name RENAMED_LIB
+check "get_libraries finds a library by its new name" library:RENAMED_LIB [get_libraries -filter {.name == RENAMED_LIB}]
+check "library:<new name> resolves after a rename" RENAMED_LIB [dict get [get_properties library:RENAMED_LIB] name]
+check "library:<old name> no longer resolves after a rename" {} [get_properties library:RENAME_ME]
+
 puts "le_tcl CRUD test passed"
