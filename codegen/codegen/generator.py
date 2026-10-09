@@ -16,6 +16,7 @@ from codegen.templates import (
     schema_version_hpp_j2,
     native_tables_hpp_j2,
     migrations_hpp_j2,
+    compact_vector_hpp_j2,
 )
 from codegen import descriptor as schema_descriptor
 from codegen import extension_schema
@@ -52,6 +53,7 @@ def _aligned(core: schema_migration.ExtensionChainContext, snapshot: dict) -> di
 
 
 HEADER_ONLY_CLASSES = [
+    "compact_vector",
     "ids",
     "pool",
     "property",
@@ -258,6 +260,7 @@ def generate(
         "property.hpp": jinja2.Template(property_hpp_j2.TEMPLATE),
         "root.hpp": jinja2.Template(root_hpp_j2.TEMPLATE),
         "native_tables.hpp": jinja2.Template(native_tables_hpp_j2.TEMPLATE),
+        "compact_vector.hpp": jinja2.Template(compact_vector_hpp_j2.TEMPLATE),
     }
 
     for klass in schema.get_classes_without_enums():

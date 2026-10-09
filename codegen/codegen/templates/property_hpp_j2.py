@@ -131,8 +131,8 @@ namespace {{schema.namespace}}
         element's own to_property_string() so a `dbu` field nested inside
         the list's element type still converts to microns.
     */
-    template <typename T>
-    inline std::string to_property_list_string(const std::vector<T> &items, double dbu_per_um)
+    template <typename List>
+    inline std::string to_property_list_string(const List &items, double dbu_per_um)
     {
         std::string result;
         for (std::size_t i = 0; i < items.size(); ++i)

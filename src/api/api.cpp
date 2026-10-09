@@ -463,7 +463,7 @@ namespace
                     // A tile's batched PLACEMENT shape: rect i is placement i.
                     for (const le::ShapeIndexEntry &hit : hits)
                     {
-                        const std::vector<le::Rect> &rects = chunk.shapes->at(view_layer)[hit.second].rects;
+                        const auto &rects = chunk.shapes->at(view_layer)[hit.second].rects;
                         for (size_t i = 0; i < rects.size() && i < chunk.sources->placements.size(); ++i)
                             if (boost::geometry::intersects(rects[i], query))
                                 out.placements.push_back(chunk.sources->placements[i]);

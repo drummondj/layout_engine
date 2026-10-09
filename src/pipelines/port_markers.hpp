@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -113,7 +114,7 @@ namespace le
     /// `scale` (pixels per dbu) its bbox's shorter side is at least `min_px`
     /// and its longer side at most `max_px` - the maximum wins if both
     /// can't hold. 1.0 if it already fits, or is empty or degenerate.
-    inline double port_marker_scale_factor(const std::vector<Polygon> &polygons, double scale,
+    inline double port_marker_scale_factor(std::span<const Polygon> polygons, double scale,
                                            double min_px = kMinPortMarkerPixelSize, double max_px = kMaxPortMarkerPixelSize)
     {
         if (polygons.empty() || polygons.front().points.empty() || scale <= 0.0)

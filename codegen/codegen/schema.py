@@ -445,6 +445,12 @@ class Klass:
     # classes use it so far.
     render: Optional["Render"] = None
 
+    # Stores every list field as a CompactVector (one pointer, nothing
+    # allocated when empty) instead of a std::vector (24 bytes empty) - for
+    # a class with many objects that each fill few of their lists (Shape).
+    # The native format stores lists the same either way.
+    compact_lists: bool = False
+
     # The extension whose schema_ext.py added this class (None: core).
     # Set by codegen.extension_schema; such classes stay out of the core
     # descriptor and go in that extension's own.
@@ -2522,6 +2528,12 @@ class Field:
     _klass: Optional[Klass] = field(default=None, repr=False, init=False)
     _type_klass: Optional[Klass] = field(default=None, repr=False, init=False)
 
+    def list_container(self) -> str:
+        """The C++ template a list field is stored in: CompactVector for a
+        class with compact_lists=True, else std::vector."""
+        klass = getattr(self, "_klass", None)
+        return "CompactVector" if klass is not None and klass.compact_lists else "std::vector"
+
     @property
     def accessor(self) -> str:
         """How generated C++ reads this field off its struct: `name`, or
@@ -2584,7 +2596,7 @@ class Field:
         # Handle child fields
         if self.is_reference():
             if self.is_list and not nolist:
-                return f"std::vector<{self.type}>"
+                return f"{self.list_container()}<{self.type}>"
             if (
                 not self.is_child
                 and self._type_klass
@@ -2606,7 +2618,7 @@ class Field:
         # branches, which return their vector type without ever consulting
         # is_optional) - an empty vector already conveys "no items".
         if self.is_list and not nolist:
-            return f"std::vector<{type}>"
+            return f"{self.list_container()}<{type}>"
 
         # Handle optional fields
         if self.is_optional:
@@ -3636,7 +3648,10 @@ class Field:
         """
         if self.list_compound_kind() is not None:
             element = f"le::{self.type}" if qualified else self.type
-            return f"std::vector<{element}>"
+            container = self.list_container()
+            if container != "std::vector" and qualified:
+                container = "le::" + container
+            return f"{container}<{element}>"
         ck = self.compound_klass()
         if ck is not None:
             return f"le::{self.type}" if qualified else self.type

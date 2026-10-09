@@ -1199,6 +1199,7 @@ endif()
 # --- tests ---
 add_executable(backend_tests
     src/database/tests/database_test.cpp
+    src/database/tests/compact_vector_test.cpp
     src/database/tests/filter_test.cpp
     src/database/tests/hierarchical_resolver_test.cpp
     src/database/tests/schematic_layout_linker_test.cpp
