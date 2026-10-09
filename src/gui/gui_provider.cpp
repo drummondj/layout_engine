@@ -469,6 +469,7 @@ namespace le::gui
 
     bool GuiProvider::has_unsaved_design() const { return le_has_unsaved_database_changes(handle_) != 0; }
     bool GuiProvider::has_unsaved_settings() const { return le_has_unsaved_settings(handle_) != 0; }
+    bool GuiProvider::has_unsaved_changes() const { return has_unsaved_design() || has_unsaved_settings(); }
     bool GuiProvider::save_settings_now() { return le_save_settings(handle_, "") == 0; }
 
     bool GuiProvider::write_db_now(const std::string &path) { return !path.empty() && le_write_db(handle_, path.c_str(), 1) == 0; }

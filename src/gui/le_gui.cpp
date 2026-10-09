@@ -62,6 +62,7 @@
 #include <fstream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace le::gui
@@ -759,11 +760,13 @@ namespace le::gui
         const std::vector<std::string> kDbFilters = {"Layout Engine databases (*.led)", "*.led", "All files", "*"};
 
         // File > Open/Save/Save As: reads and writes go through queued Tcl
-        // commands, like the console's (DesignSaver for the saves).
+        // commands, like the console's (DesignSaver for the saves). File >
+        // Exit sets exit_chosen for the frame loop to act on.
         struct DbFileMenu
         {
             FileDialog open_dialog;
             DesignSaver saver{false};
+            bool exit_chosen = false;
 
             void draw(GuiProvider &provider)
             {
@@ -783,6 +786,9 @@ namespace le::gui
                     if (ImGui::MenuItem("Save As...", nullptr, false, !empty))
                         saver.save_as(provider);
                     ImGui::EndDisabled();
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Exit"))
+                        exit_chosen = true;
                     ImGui::EndMenu();
                 }
             }
@@ -865,10 +871,11 @@ namespace le::gui
         // just the window, exit le_shell, or cancel - listing anything
         // unsaved (the design since its last write_db/write_def/write_lef, the
         // settings since their last save/load) first, with a shortcut to
-        // save the settings.
-        void draw_close_dialog(GuiProvider &provider, bool &open_requested, CloseChoice &choice, DesignSaver &saver)
+        // save the settings. File > Exit opens it `exit_only`, without the
+        // choice to close just the window, and only when something is unsaved.
+        void draw_close_dialog(GuiProvider &provider, bool &open_requested, bool exit_only, CloseChoice &choice, DesignSaver &saver)
         {
-            constexpr const char *kTitle = "Close Layout Engine###close_dialog";
+            const char *kTitle = exit_only ? "Exit Layout Engine###close_dialog" : "Close Layout Engine###close_dialog";
             if (open_requested)
             {
                 ImGui::OpenPopup(kTitle);
@@ -892,8 +899,11 @@ namespace le::gui
                     ImGui::BulletText("Settings have changed since they were last saved.");
                 ImGui::Spacing();
             }
-            ImGui::TextUnformatted("Close just the window (le_shell keeps running in the\nterminal, show_gui reopens it), or exit le_shell?");
-            ImGui::Spacing();
+            if (!exit_only)
+            {
+                ImGui::TextUnformatted("Close just the window (le_shell keeps running in the\nterminal, show_gui reopens it), or exit le_shell?");
+                ImGui::Spacing();
+            }
 
             if (design)
             {
@@ -919,12 +929,15 @@ namespace le::gui
                     ImGui::SetTooltip("Save to %s", le_default_settings_path());
                 ImGui::SameLine();
             }
-            if (ImGui::Button("Close window"))
+            if (!exit_only)
             {
-                choice = CloseChoice::CLOSE_WINDOW;
-                ImGui::CloseCurrentPopup();
+                if (ImGui::Button("Close window"))
+                {
+                    choice = CloseChoice::CLOSE_WINDOW;
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
             }
-            ImGui::SameLine();
             if (ImGui::Button(design || settings ? "Exit without saving" : "Exit le_shell"))
             {
                 choice = CloseChoice::EXIT;
@@ -1251,6 +1264,7 @@ namespace le::gui
             // without asking. A close_gui made while no window was open is
             // dropped here, not left to close this one.
             bool close_dialog_requested = false;
+            bool close_dialog_exit_only = false;
             CloseChoice close_choice = CloseChoice::NONE;
             le_take_close_gui_request(handle);
             for (;;)
@@ -1263,6 +1277,7 @@ namespace le::gui
                 {
                     glfwSetWindowShouldClose(window, GLFW_FALSE);
                     close_dialog_requested = true;
+                    close_dialog_exit_only = false;
                 }
 
                 // glfwWaitEventsTimeout, not glfwPollEvents (see
@@ -1387,6 +1402,16 @@ namespace le::gui
                 // draw_dockspace_and_default_layout's own comment).
                 draw_main_menu_bar(provider, handle, panels, file_menu);
                 file_menu.poll(provider);
+                if (std::exchange(file_menu.exit_chosen, false))
+                {
+                    if (provider.has_unsaved_changes())
+                    {
+                        close_dialog_requested = true;
+                        close_dialog_exit_only = true;
+                    }
+                    else
+                        close_choice = CloseChoice::EXIT;
+                }
                 const bool dock_layout_just_built = draw_dockspace_and_default_layout(dockspace_built, panels, first_frame) || first_frame;
                 first_frame = false;
 
@@ -1806,7 +1831,7 @@ namespace le::gui
                 ImGui::PopStyleColor(2); // ChildBg, WindowBg
                 ImGui::PopStyleVar();
 
-                draw_close_dialog(provider, close_dialog_requested, close_choice, close_saver);
+                draw_close_dialog(provider, close_dialog_requested, close_dialog_exit_only, close_choice, close_saver);
 
                 ImGui::Render();
                 glViewport(0, 0, fb_width, fb_height);

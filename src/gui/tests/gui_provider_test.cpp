@@ -182,6 +182,23 @@ TEST_F(GuiProviderFixture, DbFileQueriesAndWriteDbNow)
     std::filesystem::remove(path);
 }
 
+// File > Exit exits straight away unless the design or the settings are unsaved.
+TEST_F(GuiProviderFixture, UnsavedChangesCoverTheDesignAndTheSettings)
+{
+    le::gui::GuiProvider provider(handle);
+    EXPECT_FALSE(provider.has_unsaved_changes());
+    le_set_label_max_size(handle, 30.0);
+    EXPECT_TRUE(provider.has_unsaved_changes()) << "a setting";
+
+    LeHandle *edited = le_create();
+    {
+        le::gui::GuiProvider edited_provider(edited);
+        le_create_library(edited, "edited");
+        EXPECT_TRUE(edited_provider.has_unsaved_changes()) << "a design edit";
+    }
+    le_destroy(edited);
+}
+
 TEST_F(GuiProviderFixture, FileMenuQueuesReadAndWriteDbAsTclCommands)
 {
     le::gui::GuiProvider provider(handle);
