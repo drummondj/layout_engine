@@ -1828,3 +1828,27 @@ none. Release, WSL2, medians of 3 (`native_format_profile 8x8 1` and
 The read's RSS falls less than the pool (110 vs 805 MB): the pool's old
 blocks from growing by doubling stay with mimalloc after the read (see #93's
 comment). The resolver's cache is where the saving shows.
+
+## 2026-10-09 — Per-layer renderable classes (#120)
+
+`Render(per_layer=True)` adds a column for the class's purpose to every
+physical layer's row; hello_ext's `HelloPin` uses it. `build_release` has no
+extensions (the change is inert there), so both sides were built as Release
+trees with `LE_EXTENSION_DIRS=hello_ext`: before, `HelloPin` on its own row
+only; after, also a column on each layer. `aes_scaling_*` has no pins, so
+this measures the cost of the extra view layers alone. `pipeline_benchmarks`,
+means of 5 (cv in brackets), Ryzen 9 7950X, WSL2:
+
+| | before | after |
+|---|---|---|
+| BM_LayerGeneration (every size) | 106 us (≤1.1%) | 112-113 us (≤2.8%) |
+| BM_HierarchyResolver/1x1 | 127 ms (1.1%) | 131 ms (1.2%) |
+| BM_HierarchyResolver/2x1 | 261 ms (6.2%) | 263 ms (1.5%) |
+| BM_HierarchyResolver/2x2 | 524 ms (6.8%) | 542 ms (5.2%) |
+| BM_HierarchyResolver/3x2 | 825 ms (8.0%) | 829 ms (5.1%) |
+| BM_HierarchyResolver/3x3 | 1259 ms (7.1%) | 1248 ms (4.8%) |
+
+Building the layer set costs ~7 us more (one more view layer per physical
+layer), once per Technology change. The resolver is within noise from 2x1 up;
+1x1's +3% is outside its 1.1% cv, most likely `ViewLayerSet::find`'s linear
+scan of a longer lookup list, which every route shape does.
