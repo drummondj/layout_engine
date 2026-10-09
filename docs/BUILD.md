@@ -2,7 +2,7 @@
 
 **Just want to run the app, not build it?** A prebuilt, portable Linux
 x86_64 release (glibc 2.28+, no build toolchain needed) is published on
-this repo's [GitHub Releases](../../releases) page — see
+this repo's [GitHub Releases](../../../releases) page — see
 `.github/workflows/release.yml`/`Dockerfile.linux-release` for how it's
 built. It still needs a desktop Linux system with X11/Mesa/Tcl-Tk/readline
 installed (see that workflow's own release notes) but skips everything

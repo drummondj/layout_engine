@@ -53,7 +53,7 @@ namespace le
         bool empty = true;
     };
 
-    /// @brief Warm-tier stage 3 (docs/PIPELINE_REFACTOR.md): composites every
+    /// @brief Warm-tier stage 3 (plans/PIPELINE_REFACTOR.md): composites every
     /// surviving node's own RasterizeBlend2DStage image into one final
     /// image, walking the same placement_data ViewportCullStage already
     /// pruned to what's visible. A node with no placements just IS its

@@ -12,8 +12,8 @@ One SSH key, the **release key**, signs both:
   secret), so a download can be checked before it is run.
 
 The public half is committed as `assets/keys/allowed_signers`. CI checks every
-bundle signature against it, and the package manager will trust it (see
-`PACKAGE_MANAGER_RESEARCH.md` §5).
+bundle signature against it, and `le` checks a release bundle against the
+keys a project trusts (see `tools/le/README.md`).
 
 ## One-time setup: the release key
 

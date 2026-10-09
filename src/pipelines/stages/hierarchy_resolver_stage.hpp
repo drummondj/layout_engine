@@ -549,7 +549,7 @@ namespace le
         return stats;
     }
 
-    /// @brief Cold-tier stage 2 (docs/PIPELINE_REFACTOR.md): traverses
+    /// @brief Cold-tier stage 2 (plans/PIPELINE_REFACTOR.md): traverses
     /// Placement -> Design hierarchy from ViewRenderOptions::top_level,
     /// consuming one unit of ViewRenderOptions::hierarchy_depth per
     /// Layout -> Layout hop. At remaining_depth == 0 a Layout's own

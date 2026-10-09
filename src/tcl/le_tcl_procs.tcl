@@ -573,7 +573,7 @@ proc _filename_candidates {partial} {
 # registered command (usage/description/options table), in name order;
 # if `path` is non-empty, also writes it there. Always returns the full
 # text either way. See backend's generate-tcl-docs skill for the
-# recipe that regenerates TCL_COMMANDS.md from this.
+# recipe that regenerates docs/TCL_COMMANDS.md from this.
 proc generate_command_docs {{path {}}} {
     set lines {}
     # User-facing: a short intro, no
@@ -1837,7 +1837,7 @@ register_command_help write_def \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# Native database files (design: docs/NATIVE_FILE_FORMAT_RESEARCH.md): the whole
+# Native database files (design: plans/NATIVE_FILE_FORMAT_RESEARCH.md): the whole
 # database in one .led file, readable by every later Layout Engine.
 # write_db errors on failure like write_def; read_db returns a status like
 # read_def (the details are printed either way).

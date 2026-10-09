@@ -1,6 +1,6 @@
 # Extension Mechanism — Architecture Research
 
-The reference for extension authors (manifest, CMake, C++ and Tcl APIs, changelog) is [EXTENSION_SDK.md](EXTENSION_SDK.md); this page is the design and its reasons.
+The reference for extension authors (manifest, CMake, C++ and Tcl APIs, changelog) is [EXTENSION_SDK.md](../docs/EXTENSION_SDK.md); this page is the design and its reasons.
 
 Companion documents: [NATIVE_FILE_FORMAT_RESEARCH.md](NATIVE_FILE_FORMAT_RESEARCH.md) (how extension data is saved and migrated) and [PACKAGE_MANAGER_RESEARCH.md](PACKAGE_MANAGER_RESEARCH.md) (how users install extensions into a project). The package manager decides how an extension is described and found, so §2 and §6 follow its design.
 
@@ -60,7 +60,7 @@ Layout Engine is a closed world today: there are no extension points anywhere. R
   2. the shim in `src/tcl/le_tcl_shim.cpp`, which reaches the handle through `session()`
   3. the SWIG interface `src/tcl/le_api.i`, which already ends with `%include "generated/tcl/le_api_generated.i"` (`:213`)
   4. the procs in `src/tcl/le_tcl_procs.tcl`, which parse flags and call `register_command_help` (`:114`)
-- The `::command_help` dict drives `help`, `man`, tab completion and `TCL_COMMANDS.md`.
+- The `::command_help` dict drives `help`, `man`, tab completion and `docs/TCL_COMMANDS.md`.
 - `le_shell.cpp`'s `app_init` (`:171`) runs `load {module} le_tcl` (`:178`), then `set_session_handle` (`:191`), then `Tcl_EvalFile(procs)` (`:198`).
 
 **GUI** (`src/gui/le_gui.cpp`)
@@ -356,7 +356,7 @@ public:
    - `help`
    - `man`
    - tab completion
-   - `generate_command_docs` / `TCL_COMMANDS.md`
+   - `generate_command_docs` / `docs/TCL_COMMANDS.md`
 
 **Script extensions** need only the manifest and their procs. They appear in the index with tier `script`, and nothing is compiled.
 
@@ -508,7 +508,7 @@ What codegen generates from `render=`, replacing each closed list in 8.1:
    ```
 
    In the schema, each of Shape's nine parent fields is marked `owner=True` (`Field.owner`); codegen stores them together in one `owner` member, with one kind per field (so `Layout.diearea` and `Layout.free_shapes` stay distinct). Generated code reads `shape.route()` (an invalid id unless the owner is a Route) and builds owners with `ShapeOwner::route(id)`; `Root::set_shape_owner` moves a Shape between owners' child lists. Child lists, delete cascades, undo, change-log slots, Tcl flags (`create_shape -route ...`) and `-filter` hops (`.route.name`) are unchanged, keyed by the field names as before.
-   - **Memory** (`native_format_profile`, `aes_scaling_8x8`, 2.87M Shapes): a Shape slot shrank from 424 to 360 bytes, and RSS after the DEF read from 4762 MB to 4579 MB (-3.8%). See `docs/BENCHMARKS.md`.
+   - **Memory** (`native_format_profile`, `aes_scaling_8x8`, 2.87M Shapes): a Shape slot shrank from 424 to 360 bytes, and RSS after the DEF read from 4762 MB to 4579 MB (-3.8%). See `plans/BENCHMARKS.md`.
    - **Invariant.** "At most one owner" is true by construction.
    - **File format.** The owner is stored as the owner field's **name** plus the parent's row (NATIVE_FILE_FORMAT_RESEARCH.md §3), so it doesn't depend on which extensions are built in.
    - **Migration.** None: the schema was re-baselined to 0.50.0 (NATIVE_FILE_FORMAT_RESEARCH.md §4.1).

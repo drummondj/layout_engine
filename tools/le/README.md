@@ -2,7 +2,7 @@
 
 `le` builds a Layout Engine **project**: Layout Engine plus the extensions a
 project lists, installed into the project's `.le/` directory. Design:
-[docs/PACKAGE_MANAGER_RESEARCH.md](../../docs/PACKAGE_MANAGER_RESEARCH.md).
+[plans/PACKAGE_MANAGER_RESEARCH.md](../../plans/PACKAGE_MANAGER_RESEARCH.md).
 Writing an extension: [docs/EXTENSION_SDK.md](../../docs/EXTENSION_SDK.md).
 
 It needs git 2.34+, `tar` and `ssh-keygen` (OpenSSH's client tools, used
@@ -18,7 +18,7 @@ How Layout Engine itself is installed:
   and runs its `le_shell`. No compiler or cmake needed.
 - **Built from source**: otherwise (a compiled extension, a `--rev` pin, a
   local `path`), it builds Layout Engine with the extensions, which needs
-  everything a source build needs (`BUILD.md`). It generates a superbuild
+  everything a source build needs (`docs/BUILD.md`). It generates a superbuild
   in `.le/superbuild/` that embeds Layout Engine with `add_subdirectory`.
 
 ## Quick start

@@ -10,7 +10,7 @@
 
 namespace le
 {
-    /// @brief Cold-tier stage 1 (docs/PIPELINE_REFACTOR.md): builds the
+    /// @brief Cold-tier stage 1 (plans/PIPELINE_REFACTOR.md): builds the
     /// technology's ViewLayers - a TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
     /// TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE ViewLayer per physical
     /// Layer plus the fixed ROW/BOUNDARY/PLACEMENT/GCELLGRID/

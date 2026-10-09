@@ -6,7 +6,7 @@
 #include <unistd.h>
 
 // le_write_db / le_read_db / le_db_info - the native database file
-// (docs/NATIVE_FILE_FORMAT_RESEARCH.md) at the API level: session state after a
+// (plans/NATIVE_FILE_FORMAT_RESEARCH.md) at the API level: session state after a
 // load, the empty-session rule, and the unsaved-changes flag.
 
 namespace

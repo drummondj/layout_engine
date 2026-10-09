@@ -1,7 +1,7 @@
 #pragma once
 
 // The shared hierarchical-path resolver (design:
-// docs/LINKING_STRATEGY_RESEARCH.md): walks a "/"-delimited path down the
+// plans/LINKING_STRATEGY_RESEARCH.md): walks a "/"-delimited path down the
 // logical Instance hierarchy
 // starting from a Schematic, resolving every segment but the last through
 // Instance.reference_design -> Design.schematic, then resolving the final

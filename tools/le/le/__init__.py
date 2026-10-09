@@ -1,1 +1,1 @@
-"""le: the Layout Engine package manager (docs/PACKAGE_MANAGER_RESEARCH.md)."""
+"""le: the Layout Engine package manager (plans/PACKAGE_MANAGER_RESEARCH.md)."""

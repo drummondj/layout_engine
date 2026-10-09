@@ -3,7 +3,7 @@ generated
 test_data
 **/.DS_Store
 
-# Debug (ctest) and Release (le_shell/le_tcl) trees - see BUILD.md.
+# Debug (ctest) and Release (le_shell/le_tcl) trees - see docs/BUILD.md.
 build/
 build_release/
 

@@ -409,7 +409,7 @@ namespace le
     {
         // Not yet validated against a minimum supported DEF version (no
         // known version-obsolescence gap like LEF's own >= 5.4 requirement
-        // has surfaced for DEF yet) - revisit if docs/LEFDEF_BUGS.md gains one.
+        // has surfaced for DEF yet) - revisit if plans/LEFDEF_BUGS.md gains one.
         return 0;
     }
 

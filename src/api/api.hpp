@@ -352,7 +352,7 @@ extern "C"
     int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id);
 
     /// @brief Saves the whole database to a native Layout Engine database
-    /// file (.led - see docs/NATIVE_FILE_FORMAT_RESEARCH.md). Written via a
+    /// file (.led - see plans/NATIVE_FILE_FORMAT_RESEARCH.md). Written via a
     /// temporary file and a rename, so a failed save never damages an
     /// existing file. On success the database counts as saved (the exit
     /// dialog's unsaved-changes check). With `with_session` nonzero the

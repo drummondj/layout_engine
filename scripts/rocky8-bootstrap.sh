@@ -26,7 +26,7 @@
 # configuring the actual CMake build.
 #
 # Every run's full output is also written to a timestamped log file under
-# $LE_TOOLCHAIN_ROOT/logs/ (see BUILD.md at the repo root) - if a stage
+# $LE_TOOLCHAIN_ROOT/logs/ (see docs/BUILD.md) - if a stage
 # fails and you can't work out why, that log file is exactly what's worth
 # sending back for help; its path is printed at both the start and end of
 # every run so it's easy to find either way.

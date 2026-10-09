@@ -12,7 +12,7 @@ namespace le
     class Root;
 }
 
-// The native Layout Engine database file (.led). Design: docs/NATIVE_FILE_FORMAT_RESEARCH.md.
+// The native Layout Engine database file (.led). Design: plans/NATIVE_FILE_FORMAT_RESEARCH.md.
 //
 // A self-describing, columnar, zstd-compressed container: the file embeds
 // the schema it was written with, and loading matches classes and fields

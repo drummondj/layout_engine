@@ -535,7 +535,7 @@ TEST(LEFReaderErrors, VersionBelow5_4IsAnError)
 {
     // This project only supports LEF >= 5.4 - several
     // PIN-level statements (POWER/LEAKAGE/CAPACITANCE/etc., not modeled at
-    // all - see docs/LEFDEF_BUGS.md's "Reader-side: intentional version-
+    // all - see plans/LEFDEF_BUGS.md's "Reader-side: intentional version-
     // obsolescence") are silently discarded by the vendored reader itself
     // at >= 5.4, so accepting an older file would mean this project's own
     // database silently disagrees with what a real pre-5.4-reading tool

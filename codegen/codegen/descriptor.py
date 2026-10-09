@@ -1,6 +1,6 @@
 """
 Schema descriptor, fingerprint, and schema-history snapshots
-(docs/NATIVE_FILE_FORMAT_RESEARCH.md §3 "Schema descriptor" and §4.1).
+(plans/NATIVE_FILE_FORMAT_RESEARCH.md §3 "Schema descriptor" and §4.1).
 
 The descriptor is the data-shape-only view of a Schema: classes, fields,
 their storage kind and type, list/optional flags, parent relations,

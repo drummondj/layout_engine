@@ -13,7 +13,7 @@
 
 namespace le
 {
-    /// @brief The ViewRenderPipeline (docs/PIPELINE_REFACTOR.md) - one shared
+    /// @brief The ViewRenderPipeline (plans/PIPELINE_REFACTOR.md) - one shared
     /// oneapi::tbb::flow::graph wiring every tier's stages together with
     /// real make_edge connections, not the per-stage-private-graph
     /// SynchronousStageRunner pattern tests/benchmarks use to exercise one
