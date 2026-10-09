@@ -409,7 +409,7 @@ TEST(FilterMetadata, GetShapeFieldReturnsExceptPgNetLeafNotListFields)
     // get_filterable_scalar_fields() deliberately excludes (only reachable
     // via a hop, e.g. ".layer.name"), so except_pg_net (bool) stands in
     // for "a plain scalar leaf" here.
-    Shape shape;
+    ShapeData shape;
     shape.except_pg_net = true;
 
     auto value = get_field(shape, "except_pg_net");
@@ -468,7 +468,7 @@ TEST(FilterMetadata, MatchShapeHopIteratesEmbeddedRects)
     // data, ...) form - see MatchRectHopWalksScalarPointsWithoutRootOrId
     // below for a genuinely non-pooled example of the other form.
     Root root;
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = Point{.x = 0, .y = 0}, .ur = Point{.x = 100, .y = 200}});
     ShapeId shape_id = root.create_shape(shape);
     const ShapeData *data = root.get_shape(shape_id);

@@ -39,7 +39,7 @@ TEST_F(ViaShapesFixture, ResolvesAnExplicitViaLayerOntoItsOwnPhysicalLayer)
     const ViaId via_id = root.create_via(ViaData{.technology = technology_id, .name = "VIA12"});
     root.create_via_layer(ViaLayerData{.via = via_id, .layer_name = "M2", .rects = {Rect{.ll = {-5, -5}, .ur = {5, 5}}}});
 
-    Shape shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    ShapeData shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
     shape.vias.push_back(ShapeVia{.via_name = "VIA12", .origin = Point{50, 50}});
 
     std::unordered_map<ViewLayerId, std::vector<RenderShape>> shapes_by_layer;
@@ -77,7 +77,7 @@ TEST_F(ViaShapesFixture, SynthesizesAViaRuleReferencesRowColIntoARealCutArray)
         .num_cut_cols = 3,
     });
 
-    Shape shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    ShapeData shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
     shape.vias.push_back(ShapeVia{.via_name = "VIAARRAY", .origin = Point{50, 50}});
 
     std::unordered_map<ViewLayerId, std::vector<RenderShape>> shapes_by_layer;
@@ -121,7 +121,7 @@ TEST_F(ViaShapesFixture, SynthesizesASingleCutForAViaRuleReferenceWithNoRowCol)
         .top_layer_name = "M2",
     });
 
-    Shape shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    ShapeData shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
     shape.vias.push_back(ShapeVia{.via_name = "VIASINGLE", .origin = Point{50, 50}});
 
     std::unordered_map<ViewLayerId, std::vector<RenderShape>> shapes_by_layer;
@@ -161,7 +161,7 @@ TEST_F(ViaShapesFixture, AppliesOriginAndOffsetToAViaRuleReferencesCutArray)
         .top_offset = Point{.x = -2, .y = 0},
     });
 
-    Shape shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    ShapeData shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
     shape.vias.push_back(ShapeVia{.via_name = "VIAORIGIN", .origin = Point{50, 50}});
 
     std::unordered_map<ViewLayerId, std::vector<RenderShape>> shapes_by_layer;
@@ -223,7 +223,7 @@ TEST_F(ViaShapesFixture, FitsAGenerateViaRulesCutArrayToTheAvailableRoutingWidth
     root.create_via_rule_layer(ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "M2", .enclosure_overhang1 = 1, .enclosure_overhang2 = 1});
     root.create_via_rule_layer(ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "V1", .spacing_step_x = 1, .spacing_step_y = 1, .rect = Rect{.ll = {-1, -1}, .ur = {1, 1}}});
 
-    Shape shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    ShapeData shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
     shape.vias.push_back(ShapeVia{.via_name = "GENRULE", .origin = Point{50, 50}, .width = 13});
 
     std::unordered_map<ViewLayerId, std::vector<RenderShape>> shapes_by_layer;
@@ -252,7 +252,7 @@ TEST_F(ViaShapesFixture, FallsBackToASingleCutForAGenerateViaRuleWithNoWidthCont
     root.create_via_rule_layer(ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "M2", .enclosure_overhang1 = 1, .enclosure_overhang2 = 1});
     root.create_via_rule_layer(ViaRuleLayerData{.via_rule = via_rule_id, .layer_name = "V1", .spacing_step_x = 1, .spacing_step_y = 1, .rect = Rect{.ll = {-1, -1}, .ur = {1, 1}}});
 
-    Shape shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    ShapeData shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
     shape.vias.push_back(ShapeVia{.via_name = "GENRULE", .origin = Point{50, 50}}); // width left unset
 
     std::unordered_map<ViewLayerId, std::vector<RenderShape>> shapes_by_layer;
@@ -271,7 +271,7 @@ TEST_F(ViaShapesFixture, FallsBackToASingleCutForAGenerateViaRuleWithNoWidthCont
 // every other case must survive tier 3's own addition.
 TEST_F(ViaShapesFixture, SkipsAViaNameResolvingToNothingAtAll)
 {
-    Shape shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    ShapeData shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
     shape.vias.push_back(ShapeVia{.via_name = "NO_SUCH_VIA_OR_RULE", .origin = Point{50, 50}});
 
     std::unordered_map<ViewLayerId, std::vector<RenderShape>> shapes_by_layer;
@@ -293,7 +293,7 @@ TEST_F(ViaShapesFixture, ExpandsAViaIterateIntoOneViaPerGridPosition)
     const ViaId via_id = root.create_via(ViaData{.technology = technology_id, .name = "VIA12"});
     root.create_via_layer(ViaLayerData{.via = via_id, .layer_name = "M2", .rects = {Rect{.ll = {-1, -1}, .ur = {1, 1}}}});
 
-    Shape shape{.layer = m1};
+    ShapeData shape{.layer = m1};
     shape.via_iterates.push_back(ShapeViaIterate{.via_name = "VIA12", .origin = Point{0, 0}, .num_x = 2, .num_y = 3, .space_x = 10, .space_y = 20});
 
     std::unordered_map<ViewLayerId, std::vector<RenderShape>> shapes_by_layer;

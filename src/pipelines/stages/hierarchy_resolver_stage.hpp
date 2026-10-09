@@ -825,7 +825,7 @@ namespace le
         static std::optional<Point> renderable_anchor(const Root &root, RenderableObjectId id)
         {
             for (const ShapeId shape_id : R::shapes(root, typename R::Id{id.index, id.generation}))
-                if (const Shape *shape = root.get_shape(shape_id))
+                if (const ShapeData *shape = root.get_shape(shape_id))
                     if (const std::optional<Rect> box = Geometry::bbox(*shape))
                         return Point{.x = box->ll.x + (box->ur.x - box->ll.x) / 2, .y = box->ll.y + (box->ur.y - box->ll.y) / 2};
             return std::nullopt;
@@ -835,7 +835,7 @@ namespace le
         static std::optional<Point> route_anchor(const Root &root, RouteId route)
         {
             for (const ShapeId shape_id : root.get_route_shapes(route))
-                if (const Shape *shape = root.get_shape(shape_id))
+                if (const ShapeData *shape = root.get_shape(shape_id))
                     if (const std::optional<Rect> box = Geometry::bbox(*shape))
                         return Point{.x = box->ll.x + (box->ur.x - box->ll.x) / 2, .y = box->ll.y + (box->ur.y - box->ll.y) / 2};
             return std::nullopt;
@@ -906,7 +906,7 @@ namespace le
                     continue;
                 for (const ShapeId shape_id : root.get_route_shapes(route_id))
                 {
-                    const Shape *shape = root.get_shape(shape_id);
+                    const ShapeData *shape = root.get_shape(shape_id);
                     if (!shape)
                         continue;
                     append_via_shapes(root, *shape, ViewLayerPurpose::ROUTE, view_layers, layout_id, shapes_by_layer, [&](ViewLayerId view_layer)
@@ -1012,7 +1012,7 @@ namespace le
                 if (R::layout_of(root, id) != layout_id)
                     continue;
                 for (const ShapeId shape_id : R::shapes(root, id))
-                    if (const Shape *shape = root.get_shape(shape_id))
+                    if (const ShapeData *shape = root.get_shape(shape_id))
                     {
                         out.push_back(to_render_shape(*shape));
                         recorded.push_back(shape_id);
@@ -1725,7 +1725,7 @@ namespace le
         // concrete rects/paths/polygons on a copy of `shape`. LEF-only in
         // practice (DEF content never populates these fields), so
         // collect_layout_content doesn't call this.
-        static Shape expand_iterates(Shape shape)
+        static ShapeData expand_iterates(ShapeData shape)
         {
             return Geometry::expand_iterates(std::move(shape));
         }
@@ -1754,7 +1754,7 @@ namespace le
         {
             for (ShapeId shape_id : shape_ids)
             {
-                const Shape *raw_shape = root.get_shape(shape_id);
+                const ShapeData *raw_shape = root.get_shape(shape_id);
                 if (!raw_shape)
                     continue;
                 ViewLayerId view_layer;
@@ -1766,7 +1766,7 @@ namespace le
                     continue;
                 if (!view_layer.valid())
                     continue;
-                Shape shape = expand_iterates(*raw_shape);
+                ShapeData shape = expand_iterates(*raw_shape);
                 append_via_shapes(root, shape, ViewLayerPurpose::CUSTOM_SHAPE, view_layers, layout_id, shapes_by_layer);
                 shapes_by_layer[view_layer].push_back(to_render_shape(std::move(shape)));
             }
@@ -1777,7 +1777,7 @@ namespace le
         // Shape); one with no Layer instead carries its own Shape.purpose
         // (BOUNDARY/PLACEMENT_BLOCKAGE), resolved directly against that
         // purpose's own pseudo-row.
-        static ViewLayerId resolve_view_layer(const ViewLayerSet &view_layers, const Shape &shape, ViewLayerPurpose fallback_purpose)
+        static ViewLayerId resolve_view_layer(const ViewLayerSet &view_layers, const ShapeData &shape, ViewLayerPurpose fallback_purpose)
         {
             if (shape.layer.valid())
                 return view_layers.find(shape.layer, fallback_purpose);
@@ -1822,10 +1822,10 @@ namespace le
                 {
                     for (ShapeId shape_id : root.get_terminal_port_shapes(port_id))
                     {
-                        const Shape *raw_shape = root.get_shape(shape_id);
+                        const ShapeData *raw_shape = root.get_shape(shape_id);
                         if (!raw_shape)
                             continue;
-                        Shape shape = expand_iterates(*raw_shape);
+                        ShapeData shape = expand_iterates(*raw_shape);
                         const ViewLayerId view_layer = resolve_view_layer(view_layers, shape, ViewLayerPurpose::TERMINAL);
                         std::vector<RenderShape> &layer_shapes = shapes_by_layer[view_layer];
 
@@ -1871,10 +1871,10 @@ namespace le
             {
                 for (ShapeId shape_id : root.get_obstruction_shapes(obstruction_id))
                 {
-                    const Shape *raw_shape = root.get_shape(shape_id);
+                    const ShapeData *raw_shape = root.get_shape(shape_id);
                     if (!raw_shape)
                         continue;
-                    Shape shape = expand_iterates(*raw_shape);
+                    ShapeData shape = expand_iterates(*raw_shape);
                     const ViewLayerId view_layer = resolve_view_layer(view_layers, shape, ViewLayerPurpose::OBSTRUCTION);
                     append_via_shapes(root, shape, ViewLayerPurpose::OBSTRUCTION, view_layers, LayoutId{}, shapes_by_layer);
                     shapes_by_layer[view_layer].push_back(to_render_shape(std::move(shape)));
@@ -1883,7 +1883,7 @@ namespace le
 
             append_free_shapes(root, view_layers, root.get_abstract_free_shapes(abstract_id), LayoutId{}, shapes_by_layer);
 
-            if (const Shape *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id)))
+            if (const ShapeData *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id)))
                 shapes_by_layer[view_layers.boundary_view_layer()].push_back(to_render_shape(*boundary_shape));
 
             return shapes_by_layer;
@@ -1891,7 +1891,7 @@ namespace le
 
         static std::optional<Rect> layout_die_area_bbox(const Root &root, LayoutId layout_id)
         {
-            const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id));
+            const ShapeData *diearea = root.get_shape(root.get_layout_diearea(layout_id));
             if (!diearea)
                 return std::nullopt;
             return Geometry::bbox(*diearea);
@@ -2037,7 +2037,7 @@ namespace le
                 for (PhysicalPortSegmentId segment_id : root.get_physical_port_segments(port_id))
                     for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
                     {
-                        const Shape *shape = root.get_shape(shape_id);
+                        const ShapeData *shape = root.get_shape(shape_id);
                         if (!shape)
                             continue;
                         append_via_shapes(root, *shape, ViewLayerPurpose::TERMINAL, view_layers, layout_id, shapes_by_layer, [&](ViewLayerId via_layer)
@@ -2116,7 +2116,7 @@ namespace le
 
             auto push_shape_id = [&](ShapeId shape_id, ViewLayerPurpose fallback_purpose)
             {
-                const Shape *shape = root.get_shape(shape_id);
+                const ShapeData *shape = root.get_shape(shape_id);
                 if (!shape)
                     return;
                 append_via_shapes(root, *shape, fallback_purpose, view_layers, layout_id, shapes_by_layer);
@@ -2126,7 +2126,7 @@ namespace le
             if (chunk == LayoutChunk::DIEAREA_BLOCKAGES)
             {
                 const ResolverPhaseTimer timer("layout.diearea_blockages");
-                if (const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id)))
+                if (const ShapeData *diearea = root.get_shape(root.get_layout_diearea(layout_id)))
                     shapes_by_layer[view_layers.boundary_view_layer()].push_back(to_render_shape(*diearea));
 
                 for (BlockageId blockage_id : root.get_layout_blockages(layout_id))

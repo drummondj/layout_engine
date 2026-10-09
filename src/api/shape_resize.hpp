@@ -162,7 +162,7 @@ namespace le
     /// (raw delta 0 there) isn't snapped, so a constrained move stays on
     /// its axis. `piece` is the one-piece Shape (Geometry::extract_piece);
     /// raw_delta unchanged for any other kind or an empty piece.
-    inline Point snap_moved_piece_delta(const Shape &piece, PieceKind kind, Point raw_delta, const ShapeSnapContext &snap)
+    inline Point snap_moved_piece_delta(const ShapeData &piece, PieceKind kind, Point raw_delta, const ShapeSnapContext &snap)
     {
         std::optional<Point> reference;
         int64_t width = 0;
@@ -252,7 +252,7 @@ namespace le
     /// `tolerance` dbu - a rect edge (within its own span), a polygon edge,
     /// or a path segment (anywhere on the segment: within half its width,
     /// or `tolerance` if larger). nullopt if nothing is that close.
-    inline std::optional<ResizeHandle> find_resize_handle(const Shape &piece, Point p, int64_t tolerance)
+    inline std::optional<ResizeHandle> find_resize_handle(const ShapeData &piece, Point p, int64_t tolerance)
     {
         using shape_resize_detail::segment_distance;
         std::optional<ResizeHandle> best;
@@ -314,7 +314,7 @@ namespace le
         ResizeAxis axis = ResizeAxis::BOTH;
     };
 
-    inline std::optional<ResizeHandleSegment> resize_handle_segment(const Shape &piece, ResizeHandle handle)
+    inline std::optional<ResizeHandleSegment> resize_handle_segment(const ShapeData &piece, ResizeHandle handle)
     {
         const auto classify = [](Point a, Point b)
         {
@@ -380,9 +380,9 @@ namespace le
     ///  - a path segment likewise, both of its points moving, so the
     ///    adjacent segments stretch; its snap applies to the centerline
     ///    (ShapeSnapContext::snap_path_center).
-    inline Shape resize_piece(const Shape &piece, ResizeHandle handle, Point delta, const ShapeSnapContext &snap)
+    inline ShapeData resize_piece(const ShapeData &piece, ResizeHandle handle, Point delta, const ShapeSnapContext &snap)
     {
-        Shape out = piece;
+        ShapeData out = piece;
         switch (handle.kind)
         {
         case PieceKind::RECT:
@@ -452,7 +452,7 @@ namespace le
     /// moved) - sitting exactly on the segment's original endpoint `a_from`
     /// / `b_from` moves to `a_to` / `b_to`, stretching that run to follow.
     /// Returns the indices of the paths that changed.
-    inline std::vector<size_t> follow_moved_path_segment(Shape &shape, std::optional<size_t> skip, Point a_from, Point a_to, Point b_from, Point b_to)
+    inline std::vector<size_t> follow_moved_path_segment(ShapeData &shape, std::optional<size_t> skip, Point a_from, Point a_to, Point b_from, Point b_to)
     {
         const auto same = [](Point p, Point q)
         { return p.x == q.x && p.y == q.y; };
@@ -484,7 +484,7 @@ namespace le
     /// @brief Replaces piece `index` of `kind` in `data` with one-piece
     /// `piece`'s own geometry. A no-op if the index is out of range or
     /// `piece` has no geometry of that kind.
-    inline void replace_piece(Shape &data, PieceKind kind, size_t index, const Shape &piece)
+    inline void replace_piece(ShapeData &data, PieceKind kind, size_t index, const ShapeData &piece)
     {
         switch (kind)
         {

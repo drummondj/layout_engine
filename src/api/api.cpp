@@ -175,14 +175,14 @@ namespace
     // can't draw.
     // `vias_only` holds just the via/via array to expand (its vias/
     // via_iterates); a via array expands to every one of its instances.
-    le::Shape expanded_via_geometry(const le::Root &root, const le::Shape &vias_only, le::LayoutId layout_id)
+    le::ShapeData expanded_via_geometry(const le::Root &root, const le::ShapeData &vias_only, le::LayoutId layout_id)
     {
         static const le::ViewLayerSet no_view_layers; // every expanded shape lands under one (invalid) key - only the geometry matters here
-        const le::Shape &one = vias_only;
+        const le::ShapeData &one = vias_only;
         std::unordered_map<le::ViewLayerId, std::vector<le::RenderShape>> by_layer;
         le::append_via_shapes(root, one, le::ViewLayerPurpose::ROUTE, no_view_layers, layout_id, by_layer);
 
-        le::Shape out;
+        le::ShapeData out;
         for (auto &[view_layer, shapes] : by_layer)
             for (le::RenderShape &shape : shapes)
             {
@@ -193,17 +193,17 @@ namespace
         return out;
     }
 
-    le::Shape via_instance_geometry(const le::Root &root, const le::ShapeVia &via, le::LayoutId layout_id)
+    le::ShapeData via_instance_geometry(const le::Root &root, const le::ShapeVia &via, le::LayoutId layout_id)
     {
-        return expanded_via_geometry(root, le::Shape{.vias = {via}}, layout_id);
+        return expanded_via_geometry(root, le::ShapeData{.vias = {via}}, layout_id);
     }
 
     // A selected piece's drawable geometry: its own one-piece Shape, or for
     // a via or via array, its expanded geometry.
-    le::Shape drawable_piece(const le::Root &root, const le::ShapeData &data, le::PieceKind kind, size_t index, le::LayoutId layout_id)
+    le::ShapeData drawable_piece(const le::Root &root, const le::ShapeData &data, le::PieceKind kind, size_t index, le::LayoutId layout_id)
     {
         if (kind == le::PieceKind::VIA || kind == le::PieceKind::VIA_ITERATE)
-            return le::Geometry::piece_in_range(data, kind, index) ? expanded_via_geometry(root, le::Geometry::extract_piece(data, kind, index), layout_id) : le::Shape{};
+            return le::Geometry::piece_in_range(data, kind, index) ? expanded_via_geometry(root, le::Geometry::extract_piece(data, kind, index), layout_id) : le::ShapeData{};
         return le::Geometry::extract_piece(data, kind, index);
     }
 
@@ -323,7 +323,7 @@ namespace
         {
             if (hidden.route_uses.empty() && unselectable.route_uses.empty())
                 return true;
-            const le::Shape *shape = handle->root.get_shape(piece->shape_id);
+            const le::ShapeData *shape = handle->root.get_shape(piece->shape_id);
             const le::RouteData *route = shape ? handle->root.get_route(shape->route()) : nullptr;
             if (!route)
                 return true;
@@ -602,10 +602,10 @@ namespace
         return true;
     }
 
-    std::optional<le::Shape> resolve_selected_outline(const LeHandle *handle, const LeHandle::SelectedObject &selected, int remaining_depth)
+    std::optional<le::ShapeData> resolve_selected_outline(const LeHandle *handle, const LeHandle::SelectedObject &selected, int remaining_depth)
     {
         return std::visit(
-            [&](const auto &s) -> std::optional<le::Shape>
+            [&](const auto &s) -> std::optional<le::ShapeData>
             {
                 using T = std::decay_t<decltype(s)>;
                 if constexpr (std::is_same_v<T, LeHandle::ShapePiece>)
@@ -617,13 +617,13 @@ namespace
                 else if constexpr (std::is_same_v<T, le::RowId>)
                 {
                     if (auto bbox = le::row_footprint_bbox(handle->root, s))
-                        return le::Shape{.rects = {*bbox}};
+                        return le::ShapeData{.rects = {*bbox}};
                     return std::nullopt;
                 }
                 else if constexpr (std::is_same_v<T, le::RegionId>)
                 {
                     if (const le::RegionData *region = handle->root.get_region(s))
-                        return le::Shape{.rects = region->rects};
+                        return le::ShapeData{.rects = region->rects};
                     return std::nullopt;
                 }
                 else // le::PlacementId
@@ -631,7 +631,7 @@ namespace
                     if (!handle->current_layout().valid())
                         return std::nullopt;
                     if (auto bbox = le::placement_world_bbox(handle->root, s, remaining_depth))
-                        return le::Shape{.rects = {*bbox}};
+                        return le::ShapeData{.rects = {*bbox}};
                     return std::nullopt;
                 }
             },
@@ -1076,7 +1076,7 @@ namespace
 
     // The grabbed piece resized to the mouse at dbu `current` - the ghost
     // while dragging, the committed geometry on release.
-    le::Shape resized_piece_unlocked(const LeHandle *handle, le::Point current)
+    le::ShapeData resized_piece_unlocked(const LeHandle *handle, le::Point current)
     {
         const LeHandle::ResizeGrab &grab = *handle->resize().grab;
         const le::Point delta{.x = current.x - grab.start.x, .y = current.y - grab.start.y};
@@ -1092,7 +1092,7 @@ namespace
         le::ShapeId shape_id;
         le::ShapeData before;
         le::ShapeData after;
-        std::vector<le::Shape> ghost_pieces;
+        std::vector<le::ShapeData> ghost_pieces;
     };
 
     // Every Shape the current grab would change if committed at dbu
@@ -1108,7 +1108,7 @@ namespace
         if (!existing || !le::Geometry::piece_in_range(*existing, grab.piece.piece_kind, grab.piece.piece_index))
             return {};
 
-        const le::Shape resized = resized_piece_unlocked(handle, current);
+        const le::ShapeData resized = resized_piece_unlocked(handle, current);
         std::vector<ResizeEdit> edits;
         ResizeEdit own{.shape_id = grab.piece.shape_id, .before = *existing, .after = *existing, .ghost_pieces = {resized}};
         le::replace_piece(own.after, grab.piece.piece_kind, grab.piece.piece_index, resized);
@@ -1120,7 +1120,7 @@ namespace
             const size_t e = grab.handle.edge;
             if (e + 1 < from.size() && e + 1 < to.size())
             {
-                const auto follow = [&](le::ShapeData &data, std::optional<size_t> skip, std::vector<le::Shape> &ghost)
+                const auto follow = [&](le::ShapeData &data, std::optional<size_t> skip, std::vector<le::ShapeData> &ghost)
                 {
                     const std::vector<size_t> changed = le::follow_moved_path_segment(data, skip, from[e], to[e], from[e + 1], to[e + 1]);
                     for (const size_t i : changed)
@@ -1186,7 +1186,7 @@ namespace
             const le::ShapeData *data = handle->root.get_shape(piece->shape_id);
             if (!data || !le::Geometry::piece_in_range(*data, piece->piece_kind, piece->piece_index))
                 continue;
-            le::Shape original = le::Geometry::extract_piece(*data, piece->piece_kind, piece->piece_index);
+            le::ShapeData original = le::Geometry::extract_piece(*data, piece->piece_kind, piece->piece_index);
             const std::optional<le::ResizeHandle> hit = le::find_resize_handle(original, p, tolerance);
             if (hit && (!best || hit->distance < best->handle.distance))
                 best = LeHandle::ResizeGrab{.piece = *piece, .handle = *hit, .original = std::move(original), .start = p};
@@ -1373,7 +1373,7 @@ namespace
             // piece as it would be committed right now, pre-placed.
             if (const std::optional<le::Point> mouse = handle->mouse_dbu_position())
                 for (ResizeEdit &edit : plan_resize_unlocked(handle, *mouse))
-                    for (le::Shape &piece : edit.ghost_pieces)
+                    for (le::ShapeData &piece : edit.ghost_pieces)
                         options.move_ghost_pieces_dbu.push_back(std::move(piece));
         }
         else if (const std::vector<le::PlacementId> placements = handle->moving_placements(); !placements.empty())
@@ -1386,7 +1386,7 @@ namespace
             if (const std::optional<le::Point> raw_delta = handle->move_raw_delta(handle->move_free_form()))
             {
                 const std::optional<std::vector<le::Point>> deltas = moving_piece_deltas_unlocked(handle);
-                const std::vector<le::Shape> &geometry = handle->move().moving_geometry;
+                const std::vector<le::ShapeData> &geometry = handle->move().moving_geometry;
                 for (size_t i = 0; i < geometry.size(); ++i)
                     if (!geometry[i].rects.empty() || !geometry[i].polygons.empty() || !geometry[i].paths.empty())
                         options.move_ghost_pieces_dbu.push_back(le::Geometry::transform(geometry[i], deltas && i < deltas->size() ? (*deltas)[i] : le::Point{}));
@@ -1404,7 +1404,7 @@ namespace
                                                            const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
                                                            return piece && snaps_individually_when_moved(piece->piece_kind);
                                                        });
-            const std::vector<le::Shape> &geometry = handle->move().moving_geometry;
+            const std::vector<le::ShapeData> &geometry = handle->move().moving_geometry;
             if (!per_piece)
             {
                 options.move_ghost_pieces_dbu = geometry;
@@ -1787,7 +1787,7 @@ namespace
         // everything in it anyway.
         if (handle->current_layout().valid())
         {
-            const le::Shape *diearea = handle->root.get_shape(handle->root.get_layout_diearea(handle->current_layout()));
+            const le::ShapeData *diearea = handle->root.get_shape(handle->root.get_layout_diearea(handle->current_layout()));
             handle->fit_to_content(diearea ? le::Geometry::bbox(*diearea) : std::nullopt, padding_px);
             return;
         }
@@ -1830,7 +1830,7 @@ namespace
     // to.
     void fit_selected_unlocked(LeHandle *handle, int32_t padding_px)
     {
-        std::vector<const le::Shape *> shape_ptrs;
+        std::vector<const le::ShapeData *> shape_ptrs;
         std::optional<le::Rect> bbox;
         const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
 
@@ -1841,7 +1841,7 @@ namespace
                 using T = std::decay_t<decltype(s)>;
                 if constexpr (std::is_same_v<T, LeHandle::ShapePiece>)
                 {
-                    if (const le::Shape *shape = handle->root.get_shape(s.shape_id))
+                    if (const le::ShapeData *shape = handle->root.get_shape(s.shape_id))
                         shape_ptrs.push_back(shape);
                 }
                 else if constexpr (std::is_same_v<T, le::RowId>)
@@ -1882,15 +1882,15 @@ namespace
     // is planned per frame instead (plan_moving_placements_unlocked -
     // its snapped position depends on the live mouse, not one shared
     // offset).
-    le::Shape move_ghost_piece_unlocked(LeHandle *handle, const LeHandle::SelectedObject &selected)
+    le::ShapeData move_ghost_piece_unlocked(LeHandle *handle, const LeHandle::SelectedObject &selected)
     {
         const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
         if (!piece)
-            return le::Shape{};
+            return le::ShapeData{};
 
         const le::ShapeData *data = handle->root.get_shape(piece->shape_id);
         if (!data)
-            return le::Shape{};
+            return le::ShapeData{};
         return drawable_piece(handle->root, *data, piece->piece_kind, piece->piece_index, handle->current_layout());
     }
 
@@ -1921,7 +1921,7 @@ namespace
         if (std::ranges::any_of(selection, is_placement) && !std::ranges::all_of(selection, is_placement))
             return;
 
-        std::vector<le::Shape> geometry;
+        std::vector<le::ShapeData> geometry;
         geometry.reserve(handle->selection().size());
         for (const LeHandle::SelectedObject &selected : handle->selection())
             geometry.push_back(move_ghost_piece_unlocked(handle, selected));
@@ -1944,7 +1944,7 @@ namespace
         if (!handle->move().armed)
             return;
 
-        std::vector<le::Shape> geometry;
+        std::vector<le::ShapeData> geometry;
         geometry.reserve(handle->move().moving_pieces.size());
         for (const LeHandle::SelectedObject &selected : handle->move().moving_pieces)
             geometry.push_back(move_ghost_piece_unlocked(handle, selected));
@@ -2039,7 +2039,7 @@ namespace
         }
         handle->command_history.end(/*succeeded=*/true);
 
-        std::vector<le::Shape> geometry;
+        std::vector<le::ShapeData> geometry;
         geometry.reserve(moving_pieces.size());
         for (const LeHandle::SelectedObject &selected : moving_pieces)
             geometry.push_back(move_ghost_piece_unlocked(handle, selected));

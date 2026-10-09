@@ -112,16 +112,16 @@ namespace
     // matching layer_name into one Shape per distinct layer, not walk an
     // itemType() stream like LEFReader::shapes_from_parser does.
     template <typename PinLike>
-    std::vector<le::Shape> shapes_from_pin_like(le::Root &root, PinLike *pin, double unit_scale)
+    std::vector<le::ShapeData> shapes_from_pin_like(le::Root &root, PinLike *pin, double unit_scale)
     {
-        std::vector<le::Shape> shapes;
+        std::vector<le::ShapeData> shapes;
         // Returns nullptr (logging once) for a layer name that doesn't
         // resolve to a Technology Layer - the geometry on it is dropped,
         // same "log and skip" convention every other unresolvable
         // reference in this reader follows.
-        auto find_or_create = [&](const std::string &layer_name) -> le::Shape *
+        auto find_or_create = [&](const std::string &layer_name) -> le::ShapeData *
         {
-            for (le::Shape &shape : shapes)
+            for (le::ShapeData &shape : shapes)
                 if (root.get_layer(shape.layer) && root.get_layer(shape.layer)->name == layer_name)
                     return &shape;
             const le::LayerId layer_id = root.get_layer_by_name(layer_name);
@@ -130,7 +130,7 @@ namespace
                 log_error("PIN geometry on unknown LAYER '{}' - ignored.", layer_name);
                 return nullptr;
             }
-            shapes.push_back(le::Shape{.layer = layer_id});
+            shapes.push_back(le::ShapeData{.layer = layer_id});
             return &shapes.back();
         };
 
@@ -138,12 +138,12 @@ namespace
         {
             int xl = 0, yl = 0, xh = 0, yh = 0;
             pin->bounds(i, &xl, &yl, &xh, &yh);
-            if (le::Shape *shape = find_or_create(pin->layer(i)))
+            if (le::ShapeData *shape = find_or_create(pin->layer(i)))
                 shape->rects.push_back(le::Rect{.ll = {.x = scale_dbu(xl, unit_scale), .y = scale_dbu(yl, unit_scale)}, .ur = {.x = scale_dbu(xh, unit_scale), .y = scale_dbu(yh, unit_scale)}});
         }
         for (int i = 0; i < pin->numPolygons(); i++)
         {
-            le::Shape *shape = find_or_create(pin->polygonName(i));
+            le::ShapeData *shape = find_or_create(pin->polygonName(i));
             if (!shape)
                 continue;
             const defiPoints points = pin->getPolygon(i);
@@ -180,16 +180,16 @@ namespace
     // rectangular path segment, rare), DEFIPATH_TAPER/TAPERRULE/SHAPE/
     // STYLE (manufacturing/rendering-hint metadata with no schema field
     // for it yet) - skipped, not erroring.
-    void append_shapes_from_path(le::Root &root, std::vector<le::Shape> &shapes, defiPath *path, double unit_scale)
+    void append_shapes_from_path(le::Root &root, std::vector<le::ShapeData> &shapes, defiPath *path, double unit_scale)
     {
         // Returns nullptr (logging once) for a layer name that doesn't
         // resolve to a Technology Layer - every element of this path
         // segment is then dropped via the existing `current_shape`
         // null-guards below, same as before the first LAYER element is
         // ever seen.
-        auto find_or_create = [&](const std::string &layer_name) -> le::Shape *
+        auto find_or_create = [&](const std::string &layer_name) -> le::ShapeData *
         {
-            for (le::Shape &shape : shapes)
+            for (le::ShapeData &shape : shapes)
                 if (root.get_layer(shape.layer) && root.get_layer(shape.layer)->name == layer_name)
                     return &shape;
             const le::LayerId layer_id = root.get_layer_by_name(layer_name);
@@ -198,11 +198,11 @@ namespace
                 log_error("Routed path on unknown LAYER '{}' - ignored.", layer_name);
                 return nullptr;
             }
-            shapes.push_back(le::Shape{.layer = layer_id});
+            shapes.push_back(le::ShapeData{.layer = layer_id});
             return &shapes.back();
         };
 
-        le::Shape *current_shape = nullptr;
+        le::ShapeData *current_shape = nullptr;
         int64_t current_width = 0;
         std::vector<le::Point> current_points;
         le::Point last_point{};
@@ -706,7 +706,7 @@ namespace le
                 // needs no pin transform - DEFWriter converts back.
                 const Geometry::InstanceTransform to_design = Geometry::pin_transform(segment_data.location, segment_data.orientation);
                 const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(std::move(segment_data));
-                for (Shape &shape : shapes_from_pin_like(*reader->root_, port, reader->unit_scale_))
+                for (ShapeData &shape : shapes_from_pin_like(*reader->root_, port, reader->unit_scale_))
                 {
                     shape = Geometry::transform(shape, to_design);
                     shape.owner = le::ShapeOwner::physical_port_segment(segment_id);
@@ -721,7 +721,7 @@ namespace le
             const PhysicalPortData *port = reader->root_->get_physical_port(physical_port_id);
             const Geometry::InstanceTransform to_design = Geometry::pin_transform(port->location, port->orientation);
             const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(PhysicalPortSegmentData{.physical_port = physical_port_id});
-            for (Shape &shape : shapes_from_pin_like(*reader->root_, pin, reader->unit_scale_))
+            for (ShapeData &shape : shapes_from_pin_like(*reader->root_, pin, reader->unit_scale_))
             {
                 shape = Geometry::transform(shape, to_design);
                 shape.owner = le::ShapeOwner::physical_port_segment(segment_id);
@@ -780,7 +780,7 @@ namespace le
             // region isn't tied to any routing layer at all (DEF's own
             // PLACEMENT blockage syntax has no LAYER clause), so it gets
             // .purpose = PLACEMENT_BLOCKAGE instead.
-            Shape shape{.owner = le::ShapeOwner::blockage(blockage_id)};
+            ShapeData shape{.owner = le::ShapeOwner::blockage(blockage_id)};
             if (blockage->hasLayer())
             {
                 shape.layer = reader->root_->get_layer_by_name(blockage->layerName());
@@ -963,14 +963,14 @@ namespace le
 
         const RouteId route_id = reader->root_->create_route(std::move(data));
 
-        std::vector<Shape> shapes;
+        std::vector<ShapeData> shapes;
         for (int i = 0; i < net->numWires(); i++)
         {
             defiWire *wire = net->wire(i);
             for (int j = 0; j < wire->numPaths(); j++)
                 append_shapes_from_path(*reader->root_, shapes, wire->path(j), reader->unit_scale_);
         }
-        for (Shape &shape : shapes)
+        for (ShapeData &shape : shapes)
         {
             shape.owner = le::ShapeOwner::route(route_id);
             reader->root_->create_shape(std::move(shape));

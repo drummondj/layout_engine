@@ -207,7 +207,7 @@ TEST_F(LEFReaderCompleteFixture, ConvertsMacroSizeAndOriginToDbu)
 
     // No OVERLAP obstruction on this macro, so the boundary falls back to a
     // single rect polygon built from origin (default {0,0}) + size.
-    const Shape *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id));
+    const ShapeData *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id));
     ASSERT_NE(boundary_shape, nullptr);
     ASSERT_TRUE(boundary_shape->purpose.has_value());
     EXPECT_EQ(*boundary_shape->purpose, ShapePurpose::BOUNDARY);
@@ -237,7 +237,7 @@ TEST_F(LEFReaderCompleteFixture, CreatesPinsWithPortShapes)
     const std::vector<ShapeId> &pin_a_shapes = root.get_terminal_port_shapes(pin_a_ports.front());
 
     ASSERT_EQ(pin_a_shapes.size(), 1u);
-    const Shape &shape = *root.get_shape(pin_a_shapes.front());
+    const ShapeData &shape = *root.get_shape(pin_a_shapes.front());
     EXPECT_EQ(root.get_layer(shape.layer)->name, "M1");
     ASSERT_EQ(shape.paths.size(), 1u);
     EXPECT_EQ(shape.paths.front().width, 0u); // no WIDTH statement precedes this PATH
@@ -258,7 +258,7 @@ TEST_F(LEFReaderCompleteFixture, ObstructionCollectsRectsAndPathsButIgnoresVias)
     const std::vector<ShapeId> &obstruction_shapes = root.get_obstruction_shapes(root.get_abstract_obstructions(abstract_id).front());
 
     ASSERT_EQ(obstruction_shapes.size(), 1u);
-    const Shape &shape = *root.get_shape(obstruction_shapes.front());
+    const ShapeData &shape = *root.get_shape(obstruction_shapes.front());
     EXPECT_EQ(root.get_layer(shape.layer)->name, "M1");
     EXPECT_EQ(shape.rects.size(), 2u); // 1 + 1 final, VIAs excluded, ITERATE stored separately
     EXPECT_EQ(shape.paths.size(), 2u); // 2 singles, VIAs excluded, ITERATE stored separately
@@ -353,7 +353,7 @@ TEST(LEFReaderOverlapBoundary, BoundaryComesFromOverlapObsNotMacroSize)
     // SIZE 10 BY 10 at DATABASE MICRONS 1000 would give a (0,0)-(10000,10000)
     // fallback boundary; OBS has an OVERLAP RECT 1 1 9 9 (-> (1000,1000)-
     // (9000,9000) dbu) plus an M1 RECT 0 0 2 2 that must NOT be included.
-    const Shape *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id));
+    const ShapeData *boundary_shape = root.get_shape(root.get_abstract_boundary(abstract_id));
     ASSERT_NE(boundary_shape, nullptr);
     ASSERT_EQ(boundary_shape->polygons.size(), 1u);
     const Polygon &boundary = boundary_shape->polygons.front();
@@ -1306,7 +1306,7 @@ TEST_F(LEFAntennaFixture, ReadsPinScalarFieldsDirectionEnumPortClassViaAndSiteAr
     EXPECT_EQ(port_a->port_class, "CORE");
     const std::vector<ShapeId> &port_a_shapes = root.get_terminal_port_shapes(pin_a_port_ids[0]);
     ASSERT_EQ(port_a_shapes.size(), 1u);
-    const Shape &shape_a = *root.get_shape(port_a_shapes[0]);
+    const ShapeData &shape_a = *root.get_shape(port_a_shapes[0]);
     EXPECT_EQ(root.get_layer(shape_a.layer)->name, "M1");
     EXPECT_EQ(shape_a.spacing, 50);
     ASSERT_EQ(shape_a.vias.size(), 1u);
@@ -1325,7 +1325,7 @@ TEST_F(LEFAntennaFixture, ReadsPinScalarFieldsDirectionEnumPortClassViaAndSiteAr
     ASSERT_TRUE(obs != nullptr);
     const std::vector<ShapeId> &obs_shapes = root.get_obstruction_shapes(obs_id);
     ASSERT_EQ(obs_shapes.size(), 1u);
-    const Shape &obs_shape = *root.get_shape(obs_shapes[0]);
+    const ShapeData &obs_shape = *root.get_shape(obs_shapes[0]);
     EXPECT_EQ(root.get_layer(obs_shape.layer)->name, "V1");
     EXPECT_TRUE(obs_shape.except_pg_net);
 }

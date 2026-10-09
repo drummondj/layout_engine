@@ -408,7 +408,7 @@ namespace le
                     continue;
                 for (const ShapeId shape_id : root.get_route_shapes(route_id))
                 {
-                    const Shape *shape = root.get_shape(shape_id);
+                    const ShapeData *shape = root.get_shape(shape_id);
                     if (shape && !shape->vias.empty())
                         return shape->vias.front();
                 }

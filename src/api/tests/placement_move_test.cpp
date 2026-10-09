@@ -272,7 +272,7 @@ TEST_F(PlacementMoveFixture, AvailabilityReflectsWhatEachModeNeeds)
 TEST_F(PlacementMoveFixture, GhostIsThePlacedBboxPlusAnOrientationMarker)
 {
     PlacementMoveTarget t = plan_one(cell, Point{0, 0}, PlacementSnapMode::NONE);
-    Shape ghost = placement_move_ghost(t);
+    ShapeData ghost = placement_move_ghost(t);
     ASSERT_EQ(ghost.rects.size(), 1u);
     EXPECT_EQ(ghost.rects[0], (Rect{.ll = Point{700, 0}, .ur = Point{1100, 1000}}));
     ASSERT_EQ(ghost.polygons.size(), 1u);

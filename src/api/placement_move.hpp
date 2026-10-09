@@ -437,7 +437,7 @@ namespace le
     /// placed image of the local lower-left corner, twice as long along
     /// the local X axis as along local Y, so each of the 8 orientations
     /// draws distinguishably.
-    inline Shape placement_move_ghost(const PlacementMoveTarget &target)
+    inline ShapeData placement_move_ghost(const PlacementMoveTarget &target)
     {
         const Geometry::InstanceTransform t = Geometry::instance_transform(target.orientation, target.local_bbox, target.location);
         const auto world = [&](Point p)
@@ -446,7 +446,7 @@ namespace le
             return Point{.x = r.x + t.translation.x, .y = r.y + t.translation.y};
         };
 
-        Shape ghost;
+        ShapeData ghost;
         ghost.rects.push_back(Geometry::transform_bbox(t, target.local_bbox));
 
         const Point ll = target.local_bbox.ll;

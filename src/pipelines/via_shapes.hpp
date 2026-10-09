@@ -55,7 +55,7 @@ namespace le
         void operator()(ViewLayerId) const {}
     };
     template <typename OnPush = NoViaPush>
-    inline void append_via_shapes(const Root &root, const Shape &shape, ViewLayerPurpose purpose, const ViewLayerSet &view_layers, LayoutId layout_id,
+    inline void append_via_shapes(const Root &root, const ShapeData &shape, ViewLayerPurpose purpose, const ViewLayerSet &view_layers, LayoutId layout_id,
                                   std::unordered_map<ViewLayerId, std::vector<RenderShape>> &shapes_by_layer, OnPush &&on_push = {})
     {
         if (shape.vias.empty() && shape.via_iterates.empty())

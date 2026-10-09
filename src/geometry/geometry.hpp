@@ -40,7 +40,7 @@ namespace le
     {
         PieceKind kind;
         size_t index;
-        Shape outline;
+        ShapeData outline;
     };
 
     /// @brief Area geometry in the only two forms a Shape can store it -
@@ -264,7 +264,7 @@ namespace le
             return out;
         }
 
-        static std::optional<Rect> bbox(const std::vector<const Shape *> &shapes)
+        static std::optional<Rect> bbox(const std::vector<const ShapeData *> &shapes)
         {
             std::optional<Rect> out;
 
@@ -647,7 +647,7 @@ namespace le
             return closed;
         }
 
-        static std::optional<std::vector<Polygon>> union_shapes(const std::vector<const Shape *> &shapes)
+        static std::optional<std::vector<Polygon>> union_shapes(const std::vector<const ShapeData *> &shapes)
         {
             std::vector<Polygon> parts;
 
@@ -877,7 +877,7 @@ namespace le
         /// pointer-move event (see le_set_mouse_position). With it, most
         /// candidates are rejected by four integer comparisons before any
         /// Boost.Geometry call.
-        static std::optional<HitPiece> find_hit_piece(const Shape &shape, const Point &point)
+        static std::optional<HitPiece> find_hit_piece(const ShapeData &shape, const Point &point)
         {
             std::vector<HitPiece> hits = find_hit_pieces(shape, point, /*first_only=*/true);
             if (hits.empty())
@@ -1000,14 +1000,14 @@ namespace le
             return false;
         }
 
-        static std::vector<HitPiece> find_hit_pieces(const Shape &shape, const Point &point, bool first_only = false)
+        static std::vector<HitPiece> find_hit_pieces(const ShapeData &shape, const Point &point, bool first_only = false)
         {
             std::vector<HitPiece> hits;
             for (size_t i = 0; i < shape.rects.size(); ++i)
             {
                 if (point_in_rect(point, shape.rects[i]))
                 {
-                    hits.push_back(HitPiece{.kind = PieceKind::RECT, .index = i, .outline = Shape{.layer = shape.layer, .rects = {shape.rects[i]}}});
+                    hits.push_back(HitPiece{.kind = PieceKind::RECT, .index = i, .outline = ShapeData{.layer = shape.layer, .rects = {shape.rects[i]}}});
                     if (first_only)
                         return hits;
                 }
@@ -1020,7 +1020,7 @@ namespace le
 
                 if (bg::within(point, to_boost_polygon(shape.polygons[i])))
                 {
-                    hits.push_back(HitPiece{.kind = PieceKind::POLYGON, .index = i, .outline = Shape{.layer = shape.layer, .polygons = {shape.polygons[i]}}});
+                    hits.push_back(HitPiece{.kind = PieceKind::POLYGON, .index = i, .outline = ShapeData{.layer = shape.layer, .polygons = {shape.polygons[i]}}});
                     if (first_only)
                         return hits;
                 }
@@ -1045,7 +1045,7 @@ namespace le
                         }
                 if (hit)
                 {
-                    hits.push_back(HitPiece{.kind = PieceKind::PATH, .index = i, .outline = Shape{.layer = shape.layer, .paths = {shape.paths[i]}}});
+                    hits.push_back(HitPiece{.kind = PieceKind::PATH, .index = i, .outline = ShapeData{.layer = shape.layer, .paths = {shape.paths[i]}}});
                     if (first_only)
                         return hits;
                 }
@@ -1059,7 +1059,7 @@ namespace le
         /// yes/no answer is needed. See find_hit_piece for the same test
         /// when the specific piece itself is also needed (e.g. hover
         /// highlighting).
-        static bool contains(const Shape &shape, const Point &point)
+        static bool contains(const ShapeData &shape, const Point &point)
         {
             return find_hit_piece(shape, point).has_value();
         }
@@ -1075,9 +1075,9 @@ namespace le
         /// own geometry shrank since it was selected - drawing/moving
         /// nothing rather than crashing or silently substituting a
         /// different piece.
-        static Shape extract_piece(const Shape &shape, PieceKind kind, size_t index)
+        static ShapeData extract_piece(const ShapeData &shape, PieceKind kind, size_t index)
         {
-            Shape piece{.layer = shape.layer};
+            ShapeData piece{.layer = shape.layer};
             switch (kind)
             {
             case PieceKind::RECT:
@@ -1109,7 +1109,7 @@ namespace le
         /// `kind`'s own vector. Lets a caller distinguish "this piece
         /// really has no geometry" from "the index is stale" without
         /// extracting a whole Shape copy just to check.
-        static bool piece_in_range(const Shape &shape, PieceKind kind, size_t index)
+        static bool piece_in_range(const ShapeData &shape, PieceKind kind, size_t index)
         {
             switch (kind)
             {
@@ -1135,7 +1135,7 @@ namespace le
         /// to know whether anything actually happened). Per-piece Move
         /// uses this to move exactly the selected piece, not the whole
         /// Shape.
-        static void transform_piece_in_place(Shape &data, PieceKind kind, size_t index, const Point &offset)
+        static void transform_piece_in_place(ShapeData &data, PieceKind kind, size_t index, const Point &offset)
         {
             switch (kind)
             {
@@ -1179,7 +1179,7 @@ namespace le
         /// would be too. So no per-rect/polygon/path testing is needed
         /// here, unlike `contains`. False for a shape with no geometry
         /// (no bbox).
-        static bool fully_enclosed(const Rect &container, const Shape &shape)
+        static bool fully_enclosed(const Rect &container, const ShapeData &shape)
         {
             const auto bbox = Geometry::bbox(shape);
             if (!bbox)
@@ -1199,7 +1199,7 @@ namespace le
         /// paths together (e.g. several RECT statements in one PORT) - a
         /// drag-select needs to know *which* of them individually
         /// qualify, not just whether the bundle's own combined bbox does.
-        static std::vector<HitPiece> fully_enclosed_pieces(const Rect &container, const Shape &shape)
+        static std::vector<HitPiece> fully_enclosed_pieces(const Rect &container, const ShapeData &shape)
         {
             auto bbox_enclosed = [&](const Rect &bbox)
             {
@@ -1211,15 +1211,15 @@ namespace le
 
             for (size_t i = 0; i < shape.rects.size(); ++i)
                 if (bbox_enclosed(shape.rects[i]))
-                    result.push_back(HitPiece{.kind = PieceKind::RECT, .index = i, .outline = Shape{.layer = shape.layer, .rects = {shape.rects[i]}}});
+                    result.push_back(HitPiece{.kind = PieceKind::RECT, .index = i, .outline = ShapeData{.layer = shape.layer, .rects = {shape.rects[i]}}});
 
             for (size_t i = 0; i < shape.polygons.size(); ++i)
                 if (bbox_enclosed(bbox_of(shape.polygons[i])))
-                    result.push_back(HitPiece{.kind = PieceKind::POLYGON, .index = i, .outline = Shape{.layer = shape.layer, .polygons = {shape.polygons[i]}}});
+                    result.push_back(HitPiece{.kind = PieceKind::POLYGON, .index = i, .outline = ShapeData{.layer = shape.layer, .polygons = {shape.polygons[i]}}});
 
             for (size_t i = 0; i < shape.paths.size(); ++i)
                 if (bbox_enclosed(bbox_of(shape.paths[i])))
-                    result.push_back(HitPiece{.kind = PieceKind::PATH, .index = i, .outline = Shape{.layer = shape.layer, .paths = {shape.paths[i]}}});
+                    result.push_back(HitPiece{.kind = PieceKind::PATH, .index = i, .outline = ShapeData{.layer = shape.layer, .paths = {shape.paths[i]}}});
 
             return result;
         }
@@ -1227,7 +1227,7 @@ namespace le
         /// @brief Expands RECT/PATH/POLYGON ITERATE (raw LEF storage) into
         /// concrete rects/paths/polygons on a copy of `shape`. An iterate
         /// with a non-positive or implausibly large count is skipped.
-        static Shape expand_iterates(Shape shape)
+        static ShapeData expand_iterates(ShapeData shape)
         {
             constexpr int kMaxReasonableCount = 1'000'000;
             auto valid = [](const auto &it)
@@ -1287,7 +1287,7 @@ namespace le
         // caller wanting iterates expands them first).
 
         /// @brief Boolean combination of two shape groups' areas (OR/AND/NOT, NOT = a minus b).
-        static AreaGeometry boolean_shapes(const std::vector<const Shape *> &a, const std::vector<const Shape *> &b, BooleanOp op)
+        static AreaGeometry boolean_shapes(const std::vector<const ShapeData *> &a, const std::vector<const ShapeData *> &b, BooleanOp op)
         {
             BgArea area_a = shapes_area(a);
             BgArea area_b = shapes_area(b);
@@ -1298,7 +1298,7 @@ namespace le
         /// @brief `shape`'s area as polygons only. A region with holes (which
         /// a Polygon can't represent) is fractured into exact rects, each
         /// emitted as its own 4-corner polygon.
-        static std::vector<Polygon> shape_to_polygons(const Shape &shape)
+        static std::vector<Polygon> shape_to_polygons(const ShapeData &shape)
         {
             AreaGeometry geometry = to_area_geometry(shape_area(shape));
             std::vector<Polygon> result = std::move(geometry.polygons);
@@ -1310,7 +1310,7 @@ namespace le
         /// @brief `shape`'s area as non-overlapping rects. Exact for
         /// rectilinear geometry; a diagonal edge is approximated by its
         /// slab's bbox (over-covering), since a Rect can't represent it.
-        static std::vector<Rect> shape_to_rects(const Shape &shape, FractureDirection direction)
+        static std::vector<Rect> shape_to_rects(const ShapeData &shape, FractureDirection direction)
         {
             std::vector<Rect> result;
             for (const BgPolygon &polygon : shape_area(shape))
@@ -1326,7 +1326,7 @@ namespace le
         /// non-rectilinear geometry only supports dx == dy (an isotropic
         /// buffer) - std::nullopt otherwise. An empty result (shrunk away
         /// entirely) is a valid, empty AreaGeometry, not nullopt.
-        static std::optional<AreaGeometry> size_shape(const Shape &shape, int64_t dx, int64_t dy)
+        static std::optional<AreaGeometry> size_shape(const ShapeData &shape, int64_t dx, int64_t dy)
         {
             const BgArea area = shape_area(shape);
             if (area.empty())
@@ -1351,9 +1351,9 @@ namespace le
         /// @brief One closed Path of `width` along every ring (outer
         /// boundary and each hole) of `shape`'s area, plus each of its own
         /// input Paths' centerlines re-stroked at `width`.
-        static std::vector<Path> shape_outline_paths(const Shape &shape, int64_t width)
+        static std::vector<Path> shape_outline_paths(const ShapeData &shape, int64_t width)
         {
-            Shape area_only = shape;
+            ShapeData area_only = shape;
             area_only.paths.clear();
 
             std::vector<Path> result;
@@ -1603,7 +1603,7 @@ namespace le
             parts.push_back(BgArea{std::move(polygon)});
         }
 
-        static void append_shape_parts(std::vector<BgArea> &parts, const Shape &shape)
+        static void append_shape_parts(std::vector<BgArea> &parts, const ShapeData &shape)
         {
             for (const Rect &rect : shape.rects)
                 append_part(parts, rect_to_bg(rect));
@@ -1614,17 +1614,17 @@ namespace le
                     append_part(parts, std::move(polygon));
         }
 
-        static BgArea shape_area(const Shape &shape)
+        static BgArea shape_area(const ShapeData &shape)
         {
             std::vector<BgArea> parts;
             append_shape_parts(parts, shape);
             return union_all(std::move(parts));
         }
 
-        static BgArea shapes_area(const std::vector<const Shape *> &shapes)
+        static BgArea shapes_area(const std::vector<const ShapeData *> &shapes)
         {
             std::vector<BgArea> parts;
-            for (const Shape *shape : shapes)
+            for (const ShapeData *shape : shapes)
                 if (shape)
                     append_shape_parts(parts, *shape);
             return union_all(std::move(parts));

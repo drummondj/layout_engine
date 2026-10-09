@@ -58,7 +58,7 @@ namespace le
     /// 4 kept vectors in for free; a caller with only a `const Shape&`
     /// pays exactly one copy of 4 vectors - strictly cheaper than copying
     /// all 12 the way the pre-existing `push_back(*shape)` call sites did.
-    inline RenderShape to_render_shape(Shape shape)
+    inline RenderShape to_render_shape(ShapeData shape)
     {
         return RenderShape{
             .rects = std::move(shape.rects),

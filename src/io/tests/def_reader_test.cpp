@@ -62,7 +62,7 @@ namespace le
     {
         const DesignId design_id = find_design_by_name(root, "design");
         const LayoutId layout_id = root.get_design_layout(design_id);
-        const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id));
+        const ShapeData *diearea = root.get_shape(root.get_layout_diearea(layout_id));
         ASSERT_NE(diearea, nullptr);
         ASSERT_TRUE(diearea->purpose.has_value());
         EXPECT_EQ(*diearea->purpose, ShapePurpose::BOUNDARY);
@@ -296,7 +296,7 @@ namespace le
         EXPECT_EQ(*segment0->orientation, Orientation::N);
         const std::vector<ShapeId> segment0_shape_ids = root.get_physical_port_segment_shapes(p0_segments[0]);
         ASSERT_EQ(segment0_shape_ids.size(), 1u);
-        const Shape *segment0_shape = root.get_shape(segment0_shape_ids[0]);
+        const ShapeData *segment0_shape = root.get_shape(segment0_shape_ids[0]);
         ASSERT_NE(segment0_shape, nullptr);
         EXPECT_EQ(root.get_layer(segment0_shape->layer)->name, "M2");
         ASSERT_EQ(segment0_shape->rects.size(), 1u);
@@ -340,7 +340,7 @@ namespace le
         EXPECT_FALSE(root.get_physical_port_segment(p1_segments[0])->placement_status.has_value());
         const std::vector<ShapeId> p1_shape_ids = root.get_physical_port_segment_shapes(p1_segments[0]);
         ASSERT_EQ(p1_shape_ids.size(), 1u);
-        const Shape *p1_shape = root.get_shape(p1_shape_ids[0]);
+        const ShapeData *p1_shape = root.get_shape(p1_shape_ids[0]);
         ASSERT_NE(p1_shape, nullptr);
         EXPECT_EQ(root.get_layer(p1_shape->layer)->name, "M2");
         ASSERT_EQ(p1_shape->polygons.size(), 1u);
@@ -394,11 +394,11 @@ namespace le
         // (6 LAYER, 5 PLACEMENT), in file order.
         ASSERT_EQ(blockage_ids.size(), 11u);
 
-        auto shapes_of = [&](BlockageId id) -> std::vector<const Shape *>
+        auto shapes_of = [&](BlockageId id) -> std::vector<const ShapeData *>
         {
-            std::vector<const Shape *> result;
+            std::vector<const ShapeData *> result;
             for (const ShapeId shape_id : root.get_blockage_shapes(id))
-                if (const Shape *shape = root.get_shape(shape_id))
+                if (const ShapeData *shape = root.get_shape(shape_id))
                     result.push_back(shape);
             return result;
         };
@@ -413,7 +413,7 @@ namespace le
         EXPECT_FALSE(first->spacing.has_value());
         EXPECT_FALSE(first->design_rule_width.has_value());
         EXPECT_FALSE(first->is_soft);
-        const std::vector<const Shape *> first_shapes = shapes_of(blockage_ids[0]);
+        const std::vector<const ShapeData *> first_shapes = shapes_of(blockage_ids[0]);
         ASSERT_EQ(first_shapes.size(), 1u);
         ASSERT_EQ(first_shapes[0]->rects.size(), 1u);
         EXPECT_EQ(first_shapes[0]->rects[0].ll.x, 60);
@@ -428,7 +428,7 @@ namespace le
         const PlacementData *second_placement = root.get_placement(second->placement);
         ASSERT_NE(second_placement, nullptr);
         EXPECT_EQ(second_placement->name, "I1");
-        const std::vector<const Shape *> second_shapes = shapes_of(blockage_ids[1]);
+        const std::vector<const ShapeData *> second_shapes = shapes_of(blockage_ids[1]);
         ASSERT_EQ(second_shapes.size(), 1u);
         ASSERT_EQ(second_shapes[0]->polygons.size(), 1u);
         EXPECT_EQ(second_shapes[0]->polygons[0].points.size(), 6u);
@@ -620,11 +620,11 @@ namespace le
             }
             return RouteId{};
         };
-        auto shapes_of = [&](RouteId id) -> std::vector<const Shape *>
+        auto shapes_of = [&](RouteId id) -> std::vector<const ShapeData *>
         {
-            std::vector<const Shape *> result;
+            std::vector<const ShapeData *> result;
             for (const ShapeId shape_id : root.get_route_shapes(id))
-                if (const Shape *shape = root.get_shape(shape_id))
+                if (const ShapeData *shape = root.get_shape(shape_id))
                     result.push_back(shape);
             return result;
         };
@@ -637,7 +637,7 @@ namespace le
         const RouteData *dummy = root.get_route(dummy_id);
         ASSERT_NE(dummy, nullptr);
         EXPECT_TRUE(dummy->is_special);
-        const std::vector<const Shape *> dummy_shapes = shapes_of(dummy_id);
+        const std::vector<const ShapeData *> dummy_shapes = shapes_of(dummy_id);
         ASSERT_EQ(dummy_shapes.size(), 1u);
         EXPECT_EQ(root.get_layer(dummy_shapes[0]->layer)->name, "M1");
         ASSERT_EQ(dummy_shapes[0]->paths.size(), 1u);
@@ -652,7 +652,7 @@ namespace le
         const RouteId n6_id = find_id_by_name_and_kind("N6", false);
         ASSERT_TRUE(n6_id.valid());
         EXPECT_FALSE(root.get_route(n6_id)->is_special);
-        const std::vector<const Shape *> n6_shapes = shapes_of(n6_id);
+        const std::vector<const ShapeData *> n6_shapes = shapes_of(n6_id);
         ASSERT_EQ(n6_shapes.size(), 1u);
         EXPECT_EQ(root.get_layer(n6_shapes[0]->layer)->name, "M1");
         ASSERT_EQ(n6_shapes[0]->paths.size(), 3u);
@@ -668,9 +668,9 @@ namespace le
         ASSERT_TRUE(n4_id.valid());
         ASSERT_TRUE(root.get_route(n4_id)->use.has_value());
         EXPECT_EQ(*root.get_route(n4_id)->use, "GROUND");
-        const std::vector<const Shape *> n4_shapes = shapes_of(n4_id);
+        const std::vector<const ShapeData *> n4_shapes = shapes_of(n4_id);
         bool found_via = false;
-        for (const Shape *shape : n4_shapes)
+        for (const ShapeData *shape : n4_shapes)
             if (!shape->vias.empty())
                 found_via = true;
         EXPECT_TRUE(found_via);
@@ -829,7 +829,7 @@ namespace le
         auto first_path_width = [&](RouteId id) -> std::optional<int64_t>
         {
             for (const ShapeId shape_id : root.get_route_shapes(id))
-                if (const Shape *shape = root.get_shape(shape_id); shape && !shape->paths.empty())
+                if (const ShapeData *shape = root.get_shape(shape_id); shape && !shape->paths.empty())
                     return shape->paths.front().width;
             return std::nullopt;
         };
@@ -876,7 +876,7 @@ namespace le
                     continue;
                 for (const ShapeId shape_id : root.get_route_shapes(route_id))
                 {
-                    const Shape *shape = root.get_shape(shape_id);
+                    const ShapeData *shape = root.get_shape(shape_id);
                     if (!shape)
                         continue;
                     for (const ShapeVia &via : shape->vias)

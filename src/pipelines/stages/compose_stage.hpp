@@ -328,7 +328,7 @@ namespace le
 
             ctx.set_stroke_style(to_bl_color(kSelectionOutlineColor));
             ctx.set_stroke_width(kSelectionOutlineStrokeWidth);
-            for (const Shape &piece : options.selected_piece_outlines)
+            for (const ShapeData &piece : options.selected_piece_outlines)
                 stroke_piece_outline(ctx, piece, to_pixel);
         }
 
@@ -415,7 +415,7 @@ namespace le
             ctx.set_stroke_width(kMoveGhostStrokeWidth);
             ctx.set_stroke_dash_array(dash_array);
             ctx.set_stroke_dash_offset(0.0);
-            for (const Shape &piece : options.move_ghost_pieces_dbu)
+            for (const ShapeData &piece : options.move_ghost_pieces_dbu)
                 stroke_piece_outline(ctx, piece, to_pixel);
             ctx.set_stroke_dash_array(BLArray<double>()); // don't leak the dash state into any overlay drawn after this one
         }

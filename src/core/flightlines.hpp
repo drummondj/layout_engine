@@ -132,10 +132,10 @@ namespace le
                 const TerminalId terminal_id = root_.get_terminal_by_name(abstract_id, pin_name);
                 if (terminal_id.valid())
                 {
-                    std::vector<const Shape *> shapes;
+                    std::vector<const ShapeData *> shapes;
                     for (const TerminalPortId port_id : root_.get_terminal_ports(terminal_id))
                         for (const ShapeId shape_id : root_.get_terminal_port_shapes(port_id))
-                            if (const Shape *shape = root_.get_shape(shape_id))
+                            if (const ShapeData *shape = root_.get_shape(shape_id))
                                 shapes.push_back(shape);
                     if (const std::optional<Rect> bbox = Geometry::bbox(shapes))
                         center = Point{.x = (bbox->ll.x + bbox->ur.x) / 2, .y = (bbox->ll.y + bbox->ur.y) / 2};

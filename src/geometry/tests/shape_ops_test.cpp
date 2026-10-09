@@ -43,7 +43,7 @@ TEST_F(ShapeOps, CopyCreatesOneShapePerInputOnTheNewLayer)
     ASSERT_EQ(result->size(), 2u);
     for (ShapeId id : *result)
     {
-        const Shape *copy = root.get_shape(id);
+        const ShapeData *copy = root.get_shape(id);
         ASSERT_NE(copy, nullptr);
         EXPECT_EQ(copy->layer, m2);
         EXPECT_EQ(copy->in_abstract(), abstract_id);
@@ -62,7 +62,7 @@ TEST_F(ShapeOps, BooleanDefaultsToTheFirstInputsLayer)
 
     ASSERT_TRUE(result.has_value()) << result.error();
     ASSERT_EQ(result->size(), 1u);
-    const Shape *merged = root.get_shape(result->front());
+    const ShapeData *merged = root.get_shape(result->front());
     EXPECT_EQ(merged->layer, m2);
     ASSERT_EQ(merged->rects.size(), 1u);
     EXPECT_EQ(merged->rects[0].ur.x, 15);
@@ -176,7 +176,7 @@ TEST_F(ShapeOps, ADebugTargetCreatesLayerlessDebugShapes)
     const shape_ops::Result result = shape_ops::copy(root, {a}, shape_ops::LayerOrPurpose{.purpose = ShapePurpose::DEBUG}, abstract_id);
 
     ASSERT_TRUE(result.has_value()) << result.error();
-    const Shape *debug = root.get_shape(result->front());
+    const ShapeData *debug = root.get_shape(result->front());
     EXPECT_FALSE(debug->layer.valid());
     EXPECT_EQ(debug->purpose, ShapePurpose::DEBUG);
 
