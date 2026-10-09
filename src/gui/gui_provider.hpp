@@ -227,6 +227,8 @@ namespace le::gui
         // and a batch-mode le_shell never drains that queue.
         bool has_unsaved_design() const;
         bool has_unsaved_settings() const;
+        // Either of the above: File > Exit asks first only if so.
+        bool has_unsaved_changes() const;
         bool save_settings_now();
         // Writes the design to `path` now, with its session (the close
         // dialog's saves); false if the save failed.
