@@ -1801,3 +1801,30 @@ same machine; "before" is the previous entry's "after":
 
 Within noise. hello_ext's `TiledPinsDrawSelectAndMoveBetweenTiles` (6001
 pins, four tiles) checks that a move between tiles updates incrementally.
+
+## 2026-10-09 — Compact list fields for Shape (#94)
+
+`ShapeData`'s twelve lists (and `RenderShape`'s four) are `CompactVector`s,
+one pointer each, instead of `std::vector`s (24 bytes each, even empty). On
+`aes_scaling_8x8` only `paths` (2.85M of 2.87M Shapes) and `vias` (2.45M)
+are commonly non-empty; `polygons` and `polygon_masks` ~1000 each, the rest
+none. Release, WSL2, medians of 3 (`native_format_profile 8x8 1` and
+`pipeline_stage_benchmark` ColdStartZoomFit, depth 0, 1000x1000):
+
+| | before | after |
+|---|---|---|
+| Shape slot bytes | 360 | 168 |
+| Shape pool slot storage (MB) | 1510 | 705 |
+| LEF+DEF read (ms) | 47535 | 45242 |
+| RSS after the read (MB) | 4580 | 4470 |
+| .led save, zstd 1 (ms) | 4738 | 4511 |
+| .led load (ms) | 3714 | 3464 |
+| .led size (MB) | 228.6 | 228.6 |
+| HierarchyResolver (ms) | 11537 | 9884 |
+| HierarchyResolver output (bytes) | 4.76 G | 2.80 G |
+| RSS after the resolver (MB) | 12884 | 10543 |
+| Rasterize (ms) | 1959 | 1680 |
+
+The read's RSS falls less than the pool (110 vs 805 MB): the pool's old
+blocks from growing by doubling stay with mimalloc after the read (see #93's
+comment). The resolver's cache is where the saving shows.

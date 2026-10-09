@@ -5,6 +5,7 @@ TEMPLATE = """
 #include <optional>
 #include <vector>
 
+#include "compact_vector.hpp"
 #include "ids.hpp"
 #include "property.hpp"
 {%- for include in klass.get_forward_includes(has_pool=False) %}

@@ -27,25 +27,22 @@ namespace le
     /// rects+polygons), so a union can't represent what's actually
     /// produced today.
     ///
-    /// sizeof(RenderShape) == 96 bytes (4 std::vector members, 24B each on
-    /// libstdc++/Itanium ABI) vs. ShapeData's own ~440B of fixed overhead
-    /// before any real geometry - see this project's own memory-benchmark
-    /// writeup (benchmark_results/) for the measured effect on
-    /// HierarchyResolverStage's own cache_bytes(), which dominates process
-    /// memory (38-53% of peak RSS across every benchmarked design size).
+    /// sizeof(RenderShape) == 32 bytes (4 CompactVectors, one pointer each,
+    /// the same type ShapeData's lists use, so to_render_shape moves them)
+    /// - HierarchyResolverStage's cache of these dominates process memory.
     /// The static_assert below exists specifically to catch a future field
     /// addition silently eroding this saving - if it fires, that's a
     /// deliberate choice to re-check, not a bug to just relax.
     struct RenderShape
     {
-        std::vector<Rect> rects;
-        std::vector<Polygon> polygons;
-        std::vector<Path> paths;
-        std::vector<Text> texts;
+        CompactVector<Rect> rects;
+        CompactVector<Polygon> polygons;
+        CompactVector<Path> paths;
+        CompactVector<Text> texts;
     };
 
-    static_assert(sizeof(RenderShape) == 4 * sizeof(std::vector<Rect>),
-                  "RenderShape grew beyond its 4 always-24B-header vectors - "
+    static_assert(sizeof(RenderShape) == 4 * sizeof(CompactVector<Rect>),
+                  "RenderShape grew beyond its 4 one-pointer lists - "
                   "re-check whether the new field is genuinely needed by a "
                   "downstream pipeline consumer before adding it (see this "
                   "struct's own doc comment for the field-usage audit).");

@@ -62,6 +62,11 @@ namespace le::persistence
         using value_type = T;
     };
     template <class T>
+    struct IsVector<le::CompactVector<T>> : std::true_type
+    {
+        using value_type = T;
+    };
+    template <class T>
     struct IsId : std::false_type
     {
     };

@@ -1502,6 +1502,7 @@ schema = Schema(
             name="Shape",
             description="A shape on a layer.",
             has_pool=True,
+            compact_lists=True,
             fields=[
                 Field(
                     name="terminal_port",

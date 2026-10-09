@@ -118,7 +118,7 @@ namespace le::edit
         // piece's mask goes with it. The whole ShapeData is the undo
         // snapshot, since apply_shape_snapshot doesn't restore masks.
         const ShapeData before = recording ? *data : ShapeData{};
-        auto erase = [index](auto &pieces, std::vector<int> &masks)
+        auto erase = [index](auto &pieces, auto &masks)
         {
             if (index >= pieces.size())
                 return false;
