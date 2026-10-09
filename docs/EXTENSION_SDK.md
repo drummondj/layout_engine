@@ -391,7 +391,11 @@ def extend(schema):
   doesn't change your schema version. For a class with many objects per
   layout, pass `Render(..., tiled=True)`: its objects are split into
   spatial tiles of about 2000, like routes, so an edit redraws only the
-  tiles it touches.
+  tiles it touches. To draw shapes by their layer instead, pass
+  `Render(..., per_layer=True)`: each shape goes in the purpose's column of
+  its layer's row, like a route, so it's shown, hidden and made selectable
+  with its layer as well as with the purpose. A shape with no layer, or a
+  layer the technology doesn't have, still draws on the purpose's own row.
 - **History:** the build writes `schema_history/<VERSION>.json` beside
   `schema_ext.py`. Commit it. Changing the schema without bumping
   `VERSION` fails the build, as for core. While a version is not yet
@@ -694,7 +698,7 @@ The first version.
 - Overlays: `Registry::add_overlay`, `OverlayContext`, `request_redraw()`.
 - Settings: `Registry::add_settings`, `SettingsSection`; `ExtensionInfo::directory`
   and `Registry::resource`.
-- Rendering: `Render(purpose=Purpose(...), tiled=...)` on a class.
+- Rendering: `Render(purpose=Purpose(...), tiled=..., per_layer=...)` on a class.
 - Database classes: `schema_ext.py` (`VERSION`, `extend(schema)`), its
   `schema_history/` and `migrations/` (`Migration(extension=...,
   depends_on_core=...)`, `--migrate-extension`), and the `"extensions"`

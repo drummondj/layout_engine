@@ -62,8 +62,11 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
     place falls back to a full resolve (`last_compute_was_incremental()`).
     Classes with `render=` (`generated/pipelines/renderable_classes.hpp`)
     each get a fixed chunk after the core four (or, with `tiled=True`,
-    spatial tiles after the placement tiles) and a pseudo-row; nothing
-    core is hand-written per class.
+    spatial tiles after the placement tiles) and a pseudo-row; with
+    `per_layer=True` also a column on every physical layer's row, the
+    pseudo-row keeping shapes with no such layer
+    (`ViewLayerSet::renderable_view_layer`). Nothing core is hand-written
+    per class.
     Chunks carry `ChunkSources` so Layout-view selection queries the last
     resolved render tree (`ViewRenderPipeline::resolved_output()`, api.cpp's
     `layout_candidates`) instead of scanning the Layout.

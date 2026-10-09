@@ -5,6 +5,8 @@ TEMPLATE = """#pragma once
 // Every class drawn in the Layout view through a Render declaration: the
 // resolver gives each its own chunk per Layout, collect_dirty maps its
 // changes to that chunk, and the Layout-view hit tests visit its shapes.
+// A per_layer class's shapes go in its purpose's column of their layer's
+// row; its own row holds those with no layer the Technology has.
 #include "database.hpp"
 #include "generated/pipelines/view_layer_purpose.hpp"
 
@@ -14,16 +16,23 @@ TEMPLATE = """#pragma once
 namespace {{namespace}}::renderable
 {
 {% for r in renderables %}
+{% if r.klass.render.per_layer %}
+    /// @brief {{r.klass.name}}: its Shapes in {{r.purpose.name}}'s column of their layer's row.
+{% else %}
     /// @brief {{r.klass.name}}: its Shapes on {{r.purpose.name}}'s own row.
+{% endif %}
     struct {{r.klass.name}}Render
     {
         using Id = {{r.klass.name}}Id;
         static constexpr std::size_t index = {{loop.index0}};
         /// @brief Whether a Layout's objects are split into spatial tiles.
         static constexpr bool tiled = {{ 'true' if r.klass.render.tiled else 'false' }};
+        /// @brief Whether its Shapes draw in a column of their layer's row.
+        static constexpr bool per_layer = {{ 'true' if r.klass.render.per_layer else 'false' }};
         static constexpr ChangeKlass klass = ChangeKlass::{{r.klass.name}};
         static constexpr ViewLayerPurpose purpose = ViewLayerPurpose::{{r.purpose.name}};
-        /// @brief Its pseudo-row's name in the Layers panel.
+        /// @brief Its pseudo-row's name in the Layers panel, and its
+        /// per-layer columns' suffix (M1/{{r.purpose.name}}).
         static constexpr std::string_view row_name = "{{r.purpose.name}}";
         /// @brief The Shape owner option naming it (Shape.{{r.owner_option}}).
         static constexpr std::string_view owner_option = "{{r.owner_option}}";
@@ -41,6 +50,8 @@ namespace {{namespace}}::renderable
 {% endfor %}
 
     inline constexpr std::size_t kCount = {{renderables|length}};
+    /// @brief How many of them are per_layer: each adds a view layer per physical layer.
+    inline constexpr std::size_t kPerLayerCount = {{renderables|selectattr('klass.render.per_layer')|list|length}};
 
     /// @brief Calls f(XRender{}) for each renderable class, in index order.
     template <class F>

@@ -114,6 +114,8 @@ class TestRenderableClasses(unittest.TestCase):
         self.assertIn("return object ? object->layout : LayoutId{};", text)
         self.assertIn("inline constexpr std::size_t kCount = 1;", text)
         self.assertIn("static constexpr bool tiled = false;", text)
+        self.assertIn("static constexpr bool per_layer = false;", text)
+        self.assertIn("inline constexpr std::size_t kPerLayerCount = 0;", text)
 
     def test_tiled_is_passed_through(self):
         schema = self.schema(self.fields())
@@ -122,6 +124,17 @@ class TestRenderableClasses(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out:
             self.assertEqual(generate(schema, out, logging.getLogger("test")), 0)
             self.assertIn("static constexpr bool tiled = true;", (Path(out) / "renderable_classes.hpp").read_text())
+
+    def test_per_layer_is_passed_through_and_counted(self):
+        schema = self.schema(self.fields())
+        self.assertFalse(schema.get_klass("Marker").render.per_layer)
+        schema.get_klass("Marker").render.per_layer = True
+        schema.purposes.append(schema.get_klass("Marker").render.purpose)
+        with tempfile.TemporaryDirectory() as out:
+            self.assertEqual(generate(schema, out, logging.getLogger("test")), 0)
+            text = (Path(out) / "renderable_classes.hpp").read_text()
+        self.assertIn("static constexpr bool per_layer = true;", text)
+        self.assertIn("inline constexpr std::size_t kPerLayerCount = 1;", text)
 
     def test_a_renderable_class_needs_a_layout_parent_and_owned_shapes(self):
         from codegen.render_generator import renderables

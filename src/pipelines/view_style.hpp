@@ -223,6 +223,17 @@ namespace le
                         ViewLayerColumn{.purpose = ViewLayerPurpose::CUSTOM_SHAPE, .id = custom_shape_id},
                     },
                 });
+                // A per_layer renderable class's column (render=): conductor
+                // fill like CUSTOM_SHAPE, after it so it draws above this
+                // layer's own geometry.
+                renderable::for_each([&]<class R>(R) {
+                    if constexpr (R::per_layer)
+                    {
+                        const std::string name = layer->name + "/" + std::string(R::row_name);
+                        const ViewLayerId id = set.add(layer->name, name, R::purpose, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
+                        set.rows_.back().columns.push_back(ViewLayerColumn{.purpose = R::purpose, .id = id});
+                    }
+                });
             }
 
             // GCELLGRID/PLACEMENT_BLOCKAGE/REGION aren't physical Layers at
@@ -281,8 +292,9 @@ namespace le
             });
 
             // Each renderable class's own row (render=), after every core
-            // one: their purposes follow core's, so purposes() index ==
-            // ordinal still holds. Colors continue the non-routing palette.
+            // one. Colors continue the non-routing palette. A per_layer
+            // class keeps its row for shapes with no layer the Technology
+            // has (renderable_view_layer).
             renderable::for_each([&]<class R>(R) {
                 const ViewLayerId id = set.add(std::string(R::row_name), std::string(R::row_name), R::purpose, LayerId{}, renderable_style(other_index++));
                 set.rows_.push_back(ViewLayerRow{
@@ -303,6 +315,19 @@ namespace le
                 if (entry.layer == layer && entry.purpose == purpose)
                     return entry.id;
             return ViewLayerId{};
+        }
+
+        /// @brief Where a renderable class R's `shape` draws: a per_layer
+        /// class's column of the shape's layer, else (or with no such
+        /// layer) the class's own row.
+        template <class R>
+        ViewLayerId renderable_view_layer(const ShapeData &shape) const
+        {
+            if constexpr (R::per_layer)
+                if (shape.layer.valid())
+                    if (const ViewLayerId id = find(shape.layer, R::purpose); id.valid())
+                        return id;
+            return find(LayerId{}, R::purpose);
         }
 
         ViewLayerId boundary_view_layer() const { return boundary_id_; }
