@@ -231,7 +231,7 @@ def install(root: Path, update: Optional[Set[str]] = None, allow_downgrade: bool
         command = [str(le_shell), "-extensions", str(index)]
     else:
         bundle = build.build(le_fetched.directory, [fetched[m.name].directory for m in ordered], state, project.build_type,
-                             project.jobs, version, project.startup, project.cmake_args)
+                             project.jobs, project.startup, project.cmake_args)
         command = [str(bundle / "le_shell")]
     _write_stamp(state, project, new, command)
     return Path(command[0])

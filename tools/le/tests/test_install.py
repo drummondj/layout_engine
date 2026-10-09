@@ -19,7 +19,7 @@ class Recorder:
     def __init__(self):
         self.calls = []
 
-    def __call__(self, le_source, extension_dirs, state_dir, build_type, jobs, version, startup, cmake_args=None):
+    def __call__(self, le_source, extension_dirs, state_dir, build_type, jobs, startup, cmake_args=None):
         self.calls.append({"le_source": le_source, "extension_dirs": list(extension_dirs), "startup": startup, "cmake_args": cmake_args})
         bundle = state_dir / "bundle"
         bundle.mkdir(parents=True, exist_ok=True)
