@@ -1544,6 +1544,7 @@ TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
     // real draw z-order): ROW, BOUNDARY and PLACEMENT pseudo-rows first;
     // then the per-Layer TERMINAL/OBSTRUCTION/TRACK_PREFERRED/
     // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/CUSTOM_SHAPE columns; then
+    // any per_layer renderable classes' columns; then
     // the GCELLGRID/PLACEMENT_BLOCKAGE/REGION/... pseudo-rows. The raw ordinal values
     // below are le::ViewLayerPurpose's own declaration order, unrelated to
     // this traversal order.
@@ -1558,12 +1559,13 @@ TEST_F(ApiFixture, PurposeAtListsRowThenBoundaryThenTerminalObstruction)
     EXPECT_EQ(le_purpose_at(handle, 7), 5);   // ROUTING_BLOCKAGE
     EXPECT_EQ(le_purpose_at(handle, 8), 9);   // ROUTE
     EXPECT_EQ(le_purpose_at(handle, 9), 12);  // CUSTOM_SHAPE
-    EXPECT_EQ(le_purpose_at(handle, 10), 7);  // GCELLGRID
-    EXPECT_EQ(le_purpose_at(handle, 11), 8);  // PLACEMENT_BLOCKAGE
-    EXPECT_EQ(le_purpose_at(handle, 12), 10); // REGION
-    EXPECT_EQ(le_purpose_at(handle, 13), 13); // DEBUG
-    EXPECT_EQ(le_purpose_at(handle, 14), 14); // FLIGHTLINE
-    EXPECT_EQ(le_purpose_at(handle, 15), 15); // PORT_MARKER
+    const int32_t p = static_cast<int32_t>(le::renderable::kPerLayerCount);
+    EXPECT_EQ(le_purpose_at(handle, p + 10), 7); // GCELLGRID
+    EXPECT_EQ(le_purpose_at(handle, p + 11), 8); // PLACEMENT_BLOCKAGE
+    EXPECT_EQ(le_purpose_at(handle, p + 12), 10); // REGION
+    EXPECT_EQ(le_purpose_at(handle, p + 13), 13); // DEBUG
+    EXPECT_EQ(le_purpose_at(handle, p + 14), 14); // FLIGHTLINE
+    EXPECT_EQ(le_purpose_at(handle, p + 15), 15); // PORT_MARKER
 }
 
 TEST_F(ApiFixture, LayerNameVisibilityDefaultsTrueAndRoundTrips)

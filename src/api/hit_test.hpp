@@ -315,15 +315,18 @@ namespace le
         });
     }
 
-    /// @brief The view layer a Layout-view hit shape draws on: a renderable
-    /// class's own row (whatever the shape's layer), else its layer's
-    /// `purpose` column; invalid if it has neither.
+    /// @brief The view layer a Layout-view hit shape draws on: where a
+    /// renderable class puts it (ViewLayerSet::renderable_view_layer), else
+    /// its layer's `purpose` column; invalid if it has neither.
     inline ViewLayerId layout_hit_view_layer(const ViewLayerSet &view_layers, const ShapeData &shape, ViewLayerPurpose purpose)
     {
-        bool own_row = false;
-        renderable::for_each([&]<class R>(R) { own_row = own_row || purpose == R::purpose; });
-        if (own_row)
-            return view_layers.find(LayerId{}, purpose);
+        std::optional<ViewLayerId> renderable;
+        renderable::for_each([&]<class R>(R) {
+            if (purpose == R::purpose)
+                renderable = view_layers.renderable_view_layer<R>(shape);
+        });
+        if (renderable)
+            return *renderable;
         return shape.layer.valid() ? view_layers.find(shape.layer, purpose) : ViewLayerId{};
     }
 

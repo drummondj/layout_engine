@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string_view>
 
 namespace
 {
@@ -415,4 +416,86 @@ TEST(HelloExt, TiledPinsDrawSelectAndMoveBetweenTiles)
     ASSERT_EQ(le_update_shape(h, lone, 0, LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved, 4, 0, 0.0, 0, 0.0, 0, 0), 0);
     EXPECT_TRUE(lit(300, 300));
     EXPECT_FALSE(lit(300, 100));
+}
+
+// HelloPin is also per_layer: a pin's shapes draw in the helloPin column of
+// their layer's row, so hiding the layer or the purpose hides them and the
+// layer's selectable toggle applies; a pin with no layer stays on the
+// HELLO_PIN row.
+TEST(HelloExt, PinsOnALayerDrawAndSelectInThatLayersRow)
+{
+    le::ext::register_all();
+    Session session;
+    LeHandle *h = session.handle;
+    LeLayoutId layout{};
+    LeDesignId design{};
+    LeLayerId m1{};
+    LeTechnologyId technology_id{};
+    {
+        le::ext::WriteView view = le::ext::ExtensionContext(h, "hello_ext").write();
+        const le::TechnologyId technology = view.create_technology({.database_units_microns = 1000}).value();
+        m1 = le::ext::to_c(view.create_layer({.technology = technology, .name = "M1", .type = "ROUTING"}).value());
+        const le::DesignId top = view.create_design({.library = view.create_library({.name = "lib"}).value(), .name = "top"}).value();
+        layout = le::ext::to_c(view.create_layout({.design = top}).value());
+        design = le::ext::to_c(top);
+        technology_id = le::ext::to_c(technology);
+    } // releases the write lock: le_* calls take it themselves
+    ASSERT_EQ(le_set_current_technology(h, technology_id), 0);
+    // A 100 x 100 um die area, which the view fits.
+    const double die[] = {1, 4, 0, 0, 100, 0, 100, 100, 0, 100};
+    ASSERT_NE(le_create_shape(h, le_shape_owner_layout(layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index,
+              UINT32_MAX);
+    const auto add_pin = [&](LeLayerId layer, double x, double y) {
+        const double rect[] = {x, y, x + 10, y + 10};
+        return le_create_shape(h, le_shape_owner_hello_pin(le_create_hello_pin(h, layout)), layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0, 0, 0.0, 0);
+    };
+    const LeShapeId on_m1 = add_pin(m1, 20, 70);                       // pixels (80..120, 80..120)
+    const LeShapeId no_layer = add_pin(LeLayerId{UINT32_MAX, 0}, 70, 70); // pixels (280..320, 80..120)
+    ASSERT_NE(on_m1.index, UINT32_MAX);
+    ASSERT_NE(no_layer.index, UINT32_MAX);
+
+    int32_t hello_pin = -1;
+    for (int32_t p = 0; p < le_purpose_kind_count(); ++p)
+        if (std::string_view(le_purpose_name(p)) == "helloPin")
+            hello_pin = p;
+    ASSERT_GE(hello_pin, 0);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(h, design), 0);
+    le_set_viewport_size(h, 400, 400);
+    le_fit_scene(h, 0); // 4 px per um: (x, y) um is pixel (4x, 400 - 4y)
+    const auto lit = [&](int x, int y) {
+        const LePixelBuffer buffer = le_render_pixel_buffer(h);
+        if (!buffer.data || x >= buffer.width || y >= buffer.height)
+            return false;
+        const uint8_t *px = buffer.data + y * buffer.row_bytes + x * 4;
+        return px[0] + px[1] + px[2] > 30;
+    };
+    EXPECT_TRUE(lit(100, 100)) << "the M1 pin";
+    EXPECT_TRUE(lit(300, 100)) << "the pin with no layer";
+
+    le_set_layer_name_visible(h, "M1", false);
+    EXPECT_FALSE(lit(100, 100)) << "hidden with M1";
+    EXPECT_TRUE(lit(300, 100)) << "on the HELLO_PIN row, not M1";
+    le_set_layer_name_visible(h, "M1", true);
+    le_set_purpose_visible(h, hello_pin, 0);
+    EXPECT_FALSE(lit(100, 100)) << "hidden with the purpose";
+    EXPECT_FALSE(lit(300, 100));
+    le_set_purpose_visible(h, hello_pin, 1);
+
+    le_mouse_down(h, 100, 100);
+    le_mouse_up(h, 100, 100);
+    ASSERT_EQ(le_selection_count(h), 1);
+    EXPECT_EQ(le_selected_object_ref(h, 0).index, on_m1.index);
+    le_mouse_down(h, 380, 380); // click empty space: deselect
+    le_mouse_up(h, 380, 380);
+    ASSERT_EQ(le_selection_count(h), 0);
+
+    le_set_layer_name_selectable(h, "M1", 0);
+    le_mouse_down(h, 100, 100);
+    le_mouse_up(h, 100, 100);
+    EXPECT_EQ(le_selection_count(h), 0) << "M1 isn't selectable";
+    le_mouse_down(h, 300, 100);
+    le_mouse_up(h, 300, 100);
+    ASSERT_EQ(le_selection_count(h), 1);
+    EXPECT_EQ(le_selected_object_ref(h, 0).index, no_layer.index);
 }

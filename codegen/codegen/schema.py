@@ -4101,8 +4101,8 @@ class Render:
     """
     Declares that a class is drawn in the Layout view: each object's owned
     Shapes go on `purpose`'s own row (one pseudo-row, whatever their
-    layers), selectable as Shape pieces when the purpose has selectable
-    objects. The class needs a parent field of type Layout and a list of
+    layers), or with `per_layer` in `purpose`'s column of their layer's row,
+    selectable as Shape pieces when the purpose has selectable objects. The class needs a parent field of type Layout and a list of
     Shapes it owns (owner=True). codegen --target render lists every such
     class in renderable_classes.hpp, which the resolver, the hit tests and
     collect_dirty read, so a renderable class needs no hand-written core
@@ -4114,7 +4114,12 @@ class Render:
         tiled (bool): Split a Layout's objects into spatial tiles, like
             routes, so an edit rebuilds a tile or two rather than all of
             them - for classes with many objects per Layout.
+        per_layer (bool): Draw each Shape in a `purpose` column of its
+            layer's row, like routes, so it is shown and selected per layer
+            as well as per purpose. A Shape with no layer, or one the
+            Technology doesn't have, still draws on the purpose's own row.
     """
 
     purpose: "Purpose"
     tiled: bool = False
+    per_layer: bool = False

@@ -13,6 +13,8 @@ def extend(schema):
             name="HelloPin",
             description="A pin in a layout, drawn by its shapes, from the hello_ext example extension - there can be many",
             # Many per layout, so tiled: an edit redraws only the pins near it.
+            # Per layer: a pin's shapes draw in its layer's row, shown and
+            # selected per layer as well as per purpose.
             render=Render(
                 purpose=Purpose(
                     name="HELLO_PIN",
@@ -21,6 +23,7 @@ def extend(schema):
                     has_selectable_objects=True,
                 ),
                 tiled=True,
+                per_layer=True,
             ),
             fields=[
                 Field(

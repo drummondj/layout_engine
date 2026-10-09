@@ -997,15 +997,13 @@ namespace le
 
         // A renderable class's objects in one place - a tile's members, or a
         // whole untiled Layout's - still in `layout_id`: their shapes on the
-        // class's row, each recorded for selection.
+        // class's row, or a per_layer class's on their layers' columns, each
+        // recorded for selection.
         template <class R, class Objects>
         static void collect_renderable_objects(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const Objects &objects,
                                                ViewLayerShapes &shapes_by_layer, ChunkSources &sources)
         {
             const ResolverPhaseTimer timer("layout.renderable");
-            const ViewLayerId view_layer = view_layers.find(LayerId{}, R::purpose);
-            std::vector<RenderShape> &out = shapes_by_layer[view_layer];
-            std::vector<ShapeId> &recorded = sources.shapes[view_layer];
             for (const auto object : objects)
             {
                 const typename R::Id id{object.index, object.generation};
@@ -1014,8 +1012,9 @@ namespace le
                 for (const ShapeId shape_id : R::shapes(root, id))
                     if (const ShapeData *shape = root.get_shape(shape_id))
                     {
-                        out.push_back(to_render_shape(*shape));
-                        recorded.push_back(shape_id);
+                        const ViewLayerId view_layer = view_layers.renderable_view_layer<R>(*shape);
+                        shapes_by_layer[view_layer].push_back(to_render_shape(*shape));
+                        sources.shapes[view_layer].push_back(shape_id);
                     }
             }
         }

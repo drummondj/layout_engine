@@ -31,8 +31,9 @@ TEST_F(ViewStyleFixture, CreatesSevenPurposesPerLayerPlusNinePseudoLayers)
     // TRACK_NON_PREFERRED/ROUTING_BLOCKAGE/ROUTE/CUSTOM_SHAPE) + 9
     // pseudo-ViewLayers with no physical Layer (BOUNDARY/ROW/PLACEMENT/
     // GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/FLIGHTLINE/PORT_MARKER) = 23,
-    // plus one row per renderable class an extension adds.
-    EXPECT_EQ(view_layers.all().size(), 23u + renderable::kCount);
+    // plus one row per renderable class an extension adds, and a column per
+    // layer for each per_layer one.
+    EXPECT_EQ(view_layers.all().size(), 23u + renderable::kCount + 2 * renderable::kPerLayerCount);
 }
 
 TEST_F(ViewStyleFixture, FindResolvesDistinctViewLayersPerLayerAndPurpose)
@@ -148,7 +149,7 @@ TEST_F(ViewStyleFixture, RowsHasRowThenBoundaryThenPlacementThenOneRowPerPhysica
 TEST_F(ViewStyleFixture, PhysicalLayerRowHasTerminalObstructionTrackRoutingBlockageAndRouteColumns)
 {
     const auto &row = view_layers.rows().at(3);
-    ASSERT_EQ(row.columns.size(), 7u);
+    ASSERT_EQ(row.columns.size(), 7u + renderable::kPerLayerCount); // + per_layer renderable classes', after CUSTOM_SHAPE
     EXPECT_EQ(row.columns[0].purpose, ViewLayerPurpose::TERMINAL);
     EXPECT_EQ(row.columns[0].id, view_layers.find(m1, ViewLayerPurpose::TERMINAL));
     EXPECT_EQ(row.columns[1].purpose, ViewLayerPurpose::OBSTRUCTION);
@@ -163,6 +164,58 @@ TEST_F(ViewStyleFixture, PhysicalLayerRowHasTerminalObstructionTrackRoutingBlock
     EXPECT_EQ(row.columns[5].id, view_layers.find(m1, ViewLayerPurpose::ROUTE));
     EXPECT_EQ(row.columns[6].purpose, ViewLayerPurpose::CUSTOM_SHAPE);
     EXPECT_EQ(row.columns[6].id, view_layers.find(m1, ViewLayerPurpose::CUSTOM_SHAPE));
+    std::size_t column = 7;
+    renderable::for_each([&]<class R>(R) {
+        if constexpr (R::per_layer)
+        {
+            EXPECT_EQ(row.columns[column].purpose, R::purpose);
+            EXPECT_EQ(row.columns[column].id, view_layers.find(m1, R::purpose));
+            ++column;
+        }
+    });
+}
+
+// A per_layer renderable class's shapes draw in its column of their layer's
+// row, in that layer's color; with no layer the Technology has, on its own row.
+TEST_F(ViewStyleFixture, APerLayerRenderableShapeDrawsInItsLayersColumnElseItsOwnRow)
+{
+    if constexpr (renderable::kPerLayerCount == 0)
+        GTEST_SKIP() << "no per_layer renderable class in this build";
+    renderable::for_each([&]<class R>(R) {
+        if constexpr (R::per_layer)
+        {
+            const ViewLayerId own_row = view_layers.find(LayerId{}, R::purpose);
+            const ViewLayerId m1_column = view_layers.find(m1, R::purpose);
+            ASSERT_TRUE(own_row.valid());
+            ASSERT_TRUE(m1_column.valid());
+            EXPECT_NE(m1_column, view_layers.find(m2, R::purpose));
+            EXPECT_EQ(view_layers.get(m1_column)->layer_name, "M1");
+            EXPECT_EQ(view_layers.get(m1_column)->name, "M1/" + std::string(R::row_name));
+            EXPECT_EQ(view_layers.get(m1_column)->style.outline_color.r, view_layers.get(view_layers.find(m1, ViewLayerPurpose::TERMINAL))->style.outline_color.r);
+
+            ShapeData shape;
+            shape.layer = m1;
+            EXPECT_EQ(view_layers.renderable_view_layer<R>(shape), m1_column);
+            shape.layer = LayerId{};
+            EXPECT_EQ(view_layers.renderable_view_layer<R>(shape), own_row) << "no layer";
+            shape.layer = LayerId{12345, 0};
+            EXPECT_EQ(view_layers.renderable_view_layer<R>(shape), own_row) << "a layer the Technology doesn't have";
+        }
+    });
+}
+
+// Any other renderable class draws on its own row, whatever the shape's layer.
+TEST_F(ViewStyleFixture, AnOtherRenderableShapeDrawsOnItsOwnRowWhateverItsLayer)
+{
+    renderable::for_each([&]<class R>(R) {
+        if constexpr (!R::per_layer)
+        {
+            EXPECT_FALSE(view_layers.find(m1, R::purpose).valid());
+            ShapeData shape;
+            shape.layer = m1;
+            EXPECT_EQ(view_layers.renderable_view_layer<R>(shape), view_layers.find(LayerId{}, R::purpose));
+        }
+    });
 }
 
 TEST_F(ViewStyleFixture, CustomShapeUsesItsLayersOwnColorAndFillLikeTerminal)
@@ -359,8 +412,10 @@ TEST_F(ViewStyleFixture, PurposesListsEachDistinctPurposeOnceInFirstEncounteredO
     // CUSTOM_SHAPE; M2's row repeats all seven (deduplicated, not appended
     // again); GCELLGRID/PLACEMENT_BLOCKAGE/REGION/DEBUG/FLIGHTLINE/PORT_MARKER each
     // contribute their own single new purpose last.
+    // A per_layer renderable class's purpose follows CUSTOM_SHAPE in M1's row.
     const auto purposes = view_layers.purposes();
     ASSERT_EQ(purposes.size(), 16u + renderable::kCount);
+    const std::size_t p = renderable::kPerLayerCount;
     EXPECT_EQ(purposes[0], ViewLayerPurpose::ROW);
     EXPECT_EQ(purposes[1], ViewLayerPurpose::BOUNDARY);
     EXPECT_EQ(purposes[2], ViewLayerPurpose::PLACEMENT);
@@ -371,12 +426,12 @@ TEST_F(ViewStyleFixture, PurposesListsEachDistinctPurposeOnceInFirstEncounteredO
     EXPECT_EQ(purposes[7], ViewLayerPurpose::ROUTING_BLOCKAGE);
     EXPECT_EQ(purposes[8], ViewLayerPurpose::ROUTE);
     EXPECT_EQ(purposes[9], ViewLayerPurpose::CUSTOM_SHAPE);
-    EXPECT_EQ(purposes[10], ViewLayerPurpose::GCELLGRID);
-    EXPECT_EQ(purposes[11], ViewLayerPurpose::PLACEMENT_BLOCKAGE);
-    EXPECT_EQ(purposes[12], ViewLayerPurpose::REGION);
-    EXPECT_EQ(purposes[13], ViewLayerPurpose::DEBUG);
-    EXPECT_EQ(purposes[14], ViewLayerPurpose::FLIGHTLINE);
-    EXPECT_EQ(purposes[15], ViewLayerPurpose::PORT_MARKER);
+    EXPECT_EQ(purposes[p + 10], ViewLayerPurpose::GCELLGRID);
+    EXPECT_EQ(purposes[p + 11], ViewLayerPurpose::PLACEMENT_BLOCKAGE);
+    EXPECT_EQ(purposes[p + 12], ViewLayerPurpose::REGION);
+    EXPECT_EQ(purposes[p + 13], ViewLayerPurpose::DEBUG);
+    EXPECT_EQ(purposes[p + 14], ViewLayerPurpose::FLIGHTLINE);
+    EXPECT_EQ(purposes[p + 15], ViewLayerPurpose::PORT_MARKER);
 }
 
 TEST(ViewStylePalette, CutLayerAboveARoutingLayerSharesItsColor)
