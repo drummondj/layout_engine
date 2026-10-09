@@ -1852,3 +1852,26 @@ Building the layer set costs ~7 us more (one more view layer per physical
 layer), once per Technology change. The resolver is within noise from 2x1 up;
 1x1's +3% is outside its 1.1% cv, most likely `ViewLayerSet::find`'s linear
 scan of a longer lookup list, which every route shape does.
+
+## 2026-10-09 — Labels for renderable classes (#121)
+
+`Render(label_field=...)`: hello_ext's `HelloMarker` is labelled with its
+name. As for #120, both sides were scratch Release trees with
+`LE_EXTENSION_DIRS=hello_ext` (`build_release` has no extensions);
+`aes_scaling_*` has no renderable objects, and an unlabelled class compiles to
+the old code (`if constexpr` on `R::has_label`). `pipeline_benchmarks`, means
+of 5 (cv in brackets), Ryzen 9 7950X, WSL2:
+
+| | before | after |
+|---|---|---|
+| BM_HierarchyResolver/1x1 | 130 ms (1.7%) | 130 ms (1.3%) |
+| BM_HierarchyResolver/2x1 | 264 ms (3.4%) | 261 ms (1.4%) |
+| BM_HierarchyResolver/2x2 | 553 ms (14.1%) | 554 ms (13.3%) |
+| BM_HierarchyResolver/3x2 | 840 ms (14.9%) | 837 ms (13.3%) |
+| BM_HierarchyResolver/3x3 | 1286 ms (11.3%) | 1337 ms (10.8%) |
+| BM_RasterizeBlend2D/1x1 | 36.9 ms (0.7%) | 37.1 ms (0.9%) |
+| BM_RasterizeBlend2D/2x2 | 202 ms (0.6%) | 202 ms (0.5%) |
+| BM_RasterizeBlend2D/3x3 | 249 ms (0.6%) | 252 ms (0.5%) |
+
+Within noise; Rasterize's code is unchanged (labels use its existing text
+pass).
