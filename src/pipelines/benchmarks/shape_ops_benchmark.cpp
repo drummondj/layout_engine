@@ -40,13 +40,13 @@ namespace
 {
     // C clusters on a pitch-40 grid, each a plus of 4 overlapping rects
     // offset by `shift` - disjoint from every other cluster.
-    Shape clustered_layer(int64_t rect_count, int64_t shift)
+    ShapeData clustered_layer(int64_t rect_count, int64_t shift)
     {
         const int64_t clusters = std::max<int64_t>(rect_count / 4, 1);
         int64_t side = 1;
         while (side * side < clusters)
             ++side;
-        Shape shape;
+        ShapeData shape;
         shape.rects.reserve(static_cast<size_t>(clusters * 4));
         for (int64_t i = 0; i < clusters; ++i)
         {
@@ -70,8 +70,8 @@ namespace
     void BM_ShapeBoolean(benchmark::State &state, BooleanOp op)
     {
         const int64_t n = state.range(0);
-        const Shape a = clustered_layer(n, 0);
-        const Shape b = clustered_layer(n, 6);
+        const ShapeData a = clustered_layer(n, 0);
+        const ShapeData b = clustered_layer(n, 6);
         AreaGeometry result;
         for (auto _ : state)
         {
@@ -84,7 +84,7 @@ namespace
     void BM_Merge_LeftFold(benchmark::State &state)
     {
         const int64_t n = state.range(0);
-        const Shape shape = clustered_layer(n, 0);
+        const ShapeData shape = clustered_layer(n, 0);
         size_t polygons = 0;
         for (auto _ : state)
         {
@@ -99,7 +99,7 @@ namespace
     void BM_Merge_Balanced(benchmark::State &state)
     {
         const int64_t n = state.range(0);
-        const Shape shape = clustered_layer(n, 0);
+        const ShapeData shape = clustered_layer(n, 0);
         AreaGeometry result;
         for (auto _ : state)
         {
@@ -112,7 +112,7 @@ namespace
     void BM_ShapeToRects(benchmark::State &state)
     {
         const int64_t n = state.range(0);
-        const Shape shape = clustered_layer(n, 0);
+        const ShapeData shape = clustered_layer(n, 0);
         std::vector<Rect> result;
         for (auto _ : state)
         {
@@ -128,11 +128,11 @@ namespace
     void BM_ShapeToRects_Holes(benchmark::State &state)
     {
         const int64_t n = state.range(0);
-        const Shape holes = clustered_layer(n, 0);
+        const ShapeData holes = clustered_layer(n, 0);
         const std::optional<Rect> box = Geometry::bbox(holes);
-        const Shape plate{.rects = {Rect{.ll = {box->ll.x - 10, box->ll.y - 10}, .ur = {box->ur.x + 10, box->ur.y + 10}}}};
+        const ShapeData plate{.rects = {Rect{.ll = {box->ll.x - 10, box->ll.y - 10}, .ur = {box->ur.x + 10, box->ur.y + 10}}}};
         const AreaGeometry holed = Geometry::boolean_shapes({&plate}, {&holes}, BooleanOp::Not);
-        const Shape shape{.polygons = holed.polygons, .rects = holed.rects};
+        const ShapeData shape{.polygons = holed.polygons, .rects = holed.rects};
         std::vector<Rect> result;
         for (auto _ : state)
         {
@@ -146,7 +146,7 @@ namespace
     void BM_ShapeSize(benchmark::State &state, int64_t amount)
     {
         const int64_t n = state.range(0);
-        const Shape shape = clustered_layer(n, 0);
+        const ShapeData shape = clustered_layer(n, 0);
         AreaGeometry result;
         for (auto _ : state)
         {
@@ -159,7 +159,7 @@ namespace
     void BM_ShapeOutlinePaths(benchmark::State &state)
     {
         const int64_t n = state.range(0);
-        const Shape shape = clustered_layer(n, 0);
+        const ShapeData shape = clustered_layer(n, 0);
         std::vector<Path> result;
         for (auto _ : state)
         {

@@ -53,15 +53,15 @@ namespace le::shape_ops
         // Every input id resolved and its iterates expanded (Geometry's
         // operations only read rects/polygons/paths), or the first bad id's
         // error.
-        inline std::expected<std::vector<Shape>, std::string> resolve_inputs(const Root &root, const std::vector<ShapeId> &ids, const char *what)
+        inline std::expected<std::vector<ShapeData>, std::string> resolve_inputs(const Root &root, const std::vector<ShapeId> &ids, const char *what)
         {
             if (ids.empty())
                 return std::unexpected(std::string("no ") + what + " given");
-            std::vector<Shape> shapes;
+            std::vector<ShapeData> shapes;
             shapes.reserve(ids.size());
             for (ShapeId id : ids)
             {
-                const Shape *shape = root.get_shape(id);
+                const ShapeData *shape = root.get_shape(id);
                 if (!shape)
                     return std::unexpected(std::string("unknown shape in ") + what);
                 shapes.push_back(Geometry::expand_iterates(*shape));
@@ -69,11 +69,11 @@ namespace le::shape_ops
             return shapes;
         }
 
-        inline std::vector<const Shape *> pointers(const std::vector<Shape> &shapes)
+        inline std::vector<const ShapeData *> pointers(const std::vector<ShapeData> &shapes)
         {
-            std::vector<const Shape *> out;
+            std::vector<const ShapeData *> out;
             out.reserve(shapes.size());
-            for (const Shape &shape : shapes)
+            for (const ShapeData &shape : shapes)
                 out.push_back(&shape);
             return out;
         }
@@ -86,7 +86,7 @@ namespace le::shape_ops
             return root.create_shape(std::move(data));
         }
 
-        inline LayerOrPurpose layer_of(const Shape &shape, const std::optional<LayerOrPurpose> &target)
+        inline LayerOrPurpose layer_of(const ShapeData &shape, const std::optional<LayerOrPurpose> &target)
         {
             if (target)
                 return *target;
@@ -122,7 +122,7 @@ namespace le::shape_ops
             // Compute every result before creating any Shape, so a failing
             // input (e.g. an unsupported size) leaves the database untouched.
             std::vector<std::pair<LayerOrPurpose, ShapeData>> pending;
-            for (const Shape &shape : *shapes)
+            for (const ShapeData &shape : *shapes)
             {
                 std::expected<ShapeData, std::string> data = make_data(shape);
                 if (!data)
@@ -144,7 +144,7 @@ namespace le::shape_ops
     /// (a real Layer, or a layer-less purpose such as DEBUG).
     inline Result copy(Root &root, const std::vector<ShapeId> &inputs, LayerOrPurpose layer, const ShapeParent &parent)
     {
-        return detail::per_input(root, inputs, layer, parent, [](const Shape &shape) -> std::expected<ShapeData, std::string>
+        return detail::per_input(root, inputs, layer, parent, [](const ShapeData &shape) -> std::expected<ShapeData, std::string>
                                  { return ShapeData{
                                        .paths = shape.paths,
                                        .polygons = shape.polygons,
@@ -180,7 +180,7 @@ namespace le::shape_ops
     /// @brief shape_to_polygon: one new polygon-only Shape per input.
     inline Result to_polygons(Root &root, const std::vector<ShapeId> &inputs, const std::optional<LayerOrPurpose> &layer, const ShapeParent &parent)
     {
-        return detail::per_input(root, inputs, layer, parent, [](const Shape &shape) -> std::expected<ShapeData, std::string>
+        return detail::per_input(root, inputs, layer, parent, [](const ShapeData &shape) -> std::expected<ShapeData, std::string>
                                  { return ShapeData{.polygons = Geometry::shape_to_polygons(shape)}; });
     }
 
@@ -188,7 +188,7 @@ namespace le::shape_ops
     inline Result to_rects(Root &root, const std::vector<ShapeId> &inputs, FractureDirection direction,
                            const std::optional<LayerOrPurpose> &layer, const ShapeParent &parent)
     {
-        return detail::per_input(root, inputs, layer, parent, [direction](const Shape &shape) -> std::expected<ShapeData, std::string>
+        return detail::per_input(root, inputs, layer, parent, [direction](const ShapeData &shape) -> std::expected<ShapeData, std::string>
                                  { return ShapeData{.rects = Geometry::shape_to_rects(shape, direction)}; });
     }
 
@@ -198,7 +198,7 @@ namespace le::shape_ops
     inline Result size(Root &root, const std::vector<ShapeId> &inputs, int64_t dx, int64_t dy,
                        const std::optional<LayerOrPurpose> &layer, const ShapeParent &parent)
     {
-        return detail::per_input(root, inputs, layer, parent, [dx, dy](const Shape &shape) -> std::expected<ShapeData, std::string>
+        return detail::per_input(root, inputs, layer, parent, [dx, dy](const ShapeData &shape) -> std::expected<ShapeData, std::string>
                                  {
             std::optional<AreaGeometry> geometry = Geometry::size_shape(shape, dx, dy);
             if (!geometry)
@@ -213,7 +213,7 @@ namespace le::shape_ops
     {
         if (width <= 0)
             return std::unexpected("width must be positive");
-        return detail::per_input(root, inputs, layer, parent, [width](const Shape &shape) -> std::expected<ShapeData, std::string>
+        return detail::per_input(root, inputs, layer, parent, [width](const ShapeData &shape) -> std::expected<ShapeData, std::string>
                                  { return ShapeData{.paths = Geometry::shape_outline_paths(shape, width)}; });
     }
 

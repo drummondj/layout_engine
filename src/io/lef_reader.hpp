@@ -95,7 +95,7 @@ namespace le
         int64_t microns_squared_to_dbu(const double microns_squared);
         static Polygon polygon_from_parser(LEFReader *reader, int count, double *x, double *y);
         static Rect rect_from_parser(LEFReader *reader, double xl, double yl, double xh, double yh);
-        static std::vector<Shape> shapes_from_parser(LEFReader *reader, lefiGeometries *geometries);
+        static std::vector<ShapeData> shapes_from_parser(LEFReader *reader, lefiGeometries *geometries);
         // Shared by lefrViaCbkFn (top-level VIA) and lefrNonDefaultCbkFn
         // (VIA embedded inline in a NONDEFAULTRULE) - lefiVia's per-layer
         // rect/polygon shape is identical in both contexts.

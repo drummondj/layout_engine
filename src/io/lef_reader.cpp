@@ -239,7 +239,7 @@ namespace le
     void LEFReader::post_process(LEFReader *reader)
     {
         // Look for OVERLAP obstructions
-        std::vector<const Shape *> overlap_shapes;
+        std::vector<const ShapeData *> overlap_shapes;
         const LayerId overlap_layer_id = reader->root_->get_layer_by_name("OVERLAP");
 
         if (overlap_layer_id.valid())
@@ -1984,15 +1984,15 @@ namespace le
     // as a parse error before any such item is added to `geometries` - but
     // kept anyway as defense-in-depth at this file-parsing boundary rather
     // than removed as dead code.
-    std::vector<Shape> LEFReader::shapes_from_parser(LEFReader *reader, lefiGeometries *geometries)
+    std::vector<ShapeData> LEFReader::shapes_from_parser(LEFReader *reader, lefiGeometries *geometries)
     {
-        std::vector<Shape> shapes;
+        std::vector<ShapeData> shapes;
         int64_t width = 0;
         uint64_t geo_count = 0;
 
         shapes.reserve(geometries->numItems());
 
-        std::optional<Shape> shape;
+        std::optional<ShapeData> shape;
         for (int j = 0; j < geometries->numItems(); j++)
         {
             auto item_type = geometries->itemType(j);
@@ -2014,7 +2014,7 @@ namespace le
                     shape.reset();
                     break;
                 }
-                shape = Shape{.layer = layer_id};
+                shape = ShapeData{.layer = layer_id};
                 break;
             }
             case lefiGeomEnum::lefiGeomWidthE:

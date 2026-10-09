@@ -161,7 +161,7 @@ namespace le
         /// from - `ComposeStage` only needs to stroke an outline around
         /// each one, not know which selection-variant alternative
         /// produced it. Empty when nothing is selected.
-        std::vector<Shape> selected_piece_outlines;
+        std::vector<ShapeData> selected_piece_outlines;
 
         /// @brief The selected placements' flightlines
         /// (core/flightlines.hpp) - empty unless the FLIGHTLINE
@@ -214,7 +214,7 @@ namespace le
         /// (mirrors `LeHandle::move_delta()`'s own nullopt conditions) -
         /// `ComposeStage` draws nothing when this is empty, regardless of
         /// `move_ghost_offset_dbu`'s own value.
-        std::vector<Shape> move_ghost_pieces_dbu;
+        std::vector<ShapeData> move_ghost_pieces_dbu;
 
         /// @brief The offset (`LeHandle::move_delta()`) every entry of
         /// `move_ghost_pieces_dbu` should be translated by before drawing -

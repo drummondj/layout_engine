@@ -16,7 +16,7 @@ using namespace le;
 
 namespace
 {
-    Shape rect_piece(Rect r) { return Shape{.rects = {r}}; }
+    ShapeData rect_piece(Rect r) { return ShapeData{.rects = {r}}; }
 
     ShapeSnapContext snap(ShapeSnapMode mode)
     {
@@ -43,7 +43,7 @@ namespace
 
 TEST(ShapeResize, FindsTheNearestRectEdgeWithinTolerance)
 {
-    const Shape piece = rect_piece(Rect{.ll = {0, 0}, .ur = {1000, 500}});
+    const ShapeData piece = rect_piece(Rect{.ll = {0, 0}, .ur = {1000, 500}});
     auto h = find_resize_handle(piece, Point{1003, 250}, 10);
     ASSERT_TRUE(h);
     EXPECT_EQ(h->kind, PieceKind::RECT);
@@ -57,7 +57,7 @@ TEST(ShapeResize, FindsTheNearestRectEdgeWithinTolerance)
 
 TEST(ShapeResize, APathSegmentIsGrabbedAnywhereWithinItsWidth)
 {
-    const Shape piece{.paths = {u_path()}};
+    const ShapeData piece{.paths = {u_path()}};
     auto h = find_resize_handle(piece, Point{500, 1009}, 2); // inside the 20-wide top segment, beyond the 2-dbu tolerance
     ASSERT_TRUE(h);
     EXPECT_EQ(h->kind, PieceKind::PATH);
@@ -67,7 +67,7 @@ TEST(ShapeResize, APathSegmentIsGrabbedAnywhereWithinItsWidth)
 
 TEST(ShapeResize, RectEdgeMovesAcrossItsAxisAndSnaps)
 {
-    const Shape piece = rect_piece(Rect{.ll = {0, 0}, .ur = {1000, 500}});
+    const ShapeData piece = rect_piece(Rect{.ll = {0, 0}, .ur = {1000, 500}});
     const ResizeHandle right{PieceKind::RECT, 1};
     EXPECT_EQ(resize_piece(piece, right, Point{237, 999}, snap(ShapeSnapMode::NONE)).rects[0], (Rect{.ll = {0, 0}, .ur = {1237, 500}}));
     EXPECT_EQ(resize_piece(piece, right, Point{237, 0}, snap(ShapeSnapMode::USER_GRID)).rects[0], (Rect{.ll = {0, 0}, .ur = {1200, 500}}));
@@ -82,7 +82,7 @@ TEST(ShapeResize, RectEdgeMovesAcrossItsAxisAndSnaps)
 
 TEST(ShapeResize, ARectDraggedPastItsOppositeEdgeIsRenormalized)
 {
-    const Shape piece = rect_piece(Rect{.ll = {0, 0}, .ur = {1000, 500}});
+    const ShapeData piece = rect_piece(Rect{.ll = {0, 0}, .ur = {1000, 500}});
     EXPECT_EQ(resize_piece(piece, ResizeHandle{PieceKind::RECT, 0}, Point{1500, 0}, snap(ShapeSnapMode::NONE)).rects[0],
               (Rect{.ll = {1000, 0}, .ur = {1500, 500}}));
 }
@@ -90,8 +90,8 @@ TEST(ShapeResize, ARectDraggedPastItsOppositeEdgeIsRenormalized)
 TEST(ShapeResize, APolygonEdgeMovesWholeAndItsNeighboursStretch)
 {
     // Edge 1 is the vertical (400,0)-(400,200): it moves in x only.
-    const Shape piece{.polygons = {l_shape()}};
-    const Shape out = resize_piece(piece, ResizeHandle{PieceKind::POLYGON, 1}, Point{130, 77}, snap(ShapeSnapMode::USER_GRID));
+    const ShapeData piece{.polygons = {l_shape()}};
+    const ShapeData out = resize_piece(piece, ResizeHandle{PieceKind::POLYGON, 1}, Point{130, 77}, snap(ShapeSnapMode::USER_GRID));
     EXPECT_EQ(out.polygons[0].points, (std::vector<Point>{{0, 0}, {500, 0}, {500, 200}, {200, 200}, {200, 400}, {0, 400}}));
 }
 
@@ -100,7 +100,7 @@ TEST(ShapeResize, AClosedPolygonsRepeatedFirstPointFollowsItsEdge)
     Polygon closed = l_shape();
     closed.points.push_back(closed.points.front());
     // Edge 5 is (0,400)-(0,0) - the wrap-around edge, touching the repeat.
-    const Shape out = resize_piece(Shape{.polygons = {closed}}, ResizeHandle{PieceKind::POLYGON, 5}, Point{-100, 0}, snap(ShapeSnapMode::NONE));
+    const ShapeData out = resize_piece(ShapeData{.polygons = {closed}}, ResizeHandle{PieceKind::POLYGON, 5}, Point{-100, 0}, snap(ShapeSnapMode::NONE));
     EXPECT_EQ(out.polygons[0].points.front(), (Point{-100, 0}));
     EXPECT_EQ(out.polygons[0].points.back(), (Point{-100, 0}));
     EXPECT_EQ(out.polygons[0].points[5], (Point{-100, 400}));
@@ -109,15 +109,15 @@ TEST(ShapeResize, AClosedPolygonsRepeatedFirstPointFollowsItsEdge)
 TEST(ShapeResize, APathSegmentMovesWithItsAdjacentPoints)
 {
     // The top segment (0,1000)-(1000,1000) moves in y; its neighbours stretch.
-    const Shape piece{.paths = {u_path()}};
-    const Shape out = resize_piece(piece, ResizeHandle{PieceKind::PATH, 1}, Point{55, 233}, snap(ShapeSnapMode::NONE));
+    const ShapeData piece{.paths = {u_path()}};
+    const ShapeData out = resize_piece(piece, ResizeHandle{PieceKind::PATH, 1}, Point{55, 233}, snap(ShapeSnapMode::NONE));
     EXPECT_EQ(out.paths[0].polygon.points, (std::vector<Point>{{0, 0}, {0, 1233}, {1000, 1233}, {1000, 0}}));
     EXPECT_EQ(out.paths[0].width, 20);
 }
 
 TEST(ShapeResize, PathSnapsItsCenterlineToTracksOrItsEdgesToTheManufacturingGrid)
 {
-    const Shape piece{.paths = {u_path()}};
+    const ShapeData piece{.paths = {u_path()}};
     const ResizeHandle top{PieceKind::PATH, 1};
 
     ShapeSnapContext tracks = snap(ShapeSnapMode::TRACKS);
@@ -151,7 +151,7 @@ TEST(ShapeResize, SnapModesOfferedPerKind)
 // target; an axis the move doesn't change stays put.
 TEST(ShapeMoveSnap, APathsFirstPointLandsOnTheTargetFromTheRawDelta)
 {
-    const Shape piece{.paths = {u_path()}}; // first point (0,0), width 20
+    const ShapeData piece{.paths = {u_path()}}; // first point (0,0), width 20
 
     // Raw (137, 0): x 137 -> user grid 100; y untouched.
     EXPECT_EQ(snap_moved_piece_delta(piece, PieceKind::PATH, Point{137, 0}, snap(ShapeSnapMode::USER_GRID)), (Point{100, 0}));
@@ -167,13 +167,13 @@ TEST(ShapeMoveSnap, APathsFirstPointLandsOnTheTargetFromTheRawDelta)
 
 TEST(ShapeMoveSnap, AViaOrViaArrayOriginLandsOnTheTarget)
 {
-    const Shape via{.vias = {ShapeVia{.via_name = "V", .origin = Point{1010, 2020}}}};
+    const ShapeData via{.vias = {ShapeVia{.via_name = "V", .origin = Point{1010, 2020}}}};
     // Origin (1010, 2020) + raw (240, 370) = (1250, 2390) -> user grid (1300, 2400).
     EXPECT_EQ(snap_moved_piece_delta(via, PieceKind::VIA, Point{240, 370}, snap(ShapeSnapMode::USER_GRID)), (Point{290, 380}));
     // A raw delta along x only doesn't pull the off-grid y onto the grid.
     EXPECT_EQ(snap_moved_piece_delta(via, PieceKind::VIA, Point{240, 0}, snap(ShapeSnapMode::USER_GRID)), (Point{290, 0}));
 
-    const Shape array{.via_iterates = {ShapeViaIterate{.via_name = "V", .origin = Point{3, 0}, .num_x = 2, .num_y = 2, .space_x = 100, .space_y = 100}}};
+    const ShapeData array{.via_iterates = {ShapeViaIterate{.via_name = "V", .origin = Point{3, 0}, .num_x = 2, .num_y = 2, .space_x = 100, .space_y = 100}}};
     // (3 + 11) = 14 -> manufacturing grid 15.
     EXPECT_EQ(snap_moved_piece_delta(array, PieceKind::VIA_ITERATE, Point{11, 0}, snap(ShapeSnapMode::MANUFACTURING_GRID)), (Point{12, 0}));
 }
@@ -217,7 +217,7 @@ TEST(ShapeResize, LayerTrackGridsUseLayoutTracksElseTheLayersPitch)
 
 TEST(ShapeResize, ReplacePieceSwapsOnlyThatPiece)
 {
-    Shape data{.rects = {Rect{.ll = {0, 0}, .ur = {1, 1}}, Rect{.ll = {5, 5}, .ur = {6, 6}}}};
+    ShapeData data{.rects = {Rect{.ll = {0, 0}, .ur = {1, 1}}, Rect{.ll = {5, 5}, .ur = {6, 6}}}};
     replace_piece(data, PieceKind::RECT, 1, rect_piece(Rect{.ll = {5, 5}, .ur = {9, 9}}));
     EXPECT_EQ(data.rects[0], (Rect{.ll = {0, 0}, .ur = {1, 1}}));
     EXPECT_EQ(data.rects[1], (Rect{.ll = {5, 5}, .ur = {9, 9}}));
@@ -226,7 +226,7 @@ TEST(ShapeResize, ReplacePieceSwapsOnlyThatPiece)
 TEST(ShapeResize, OtherPathRunsOnAMovedSegmentsEndpointsFollowIt)
 {
     // A DEF route's three wire runs as separate paths: up, across, down.
-    Shape shape{.paths = {
+    ShapeData shape{.paths = {
                     Path{.width = 20, .polygon = Polygon{.points = {{0, 0}, {0, 1000}}}},
                     Path{.width = 20, .polygon = Polygon{.points = {{0, 1000}, {1000, 1000}}}},
                     Path{.width = 20, .polygon = Polygon{.points = {{1000, 1000}, {1000, 0}}}},

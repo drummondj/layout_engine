@@ -29,7 +29,7 @@ namespace
         return (std::filesystem::temp_directory_path() / name).string();
     }
 
-    void expect_shapes_equal(const Root &original_root, const Shape &original, const Root &written_root, const Shape &written)
+    void expect_shapes_equal(const Root &original_root, const ShapeData &original, const Root &written_root, const ShapeData &written)
     {
         const LayerData *original_layer = original_root.get_layer(original.layer);
         const LayerData *written_layer = written_root.get_layer(written.layer);
@@ -1042,8 +1042,8 @@ TEST_F(LEFAntennaRoundtripFixture, RoundTripsPinScalarFieldsDirectionEnumPortCla
     const std::vector<ShapeId> &written_port_a_shapes = written_root.get_terminal_port_shapes(written_port_ids[0]);
     ASSERT_EQ(original_port_a_shapes.size(), written_port_a_shapes.size());
     ASSERT_EQ(original_port_a_shapes.size(), 1u);
-    const Shape &original_port_a_shape = *original_root.get_shape(original_port_a_shapes[0]);
-    const Shape &written_port_a_shape = *written_root.get_shape(written_port_a_shapes[0]);
+    const ShapeData &original_port_a_shape = *original_root.get_shape(original_port_a_shapes[0]);
+    const ShapeData &written_port_a_shape = *written_root.get_shape(written_port_a_shapes[0]);
     EXPECT_EQ(original_port_a_shape.spacing, written_port_a_shape.spacing);
     ASSERT_EQ(original_port_a_shape.vias.size(), written_port_a_shape.vias.size());
     ASSERT_EQ(original_port_a_shape.vias.size(), 1u);
@@ -1069,8 +1069,8 @@ TEST_F(LEFAntennaRoundtripFixture, RoundTripsPinScalarFieldsDirectionEnumPortCla
     const std::vector<ShapeId> &written_obs_shapes = written_root.get_obstruction_shapes(written_obs_ids.front());
     ASSERT_EQ(original_obs_shapes.size(), written_obs_shapes.size());
     ASSERT_EQ(original_obs_shapes.size(), 1u);
-    const Shape &original_obs_shape = *original_root.get_shape(original_obs_shapes[0]);
-    const Shape &written_obs_shape = *written_root.get_shape(written_obs_shapes[0]);
+    const ShapeData &original_obs_shape = *original_root.get_shape(original_obs_shapes[0]);
+    const ShapeData &written_obs_shape = *written_root.get_shape(written_obs_shapes[0]);
     EXPECT_TRUE(original_obs_shape.except_pg_net);
     EXPECT_EQ(original_obs_shape.except_pg_net, written_obs_shape.except_pg_net);
 }

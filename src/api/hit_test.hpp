@@ -79,7 +79,7 @@ namespace le
         ShapeId shape_id;
         PieceKind piece_kind;
         size_t piece_index;
-        Shape outline;
+        ShapeData outline;
     };
 
     /// @brief Whether a given ViewLayer (by layer name + purpose) should
@@ -97,7 +97,7 @@ namespace le
     /// renderer skips must not be hit-testable either: a click landing on
     /// a shape too small to see must not select it
     /// (`ApiFixture.SubPixelShapeIsNotRenderedAndIsNotSelectable`).
-    inline bool abstract_piece_is_sub_pixel(const Shape &piece, double scale)
+    inline bool abstract_piece_is_sub_pixel(const ShapeData &piece, double scale)
     {
         const std::optional<Rect> bbox = Geometry::bbox(piece);
         if (!bbox)
@@ -131,7 +131,7 @@ namespace le
 
             for (ShapeId shape_id : group_it->second)
             {
-                const Shape *shape = root.get_shape(shape_id);
+                const ShapeData *shape = root.get_shape(shape_id);
                 if (!shape)
                     continue;
                 for (HitPiece &piece : Geometry::find_hit_pieces(*shape, dbu_point))
@@ -177,7 +177,7 @@ namespace le
             for (TerminalPortId port_id : root.get_terminal_ports(terminal_id))
                 for (ShapeId shape_id : root.get_terminal_port_shapes(port_id))
                 {
-                    const Shape *shape = root.get_shape(shape_id);
+                    const ShapeData *shape = root.get_shape(shape_id);
                     if (!shape || !shape->layer.valid())
                         continue;
                     by_layer[view_layers.find(shape->layer, ViewLayerPurpose::TERMINAL)].push_back(shape_id);
@@ -186,7 +186,7 @@ namespace le
         for (ObstructionId obstruction_id : root.get_abstract_obstructions(abstract_id))
             for (ShapeId shape_id : root.get_obstruction_shapes(obstruction_id))
             {
-                const Shape *shape = root.get_shape(shape_id);
+                const ShapeData *shape = root.get_shape(shape_id);
                 if (!shape || !shape->layer.valid())
                     continue;
                 by_layer[view_layers.find(shape->layer, ViewLayerPurpose::OBSTRUCTION)].push_back(shape_id);
@@ -221,7 +221,7 @@ namespace le
 
         auto collect = [&](ShapeId shape_id, ViewLayerPurpose purpose)
         {
-            const Shape *shape = root.get_shape(shape_id);
+            const ShapeData *shape = root.get_shape(shape_id);
             if (!shape || !shape->layer.valid())
                 return;
 
@@ -289,14 +289,14 @@ namespace le
         if (candidates)
         {
             for (const ShapeId shape_id : *candidates)
-                if (const Shape *shape = root.get_shape(shape_id); shape && shape->route().valid())
+                if (const ShapeData *shape = root.get_shape(shape_id); shape && shape->route().valid())
                     visit(shape_id, ViewLayerPurpose::ROUTE);
             for (const ShapeId shape_id : *candidates)
-                if (const Shape *shape = root.get_shape(shape_id); shape && !shape->route().valid() && shape->physical_port_segment().valid())
+                if (const ShapeData *shape = root.get_shape(shape_id); shape && !shape->route().valid() && shape->physical_port_segment().valid())
                     visit(shape_id, ViewLayerPurpose::TERMINAL);
             renderable::for_each([&]<class R>(R) {
                 for (const ShapeId shape_id : *candidates)
-                    if (const Shape *shape = root.get_shape(shape_id); shape && R::owner_of(*shape).valid())
+                    if (const ShapeData *shape = root.get_shape(shape_id); shape && R::owner_of(*shape).valid())
                         visit(shape_id, R::purpose);
             });
             return;
@@ -318,7 +318,7 @@ namespace le
     /// @brief The view layer a Layout-view hit shape draws on: a renderable
     /// class's own row (whatever the shape's layer), else its layer's
     /// `purpose` column; invalid if it has neither.
-    inline ViewLayerId layout_hit_view_layer(const ViewLayerSet &view_layers, const Shape &shape, ViewLayerPurpose purpose)
+    inline ViewLayerId layout_hit_view_layer(const ViewLayerSet &view_layers, const ShapeData &shape, ViewLayerPurpose purpose)
     {
         bool own_row = false;
         renderable::for_each([&]<class R>(R) { own_row = own_row || purpose == R::purpose; });
@@ -335,7 +335,7 @@ namespace le
         std::unordered_map<ViewLayerId, std::vector<ShapeId>> by_layer;
         for_each_layout_hit_shape(root, layout_id, candidates, [&](ShapeId shape_id, ViewLayerPurpose purpose)
                                   {
-            const Shape *shape = root.get_shape(shape_id);
+            const ShapeData *shape = root.get_shape(shape_id);
             if (!shape)
                 return;
             if (const ViewLayerId view_layer = layout_hit_view_layer(view_layers, *shape, purpose); view_layer.valid())
@@ -367,7 +367,7 @@ namespace le
 
         auto collect = [&](ShapeId shape_id, ViewLayerPurpose purpose)
         {
-            const Shape *shape = root.get_shape(shape_id);
+            const ShapeData *shape = root.get_shape(shape_id);
             if (!shape)
                 return;
             const ViewLayerId view_layer = layout_hit_view_layer(view_layers, *shape, purpose);

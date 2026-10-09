@@ -858,7 +858,7 @@ struct LeHandle
             std::optional<le::Point> anchor;
             std::optional<le::Point> anchor_raw;
             std::vector<SelectedObject> moving_pieces;
-            std::vector<le::Shape> moving_geometry;
+            std::vector<le::ShapeData> moving_geometry;
             bool free_form = false;
         };
 
@@ -871,7 +871,7 @@ struct LeHandle
         // this, since this handle's own view state has no Root access
         // here. Does not itself check Mode - callers gate this on
         // Mode::EDIT (see api.cpp's LE_KEY_MOVE handler).
-        void arm_move(std::vector<le::Shape> geometry)
+        void arm_move(std::vector<le::ShapeData> geometry)
         {
             if (selection_.empty())
                 return;
@@ -899,7 +899,7 @@ struct LeHandle
         // the wrong base position. A no-op if Move isn't armed - nothing
         // to refresh. `geometry` must be parallel to moving_pieces, same
         // convention as arm_move's own parameter.
-        void refresh_move_geometry(std::vector<le::Shape> geometry)
+        void refresh_move_geometry(std::vector<le::ShapeData> geometry)
         {
             if (!move_.armed)
                 return;
@@ -970,7 +970,7 @@ struct LeHandle
         {
             ShapePiece piece;
             le::ResizeHandle handle;
-            le::Shape original;
+            le::ShapeData original;
             le::Point start;
         };
         struct ResizeState

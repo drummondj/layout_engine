@@ -43,7 +43,7 @@ TEST(Geometry, RectToPolygonIsClosedAndAxisAligned)
 
 TEST(Geometry, BboxOfShapeCoversAllRects)
 {
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
     shape.rects.push_back(Rect{.ll = {5, -5}, .ur = {20, 5}});
 
@@ -55,7 +55,7 @@ TEST(Geometry, BboxOfShapeCoversAllRects)
 
 TEST(Geometry, BboxOfShapeCoversPolygonsAndPaths)
 {
-    Shape shape;
+    ShapeData shape;
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}});
     // Centerline (20,0)-(20,10), width 4 -> half-width 2 expands the bbox by 2 on every side.
     shape.paths.push_back(Path{.width = 4, .polygon = Polygon{.points = {{20, 0}, {20, 10}}}});
@@ -68,19 +68,19 @@ TEST(Geometry, BboxOfShapeCoversPolygonsAndPaths)
 
 TEST(Geometry, BboxOfEmptyShapeIsNullopt)
 {
-    EXPECT_FALSE(Geometry::bbox(Shape{}).has_value());
-    EXPECT_FALSE(Geometry::bbox(std::vector<Shape>{}).has_value());
-    EXPECT_FALSE(Geometry::bbox(std::vector<const Shape *>{}).has_value());
+    EXPECT_FALSE(Geometry::bbox(ShapeData{}).has_value());
+    EXPECT_FALSE(Geometry::bbox(std::vector<ShapeData>{}).has_value());
+    EXPECT_FALSE(Geometry::bbox(std::vector<const ShapeData *>{}).has_value());
 }
 
 TEST(Geometry, BboxOfShapeVectorUnionsAllShapes)
 {
-    Shape a;
+    ShapeData a;
     a.rects.push_back(Rect{.ll = {0, 0}, .ur = {5, 5}});
-    Shape b;
+    ShapeData b;
     b.rects.push_back(Rect{.ll = {10, 10}, .ur = {15, 15}});
 
-    std::optional<Rect> box = Geometry::bbox(std::vector<Shape>{a, b});
+    std::optional<Rect> box = Geometry::bbox(std::vector<ShapeData>{a, b});
     ASSERT_TRUE(box.has_value());
     expect_point_eq(box->ll, Point{0, 0});
     expect_point_eq(box->ur, Point{15, 15});
@@ -88,12 +88,12 @@ TEST(Geometry, BboxOfShapeVectorUnionsAllShapes)
 
 TEST(Geometry, BboxOfShapePointerVectorUnionsAllShapes)
 {
-    Shape a;
+    ShapeData a;
     a.rects.push_back(Rect{.ll = {0, 0}, .ur = {5, 5}});
-    Shape b;
+    ShapeData b;
     b.rects.push_back(Rect{.ll = {10, 10}, .ur = {15, 15}});
 
-    std::optional<Rect> box = Geometry::bbox(std::vector<const Shape *>{&a, &b});
+    std::optional<Rect> box = Geometry::bbox(std::vector<const ShapeData *>{&a, &b});
     ASSERT_TRUE(box.has_value());
     expect_point_eq(box->ll, Point{0, 0});
     expect_point_eq(box->ur, Point{15, 15});
@@ -226,13 +226,13 @@ TEST(Geometry, UnionShapesReturnsNulloptWhenNoGeometry)
 {
     EXPECT_FALSE(Geometry::union_shapes({}).has_value());
 
-    Shape empty_shape;
+    ShapeData empty_shape;
     EXPECT_FALSE(Geometry::union_shapes({&empty_shape}).has_value());
 }
 
 TEST(Geometry, UnionShapesSkipsNullShapePointers)
 {
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
 
     auto result = Geometry::union_shapes({nullptr, &shape});
@@ -243,9 +243,9 @@ TEST(Geometry, UnionShapesSkipsNullShapePointers)
 
 TEST(Geometry, UnionShapesMergesOverlappingRectsIntoOnePolygon)
 {
-    Shape a;
+    ShapeData a;
     a.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
-    Shape b;
+    ShapeData b;
     b.rects.push_back(Rect{.ll = {5, 5}, .ur = {15, 15}});
 
     auto result = Geometry::union_shapes({&a, &b});
@@ -256,7 +256,7 @@ TEST(Geometry, UnionShapesMergesOverlappingRectsIntoOnePolygon)
 
 TEST(Geometry, UnionShapesIncludesPolygonsAndPathsNotJustRects)
 {
-    Shape shape;
+    ShapeData shape;
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {10, 0}, {10, 10}}});
     // Centerline (20,0)-(20,10), width 4 -> buffers to x:[18,22] - disjoint from the triangle.
     shape.paths.push_back(Path{.width = 4, .polygon = Polygon{.points = {{20, 0}, {20, 10}}}});
@@ -268,7 +268,7 @@ TEST(Geometry, UnionShapesIncludesPolygonsAndPathsNotJustRects)
 
 TEST(Geometry, LabelLocationOfEmptyShapeIsOrigin)
 {
-    Shape shape;
+    ShapeData shape;
     Point label = Geometry::get_label_location(shape);
     expect_point_eq(label, Point{0, 0});
 }
@@ -277,7 +277,7 @@ TEST(Geometry, LabelLocationPicksTheLargestRectWhenShapeHasMultipleRects)
 {
     // No fracturing needed for rects - the largest
     // one is used directly. Areas are deliberately not tied (100 vs 5000).
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
     shape.rects.push_back(Rect{.ll = {20, 20}, .ur = {120, 70}});
 
@@ -290,7 +290,7 @@ TEST(Geometry, LabelLocationPicksTheFirstCandidateOnAnAreaTie)
     // Two rects of equal area (100x60=6000) - deterministic tie-break
     // keeps the first-encountered candidate (documented behavior, not
     // arbitrary per-run).
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {100, 60}});
     shape.rects.push_back(Rect{.ll = {0, 40}, .ur = {100, 100}});
 
@@ -303,7 +303,7 @@ TEST(Geometry, LabelLocationIncludesPolygonsAndPathsNotJustRects)
     // A square polygon (fractures into a single slab - its own bbox,
     // area 10000) plus a small path fully inside it (buffers into a
     // much smaller rect) - the polygon's slab wins.
-    Shape shape;
+    ShapeData shape;
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {100, 0}, {100, 100}, {0, 100}}});
     shape.paths.push_back(Path{.width = 4, .polygon = Polygon{.points = {{40, 40}, {60, 40}}}});
 
@@ -313,12 +313,12 @@ TEST(Geometry, LabelLocationIncludesPolygonsAndPathsNotJustRects)
 
 TEST(Geometry, LabelPieceBboxIsThePieceTheLabelSitsOn)
 {
-    Shape empty;
+    ShapeData empty;
     EXPECT_FALSE(Geometry::label_piece_bbox(empty).has_value());
 
     // The L polygon's leg slab (area 1600) beats the rect (100) - the
     // result is the whole polygon's bbox, not just the slab.
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {200, 200}, .ur = {210, 210}});
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {100, 0}, {100, 60}, {80, 60}, {80, 20}, {0, 20}}});
     const std::optional<Rect> piece = Geometry::label_piece_bbox(shape);
@@ -327,7 +327,7 @@ TEST(Geometry, LabelPieceBboxIsThePieceTheLabelSitsOn)
     expect_point_eq(piece->ur, Point{100, 60});
 
     // A path's piece is its centerline's bbox padded by half its width.
-    Shape path_shape;
+    ShapeData path_shape;
     path_shape.paths.push_back(Path{.width = 4, .polygon = Polygon{.points = {{0, 0}, {100, 0}}}});
     const std::optional<Rect> path_piece = Geometry::label_piece_bbox(path_shape);
     ASSERT_TRUE(path_piece.has_value());
@@ -344,7 +344,7 @@ TEST(Geometry, LabelLocationOnAWidePolygonFracturesVerticallyAndPicksTheLargestS
     // the leg alone ((0,0)-(80,20), area 1600), the [80,100] slab spans
     // the leg+stub's full local height ((80,0)-(100,60), area 1200) -
     // the leg's own slab is larger and wins.
-    Shape shape;
+    ShapeData shape;
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {100, 0}, {100, 60}, {80, 60}, {80, 20}, {0, 20}}});
 
     Point label = Geometry::get_label_location(shape);
@@ -356,7 +356,7 @@ TEST(Geometry, LabelLocationOnATallPolygonFracturesHorizontallyAndPicksTheLarges
     // The same L as above, transposed (x<->y) so its bbox is taller than
     // wide - fractures with horizontal cuts instead, same reasoning
     // rotated 90 degrees.
-    Shape shape;
+    ShapeData shape;
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {0, 100}, {60, 100}, {60, 80}, {20, 80}, {20, 0}}});
 
     Point label = Geometry::get_label_location(shape);
@@ -369,7 +369,7 @@ TEST(Geometry, LabelLocationOnAStraightPathReturnsItsBufferedCenter)
     // rectangle - fracturing it yields that one rectangle unchanged, so
     // this mainly confirms Paths flow through the same fracture pipeline
     // as Polygons, landing at the path's own centerline midpoint.
-    Shape shape;
+    ShapeData shape;
     shape.paths.push_back(Path{.width = 20, .polygon = Polygon{.points = {{10, 50}, {90, 50}}}});
 
     Point label = Geometry::get_label_location(shape);
@@ -381,7 +381,7 @@ TEST(Geometry, LabelLocationPicksTheLargestCandidateAcrossMixedRectsAndPolygons)
     // A small Rect and a clearly-larger Polygon (disjoint, so there's no
     // ambiguity about which one "wins") - confirms both candidate
     // sources are compared on equal footing.
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
     shape.polygons.push_back(Polygon{.points = {{200, 200}, {300, 200}, {300, 300}, {200, 300}}});
 
@@ -394,7 +394,7 @@ TEST(Geometry, LabelLocationHandlesZeroWidthBoundingBox)
     // A zero-width (degenerate vertical-line) rect - used directly as
     // its own (zero-area) candidate, same as any other single rect; its
     // "center" is just the degenerate line's own midpoint.
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {50, 0}, .ur = {50, 100}});
 
     Point label = Geometry::get_label_location(shape);
@@ -404,7 +404,7 @@ TEST(Geometry, LabelLocationHandlesZeroWidthBoundingBox)
 TEST(Geometry, LabelLocationHandlesZeroHeightBoundingBox)
 {
     // Same as above but for a zero-height (degenerate horizontal-line) rect.
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {0, 50}, .ur = {100, 50}});
 
     Point label = Geometry::get_label_location(shape);
@@ -419,7 +419,7 @@ TEST(Geometry, LabelLocationOfDisjointRectsPicksTheLargestNotAnOffShapeCentroid)
     // this project's git history). The new algorithm can't: every
     // candidate is a real rect, so the result is always genuinely inside
     // the shape - here, the first-encountered (equal-area tie) bar.
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 100}});
     shape.rects.push_back(Rect{.ll = {90, 0}, .ur = {100, 100}});
 
@@ -431,7 +431,7 @@ TEST(Geometry, LocalWidthAtRectReturnsMinDimension)
 {
     // Non-square rect: the smaller dimension is the "width" a label
     // should be sized to, not the larger one or some average of the two.
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {100, 20}});
 
     EXPECT_DOUBLE_EQ(Geometry::local_width_at(shape, Point{50, 10}), 20.0);
@@ -442,7 +442,7 @@ TEST(Geometry, LocalWidthAtPathReturnsPathWidthDirectly)
     // A Path's thickness is already known exactly - local_width_at should
     // read path.width directly rather than derive anything from its
     // (much larger) buffered bbox.
-    Shape shape;
+    ShapeData shape;
     shape.paths.push_back(Path{.width = 6, .polygon = Polygon{.points = {{0, 0}, {100, 0}}}});
 
     EXPECT_DOUBLE_EQ(Geometry::local_width_at(shape, Point{50, 0}), 6.0);
@@ -456,7 +456,7 @@ TEST(Geometry, LocalWidthAtSquarePolygonMeasuresDistanceToBoundaryNotFilledArea)
     // for any interior point" pitfall - a buggy implementation that
     // measured distance to the filled area instead of its boundary would
     // return 0.0 here instead of 100.0.
-    Shape shape;
+    ShapeData shape;
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {100, 0}, {100, 100}, {0, 100}}});
 
     EXPECT_NEAR(Geometry::local_width_at(shape, Point{50, 50}), 100.0, 0.01);
@@ -470,7 +470,7 @@ TEST(Geometry, LocalWidthAtLShapedPolygonUsesArmThicknessNotBbox)
     // arm's ~30 thickness, nowhere near the 100-wide bbox. This is the
     // regression test that would fail if sizing were ever "simplified"
     // back to a bbox-based approach - the whole point of this feature.
-    Shape shape;
+    ShapeData shape;
     shape.polygons.push_back(Polygon{.points = {
                                           {0, 0},
                                           {100, 0},
@@ -493,7 +493,7 @@ TEST(Geometry, LocalWidthAtFallsBackToNearestPieceWhenPointOutsideEveryPiece)
     // outside both. local_width_at must fall back to the nearest bar's
     // own width (10), not the shape's overall ~90-wide bbox (which would
     // grossly overstate either bar's actual thickness).
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 100}});
     shape.rects.push_back(Rect{.ll = {90, 0}, .ur = {100, 100}});
 
@@ -502,13 +502,13 @@ TEST(Geometry, LocalWidthAtFallsBackToNearestPieceWhenPointOutsideEveryPiece)
 
 TEST(Geometry, LocalWidthAtOfEmptyShapeIsZero)
 {
-    Shape shape;
+    ShapeData shape;
     EXPECT_DOUBLE_EQ(Geometry::local_width_at(shape, Point{0, 0}), 0.0);
 }
 
 TEST(Geometry, ContainsIsTrueInsideARectAndFalseOutside)
 {
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
 
     EXPECT_TRUE(Geometry::contains(shape, Point{5, 5}));
@@ -522,7 +522,7 @@ TEST(Geometry, ContainsUsesRealPointInPolygonNotBboxForAnLShape)
     // a point inside the overall 100x100 bbox but in the notch cut out of
     // the L (not inside either arm) must not count as contained - a bbox
     // check would wrongly say yes.
-    Shape shape;
+    ShapeData shape;
     shape.polygons.push_back(Polygon{.points = {
                                           {0, 0},
                                           {100, 0},
@@ -542,7 +542,7 @@ TEST(Geometry, ContainsUsesThePathsBufferedOutlineNotItsCenterline)
     // A horizontal path with width 10 centered on y=0: a point 3 above the
     // centerline is inside the buffered/drawn outline (half-width 5) but
     // would miss a naive "on the centerline" test.
-    Shape shape;
+    ShapeData shape;
     shape.paths.push_back(Path{.width = 10, .polygon = Polygon{.points = {{0, 0}, {100, 0}}}});
 
     EXPECT_TRUE(Geometry::contains(shape, Point{50, 3}));
@@ -551,7 +551,7 @@ TEST(Geometry, ContainsUsesThePathsBufferedOutlineNotItsCenterline)
 
 TEST(Geometry, ContainsOfEmptyShapeIsFalse)
 {
-    Shape shape;
+    ShapeData shape;
     EXPECT_FALSE(Geometry::contains(shape, Point{0, 0}));
 }
 
@@ -563,7 +563,7 @@ TEST(Geometry, FindHitPieceReturnsOnlyTheOneRectHitNotEveryRectInTheShape)
     // reported bug: hovering one rect highlighted every rect on the same
     // Terminal).
     const LayerId m1{1, 1};
-    Shape shape;
+    ShapeData shape;
     shape.layer = m1;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
     shape.rects.push_back(Rect{.ll = {100, 100}, .ur = {110, 110}});
@@ -581,7 +581,7 @@ TEST(Geometry, FindHitPieceReturnsOnlyTheOneRectHitNotEveryRectInTheShape)
 
 TEST(Geometry, FindHitPieceReturnsOnlyTheOnePolygonHitNotEveryPolygonInTheShape)
 {
-    Shape shape;
+    ShapeData shape;
     shape.polygons.push_back(Polygon{.points = {{0, 0}, {10, 0}, {10, 10}, {0, 10}}});
     shape.polygons.push_back(Polygon{.points = {{100, 100}, {110, 100}, {110, 110}, {100, 110}}});
 
@@ -595,7 +595,7 @@ TEST(Geometry, FindHitPieceReturnsOnlyTheOnePolygonHitNotEveryPolygonInTheShape)
 
 TEST(Geometry, FindHitPieceReturnsNulloptOnAMiss)
 {
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {0, 0}, .ur = {10, 10}});
 
     EXPECT_FALSE(Geometry::find_hit_piece(shape, Point{500, 500}).has_value());
@@ -603,7 +603,7 @@ TEST(Geometry, FindHitPieceReturnsNulloptOnAMiss)
 
 TEST(Geometry, FullyEnclosedIsTrueWhenShapeFitsEntirelyInsideTheContainer)
 {
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {10, 10}, .ur = {20, 20}});
 
     EXPECT_TRUE(Geometry::fully_enclosed(Rect{.ll = {0, 0}, .ur = {30, 30}}, shape));
@@ -611,7 +611,7 @@ TEST(Geometry, FullyEnclosedIsTrueWhenShapeFitsEntirelyInsideTheContainer)
 
 TEST(Geometry, FullyEnclosedIsFalseWhenShapeOnlyPartiallyOverlaps)
 {
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {10, 10}, .ur = {20, 20}});
 
     // Container only covers the left half of the shape's bbox.
@@ -620,7 +620,7 @@ TEST(Geometry, FullyEnclosedIsFalseWhenShapeOnlyPartiallyOverlaps)
 
 TEST(Geometry, FullyEnclosedIsFalseWhenShapeIsCompletelyOutsideTheContainer)
 {
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {100, 100}, .ur = {110, 110}});
 
     EXPECT_FALSE(Geometry::fully_enclosed(Rect{.ll = {0, 0}, .ur = {30, 30}}, shape));
@@ -628,7 +628,7 @@ TEST(Geometry, FullyEnclosedIsFalseWhenShapeIsCompletelyOutsideTheContainer)
 
 TEST(Geometry, FullyEnclosedOfEmptyShapeIsFalse)
 {
-    Shape shape;
+    ShapeData shape;
     EXPECT_FALSE(Geometry::fully_enclosed(Rect{.ll = {0, 0}, .ur = {100, 100}}, shape));
 }
 
@@ -638,7 +638,7 @@ TEST(Geometry, FullyEnclosedPiecesReturnsOnlyTheIndividuallyEnclosedPieces)
     // container and others don't - the per-piece analog of
     // fully_enclosed, which only ever answers for the whole bundle.
     const LayerId m1{1, 1};
-    Shape shape{
+    ShapeData shape{
         .layer = m1,
         .polygons = {
             Polygon{.points = {{15, 15}, {18, 15}, {18, 18}, {15, 18}}}, // inside
@@ -664,7 +664,7 @@ TEST(Geometry, FullyEnclosedPiecesReturnsOnlyTheIndividuallyEnclosedPieces)
 
 TEST(Geometry, FullyEnclosedPiecesIsEmptyWhenNoPieceFits)
 {
-    Shape shape;
+    ShapeData shape;
     shape.rects.push_back(Rect{.ll = {100, 100}, .ur = {110, 110}});
 
     EXPECT_TRUE(Geometry::fully_enclosed_pieces(Rect{.ll = {0, 0}, .ur = {30, 30}}, shape).empty());
@@ -673,7 +673,7 @@ TEST(Geometry, FullyEnclosedPiecesIsEmptyWhenNoPieceFits)
 TEST(Geometry, ExtractPieceReturnsOnlyTheOneIndexedRectNotItsSiblings)
 {
     const LayerId m1{1, 1};
-    Shape shape{
+    ShapeData shape{
         .layer = m1,
         .rects = {
             Rect{.ll = {0, 0}, .ur = {10, 10}},
@@ -681,7 +681,7 @@ TEST(Geometry, ExtractPieceReturnsOnlyTheOneIndexedRectNotItsSiblings)
         },
     };
 
-    const Shape piece = Geometry::extract_piece(shape, PieceKind::RECT, 1);
+    const ShapeData piece = Geometry::extract_piece(shape, PieceKind::RECT, 1);
     EXPECT_EQ(piece.layer, m1);
     ASSERT_EQ(piece.rects.size(), 1u);
     EXPECT_EQ(piece.rects.front().ll.x, 100);
@@ -692,16 +692,16 @@ TEST(Geometry, ExtractPieceReturnsOnlyTheOneIndexedRectNotItsSiblings)
 TEST(Geometry, ExtractPieceOfAnOutOfRangeIndexReturnsAnEmptyPiece)
 {
     const LayerId m1{1, 1};
-    Shape shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    ShapeData shape{.layer = m1, .rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
 
-    const Shape piece = Geometry::extract_piece(shape, PieceKind::RECT, 5);
+    const ShapeData piece = Geometry::extract_piece(shape, PieceKind::RECT, 5);
     EXPECT_EQ(piece.layer, m1);
     EXPECT_TRUE(piece.rects.empty());
 }
 
 TEST(Geometry, PieceInRangeMatchesWhatExtractPieceWouldReturn)
 {
-    Shape shape{.polygons = {Polygon{.points = {{0, 0}, {10, 0}, {10, 10}}}}};
+    ShapeData shape{.polygons = {Polygon{.points = {{0, 0}, {10, 0}, {10, 10}}}}};
 
     EXPECT_TRUE(Geometry::piece_in_range(shape, PieceKind::POLYGON, 0));
     EXPECT_FALSE(Geometry::piece_in_range(shape, PieceKind::POLYGON, 1));
@@ -711,7 +711,7 @@ TEST(Geometry, PieceInRangeMatchesWhatExtractPieceWouldReturn)
 TEST(Geometry, TransformPieceInPlaceMovesOnlyTheAddressedPieceLeavingSiblingsUntouched)
 {
     const LayerId m1{1, 1};
-    Shape shape{
+    ShapeData shape{
         .layer = m1,
         .polygons = {Polygon{.points = {{0, 0}, {10, 0}, {10, 10}}}},
         .rects = {
@@ -729,7 +729,7 @@ TEST(Geometry, TransformPieceInPlaceMovesOnlyTheAddressedPieceLeavingSiblingsUnt
 
 TEST(Geometry, TransformPieceInPlaceOfAnOutOfRangeIndexIsANoOp)
 {
-    Shape shape{.rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
+    ShapeData shape{.rects = {Rect{.ll = {0, 0}, .ur = {10, 10}}}};
 
     Geometry::transform_piece_in_place(shape, PieceKind::RECT, 5, Point{5, -5});
 
@@ -954,22 +954,22 @@ namespace
         return area;
     }
 
-    Shape rect_shape(std::vector<Rect> rects)
+    ShapeData rect_shape(std::vector<Rect> rects)
     {
-        return Shape{.rects = std::move(rects)};
+        return ShapeData{.rects = std::move(rects)};
     }
 
     // (0,0)-(20,0)-(20,10)-(10,10)-(10,20)-(0,20): area 300.
-    Shape l_shape()
+    ShapeData l_shape()
     {
-        return Shape{.polygons = {Polygon{.points = {{0, 0}, {20, 0}, {20, 10}, {10, 10}, {10, 20}, {0, 20}, {0, 0}}}}};
+        return ShapeData{.polygons = {Polygon{.points = {{0, 0}, {20, 0}, {20, 10}, {10, 10}, {10, 20}, {0, 20}, {0, 0}}}}};
     }
 }
 
 TEST(Geometry, BooleanOrOfOverlappingRectsIsOneRect)
 {
-    const Shape a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
-    const Shape b = rect_shape({Rect{.ll = {5, 0}, .ur = {15, 10}}});
+    const ShapeData a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
+    const ShapeData b = rect_shape({Rect{.ll = {5, 0}, .ur = {15, 10}}});
     const AreaGeometry result = Geometry::boolean_shapes({&a}, {&b}, BooleanOp::Or);
 
     // The merged outline keeps a collinear vertex at each old seam -
@@ -981,8 +981,8 @@ TEST(Geometry, BooleanOrOfOverlappingRectsIsOneRect)
 
 TEST(Geometry, BooleanOrOfLShapedUnionIsOnePolygon)
 {
-    const Shape a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
-    const Shape b = rect_shape({Rect{.ll = {0, 0}, .ur = {5, 20}}});
+    const ShapeData a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
+    const ShapeData b = rect_shape({Rect{.ll = {0, 0}, .ur = {5, 20}}});
     const AreaGeometry result = Geometry::boolean_shapes({&a}, {&b}, BooleanOp::Or);
 
     ASSERT_EQ(result.polygons.size(), 1u);
@@ -993,8 +993,8 @@ TEST(Geometry, BooleanOrOfLShapedUnionIsOnePolygon)
 
 TEST(Geometry, BooleanAndIsTheOverlap)
 {
-    const Shape a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
-    const Shape b = rect_shape({Rect{.ll = {5, 5}, .ur = {15, 15}}});
+    const ShapeData a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
+    const ShapeData b = rect_shape({Rect{.ll = {5, 5}, .ur = {15, 15}}});
     const AreaGeometry result = Geometry::boolean_shapes({&a}, {&b}, BooleanOp::And);
 
     ASSERT_EQ(result.rects.size(), 1u);
@@ -1003,15 +1003,15 @@ TEST(Geometry, BooleanAndIsTheOverlap)
 
 TEST(Geometry, BooleanAndOfDisjointShapesIsEmpty)
 {
-    const Shape a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
-    const Shape b = rect_shape({Rect{.ll = {20, 20}, .ur = {30, 30}}});
+    const ShapeData a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
+    const ShapeData b = rect_shape({Rect{.ll = {20, 20}, .ur = {30, 30}}});
     EXPECT_TRUE(Geometry::boolean_shapes({&a}, {&b}, BooleanOp::And).empty());
 }
 
 TEST(Geometry, BooleanNotSubtractsAnEdge)
 {
-    const Shape a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
-    const Shape b = rect_shape({Rect{.ll = {5, 0}, .ur = {15, 10}}});
+    const ShapeData a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
+    const ShapeData b = rect_shape({Rect{.ll = {5, 0}, .ur = {15, 10}}});
     const AreaGeometry result = Geometry::boolean_shapes({&a}, {&b}, BooleanOp::Not);
 
     ASSERT_EQ(result.rects.size(), 1u);
@@ -1022,8 +1022,8 @@ TEST(Geometry, BooleanNotLeavingAHoleIsEmittedAsExactRects)
 {
     // A Polygon can't hold a hole - the donut must come back as rects
     // that cover exactly its area (no silently filled-in hole).
-    const Shape big = rect_shape({Rect{.ll = {0, 0}, .ur = {30, 30}}});
-    const Shape small = rect_shape({Rect{.ll = {10, 10}, .ur = {20, 20}}});
+    const ShapeData big = rect_shape({Rect{.ll = {0, 0}, .ur = {30, 30}}});
+    const ShapeData small = rect_shape({Rect{.ll = {10, 10}, .ur = {20, 20}}});
     const AreaGeometry result = Geometry::boolean_shapes({&big}, {&small}, BooleanOp::Not);
 
     EXPECT_TRUE(result.polygons.empty());
@@ -1033,9 +1033,9 @@ TEST(Geometry, BooleanNotLeavingAHoleIsEmittedAsExactRects)
 
 TEST(Geometry, BooleanMergesEveryShapeWithinAGroup)
 {
-    const Shape a1 = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
-    const Shape a2 = rect_shape({Rect{.ll = {20, 0}, .ur = {30, 10}}});
-    const Shape b = rect_shape({Rect{.ll = {5, 0}, .ur = {25, 10}}});
+    const ShapeData a1 = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
+    const ShapeData a2 = rect_shape({Rect{.ll = {20, 0}, .ur = {30, 10}}});
+    const ShapeData b = rect_shape({Rect{.ll = {5, 0}, .ur = {25, 10}}});
     const AreaGeometry result = Geometry::boolean_shapes({&a1, &a2}, {&b}, BooleanOp::And);
 
     ASSERT_EQ(result.rects.size(), 2u);
@@ -1062,7 +1062,7 @@ TEST(Geometry, ShapeToRectsFracturesVertically)
 
 TEST(Geometry, ShapeToRectsNeverOverlapsEvenWhenTheInputDoes)
 {
-    const Shape shape = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}, Rect{.ll = {5, 5}, .ur = {15, 15}}});
+    const ShapeData shape = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}, Rect{.ll = {5, 5}, .ur = {15, 15}}});
     const std::vector<Rect> rects = Geometry::shape_to_rects(shape, FractureDirection::Horizontal);
 
     EXPECT_EQ(total_area(rects), 100 + 100 - 25); // the union's area - any overlap would exceed it
@@ -1072,7 +1072,7 @@ TEST(Geometry, ShapeToRectsMergesSlabsBackIntoOneRect)
 {
     // The nested rect adds cut lines at y=2/4 - the three slabs between
     // them must merge back into the one real rectangle.
-    const Shape shape = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}, Rect{.ll = {2, 2}, .ur = {4, 4}}});
+    const ShapeData shape = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}, Rect{.ll = {2, 2}, .ur = {4, 4}}});
     const std::vector<Rect> rects = Geometry::shape_to_rects(shape, FractureDirection::Horizontal);
 
     ASSERT_EQ(rects.size(), 1u);
@@ -1090,7 +1090,7 @@ TEST(Geometry, ShapeToPolygonsConvertsARect)
 
 TEST(Geometry, ShapeToPolygonsFracturesARegionWithAHole)
 {
-    const Shape ring = rect_shape({
+    const ShapeData ring = rect_shape({
         Rect{.ll = {0, 0}, .ur = {30, 10}},
         Rect{.ll = {0, 20}, .ur = {30, 30}},
         Rect{.ll = {0, 10}, .ur = {10, 20}},
@@ -1141,7 +1141,7 @@ TEST(Geometry, SizeShrinkingAwayEverythingIsEmptyNotUnsupported)
 
 TEST(Geometry, SizeGrowthClosesAGapBetweenEntries)
 {
-    const Shape shape = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}, Rect{.ll = {12, 0}, .ur = {22, 10}}});
+    const ShapeData shape = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}, Rect{.ll = {12, 0}, .ur = {22, 10}}});
     const auto result = Geometry::size_shape(shape, 1, 1);
 
     ASSERT_TRUE(result.has_value());
@@ -1162,7 +1162,7 @@ TEST(Geometry, SizeGrowsAnLShapeExactly)
 
 TEST(Geometry, SizeNonRectilinearOnlySupportsIsotropic)
 {
-    const Shape triangle{.polygons = {Polygon{.points = {{0, 0}, {100, 0}, {0, 100}, {0, 0}}}}};
+    const ShapeData triangle{.polygons = {Polygon{.points = {{0, 0}, {100, 0}, {0, 100}, {0, 0}}}}};
 
     EXPECT_FALSE(Geometry::size_shape(triangle, 5, 10).has_value());
 
@@ -1184,7 +1184,7 @@ TEST(Geometry, OutlinePathOfARectIsOneClosedRing)
 
 TEST(Geometry, OutlinePathsFollowAHoleToo)
 {
-    const Shape ring = rect_shape({
+    const ShapeData ring = rect_shape({
         Rect{.ll = {0, 0}, .ur = {30, 10}},
         Rect{.ll = {0, 20}, .ur = {30, 30}},
         Rect{.ll = {0, 10}, .ur = {10, 20}},
@@ -1197,7 +1197,7 @@ TEST(Geometry, OutlinePathsFollowAHoleToo)
 
 TEST(Geometry, OutlinePathsRestrokeInputPaths)
 {
-    const Shape shape{.paths = {Path{.width = 4, .polygon = Polygon{.points = {{0, 0}, {50, 0}}}}}};
+    const ShapeData shape{.paths = {Path{.width = 4, .polygon = Polygon{.points = {{0, 0}, {50, 0}}}}}};
     const std::vector<Path> paths = Geometry::shape_outline_paths(shape, 10);
 
     ASSERT_EQ(paths.size(), 1u);
@@ -1220,14 +1220,14 @@ namespace
 
     // A width-2 closed path round the square (0,0)-(20,20): stroked, a
     // band from -1 to 21 with a hole from 1 to 19.
-    Shape closed_square_path()
+    ShapeData closed_square_path()
     {
-        return Shape{.paths = {Path{.width = 2, .polygon = Polygon{.points = {{0, 0}, {20, 0}, {20, 20}, {0, 20}, {0, 0}}}}}};
+        return ShapeData{.paths = {Path{.width = 2, .polygon = Polygon{.points = {{0, 0}, {20, 0}, {20, 20}, {0, 20}, {0, 0}}}}}};
     }
 
     // Four frame rects round (0,0)-(30,30) leaving a hole (5,5)-(25,25),
     // plus an island (12,12)-(18,18) inside that hole.
-    Shape frame_with_island()
+    ShapeData frame_with_island()
     {
         return rect_shape({
             Rect{.ll = {0, 0}, .ur = {30, 5}},
@@ -1243,8 +1243,8 @@ TEST(Geometry, BooleanTreatsAPathAsItsStrokedArea)
 {
     // Width 4, so each free end is extended by 2 (square caps): the stroke
     // covers (-2,-2)-(22,2).
-    const Shape path{.paths = {Path{.width = 4, .polygon = Polygon{.points = {{0, 0}, {20, 0}}}}}};
-    const Shape window = rect_shape({Rect{.ll = {0, -10}, .ur = {10, 10}}});
+    const ShapeData path{.paths = {Path{.width = 4, .polygon = Polygon{.points = {{0, 0}, {20, 0}}}}}};
+    const ShapeData window = rect_shape({Rect{.ll = {0, -10}, .ur = {10, 10}}});
     const AreaGeometry result = Geometry::boolean_shapes({&path}, {&window}, BooleanOp::And);
 
     ASSERT_EQ(result.rects.size(), 1u);
@@ -1255,16 +1255,16 @@ TEST(Geometry, AClosedPathKeepsItsHole)
 {
     // path_to_polygons (outer rings only) would fill the hole in; the
     // shape_* operations must not.
-    const Shape ring = closed_square_path();
+    const ShapeData ring = closed_square_path();
     EXPECT_EQ(total_area(Geometry::shape_to_rects(ring, FractureDirection::Horizontal)), 22 * 22 - 18 * 18);
 
-    const Shape inside_hole = rect_shape({Rect{.ll = {5, 5}, .ur = {15, 15}}});
+    const ShapeData inside_hole = rect_shape({Rect{.ll = {5, 5}, .ur = {15, 15}}});
     EXPECT_TRUE(Geometry::boolean_shapes({&ring}, {&inside_hole}, BooleanOp::And).empty());
 }
 
 TEST(Geometry, SizeGrowsAPathsStrokedArea)
 {
-    const Shape path{.paths = {Path{.width = 4, .polygon = Polygon{.points = {{0, 0}, {20, 0}}}}}};
+    const ShapeData path{.paths = {Path{.width = 4, .polygon = Polygon{.points = {{0, 0}, {20, 0}}}}}};
     const auto result = Geometry::size_shape(path, 1, 1);
 
     ASSERT_TRUE(result.has_value());
@@ -1274,15 +1274,15 @@ TEST(Geometry, SizeGrowsAPathsStrokedArea)
 
 TEST(Geometry, ShapesTouchingOnlyAtACornerStayTwoRegions)
 {
-    const Shape a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
-    const Shape b = rect_shape({Rect{.ll = {10, 10}, .ur = {20, 20}}});
+    const ShapeData a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
+    const ShapeData b = rect_shape({Rect{.ll = {10, 10}, .ur = {20, 20}}});
 
     const AreaGeometry merged = Geometry::boolean_shapes({&a}, {&b}, BooleanOp::Or);
     EXPECT_EQ(total_area(merged), 200);
     for (const Polygon &polygon : merged.polygons)
         EXPECT_GT(polygon_area(polygon), 0);
 
-    const Shape both = rect_shape({a.rects[0], b.rects[0]});
+    const ShapeData both = rect_shape({a.rects[0], b.rects[0]});
     const std::vector<Rect> rects = sorted_rects(Geometry::shape_to_rects(both, FractureDirection::Horizontal));
     ASSERT_EQ(rects.size(), 2u);
     expect_rect(rects[0], 0, 0, 10, 10);
@@ -1291,8 +1291,8 @@ TEST(Geometry, ShapesTouchingOnlyAtACornerStayTwoRegions)
 
 TEST(Geometry, CornerTouchingShapesHaveNoOverlapAndNothingToSubtract)
 {
-    const Shape a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
-    const Shape b = rect_shape({Rect{.ll = {10, 10}, .ur = {20, 20}}});
+    const ShapeData a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}});
+    const ShapeData b = rect_shape({Rect{.ll = {10, 10}, .ur = {20, 20}}});
 
     EXPECT_TRUE(Geometry::boolean_shapes({&a}, {&b}, BooleanOp::And).empty());
 
@@ -1305,7 +1305,7 @@ TEST(Geometry, ShrinkingAwayANarrowNeckSplitsTheShape)
 {
     // Two 10x10 blocks joined by a 2-high bar - shrinking by 2 removes the
     // bar entirely, leaving two separate, independently shrunk blocks.
-    const Shape dumbbell = rect_shape({
+    const ShapeData dumbbell = rect_shape({
         Rect{.ll = {0, 0}, .ur = {10, 10}},
         Rect{.ll = {10, 4}, .ur = {30, 6}},
         Rect{.ll = {30, 0}, .ur = {40, 10}},
@@ -1322,7 +1322,7 @@ TEST(Geometry, ShrinkingAwayANarrowNeckSplitsTheShape)
 
 TEST(Geometry, ShrinkingOnlyInYAlsoSplitsTheShape)
 {
-    const Shape dumbbell = rect_shape({
+    const ShapeData dumbbell = rect_shape({
         Rect{.ll = {0, 0}, .ur = {10, 10}},
         Rect{.ll = {10, 4}, .ur = {30, 6}},
         Rect{.ll = {30, 0}, .ur = {40, 10}},
@@ -1338,8 +1338,8 @@ TEST(Geometry, ShrinkingOnlyInYAlsoSplitsTheShape)
 
 TEST(Geometry, BooleanNotLeavingTwoHolesIsExactRects)
 {
-    const Shape big = rect_shape({Rect{.ll = {0, 0}, .ur = {50, 20}}});
-    const Shape holes = rect_shape({Rect{.ll = {10, 5}, .ur = {20, 15}}, Rect{.ll = {30, 5}, .ur = {40, 15}}});
+    const ShapeData big = rect_shape({Rect{.ll = {0, 0}, .ur = {50, 20}}});
+    const ShapeData holes = rect_shape({Rect{.ll = {10, 5}, .ur = {20, 15}}, Rect{.ll = {30, 5}, .ur = {40, 15}}});
     const AreaGeometry result = Geometry::boolean_shapes({&big}, {&holes}, BooleanOp::Not);
 
     EXPECT_TRUE(result.polygons.empty());
@@ -1380,8 +1380,8 @@ TEST(Geometry, BooleanHandlesComponentsWithOnlyOneSidePresent)
     // a1 overlaps b1; a2 and b2 each sit alone in their own component, so
     // the per-component shortcut decides them without any overlay: OR
     // keeps both, AND drops both, NOT keeps a2 but not b2.
-    const Shape a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}, Rect{.ll = {100, 0}, .ur = {110, 10}}});
-    const Shape b = rect_shape({Rect{.ll = {5, 0}, .ur = {15, 10}}, Rect{.ll = {200, 0}, .ur = {210, 10}}});
+    const ShapeData a = rect_shape({Rect{.ll = {0, 0}, .ur = {10, 10}}, Rect{.ll = {100, 0}, .ur = {110, 10}}});
+    const ShapeData b = rect_shape({Rect{.ll = {5, 0}, .ur = {15, 10}}, Rect{.ll = {200, 0}, .ur = {210, 10}}});
 
     EXPECT_EQ(total_area(Geometry::boolean_shapes({&a}, {&b}, BooleanOp::Or)), 150 + 100 + 100);
     EXPECT_EQ(total_area(Geometry::boolean_shapes({&a}, {&b}, BooleanOp::And)), 50);
@@ -1397,7 +1397,7 @@ TEST(Geometry, ShapeToRectsOfDiagonalGeometryOverCoversIt)
     // Not rectilinear, so the exact sweep doesn't apply - the intersection
     // fallback approximates each strip by its bbox: never less than the
     // triangle, never beyond its bbox.
-    const Shape triangle{.polygons = {Polygon{.points = {{0, 0}, {100, 0}, {0, 100}, {0, 0}}}}};
+    const ShapeData triangle{.polygons = {Polygon{.points = {{0, 0}, {100, 0}, {0, 100}, {0, 0}}}}};
     const std::vector<Rect> rects = Geometry::shape_to_rects(triangle, FractureDirection::Horizontal);
 
     ASSERT_FALSE(rects.empty());
@@ -1454,7 +1454,7 @@ TEST(Geometry, OrthogonalPathHitTestMatchesTheBufferedAreaExactly)
             path.polygon.points.push_back(at);
             last_dir = dir;
         }
-        const std::optional<Rect> box = Geometry::bbox(Shape{.paths = {path}});
+        const std::optional<Rect> box = Geometry::bbox(ShapeData{.paths = {path}});
         ASSERT_TRUE(box);
         for (int64_t y = box->ll.y - 1; y <= box->ur.y + 1; ++y)
             for (int64_t x = box->ll.x - 1; x <= box->ur.x + 1; ++x)
@@ -1485,7 +1485,7 @@ TEST(Geometry, AZeroWidthPathIsNeverHit)
     for (const Point p : {Point{5, 0}, Point{10, 5}, Point{0, 0}, Point{6, 10}})
     {
         EXPECT_EQ(Geometry::point_in_orthogonal_path(path, p), std::optional<bool>(false));
-        EXPECT_TRUE(Geometry::find_hit_pieces(Shape{.paths = {path}}, p).empty());
+        EXPECT_TRUE(Geometry::find_hit_pieces(ShapeData{.paths = {path}}, p).empty());
     }
 }
 
@@ -1519,7 +1519,7 @@ TEST(Geometry, PathHitPreFilterNeverDropsAHit)
         Path path{.width = 2 + rnd(8)};
         for (int k = 0; k < 2 + rnd(5); ++k)
             path.polygon.points.push_back(Point{rnd(60) - 30, rnd(60) - 30});
-        const std::optional<Rect> box = Geometry::bbox(Shape{.paths = {path}});
+        const std::optional<Rect> box = Geometry::bbox(ShapeData{.paths = {path}});
         ASSERT_TRUE(box);
         const int64_t margin = 5 * path.width; // miter spikes reach past the bbox
         for (int64_t y = box->ll.y - margin; y <= box->ur.y + margin; y += 2)
@@ -1531,7 +1531,7 @@ TEST(Geometry, PathHitPreFilterNeverDropsAHit)
                 const bool in_bbox = x >= box->ll.x && x <= box->ur.x && y >= box->ll.y && y <= box->ur.y;
                 const bool expected = in_bbox && buffered(path, Point{x, y});
                 hits += expected;
-                ASSERT_EQ(!Geometry::find_hit_pieces(Shape{.paths = {path}}, Point{x, y}).empty(), expected)
+                ASSERT_EQ(!Geometry::find_hit_pieces(ShapeData{.paths = {path}}, Point{x, y}).empty(), expected)
                     << "trial " << trial << " point (" << x << ", " << y << ")";
             }
     }

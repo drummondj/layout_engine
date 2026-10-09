@@ -42,7 +42,7 @@ namespace le
 
     inline Rect layout_declared_bbox(const Root &root, LayoutId layout_id)
     {
-        if (const Shape *diearea = root.get_shape(root.get_layout_diearea(layout_id)))
+        if (const ShapeData *diearea = root.get_shape(root.get_layout_diearea(layout_id)))
             if (auto b = Geometry::bbox(*diearea))
                 return *b;
         return Rect{};
@@ -57,7 +57,7 @@ namespace le
         if (abstract && abstract->size)
             return Rect{.ll = Point{0, 0}, .ur = *abstract->size};
 
-        if (const Shape *boundary = root.get_shape(root.get_abstract_boundary(abstract_id)))
+        if (const ShapeData *boundary = root.get_shape(root.get_abstract_boundary(abstract_id)))
             if (auto b = Geometry::bbox(*boundary))
                 return *b;
 

@@ -1173,7 +1173,7 @@ TEST(LeHandle, ArmMoveSnapshotsSelectionAndGeometry)
     handle.select(shape_id, PieceKind::POLYGON, 2);
 
     const LayerId m1{1, 1};
-    Shape geometry;
+    ShapeData geometry;
     geometry.layer = m1;
     const uint64_t before = handle.mouse_version();
 
@@ -1202,7 +1202,7 @@ TEST(LeHandle, RefreshMoveGeometryReplacesTheGhostSnapshotWithoutTouchingAnchorO
     handle.select(ShapeId{1, 0});
     const LayerId m1{1, 1};
     const LayerId m2{2, 1};
-    Shape original;
+    ShapeData original;
     original.layer = m1;
     handle.arm_move({original});
     handle.set_pan(Point{0, 0});
@@ -1213,7 +1213,7 @@ TEST(LeHandle, RefreshMoveGeometryReplacesTheGhostSnapshotWithoutTouchingAnchorO
     ASSERT_TRUE(handle.move().anchor.has_value());
     const uint64_t before = handle.mouse_version();
 
-    Shape refreshed;
+    ShapeData refreshed;
     refreshed.layer = m2;
     handle.refresh_move_geometry({refreshed});
 
@@ -1228,7 +1228,7 @@ TEST(LeHandle, RefreshMoveGeometryIsANoOpWhenNotArmed)
 {
     LeHandle handle;
     const uint64_t before = handle.mouse_version();
-    Shape geometry;
+    ShapeData geometry;
     handle.refresh_move_geometry({geometry});
     EXPECT_FALSE(handle.move().armed);
     EXPECT_TRUE(handle.move().moving_geometry.empty());
@@ -1248,7 +1248,7 @@ TEST(LeHandle, MoveSetAnchorRequiresArmedAndAMousePosition)
     handle.set_mouse_position(10, 90);
     EXPECT_FALSE(handle.move_set_anchor());
 
-    handle.arm_move({Shape{}});
+    handle.arm_move({ShapeData{}});
     // Armed, but requires a mouse position too - already set above, so
     // this should succeed now.
     EXPECT_TRUE(handle.move_set_anchor());
@@ -1268,7 +1268,7 @@ TEST(LeHandle, MoveDeltaOrthogonalConstrainsToTheLargerMagnitudeAxis)
     handle.set_viewport_size(100, 100);
     handle.set_minor_grid_spacing(1);
     handle.select(ShapeId{1, 0});
-    handle.arm_move({Shape{}});
+    handle.arm_move({ShapeData{}});
 
     handle.set_mouse_position(10, 90); // dbu (10, 10)
     ASSERT_TRUE(handle.move_set_anchor());
@@ -1288,7 +1288,7 @@ TEST(LeHandle, MoveDeltaFreeFormReturnsTheRawOffset)
     handle.set_viewport_size(100, 100);
     handle.set_minor_grid_spacing(1);
     handle.select(ShapeId{1, 0});
-    handle.arm_move({Shape{}});
+    handle.arm_move({ShapeData{}});
 
     handle.set_mouse_position(10, 90); // dbu (10, 10)
     ASSERT_TRUE(handle.move_set_anchor());
@@ -1304,7 +1304,7 @@ TEST(LeHandle, MoveDeltaIsNulloptBeforeAnAnchorIsSet)
 {
     LeHandle handle;
     handle.select(ShapeId{1, 0});
-    handle.arm_move({Shape{}});
+    handle.arm_move({ShapeData{}});
     EXPECT_FALSE(handle.move_delta(false).has_value());
 }
 
@@ -1315,7 +1315,7 @@ TEST(LeHandle, EndMoveClearsAllMoveState)
     handle.set_scale(1.0);
     handle.set_viewport_size(100, 100);
     handle.select(ShapeId{1, 0});
-    handle.arm_move({Shape{}});
+    handle.arm_move({ShapeData{}});
     handle.set_mouse_position(10, 10);
     handle.move_set_anchor();
 
@@ -1333,7 +1333,7 @@ TEST(LeHandle, SetModeLeavingEditCancelsAnInProgressMove)
     handle.set_viewport_size(100, 100);
     handle.set_mode(LeHandle::Mode::EDIT);
     handle.select(ShapeId{1, 0});
-    handle.arm_move({Shape{}});
+    handle.arm_move({ShapeData{}});
     ASSERT_TRUE(handle.move().armed);
 
     handle.set_mode(LeHandle::Mode::SELECT);

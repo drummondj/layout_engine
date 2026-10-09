@@ -241,7 +241,7 @@ namespace le
     /// style, not per-piece) if drawing several pieces with the same
     /// style in a row - this function only ever calls `ctx.stroke_path`.
     template <typename ToPixel>
-    inline void stroke_piece_outline(BLContext &ctx, const Shape &piece, ToPixel &&to_pixel)
+    inline void stroke_piece_outline(BLContext &ctx, const ShapeData &piece, ToPixel &&to_pixel)
     {
         auto stroke_polygon = [&](const Polygon &polygon)
         {

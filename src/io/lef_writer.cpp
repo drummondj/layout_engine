@@ -1629,7 +1629,7 @@ namespace le
         return 0;
     }
 
-    int LEFWriter::write_shape_geometry(const Root &root, const Shape &shape, double dbu_per_micron, bool is_pin_port)
+    int LEFWriter::write_shape_geometry(const Root &root, const ShapeData &shape, double dbu_per_micron, bool is_pin_port)
     {
         auto to_um = [&](int64_t v)
         { return to_microns(v, dbu_per_micron); };
@@ -1964,7 +1964,7 @@ namespace le
 
             for (ShapeId shape_id : root.get_terminal_port_shapes(port_id))
             {
-                const Shape *shape = root.get_shape(shape_id);
+                const ShapeData *shape = root.get_shape(shape_id);
                 if (!shape)
                     continue;
                 status = write_shape_geometry(root, *shape, dbu_per_micron, true);
@@ -1992,7 +1992,7 @@ namespace le
 
         for (ShapeId shape_id : root.get_obstruction_shapes(obstruction_id))
         {
-            const Shape *shape = root.get_shape(shape_id);
+            const ShapeData *shape = root.get_shape(shape_id);
             if (!shape)
                 continue;
             status = write_shape_geometry(root, *shape, dbu_per_micron, false);
