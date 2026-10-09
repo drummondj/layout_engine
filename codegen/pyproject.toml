@@ -3,7 +3,6 @@ name = "codegen"
 version = "0.1.0"
 description = "Code generation for C++23 and TCL"
 authors = ["John Dru <john@muopia.com>"]
-readme = "README.md"
 license = "MIT"
 repository = "https://github.com/drummondj/layout_engine"
 packages = [

@@ -7,7 +7,7 @@ schema = Schema(
     version="0.0.1_test",
     classes=[
         Klass(
-            name="Root",
+            name="Top",
             description="The root object that contains all validation failures",
             fields=[
                 Field(
@@ -54,7 +54,7 @@ schema = Schema(
                 Field(
                     name="root2",
                     description="Another root object",
-                    type="Root",
+                    type="Top",
                     parent="childrenz",
                 ),
             ],
@@ -76,6 +76,11 @@ schema = Schema(
                     example="BadChild",
                 ),
             ],
+        ),
+        Klass(
+            name="Root",
+            description="A class with the generated container's name",
+            fields=[],
         ),
         Klass(
             name="NoParent",

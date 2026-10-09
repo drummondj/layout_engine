@@ -73,12 +73,12 @@ class TestRenderableClasses(unittest.TestCase):
             version="1.0.0",
             purposes=[Purpose("ROUTE", "route", "Routed wires")],
             classes=[
-                Klass(name="Root", description="Root", fields=[Field(name="layouts", description="x", type="Layout", is_list=True, is_child=True)]),
+                Klass(name="Top", description="Root", fields=[Field(name="layouts", description="x", type="Layout", is_list=True, is_child=True)]),
                 Klass(
                     name="Layout",
                     description="A layout",
                     fields=[
-                        Field(name="root", description="x", type="Root", parent="layouts"),
+                        Field(name="root", description="x", type="Top", parent="layouts"),
                         Field(name="markers", description="x", type="Marker", is_list=True, is_child=True),
                     ],
                 ),

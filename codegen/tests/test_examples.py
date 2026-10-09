@@ -1,26 +1,31 @@
+import copy
 import logging
-import os
-import shutil
+import tempfile
 import unittest
 
 from codegen.generator import generate
-from codegen.schema import Klass
 from examples import eda, solar_system
-
-TEST_RUN_DIR = "generated"
+from tests.compile_check import compile_headers, compiler
 
 
 class TestExamples(unittest.TestCase):
-    def setUp(self):
-        if os.path.exists(TEST_RUN_DIR):
-            shutil.rmtree(TEST_RUN_DIR)
-        os.makedirs(TEST_RUN_DIR)
+    """The example schemas generate code that compiles."""
+
+    def check(self, schema):
+        with tempfile.TemporaryDirectory() as out:
+            # generate() links the schema in place; keep the shared example pristine.
+            self.assertEqual(generate(copy.deepcopy(schema), out, logging.getLogger("test"), history_dir=None), 0)
+            if compiler() is None:
+                self.skipTest("no C++ compiler")
+            result = compile_headers(out)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_eda(self):
-        schema = eda.schema
-        generate(schema, TEST_RUN_DIR, logging.getLogger("test"))
+        self.check(eda.schema)
 
-    @unittest.skip("upstream cmg's solar_system example uses a float field the fork no longer supports")
     def test_solar_system(self):
-        schema = solar_system.schema
-        generate(schema, TEST_RUN_DIR, logging.getLogger("test"))
+        self.check(solar_system.schema)
+
+
+if __name__ == "__main__":
+    unittest.main()

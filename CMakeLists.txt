@@ -1273,6 +1273,8 @@ gtest_discover_tests(backend_tests)
 add_test(NAME codegen_unit
     COMMAND ${Python3_EXECUTABLE} -m unittest discover -s tests -t .
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
+# Its compile checks of generated code use the build's compiler.
+set_tests_properties(codegen_unit PROPERTIES ENVIRONMENT "CXX=${CMAKE_CXX_COMPILER}")
 
 # --- gui_tests: the GUI module's parts that run headless (panels, the
 # extension GUI SDK) - Dear ImGui with no window or backend. ---

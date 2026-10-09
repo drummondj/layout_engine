@@ -62,6 +62,31 @@ class TestEditOps(unittest.TestCase):
                 self.assertIn(f" {op}_{snake}(", decls)
                 self.assertIn(f"WriteView::{op}_{snake}(", defs)
 
+    def test_delete_cascades_deepest_first(self):
+        # eda: Design -> Module (list) -> Instance (list).
+        ops = self.read("edit_ops_defs.inc")
+        body = re.search(r"delete_design\(LeHandle &handle, DesignId id\)\n\{\n(.*?)\n\}", ops, re.S).group(1)
+
+        def in_order(*needles):
+            positions = [body.find(n) for n in needles]
+            self.assertNotIn(-1, positions, needles)
+            self.assertEqual(positions, sorted(positions), needles)
+
+        in_order(
+            "handle.root.delete_instance(child_id);",
+            "handle.root.delete_module(child_id);",
+            "handle.root.delete_design(design_id);",
+        )
+        # Undo replays in reverse, so recording in the same order recreates parents first.
+        in_order(
+            "record_delete<le::InstanceId, le::InstanceData>",
+            "record_delete<le::ModuleId, le::ModuleData>",
+            "record_delete<le::DesignId, le::DesignData>",
+        )
+        # A recreated parent gets a new id; its children follow it through its id cell.
+        self.assertIn("fixed.module = parent_cell->id;", body)
+        self.assertIn("fixed.design = design_cell->id;", body)
+
 
 if __name__ == "__main__":
     unittest.main()
