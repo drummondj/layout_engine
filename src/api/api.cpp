@@ -960,9 +960,12 @@ namespace
     bool has_unsaved_database_unlocked(const LeHandle *handle) { return handle->root.mutation_version() != handle->saved_mutation_version; }
     bool has_unsaved_settings_unlocked(const LeHandle *handle) { return settings_snapshot(handle) != handle->saved_settings_json; }
 
-    // A read (LEF/DEF/Verilog) isn't an edit: whatever was clean before it
-    // stays clean after it - construct before the read, commit() after a
-    // successful one. Edits made before the read keep the design unsaved.
+    // A read (LEF/DEF/Verilog) or link can fill in settings (grid spacing in
+    // um) without the user changing any: settings clean before it stay
+    // clean after it. Construct before; after a successful read commit(),
+    // which leaves the design it read unsaved until write_db writes it;
+    // after a failed one commit_failed(), which also keeps a clean design
+    // clean - whatever it added partway is nothing the user would lose.
     class CleanAcrossRead
     {
     public:
@@ -971,10 +974,15 @@ namespace
 
         void commit(LeHandle *handle) const
         {
-            if (database_clean_)
-                handle->saved_mutation_version = handle->root.mutation_version();
             if (settings_clean_)
                 handle->saved_settings_json = settings_snapshot(handle);
+        }
+
+        void commit_failed(LeHandle *handle) const
+        {
+            commit(handle);
+            if (database_clean_)
+                handle->saved_mutation_version = handle->root.mutation_version();
         }
 
     private:
@@ -2585,7 +2593,7 @@ extern "C"
                 old_layer_count = handle->root.get_technology_layers(existing_technology_ids.front()).size();
         }
 
-        const CleanAcrossRead clean(handle); // a read isn't an unsaved edit
+        const CleanAcrossRead clean(handle);
         const std::filesystem::path lef_path(path);
         le::LEFReader reader;
         const int result = reader.read_lef(lef_path.string(), handle->root, library_name);
@@ -2598,7 +2606,7 @@ extern "C"
         handle->root.bump_mutation_version();
         if (result != 0)
         {
-            clean.commit(handle);
+            clean.commit_failed(handle);
             return result;
         }
 
@@ -2663,14 +2671,14 @@ extern "C"
             return 1;
         }
 
-        const CleanAcrossRead clean(handle); // a read isn't an unsaved edit
+        const CleanAcrossRead clean(handle);
         const std::filesystem::path def_path(path);
         le::DEFReader reader;
         const int result = reader.read_def(def_path.string(), handle->root, library_name);
         handle->root.bump_mutation_version(); // see le_read_lef
         if (result != 0)
         {
-            clean.commit(handle);
+            clean.commit_failed(handle);
             return result;
         }
 
@@ -2761,7 +2769,7 @@ extern "C"
             }
         }
 
-        const CleanAcrossRead clean(handle); // a read isn't an unsaved edit
+        const CleanAcrossRead clean(handle);
         le::SVReader reader;
         const int result = is_netlist
             ? reader.read_netlist(filename_strings, handle->root, library_name)
@@ -2774,7 +2782,10 @@ extern "C"
             std::filesystem::remove(stub_path, ec);
         }
 
-        clean.commit(handle);
+        if (result == 0)
+            clean.commit(handle);
+        else
+            clean.commit_failed(handle);
         return result;
     }
 
@@ -2824,9 +2835,8 @@ extern "C"
         if (!handle)
             return 0;
         HandleWriteLock lock(handle);
-        // Linking derives connectivity from what the reads loaded - like a
-        // read, it isn't an unsaved edit, but it does change content
-        // (see le_read_lef's own bump).
+        // Linking derives connectivity from what the reads loaded, changing
+        // content (see le_read_lef's own bump) but no setting the user made.
         const CleanAcrossRead clean(handle);
         const size_t resolved = le::SVReader::link_unresolved_instances(handle->root);
 
@@ -3211,10 +3221,7 @@ extern "C"
         }
 
         le::LEFWriter writer;
-        const int result = writer.write_lef(path, handle->root, abstract_ids, mode);
-        if (result == 0)
-            handle->saved_mutation_version = handle->root.mutation_version(); // the design is saved
-        return result;
+        return writer.write_lef(path, handle->root, abstract_ids, mode);
     }
 
     int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id_c)
@@ -3245,10 +3252,7 @@ extern "C"
         }
 
         le::DEFWriter writer;
-        const int result = writer.write_def(path, handle->root, layout_id);
-        if (result == 0)
-            handle->saved_mutation_version = handle->root.mutation_version(); // the design is saved
-        return result;
+        return writer.write_def(path, handle->root, layout_id);
     }
 
     int le_write_db(LeHandle *handle, const char *path, int32_t with_session)

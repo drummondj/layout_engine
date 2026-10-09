@@ -2823,7 +2823,7 @@ Undoes the last change - a typed command or a GUI edit such as a Move. Returns 1
 
 `unsaved_changes [-help]`
 
-Returns what has changed since it was last saved: "design" if the design has edits not yet written with write_def or write_lef (reading files doesn't count), and "settings" if settings differ from the last save_settings or load_settings. Empty if nothing is unsaved. le_shell asks before exiting when it isn't.
+Returns what has changed since it was last saved: "design" if the design has changed since the last write_db or read_db (reading LEF/DEF/Verilog counts, and write_def/write_lef don't save it), and "settings" if settings differ from the last save_settings or load_settings. Empty if nothing is unsaved. le_shell asks before exiting when it isn't.
 
 ## update_abstract
 

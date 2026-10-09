@@ -121,7 +121,7 @@ namespace
             return true;
         std::printf("Unsaved changes:\n");
         if (design)
-            std::printf("  - the design has edits that haven't been written out (write_db / write_def / write_lef)\n");
+            std::printf("  - the design hasn't been saved (write_db)\n");
         if (settings)
             std::printf("  - settings have changed since they were last saved (save_settings)\n");
         char *answer = readline("Exit anyway? [y/N] ");

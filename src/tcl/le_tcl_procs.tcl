@@ -2645,7 +2645,7 @@ proc unsaved_changes {args} {
 }
 register_command_help unsaved_changes \
     "unsaved_changes \[-help\] - Lists what has changed since it was last saved: design and/or settings" \
-    "Returns what has changed since it was last saved: \"design\" if the design has edits not yet written with write_def or write_lef (reading files doesn't count), and \"settings\" if settings differ from the last save_settings or load_settings. Empty if nothing is unsaved. le_shell asks before exiting when it isn't." \
+    "Returns what has changed since it was last saved: \"design\" if the design has changed since the last write_db or read_db (reading LEF/DEF/Verilog counts, and write_def/write_lef don't save it), and \"settings\" if settings differ from the last save_settings or load_settings. Empty if nothing is unsaved. le_shell asks before exiting when it isn't." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
