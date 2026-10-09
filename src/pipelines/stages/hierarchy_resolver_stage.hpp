@@ -998,24 +998,61 @@ namespace le
         // A renderable class's objects in one place - a tile's members, or a
         // whole untiled Layout's - still in `layout_id`: their shapes on the
         // class's row, or a per_layer class's on their layers' columns, each
-        // recorded for selection.
+        // recorded for selection. A labelled class's object gets one label per
+        // view layer it draws on, placed on its geometry there and carried by
+        // its first shape there, so it hides with that row.
         template <class R, class Objects>
         static void collect_renderable_objects(const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, const Objects &objects,
                                                ViewLayerShapes &shapes_by_layer, ChunkSources &sources)
         {
             const ResolverPhaseTimer timer("layout.renderable");
+            struct LabelAccumulator
+            {
+                ViewLayerId view_layer;
+                std::size_t first_shape_index = 0;
+                RenderShape combined;
+            };
+            std::vector<LabelAccumulator> labels; // one per view layer; an object rarely spans more than one or two
             for (const auto object : objects)
             {
                 const typename R::Id id{object.index, object.generation};
                 if (R::layout_of(root, id) != layout_id)
                     continue;
+                labels.clear();
                 for (const ShapeId shape_id : R::shapes(root, id))
                     if (const ShapeData *shape = root.get_shape(shape_id))
                     {
                         const ViewLayerId view_layer = view_layers.renderable_view_layer<R>(*shape);
-                        shapes_by_layer[view_layer].push_back(to_render_shape(*shape));
+                        std::vector<RenderShape> &layer_shapes = shapes_by_layer[view_layer];
+                        if constexpr (R::has_label)
+                        {
+                            auto it = std::ranges::find(labels, view_layer, &LabelAccumulator::view_layer);
+                            if (it == labels.end())
+                                it = labels.insert(labels.end(), LabelAccumulator{.view_layer = view_layer, .first_shape_index = layer_shapes.size()});
+                            it->combined.rects.insert(it->combined.rects.end(), shape->rects.begin(), shape->rects.end());
+                            it->combined.polygons.insert(it->combined.polygons.end(), shape->polygons.begin(), shape->polygons.end());
+                            it->combined.paths.insert(it->combined.paths.end(), shape->paths.begin(), shape->paths.end());
+                        }
+                        layer_shapes.push_back(to_render_shape(*shape));
                         sources.shapes[view_layer].push_back(shape_id);
                     }
+                if constexpr (R::has_label)
+                {
+                    const std::string_view label = R::label(root, id);
+                    if (label.empty())
+                        continue;
+                    for (const LabelAccumulator &acc : labels)
+                    {
+                        if (acc.combined.rects.empty() && acc.combined.polygons.empty() && acc.combined.paths.empty())
+                            continue;
+                        const Point location = Geometry::get_label_location(acc.combined);
+                        shapes_by_layer[acc.view_layer][acc.first_shape_index].texts.push_back(Text{
+                            .label = std::string(label),
+                            .location = location,
+                            .size = Geometry::local_width_at(acc.combined, location),
+                        });
+                    }
+                }
             }
         }
 

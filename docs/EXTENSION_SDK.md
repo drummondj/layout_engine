@@ -396,6 +396,11 @@ def extend(schema):
   its layer's row, like a route, so it's shown, hidden and made selectable
   with its layer as well as with the purpose. A shape with no layer, or a
   layer the technology doesn't have, still draws on the purpose's own row.
+  To label each object, as placements show their names, pass
+  `Render(..., label_field="name")` naming one of your class's `str`
+  fields: the label is drawn on the object's shapes, once per row they
+  draw on, sized like a pin's within the Settings panel's label size
+  limits, and hidden with that row. An empty value draws no label.
 - **History:** the build writes `schema_history/<VERSION>.json` beside
   `schema_ext.py`. Commit it. Changing the schema without bumping
   `VERSION` fails the build, as for core. While a version is not yet
@@ -698,7 +703,7 @@ The first version.
 - Overlays: `Registry::add_overlay`, `OverlayContext`, `request_redraw()`.
 - Settings: `Registry::add_settings`, `SettingsSection`; `ExtensionInfo::directory`
   and `Registry::resource`.
-- Rendering: `Render(purpose=Purpose(...), tiled=..., per_layer=...)` on a class.
+- Rendering: `Render(purpose=Purpose(...), tiled=..., per_layer=..., label_field=...)` on a class.
 - Database classes: `schema_ext.py` (`VERSION`, `extend(schema)`), its
   `schema_history/` and `migrations/` (`Migration(extension=...,
   depends_on_core=...)`, `--migrate-extension`), and the `"extensions"`

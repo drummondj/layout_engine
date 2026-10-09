@@ -45,7 +45,8 @@ def validate_purposes(schema: Schema) -> List[str]:
 def renderables(schema: Schema) -> tuple[list, List[str]]:
     """
     What renderable_classes.hpp needs for each class with render=, and every
-    problem: it needs a Layout parent and a list of Shapes it owns.
+    problem: it needs a Layout parent and a list of Shapes it owns, and a
+    label_field must name one of its str fields.
     """
     found, errors = [], []
     shape = next((k for k in schema.classes if k.name == "Shape"), None)
@@ -57,6 +58,12 @@ def renderables(schema: Schema) -> tuple[list, List[str]]:
         owner_option = None
         if shape is not None and shapes_list is not None:
             owner_option = next((f for f in shape.get_owner_fields() if f.type == klass.name and f.parent == shapes_list.name), None)
+        label_field = None
+        if klass.render.label_field is not None:
+            label_field = next((f for f in klass.fields if f.name == klass.render.label_field), None)
+            if label_field is None or label_field.type != "str" or label_field.is_list:
+                errors.append(f"{klass.name}'s render= label_field {klass.render.label_field!r} isn't a str field of {klass.name}")
+                label_field = None
         if layout_parent is None:
             errors.append(f"{klass.name} has render= but no parent field of type Layout")
         if owner_option is None:
@@ -72,6 +79,7 @@ def renderables(schema: Schema) -> tuple[list, List[str]]:
                 "layout_field": layout_parent.name,
                 "shapes_list": shapes_list.name,
                 "owner_option": owner_option.name,
+                "label_field": label_field,
             }
         )
     return found, errors

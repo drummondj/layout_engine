@@ -29,6 +29,8 @@ namespace {{namespace}}::renderable
         static constexpr bool tiled = {{ 'true' if r.klass.render.tiled else 'false' }};
         /// @brief Whether its Shapes draw in a column of their layer's row.
         static constexpr bool per_layer = {{ 'true' if r.klass.render.per_layer else 'false' }};
+        /// @brief Whether its objects are labelled (label()).
+        static constexpr bool has_label = {{ 'true' if r.label_field else 'false' }};
         static constexpr ChangeKlass klass = ChangeKlass::{{r.klass.name}};
         static constexpr ViewLayerPurpose purpose = ViewLayerPurpose::{{r.purpose.name}};
         /// @brief Its pseudo-row's name in the Layers panel, and its
@@ -40,6 +42,19 @@ namespace {{namespace}}::renderable
         static decltype(auto) in_layout(const Root &root, LayoutId layout) { return root.get_layout_{{r.layout_list}}(layout); }
         static decltype(auto) shapes(const Root &root, Id id) { return root.get_{{r.snake}}_{{r.shapes_list}}(id); }
         static Id owner_of(const ShapeData &shape) { return shape.{{r.owner_option}}(); }
+        /// @brief The text an object is labelled with{% if r.label_field %} (its {{r.label_field.name}}){% endif %}; empty for none.
+        static std::string_view label([[maybe_unused]] const Root &root, [[maybe_unused]] Id id)
+        {
+{% if r.label_field and r.label_field.is_optional %}
+            const auto *object = root.get_{{r.snake}}(id);
+            return object && object->{{r.label_field.name}} ? std::string_view(*object->{{r.label_field.name}}) : std::string_view{};
+{% elif r.label_field %}
+            const auto *object = root.get_{{r.snake}}(id);
+            return object ? std::string_view(object->{{r.label_field.name}}) : std::string_view{};
+{% else %}
+            return {};
+{% endif %}
+        }
         /// @brief The Layout an object is in (invalid if it's gone).
         static LayoutId layout_of(const Root &root, Id id)
         {

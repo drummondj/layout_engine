@@ -115,6 +115,7 @@ class TestRenderableClasses(unittest.TestCase):
         self.assertIn("inline constexpr std::size_t kCount = 1;", text)
         self.assertIn("static constexpr bool tiled = false;", text)
         self.assertIn("static constexpr bool per_layer = false;", text)
+        self.assertIn("static constexpr bool has_label = false;", text)
         self.assertIn("inline constexpr std::size_t kPerLayerCount = 0;", text)
 
     def test_tiled_is_passed_through(self):
@@ -135,6 +136,29 @@ class TestRenderableClasses(unittest.TestCase):
             text = (Path(out) / "renderable_classes.hpp").read_text()
         self.assertIn("static constexpr bool per_layer = true;", text)
         self.assertIn("inline constexpr std::size_t kPerLayerCount = 1;", text)
+
+    def test_label_field_labels_by_a_str_field(self):
+        from codegen.schema import Field
+
+        fields = self.fields() + [Field(name="name", description="x", type="str", example="a")]
+        schema = self.schema(fields)
+        schema.get_klass("Marker").render.label_field = "name"
+        schema.purposes.append(schema.get_klass("Marker").render.purpose)
+        with tempfile.TemporaryDirectory() as out:
+            self.assertEqual(generate(schema, out, logging.getLogger("test")), 0)
+            text = (Path(out) / "renderable_classes.hpp").read_text()
+        self.assertIn("static constexpr bool has_label = true;", text)
+        self.assertIn("return object ? std::string_view(object->name) : std::string_view{};", text)
+
+    def test_label_field_must_be_a_str_field(self):
+        from codegen.render_generator import renderables
+        from codegen.schema import Field
+
+        for label_field, extra in (("missing", []), ("count", [Field(name="count", description="x", type="int", example=1)])):
+            schema = self.schema(self.fields() + extra)
+            schema.get_klass("Marker").render.label_field = label_field
+            schema.link()
+            self.assertTrue(any("label_field" in e and "isn't a str field" in e for e in renderables(schema)[1]), label_field)
 
     def test_a_renderable_class_needs_a_layout_parent_and_owned_shapes(self):
         from codegen.render_generator import renderables
