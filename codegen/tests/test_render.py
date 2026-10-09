@@ -38,7 +38,7 @@ class TestRender(unittest.TestCase):
         schema = _schema(
             [
                 Purpose("ROUTE", "route", "Routed wires", has_selectable_objects=True),
-                Purpose("GRID", "grid", "A grid", visible_by_default=False, selectable_by_default=False),
+                Purpose("GRID", "grid", "A grid", visible_by_default=False, selectable_by_default=False, under_placements=True),
             ]
         )
         with tempfile.TemporaryDirectory() as out:
@@ -46,8 +46,8 @@ class TestRender(unittest.TestCase):
             text = (Path(out) / "view_layer_purpose.hpp").read_text()
         self.assertLess(text.index("ROUTE, // Routed wires"), text.index("GRID, // A grid"))
         self.assertIn("kViewLayerPurposeCount = 2;", text)
-        self.assertIn('{ViewLayerPurpose::ROUTE, "route", true, true, true},', text)
-        self.assertIn('{ViewLayerPurpose::GRID, "grid", false, false, false},', text)
+        self.assertIn('{ViewLayerPurpose::ROUTE, "route", true, true, true, false},', text)
+        self.assertIn('{ViewLayerPurpose::GRID, "grid", false, false, false, true},', text)
 
     def test_invalid_purposes_fail_generation(self):
         with tempfile.TemporaryDirectory() as out:

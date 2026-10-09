@@ -445,6 +445,15 @@ namespace le
         ctx.restore();
     }
 
+    /// @brief Which of a node's view layers one draw_view_shapes_blend2d
+    /// call draws, split by purpose_draws_under_placements.
+    enum class PlacementLayering
+    {
+        ALL,
+        UNDER_PLACEMENTS,
+        OVER_PLACEMENTS,
+    };
+
     /// @brief Geometry::path_to_polygons results, per Path - one per
     /// ViewShapeChunk (its Paths' addresses are stable while it lives).
     using PathOutlineCache = std::unordered_map<const Path *, std::vector<Polygon>>;
@@ -502,7 +511,8 @@ namespace le
         std::unordered_map<int, MonospaceFontEntry> &monospace_font_cache,
         std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> &glyph_bitmap_cache,
         double requested_min_label_px = kMinLabelPixelSize, double max_label_px = kMaxLabelPixelSize,
-        const std::vector<ChunkVisibilityHandle> *chunk_visibility = nullptr)
+        const std::vector<ChunkVisibilityHandle> *chunk_visibility = nullptr,
+        PlacementLayering layering = PlacementLayering::ALL)
     {
         // The Settings panel's min/max label font sizes
         // (ViewRenderOptions::label_min_size_px/label_max_size_px):
@@ -579,6 +589,9 @@ namespace le
             if (!layer)
                 continue;
             if (!is_view_layer_visible(layer_name_visible, purpose_visible, layer->layer_name, layer->purpose))
+                continue;
+            if (layering != PlacementLayering::ALL &&
+                purpose_draws_under_placements(layer->purpose) != (layering == PlacementLayering::UNDER_PLACEMENTS))
                 continue;
 
             const ViewLayerStyle &style = layer->style;
@@ -1007,13 +1020,18 @@ namespace le
 
                 BLContextCreateInfo create_info{};
                 create_info.thread_count = thread_count_;
-                BLContext ctx(image, create_info);
-                ctx.clear_all();
-
-                // dbu y increases upward, pixel y increases downward.
-                ctx.translate(0.0, static_cast<double>(pixel_height));
-                ctx.scale(options.scale, -options.scale);
-                ctx.translate(static_cast<double>(-local_bbox.ll.x), static_cast<double>(-local_bbox.ll.y));
+                // A context over `target` with the dbu-to-pixel transform
+                // (dbu y increases upward, pixel y increases downward).
+                const auto begin = [&](BLImage &target)
+                {
+                    BLContext context(target, create_info);
+                    context.clear_all();
+                    context.translate(0.0, static_cast<double>(pixel_height));
+                    context.scale(options.scale, -options.scale);
+                    context.translate(static_cast<double>(-local_bbox.ll.x), static_cast<double>(-local_bbox.ll.y));
+                    return context;
+                };
+                BLContext ctx = begin(image);
 
                 // Background grid + Abstract origin marker - only for
                 // top_level itself (see draw_grid_blend2d's own doc
@@ -1040,17 +1058,33 @@ namespace le
                     outline_caches.push_back(&cache.outlines);
                 }
 
-                draw_view_shapes_blend2d(
-                    ctx, data.chunks, outline_caches, local_bbox, view_layers, options.scale,
-                    options.layer_name_visible, options.purpose_visible,
-                    monospace_font_cache_, glyph_bitmap_cache_, options.label_min_size_px, options.label_max_size_px, &data.chunk_visibility);
-
+                // With child content to go between, the background goes in
+                // `image` and the rest in a second image ComposeStage draws
+                // over the children; otherwise one image holds everything.
+                const bool split = has_child_content(*culled, data);
+                const auto draw = [&](BLContext &context, PlacementLayering layering)
+                {
+                    draw_view_shapes_blend2d(
+                        context, data.chunks, outline_caches, local_bbox, view_layers, options.scale,
+                        options.layer_name_visible, options.purpose_visible,
+                        monospace_font_cache_, glyph_bitmap_cache_, options.label_min_size_px, options.label_max_size_px, &data.chunk_visibility,
+                        layering);
+                };
+                draw(ctx, split ? PlacementLayering::UNDER_PLACEMENTS : PlacementLayering::ALL);
                 ctx.end();
 
-                // ComposeStage composites BLImages natively, so `image`
-                // itself is the finished RasterizedImage - no format
-                // conversion/copy needed at all.
-                result.images.emplace(id, RasterizedImage{std::move(image), local_bbox.ll});
+                BLImage over_placements;
+                if (split)
+                {
+                    over_placements.create(pixel_width, pixel_height, BL_FORMAT_PRGB32);
+                    BLContext over_ctx = begin(over_placements);
+                    draw(over_ctx, PlacementLayering::OVER_PLACEMENTS);
+                    over_ctx.end();
+                }
+
+                // ComposeStage composites BLImages natively, so these are
+                // the finished RasterizedImage - no format conversion.
+                result.images.emplace(id, RasterizedImage{std::move(image), local_bbox.ll, std::move(over_placements)});
             }
 
             return result;
@@ -1100,11 +1134,25 @@ namespace le
         {
             std::size_t bytes = 0;
             for (const auto &[id, image] : output.images)
+            {
                 bytes += static_cast<std::size_t>(image.image.width()) * static_cast<std::size_t>(image.image.height()) * 4;
+                bytes += static_cast<std::size_t>(image.over_placements.width()) * static_cast<std::size_t>(image.over_placements.height()) * 4;
+            }
             return bytes;
         }
 
     private:
+        /// @brief Whether any of `data`'s placements has a node of its own
+        /// in `culled` - content ComposeStage will draw over `data`'s image.
+        static bool has_child_content(const HierarchyResolverOutput &culled, const ViewData &data)
+        {
+            for (const ViewPlacements &tile : data.placement_tiles)
+                for (const ViewPlacementData &placement : tile->placements)
+                    if (culled.view_data.contains(placement.id))
+                        return true;
+            return false;
+        }
+
         // Route outlines per chunk. HierarchyResolverStage shares an
         // unchanged chunk between outputs, so an edit keeps every other
         // chunk's outlines. `source` is weak - the cache must never keep a
