@@ -1,6 +1,7 @@
 #include "api.hpp"
 #include "../database/database.hpp"
 #include "../database/filter.hpp"
+#include "../database/library_helpers.hpp"
 #include "../database/schematic_layout_linker.hpp"
 #include "../database/rename_propagation.hpp"
 #include "../editing/editing.hpp"
@@ -2718,7 +2719,7 @@ extern "C"
         // SVReader's own class comment), so it has no "unknown module"
         // failure mode a stub could address. Automatically covers every
         // LEF-only Design (Abstract but no Schematic) already in this
-        // handle's Root, from any read_lef so far - a Design that
+        // handle's Root, from any read_lef so far, one per name - a Design that
         // already has a Schematic (a prior real Verilog read) is
         // skipped by generate_verilog_stubs itself, so re-running this
         // on a later read_verilog call never produces a duplicate
@@ -2729,9 +2730,16 @@ extern "C"
         std::string stub_path;
         if (is_netlist)
         {
-            std::string stub_source;
-            for (le::LibraryId library_id : handle->root.get_library_ids())
-                stub_source += le::generate_verilog_stubs(handle->root, library_id);
+            std::vector<std::string> ambiguous;
+            const std::string stub_source =
+                le::generate_verilog_stubs_for_read(handle->root, handle->root.get_library_by_name(library_name), ambiguous);
+            for (const std::string &name : ambiguous)
+            {
+                const std::vector<le::DesignId> designs = le::designs_named(handle->root, name);
+                spdlog::warn("read_verilog: libraries {} all have a cell {} - no stub module for it, so give it a module "
+                             "or read into one of those libraries",
+                             le::library_names_of(handle->root, designs), name);
+            }
 
             if (!stub_source.empty())
             {
@@ -5351,6 +5359,35 @@ extern "C"
             spdlog::error("select: unsupported object kind (only Shape/Route/PhysicalPort/Row/Placement/Region can be selected)");
             return 1;
         }
+    }
+
+    LeDesignId le_design_by_name(LeHandle *handle, const char *name)
+    {
+        const LeDesignId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!handle || !name)
+            return invalid;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        const le::DesignId id = le::resolve_design_reference(handle->root, name);
+        return id.valid() ? to_c(id) : invalid;
+    }
+
+    const char *le_design_name_by_id(LeHandle *handle, LeDesignId id)
+    {
+        if (!handle)
+            return nullptr;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        const le::DesignData *data = handle->root.get_design(from_c(id));
+        return data ? data->name.c_str() : nullptr;
+    }
+
+    LeLibraryId le_design_library_by_id(LeHandle *handle, LeDesignId id)
+    {
+        const LeLibraryId invalid{.index = UINT32_MAX, .generation = 0};
+        if (!handle)
+            return invalid;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        const le::DesignData *data = handle->root.get_design(from_c(id));
+        return data ? to_c(data->library) : invalid;
     }
 
     LeTerminalId le_terminal_by_name(LeHandle *handle, const char *name)

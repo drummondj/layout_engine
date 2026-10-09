@@ -46,21 +46,19 @@ namespace le
                 spdlog::info("{}", line);
         }
 
-        // Design lookup is by global name (le::get_or_create_design) - no
-        // cross-library warning here: a netlist read's generated stub
-        // modules deliberately attach to LEF cells in another library.
-        DesignId get_or_create_design(Root &root, LibraryId library_id, const std::string &name)
-        {
-            return le::get_or_create_design(root, library_id, name, "");
-        }
-
         // Each view can only be read once per design: every module
         // declared in `trees` whose Design already
         // has a Schematic is an error, reported (all of them) before the
         // read creates anything. Returns false if there was any.
         bool check_no_existing_schematics(const Root &root, const std::vector<std::shared_ptr<slang::syntax::SyntaxTree>> &trees,
-                                          const char *caller, std::vector<std::string> &messages)
+                                          const std::string &library_name, const char *caller, std::vector<std::string> &messages)
         {
+            // Only the target library's own Design can clash: a same-named
+            // Design elsewhere that already has a Schematic leaves this
+            // read to make its own (le::get_or_create_design).
+            const LibraryId library_id = root.get_library_by_name(library_name);
+            if (!library_id.valid())
+                return true;
             bool ok = true;
             for (const auto &tree : trees)
             {
@@ -68,7 +66,7 @@ namespace le
                     [&](auto &self, const slang::syntax::ModuleDeclarationSyntax &node)
                     {
                         const std::string name(node.header->name.valueText());
-                        const DesignId design_id = root.get_design_by_name(name);
+                        const DesignId design_id = root.get_design_by_name(library_id, name);
                         if (design_id.valid() && root.get_design_schematic(design_id).valid())
                         {
                             const std::string msg = fmt::format(
@@ -757,10 +755,11 @@ namespace le
         }
         if (trees.empty())
             return 1;
-        if (!check_no_existing_schematics(root, trees, "read_verilog", messages_))
+        if (!check_no_existing_schematics(root, trees, library_name, "read_verilog", messages_))
             return 1;
 
         library_id_ = le::get_or_create_library(root, library_name);
+        read_designs_.clear();
 
         slang::ast::Compilation compilation;
         for (const auto &tree : trees)
@@ -788,7 +787,7 @@ namespace le
                 SchematicId parent_schematic_id)
         {
             const std::string definition_name(instance.getDefinition().name);
-            const DesignId design_id = get_or_create_design(root, library_id_, definition_name);
+            const DesignId design_id = design_for(root, definition_name);
             const SchematicId own_schematic_id = get_or_create_schematic(root, design_id);
 
             if (parent_schematic_id.valid())
@@ -1080,10 +1079,11 @@ namespace le
         }
         if (trees.empty())
             return 1;
-        if (!check_no_existing_schematics(root, trees, "read_verilog", messages_))
+        if (!check_no_existing_schematics(root, trees, library_name, "read_verilog", messages_))
             return 1;
 
         library_id_ = le::get_or_create_library(root, library_name);
+        read_designs_.clear();
 
         const auto &source_manager = slang::syntax::SyntaxTree::getDefaultSourceManager();
 
@@ -1113,7 +1113,7 @@ namespace le
         for (const auto &[module_syntax, tree] : all_modules)
         {
             const std::string module_name(module_syntax->header->name.valueText());
-            const DesignId design_id = get_or_create_design(root, library_id_, module_name);
+            const DesignId design_id = design_for(root, module_name);
             const SchematicId schematic_id = get_or_create_schematic(root, design_id);
 
             const auto ports_it = ports_by_module.find(module_name);
@@ -1162,6 +1162,16 @@ namespace le
         return 0;
     }
 
+    DesignId SVReader::design_for(Root &root, const std::string &name)
+    {
+        // No cross-library warning: a netlist's stub modules attaching to
+        // LEF cells in another library is the point.
+        const auto [it, inserted] = read_designs_.try_emplace(name);
+        if (inserted)
+            it->second = le::get_or_create_design(root, library_id_, name, DesignView::Schematic, "");
+        return it->second;
+    }
+
     size_t SVReader::link_unresolved_instances(Root &root)
     {
         const SaturateChangeLogOnExit bulk_load{root}; // writes through mutable pointers too
@@ -1174,7 +1184,10 @@ namespace le
             const InstanceData *instance = root.get_instance(id);
             if (!instance || instance->reference_design.valid() || !instance->reference_name.has_value())
                 continue;
-            const DesignId design_id = root.get_design_by_name(*instance->reference_name);
+            // Preferring the instantiating Design's own library.
+            const SchematicData *schematic = root.get_schematic(instance->schematic);
+            const DesignData *owner = schematic ? root.get_design(schematic->design) : nullptr;
+            const DesignId design_id = find_design_by_name(root, *instance->reference_name, owner ? owner->library : LibraryId{});
             if (design_id.valid())
             {
                 root.update_instance(id, SchematicId{}, std::optional<DesignId>(design_id), std::nullopt,

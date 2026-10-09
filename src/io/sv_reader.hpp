@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "../database/database.hpp"
 #include "slang/ast/SemanticFacts.h"
@@ -82,8 +83,14 @@ namespace le
         static SignalDirection signal_direction_from_parser(slang::ast::ArgumentDirection direction);
 
     private:
+        /// @brief The Design module `name` goes into for this read - the
+        /// same one for every instance of it, even after the first gave a
+        /// LEF cell its Schematic.
+        DesignId design_for(Root &root, const std::string &name);
+
         Root *root_ = nullptr;
         LibraryId library_id_;
+        std::unordered_map<std::string, DesignId> read_designs_;
         std::vector<std::string> messages_;
     };
 }

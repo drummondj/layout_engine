@@ -5653,8 +5653,9 @@ TEST_F(ApiFixture, ReadingAViewTheDesignAlreadyHasIsAnError)
 }
 
 // Abstract (LEF), Layout (DEF) and Schematic (Verilog) all land on the one
-// TESTCELL design; a second Schematic read is refused before it creates
-// anything - not even its (new) library.
+// TESTCELL design; a second Schematic read into the same library is refused
+// before it creates anything, while one into another library makes that
+// library its own TESTCELL.
 TEST_F(ApiFixture, AbstractLayoutAndSchematicViewsCombineOnOneDesign)
 {
     const std::filesystem::path verilog_path = std::filesystem::temp_directory_path() / "le_library_naming_testcell.v";
@@ -5675,8 +5676,16 @@ TEST_F(ApiFixture, AbstractLayoutAndSchematicViewsCombineOnOneDesign)
     EXPECT_NE(design.abstract_id.index, UINT32_MAX);
     EXPECT_NE(design.layout_id.index, UINT32_MAX);
 
-    EXPECT_NE(le_read_verilog(handle, paths, 1, /*is_netlist=*/0, "other"), 0);
-    EXPECT_EQ(le_library_count(handle), 1);
+    EXPECT_NE(le_read_verilog(handle, paths, 1, /*is_netlist=*/0, "cells"), 0);
+    EXPECT_EQ(le_library_design_count(handle, 0), 1);
+
+    ASSERT_EQ(le_read_verilog(handle, paths, 1, /*is_netlist=*/0, "other"), 0);
+    ASSERT_EQ(le_library_count(handle), 2);
+    EXPECT_EQ(le_library_design_count(handle, 0), 1);
+    EXPECT_EQ(le_library_design_count(handle, 1), 1);
+    EXPECT_EQ(le_design_by_name(handle, "TESTCELL").index, UINT32_MAX); // ambiguous now
+    EXPECT_EQ(le_design_by_name(handle, "cells/TESTCELL").index, design.id.index);
+    EXPECT_EQ(le_design_by_name(handle, "other/TESTCELL").index, le_library_design_at(handle, 1, 0).id.index);
 
     std::filesystem::remove(verilog_path);
 }

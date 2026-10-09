@@ -38,6 +38,7 @@
 // combines them into a single `[msb:lsb]` vector port instead.
 
 #include "../database/database.hpp"
+#include "../database/library_helpers.hpp"
 
 #include <fmt/format.h>
 
@@ -46,6 +47,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace le
@@ -246,44 +248,78 @@ namespace le
         }
     }
 
+    /// @brief The stub module for `design_id` - see this header's own
+    /// top-of-file comment for why. Empty unless it has an Abstract and no
+    /// Schematic (one read from real Verilog needs no stub).
+    inline std::string stub_module(const Root &root, DesignId design_id)
+    {
+        const AbstractId abstract_id = root.get_design_abstract(design_id);
+        const DesignData *design = root.get_design(design_id);
+        if (!abstract_id.valid() || !design || root.get_design_schematic(design_id).valid())
+            return {};
+
+        const std::vector<verilog_stub_detail::StubPort> ports =
+            verilog_stub_detail::group_terminals_into_ports(root, root.get_abstract_terminals(abstract_id));
+
+        std::string out = fmt::format("module {} (", verilog_stub_detail::verilog_identifier(design->name));
+        for (size_t i = 0; i < ports.size(); ++i)
+            out += fmt::format("{}{}", i == 0 ? "" : ", ", verilog_stub_detail::verilog_identifier(ports[i].name));
+        out += ");\n";
+
+        for (const auto &port : ports)
+        {
+            const char *keyword = verilog_stub_detail::verilog_direction_keyword(port.direction);
+            const std::string ident = verilog_stub_detail::verilog_identifier(port.name);
+            if (port.bit_range)
+                out += fmt::format("    {} [{}:{}] {};\n", keyword, port.bit_range->first, port.bit_range->second, ident);
+            else
+                out += fmt::format("    {} {};\n", keyword, ident);
+        }
+
+        out += "endmodule\n\n";
+        return out;
+    }
+
     /// @brief Generates stub Verilog source (one empty-bodied module per
-    /// Abstract-only Design in `library_id`) - see this header's own
-    /// top-of-file comment for why. A Design with a real Schematic
-    /// (already read from real Verilog) is skipped - it needs no stub.
-    /// Returns an empty string if `library_id` doesn't resolve or has no
-    /// Abstract-only Designs.
+    /// Abstract-only Design in `library_id`). Returns an empty string if
+    /// `library_id` doesn't resolve or has no Abstract-only Designs.
     inline std::string generate_verilog_stubs(const Root &root, LibraryId library_id)
     {
         std::string out;
         for (DesignId design_id : root.get_library_designs(library_id))
-        {
-            const AbstractId abstract_id = root.get_design_abstract(design_id);
-            if (!abstract_id.valid() || root.get_design_schematic(design_id).valid())
-                continue;
+            out += stub_module(root, design_id);
+        return out;
+    }
 
+    /// @brief Stubs for a netlist read into `target` (which may not exist
+    /// yet): at most one module per name, since a second `module` of one
+    /// name fails elaboration. A name resolves the way the read itself
+    /// resolves it - `target`'s own Design, else the only Design of that
+    /// name in any Library - and gets that Design's stub, if it needs one.
+    /// A name several other Libraries share gets none and is appended to
+    /// `ambiguous`.
+    inline std::string generate_verilog_stubs_for_read(const Root &root, LibraryId target, std::vector<std::string> &ambiguous)
+    {
+        // Every name some Design needs a stub for, once each.
+        std::unordered_set<std::string> seen;
+        std::vector<std::string> order;
+        root.for_each_design_id([&](DesignId design_id)
+                                {
             const DesignData *design = root.get_design(design_id);
-            if (!design)
-                continue;
+            if (root.get_design_abstract(design_id).valid() && !root.get_design_schematic(design_id).valid() &&
+                seen.insert(design->name).second)
+                order.push_back(design->name); });
 
-            const std::vector<verilog_stub_detail::StubPort> ports =
-                verilog_stub_detail::group_terminals_into_ports(root, root.get_abstract_terminals(abstract_id));
-
-            out += fmt::format("module {} (", verilog_stub_detail::verilog_identifier(design->name));
-            for (size_t i = 0; i < ports.size(); ++i)
-                out += fmt::format("{}{}", i == 0 ? "" : ", ", verilog_stub_detail::verilog_identifier(ports[i].name));
-            out += ");\n";
-
-            for (const auto &port : ports)
-            {
-                const char *keyword = verilog_stub_detail::verilog_direction_keyword(port.direction);
-                const std::string ident = verilog_stub_detail::verilog_identifier(port.name);
-                if (port.bit_range)
-                    out += fmt::format("    {} [{}:{}] {};\n", keyword, port.bit_range->first, port.bit_range->second, ident);
-                else
-                    out += fmt::format("    {} {};\n", keyword, ident);
-            }
-
-            out += "endmodule\n\n";
+        std::string out;
+        for (const std::string &name : order)
+        {
+            const DesignId own = target.valid() ? root.get_design_by_name(target, name) : DesignId{};
+            if (own.valid())
+                out += stub_module(root, own);
+            else if (const std::vector<DesignId> all = designs_named(root, name); all.size() == 1)
+                out += stub_module(root, all.front());
+            else
+                ambiguous.push_back(name);
         }
         return out;
     }

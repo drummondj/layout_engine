@@ -1,3 +1,4 @@
+#include "../../database/library_helpers.hpp"
 #include "../lef_reader.hpp"
 #include <gtest/gtest.h>
 
@@ -150,7 +151,7 @@ TEST_F(LEFReaderCompleteFixture, ReadsMacroLevelDensityUnwritableByTheVendoredWr
     // entirely - see write_macro's own comment) - covered here via
     // complete.5.8.lef directly rather than through a round trip.
     // complete.5.8.lef: DATABASE MICRONS 20000.
-    const DesignId design_id = root.get_design_by_name("INV");
+    const DesignId design_id = find_design_by_name(root, "INV");
     ASSERT_TRUE(design_id.valid());
     const AbstractId abstract_id = root.get_design_abstract(design_id);
     const AbstractData *abstract = root.get_abstract(abstract_id);
@@ -194,7 +195,7 @@ TEST_F(LEFReaderCompleteFixture, CreatesOneLibraryAndOneDesignPerMacro)
 TEST_F(LEFReaderCompleteFixture, ConvertsMacroSizeAndOriginToDbu)
 {
     // MACRO INV has SIZE 67.2 BY 24, no ORIGIN, at DATABASE MICRONS 20000.
-    DesignId design_id = root.get_design_by_name("INV");
+    DesignId design_id = find_design_by_name(root, "INV");
     ASSERT_TRUE(design_id.valid());
     AbstractId abstract_id = root.get_design_abstract(design_id);
     const AbstractData *abstract = root.get_abstract(abstract_id);
@@ -222,7 +223,7 @@ TEST_F(LEFReaderCompleteFixture, ConvertsMacroSizeAndOriginToDbu)
 TEST_F(LEFReaderCompleteFixture, CreatesPinsWithPortShapes)
 {
     // MACRO INV has 4 PINs: Z, A, VDD, VSS.
-    DesignId design_id = root.get_design_by_name("INV");
+    DesignId design_id = find_design_by_name(root, "INV");
     AbstractId abstract_id = root.get_design_abstract(design_id);
     EXPECT_EQ(root.get_abstract_terminals(abstract_id).size(), 4u);
 
@@ -250,7 +251,7 @@ TEST_F(LEFReaderCompleteFixture, ObstructionCollectsRectsAndPathsButIgnoresVias)
     // ITERATE statements are stored raw, not pre-expanded - see
     // rect_iterates/path_iterates below, and Geometry::expand_iterates for
     // where they're expanded.
-    DesignId design_id = root.get_design_by_name("INV");
+    DesignId design_id = find_design_by_name(root, "INV");
     AbstractId abstract_id = root.get_design_abstract(design_id);
 
     ASSERT_EQ(root.get_abstract_obstructions(abstract_id).size(), 1u);
@@ -296,7 +297,7 @@ TEST(LEFReaderForeignIndex, EachForeignKeepsItsOwnOriginAndOrient)
     int result = reader.read_lef(fixture_path("foreign_index.lef"), root, "test_lib");
     ASSERT_EQ(result, 0);
 
-    DesignId design_id = root.get_design_by_name("FOREIGNTEST");
+    DesignId design_id = find_design_by_name(root, "FOREIGNTEST");
     ASSERT_TRUE(design_id.valid());
     const AbstractId abstract_id = root.get_design_abstract(design_id);
     const AbstractData *abstract = root.get_abstract(abstract_id);
@@ -345,7 +346,7 @@ TEST(LEFReaderOverlapBoundary, BoundaryComesFromOverlapObsNotMacroSize)
     int result = reader.read_lef(fixture_path("overlap_boundary.lef"), root, "test_lib");
     ASSERT_EQ(result, 0);
 
-    DesignId design_id = root.get_design_by_name("OVERLAPTEST");
+    DesignId design_id = find_design_by_name(root, "OVERLAPTEST");
     ASSERT_TRUE(design_id.valid());
     AbstractId abstract_id = root.get_design_abstract(design_id);
 
@@ -1009,7 +1010,7 @@ TEST_F(LEFReaderViaFixture, ReadsPropertyDefinitionsAndPerConstructPropertyAttac
     EXPECT_TRUE(via1->properties[0].is_number);
     EXPECT_DOUBLE_EQ(via1->properties[0].number_value, 42.0);
 
-    const AbstractId abstract_id = root.get_design_abstract(root.get_design_by_name("WRITERTEST"));
+    const AbstractId abstract_id = root.get_design_abstract(find_design_by_name(root, "WRITERTEST"));
     const AbstractData *abstract = root.get_abstract(abstract_id);
     ASSERT_TRUE(abstract != nullptr);
     ASSERT_EQ(abstract->properties.size(), 1u);
@@ -1082,7 +1083,7 @@ TEST_F(LEFAntennaFixture, ReadsAntennaModelsOnRoutingAndCutLayersAndOnAPin)
     ASSERT_TRUE(v1_model->area_ratio.has_value());
     EXPECT_DOUBLE_EQ(*v1_model->area_ratio, 80.0);
 
-    const AbstractId abstract_id = root.get_design_abstract(root.get_design_by_name("ANTENNATEST"));
+    const AbstractId abstract_id = root.get_design_abstract(find_design_by_name(root, "ANTENNATEST"));
     const TerminalId pin_a_id = root.get_abstract_terminals(abstract_id).front();
     const TerminalData *pin_a = root.get_terminal(pin_a_id);
     ASSERT_TRUE(pin_a != nullptr);
@@ -1263,7 +1264,7 @@ TEST_F(LEFAntennaFixture, ReadsCutLayerArraySpacingEnclosureAndCurrentDensityAdd
 
 TEST_F(LEFAntennaFixture, ReadsPinScalarFieldsDirectionEnumPortClassViaAndSiteArrayPlacementsAddedInPhase7)
 {
-    const AbstractId abstract_id = root.get_design_abstract(root.get_design_by_name("ANTENNATEST"));
+    const AbstractId abstract_id = root.get_design_abstract(find_design_by_name(root, "ANTENNATEST"));
     const AbstractData *abstract = root.get_abstract(abstract_id);
     ASSERT_TRUE(abstract != nullptr);
 
@@ -1352,4 +1353,23 @@ TEST_F(LEFReaderViaFixture, DuplicateViaAndViaRuleNamesAreIgnoredWithAWarning)
     }
     EXPECT_TRUE(saw_via_warning);
     EXPECT_TRUE(saw_via_rule_warning);
+}
+
+// One cell name in two libraries (INV in two standard-cell libraries): each
+// library gets its own Design and Abstract.
+TEST(LEFReaderLibraries, TheSameMacroInTwoLibrariesMakesTwoDesigns)
+{
+    Root root;
+    LEFReader first;
+    ASSERT_EQ(first.read_lef(fixture_path("overlap_boundary.lef"), root, "lib_a"), 0);
+    LEFReader second;
+    second.read_lef(fixture_path("overlap_boundary.lef"), root, "lib_b");
+
+    const DesignId in_a = root.get_design_by_name(root.get_library_by_name("lib_a"), "OVERLAPTEST");
+    const DesignId in_b = root.get_design_by_name(root.get_library_by_name("lib_b"), "OVERLAPTEST");
+    ASSERT_TRUE(in_a.valid());
+    ASSERT_TRUE(in_b.valid());
+    EXPECT_NE(in_a, in_b);
+    EXPECT_TRUE(root.get_design_abstract(in_a).valid());
+    EXPECT_TRUE(root.get_design_abstract(in_b).valid());
 }

@@ -128,3 +128,46 @@ TEST(VerilogStubWriter, GeneratesOneModulePerAbstractOnlyDesignInTheLibrary)
     EXPECT_NE(stub.find("module BUF_X1 ("), std::string::npos) << stub;
     EXPECT_NE(stub.find("module INV_X1 ("), std::string::npos) << stub;
 }
+
+namespace
+{
+    // An Abstract-only cell `name` in `library`, with one input pin `pin`.
+    DesignId add_cell(Root &root, LibraryId library, const std::string &name, const std::string &pin)
+    {
+        const DesignId design = root.create_design(DesignData{.library = library, .name = name});
+        add_terminal(root, root.create_abstract(AbstractData{.design = design}), pin, SignalDirection::INPUT);
+        return design;
+    }
+
+    size_t count(const std::string &haystack, const std::string &needle)
+    {
+        size_t n = 0;
+        for (size_t at = haystack.find(needle); at != std::string::npos; at = haystack.find(needle, at + 1))
+            ++n;
+        return n;
+    }
+}
+
+// Two libraries' INV can't both become `module INV`: the read's own
+// library picks one, and with no pick neither is stubbed.
+TEST(VerilogStubWriter, ForARead_OneModulePerNameResolvedLikeTheRead)
+{
+    Root root;
+    const LibraryId lib_a = root.create_library(LibraryData{.name = "a"});
+    const LibraryId lib_b = root.create_library(LibraryData{.name = "b"});
+    add_cell(root, lib_a, "INV", "A_PIN");
+    add_cell(root, lib_b, "INV", "B_PIN");
+    add_cell(root, lib_a, "BUF", "I");
+
+    std::vector<std::string> ambiguous;
+    const std::string into_a = generate_verilog_stubs_for_read(root, lib_a, ambiguous);
+    EXPECT_TRUE(ambiguous.empty());
+    EXPECT_EQ(count(into_a, "module INV ("), 1u) << into_a;
+    EXPECT_NE(into_a.find("module INV (A_PIN);"), std::string::npos) << into_a;
+    EXPECT_NE(into_a.find("module BUF (I);"), std::string::npos) << into_a;
+
+    const std::string into_new = generate_verilog_stubs_for_read(root, LibraryId{}, ambiguous);
+    EXPECT_EQ(into_new.find("module INV"), std::string::npos) << into_new;
+    EXPECT_NE(into_new.find("module BUF (I);"), std::string::npos) << into_new;
+    EXPECT_EQ(ambiguous, std::vector<std::string>{"INV"});
+}
