@@ -219,4 +219,13 @@ check_true "both are still there" [expr {[lsearch -exact [get_shapes -of $layout
 set m1 [create_shape -layer layer:M1 -rects {{{4 4} {5 5}}}]
 check "create_shape -layer layer:M1 in a layout view" M1 [layer_of $m1]
 
+# --- a Layout has one diearea (this one's from the DEF): a second is
+# refused, the first kept ---
+set diearea [get_shapes -of $layout -filter {.purpose == BOUNDARY}]
+check "the layout has one diearea" 1 [llength $diearea]
+check_error "a second diearea for one layout" \
+    {create_shape -layout $layout -purpose BOUNDARY -rects {{{0 0} {50 50}}}} \
+    "create_shape: failed*"
+check "the first diearea is still the layout's" $diearea [get_shapes -of $layout -filter {.purpose == BOUNDARY}]
+
 puts "all shape_ops checks passed"

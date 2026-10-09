@@ -694,6 +694,14 @@ class Klass:
         """
         return [f for f in self.fields if f.is_plain_reference_field()]
 
+    def get_singular_parent_fields(self) -> List["Field"]:
+        """
+        Every parent field whose parent holds at most one child of this
+        class (a non-list is_child field, e.g. Layout.diearea): creating or
+        moving one into an occupied slot fails rather than replacing it.
+        """
+        return [f for f in self.get_parent_fields() if not f._parent_field.is_list]
+
     def get_unique_per_parent_fields(self) -> List["Field"]:
         """
         Every field on this class with unique_per_parent=True - used by
@@ -1007,6 +1015,10 @@ class Klass:
             condition = f"!{getter}" if rf.create_required() else f"data.{rf.name}.valid() && !{getter}"
             add(f"if ({condition})")
             add(f'    return std::unexpected("unknown {rf.name} - no such {rf.type} exists");')
+
+        for sf in self.get_singular_parent_fields():
+            add(f"if (data.{sf.accessor}.valid() && root.get_{sf._parent_klass.to_snake_case()}_{sf.parent}(data.{sf.accessor}).valid())")
+            add(f'    return std::unexpected("the {sf.name} already has a {sf.parent} - delete or update that {self.name} instead");')
 
         add()
         # The data is only copied when the open transaction keeps it.
@@ -1641,6 +1653,10 @@ class Klass:
         if single_parent is not None:
             add(f"if (changes.{single_parent.name} && !root.get_{single_parent._parent_klass.to_snake_case()}(*changes.{single_parent.name}))")
             add(f'    return std::unexpected("unknown {single_parent.name} - no such {single_parent.type} exists");')
+            if not single_parent._parent_field.is_list:
+                getter = f"root.get_{single_parent._parent_klass.to_snake_case()}_{single_parent.parent}"
+                add(f"if (changes.{single_parent.name} && *changes.{single_parent.name} != before.{single_parent.name} && {getter}(*changes.{single_parent.name}).valid())")
+                add(f'    return std::unexpected("the new {single_parent.name} already has a {single_parent.parent}");')
         for rf in reference_fields:
             add(f"if (changes.{rf.name} && !root.get_{rf._type_klass.to_snake_case()}(*changes.{rf.name}))")
             add(f'    return std::unexpected("unknown {rf.name} - no such {rf.type} exists");')
@@ -1800,6 +1816,9 @@ class Klass:
                 )
                 add("        return false;")
                 add()
+            if not is_list:
+                add(f"    if ({parent_index}.contains({pf.name}))")
+                add("        return false;")
             if is_list:
                 add("    {")
                 add(f"        auto& old_siblings = {parent_index}[existing->{pf.name}];")
@@ -1809,7 +1828,11 @@ class Klass:
                 )
                 add("    }")
             else:
-                add(f"    {parent_index}.erase(existing->{pf.name});")
+                add("    {")
+                add(f"        auto old_it = {parent_index}.find(existing->{pf.name});")
+                add(f"        if (old_it != {parent_index}.end() && old_it->second == id)")
+                add(f"            {parent_index}.erase(old_it);")
+                add("    }")
             if unique_fields:
                 uf = unique_fields[0]
                 add("    {")
