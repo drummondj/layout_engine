@@ -20,7 +20,7 @@ def _core():
         version="1.0.0",
         classes=[
             Klass(
-                name="Root",
+                name="Top",
                 description="Root",
                 fields=[Field(name="libraries", description="Libraries", type="Library", is_list=True, is_child=True)],
             ),
@@ -28,7 +28,7 @@ def _core():
                 name="Library",
                 description="A library",
                 fields=[
-                    Field(name="root", description="Root", type="Root", parent="libraries"),
+                    Field(name="root", description="Root", type="Top", parent="libraries"),
                     Field(name="name", description="Name", type="str", example="lib", index=True),
                 ],
             ),
@@ -291,7 +291,7 @@ class TestExtensionMigrations(unittest.TestCase):
         renamed_core = _core()
         renamed_core.version = "1.1.0"
         renamed_core.get_klass("Library").name = "Archive"
-        renamed_core.get_klass("Root").fields[0].type = "Archive"
+        renamed_core.get_klass("Top").fields[0].type = "Archive"
         renamed_core.get_klass("Archive").fields[0].parent = "libraries"
         self.core_migrations.mkdir(parents=True)
         (self.core_migrations / "0001_archive.py").write_text(
@@ -309,7 +309,7 @@ class TestExtensionMigrations(unittest.TestCase):
         renamed_core = _core()
         renamed_core.version = "1.1.0"
         renamed_core.get_klass("Library").name = "Archive"
-        renamed_core.get_klass("Root").fields[0].type = "Archive"
+        renamed_core.get_klass("Top").fields[0].type = "Archive"
         errors, _ = self.generate(renamed_core, renames)
         self.assertEqual(errors, [])
 
@@ -356,7 +356,7 @@ class TestExtensionOwnedShapes(unittest.TestCase):
 
     def extend(schema):
         schema.classes.append(Klass(name="HelloBox", description="A box", fields=[
-            Field(name="root", description="Owner", type="Root", parent="hello_boxes"),
+            Field(name="root", description="Owner", type="Top", parent="hello_boxes"),
             Field(name="items", description="Its items", type="Item", is_list=True, is_child=True, owner=True),
         ]))
     """

@@ -220,6 +220,25 @@ class KlassNamesUniqueRule(BaseRule):
         return errors
 
 
+class KlassNameNotReservedRule(BaseRule):
+    """
+    Rule that checks no class is named Root: the generated container class
+    that owns every pool is `Root`, so a schema class of that name produces
+    code that doesn't compile.
+
+    Attributes:
+        name: The name of the rule
+        description: The description of the rule
+    """
+
+    def validate(self, schema) -> List[RuleError]:
+        return [
+            RuleError(f"Klass {klass.name} is reserved for the generated container class")
+            for klass in schema.classes
+            if klass.name == "Root"
+        ]
+
+
 class FieldNamesUniqueRule(BaseRule):
     """
     Rule that checks if all field names are unique
@@ -379,10 +398,10 @@ class SchemaRuleSet(RuleSet):
 
     def __init__(self):
         rules = [
-            # FieldsHaveValidTypeRules(
-            #     "FieldsHaveValidTypeRules",
-            #     "Checks if all fields have a valid type",
-            # ),
+            FieldsHaveValidTypeRules(
+                "FieldsHaveValidTypeRules",
+                "Checks if all fields have a valid type",
+            ),
             FieldExampleMatchesTypeRule(
                 "FieldExampleMatchesTypeRule",
                 "Checks if the example matches the field type",
@@ -403,6 +422,10 @@ class SchemaRuleSet(RuleSet):
                 "KlassNamesUniqueRule",
                 "Checks if all klass names are unique",
             ),
+            KlassNameNotReservedRule(
+                "KlassNameNotReservedRule",
+                "Checks no klass is named Root",
+            ),
             FieldNamesUniqueRule(
                 "FieldNamesUniqueRule",
                 "Checks if all field names are unique",
@@ -415,6 +438,8 @@ class SchemaRuleSet(RuleSet):
                 "UniquePerParentRequiresIndexAndSingleParentRule",
                 "Checks unique_per_parent fields have index=True and exactly one parent field",
             ),
+            # Off: value types (Point, Rect, ...) and enums have no parent, so
+            # a schema has many parentless classes.
             # SchemaContainsOneRootKlassRule(
             #     "SchemaContainsOneRootKlassRule",
             #     "Checks if the schema contains one root klass",

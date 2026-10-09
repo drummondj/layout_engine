@@ -9,7 +9,7 @@ schema = Schema(
     version="0.0.1_test",
     classes=[
         Klass(
-            name="Root",
+            name="Top",
             description="The root object that contains all EDA objects",
             fields=[
                 Field(
@@ -28,7 +28,7 @@ schema = Schema(
                 Field(
                     name="root",
                     description="The root object",
-                    type="Root",
+                    type="Top",
                     parent="designs",
                 ),
                 Field(

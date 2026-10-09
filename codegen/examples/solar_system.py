@@ -9,7 +9,7 @@ schema = Schema(
     version="0.0.1_test",
     classes=[
         Klass(
-            name="Root",
+            name="Top",
             description="The root object that contains all solar system objects",
             fields=[
                 Field(
@@ -28,7 +28,7 @@ schema = Schema(
                 Field(
                     name="root",
                     description="The root object",
-                    type="Root",
+                    type="Top",
                     parent="solar_systems",
                 ),
                 Field(
@@ -40,7 +40,7 @@ schema = Schema(
                 Field(
                     name="age",
                     description="The age of the solar system",
-                    type="float",
+                    type="double",
                     default=0.00,
                     example=4.6,
                 ),
@@ -79,14 +79,14 @@ schema = Schema(
                 Field(
                     name="mass",
                     description="The mass of the planet",
-                    type="float",
+                    type="double",
                     default=0.0,
                     example=5.972e24,
                 ),
                 Field(
                     name="radius",
                     description="The radius of the planet",
-                    type="float",
+                    type="double",
                     default=0.0,
                     example=6371.0,
                 ),
@@ -117,14 +117,14 @@ schema = Schema(
                 Field(
                     name="mass",
                     description="The mass of the star",
-                    type="float",
+                    type="double",
                     default=0.0,
                     example=1.989e30,
                 ),
                 Field(
                     name="radius",
                     description="The radius of the star",
-                    type="float",
+                    type="double",
                     default=0.0,
                     example=695700.0,
                 ),
