@@ -908,15 +908,14 @@ TEST_F(ApiFixture, PlacementPurposeDrawsTheOutlineAndLabelAndHidingItHidesBoth)
     const LeLibraryId top_library = le_create_library(handle, "TOPLIB");
     const LeDesignId top_design = le_create_design(handle, top_library, "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
-    ASSERT_NE(le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr).index, UINT32_MAX);
+    ASSERT_NE(le_create_placement(handle, top_layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 2.0, 2.0, "N", 0, 0.0, nullptr).index, UINT32_MAX);
 
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
     le_set_hierarchy_depth(handle, 1);
     le_set_viewport_size(handle, 200, 200);
-    le_fit_rect(handle, -5.0, -5.0, 15.0, 15.0, 0); // TESTCELL's 10um x 10um spans pixels ~50-150
+    le_fit_rect(handle, -5.0, -5.0, 15.0, 15.0, 0); // U1 at (2um,2um) spans pixels x ~70-170, y ~30-130
 
-    // Alpha > 64, not merely nonzero: a faint alpha-1 line along the
-    // placement's left edge shows up even with every purpose hidden.
+    // Alpha > 64, not merely nonzero, so antialiased fringes don't count.
     auto region_has_visible_pixel = [](const LePixelBuffer &buffer, int x0, int y0, int x1, int y1)
     {
         for (int y = y0; y <= y1; ++y)
@@ -932,20 +931,21 @@ TEST_F(ApiFixture, PlacementPurposeDrawsTheOutlineAndLabelAndHidingItHidesBoth)
             le_set_purpose_visible(handle, le_purpose_at(handle, i), le_purpose_at(handle, i) == purpose ? 1 : 0);
     };
 
-    // The placement's left edge (x ~50), well above the bottom-left-
-    // anchored label and clear of the grid dots (every 50px); the label
-    // itself sits just inside the bottom-left corner.
+    // The placement's left edge (x ~70), well above the bottom-left-
+    // anchored label and clear of the axis lines (dbu 0, pixel 50) and the
+    // grid dots (every 50px); the label itself sits just inside the
+    // bottom-left corner.
     show_only(11 /* PLACEMENT */);
     LePixelBuffer shown = le_render_pixel_buffer(handle);
     ASSERT_NE(shown.data, nullptr);
-    EXPECT_TRUE(region_has_visible_pixel(shown, 45, 60, 55, 95));    // outline
-    EXPECT_TRUE(region_has_visible_pixel(shown, 55, 120, 120, 148)); // label
+    EXPECT_TRUE(region_has_visible_pixel(shown, 65, 40, 75, 75));    // outline
+    EXPECT_TRUE(region_has_visible_pixel(shown, 75, 103, 140, 128)); // label
 
     show_only(-1);
     LePixelBuffer hidden = le_render_pixel_buffer(handle);
     ASSERT_NE(hidden.data, nullptr);
-    EXPECT_FALSE(region_has_visible_pixel(hidden, 45, 60, 55, 95));
-    EXPECT_FALSE(region_has_visible_pixel(hidden, 55, 120, 120, 148));
+    EXPECT_FALSE(region_has_visible_pixel(hidden, 65, 40, 75, 75));
+    EXPECT_FALSE(region_has_visible_pixel(hidden, 75, 103, 140, 128));
 }
 
 TEST_F(ApiFixture, SetCurrentDesignLayoutClearsTheAbstractViewAndViceVersa)
