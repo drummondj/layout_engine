@@ -127,6 +127,17 @@ if {[catch {set_mode not_a_real_mode} err]} {
     exit 1
 }
 
+check "the view starts unmirrored" "none" [get_view_flip]
+foreach flip {horizontal vertical none} {
+    set_view_flip $flip
+    check "set_view_flip $flip round-trips" $flip [get_view_flip]
+}
+if {[catch {set_view_flip diagonal} err]} {
+    puts "ok: set_view_flip rejects an unknown flip ($err)"
+} else {
+    puts stderr "FAIL: set_view_flip accepted an unknown flip"
+    exit 1
+}
 check "placement snap mode defaults to site" "site" [get_placement_snap_mode]
 foreach snap_mode {fin manufacturing none site} {
     set_placement_snap_mode $snap_mode

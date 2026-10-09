@@ -1329,6 +1329,7 @@ namespace
         options.root_mutation_version = handle->root.mutation_version();
         options.hierarchy_depth = handle->hierarchy_depth();
         options.scale = handle->scale();
+        options.view_flip = handle->view_flip();
         options.layer_name_visible = handle->layer_name_visibility();
         options.purpose_visible = handle->purpose_visibility();
         options.hidden_objects = handle->hidden_objects();
@@ -1737,13 +1738,15 @@ namespace
         // (x, y) - top-left origin, y down - to the dbu point it currently
         // shows, using the *old* scale/pan (pan/scale describe the
         // pre-flip transform while (x, y) here is post-flip).
-        const double dbu_x = static_cast<double>(old_pan.x) + static_cast<double>(x) / old_scale;
-        const double dbu_y = static_cast<double>(old_pan.y) + (viewport_height - static_cast<double>(y)) / old_scale;
+        // A mirrored view's pixel is first taken back to the unmirrored one.
+        const auto [ux, uy] = handle->unmirrored_pixel(x, y);
+        const double dbu_x = static_cast<double>(old_pan.x) + ux / old_scale;
+        const double dbu_y = static_cast<double>(old_pan.y) + (viewport_height - uy) / old_scale;
 
         // Re-solve pan so that same dbu point still lands under (x, y) at
         // the new scale, keeping the zoom visually anchored there.
-        const double pan_x_double = dbu_x - static_cast<double>(x) / new_scale;
-        const double pan_y_double = dbu_y - (viewport_height - static_cast<double>(y)) / new_scale;
+        const double pan_x_double = dbu_x - ux / new_scale;
+        const double pan_y_double = dbu_y - (viewport_height - uy) / new_scale;
 
         // A `factor` close enough to -1.0 (an ordinary finite double, not
         // just the already-rejected exact -1.0 above) drives new_scale
@@ -1764,6 +1767,10 @@ namespace
         handle->set_scale(new_scale);
         handle->set_pan(le::Point{.x = pan_x, .y = pan_y});
     }
+
+    // -1 on an axis the view mirrors, else 1.
+    double screen_x_sign(const LeHandle *handle) { return handle->view_flip() == le::ViewFlip::HORIZONTAL ? -1.0 : 1.0; }
+    double screen_y_sign(const LeHandle *handle) { return handle->view_flip() == le::ViewFlip::VERTICAL ? -1.0 : 1.0; }
 
     void pan_unlocked(LeHandle *handle, double x_factor, double y_factor)
     {
@@ -2389,6 +2396,9 @@ namespace
 
     nlohmann::json filter_values_json(const std::set<std::string> &values) { return nlohmann::json(std::vector<std::string>(values.begin(), values.end())); }
 
+    // The session's names for le::ViewFlip, in enum order.
+    constexpr std::array<const char *, 3> kViewFlipNames = {"none", "horizontal", "vertical"};
+
     std::string session_to_json(const LeHandle *handle)
     {
         const le::Root &root = handle->root;
@@ -2398,7 +2408,9 @@ namespace
             j["view"] = {{"layout", session_ref("Layout", handle->current_layout())}};
         else if (root.get_abstract(handle->current_abstract()))
             j["view"] = {{"abstract", session_ref("Abstract", handle->current_abstract())}};
-        j["viewport"] = {{"pan", {handle->pan().x, handle->pan().y}}, {"scale", handle->scale()}};
+        j["viewport"] = {{"pan", {handle->pan().x, handle->pan().y}},
+                         {"scale", handle->scale()},
+                         {"flip", kViewFlipNames[static_cast<std::size_t>(handle->view_flip())]}};
 
         nlohmann::json current = nlohmann::json::object();
         if (root.get_technology(handle->current_technology_id))
@@ -2514,6 +2526,12 @@ namespace
             handle->set_pan(le::Point{viewport["pan"][0].get<int64_t>(), viewport["pan"][1].get<int64_t>()});
         if (viewport.contains("scale") && viewport["scale"].is_number())
             handle->set_scale(viewport["scale"].get<double>());
+        // Older sessions have no flip: unmirrored.
+        handle->set_view_flip(le::ViewFlip::NONE);
+        if (viewport.contains("flip") && viewport["flip"].is_string())
+            for (std::size_t i = 0; i < kViewFlipNames.size(); ++i)
+                if (viewport["flip"].get<std::string>() == kViewFlipNames[i])
+                    handle->set_view_flip(static_cast<le::ViewFlip>(i));
     }
 
 }
@@ -4303,6 +4321,23 @@ extern "C"
         pan_unlocked(handle, x_factor, y_factor);
     }
 
+    int32_t le_set_view_flip(LeHandle *handle, int32_t flip)
+    {
+        if (!handle || flip < LE_VIEW_FLIP_NONE || flip > LE_VIEW_FLIP_VERTICAL)
+            return 1;
+        HandleWriteLock lock(handle);
+        handle->set_view_flip(static_cast<le::ViewFlip>(flip));
+        return 0;
+    }
+
+    int32_t le_view_flip(LeHandle *handle)
+    {
+        if (!handle)
+            return LE_VIEW_FLIP_NONE;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return static_cast<int32_t>(handle->view_flip());
+    }
+
     void le_set_viewport_size(LeHandle *handle, int32_t width_px, int32_t height_px)
     {
         if (!handle)
@@ -4670,21 +4705,23 @@ extern "C"
             else
                 fit_scene_unlocked(handle, kKeyFitPaddingPx);
             break;
+        // Arrow keys pan in screen directions, so a mirrored axis pans the
+        // other way in dbu.
         case LE_KEY_PAN_LEFT:
             if (!ctrl && !shift)
-                pan_unlocked(handle, -kKeyPanFactor, 0.0);
+                pan_unlocked(handle, -kKeyPanFactor * screen_x_sign(handle), 0.0);
             break;
         case LE_KEY_PAN_RIGHT:
             if (!ctrl && !shift)
-                pan_unlocked(handle, kKeyPanFactor, 0.0);
+                pan_unlocked(handle, kKeyPanFactor * screen_x_sign(handle), 0.0);
             break;
         case LE_KEY_PAN_UP:
             if (!ctrl && !shift)
-                pan_unlocked(handle, 0.0, kKeyPanFactor);
+                pan_unlocked(handle, 0.0, kKeyPanFactor * screen_y_sign(handle));
             break;
         case LE_KEY_PAN_DOWN:
             if (!ctrl && !shift)
-                pan_unlocked(handle, 0.0, -kKeyPanFactor);
+                pan_unlocked(handle, 0.0, -kKeyPanFactor * screen_y_sign(handle));
             break;
         case LE_KEY_1:
         case LE_KEY_2:

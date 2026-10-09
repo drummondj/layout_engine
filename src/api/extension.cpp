@@ -41,8 +41,8 @@ namespace le::ext
 
     BLPoint OverlayContext::to_pixel(Point dbu) const
     {
-        return BLPoint(static_cast<double>(dbu.x - frame_.viewport.ll.x) * frame_.scale,
-                       static_cast<double>(frame_.pixel_height) - static_cast<double>(dbu.y - frame_.viewport.ll.y) * frame_.scale);
+        const auto [x, y] = frame_.pixel(dbu);
+        return BLPoint(x, y);
     }
 
     double OverlayContext::scale() const { return frame_.scale; }

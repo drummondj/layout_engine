@@ -960,6 +960,16 @@ int get_placement_snap_mode_cmd()
     return le_get_placement_snap_mode(session());
 }
 
+int set_view_flip_cmd(int flip)
+{
+    return le_set_view_flip(session(), flip);
+}
+
+int get_view_flip_cmd()
+{
+    return le_view_flip(session());
+}
+
 bool is_placement_snap_mode_available_cmd(int mode)
 {
     return le_is_placement_snap_mode_available(session(), mode) != 0;

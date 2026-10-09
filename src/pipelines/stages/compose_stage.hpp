@@ -10,6 +10,7 @@
 #include <blend2d/blend2d.h>
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -127,8 +128,20 @@ namespace le
 
             // Shares base_image_'s pixels until the context attaches, which
             // copies them (copy-on-write), so base_image_ stays overlay-free.
-            BLImage final_image = base_image_;
+            // A mirrored view draws it mirrored instead; text in it mirrors
+            // too, as in a mirrored placement.
+            BLImage final_image = options.view_flip == ViewFlip::NONE ? base_image_ : BLImage(width, height, BL_FORMAT_PRGB32);
             BLContext ctx(final_image);
+            if (options.view_flip != ViewFlip::NONE)
+            {
+                const bool horizontal = options.view_flip == ViewFlip::HORIZONTAL;
+                ctx.save();
+                ctx.clear_all();
+                ctx.set_comp_op(BL_COMP_OP_SRC_COPY);
+                ctx.set_transform(horizontal ? BLMatrix2D(-1.0, 0.0, 0.0, 1.0, width, 0.0) : BLMatrix2D(1.0, 0.0, 0.0, -1.0, 0.0, height));
+                ctx.blit_image(BLPoint(0, 0), base_image_);
+                ctx.restore();
+            }
 
             // Overlay passes - each drawn directly onto the already-fully-
             // composed context, last, rather than as a separate stage/node
@@ -138,24 +151,21 @@ namespace le
             // each gets its own similarly-scoped function and its own call
             // here, rather than one function's worth of inline drawing
             // logic per layer.
-            draw_drag_rect_overlay(ctx, options, height);
-            draw_flightline_overlay(ctx, options, height);
-            draw_selection_overlay(ctx, options, height);
-            draw_resize_hover_overlay(ctx, options, height);
-            draw_move_ghost_overlay(ctx, options, height);
-            draw_ruler_overlay(ctx, options, height);
-            draw_cursor_overlay(ctx, options, height);
-            if (!options.extension_overlays.empty())
+            const OverlayFrame overlay_frame{options.viewport, options.scale, width, height, options.view_flip};
+            draw_drag_rect_overlay(ctx, options, overlay_frame);
+            draw_flightline_overlay(ctx, options, overlay_frame);
+            draw_selection_overlay(ctx, options, overlay_frame);
+            draw_resize_hover_overlay(ctx, options, overlay_frame);
+            draw_move_ghost_overlay(ctx, options, overlay_frame);
+            draw_ruler_overlay(ctx, options, overlay_frame);
+            draw_cursor_overlay(ctx, options, overlay_frame);
+            for (const auto &overlay : options.extension_overlays)
             {
-                const OverlayFrame overlay_frame{options.viewport, options.scale, width, height};
-                for (const auto &overlay : options.extension_overlays)
-                {
-                    // Each pass starts from the same state, and can't leave
-                    // a transform, clip or style behind for the next.
-                    ctx.save();
-                    overlay(ctx, overlay_frame);
-                    ctx.restore();
-                }
+                // Each pass starts from the same state, and can't leave
+                // a transform, clip or style behind for the next.
+                ctx.save();
+                overlay(ctx, overlay_frame);
+                ctx.restore();
             }
 
             ctx.end();
@@ -243,6 +253,9 @@ namespace le
             if (last.extension_overlay_version != current.extension_overlay_version)
                 return true;
 
+            if (last.view_flip != current.view_flip)
+                return true;
+
             return last.ruler_version != current.ruler_version;
         }
 
@@ -269,29 +282,19 @@ namespace le
         /// feature lives in ComposeStage's own one graph, as one final
         /// un-rasterized pass rather than a cached picture.
         ///
-        /// `pixel_height` is `ctx`'s own image's pixel height (the
-        /// caller's own `height` - exactly `options.viewport` rasterized
-        /// at `options.scale`, RasterizeBlend2DStage's own convention for
-        /// `id == options.top_level`), so mapping `drag_rect_dbu` (in
-        /// that same top_level-local dbu space) into pixel space needs
-        /// only that one scale/origin, the same translate+scale+y-flip
-        /// convention used everywhere else in this module.
-        static void draw_drag_rect_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
+        /// `frame` maps top_level-local dbu to `ctx`'s pixels (exactly
+        /// `options.viewport` rasterized at `options.scale`, mirrored by
+        /// `options.view_flip`), as for every overlay here.
+        static void draw_drag_rect_overlay(BLContext &ctx, const ViewRenderOptions &options, const OverlayFrame &frame)
         {
             if (!options.drag_rect_dbu.has_value())
                 return;
 
+            // Either corner can be any on screen once the view is mirrored.
             const Rect &drag = *options.drag_rect_dbu;
-            const auto to_pixel_x = [&](int64_t dbu_x)
-            { return static_cast<double>(dbu_x - options.viewport.ll.x) * options.scale; };
-            const auto to_pixel_y = [&](int64_t dbu_y)
-            { return static_cast<double>(pixel_height) - static_cast<double>(dbu_y - options.viewport.ll.y) * options.scale; };
-
-            const double left = to_pixel_x(drag.ll.x);
-            const double top = to_pixel_y(drag.ur.y);
-            const double right = to_pixel_x(drag.ur.x);
-            const double bottom = to_pixel_y(drag.ll.y);
-            const BLRect rect(left, top, right - left, bottom - top);
+            const auto [x0, y0] = frame.pixel(drag.ll);
+            const auto [x1, y1] = frame.pixel(drag.ur);
+            const BLRect rect(std::min(x0, x1), std::min(y0, y1), std::abs(x1 - x0), std::abs(y1 - y0));
 
             const Color &fill_color = options.drag_is_zoom ? kZoomDragRectFillColor : kDragRectFillColor;
             const Color &stroke_color = options.drag_is_zoom ? kZoomDragRectStrokeColor : kDragRectStrokeColor;
@@ -314,16 +317,15 @@ namespace le
         /// here), and the same shared `stroke_piece_outline` helper
         /// (`draw_helpers.hpp`) `draw_move_ghost_overlay`
         /// will reuse too, once those land.
-        static void draw_selection_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
+        static void draw_selection_overlay(BLContext &ctx, const ViewRenderOptions &options, const OverlayFrame &frame)
         {
             if (options.selected_piece_outlines.empty())
                 return;
 
             const auto to_pixel = [&](Point p)
             {
-                return BLPoint(
-                    static_cast<double>(p.x - options.viewport.ll.x) * options.scale,
-                    static_cast<double>(pixel_height) - static_cast<double>(p.y - options.viewport.ll.y) * options.scale);
+                const auto [x, y] = frame.pixel(p);
+                return BLPoint(x, y);
             };
 
             ctx.set_stroke_style(to_bl_color(kSelectionOutlineColor));
@@ -336,16 +338,15 @@ namespace le
         /// (`ViewRenderOptions::resize_hover_segment_dbu`) - the grabbable
         /// edge/segment as a thick line in the hover color, with a small
         /// square at its midpoint.
-        static void draw_resize_hover_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
+        static void draw_resize_hover_overlay(BLContext &ctx, const ViewRenderOptions &options, const OverlayFrame &frame)
         {
             if (!options.resize_hover_segment_dbu)
                 return;
 
             const auto to_pixel = [&](Point p)
             {
-                return BLPoint(
-                    static_cast<double>(p.x - options.viewport.ll.x) * options.scale,
-                    static_cast<double>(pixel_height) - static_cast<double>(p.y - options.viewport.ll.y) * options.scale);
+                const auto [x, y] = frame.pixel(p);
+                return BLPoint(x, y);
             };
 
             const BLPoint a = to_pixel((*options.resize_hover_segment_dbu)[0]);
@@ -362,16 +363,15 @@ namespace le
         /// (`ViewRenderOptions::flightlines_dbu`) as thin straight lines
         /// in `flightline_color` - under the
         /// selection outline, so a selected cell's own outline stays on top.
-        static void draw_flightline_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
+        static void draw_flightline_overlay(BLContext &ctx, const ViewRenderOptions &options, const OverlayFrame &frame)
         {
             if (options.flightlines_dbu.empty())
                 return;
 
             const auto to_pixel = [&](Point p)
             {
-                return BLPoint(
-                    static_cast<double>(p.x - options.viewport.ll.x) * options.scale,
-                    static_cast<double>(pixel_height) - static_cast<double>(p.y - options.viewport.ll.y) * options.scale);
+                const auto [x, y] = frame.pixel(p);
+                return BLPoint(x, y);
             };
 
             BLPath path;
@@ -392,7 +392,7 @@ namespace le
         /// (so the preview traces the exact geometry Move would actually
         /// commit, not a pixel-space translation of the already-projected
         /// outline) - a no-op when nothing is being moved.
-        static void draw_move_ghost_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
+        static void draw_move_ghost_overlay(BLContext &ctx, const ViewRenderOptions &options, const OverlayFrame &frame)
         {
             if (options.move_ghost_pieces_dbu.empty())
                 return;
@@ -402,9 +402,8 @@ namespace le
             {
                 p.x += offset.x;
                 p.y += offset.y;
-                return BLPoint(
-                    static_cast<double>(p.x - options.viewport.ll.x) * options.scale,
-                    static_cast<double>(pixel_height) - static_cast<double>(p.y - options.viewport.ll.y) * options.scale);
+                const auto [x, y] = frame.pixel(p);
+                return BLPoint(x, y);
             };
 
             BLArray<double> dash_array;
@@ -426,14 +425,12 @@ namespace le
         /// no mouse position has been set. Shown regardless of mode
         /// - the cursor marker is
         /// meant to be visible at all times a position is known.
-        static void draw_cursor_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
+        static void draw_cursor_overlay(BLContext &ctx, const ViewRenderOptions &options, const OverlayFrame &frame)
         {
             if (!options.cursor_snapped_position_dbu.has_value())
                 return;
 
-            const Point &snapped = *options.cursor_snapped_position_dbu;
-            const double cx = static_cast<double>(snapped.x - options.viewport.ll.x) * options.scale;
-            const double cy = static_cast<double>(pixel_height) - static_cast<double>(snapped.y - options.viewport.ll.y) * options.scale;
+            const auto [cx, cy] = frame.pixel(*options.cursor_snapped_position_dbu);
             const double half = kCursorBoxSizePx / 2.0;
             const BLRect rect(cx - half, cy - half, kCursorBoxSizePx, kCursorBoxSizePx);
 
@@ -553,16 +550,15 @@ namespace le
         /// *last* polyline can have an active ghost extending it, matching
         /// `LeHandle::ruler_next_point`'s own "the last entry is the
         /// active ruler" invariant).
-        void draw_ruler_overlay(BLContext &ctx, const ViewRenderOptions &options, int pixel_height)
+        void draw_ruler_overlay(BLContext &ctx, const ViewRenderOptions &options, const OverlayFrame &frame)
         {
             if (options.ruler_dbu_per_um <= 0.0)
                 return;
 
             const auto to_pixel = [&](Point p)
             {
-                return BLPoint(
-                    static_cast<double>(p.x - options.viewport.ll.x) * options.scale,
-                    static_cast<double>(pixel_height) - static_cast<double>(p.y - options.viewport.ll.y) * options.scale);
+                const auto [x, y] = frame.pixel(p);
+                return BLPoint(x, y);
             };
 
             const BLFontFace &font_face = default_blend2d_font_face();

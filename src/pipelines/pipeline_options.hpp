@@ -19,16 +19,42 @@ class BLContext;
 
 namespace le
 {
+    /// @brief How the view is mirrored on screen (le_set_view_flip): about
+    /// the frame's vertical centre line (HORIZONTAL, left and right swap)
+    /// or its horizontal one (VERTICAL, top and bottom swap). The same dbu
+    /// area shows either way.
+    enum class ViewFlip : uint8_t
+    {
+        NONE,
+        HORIZONTAL,
+        VERTICAL,
+    };
+
     /// @brief What an overlay pass gets besides the canvas: the visible
-    /// area (dbu), the zoom (pixels per dbu) and the frame's pixel size.
-    /// A dbu point (x, y) is at pixel ((x - viewport.ll.x) * scale,
-    /// pixel_height - (y - viewport.ll.y) * scale).
+    /// area (dbu), the zoom (pixels per dbu), the frame's pixel size and
+    /// the view's mirror. Unmirrored, a dbu point (x, y) is at pixel
+    /// ((x - viewport.ll.x) * scale, pixel_height - (y - viewport.ll.y) *
+    /// scale); pixel() applies the mirror too.
     struct OverlayFrame
     {
         Rect viewport;
         double scale = 1.0;
         int pixel_width = 0;
         int pixel_height = 0;
+        ViewFlip flip = ViewFlip::NONE;
+
+        /// @brief Where dbu point `p` is drawn: {x, y} in pixels, top-left
+        /// origin, y down.
+        std::array<double, 2> pixel(Point p) const
+        {
+            double x = static_cast<double>(p.x - viewport.ll.x) * scale;
+            double y = static_cast<double>(pixel_height) - static_cast<double>(p.y - viewport.ll.y) * scale;
+            if (flip == ViewFlip::HORIZONTAL)
+                x = static_cast<double>(pixel_width) - x;
+            else if (flip == ViewFlip::VERTICAL)
+                y = static_cast<double>(pixel_height) - y;
+            return {x, y};
+        }
     };
 
     /// @brief Options shared by every stage of ViewRenderPipeline (see
@@ -91,6 +117,10 @@ namespace le
         /// placement, never a resample - see RasterizeBlend2DStage's own
         /// doc comment.
         double scale = 1.0;
+
+        /// @brief The view's mirror, applied by ComposeStage to the composed
+        /// picture and its overlays; every earlier stage works unmirrored.
+        ViewFlip view_flip = ViewFlip::NONE;
 
         /// @brief Per-layer-name and per-purpose visibility toggles - a
         /// ViewLayer draws only if BOTH its own layer-name entry (if any)

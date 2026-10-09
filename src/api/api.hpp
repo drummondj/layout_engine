@@ -1037,6 +1037,27 @@ extern "C"
     /// full viewport width of content. A no-op if handle is null.
     void le_pan(LeHandle *handle, double x_factor, double y_factor);
 
+    /// @brief How the view is mirrored on screen. The same design area
+    /// shows; HORIZONTAL swaps left and right about the view's centre,
+    /// VERTICAL swaps top and bottom. Pan and zoom keep their meaning,
+    /// mouse positions are read through the mirror, and the arrow keys pan
+    /// in screen directions. Overlay text (rulers, labels drawn by
+    /// overlays) stays readable; text in the design itself mirrors.
+    typedef enum LeViewFlip
+    {
+        LE_VIEW_FLIP_NONE = 0,
+        LE_VIEW_FLIP_HORIZONTAL = 1,
+        LE_VIEW_FLIP_VERTICAL = 2,
+    } LeViewFlip;
+
+    /// @brief Mirrors the view (LeViewFlip). Returns 0, or 1 if `flip` is
+    /// out of range or handle is null (nothing changes).
+    int32_t le_set_view_flip(LeHandle *handle, int32_t flip);
+
+    /// @brief The view's mirror (LeViewFlip). LE_VIEW_FLIP_NONE if handle is
+    /// null.
+    int32_t le_view_flip(LeHandle *handle);
+
     /// @brief Set the viewport size in pixels - also the size of the
     /// buffer le_render_pixel_buffer() produces. Mirrors
     /// LeHandle::set_viewport_size directly.

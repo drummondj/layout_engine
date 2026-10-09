@@ -1298,6 +1298,41 @@ register_command_help delete_selected_pieces \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+# --- view mirroring (backed by set_view_flip_cmd/get_view_flip_cmd) ---
+array set ::view_flip_names {none 0 horizontal 1 vertical 2}
+array set ::view_flip_names_reverse {0 none 1 horizontal 2 vertical}
+
+proc set_view_flip { flip } {
+    if {$flip eq "-help"} {
+        return "set_view_flip <flip> \[-help\] - Mirrors the view horizontally or vertically, or not at all"
+    }
+    if {![info exists ::view_flip_names($flip)]} {
+        error "set_view_flip: unknown flip \"$flip\" - expected one of [lsort [array names ::view_flip_names]]"
+    }
+    set_view_flip_cmd $::view_flip_names($flip)
+    return ""
+}
+register_command_help set_view_flip \
+    "set_view_flip <flip> \[-help\]" \
+    "Mirrors the design view: horizontal swaps left and right, vertical swaps top and bottom, none shows it as it is. The same area stays in view, clicks and the arrow keys follow what's on screen, and overlay text such as ruler labels stays readable; text in the design itself is mirrored. Saved with the session." \
+    {
+        {<flip> {type str required 1 description {One of none, horizontal, vertical}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_view_flip {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_view_flip \[-help\] - Returns how the view is mirrored"
+    }
+    return $::view_flip_names_reverse([get_view_flip_cmd])
+}
+register_command_help get_view_flip \
+    "get_view_flip \[-help\]" \
+    "Returns how the design view is mirrored: none, horizontal or vertical." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 # --- placement snapping and rotate/flip (backed by
 # set_placement_snap_mode_cmd/get_placement_snap_mode_cmd/
 # is_placement_snap_mode_available_cmd/apply_placement_orientation_op_cmd) ---

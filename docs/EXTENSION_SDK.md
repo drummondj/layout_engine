@@ -448,6 +448,8 @@ void le_ext_my_ext_register(le::ext::Registry &registry)
 
 - `OverlayContext` gives the canvas, `to_pixel`, `scale()`,
   `visible_area()` (dbu), `width()`/`height()`, `root()` and `data<T>()`.
+  `to_pixel` follows the view's mirror (`set_view_flip`), so map every
+  point through it rather than computing pixels from `scale()` yourself.
 - It runs on the render thread with the session locked for reading: read
   `root()` and `data<T>()`, but don't call `le_*` functions or
   `read()`/`write()`. It runs on every mouse move, so keep it quick.

@@ -362,6 +362,12 @@ void set_placement_snap_mode_cmd(int mode);
 int get_placement_snap_mode_cmd();
 bool is_placement_snap_mode_available_cmd(int mode);
 
+/// @brief Backing for `set_view_flip`/`get_view_flip` - mirror
+/// le_set_view_flip/le_view_flip (LeViewFlip values; le_tcl_procs.tcl maps
+/// the keywords).
+int set_view_flip_cmd(int flip);
+int get_view_flip_cmd();
+
 /// @brief Backing for `rotate_placement`/`flip_placement` - mirrors
 /// le_apply_placement_orientation_op (LeOrientationOp values; returns
 /// its status code).

@@ -131,6 +131,7 @@ TEST_F(NativeDbApi, TheSessionComesBackWithTheFile)
     ASSERT_EQ(le_set_current_design_layout(source, le_design_count(source) - 1), 0);
     source->set_pan(le::Point{1234, -567});
     source->set_scale(0.125);
+    ASSERT_EQ(le_set_view_flip(source, LE_VIEW_FLIP_VERTICAL), 0);
     le_set_layer_name_visible(source, "M1", false);
     le_set_layer_name_selectable(source, "M1", 0);
     const auto routes = le::purpose_from_label("route");
@@ -153,6 +154,7 @@ TEST_F(NativeDbApi, TheSessionComesBackWithTheFile)
     EXPECT_EQ(loaded->pan().x, 1234);
     EXPECT_EQ(loaded->pan().y, -567);
     EXPECT_DOUBLE_EQ(loaded->scale(), 0.125);
+    EXPECT_EQ(le_view_flip(loaded), LE_VIEW_FLIP_VERTICAL);
     EXPECT_FALSE(le_is_layer_name_visible(loaded, "M1"));
     EXPECT_EQ(le_is_layer_name_selectable(loaded, "M1"), 0);
     EXPECT_EQ(le_is_purpose_visible(loaded, static_cast<int32_t>(*routes)), 0);
@@ -165,6 +167,7 @@ TEST_F(NativeDbApi, TheSessionComesBackWithTheFile)
     ASSERT_EQ(le_read_db(loaded, path.c_str(), 0), 0);
     EXPECT_FALSE(loaded->root.get_layout(loaded->current_layout()));
     EXPECT_NE(le_is_purpose_visible(loaded, static_cast<int32_t>(*routes)), 0);
+    EXPECT_EQ(le_view_flip(loaded), LE_VIEW_FLIP_NONE);
     le_destroy(loaded);
 }
 

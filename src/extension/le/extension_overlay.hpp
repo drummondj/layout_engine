@@ -26,7 +26,8 @@ namespace le::ext
         /// @brief The view's pixels. Its state (transform, clip, styles) is
         /// restored after the overlay returns.
         BLContext &canvas() { return canvas_; }
-        /// @brief Where a design point (dbu) is on the canvas.
+        /// @brief Where a design point (dbu) is on the canvas, mirrored like
+        /// the view (le_set_view_flip).
         BLPoint to_pixel(Point dbu) const;
         /// @brief Pixels per dbu.
         double scale() const;
