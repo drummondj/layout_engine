@@ -20,7 +20,7 @@
 # machine's own bootstrap script).
 #
 # Bonus: since this uses the same base OS as the user's own locked-down
-# Rocky 8 work machine (see BUILD.md), the resulting binary is
+# Rocky 8 work machine (see docs/BUILD.md), the resulting binary is
 # glibc/ABI-matched to it too - plausibly runnable there directly without
 # needing the full rootless bootstrap+build, once X11/Tcl-Tk/readline are
 # confirmed present.

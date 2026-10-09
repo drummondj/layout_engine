@@ -237,7 +237,7 @@ int write_lef_cmd(const char *path, const char *abstract_tokens, const char *lib
 int write_def_cmd(const char *path, const char *layout_token);
 
 /// @brief Backing for the native database file commands write_db/read_db/
-/// db_info/migrate_db (docs/NATIVE_FILE_FORMAT_RESEARCH.md) - thin
+/// db_info/migrate_db (plans/NATIVE_FILE_FORMAT_RESEARCH.md) - thin
 /// wrappers over le_write_db/le_read_db/le_db_info/le_migrate_db.
 int write_db_cmd(const char *path, int with_session);
 int read_db_cmd(const char *path, int with_session);

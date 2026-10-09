@@ -1,7 +1,7 @@
 #pragma once
 
 // Cross-view physical<->logical linking - the physical half of the `link`
-// step (design: docs/LINKING_STRATEGY_RESEARCH.md), run after
+// step (design: plans/LINKING_STRATEGY_RESEARCH.md), run after
 // SVReader::link_unresolved_instances has already resolved every
 // Instance.reference_design it can. Header-only, like
 // hierarchical_resolver.hpp (which this builds on) - avoids a whole new

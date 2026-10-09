@@ -1,5 +1,5 @@
 # Extensions: builds every extension directory in LE_EXTENSION_DIRS into this
-# build (docs/EXTENSION_MECHANISM_RESEARCH.md §2-3, §6). Included by
+# build (plans/EXTENSION_MECHANISM_RESEARCH.md §2-3, §6). Included by
 # CMakeLists.txt after the `api` and `le::extension_sdk` targets exist and
 # Tcl/SWIG have been looked for.
 #

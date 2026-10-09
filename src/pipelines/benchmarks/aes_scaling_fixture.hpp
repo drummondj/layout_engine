@@ -12,7 +12,7 @@
 #include <map>
 #include <string>
 
-// Shared benchmark fixture (docs/PIPELINE_REFACTOR.md's "Benchmarking"
+// Shared benchmark fixture (plans/PIPELINE_REFACTOR.md's "Benchmarking"
 // section): every pipelines-module stage/pipeline benchmark measures the
 // same 5 points - 1x1, 2x1, 2x2, 3x2, 3x3 tiles of the AES_1 ISPD22 design
 // on Nangate45 - so scaling behavior is comparable stage to stage. Each

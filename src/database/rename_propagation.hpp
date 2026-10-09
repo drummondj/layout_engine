@@ -1,7 +1,7 @@
 #pragma once
 
 // Rename-propagation side effects for the Schematic<->Layout link (design:
-// docs/LINKING_STRATEGY_RESEARCH.md): when an Instance renames,
+// plans/LINKING_STRATEGY_RESEARCH.md): when an Instance renames,
 // every DEF-style hierarchical name that embeds its own path segment -
 // its own linked Placement (the renamed segment is the trailing
 // component) and every descendant Instance/Net's linked

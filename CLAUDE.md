@@ -4,8 +4,9 @@ C++23 EDA layout tool: reads LEF/DEF and SystemVerilog into an in-memory
 database, renders it through a layer-based, Blend2D-backed pipeline, and
 edits it from a Tcl shell (`le_shell`) with a Dear ImGui window. The goal is
 an architecture for editing hierarchical designs with millions of objects.
-Design docs, research and benchmark history live in `docs/`
-(`docs/LEFDEF_BUGS.md` lists the vendored LEF/DEF parser/writer bugs and how
+User-facing docs live in `docs/` (build, extension SDK, Tcl command
+reference, releasing) and never link into `plans/`, which holds design docs,
+research and benchmark history (`plans/LEFDEF_BUGS.md` lists the vendored LEF/DEF parser/writer bugs and how
 `src/io/` works around each).
 
 ## Requirements (non-negotiable)
@@ -28,7 +29,7 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   (get-or-create Library/Design by name for every reader),
   `hierarchical_resolver.hpp`/`schematic_layout_linker.hpp`/
   `rename_propagation.hpp` (Schematic<->Layout linking, design in
-  `docs/LINKING_STRATEGY_RESEARCH.md`).
+  `plans/LINKING_STRATEGY_RESEARCH.md`).
 - `src/geometry/` — `Geometry`, a Boost.Geometry wrapper (bbox, overlap,
   transforms, union/buffer, label placement, piece hit-tests,
   ITERATE expansion) over the database's `Point`/`Rect`/`Polygon`/`Path`/
@@ -45,7 +46,7 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   placements), `object_filters.hpp` (the Layers panel's Placement.type/
   Route.use value filters). Code only one module uses lives in that module.
 - `src/pipelines/` — the render pipeline, one oneTBB `flow::graph`
-  (`ViewRenderPipeline`, design in `docs/PIPELINE_REFACTOR.md`):
+  (`ViewRenderPipeline`, design in `plans/PIPELINE_REFACTOR.md`):
   `LayerGenerationStage` -> `HierarchyResolverStage` -> `ViewportCullStage`
   -> `RasterizeBlend2DStage` -> `ComposeStage`. Every stage is a
   `MemoizingStage` (`tbb_core.hpp`) that recomputes only when its input
@@ -115,7 +116,7 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
     `write_db -no_session` skips it). `db_info` describes a file without
     loading it, including the migrations it needs (`kMigrations`);
     `migrate_db` rewrites one with the current schema. Design in
-    `docs/NATIVE_FILE_FORMAT_RESEARCH.md`.
+    `plans/NATIVE_FILE_FORMAT_RESEARCH.md`.
 - `src/editing/` — undo/redo: `CommandHistory` (one per handle),
   `Transaction`, `ICommand`. Every generated create/update/delete and
   shape op records itself into the recording transaction (in `le::edit`,
@@ -299,7 +300,7 @@ bump; a new version needs its snapshot (written by the build), a migration
 (`src/database/migrations/`, drafted by `--target makemigration`) and golden
 files (`src/io/tests/golden/<version>/`), all committed together. Before the
 first release a change may re-baseline instead of migrating
-(docs/NATIVE_FILE_FORMAT_RESEARCH.md §4.1).
+(plans/NATIVE_FILE_FORMAT_RESEARCH.md §4.1).
 
 ## TCL codegen
 
@@ -341,7 +342,7 @@ A Release tree, `build_release`, is built on demand for benchmarks and
 performance testing - don't rebuild it after every change. Tracy
 instrumentation is on only in a `-DCMAKE_BUILD_TYPE=Profile` tree (Release
 plus `-g`) unless `LE_ENABLE_TRACY` says otherwise. See the
-`build-test` skill and `BUILD.md` (rootless Rocky Linux 8 build). Docker: `docker compose run --rm
+`build-test` skill and `docs/BUILD.md` (rootless Rocky Linux 8 build). Docker: `docker compose run --rm
 ci` (`Dockerfile.linux-ci`); releases come from `Dockerfile.linux-release`,
 which packages the `bundle` install component (`cmake --install <build>
 --component bundle --prefix <dir>`: a flat, relocatable directory whose own
@@ -380,8 +381,8 @@ the `aes_scaling_*` tiling fixture in `test_data/`), `pipeline_stage_benchmark`
 `native_format_profile`, `spatial_index_benchmark`; tools
 `generate_tiled_design` and `lef_roundtrip_diff`. Use
 `--benchmark_repetitions=5 --benchmark_report_aggregates_only=true` when
-comparing. Results history: `docs/BENCHMARKS.md`,
-`docs/PIPELINE_REFACTOR_BENCHMARK_RESULTS.md`.
+comparing. Results history: `plans/BENCHMARKS.md`,
+`plans/PIPELINE_REFACTOR_BENCHMARK_RESULTS.md`.
 
 ## Known gaps
 
@@ -420,7 +421,7 @@ not a changelog.
 ## Work tracking
 
 Bugs and features are GitHub issues (`gh issue list`, `gh issue view N`).
-Long-lived designs and research live in `docs/`.
+Long-lived designs and research live in `plans/`.
 
 Code changes for an issue go on their own branch, never straight onto
 `main`:

@@ -2,7 +2,7 @@
 """Outer driver for the pipeline_stage_benchmark C++ tool.
 
 Runs the fixed 7-point AES test-case matrix (the convention
-docs/PIPELINE_REFACTOR_BENCHMARK_RESULTS.md records results in), invoking
+plans/PIPELINE_REFACTOR_BENCHMARK_RESULTS.md records results in), invoking
 `pipeline_stage_benchmark` (src/pipelines/benchmarks/pipeline_stage_benchmark.cpp)
 once per test case as a subprocess and collecting the CSV rows it prints
 to stdout into one combined `<name>.csv`, then rendering `<name>.md`.
@@ -185,7 +185,7 @@ def generate_markdown(rows: list[dict], labels_in_order: list[str]) -> str:
         sections.append(f"## {phase_title}\n")
 
         # Wall time: stage rows x test-case columns - matches
-        # docs/PIPELINE_REFACTOR_BENCHMARK_RESULTS.md's convention.
+        # plans/PIPELINE_REFACTOR_BENCHMARK_RESULTS.md's convention.
         wall_rows = []
         for stage in STAGES:
             row = [stage]

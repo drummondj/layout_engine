@@ -1178,7 +1178,7 @@ namespace le
             // above). Not called here - ViaLayer.polygons is read-only
             // for VIA geometry with this vendored writer version, same
             // "skip the call, mark read-only" treatment as this file's
-            // other unparseable-output bugs (see docs/LEFDEF_BUGS.md).
+            // other unparseable-output bugs (see plans/LEFDEF_BUGS.md).
             // ViaLayer.polygon_masks is read (see via_layers_from_parser)
             // for the same reason rects/rect_masks both are - the database
             // shouldn't lose information the reader can hand it just
@@ -1410,7 +1410,7 @@ namespace le
             }
             else
             {
-                // KNOWN VENDORED-LIBRARY DEAD END (see docs/LEFDEF_BUGS.md): a
+                // KNOWN VENDORED-LIBRARY DEAD END (see plans/LEFDEF_BUGS.md): a
                 // non-GENERATE VIARULE's LAYER requires exactly 2 LAYER
                 // sub-statements (lef.y's own grammar - an empty VIARULE is
                 // a fatal LEFPARS-1), each requiring a DIRECTION construct
@@ -1662,7 +1662,7 @@ namespace le
         }
         else if (shape.design_rule_width)
         {
-            // KNOWN VENDORED-WRITER GAP (see docs/LEFDEF_BUGS.md): even though
+            // KNOWN VENDORED-WRITER GAP (see plans/LEFDEF_BUGS.md): even though
             // Shape.design_rule_width now correctly distinguishes "unset"
             // from "explicitly 0" (0 is a real,
             // meaningful DESIGNRULEWIDTH, not a sentinel - complete.5.8.lef
@@ -1894,7 +1894,7 @@ namespace le
         // version check), and lef.y's own grammar action for every one of
         // those only calls its setter when versionNum < 5.4, so the
         // vendored reader itself can never populate them for a file this
-        // project would accept. See docs/LEFDEF_BUGS.md's "Reader-side:
+        // project would accept. See plans/LEFDEF_BUGS.md's "Reader-side:
         // intentional version-obsolescence".
         // terminal->max_delay (MAXDELAY) is deliberately never written -
         // no lefwMacroPinMaxdelay exists in lefwWriter.hpp/.cpp at all

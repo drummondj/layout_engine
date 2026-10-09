@@ -3,7 +3,7 @@ Reads Layout Engine extension manifests (le_extension.toml), checks them
 against the running build and each other, orders them by dependency, and
 writes a CMake include describing them - run by CMakeLists.txt at configure
 time for every directory in LE_EXTENSION_DIRS. The manifest format is
-documented in docs/EXTENSION_MECHANISM_RESEARCH.md §2.
+documented in plans/EXTENSION_MECHANISM_RESEARCH.md §2.
 
 Standard library only (tomllib needs Python 3.11), so the package manager can
 reuse it without codegen's other dependencies.

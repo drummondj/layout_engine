@@ -1,4 +1,4 @@
-// native_format_profile - dev-only tool (docs/NATIVE_FILE_FORMAT_RESEARCH.md §7):
+// native_format_profile - dev-only tool (plans/NATIVE_FILE_FORMAT_RESEARCH.md §7):
 // how the native .led format compares with reading the DEF it came from,
 // on one real aes_scaling design per process.
 //

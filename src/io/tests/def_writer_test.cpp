@@ -169,7 +169,7 @@ namespace le
     // `if (weight)` - true for -1.0, which would write a literal
     // "WEIGHT -1" for every component with no weight. 0.0 is the only
     // value `if (weight)` treats as false, so it's the real sentinel - see
-    // docs/LEFDEF_BUGS.md's DEF writer section for the fuller writeup (including
+    // plans/LEFDEF_BUGS.md's DEF writer section for the fuller writeup (including
     // the one real consequence: a component whose real weight IS zero can
     // never round-trip through this writer, a vendored-writer limitation,
     // not a bug in this project's own code).

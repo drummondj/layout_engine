@@ -1,6 +1,6 @@
 ---
 name: generate-tcl-docs
-description: Regenerate TCL_COMMANDS.md, the Markdown reference for every TCL command (get_<type>/create_<type>/update_<type> plus the hand-written commands), from the ::command_help registry. Use after any TCL command's usage/description/options changes, or when TCL_COMMANDS.md looks stale.
+description: Regenerate docs/TCL_COMMANDS.md, the Markdown reference for every TCL command (get_<type>/create_<type>/update_<type> plus the hand-written commands), from the ::command_help registry. Use after any TCL command's usage/description/options changes, or when docs/TCL_COMMANDS.md looks stale.
 user-invocable: true
 allowed-tools:
   - Bash
@@ -9,7 +9,7 @@ allowed-tools:
 
 # Regenerate the TCL command Markdown reference
 
-`TCL_COMMANDS.md` is generated output, not hand-edited -
+`docs/TCL_COMMANDS.md` is generated output, not hand-edited -
 `generate_command_docs` (`le_tcl_procs.tcl`) builds it from the
 `::command_help` registry every `get_<type>`/`create_<type>`/
 `update_<type>` and hand-written command registers itself into (see
@@ -37,13 +37,13 @@ surface anyway, so rebuilding before running this is enough.
        src/tcl/generate_docs.tcl \
        build/le_tcl.so \
        src/tcl/le_tcl_procs.tcl \
-       TCL_COMMANDS.md
+       docs/TCL_COMMANDS.md
    ```
 
    `build/le_tcl.so` is the Debug tree's own module output - the same
    target `le_tcl_smoke`/`le_tcl_crud`/`le_tcl_help` already load under
    `ctest`.
 
-3. **Commit the result.** `TCL_COMMANDS.md` is a real, committed
+3. **Commit the result.** `docs/TCL_COMMANDS.md` is a real, committed
    file (unlike the generated code, which lives in the build tree) -
    `git diff` shows exactly what changed.

@@ -3,7 +3,7 @@
 #include <json.hpp>
 
 // The generated schema_version.hpp (codegen's descriptor.py) - the
-// descriptor a native-format file embeds (docs/NATIVE_FILE_FORMAT_RESEARCH.md §3).
+// descriptor a native-format file embeds (plans/NATIVE_FILE_FORMAT_RESEARCH.md §3).
 
 TEST(SchemaVersion, DescriptorIsValidJsonMatchingVersion)
 {

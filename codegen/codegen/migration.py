@@ -1,5 +1,5 @@
 """
-Schema migrations (docs/NATIVE_FILE_FORMAT_RESEARCH.md §4).
+Schema migrations (plans/NATIVE_FILE_FORMAT_RESEARCH.md §4).
 
 A migration file describes how data shaped like schema version N-1 becomes
 data shaped like version N, as an ordered list of typed ops:
@@ -484,7 +484,7 @@ def check_migrations(current: Dict[str, Any], history_dir: Path, migrations_dir:
 # --- Extension chains ---------------------------------------------------------------
 #
 # An extension's chain is checked like core's, against its own snapshots and
-# descriptor, plus three rules (docs/NATIVE_FILE_FORMAT_RESEARCH.md §4.8):
+# descriptor, plus three rules (plans/NATIVE_FILE_FORMAT_RESEARCH.md §4.8):
 # - its ops may only change its own classes;
 # - each migration records the core version it was written against, never
 #   decreasing along the chain and never newer than the current core;

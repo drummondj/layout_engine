@@ -3,7 +3,7 @@
 // Anything reachable from here is public API, versioned by
 // LE_EXTENSION_API_VERSION (set by the le::extension_sdk CMake target); an
 // extension states the version it targets with a static_assert. Design:
-// docs/EXTENSION_MECHANISM_RESEARCH.md §3, §5.
+// plans/EXTENSION_MECHANISM_RESEARCH.md §3, §5.
 
 #include "api.hpp"
 #include "database.hpp"

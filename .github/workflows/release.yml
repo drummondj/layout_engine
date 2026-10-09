@@ -95,7 +95,7 @@ jobs:
 
       # Only on an actual tag push - workflow_dispatch runs (used to
       # iterate on CI-only failures without creating throwaway
-      # releases/tags, see BUILD.md/the plan this workflow came from) fall
+      # releases/tags, see docs/BUILD.md/the plan this workflow came from) fall
       # through to the plain artifact upload below instead.
       - name: Create/update GitHub Release
         if: startsWith(github.ref, 'refs/tags/')

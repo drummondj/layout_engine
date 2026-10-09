@@ -451,7 +451,7 @@ le_fetch_declare(
 FetchContent_MakeAvailable(nlohmann_json_header)
 
 # zstd - block compression for the native database file format
-# (src/io/native_format.cpp, docs/NATIVE_FILE_FORMAT_RESEARCH.md §3). Pinned release
+# (src/io/native_format.cpp, plans/NATIVE_FILE_FORMAT_RESEARCH.md §3). Pinned release
 # tarball; zstd's CMake project lives under build/cmake. Static library
 # only - no programs, tests or shared build.
 set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
@@ -621,7 +621,7 @@ target_include_directories(core INTERFACE src)
 target_link_libraries(core INTERFACE database geometry)
 
 # --- pipelines: the Cold/Warm/Hot ViewRenderPipeline
-# (docs/PIPELINE_REFACTOR.md), built on oneTBB's flow::graph
+# (plans/PIPELINE_REFACTOR.md), built on oneTBB's flow::graph
 # (tbb_core.hpp's MemoizingStage). Rasterize/Compose are Blend2D-native.
 # STATIC because pipelines.cpp defines default_blend2d_font_face() (see
 # that file's own comment); everything else is header-only.
@@ -1038,7 +1038,7 @@ if(SWIG_FOUND AND TCL_FOUND)
     # `bundle` stage copies just the le_shell/le_tcl.so binaries (plus a
     # copy of libtbb.so.12 itself) into one flat directory, and a plain
     # user checkout on another machine (e.g. the Rocky 8 target machine
-    # BUILD.md describes) has no /opt/tbb at all ("error while loading
+    # docs/BUILD.md describes) has no /opt/tbb at all ("error while loading
     # shared libraries: libtbb.so.12").
     # BUILD_RPATH (not INSTALL_RPATH/BUILD_WITH_INSTALL_RPATH) ADDS
     # "$ORIGIN" (an ELF/ld.so token, expanded to whichever directory the
@@ -1304,7 +1304,7 @@ gtest_discover_tests(pipelines_tests)
 # --- pipeline_benchmarks: per-stage benchmarks, standalone against
 # database/pipelines/io - see aes_scaling_fixture.hpp for the shared
 # 1x1/2x1/2x2/3x2/3x3 tiling fixture every stage benchmark uses
-# (docs/PIPELINE_REFACTOR.md's "Benchmarking" section). No `api`
+# (plans/PIPELINE_REFACTOR.md's "Benchmarking" section). No `api`
 # dependency. ---
 add_executable(pipeline_benchmarks
     src/pipelines/benchmarks/benchmark_main.cpp
@@ -1371,7 +1371,7 @@ le_enable_coverage_instrumentation(resolver_profile)
 
 # --- native_format_profile: dev-only tool - native .led save/load time and
 # size against reading the DEF, for one aes_scaling design per process
-# (docs/NATIVE_FILE_FORMAT_RESEARCH.md §7). Not run by ctest. ---
+# (plans/NATIVE_FILE_FORMAT_RESEARCH.md §7). Not run by ctest. ---
 add_executable(native_format_profile src/io/benchmarks/native_format_profile.cpp)
 target_link_libraries(native_format_profile PRIVATE database io TBB::tbb)
 target_compile_definitions(native_format_profile PRIVATE

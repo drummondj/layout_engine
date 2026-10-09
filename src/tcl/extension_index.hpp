@@ -3,7 +3,7 @@
 // in load order - which procs files le_shell sources after le_tcl_procs.tcl,
 // and an optional project startup script. Written by CMake
 // (cmake/le_extensions.cmake) for the build tree and for the installed
-// bundle. Format (docs/PACKAGE_MANAGER_RESEARCH.md §8):
+// bundle. Format (plans/PACKAGE_MANAGER_RESEARCH.md §8):
 //
 //   {"format": 1, "layout_engine": "0.2.0", "extension_api": 1,
 //    "extensions": [{"name": "hello_ext", "version": "0.1.0", "tier": "compiled",

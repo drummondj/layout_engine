@@ -18,7 +18,7 @@ namespace
 {
     // Measures the WHOLE Warm tier (ViewportCull + Rasterize + Compose,
     // via ViewRenderPipeline::run()) against its own shared 500ms
-    // budget - docs/PIPELINE_REFACTOR.md sets 500ms for the tier as a
+    // budget - plans/PIPELINE_REFACTOR.md sets 500ms for the tier as a
     // whole, not per stage, so this
     // is the number that actually matters, not any one stage's own
     // isolated cost. One persistent ViewRenderPipeline reused across a

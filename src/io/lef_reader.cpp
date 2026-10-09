@@ -186,7 +186,7 @@ namespace le
         // that is a real error, not a silent downgrade to reading it
         // partially (the vendored parser itself would already be
         // discarding several PIN-level statements at >= 5.4 that it
-        // wouldn't at, say, 5.3 - see docs/LEFDEF_BUGS.md's "Reader-side:
+        // wouldn't at, say, 5.3 - see plans/LEFDEF_BUGS.md's "Reader-side:
         // intentional version-obsolescence" - accepting < 5.4 input would
         // just mean this project's own database silently disagrees with
         // what a real 5.3-reading tool would see).
@@ -1664,7 +1664,7 @@ namespace le
         // calls the matching setter when versionNum < 5.4; this project
         // only supports LEF >= 5.4 (see read_lef's own version check), so
         // the vendored reader itself would always discard these before
-        // this callback ever runs. See docs/LEFDEF_BUGS.md's "Reader-side:
+        // this callback ever runs. See plans/LEFDEF_BUGS.md's "Reader-side:
         // intentional version-obsolescence".
         if (lef_pin->hasMaxdelay())
             terminal.max_delay = lef_pin->maxdelay();

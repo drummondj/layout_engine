@@ -214,7 +214,7 @@ TEST(LeHandle, SelectDedupsCorrectlyAcrossManyDistinctShapes)
     // because le_mouse_up's drag-select branch (api.cpp) calls select()
     // once per enclosed piece, and a real design can put hundreds of
     // thousands of pieces under one shared Obstruction's OBS block (see
-    // docs/BENCHMARKS.md). Mixes distinct new ids with re-selecting already-
+    // plans/BENCHMARKS.md). Mixes distinct new ids with re-selecting already-
     // selected ones (in original and reverse order) and checks the exact
     // resulting count/version.
     LeHandle handle;

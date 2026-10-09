@@ -164,7 +164,7 @@ namespace le
             if (!track)
                 continue;
 
-            // KNOWN VENDORED-WRITER GAP (see docs/LEFDEF_BUGS.md): DEF's own
+            // KNOWN VENDORED-WRITER GAP (see plans/LEFDEF_BUGS.md): DEF's own
             // TRACKS grammar has an optional LAYER clause (confirmed
             // against complete.5.8.def itself, e.g. "TRACKS Y 52 DO 857
             // STEP 104 MASK 1 ;" with no LAYER at all), but
@@ -306,7 +306,7 @@ namespace le
         if (rule_ids.empty())
             return 0;
 
-        // KNOWN VENDORED-WRITER GAP (see docs/LEFDEF_BUGS.md): unlike every
+        // KNOWN VENDORED-WRITER GAP (see plans/LEFDEF_BUGS.md): unlike every
         // other DEF geometry statement (raw database-unit integers - see
         // def_writer.hpp's own class comment), NONDEFAULTRULES LAYER
         // WIDTH/DIAGWIDTH/SPACING/WIREEXT are written as real MICRON
@@ -839,7 +839,7 @@ namespace le
 
             // ShapeViaIterate (an arrayed VIA placement, "VIA DO n BY m
             // STEP x y", within a routed path). KNOWN VENDORED-WRITER GAP
-            // (see docs/LEFDEF_BUGS.md): defwSpecialNetPathViaData exists for
+            // (see plans/LEFDEF_BUGS.md): defwSpecialNetPathViaData exists for
             // SPECIALNETS (called right after defwSpecialNetPathVia,
             // same "DO n BY m STEP x y" suffix DEF's own grammar
             // expects), but no defwNetPathViaData-equivalent exists for
@@ -1042,7 +1042,7 @@ namespace le
         const TechnologyId technology_id = technology_ids.empty() ? TechnologyId{} : technology_ids.front();
         const TechnologyData *technology = technology_id.valid() ? root.get_technology(technology_id) : nullptr;
 
-        // KNOWN VENDORED-WRITER GAP (see docs/LEFDEF_BUGS.md): defwInit's own
+        // KNOWN VENDORED-WRITER GAP (see plans/LEFDEF_BUGS.md): defwInit's own
         // vers1/vers2 parameter writes "VERSION x.y ;" to the file
         // directly, but never updates the writer's internal defVersionNum
         // (confirmed against defwWriter.cpp - only defwVersion() itself

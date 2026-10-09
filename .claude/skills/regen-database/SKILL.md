@@ -47,10 +47,10 @@ field type.
    version writes `src/database/schema_history/<version>.json` - **commit it
    together with the schema change**. It records what that schema version
    looked like; migrations are checked against it
-   (docs/NATIVE_FILE_FORMAT_RESEARCH.md §4).
+   (plans/NATIVE_FILE_FORMAT_RESEARCH.md §4).
 
 3. **Migration or re-baseline.** Before the first release, a schema change
-   may re-baseline instead of migrating (docs/NATIVE_FILE_FORMAT_RESEARCH.md
+   may re-baseline instead of migrating (plans/NATIVE_FILE_FORMAT_RESEARCH.md
    §4.1): delete the previous version's snapshot and its
    `src/io/tests/golden/<old version>/` directory, so the new version becomes
    the baseline. Otherwise the new version needs a **migration** saying how

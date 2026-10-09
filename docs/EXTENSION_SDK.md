@@ -2,9 +2,6 @@
 
 How to write an extension: your own C++, Tcl commands and data files, kept
 in your own repository and built into Layout Engine without editing it.
-The design and the reasons behind it are in
-[EXTENSION_MECHANISM_RESEARCH.md](EXTENSION_MECHANISM_RESEARCH.md); this page
-is the reference.
 
 **Extension API version: 1** (Layout Engine 0.3.x, the first with extension support). See the [changelog](#changelog).
 
