@@ -146,6 +146,40 @@ TEST(WriteViewEdits, ALabelledViewIsOneUndoStep)
     le_destroy(handle);
 }
 
+TEST(WriteViewEdits, RenamesKeepTheGlobalNameIndexThroughUndoAndRedo)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    le::LibraryId library;
+    le::LayerId layer;
+    {
+        le::ext::WriteView view = ctx.write("create");
+        library = view.create_library({.name = "lib"}).value();
+        const le::TechnologyId technology = view.create_technology({.database_units_microns = 1000.0}).value();
+        layer = view.create_layer({.technology = technology, .name = "M1", .type = "ROUTING"}).value();
+    }
+    {
+        le::ext::WriteView view = ctx.write("rename");
+        ASSERT_TRUE(view.update_library(library, {.name = "renamed"}));
+        ASSERT_TRUE(view.update_layer(layer, {.name = "M9"}));
+    }
+
+    const auto expect_names = [&](const char *library_name, const char *stale_library_name, const char *layer_name, const char *stale_layer_name)
+    {
+        const le::ext::ReadView view = ctx.read();
+        EXPECT_EQ(view.root().get_library_by_name(library_name), library);
+        EXPECT_FALSE(view.root().get_library_by_name(stale_library_name).valid());
+        EXPECT_EQ(view.root().get_layer_by_name(layer_name), layer);
+        EXPECT_FALSE(view.root().get_layer_by_name(stale_layer_name).valid());
+    };
+    expect_names("renamed", "lib", "M9", "M1");
+    ASSERT_EQ(le_undo(handle), 1);
+    expect_names("lib", "renamed", "M1", "M9");
+    ASSERT_EQ(le_redo(handle), 1);
+    expect_names("renamed", "lib", "M9", "M1");
+    le_destroy(handle);
+}
+
 TEST(WriteViewEdits, AnUnlabelledViewRecordsNothing)
 {
     LeHandle *handle = le_create();

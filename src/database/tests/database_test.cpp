@@ -44,6 +44,33 @@ TEST(Database, SetLayerNameKeepsByNameIndexInSync)
     EXPECT_EQ(root.get_technology_layers(technology_id), std::vector<LayerId>{layer_id});
 }
 
+TEST(Database, UpdateLibraryRenameMovesTheGlobalNameIndex)
+{
+    Root root;
+    const LibraryId library = root.create_library(LibraryData{.name = "lib"});
+
+    ASSERT_TRUE(root.update_library(library, std::string("renamed")));
+
+    EXPECT_EQ(root.get_library_by_name("renamed"), library);
+    EXPECT_EQ(root.get_library_by_name("lib"), LibraryId{});
+}
+
+TEST(Database, RenamingAwayFromANameAnotherObjectHoldsLeavesItsEntry)
+{
+    Root root;
+    const LibraryId first = root.create_library(LibraryData{.name = "lib"});
+    const LibraryId second = root.create_library(LibraryData{.name = "lib"}); // takes over the "lib" entry
+
+    ASSERT_TRUE(root.update_library(first, std::string("other")));
+    EXPECT_EQ(root.get_library_by_name("lib"), second);
+    EXPECT_EQ(root.get_library_by_name("other"), first);
+
+    ASSERT_TRUE(root.set_library_name(first, "third"));
+    EXPECT_EQ(root.get_library_by_name("lib"), second);
+    EXPECT_EQ(root.get_library_by_name("third"), first);
+    EXPECT_EQ(root.get_library_by_name("other"), LibraryId{});
+}
+
 TEST(Database, SetLayerNameOnNonExistentIdReturnsFalse)
 {
     Root root;

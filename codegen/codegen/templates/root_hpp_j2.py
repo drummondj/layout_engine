@@ -369,7 +369,12 @@ namespace {{schema.namespace}} {
                 {%- endif %}
             return true;
             {%- else %}
-            index_.{{klass.to_snake_case()}}_by_{{field.name}}.erase(existing->{{field.name}});
+            {
+                // Another object may hold the old name; leave its entry.
+                auto old_it = index_.{{klass.to_snake_case()}}_by_{{field.name}}.find(existing->{{field.name}});
+                if (old_it != index_.{{klass.to_snake_case()}}_by_{{field.name}}.end() && old_it->second == id)
+                    index_.{{klass.to_snake_case()}}_by_{{field.name}}.erase(old_it);
+            }
 
             existing->{{field.name}} = value;
 
