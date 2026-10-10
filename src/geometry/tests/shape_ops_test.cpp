@@ -194,7 +194,7 @@ TEST_F(ShapeOps, ChangeLayerOntoAndOffTheDebugLayerKeepsExactlyOneOfLayerAndPurp
     ASSERT_TRUE(to_debug.has_value()) << to_debug.error();
     EXPECT_FALSE(root.get_shape(a)->layer.valid());
     EXPECT_EQ(root.get_shape(a)->purpose, ShapePurpose::DEBUG);
-    EXPECT_EQ(to_debug->front().before.layer, m1);
+    EXPECT_EQ(to_debug->shapes.front().before.layer, m1);
 
     // Back onto a real layer: the purpose must be cleared, not left behind.
     const auto to_m2 = shape_ops::change_layer(root, {a}, shape_ops::LayerOrPurpose{.layer = m2});
@@ -211,4 +211,82 @@ TEST_F(ShapeOps, ChangeLayerIsAllOrNothing)
     EXPECT_FALSE(shape_ops::change_layer(root, {a, ShapeId{}}, shape_ops::LayerOrPurpose{.layer = m2}).has_value());
     EXPECT_EQ(root.get_shape(a)->layer, m1);
     EXPECT_FALSE(shape_ops::change_layer(root, {a}, shape_ops::LayerOrPurpose{}).has_value()); // neither layer nor purpose
+}
+
+namespace
+{
+    // ShapeOps plus a route with a Wire on M1: one 10-wide path (0,5)-(100,5)
+    // at M1's default width, and one 20-wide path (0,50)-(0,90).
+    class WireShapeOps : public ShapeOps
+    {
+    protected:
+        LayoutId layout_id;
+        RouteId route_id;
+        WireId wire_id;
+
+        void SetUp() override
+        {
+            ShapeOps::SetUp();
+            root.get_layer(m1)->width = 10;
+            root.get_layer(m2)->width = 20;
+            layout_id = root.create_layout(LayoutData{.design = root.get_abstract(abstract_id)->design});
+            route_id = root.create_route(RouteData{.layout = layout_id, .name = "N1"});
+            WireBuilder builder(root, m1);
+            EXPECT_TRUE(builder.add_path(Path{.width = 10, .polygon = {.points = {Point{0, 5}, Point{100, 5}}}}));
+            EXPECT_TRUE(builder.add_path(Path{.width = 20, .polygon = {.points = {Point{0, 50}, Point{0, 90}}}}));
+            wire_id = root.create_wire(std::move(builder).build(route_id));
+        }
+    };
+}
+
+TEST_F(WireShapeOps, AWireIsReadAsItsPaths)
+{
+    const shape_ops::Result copies = shape_ops::copy(root, {wire_id}, shape_ops::LayerOrPurpose{.layer = m2}, layout_id);
+    ASSERT_TRUE(copies.has_value()) << copies.error();
+    ASSERT_EQ(copies->size(), 1u);
+    const ShapeData *copy = root.get_shape(copies->front());
+    ASSERT_NE(copy, nullptr);
+    ASSERT_EQ(copy->paths.size(), 2u);
+    EXPECT_EQ(copy->paths[0].width, 10);
+    EXPECT_EQ(copy->paths[1].width, 20);
+
+    const std::expected<Rect, std::string> box = shape_ops::bbox(root, {wire_id});
+    ASSERT_TRUE(box.has_value()) << box.error();
+    EXPECT_EQ(box->ll.x, -10); // the 20-wide path's half width
+    EXPECT_EQ(box->ur.x, 105);
+    EXPECT_EQ(box->ur.y, 100);
+
+    const ShapeId over = free_rect(m1, Rect{.ll = {40, 0}, .ur = {60, 10}});
+    const shape_ops::Result overlap = shape_ops::boolean(root, {wire_id}, {over}, BooleanOp::And, std::nullopt, layout_id);
+    ASSERT_TRUE(overlap.has_value()) << overlap.error();
+    ASSERT_EQ(overlap->size(), 1u);
+    const std::optional<Rect> overlap_box = Geometry::bbox(*root.get_shape(overlap->front()));
+    ASSERT_TRUE(overlap_box.has_value());
+    EXPECT_EQ(overlap_box->ll.x, 40);
+    EXPECT_EQ(overlap_box->ur.x, 60);
+    EXPECT_EQ(overlap_box->ll.y, 0);
+    EXPECT_EQ(overlap_box->ur.y, 10);
+}
+
+TEST_F(WireShapeOps, ChangingAWiresLayerKeepsEveryPathsWidth)
+{
+    const auto changed = shape_ops::change_layer(root, {wire_id}, shape_ops::LayerOrPurpose{.layer = m2});
+    ASSERT_TRUE(changed.has_value()) << changed.error();
+    ASSERT_EQ(changed->wires.size(), 1u);
+    const WireData &wire = *root.get_wire(wire_id);
+    EXPECT_EQ(wire.layer, m2);
+    const ShapeData shape = wire_to_shape(root, wire);
+    ASSERT_EQ(shape.paths.size(), 2u);
+    EXPECT_EQ(shape.paths[0].width, 10); // no longer the layer's default
+    EXPECT_EQ(shape.paths[1].width, 20); // now the layer's default
+    EXPECT_EQ(wire.segments[1].width_index, 0);
+}
+
+TEST_F(WireShapeOps, AWireCantMoveOntoAPurpose)
+{
+    const ShapeId shape = free_rect(m1, Rect{.ll = {0, 0}, .ur = {10, 10}});
+    const auto changed = shape_ops::change_layer(root, {shape, wire_id}, shape_ops::LayerOrPurpose{.purpose = ShapePurpose::DEBUG});
+    EXPECT_FALSE(changed.has_value());
+    EXPECT_EQ(root.get_shape(shape)->layer, m1); // all or nothing
+    EXPECT_EQ(root.get_wire(wire_id)->layer, m1);
 }

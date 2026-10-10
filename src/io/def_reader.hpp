@@ -4,7 +4,9 @@
 #include <memory>
 #include "../lefdef/def/include/defrReader.hpp"
 #include "../database/database.hpp"
+#include "../database/wire_helpers.hpp"
 #include "spdlog/spdlog.h"
+#include <unordered_map>
 
 namespace le
 {
@@ -84,6 +86,8 @@ namespace le
         // 1.0 (i.e. a no-op) whenever this DEF's own units already match -
         // the overwhelmingly common case.
         double unit_scale_ = 1.0;
+        // Routed vias by name, resolved once per read (VIAS precedes NETS).
+        std::unordered_map<std::string, WireViaTarget> wire_vias_;
         std::vector<std::string> messages_;
     };
 }

@@ -1,6 +1,7 @@
 #include "def_writer.hpp"
 #include "../lefdef/def/include/defwWriter.hpp"
 #include "../geometry/geometry.hpp"
+#include "../database/wire_helpers.hpp"
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <memory>
@@ -699,12 +700,11 @@ namespace le
         return defwEndBlockages();
     }
 
-    int DEFWriter::write_net_path(const std::vector<ShapeId> &shape_ids, const Root &root, bool is_special)
+    int DEFWriter::write_net_path(const Root &root, RouteId route_id, bool is_special)
     {
-        // One ROUTED ... block covers the whole net - each (Shape, Path)
-        // pair (Shape already grouped by layer, one or more Path segments
-        // per layer - see DEFReader::append_shapes_from_path's own
-        // grouping) is its own LAYER occurrence, DEF's own NEW-equivalent.
+        // One ROUTED ... block covers the whole net - each path of each
+        // per-layer Wire or Shape is its own LAYER occurrence, DEF's own
+        // NEW-equivalent.
         // Unlike LEF's own LAYER-repetition-within-one-OBS, DEF's writer
         // state machine requires a fresh *PathStart("NEW") before every
         // occurrence after the first - *PathLayer only accepts state
@@ -719,11 +719,20 @@ namespace le
         bool started = false;
         int status = 0;
 
-        for (ShapeId shape_id : shape_ids)
+        // A Wire is written as the general Shape it converts to.
+        std::vector<ShapeData> wire_shapes;
+        for (WireId wire_id : root.get_route_wires(route_id))
+            if (const WireData *wire = root.get_wire(wire_id))
+                wire_shapes.push_back(wire_to_shape(root, *wire));
+        std::vector<const ShapeData *> shapes;
+        for (const ShapeData &shape : wire_shapes)
+            shapes.push_back(&shape);
+        for (ShapeId shape_id : root.get_route_shapes(route_id))
+            if (const ShapeData *shape = root.get_shape(shape_id))
+                shapes.push_back(shape);
+
+        for (const ShapeData *shape : shapes)
         {
-            const ShapeData *shape = root.get_shape(shape_id);
-            if (!shape)
-                continue;
             const LayerData *layer = root.get_layer(shape->layer);
             const std::string layer_name = layer ? layer->name : std::string{};
 
@@ -778,7 +787,7 @@ namespace le
             // not share one segment: DEF treats every *consecutive* point
             // within one path/NEW segment as wire-connected, so several
             // unrelated vias (merged into this one Shape only because they
-            // sit on the same layer - see DEFReader::append_shapes_from_path)
+            // sit on the same layer)
             // would gain phantom, usually diagonal, wires between their
             // origins.
             //
@@ -932,9 +941,11 @@ namespace le
                     // comment on the deferred per-layer form) - written
                     // against the net's first routed layer as the closest
                     // available approximation.
+                    const auto &wire_ids = root.get_route_wires(route_id);
                     const auto &shape_ids = root.get_route_shapes(route_id);
+                    const WireData *first_wire = wire_ids.empty() ? nullptr : root.get_wire(wire_ids.front());
                     const ShapeData *first_shape = shape_ids.empty() ? nullptr : root.get_shape(shape_ids.front());
-                    const LayerData *layer = first_shape ? root.get_layer(first_shape->layer) : nullptr;
+                    const LayerData *layer = root.get_layer(first_wire ? first_wire->layer : first_shape ? first_shape->layer : LayerId{});
                     if (layer)
                     {
                         status = defwSpecialNetWidth(layer->name.c_str(), static_cast<int>(*route->width));
@@ -949,13 +960,9 @@ namespace le
                         return status;
                 }
 
-                const auto &shape_ids = root.get_route_shapes(route_id);
-                if (!shape_ids.empty())
-                {
-                    status = write_net_path(shape_ids, root, true);
-                    if (status)
-                        return status;
-                }
+                status = write_net_path(root, route_id, true);
+                if (status)
+                    return status;
 
                 status = defwSpecialNetEndOneNet();
                 if (status)
@@ -984,13 +991,9 @@ namespace le
                         return status;
                 }
 
-                const auto &shape_ids = root.get_route_shapes(route_id);
-                if (!shape_ids.empty())
-                {
-                    status = write_net_path(shape_ids, root, false);
-                    if (status)
-                        return status;
-                }
+                status = write_net_path(root, route_id, false);
+                if (status)
+                    return status;
 
                 status = defwNetEndOneNet();
                 if (status)

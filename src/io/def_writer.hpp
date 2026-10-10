@@ -68,16 +68,14 @@ namespace le
         // rect/polygon geometry, mirroring LEFWriter::write_via_layers'
         // own shape (minus the dbu_per_micron conversion - see above).
         static int write_via_layers(const std::vector<ViaLayerData> &layers);
-        // Shared by write_routes (regular/special net paths) - walks one
-        // Route's Shapes (each already grouped by layer, with one or more
-        // Path segments per DEFReader::append_shapes_from_path's own
-        // grouping) into a single ROUTED ... (each Shape/Path becoming
-        // its own LAYER occurrence, DEF's own NEW-equivalent) block.
+        // Shared by write_routes (regular/special net paths) - writes one
+        // Route's Wires, then its other Shapes, as a single ROUTED ...
+        // block, each path and via its own LAYER occurrence (DEF's NEW).
         // DEF's writer API has two entirely separate, same-shaped
         // function families for this - defwNetPath*/defwSpecialNetPath* -
         // not one shared family the way defwBlockage*/defwPin* are
         // reused across kinds elsewhere; is_special picks which.
-        static int write_net_path(const std::vector<ShapeId> &shape_ids, const Root &root, bool is_special);
+        static int write_net_path(const Root &root, RouteId route_id, bool is_special);
 
         std::vector<std::string> messages_;
     };

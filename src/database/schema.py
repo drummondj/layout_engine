@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.51.0",
+    version="0.52.0",
     classes=[
         Klass(
             name="Technology",
@@ -2839,7 +2839,48 @@ schema = Schema(
                 Field(name="width", description="Routing width override, in database units (DEF SPECIALNETS WIDTH) - SPECIALNETS only", type="dbu", is_optional=True),
                 Field(name="voltage", description="Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only", type="double", is_optional=True),
                 Field(name="use", description="SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE)", type="str", example="POWER", is_optional=True),
-                Field(name="shapes", description="Routed geometry (DEF NETS/SPECIALNETS ROUTED/NEW)", type="Shape", is_list=True, is_child=True),
+                Field(name="wires", description="Routed wiring and vias, one Wire per layer (DEF NETS/SPECIALNETS ROUTED/NEW)", type="Wire", is_list=True, is_child=True),
+                Field(name="shapes", description="Routed geometry a Wire can't hold: non-Manhattan or out-of-range segments, via arrays, and vias that don't name a known via", type="Shape", is_list=True, is_child=True),
+            ],
+        ),
+        Klass(
+            name="Wire",
+            description="A route's wiring and vias on one layer, in a compact form: Manhattan segments and references to defined vias.",
+            compact_lists=True,
+            fields=[
+                Field(name="route", description="Parent route", type="Route", parent="wires"),
+                Field(name="layer", description="The routing layer, as a layer:<name> token", type="Layer"),
+                Field(name="segments", description="Wire segments, in path order: a segment that continues the one before it shares that segment's end point", type="WireSegment", is_list=True, create_excluded=True),
+                Field(name="vias", description="Vias placed on this layer's paths", type="WireVia", is_list=True, create_excluded=True),
+                Field(name="widths", description="Widths other than the layer's default width, in database units - a segment or via with width index i > 0 has widths[i - 1]", type="dbu", is_list=True, create_excluded=True),
+            ],
+        ),
+        Klass(
+            name="WireSegment",
+            description="One Manhattan segment of a Wire.",
+            has_pool=False,
+            fields=[
+                Field(name="x", description="Start x, in database units", type="dbu32"),
+                Field(name="y", description="Start y, in database units", type="dbu32"),
+                Field(name="length", description="Signed length along the segment's axis, in database units - the end is (x + length, y), or (x, y + length) when vertical", type="dbu32"),
+                Field(name="vertical", description="Whether the segment runs along y", type="bool", example=False),
+                Field(name="continues", description="Whether the segment continues the path of the segment before it", type="bool", example=False),
+                Field(name="width_index", description="0 for the layer's default width, else i for the Wire's widths[i - 1]", type="unsigned char", example=0),
+                Field(name="mask", description="MASK color (DEF 5.8), 0 for none", type="unsigned char", example=0),
+            ],
+        ),
+        Klass(
+            name="WireVia",
+            description="One via placed on a Wire: a reference to a defined via at an origin.",
+            has_pool=False,
+            fields=[
+                Field(name="via", description="The technology via placed, unless layout_via is set", type="Via"),
+                Field(name="layout_via", description="The design's own via (DEF VIAS) placed, when the name resolves to one", type="LayoutVia"),
+                Field(name="x", description="Origin x, in database units", type="dbu32"),
+                Field(name="y", description="Origin y, in database units", type="dbu32"),
+                Field(name="orientation", description="The via's orientation", type="Orientation"),
+                Field(name="width_index", description="The width of the path at this via: 0 for the layer's default width, else i for the Wire's widths[i - 1]", type="unsigned char", example=0),
+                Field(name="mask", description="MASK color (5.8) - a combined up-to-3-digit number: top*100 + cut*10 + bottom", type="unsigned short", example=0),
             ],
         ),
         Klass(

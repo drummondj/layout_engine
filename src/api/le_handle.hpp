@@ -7,6 +7,7 @@
 #include "placement_move.hpp"
 #include "shape_resize.hpp"
 #include "../database/database.hpp"
+#include "../database/wire_helpers.hpp"
 #include "../editing/editing.hpp"
 #include "../pipelines/view_render_pipeline.hpp"
 #include "../pipelines/view_style.hpp"
@@ -368,7 +369,9 @@ struct LeHandle
     // === Per-handle view/interaction state ===
     //
     /// @brief One selected piece - the exact rect/polygon/path that was clicked/
-    /// dragged to select it, identified by its owning Shape's id plus
+    /// dragged to select it, identified by its owning Shape's id (or, for
+    /// routed wiring, its Wire's - exactly one is valid; a Wire's pieces
+    /// are those of the Shape it converts to, le::wire_to_shape) plus
     /// which entry of that Shape's own rects/polygons/paths it is
     /// (`piece_kind`/`piece_index` - see Geometry::HitPiece, which
     /// LeHandle::select()'s callers build these from). The Property
@@ -389,8 +392,12 @@ struct LeHandle
     struct ShapePiece
     {
         le::ShapeId shape_id;
+        le::WireId wire_id;
         le::PieceKind piece_kind = le::PieceKind::RECT;
         size_t piece_index = 0;
+
+        /// @brief The Shape or Wire this is a piece of.
+        le::GeometryId owner() const { return wire_id.valid() ? le::GeometryId::of(wire_id) : le::GeometryId::of(shape_id); }
 
         friend auto operator<=>(const ShapePiece &, const ShapePiece &) = default;
     };
@@ -1541,6 +1548,10 @@ struct LeHandle
         {
             select_object(SelectedObject{ShapePiece{.shape_id = shape_id, .piece_kind = piece_kind, .piece_index = piece_index}});
         }
+        void select(le::WireId wire_id, le::PieceKind piece_kind, size_t piece_index)
+        {
+            select_object(SelectedObject{ShapePiece{.wire_id = wire_id, .piece_kind = piece_kind, .piece_index = piece_index}});
+        }
 
         // Whole-object selection for a kind with no piece concept
         // (no backing Shape to address a rect/polygon/path within - see
@@ -1558,6 +1569,7 @@ struct LeHandle
         {
             deselect_object(SelectedObject{ShapePiece{.shape_id = shape_id, .piece_kind = piece_kind, .piece_index = piece_index}});
         }
+        void deselect(const ShapePiece &piece) { deselect_object(SelectedObject{piece}); }
         void deselect(le::RowId row_id) { deselect_object(SelectedObject{row_id}); }
         void deselect(le::PlacementId placement_id) { deselect_object(SelectedObject{placement_id}); }
         void deselect(le::RegionId region_id) { deselect_object(SelectedObject{region_id}); }

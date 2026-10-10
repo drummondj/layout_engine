@@ -351,15 +351,15 @@ int main(int argc, char **argv)
                 best = d;
                 placement = id;
             }
-    ShapeId route_shape;
+    WireId route_wire;
     best = INT64_MAX;
     for (const RouteId route : root.get_layout_routes(fixture.layout_id))
-        for (const ShapeId id : root.get_route_shapes(route))
-            if (const std::optional<Rect> box = Geometry::bbox(*root.get_shape(id)))
+        for (const WireId id : root.get_route_wires(route))
+            if (const std::optional<Rect> box = Geometry::bbox(wire_to_shape(root, *root.get_wire(id))))
                 if (const int64_t d = distance(*box); d < best)
                 {
                     best = d;
-                    route_shape = id;
+                    route_wire = id;
                 }
 
     auto profile_edit = [&](const std::string &name, auto &&apply_edit)
@@ -415,13 +415,13 @@ int main(int argc, char **argv)
         root.update_placement(placement, fixture.layout_id, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, to,
                               std::nullopt, std::nullopt, std::nullopt); });
 
-    // Rewrite one route shape's geometry (unchanged values - the resolver
+    // Rewrite one route Wire's geometry (unchanged values - the resolver
     // can't tell, so the cost is that of a real edit).
-    profile_edit("route_shape", [&](int)
+    profile_edit("route_wire", [&](int)
                  {
-        const ShapeData current = *root.get_shape(route_shape);
-        root.update_shape(route_shape, std::nullopt, std::nullopt, current.paths, current.polygons, current.rects, std::nullopt,
-                          std::nullopt, std::nullopt); });
+        WireData &current = *root.get_wire(route_wire);
+        current.segments = CompactVector<WireSegment>(current.segments);
+        root.note_wire_changed(route_wire); });
 
     report("rss_peak_mb", peak_rss_mb());
     return 0;

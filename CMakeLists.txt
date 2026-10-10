@@ -914,6 +914,7 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/many_routing_layers.lef
             ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/testcell.lef
             ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/testcell.def
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/wires.def
     )
 
     # Regression check for the SystemVerilog/Verilog TCL wiring
@@ -1244,6 +1245,7 @@ add_executable(backend_tests
     src/api/tests/selection_test.cpp
     src/api/tests/power_grid_port_markers_test.cpp
     src/api/tests/delete_pieces_test.cpp
+    src/api/tests/wire_edit_test.cpp
     src/api/tests/mutation_cascade_test.cpp
     src/api/tests/placement_move_test.cpp
     src/core/tests/flightlines_test.cpp

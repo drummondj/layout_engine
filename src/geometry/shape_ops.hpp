@@ -1,12 +1,14 @@
 #pragma once
 
-// Business logic for the shape_* TCL commands: resolves input Shapes,
-// runs the matching Geometry operation,
+// Business logic for the shape_* TCL commands: resolves input Shapes and
+// Wires (a Wire read as the Shape it converts to), runs the matching
+// Geometry operation,
 // and persists each result as a new Shape. Takes a plain Root& and no
 // locks - le::edit's shape ops (api/edit_ops.cpp) call this under the
 // handle's lock and do the mutation-version bump and undo recording.
 
 #include "geometry.hpp"
+#include "../database/wire_helpers.hpp"
 
 #include <expected>
 #include <string>
@@ -53,15 +55,16 @@ namespace le::shape_ops
         // Every input id resolved and its iterates expanded (Geometry's
         // operations only read rects/polygons/paths), or the first bad id's
         // error.
-        inline std::expected<std::vector<ShapeData>, std::string> resolve_inputs(const Root &root, const std::vector<ShapeId> &ids, const char *what)
+        inline std::expected<std::vector<ShapeData>, std::string> resolve_inputs(const Root &root, const std::vector<GeometryId> &ids, const char *what)
         {
             if (ids.empty())
                 return std::unexpected(std::string("no ") + what + " given");
             std::vector<ShapeData> shapes;
             shapes.reserve(ids.size());
-            for (ShapeId id : ids)
+            ShapeData scratch;
+            for (GeometryId id : ids)
             {
-                const ShapeData *shape = root.get_shape(id);
+                const ShapeData *shape = geometry_shape(root, id, scratch);
                 if (!shape)
                     return std::unexpected(std::string("unknown shape in ") + what);
                 shapes.push_back(Geometry::expand_iterates(*shape));
@@ -111,7 +114,7 @@ namespace le::shape_ops
         // new Shape per input, on that input's own layer unless overridden,
         // skipping any input whose result has no geometry at all.
         template <typename MakeData>
-        Result per_input(Root &root, const std::vector<ShapeId> &inputs, const std::optional<LayerOrPurpose> &layer, const ShapeParent &parent, MakeData &&make_data)
+        Result per_input(Root &root, const std::vector<GeometryId> &inputs, const std::optional<LayerOrPurpose> &layer, const ShapeParent &parent, MakeData &&make_data)
         {
             if (auto ok = check_common(root, parent, layer); !ok)
                 return std::unexpected(ok.error());
@@ -142,7 +145,7 @@ namespace le::shape_ops
 
     /// @brief shape_copy: one new Shape per input, same geometry, on `layer`
     /// (a real Layer, or a layer-less purpose such as DEBUG).
-    inline Result copy(Root &root, const std::vector<ShapeId> &inputs, LayerOrPurpose layer, const ShapeParent &parent)
+    inline Result copy(Root &root, const std::vector<GeometryId> &inputs, LayerOrPurpose layer, const ShapeParent &parent)
     {
         return detail::per_input(root, inputs, layer, parent, [](const ShapeData &shape) -> std::expected<ShapeData, std::string>
                                  { return ShapeData{
@@ -158,7 +161,7 @@ namespace le::shape_ops
     /// @brief shape_or/and/not: one new Shape holding the combination of
     /// every shape in `a` with every shape in `b` - on `layer`, else the
     /// first shape in `a`'s own layer. An empty result creates nothing.
-    inline Result boolean(Root &root, const std::vector<ShapeId> &a, const std::vector<ShapeId> &b, BooleanOp op,
+    inline Result boolean(Root &root, const std::vector<GeometryId> &a, const std::vector<GeometryId> &b, BooleanOp op,
                           const std::optional<LayerOrPurpose> &layer, const ShapeParent &parent)
     {
         if (auto ok = detail::check_common(root, parent, layer); !ok)
@@ -178,14 +181,14 @@ namespace le::shape_ops
     }
 
     /// @brief shape_to_polygon: one new polygon-only Shape per input.
-    inline Result to_polygons(Root &root, const std::vector<ShapeId> &inputs, const std::optional<LayerOrPurpose> &layer, const ShapeParent &parent)
+    inline Result to_polygons(Root &root, const std::vector<GeometryId> &inputs, const std::optional<LayerOrPurpose> &layer, const ShapeParent &parent)
     {
         return detail::per_input(root, inputs, layer, parent, [](const ShapeData &shape) -> std::expected<ShapeData, std::string>
                                  { return ShapeData{.polygons = Geometry::shape_to_polygons(shape)}; });
     }
 
     /// @brief shape_to_rects: one new rect-only Shape per input.
-    inline Result to_rects(Root &root, const std::vector<ShapeId> &inputs, FractureDirection direction,
+    inline Result to_rects(Root &root, const std::vector<GeometryId> &inputs, FractureDirection direction,
                            const std::optional<LayerOrPurpose> &layer, const ShapeParent &parent)
     {
         return detail::per_input(root, inputs, layer, parent, [direction](const ShapeData &shape) -> std::expected<ShapeData, std::string>
@@ -195,7 +198,7 @@ namespace le::shape_ops
     /// @brief shape_size: one new Shape per input, grown (positive) or
     /// shrunk (negative) by dx/dy dbu. A shape shrunk away entirely
     /// creates nothing.
-    inline Result size(Root &root, const std::vector<ShapeId> &inputs, int64_t dx, int64_t dy,
+    inline Result size(Root &root, const std::vector<GeometryId> &inputs, int64_t dx, int64_t dy,
                        const std::optional<LayerOrPurpose> &layer, const ShapeParent &parent)
     {
         return detail::per_input(root, inputs, layer, parent, [dx, dy](const ShapeData &shape) -> std::expected<ShapeData, std::string>
@@ -208,7 +211,7 @@ namespace le::shape_ops
 
     /// @brief shape_path: one new path-only Shape per input, following its
     /// outline (and any holes) at `width` dbu.
-    inline Result outline_paths(Root &root, const std::vector<ShapeId> &inputs, int64_t width,
+    inline Result outline_paths(Root &root, const std::vector<GeometryId> &inputs, int64_t width,
                                 const std::optional<LayerOrPurpose> &layer, const ShapeParent &parent)
     {
         if (width <= 0)
@@ -225,6 +228,21 @@ namespace le::shape_ops
         LayerOrPurpose after;
     };
 
+    /// @brief One changed Wire before and after, for undo - its widths are
+    /// re-indexed against the new layer's default.
+    struct WireLayerChange
+    {
+        WireId id;
+        WireData before;
+        WireData after;
+    };
+
+    struct LayerChanges
+    {
+        std::vector<LayerChange> shapes;
+        std::vector<WireLayerChange> wires;
+    };
+
     /// @brief Sets `shape`'s layer and purpose to exactly `target` (clearing
     /// whichever one `target` doesn't set). Written directly rather than via
     /// Root::update_shape: its optional<ShapePurpose> can set a purpose but
@@ -237,34 +255,58 @@ namespace le::shape_ops
     }
 
     /// @brief shape_change_layer: puts each input in place onto `target` (a real
-    /// Layer, or a layer-less purpose such as DEBUG); geometry and owner
-    /// are unchanged. All-or-nothing: an unknown input changes nothing.
-    inline std::expected<std::vector<LayerChange>, std::string> change_layer(Root &root, const std::vector<ShapeId> &inputs, const LayerOrPurpose &target)
+    /// Layer, or a layer-less purpose such as DEBUG - not for a Wire, which
+    /// needs a layer); geometry and owner are unchanged. All-or-nothing: an
+    /// unknown input changes nothing.
+    inline std::expected<LayerChanges, std::string> change_layer(Root &root, const std::vector<GeometryId> &inputs, const LayerOrPurpose &target)
     {
         if (auto ok = detail::check_target(root, target); !ok)
             return std::unexpected(ok.error());
         if (inputs.empty())
             return std::unexpected("no shapes given");
-        for (ShapeId id : inputs)
-            if (!root.get_shape(id))
-                return std::unexpected("unknown shape in shapes");
-
-        std::vector<LayerChange> changed;
-        changed.reserve(inputs.size());
-        for (ShapeId id : inputs)
+        // Every Wire's new form, worked out before anything changes.
+        std::vector<std::pair<WireId, WireData>> wires;
+        for (GeometryId id : inputs)
         {
-            ShapeData &shape = *root.get_shape(id);
-            LayerChange entry{.id = id, .before = LayerOrPurpose{.layer = shape.layer, .purpose = shape.purpose}};
-            set_layer_or_purpose(shape, target);
-            root.note_shape_changed(id);
-            entry.after = LayerOrPurpose{.layer = shape.layer, .purpose = shape.purpose};
-            changed.push_back(entry);
+            if (const WireData *wire = root.get_wire(id.wire))
+            {
+                if (!target.layer.valid())
+                    return std::unexpected("a wire can only move to another layer");
+                ShapeData moved = wire_to_shape(root, *wire);
+                moved.layer = target.layer;
+                std::optional<WireData> after = shape_to_wire(root, moved, wire->route);
+                if (!after)
+                    return std::unexpected("a wire's widths don't fit it on that layer");
+                wires.emplace_back(id.wire, std::move(*after));
+            }
+            else if (!root.get_shape(id.shape))
+                return std::unexpected("unknown shape in shapes");
+        }
+
+        LayerChanges changed;
+        for (GeometryId id : inputs)
+        {
+            ShapeData *shape = root.get_shape(id.shape);
+            if (!shape)
+                continue;
+            LayerChange entry{.id = id.shape, .before = LayerOrPurpose{.layer = shape->layer, .purpose = shape->purpose}};
+            set_layer_or_purpose(*shape, target);
+            root.note_shape_changed(id.shape);
+            entry.after = LayerOrPurpose{.layer = shape->layer, .purpose = shape->purpose};
+            changed.shapes.push_back(entry);
+        }
+        for (auto &[id, after] : wires)
+        {
+            WireData &wire = *root.get_wire(id);
+            changed.wires.push_back(WireLayerChange{.id = id, .before = wire, .after = after});
+            wire = std::move(after);
+            root.note_wire_changed(id);
         }
         return changed;
     }
 
     /// @brief shape_bbox: the bbox of every input shape together. Creates nothing.
-    inline std::expected<Rect, std::string> bbox(const Root &root, const std::vector<ShapeId> &inputs)
+    inline std::expected<Rect, std::string> bbox(const Root &root, const std::vector<GeometryId> &inputs)
     {
         auto shapes = detail::resolve_inputs(root, inputs, "shapes");
         if (!shapes)

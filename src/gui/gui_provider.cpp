@@ -266,6 +266,12 @@ namespace le::gui
         case LE_OBJECT_KIND_ROUTE:
         {
             const LeRouteId route_id = ref_to_id<LeRouteId>(ref);
+            const int32_t wire_count = le_route_wires_count(handle_, route_id);
+            for (int32_t i = 0; i < wire_count; ++i)
+            {
+                const LeWireId id = le_route_wires_at(handle_, route_id, i);
+                children.push_back(make_ref(LE_OBJECT_KIND_WIRE, id.index, id.generation));
+            }
             const int32_t count = le_route_shapes_count(handle_, route_id);
             for (int32_t i = 0; i < count; ++i)
             {

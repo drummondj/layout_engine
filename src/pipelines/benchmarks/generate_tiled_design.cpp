@@ -1,6 +1,7 @@
 #include "../../io/def_reader.hpp"
 #include "../../io/def_writer.hpp"
 #include "../../io/lef_reader.hpp"
+#include "../../database/wire_helpers.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -246,6 +247,28 @@ int main(int argc, char **argv)
                 const RouteId new_route_id = root.create_route(route_copy);
                 total_routes++;
 
+                // A Wire copy, unless the shift takes it out of a Wire's
+                // 32-bit range - then the general Shape it converts to.
+                std::vector<ShapeData> shapes;
+                for (const WireId wire_id : root.get_route_wires(id))
+                {
+                    const WireData *src_wire = root.get_wire(wire_id);
+                    if (!src_wire)
+                        continue;
+                    ShapeData shifted = wire_to_shape(root, *src_wire);
+                    for (Path &path : shifted.paths)
+                        path.polygon = translate(path.polygon, dx, dy);
+                    for (ShapeVia &via : shifted.vias)
+                        via.origin = translate(via.origin, dx, dy);
+                    if (std::optional<WireData> wire_copy = shape_to_wire(root, shifted, new_route_id))
+                        root.create_wire(std::move(*wire_copy));
+                    else
+                    {
+                        shifted.owner = le::ShapeOwner::route(new_route_id);
+                        root.create_shape(std::move(shifted));
+                    }
+                    total_shapes++;
+                }
                 for (const ShapeId shape_id : root.get_route_shapes(id))
                 {
                     const ShapeData *src_shape = root.get_shape(shape_id);

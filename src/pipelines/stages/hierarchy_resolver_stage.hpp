@@ -3,6 +3,7 @@
 #include "../../geometry/placement_geometry.hpp"
 #include "../../geometry/row_geometry.hpp"
 #include "../../database/database.hpp"
+#include "../../database/wire_helpers.hpp"
 #include "../../geometry/geometry.hpp"
 #include "../view_style.hpp"
 #include "../draw_helpers.hpp"
@@ -241,14 +242,15 @@ namespace le
     /// @brief Which database object each of a chunk's RenderShapes came
     /// from - so click selection (api.cpp) can find the objects under the
     /// mouse by querying the render tree instead of scanning the design.
-    /// `shapes[layer][i]` is the Shape behind `chunk.shapes->at(layer)[i]`
-    /// (a via's owning Shape for its synthesized geometry; invalid for one
-    /// with none, a port marker); `placements[i]` the Placement behind rect
-    /// `i` of the chunk's batched PLACEMENT shape. Only chunks with
-    /// selectable content carry sources: route tiles, PORTS, placement tiles.
+    /// `shapes[layer][i]` is the Shape or Wire behind
+    /// `chunk.shapes->at(layer)[i]` (a via's owning Shape or Wire for its
+    /// synthesized geometry; invalid for one with none, a port marker);
+    /// `placements[i]` the Placement behind rect `i` of the chunk's batched
+    /// PLACEMENT shape. Only chunks with selectable content carry sources:
+    /// route tiles, PORTS, placement tiles.
     struct ChunkSources
     {
-        std::unordered_map<ViewLayerId, std::vector<ShapeId>> shapes;
+        std::unordered_map<ViewLayerId, std::vector<GeometryId>> shapes;
         std::vector<PlacementId> placements;
     };
     using ChunkSourcesHandle = std::shared_ptr<const ChunkSources>;
@@ -831,9 +833,22 @@ namespace le
             return std::nullopt;
         }
 
-        // A route's tile anchor: the center of its first shape with geometry.
+        // A route's tile anchor: the center of its first Wire's first
+        // segment or via, else of its first shape with geometry.
         static std::optional<Point> route_anchor(const Root &root, RouteId route)
         {
+            for (const WireId wire_id : root.get_route_wires(route))
+                if (const WireData *wire = root.get_wire(wire_id))
+                {
+                    if (!wire->segments.empty())
+                    {
+                        const Point start = wire_segment_start(wire->segments.front());
+                        const Point end = wire_segment_end(wire->segments.front());
+                        return Point{.x = start.x + (end.x - start.x) / 2, .y = start.y + (end.y - start.y) / 2};
+                    }
+                    if (!wire->vias.empty())
+                        return Point{.x = wire->vias.front().x, .y = wire->vias.front().y};
+                }
             for (const ShapeId shape_id : root.get_route_shapes(route))
                 if (const ShapeData *shape = root.get_shape(shape_id))
                     if (const std::optional<Rect> box = Geometry::bbox(*shape))
@@ -879,16 +894,16 @@ namespace le
         // push by push measured 28% of a cold resolve at aes_scaling_8x8.
         struct SourceRecorder
         {
-            std::vector<std::pair<ViewLayerId, ShapeId>> pushes;
+            std::vector<std::pair<ViewLayerId, GeometryId>> pushes;
 
-            void record(ViewLayerId view_layer, ShapeId shape_id) { pushes.emplace_back(view_layer, shape_id); }
+            void record(ViewLayerId view_layer, GeometryId source) { pushes.emplace_back(view_layer, source); }
 
             void finish(ChunkSources &sources, const ViewLayerShapes &shapes_by_layer) const
             {
                 for (const auto &[view_layer, shapes] : shapes_by_layer)
                     sources.shapes[view_layer].reserve(shapes.size());
-                for (const auto &[view_layer, shape_id] : pushes)
-                    sources.shapes[view_layer].push_back(shape_id);
+                for (const auto &[view_layer, source] : pushes)
+                    sources.shapes[view_layer].push_back(source);
             }
         };
 
@@ -904,16 +919,32 @@ namespace le
                 const RouteData *route = root.get_route(route_id);
                 if (!route || route->layout != layout_id)
                     continue;
+                for (const WireId wire_id : root.get_route_wires(route_id))
+                {
+                    const WireData *wire = root.get_wire(wire_id);
+                    if (!wire)
+                        continue;
+                    append_wire_via_shapes(root, *wire, ViewLayerPurpose::ROUTE, view_layers, shapes_by_layer, [&](ViewLayerId view_layer)
+                                           { recorder.record(view_layer, GeometryId::of(wire_id)); });
+                    if (wire->segments.empty())
+                        continue;
+                    RenderShape wiring;
+                    for_each_wire_path(*wire, [&](std::size_t first, std::size_t last)
+                                       { wiring.paths.push_back(wire_path(root, *wire, first, last)); });
+                    const ViewLayerId view_layer = view_layers.find(wire->layer, ViewLayerPurpose::ROUTE);
+                    shapes_by_layer[view_layer].push_back(std::move(wiring));
+                    recorder.record(view_layer, GeometryId::of(wire_id));
+                }
                 for (const ShapeId shape_id : root.get_route_shapes(route_id))
                 {
                     const ShapeData *shape = root.get_shape(shape_id);
                     if (!shape)
                         continue;
                     append_via_shapes(root, *shape, ViewLayerPurpose::ROUTE, view_layers, layout_id, shapes_by_layer, [&](ViewLayerId view_layer)
-                                      { recorder.record(view_layer, shape_id); });
+                                      { recorder.record(view_layer, GeometryId::of(shape_id)); });
                     const ViewLayerId view_layer = resolve_view_layer(view_layers, *shape, ViewLayerPurpose::ROUTE);
                     shapes_by_layer[view_layer].push_back(to_render_shape(*shape));
-                    recorder.record(view_layer, shape_id);
+                    recorder.record(view_layer, GeometryId::of(shape_id));
                 }
             }
             recorder.finish(sources, shapes_by_layer);
@@ -1034,7 +1065,7 @@ namespace le
                             it->combined.paths.insert(it->combined.paths.end(), shape->paths.begin(), shape->paths.end());
                         }
                         layer_shapes.push_back(to_render_shape(*shape));
-                        sources.shapes[view_layer].push_back(shape_id);
+                        sources.shapes[view_layer].push_back(GeometryId::of(shape_id));
                     }
                 if constexpr (R::has_label)
                 {
@@ -1369,6 +1400,10 @@ namespace le
                 }
                 case ChangeKlass::Route:
                     mark_route(self(entry), ancestor(entry.parent, ChangeKlass::Layout));
+                    return;
+                case ChangeKlass::Wire:
+                    if (entry.parent.klass == ChangeKlass::Route)
+                        mark_route(entry.parent, ancestor(entry.parent, ChangeKlass::Layout));
                     return;
                 case ChangeKlass::Placement:
                     if (LayoutDirty *d = layout_dirty(ancestor(entry.parent, ChangeKlass::Layout)))
@@ -2050,7 +2085,7 @@ namespace le
             auto record = [&](ViewLayerId view_layer, ShapeId shape_id)
             {
                 if (sources)
-                    sources->shapes[view_layer].push_back(shape_id);
+                    sources->shapes[view_layer].push_back(GeometryId::of(shape_id));
             };
             const std::optional<Rect> die = layout_die_area_bbox(root, layout_id);
             const ViewLayerId marker_view_layer = view_layers.port_marker_view_layer();

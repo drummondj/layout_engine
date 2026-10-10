@@ -306,6 +306,8 @@ namespace
         le::LayerId m2;
         le::LayoutId layout;
         std::vector<le::ShapeId> rects;
+
+        std::vector<le::GeometryId> inputs() const { return {rects.begin(), rects.end()}; }
     };
 
     ShapeScene add_shape_scene(le::ext::WriteView &view)
@@ -331,7 +333,7 @@ TEST(ViewShapeOps, BboxMatchesTheCApi)
     {
         le::ext::WriteView view = ctx.write();
         scene = add_shape_scene(view);
-        const auto box = view.shape_bbox(scene.rects);
+        const auto box = view.shape_bbox(scene.inputs());
         ASSERT_TRUE(box);
         EXPECT_EQ(box->ll.x, 0);
         EXPECT_EQ(box->ll.y, 0);
@@ -343,7 +345,10 @@ TEST(ViewShapeOps, BboxMatchesTheCApi)
     EXPECT_EQ(one->ur.x, 1000);
     EXPECT_EQ(one->ur.y, 2000);
 
-    const std::vector<LeShapeId> c_ids{le::ext::to_c(scene.rects[0]), le::ext::to_c(scene.rects[1])};
+    const std::vector<LeObjectRef> c_ids{
+        LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = scene.rects[0].index, .generation = scene.rects[0].generation},
+        LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = scene.rects[1].index, .generation = scene.rects[1].generation},
+    };
     const LeShapeBbox c_box = le_shape_bbox(handle, c_ids.data(), 2);
     ASSERT_EQ(c_box.valid, 1);
     EXPECT_DOUBLE_EQ(c_box.ur_x_um, 4.0);
@@ -368,7 +373,7 @@ TEST(ViewShapeOps, CreatingOpsReturnTheirIdsAndUndo)
     {
         le::ext::WriteView view = ctx.write("shape ops");
         // No parent: the open Layout's free shapes.
-        const auto copies = view.shape_copy(scene.rects, {.layer = scene.m2});
+        const auto copies = view.shape_copy(scene.inputs(), {.layer = scene.m2});
         ASSERT_TRUE(copies) << copies.error();
         ASSERT_EQ(copies->size(), 2u);
         EXPECT_EQ(view.root().get_shape(copies->front())->layer, scene.m2);

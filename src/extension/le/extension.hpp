@@ -7,6 +7,7 @@
 
 #include "api.hpp"
 #include "database.hpp"
+#include "database/wire_helpers.hpp"
 #include "generated/api/edit_types.hpp"
 #include "generated/api/id_conversions.hpp"
 #include "geometry/shape_op_types.hpp"
@@ -167,7 +168,7 @@ namespace le::ext
         /// @brief Only when valid().
         const Root &root() const { return *root_; }
         /// @brief Only when valid(): the bbox of `shapes` together, in dbu.
-        std::expected<Rect, std::string> shape_bbox(const std::vector<ShapeId> &shapes) const;
+        std::expected<Rect, std::string> shape_bbox(const std::vector<GeometryId> &shapes) const;
         /// @brief Only when valid(): micron conversion; an error if no Technology has been read.
         std::expected<Units, std::string> units() const;
         // Only when valid().
@@ -211,38 +212,40 @@ namespace le::ext
         /// its create() calls create_shape.
         ShapeBuilder build_shape(ShapeOwner owner);
 
-        // The shape operations, in dbu. New Shapes go to `parent`, else the
+        // The shape operations, in dbu, on Shapes or Wires (a Wire read as
+        // the Shape it converts to). New Shapes go to `parent`, else the
         // open view's Abstract/Layout; an unset `layer` keeps each input's own.
 
         /// @brief The bbox of `shapes` together.
-        std::expected<Rect, std::string> shape_bbox(const std::vector<ShapeId> &shapes) const;
+        std::expected<Rect, std::string> shape_bbox(const std::vector<GeometryId> &shapes) const;
         /// @brief One new Shape per input, same geometry, on `layer`.
-        ShapeOpResult shape_copy(const std::vector<ShapeId> &shapes, const shape_ops::LayerOrPurpose &layer,
+        ShapeOpResult shape_copy(const std::vector<GeometryId> &shapes, const shape_ops::LayerOrPurpose &layer,
                                  const std::optional<shape_ops::ShapeParent> &parent = std::nullopt);
         /// @brief One new Shape holding `op` of `a` against `b` (Not is a minus b), on a[0]'s layer unless `layer` is set.
-        ShapeOpResult shape_boolean(const std::vector<ShapeId> &a, const std::vector<ShapeId> &b, BooleanOp op,
+        ShapeOpResult shape_boolean(const std::vector<GeometryId> &a, const std::vector<GeometryId> &b, BooleanOp op,
                                     const std::optional<shape_ops::LayerOrPurpose> &layer = std::nullopt,
                                     const std::optional<shape_ops::ShapeParent> &parent = std::nullopt);
         /// @brief One new polygon-only Shape per input.
-        ShapeOpResult shape_to_polygons(const std::vector<ShapeId> &shapes, const std::optional<shape_ops::LayerOrPurpose> &layer = std::nullopt,
+        ShapeOpResult shape_to_polygons(const std::vector<GeometryId> &shapes, const std::optional<shape_ops::LayerOrPurpose> &layer = std::nullopt,
                                         const std::optional<shape_ops::ShapeParent> &parent = std::nullopt);
         /// @brief One new rect-only Shape per input, cut in `direction`.
-        ShapeOpResult shape_to_rects(const std::vector<ShapeId> &shapes, FractureDirection direction,
+        ShapeOpResult shape_to_rects(const std::vector<GeometryId> &shapes, FractureDirection direction,
                                      const std::optional<shape_ops::LayerOrPurpose> &layer = std::nullopt,
                                      const std::optional<shape_ops::ShapeParent> &parent = std::nullopt);
         /// @brief One new Shape per input, grown (positive) or shrunk (negative) by dx/dy.
-        ShapeOpResult shape_size(const std::vector<ShapeId> &shapes, int64_t dx, int64_t dy,
+        ShapeOpResult shape_size(const std::vector<GeometryId> &shapes, int64_t dx, int64_t dy,
                                  const std::optional<shape_ops::LayerOrPurpose> &layer = std::nullopt,
                                  const std::optional<shape_ops::ShapeParent> &parent = std::nullopt);
         /// @brief One new path-only Shape per input along its outline, `width` wide.
-        ShapeOpResult shape_outline_paths(const std::vector<ShapeId> &shapes, int64_t width,
+        ShapeOpResult shape_outline_paths(const std::vector<GeometryId> &shapes, int64_t width,
                                           const std::optional<shape_ops::LayerOrPurpose> &layer = std::nullopt,
                                           const std::optional<shape_ops::ShapeParent> &parent = std::nullopt);
         /// @brief Moves each shape in place onto `layer`; all or nothing.
-        std::expected<void, std::string> shape_change_layer(const std::vector<ShapeId> &shapes, const shape_ops::LayerOrPurpose &layer);
+        std::expected<void, std::string> shape_change_layer(const std::vector<GeometryId> &shapes, const shape_ops::LayerOrPurpose &layer);
         /// @brief Removes the rect, polygon or path (`kind`) at `index` from
-        /// `shape`, with its mask; later pieces' indexes shift down by one.
-        std::expected<void, std::string> remove_shape_piece(ShapeId shape, PieceKind kind, size_t index);
+        /// `shape` (a Wire has paths only), with its mask; later pieces'
+        /// indexes shift down by one.
+        std::expected<void, std::string> remove_shape_piece(GeometryId shape, PieceKind kind, size_t index);
 
     private:
         LeHandle *handle_;

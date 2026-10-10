@@ -165,6 +165,38 @@ Creates a GCellGrid and returns its token. GCellGrid: A global-routing gcell gri
 | `-count` | `int` | yes | Number of grid lines (DEF GCELLGRID DO ... n) |
 | `-step` | `um` | yes | Spacing between grid lines, in microns (DEF GCELLGRID STEP) |
 
+## create_hello_marker
+
+`create_hello_marker -layout <token> -name <str> [-help]`
+
+Creates a HelloMarker and returns its token. HelloMarker: A named marker in a layout, drawn by its shapes, from the hello_ext example extension
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-name` | `str` | yes | The marker's name |
+
+## create_hello_note
+
+`create_hello_note -library <token> -body <str> [-help]`
+
+Creates a HelloNote and returns its token. HelloNote: A note attached to a library, from the hello_ext example extension
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-library` | `token` | yes | Parent Library token |
+| `-body` | `str` | yes | The note's text |
+
+## create_hello_pin
+
+`create_hello_pin -layout <token> [-help]`
+
+Creates a HelloPin and returns its token. HelloPin: A pin in a layout, drawn by its shapes, from the hello_ext example extension - there can be many
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+
 ## create_influence_spacing_entry
 
 `create_influence_spacing_entry -layer <token> -width <um> -distance <um> -spacing <um> [-help]`
@@ -614,7 +646,7 @@ Creates a Schematic and returns its token. Schematic: A logical connectivity vie
 
 ## create_shape
 
-`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-in_abstract <token>] [-in_layout <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-help]`
+`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-in_abstract <token>] [-in_layout <token>] [-hello_pin <token>] [-hello_marker <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-help]`
 
 Creates a Shape and returns its token. Shape: A shape on a layer.
 
@@ -629,6 +661,8 @@ Creates a Shape and returns its token. Shape: A shape on a layer.
 | `-abstract` | `token` | no | Parent Abstract token - give exactly one of the parent flags |
 | `-in_abstract` | `token` | no | Parent Abstract token - give exactly one of the parent flags |
 | `-in_layout` | `token` | no | Parent Layout token - give exactly one of the parent flags |
+| `-hello_pin` | `token` | no | Parent HelloPin token - give exactly one of the parent flags |
+| `-hello_marker` | `token` | no | Parent HelloMarker token - give exactly one of the parent flags |
 | `-layer` | `token` | no | The physical layer this shape is on. Exactly one of layer and purpose is set - a shape with no physical layer (a diearea, an abstract boundary, a placement blockage) uses purpose instead. From TCL, a layer:<name> token; create_shape -layer debug means -purpose DEBUG. |
 | `-purpose` | `ShapePurpose` | no | What this shape is, when it isn't on a physical layer - a boundary, a placement blockage or debug geometry. Exactly one of layer and purpose is set. |
 | `-paths` | `Path...` | no | A list of paths |
@@ -873,6 +907,17 @@ Creates a ViaRuleReference and returns its token. ViaRuleReference: A VIA's own 
 | `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in microns (LEF VIARULE-inside-VIA OFFSET, bottom pair) - the enclosure rect is centered on the cut array if not given |
 | `-top_offset` | `Point` | no | Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair) |
 
+## create_wire
+
+`create_wire -route <token> -layer <token> [-help]`
+
+Creates a Wire and returns its token. Wire: A route's wiring and vias on one layer, in a compact form: Manhattan segments and references to defined vias.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-route` | `token` | yes | Parent Route token |
+| `-layer` | `token` | yes | The routing layer, as a layer:<name> token |
+
 ## current_abstract
 
 `current_abstract [<id>] [-help]`
@@ -1002,6 +1047,36 @@ Deletes a GCellGrid and everything it owns.
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the GCellGrid to delete |
+
+## delete_hello_marker
+
+`delete_hello_marker <id> [-help]`
+
+Deletes a HelloMarker and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the HelloMarker to delete |
+
+## delete_hello_note
+
+`delete_hello_note <id> [-help]`
+
+Deletes a HelloNote and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the HelloNote to delete |
+
+## delete_hello_pin
+
+`delete_hello_pin <id> [-help]`
+
+Deletes a HelloPin and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the HelloPin to delete |
 
 ## delete_influence_spacing_entry
 
@@ -1439,6 +1514,16 @@ Deletes a ViaRuleReference and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the ViaRuleReference to delete |
 
+## delete_wire
+
+`delete_wire <id> [-help]`
+
+Deletes a Wire and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Wire to delete |
+
 ## deselect_all
 
 `deselect_all [-help]`
@@ -1575,6 +1660,39 @@ Returns the minor grid spacing in microns, or the major one with -major; -1 if i
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-major` | `flag` | no | Return the major grid spacing instead |
+
+## get_hello_markers
+
+`get_hello_markers [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the HelloMarker objects matching the given names and filters, as tokens. HelloMarker: A named marker in a layout, drawn by its shapes, from the hello_ext example extension
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+## get_hello_notes
+
+`get_hello_notes [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the HelloNote objects matching the given names and filters, as tokens. HelloNote: A note attached to a library, from the hello_ext example extension
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+## get_hello_pins
+
+`get_hello_pins [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the HelloPin objects matching the given names and filters, as tokens. HelloPin: A pin in a layout, drawn by its shapes, from the hello_ext example extension - there can be many
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
 ## get_hierarchy_depth
 
@@ -1977,7 +2095,7 @@ Returns 1 if shapes of the purpose <purpose> can be selected, 0 otherwise.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker, helloPin, helloMarker |
 
 ## get_purpose_visible
 
@@ -1987,7 +2105,7 @@ Returns 1 if the purpose <purpose> is visible, 0 if it's hidden - see set_purpos
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker, helloPin, helloMarker |
 
 ## get_regions
 
@@ -2230,6 +2348,17 @@ Returns the Via objects matching the given names and filters, as tokens. Via: A 
 
 Returns how the design view is mirrored: none, horizontal or vertical.
 
+## get_wires
+
+`get_wires [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Wire objects matching the given names and filters, as tokens. Wire: A route's wiring and vias on one layer, in a compact form: Manhattan segments and references to defined vias.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
 ## history
 
 `history [-help]`
@@ -2340,11 +2469,11 @@ Redoes the last undone change. Returns 1 if something was redone, 0 otherwise.
 
 `remove_shape_path <id> <path_index> [-help]`
 
-Removes the path at <path_index> from a shape; later paths move down one index. Returns 0, or nonzero if the shape or index doesn't exist.
+Removes the path at <path_index> from a shape or wire; later paths move down one index. Returns 0, or nonzero if the shape or index doesn't exist.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | A shape: token |
+| `<id>` | `token` | yes | A shape: or wire: token |
 | `<path_index>` | `int` | yes | Path index, from 0 |
 
 ## remove_shape_polygon
@@ -2409,7 +2538,7 @@ Saves the settings - grid spacing, font sizes, flightline fanout limit, CPUs, sn
 
 `select <tokens> [-help]`
 
-Adds each token to the selection, keeping what's already selected (use deselect_all first to replace it). A shape: token selects all of that shape's rects, polygons and paths.
+Adds each token to the selection, keeping what's already selected (use deselect_all first to replace it). A shape: or wire: token selects all of its rects, polygons, paths and vias.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2569,18 +2698,18 @@ Sets whether shapes of one purpose - e.g. obstructions - can be selected, across
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker, helloPin, helloMarker |
 | `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
 
 ## set_purpose_visible
 
 `set_purpose_visible <purpose> <visible> [-help]`
 
-Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placement placementBlockage portMarker region route routingBlockage row terminal trackNonPreferred trackPreferred. Everything is visible by default except trackPreferred, trackNonPreferred, row, gcellgrid and flightline.
+Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: boundary customShape debug flightline gcellgrid helloMarker helloPin obstruction placement placementBlockage portMarker region route routingBlockage row terminal trackNonPreferred trackPreferred. Everything is visible by default except trackPreferred, trackNonPreferred, row, gcellgrid and flightline.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker, helloPin, helloMarker |
 | `<visible>` | `bool` | yes | true to show, false to hide |
 
 ## set_route_use_selectable
@@ -2668,7 +2797,7 @@ Returns the bounding box of every given shape together as a Rect, {{llx lly} {ur
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape tokens, or lists of them |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
 
 ## shape_change_layer
 
@@ -2678,7 +2807,7 @@ Puts each shape onto -layer in place (its geometry, position and owner are uncha
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape tokens, or lists of them (e.g. [get_selection]) |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them (e.g. [get_selection]) |
 | `-layer` | `token` | yes | The layer to move onto, or debug for the debug layer |
 
 ## shape_copy
@@ -2689,7 +2818,7 @@ Creates one new Shape per input shape, with the same geometry, on -layer. The or
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape tokens, or lists of them (e.g. [get_selection]) |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them (e.g. [get_selection]) |
 | `-layer` | `token` | yes | The layer to copy onto, or debug for the debug layer |
 | `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
 
@@ -2727,7 +2856,7 @@ Creates one new path-only Shape per input shape: a closed path of -width microns
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape tokens, or lists of them |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
 | `-width` | `um` | yes | Path width, in microns |
 | `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
 | `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
@@ -2770,7 +2899,7 @@ Creates one new Shape per input shape: its merged area grown (positive) or shrun
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape tokens, or lists of them |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
 | `-by` | `um` | no | Grow (positive) or shrink (negative) by this in both X and Y, in microns |
 | `-x` | `um` | no | Grow/shrink in X, in microns - overrides -by |
 | `-y` | `um` | no | Grow/shrink in Y, in microns - overrides -by |
@@ -2796,7 +2925,7 @@ Creates one new polygon-only Shape per input shape, covering its merged area. A 
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape tokens, or lists of them |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
 | `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
 | `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
 
@@ -2808,7 +2937,7 @@ Creates one new rect-only Shape per input shape, fracturing its merged area into
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape tokens, or lists of them |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
 | `-direction` | `str` | no | horizontal (default) or vertical fracturing |
 | `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
 | `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
@@ -2967,6 +3096,38 @@ Changes the given fields of a GCellGrid; omitted flags leave a field unchanged.
 | `-start` | `um` | no | Starting coordinate, in microns (DEF GCELLGRID DO start) |
 | `-count` | `int` | no | Number of grid lines (DEF GCELLGRID DO ... n) |
 | `-step` | `um` | no | Spacing between grid lines, in microns (DEF GCELLGRID STEP) |
+
+## update_hello_marker
+
+`update_hello_marker <id> [-layout <token>] [-name <str>] [-help]`
+
+Changes the given fields of a HelloMarker; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Move it to this Layout (token) |
+| `-name` | `str` | no | The marker's name |
+
+## update_hello_note
+
+`update_hello_note <id> [-library <token>] [-body <str>] [-help]`
+
+Changes the given fields of a HelloNote; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-library` | `token` | no | Move it to this Library (token) |
+| `-body` | `str` | no | The note's text |
+
+## update_hello_pin
+
+`update_hello_pin <id> [-layout <token>] [-help]`
+
+Changes the given fields of a HelloPin; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Move it to this Layout (token) |
 
 ## update_influence_spacing_entry
 
@@ -3659,6 +3820,17 @@ Changes the given fields of a ViaRuleReference; omitted flags leave a field unch
 | `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in microns (LEF VIARULE-inside-VIA ORIGIN) - the array is centered on the placement point if not given |
 | `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in microns (LEF VIARULE-inside-VIA OFFSET, bottom pair) - the enclosure rect is centered on the cut array if not given |
 | `-top_offset` | `Point` | no | Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair) |
+
+## update_wire
+
+`update_wire <id> [-route <token>] [-layer <token>] [-help]`
+
+Changes the given fields of a Wire; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-route` | `token` | no | Move it to this Route (token) |
+| `-layer` | `token` | no | The routing layer, as a layer:<name> token |
 
 ## write_db
 

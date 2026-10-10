@@ -297,8 +297,9 @@ view it came from is open.
 
 ### Shape operations
 
-The views run the `shape_*` Tcl commands' operations on shape ids, in dbu
-(`le::shape_ops` types, from `<le/extension.hpp>`):
+The views run the `shape_*` Tcl commands' operations on Shapes and Wires
+(a route's compact wiring, read as the Shape `le::wire_to_shape` makes of
+it), in dbu (`le::shape_ops` types, from `<le/extension.hpp>`):
 
 | Member | Result |
 |---|---|
@@ -309,10 +310,11 @@ The views run the `shape_*` Tcl commands' operations on shape ids, in dbu
 | `shape_to_rects(shapes, direction, layer, parent)` | One rect-only Shape per input, cut along `le::FractureDirection`. |
 | `shape_size(shapes, dx, dy, layer, parent)` | One Shape per input, grown (or, negative, shrunk) by `dx`/`dy`. |
 | `shape_outline_paths(shapes, width, layer, parent)` | One path-only Shape per input, along its outline. |
-| `shape_change_layer(shapes, layer)` | Moves each input onto `layer` in place. |
-| `remove_shape_piece(shape, kind, index)` | Removes one rect, polygon or path (`le::PieceKind`) and its mask; later ones shift down. |
+| `shape_change_layer(shapes, layer)` | Moves each input onto `layer` in place (a Wire onto a layer only). |
+| `remove_shape_piece(shape, kind, index)` | Removes one rect, polygon or path (`le::PieceKind`) and its mask; later ones shift down. A Wire has paths only. |
 
-`shapes` is a `std::vector<le::ShapeId>`, so `{id}` or `{a, b}` works too. `layer` is a `le::shape_ops::LayerOrPurpose`,
+`shapes` is a `std::vector<le::GeometryId>`, each a `le::ShapeId` or
+`le::WireId`, so `{id}` or `{a, b}` works too. `layer` is a `le::shape_ops::LayerOrPurpose`,
 `{.layer = id}` or a layer-less `{.purpose = le::ShapePurpose::DEBUG}`;
 where it's optional, leaving it out keeps each input's own. `parent` is
 optional: an Abstract or Layout puts the new shapes in its free-standing
@@ -692,7 +694,8 @@ The first version.
 - Editing: `ExtensionContext::write(label)`, `WriteView::fail()`, and
   `create_<type>`/`update_<type>`/`delete_<type>` on `WriteView` with
   `<Type>Changes`, recorded for undo.
-- Shape operations: `shape_bbox` on `ReadView` and `WriteView`;
+- Shape operations, on Shapes and Wires (`le::GeometryId`): `shape_bbox`
+  on `ReadView` and `WriteView`;
   `shape_copy`, `shape_boolean`, `shape_to_polygons`, `shape_to_rects`,
   `shape_size`, `shape_outline_paths`, `shape_change_layer` and
   `remove_shape_piece` on `WriteView`.

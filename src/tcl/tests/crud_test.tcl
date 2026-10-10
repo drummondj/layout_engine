@@ -161,7 +161,7 @@ if {[catch {get_properties bogus_token:1} err]} {
     # class, not just the 7 with hand-written CRUD - and extensions' classes,
     # after core's, in builds that have them.
     check_true "get_properties unrecognized token error message: $err" \
-        [string match "get_properties: unrecognized token \"bogus_token:1\" - expected a friendly id (technology:/property_definition:/layer:/*/route:/region:*)" $err]
+        [string match "get_properties: unrecognized token \"bogus_token:1\" - expected a friendly id (technology:/property_definition:/layer:/*/route:/wire:/region:*)" $err]
 } else {
     puts stderr "FAIL: get_properties on an unrecognized token did not raise a Tcl error"
     exit 1
