@@ -197,22 +197,21 @@ namespace le
             const auto &points = path.polygon.points;
             if (points.size() < 2 || mask < 0 || mask > std::numeric_limits<unsigned char>::max())
                 return false;
-            const std::optional<unsigned char> width = width_index(path.width);
-            if (!width)
-                return false;
             for (const Point &point : points)
                 if (!fits(point.x) || !fits(point.y))
                     return false;
             for (std::size_t i = 0; i + 1 < points.size(); ++i)
+            {
                 if (points[i].x != points[i + 1].x && points[i].y != points[i + 1].y)
                     return false;
-            for (std::size_t i = 0; i + 1 < points.size(); ++i)
-            {
                 const bool vertical = points[i].x == points[i + 1].x;
-                const int64_t length = vertical ? points[i + 1].y - points[i].y : points[i + 1].x - points[i].x;
-                if (!fits(length))
+                if (!fits(vertical ? points[i + 1].y - points[i].y : points[i + 1].x - points[i].x))
                     return false;
             }
+            // Last, so a refused path adds no width.
+            const std::optional<unsigned char> width = width_index(path.width);
+            if (!width)
+                return false;
             for (std::size_t i = 0; i + 1 < points.size(); ++i)
             {
                 const bool vertical = points[i].x == points[i + 1].x;

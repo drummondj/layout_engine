@@ -1226,6 +1226,7 @@ add_executable(backend_tests
     src/database/tests/hierarchical_resolver_test.cpp
     src/database/tests/schematic_layout_linker_test.cpp
     src/database/tests/schema_version_test.cpp
+    src/database/tests/wire_helpers_test.cpp
     src/geometry/tests/geometry_test.cpp
     src/geometry/tests/shape_ops_test.cpp
     src/editing/tests/editing_test.cpp
