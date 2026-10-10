@@ -869,7 +869,7 @@ namespace le::gui
 
         // The window's close button opens this instead of closing: close
         // just the window, exit le_shell, or cancel - listing anything
-        // unsaved (the design since its last write_db/write_def/write_lef, the
+        // unsaved (the design since its last write_db or read_db, the
         // settings since their last save/load) first, with a shortcut to
         // save the settings. File > Exit opens it `exit_only`, without the
         // choice to close just the window, and only when something is unsaved.
@@ -893,7 +893,7 @@ namespace le::gui
                 ImGui::TextUnformatted("Unsaved changes:");
                 if (design)
                     ImGui::BulletText(provider.db_path().empty()
-                                          ? "The design has edits that haven't been written out -\nsave them with File > Save As, or write_db / write_def / write_lef."
+                                          ? "The design hasn't been saved -\nsave it with File > Save As, or write_db."
                                           : "The design has edits that haven't been saved.");
                 if (settings)
                     ImGui::BulletText("Settings have changed since they were last saved.");

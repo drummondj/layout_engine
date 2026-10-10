@@ -202,8 +202,8 @@ check "set_label_max_size round-trips" 20.0 [get_label_max_size]
 # Unsaved changes and close_gui.
 check "close_gui with no window open is a no-op" "" [close_gui]
 set before_unsaved [unsaved_changes]
-if {[lsearch -exact $before_unsaved design] >= 0} {
-    puts stderr "FAIL: unsaved_changes reported design edits after only reading a LEF: $before_unsaved"
+if {[lsearch -exact $before_unsaved design] < 0} {
+    puts stderr "FAIL: unsaved_changes didn't report the design after reading a LEF (only write_db saves it): $before_unsaved"
     exit 1
 }
 # Layer colors.

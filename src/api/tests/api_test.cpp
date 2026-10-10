@@ -6702,31 +6702,33 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsLayerColors)
     le_destroy(other);
 }
 
-// What the exit confirmation counts as
-// unsaved. Reading files isn't a change; an edit is until write_db/write_def/write_lef;
-// a setting is until save_settings/load_settings.
+// What the exit confirmation counts as unsaved. Only a .led file holds the
+// whole database: the design is unsaved after reading LEF/DEF/Verilog or any
+// edit, until write_db (write_def/write_lef don't save it); a setting is
+// until save_settings/load_settings.
 TEST_F(ApiFixture, UnsavedChangesTrackEditsWritesAndSettings)
 {
-    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0);
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0); // a new, empty session
     EXPECT_EQ(le_has_unsaved_settings(handle), 0);
     EXPECT_NE(le_read_lef(handle, scratch_path("no_such_file.lef").c_str(), "missing"), 0);
-    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0); // a failed read isn't an edit either
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0); // a failed read changes nothing
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0); // a read isn't an edit
-    EXPECT_EQ(le_has_unsaved_settings(handle), 0);         // nor does its grid spacing in um count
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 1); // read, but not in a .led file yet
+    EXPECT_EQ(le_has_unsaved_settings(handle), 0);         // its grid spacing in um isn't a setting change
 
     const LeDesignId top_design = le_create_design(handle, le_create_library(handle, "TOPLIB"), "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
-    EXPECT_EQ(le_has_unsaved_database_changes(handle), 1);
-    const std::string def_path = scratch_path("le_unsaved_changes.def");
-    ASSERT_EQ(le_write_def(handle, def_path.c_str(), top_layout), 0);
+    ASSERT_EQ(le_write_def(handle, scratch_path("le_unsaved_changes.def").c_str(), top_layout), 0);
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 1) << "write_def doesn't save the design";
+    ASSERT_EQ(le_write_lef(handle, scratch_path("le_unsaved_changes.lef").c_str(), nullptr, 0, LeLibraryId{UINT32_MAX, 0}, LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY), 0);
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 1) << "nor does write_lef";
+    ASSERT_EQ(le_write_db(handle, scratch_path("le_unsaved_changes.led").c_str(), 0), 0);
     EXPECT_EQ(le_has_unsaved_database_changes(handle), 0);
 
-    le_create_library(handle, "OTHERLIB"); // an edit...
     const std::string extra_lef = scratch_path("le_unsaved_extra.lef");
     write_file(extra_lef, "VERSION 5.8 ;\nMACRO EXTRA\n  SIZE 1 BY 1 ;\nEND EXTRA\nEND LIBRARY\n");
     ASSERT_EQ(le_read_lef(handle, extra_lef.c_str(), "extra"), 0);
-    EXPECT_EQ(le_has_unsaved_database_changes(handle), 1); // ...stays unsaved across a read
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 1); // a read after the save is unsaved again
 
     le_set_label_max_size(handle, 30.0);
     EXPECT_EQ(le_has_unsaved_settings(handle), 1);
