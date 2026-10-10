@@ -2184,7 +2184,7 @@ Returns the Schematic objects matching the given names and filters, as tokens. S
 
 `get_selection [-help]`
 
-Returns the selection as a list of tokens (shape:, wire:, row:, placement:, region:) - the form select accepts.
+Returns the selection as a list of tokens (shape:, wire:, row:, placement:, region:), each object once - the form select accepts.
 
 ## get_shape_snap_mode
 

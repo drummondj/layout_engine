@@ -1227,11 +1227,15 @@ proc get_selection {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "get_selection \[-help\] - Returns the current selection as a list of tokens"
     }
+    # One token per object, in selection order: several selected pieces
+    # of one shape or wire are still one token.
     set result {}
+    set seen [dict create]
     set count [selection_count_cmd]
     for {set i 0} {$i < $count} {incr i} {
         set token [get_selection_at_cmd $i]
-        if {$token ne {}} {
+        if {$token ne {} && ![dict exists $seen $token]} {
+            dict set seen $token 1
             lappend result $token
         }
     }
@@ -1239,7 +1243,7 @@ proc get_selection {args} {
 }
 register_command_help get_selection \
     "get_selection \[-help\]" \
-    "Returns the selection as a list of tokens (shape:, wire:, row:, placement:, region:) - the form select accepts." \
+    "Returns the selection as a list of tokens (shape:, wire:, row:, placement:, region:), each object once - the form select accepts." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
