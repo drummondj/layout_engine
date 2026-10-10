@@ -29,7 +29,8 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   (get-or-create Library/Design by name for every reader),
   `hierarchical_resolver.hpp`/`schematic_layout_linker.hpp`/
   `rename_propagation.hpp` (Schematic<->Layout linking, design in
-  `plans/LINKING_STRATEGY_RESEARCH.md`).
+  `plans/LINKING_STRATEGY_RESEARCH.md`), `wire_helpers.hpp` (Wire <->
+  Shape conversion, `WireBuilder`, and `GeometryId`, a Shape or a Wire).
 - `src/geometry/` — `Geometry`, a Boost.Geometry wrapper (bbox, overlap,
   transforms, union/buffer, label placement, piece hit-tests,
   ITERATE expansion) over the database's `Point`/`Rect`/`Polygon`/`Path`/
@@ -246,6 +247,15 @@ Each module's tests live beside it in `tests/` (hand-written GTest).
   GCELLGRID/COMPONENTS/PINS/BLOCKAGES/VIAS/REGIONS/NETS/SPECIALNETS/
   NONDEFAULTRULES. NETS/SPECIALNETS carry routing geometry only;
   connectivity comes from `link` against a netlist.
+- Routed geometry is a compact `Wire` per (Route, layer): 16-byte int32
+  Manhattan segments (a `continues` flag keeps multi-point paths, a
+  width index the non-default widths) and vias referencing a `Via`/
+  `LayoutVia`. What a Wire can't hold (diagonal or out-of-range
+  segments, via arrays, unknown via names) stays in a route Shape on
+  that layer. Everything that edits or hit-tests geometry reads a Wire
+  as `wire_to_shape`'s Shape (path i, via i) and stores edits back with
+  `shape_to_wire`; selection pieces, chunk sources and shape-op inputs
+  carry a Shape or a Wire.
 - DEF values are already in database units; `DEFReader` rescales them
   (`unit_scale_`) when the file's UNITS disagree with the Technology's.
   NONDEFAULTRULES LAYER WIDTH/SPACING/... are real microns (the vendored

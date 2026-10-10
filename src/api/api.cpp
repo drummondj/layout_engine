@@ -272,9 +272,9 @@ namespace
         std::unordered_map<std::string, std::vector<std::pair<int64_t, std::optional<le::Rect>>>, NameHash, std::equal_to<>> local_;
     };
 
-    // Visits (ShapeId, purpose) for every Shape in the current view that
+    // Visits (id, purpose) for every Shape or Wire in the current view that
     // can own a selectable via: an Abstract's terminal-port and
-    // obstruction Shapes, or a Layout's route Shapes.
+    // obstruction Shapes, or a Layout's route Wires and Shapes.
     template <typename Visit>
     void for_each_via_owner_shape(const LeHandle *handle, Visit visit)
     {
@@ -282,18 +282,22 @@ namespace
         if (handle->current_layout().valid())
         {
             for (const le::RouteId route_id : root.get_layout_routes(handle->current_layout()))
+            {
+                for (const le::WireId wire_id : root.get_route_wires(route_id))
+                    visit(le::GeometryId::of(wire_id), le::ViewLayerPurpose::ROUTE);
                 for (const le::ShapeId shape_id : root.get_route_shapes(route_id))
-                    visit(shape_id, le::ViewLayerPurpose::ROUTE);
+                    visit(le::GeometryId::of(shape_id), le::ViewLayerPurpose::ROUTE);
+            }
             return;
         }
         const le::AbstractId abstract_id = handle->current_abstract();
         for (const le::TerminalId terminal_id : root.get_abstract_terminals(abstract_id))
             for (const le::TerminalPortId port_id : root.get_terminal_ports(terminal_id))
                 for (const le::ShapeId shape_id : root.get_terminal_port_shapes(port_id))
-                    visit(shape_id, le::ViewLayerPurpose::TERMINAL);
+                    visit(le::GeometryId::of(shape_id), le::ViewLayerPurpose::TERMINAL);
         for (const le::ObstructionId obstruction_id : root.get_abstract_obstructions(abstract_id))
             for (const le::ShapeId shape_id : root.get_obstruction_shapes(obstruction_id))
-                visit(shape_id, le::ViewLayerPurpose::OBSTRUCTION);
+                visit(le::GeometryId::of(shape_id), le::ViewLayerPurpose::OBSTRUCTION);
     }
 
     // A via is selectable when its owning Shape's own layer/purpose is
@@ -323,8 +327,7 @@ namespace
         {
             if (hidden.route_uses.empty() && unselectable.route_uses.empty())
                 return true;
-            const le::ShapeData *shape = handle->root.get_shape(piece->shape_id);
-            const le::RouteData *route = shape ? handle->root.get_route(shape->route()) : nullptr;
+            const le::RouteData *route = handle->root.get_route(le::geometry_route(handle->root, piece->owner()));
             if (!route)
                 return true;
             const std::string use = le::route_use(*route);
@@ -360,7 +363,7 @@ namespace
     // whole Layout, which is always correct.
     struct LayoutCandidates
     {
-        std::vector<le::ShapeId> shapes;
+        std::vector<le::GeometryId> shapes;
         std::vector<le::PlacementId> placements;
     };
     std::optional<LayoutCandidates> layout_candidates(const LeHandle *handle, le::Rect query)
@@ -389,21 +392,29 @@ namespace
                 if (entry.parent.klass != le::ChangeKlass::None && (field == "layout" || field == "abstract"))
                     usable = false; // a boundary - it sizes placements
                 else
-                    out.shapes.push_back(le::ShapeId{entry.index, entry.generation});
+                    out.shapes.push_back(le::GeometryId::of(le::ShapeId{entry.index, entry.generation}));
                 return;
             }
-            case le::ChangeKlass::Route:
-                for (const le::ShapeId shape : root.get_route_shapes(le::RouteId{entry.index, entry.generation}))
-                    out.shapes.push_back(shape);
+            case le::ChangeKlass::Wire:
+                out.shapes.push_back(le::GeometryId::of(le::WireId{entry.index, entry.generation}));
                 return;
+            case le::ChangeKlass::Route:
+            {
+                const le::RouteId route{entry.index, entry.generation};
+                for (const le::WireId wire : root.get_route_wires(route))
+                    out.shapes.push_back(le::GeometryId::of(wire));
+                for (const le::ShapeId shape : root.get_route_shapes(route))
+                    out.shapes.push_back(le::GeometryId::of(shape));
+                return;
+            }
             case le::ChangeKlass::PhysicalPortSegment:
                 for (const le::ShapeId shape : root.get_physical_port_segment_shapes(le::PhysicalPortSegmentId{entry.index, entry.generation}))
-                    out.shapes.push_back(shape);
+                    out.shapes.push_back(le::GeometryId::of(shape));
                 return;
             case le::ChangeKlass::PhysicalPort:
                 for (const le::PhysicalPortSegmentId segment : root.get_physical_port_segments(le::PhysicalPortId{entry.index, entry.generation}))
                     for (const le::ShapeId shape : root.get_physical_port_segment_shapes(segment))
-                        out.shapes.push_back(shape);
+                        out.shapes.push_back(le::GeometryId::of(shape));
                 return;
             case le::ChangeKlass::Placement:
                 out.placements.push_back(le::PlacementId{entry.index, entry.generation});
@@ -436,7 +447,7 @@ namespace
                         return;
                     renderable_object = true;
                     for (const le::ShapeId shape : R::shapes(root, typename R::Id{entry.index, entry.generation}))
-                        out.shapes.push_back(shape);
+                        out.shapes.push_back(le::GeometryId::of(shape));
                 });
                 if (!renderable_object)
                     usable = false;
@@ -482,9 +493,14 @@ namespace
 
         // Only this Layout's route/port/renderable-class shapes and
         // placements (edits anywhere are in the log), each once.
-        std::erase_if(out.shapes, [&](le::ShapeId id)
+        std::erase_if(out.shapes, [&](le::GeometryId id)
                       {
-            const le::ShapeData *shape = root.get_shape(id);
+            if (const le::WireData *wire = root.get_wire(id.wire))
+            {
+                const le::RouteData *route = root.get_route(wire->route);
+                return !route || route->layout != layout_id;
+            }
+            const le::ShapeData *shape = root.get_shape(id.shape);
             if (!shape)
                 return true;
             if (const le::RouteData *route = root.get_route(shape->route()))
@@ -513,29 +529,32 @@ namespace
     // for_each_via_owner_shape, limited in a Layout view to `candidates`
     // (layout_candidates) when given - its via owners are route shapes.
     template <typename Visit>
-    void for_each_via_candidate(const LeHandle *handle, const std::vector<le::ShapeId> *candidates, Visit visit)
+    void for_each_via_candidate(const LeHandle *handle, const std::vector<le::GeometryId> *candidates, Visit visit)
     {
         if (!candidates || !handle->current_layout().valid())
         {
             for_each_via_owner_shape(handle, visit);
             return;
         }
-        for (const le::ShapeId shape_id : *candidates)
-            if (const le::ShapeData *shape = handle->root.get_shape(shape_id); shape && shape->route().valid())
-                visit(shape_id, le::ViewLayerPurpose::ROUTE);
+        for (const le::GeometryId id : *candidates)
+            if (le::geometry_route(handle->root, id).valid())
+                visit(id, le::ViewLayerPurpose::ROUTE);
     }
 
     // Every selectable via or via array whose hit box contains dbu `p`,
     // smallest first (a via stacked inside a bigger one, or inside an
     // array's box, comes before it). A click anywhere in an array's box -
     // between its instances too - picks the whole array.
-    std::vector<LeHandle::ShapePiece> hit_test_via_point_all(const LeHandle *handle, le::Point p, const std::vector<le::ShapeId> *candidates = nullptr)
+    std::vector<LeHandle::ShapePiece> hit_test_via_point_all(const LeHandle *handle, le::Point p, const std::vector<le::GeometryId> *candidates = nullptr)
     {
         ViaHitBoxes boxes(handle->root, handle->current_layout());
         std::vector<std::pair<double, LeHandle::ShapePiece>> hits;
-        for_each_via_candidate(handle, candidates, [&](le::ShapeId shape_id, le::ViewLayerPurpose purpose)
+        le::ShapeData scratch;
+        for_each_via_candidate(handle, candidates, [&](le::GeometryId id, le::ViewLayerPurpose purpose)
                                  {
-            const le::ShapeData *shape = handle->root.get_shape(shape_id);
+            if (const le::WireData *wire = handle->root.get_wire(id.wire); wire && wire->vias.empty())
+                return;
+            const le::ShapeData *shape = le::geometry_shape(handle->root, id, scratch);
             if (!shape || (shape->vias.empty() && shape->via_iterates.empty()) || !via_owner_selectable(handle, *shape, purpose))
                 return;
             const auto consider = [&](const std::optional<le::Rect> &box, le::PieceKind kind, size_t i)
@@ -543,7 +562,7 @@ namespace
                 if (!box || p.x < box->ll.x || p.x > box->ur.x || p.y < box->ll.y || p.y > box->ur.y)
                     return;
                 const double area = static_cast<double>(box->ur.x - box->ll.x) * static_cast<double>(box->ur.y - box->ll.y);
-                hits.emplace_back(area, LeHandle::ShapePiece{.shape_id = shape_id, .piece_kind = kind, .piece_index = i});
+                hits.emplace_back(area, LeHandle::ShapePiece{.shape_id = id.shape, .wire_id = id.wire, .piece_kind = kind, .piece_index = i});
             };
             for (size_t i = 0; i < shape->vias.size(); ++i)
                 consider(boxes.bbox(shape->vias[i]), le::PieceKind::VIA, i);
@@ -560,19 +579,22 @@ namespace
 
     // Every selectable via or via array whose hit box lies entirely inside
     // `rect` - the rubber-band rule every other piece follows.
-    std::vector<LeHandle::ShapePiece> hit_test_via_rect(const LeHandle *handle, le::Rect rect, const std::vector<le::ShapeId> *candidates = nullptr)
+    std::vector<LeHandle::ShapePiece> hit_test_via_rect(const LeHandle *handle, le::Rect rect, const std::vector<le::GeometryId> *candidates = nullptr)
     {
         ViaHitBoxes boxes(handle->root, handle->current_layout());
         std::vector<LeHandle::ShapePiece> hits;
-        for_each_via_candidate(handle, candidates, [&](le::ShapeId shape_id, le::ViewLayerPurpose purpose)
+        le::ShapeData scratch;
+        for_each_via_candidate(handle, candidates, [&](le::GeometryId id, le::ViewLayerPurpose purpose)
                                  {
-            const le::ShapeData *shape = handle->root.get_shape(shape_id);
+            if (const le::WireData *wire = handle->root.get_wire(id.wire); wire && wire->vias.empty())
+                return;
+            const le::ShapeData *shape = le::geometry_shape(handle->root, id, scratch);
             if (!shape || (shape->vias.empty() && shape->via_iterates.empty()) || !via_owner_selectable(handle, *shape, purpose))
                 return;
             const auto consider = [&](const std::optional<le::Rect> &box, le::PieceKind kind, size_t i)
             {
                 if (box && box->ll.x >= rect.ll.x && box->ll.y >= rect.ll.y && box->ur.x <= rect.ur.x && box->ur.y <= rect.ur.y)
-                    hits.push_back(LeHandle::ShapePiece{.shape_id = shape_id, .piece_kind = kind, .piece_index = i});
+                    hits.push_back(LeHandle::ShapePiece{.shape_id = id.shape, .wire_id = id.wire, .piece_kind = kind, .piece_index = i});
             };
             for (size_t i = 0; i < shape->vias.size(); ++i)
                 consider(boxes.bbox(shape->vias[i]), le::PieceKind::VIA, i);
@@ -602,6 +624,92 @@ namespace
         return true;
     }
 
+    // apply_wire_snapshot, plus the Wire's segments, vias and widths,
+    // which the generated update_wire doesn't carry.
+    bool apply_wire_snapshot_with_lists(le::Root &root, le::WireId id, const le::WireData &data)
+    {
+        if (!le::apply_wire_snapshot(root, id, data))
+            return false;
+        if (le::WireData *wire = root.get_wire(id))
+        {
+            wire->segments = data.segments;
+            wire->vias = data.vias;
+            wire->widths = data.widths;
+            root.note_wire_changed(id); // written through the pointer - not in the change log otherwise
+        }
+        return true;
+    }
+
+    // A piece owner's geometry as one Shape - a Shape's own, or a Wire's
+    // le::wire_to_shape - for the edits below, which work on Shapes.
+    std::optional<le::ShapeData> owner_geometry(const le::Root &root, le::GeometryId owner)
+    {
+        le::ShapeData scratch;
+        const le::ShapeData *shape = le::geometry_shape(root, owner, scratch);
+        if (!shape)
+            return std::nullopt;
+        return shape == &scratch ? std::move(scratch) : *shape;
+    }
+
+    // Stores `after` as `owner`'s geometry (`before` being what
+    // owner_geometry read) and records it into the current transaction. A
+    // Wire takes it back through le::shape_to_wire; one that no longer
+    // fits a Wire is left unchanged - false.
+    bool store_owner_geometry(LeHandle *handle, le::GeometryId owner, const le::ShapeData &before, const le::ShapeData &after)
+    {
+        le::Root &root = handle->root;
+        le::editing::Transaction *txn = handle->command_history.current();
+        if (owner.shape.valid())
+        {
+            if (!apply_shape_snapshot_with_vias(root, owner.shape, after))
+                return false;
+            if (txn)
+                txn->record_update<le::ShapeId, le::ShapeData>(owner.shape, before, after, &apply_shape_snapshot_with_vias);
+            return true;
+        }
+        const le::WireData *wire = root.get_wire(owner.wire);
+        if (!wire)
+            return false;
+        std::optional<le::WireData> stored = le::shape_to_wire(root, after, wire->route);
+        if (!stored)
+        {
+            spdlog::error("A Wire holds Manhattan segments and defined vias only - edit not applied.");
+            return false;
+        }
+        const le::WireData wire_before = *wire;
+        apply_wire_snapshot_with_lists(root, owner.wire, *stored);
+        if (txn)
+            txn->record_update<le::WireId, le::WireData>(owner.wire, wire_before, *stored, &apply_wire_snapshot_with_lists);
+        return true;
+    }
+
+    // Deletes `owner` (a Shape or a Wire), recording it for undo.
+    void delete_owner(LeHandle *handle, le::GeometryId owner)
+    {
+        le::Root &root = handle->root;
+        le::editing::Transaction *txn = handle->command_history.current();
+        if (const le::ShapeData *shape = root.get_shape(owner.shape))
+        {
+            const le::ShapeData before = *shape;
+            root.delete_shape(owner.shape);
+            if (txn)
+                txn->record_delete<le::ShapeId, le::ShapeData>(
+                    owner.shape, before, [](le::Root &r, const le::ShapeData &d)
+                    { return r.create_shape(d); }, [](le::Root &r, le::ShapeId i)
+                    { return r.delete_shape(i); });
+        }
+        else if (const le::WireData *wire = root.get_wire(owner.wire))
+        {
+            const le::WireData before = *wire;
+            root.delete_wire(owner.wire);
+            if (txn)
+                txn->record_delete<le::WireId, le::WireData>(
+                    owner.wire, before, [](le::Root &r, const le::WireData &d)
+                    { return r.create_wire(d); }, [](le::Root &r, le::WireId i)
+                    { return r.delete_wire(i); });
+        }
+    }
+
     std::optional<le::ShapeData> resolve_selected_outline(const LeHandle *handle, const LeHandle::SelectedObject &selected, int remaining_depth)
     {
         return std::visit(
@@ -610,7 +718,8 @@ namespace
                 using T = std::decay_t<decltype(s)>;
                 if constexpr (std::is_same_v<T, LeHandle::ShapePiece>)
                 {
-                    if (const le::ShapeData *data = handle->root.get_shape(s.shape_id))
+                    le::ShapeData scratch;
+                    if (const le::ShapeData *data = le::geometry_shape(handle->root, s.owner(), scratch))
                         return drawable_piece(handle->root, *data, s.piece_kind, s.piece_index, handle->current_layout());
                     return std::nullopt;
                 }
@@ -1066,8 +1175,9 @@ namespace
         {
             le::Point piece_delta = *delta;
             const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
+            le::ShapeData scratch;
             if (piece && raw_delta && snaps_individually_when_moved(piece->piece_kind))
-                if (const le::ShapeData *data = handle->root.get_shape(piece->shape_id);
+                if (const le::ShapeData *data = le::geometry_shape(handle->root, piece->owner(), scratch);
                     data && le::Geometry::piece_in_range(*data, piece->piece_kind, piece->piece_index))
                 {
                     const auto key = std::make_pair(le::shape_snap_slot(piece->piece_kind), data->layer);
@@ -1092,12 +1202,12 @@ namespace
                                 shape_snap_context_unlocked(handle, grab.piece.piece_kind, grab.original.layer));
     }
 
-    // One Shape a resize changes - the grabbed piece's own Shape, plus (for
-    // a path segment) any sibling Shape whose runs follow its endpoints -
+    // One Shape or Wire a resize changes - the grabbed piece's own, plus
+    // (for a path segment) any sibling whose runs follow its endpoints -
     // and the changed pieces' geometry, for the ghost.
     struct ResizeEdit
     {
-        le::ShapeId shape_id;
+        le::GeometryId owner;
         le::ShapeData before;
         le::ShapeData after;
         std::vector<le::ShapeData> ghost_pieces;
@@ -1107,18 +1217,19 @@ namespace
     // `current` - shared by the ghost and the commit so they always agree.
     // A moved path segment drags along any other path point sitting on
     // one of its original endpoints (le::follow_moved_path_segment): in its
-    // own Shape, and in its Route's other Shapes on the same layer - a DEF
-    // route's wire runs are separate Paths that only share coordinates.
+    // own Shape or Wire, and in its Route's other Wires and Shapes on the
+    // same layer - a DEF route's wire runs are separate Paths that only
+    // share coordinates.
     std::vector<ResizeEdit> plan_resize_unlocked(const LeHandle *handle, le::Point current)
     {
         const LeHandle::ResizeGrab &grab = *handle->resize().grab;
-        const le::ShapeData *existing = handle->root.get_shape(grab.piece.shape_id);
+        const std::optional<le::ShapeData> existing = owner_geometry(handle->root, grab.piece.owner());
         if (!existing || !le::Geometry::piece_in_range(*existing, grab.piece.piece_kind, grab.piece.piece_index))
             return {};
 
         const le::ShapeData resized = resized_piece_unlocked(handle, current);
         std::vector<ResizeEdit> edits;
-        ResizeEdit own{.shape_id = grab.piece.shape_id, .before = *existing, .after = *existing, .ghost_pieces = {resized}};
+        ResizeEdit own{.owner = grab.piece.owner(), .before = *existing, .after = *existing, .ghost_pieces = {resized}};
         le::replace_piece(own.after, grab.piece.piece_kind, grab.piece.piece_index, resized);
 
         if (grab.piece.piece_kind == le::PieceKind::PATH && !grab.original.paths.empty() && !resized.paths.empty())
@@ -1137,16 +1248,26 @@ namespace
                 };
                 follow(own.after, grab.piece.piece_index, own.ghost_pieces);
 
-                if (existing->route().valid())
-                    for (const le::ShapeId sibling_id : handle->root.get_route_shapes(existing->route()))
-                    {
-                        const le::ShapeData *sibling = handle->root.get_shape(sibling_id);
-                        if (sibling_id == grab.piece.shape_id || !sibling || sibling->layer != existing->layer)
-                            continue;
-                        ResizeEdit edit{.shape_id = sibling_id, .before = *sibling, .after = *sibling, .ghost_pieces = {}};
-                        if (follow(edit.after, std::nullopt, edit.ghost_pieces))
-                            edits.push_back(std::move(edit));
-                    }
+                const le::RouteId route = le::geometry_route(handle->root, grab.piece.owner());
+                std::vector<le::GeometryId> siblings;
+                if (route.valid())
+                {
+                    for (const le::WireId wire_id : handle->root.get_route_wires(route))
+                        siblings.push_back(le::GeometryId::of(wire_id));
+                    for (const le::ShapeId shape_id : handle->root.get_route_shapes(route))
+                        siblings.push_back(le::GeometryId::of(shape_id));
+                }
+                for (const le::GeometryId sibling_id : siblings)
+                {
+                    if (sibling_id == grab.piece.owner())
+                        continue;
+                    const std::optional<le::ShapeData> sibling = owner_geometry(handle->root, sibling_id);
+                    if (!sibling || sibling->layer != existing->layer)
+                        continue;
+                    ResizeEdit edit{.owner = sibling_id, .before = *sibling, .after = *sibling, .ghost_pieces = {}};
+                    if (follow(edit.after, std::nullopt, edit.ghost_pieces))
+                        edits.push_back(std::move(edit));
+                }
             }
         }
         edits.insert(edits.begin(), std::move(own));
@@ -1191,7 +1312,8 @@ namespace
             const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
             if (!piece)
                 continue;
-            const le::ShapeData *data = handle->root.get_shape(piece->shape_id);
+            le::ShapeData scratch;
+            const le::ShapeData *data = le::geometry_shape(handle->root, piece->owner(), scratch);
             if (!data || !le::Geometry::piece_in_range(*data, piece->piece_kind, piece->piece_index))
                 continue;
             le::ShapeData original = le::Geometry::extract_piece(*data, piece->piece_kind, piece->piece_index);
@@ -1224,13 +1346,7 @@ namespace
 
         handle->command_history.begin("resize");
         for (const ResizeEdit &edit : edits)
-        {
-            const le::ShapeData &after = edit.after;
-            handle->root.update_shape(edit.shape_id, after.layer, after.purpose, after.paths, after.polygons, after.rects,
-                                      after.spacing, after.design_rule_width, after.except_pg_net);
-            if (le::editing::Transaction *txn = handle->command_history.current())
-                txn->record_update<le::ShapeId, le::ShapeData>(edit.shape_id, edit.before, after, &apply_shape_snapshot_with_vias);
-        }
+            store_owner_geometry(handle, edit.owner, edit.before, edit.after);
         handle->root.bump_mutation_version();
         handle->command_history.end(/*succeeded=*/true);
     }
@@ -1878,6 +1994,7 @@ namespace
     void fit_selected_unlocked(LeHandle *handle, int32_t padding_px)
     {
         std::vector<const le::ShapeData *> shape_ptrs;
+        std::deque<le::ShapeData> converted_wires; // stable addresses for shape_ptrs
         std::optional<le::Rect> bbox;
         const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
 
@@ -1890,6 +2007,8 @@ namespace
                 {
                     if (const le::ShapeData *shape = handle->root.get_shape(s.shape_id))
                         shape_ptrs.push_back(shape);
+                    else if (const le::WireData *wire = handle->root.get_wire(s.wire_id))
+                        shape_ptrs.push_back(&converted_wires.emplace_back(le::wire_to_shape(handle->root, *wire)));
                 }
                 else if constexpr (std::is_same_v<T, le::RowId>)
                 {
@@ -1935,7 +2054,8 @@ namespace
         if (!piece)
             return le::ShapeData{};
 
-        const le::ShapeData *data = handle->root.get_shape(piece->shape_id);
+        le::ShapeData scratch;
+        const le::ShapeData *data = le::geometry_shape(handle->root, piece->owner(), scratch);
         if (!data)
             return le::ShapeData{};
         return drawable_piece(handle->root, *data, piece->piece_kind, piece->piece_index, handle->current_layout());
@@ -2056,18 +2176,14 @@ namespace
             if (!piece)
                 continue;
 
-            const le::ShapeData *existing = handle->root.get_shape(piece->shape_id);
-            if (!existing || !le::Geometry::piece_in_range(*existing, piece->piece_kind, piece->piece_index))
+            const std::optional<le::ShapeData> before = owner_geometry(handle->root, piece->owner());
+            if (!before || !le::Geometry::piece_in_range(*before, piece->piece_kind, piece->piece_index))
                 continue; // stale shape or piece index - skip rather than corrupt an unrelated piece
 
-            const le::ShapeData before = *existing;
-            le::ShapeData after = before;
+            le::ShapeData after = *before;
             le::Geometry::transform_piece_in_place(after, piece->piece_kind, piece->piece_index, (*deltas)[moving_index]);
-            apply_shape_snapshot_with_vias(handle->root, piece->shape_id, after); // a via piece moves its origin
+            store_owner_geometry(handle, piece->owner(), *before, after); // a via piece moves its origin
             handle->root.bump_mutation_version();
-
-            if (le::editing::Transaction *txn = handle->command_history.current())
-                txn->record_update<le::ShapeId, le::ShapeData>(piece->shape_id, before, after, &apply_shape_snapshot_with_vias);
         }
         // Placement Move - location
         // and orientation (the toolbar's pending rotate/flip, possibly
@@ -2133,16 +2249,16 @@ namespace
     }
 
     // le_delete_selected_pieces / LE_KEY_DELETE - unlocked. Pieces of one
-    // Shape are removed highest index
+    // Shape or Wire are removed highest index
     // first per kind, so earlier deletions don't shift later ones. A Shape
-    // left with no geometry is deleted too (its owner stays); undo
+    // or Wire left with no geometry is deleted too (its owner stays); undo
     // recreates it whole from its pre-delete snapshot.
     int32_t delete_selected_pieces_unlocked(LeHandle *handle)
     {
-        std::map<le::ShapeId, std::vector<const LeHandle::ShapePiece *>> by_shape;
+        std::map<le::GeometryId, std::vector<const LeHandle::ShapePiece *>> by_shape;
         for (const LeHandle::SelectedObject &selected : handle->selection())
             if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected))
-                by_shape[piece->shape_id].push_back(piece);
+                by_shape[piece->owner()].push_back(piece);
         if (by_shape.empty())
             return 0;
 
@@ -2156,14 +2272,14 @@ namespace
         const bool own_transaction = !handle->command_history.is_recording();
         if (own_transaction)
             handle->command_history.begin("delete");
-        for (auto &[shape_id, pieces] : by_shape)
+        for (auto &[owner, pieces] : by_shape)
         {
-            const le::ShapeData *existing = handle->root.get_shape(shape_id);
+            const std::optional<le::ShapeData> existing = owner_geometry(handle->root, owner);
             if (!existing)
                 continue;
             std::ranges::sort(pieces, [](const LeHandle::ShapePiece *a, const LeHandle::ShapePiece *b)
                               { return std::tie(a->piece_kind, b->piece_index) < std::tie(b->piece_kind, a->piece_index); }); // index descending within a kind
-            const le::ShapeData before = *existing;
+            const le::ShapeData &before = *existing;
             le::ShapeData after = before;
             for (const LeHandle::ShapePiece *piece : pieces)
                 if (le::Geometry::piece_in_range(after, piece->piece_kind, piece->piece_index))
@@ -2174,22 +2290,15 @@ namespace
                 }
             if (has_no_geometry(after))
             {
-                handle->root.delete_shape(shape_id);
-                if (le::editing::Transaction *txn = handle->command_history.current())
-                    txn->record_delete<le::ShapeId, le::ShapeData>(
-                        shape_id, before, [](le::Root &r, const le::ShapeData &d)
-                        { return r.create_shape(d); }, [](le::Root &r, le::ShapeId i)
-                        { return r.delete_shape(i); });
+                delete_owner(handle, owner);
                 continue;
             }
-            apply_shape_snapshot_with_vias(handle->root, shape_id, after);
-            if (le::editing::Transaction *txn = handle->command_history.current())
-                txn->record_update<le::ShapeId, le::ShapeData>(shape_id, before, after, &apply_shape_snapshot_with_vias);
+            store_owner_geometry(handle, owner, before, after);
         }
         if (own_transaction)
             handle->command_history.end(/*succeeded=*/deleted > 0);
         for (const LeHandle::ShapePiece &piece : removed)
-            handle->deselect(piece.shape_id, piece.piece_kind, piece.piece_index);
+            handle->deselect(piece);
         if (deleted > 0)
             handle->root.bump_mutation_version();
         return deleted;
@@ -2327,14 +2436,23 @@ namespace
 
     // --- shape_* operations ---
 
-        std::vector<le::ShapeId> shape_ids_from_c(const LeShapeId *ids, int32_t count)
+        // Shape and Wire refs; any other kind becomes an invalid id, which
+        // the shape op reports as unknown.
+        std::vector<le::GeometryId> shape_ids_from_c(const LeObjectRef *refs, int32_t count)
         {
-            std::vector<le::ShapeId> out;
-            if (!ids || count <= 0)
+            std::vector<le::GeometryId> out;
+            if (!refs || count <= 0)
                 return out;
             out.reserve(static_cast<size_t>(count));
             for (int32_t i = 0; i < count; ++i)
-                out.push_back(from_c(ids[i]));
+            {
+                if (refs[i].kind == LE_OBJECT_KIND_WIRE)
+                    out.push_back(id_from_ref<le::WireId>(refs[i]));
+                else if (refs[i].kind == LE_OBJECT_KIND_SHAPE)
+                    out.push_back(id_from_ref<le::ShapeId>(refs[i]));
+                else
+                    out.push_back(le::GeometryId{});
+            }
             return out;
         }
 
@@ -2996,7 +3114,27 @@ extern "C"
                 const le::RouteData route_snapshot = *handle->root.get_route(route_id);
                 le::editing::IdCellPtr<le::RouteId> route_cell = txn ? txn->id_cell_for(route_id) : nullptr;
 
-                for (const le::ShapeId shape_id : handle->root.get_route_shapes(route_id))
+                // Copies: deleting a child edits the list being walked.
+                const std::vector<le::WireId> wire_ids = handle->root.get_route_wires(route_id);
+                for (const le::WireId wire_id : wire_ids)
+                {
+                    const le::WireData wire_snapshot = *handle->root.get_wire(wire_id);
+                    handle->root.delete_wire(wire_id);
+                    if (txn)
+                    {
+                        txn->record_delete<le::WireId, le::WireData>(
+                            wire_id, wire_snapshot,
+                            [route_cell](le::Root &r, const le::WireData &d)
+                            {
+                                le::WireData fixed = d;
+                                fixed.route = route_cell->id;
+                                return r.create_wire(fixed);
+                            },
+                            [](le::Root &r, le::WireId i) { return r.delete_wire(i); });
+                    }
+                }
+                const std::vector<le::ShapeId> shape_ids = handle->root.get_route_shapes(route_id);
+                for (const le::ShapeId shape_id : shape_ids)
                 {
                     const le::ShapeData shape_snapshot = *handle->root.get_shape(shape_id);
                     handle->root.delete_shape(shape_id);
@@ -4193,9 +4331,12 @@ extern "C"
             for (const LeHandle::SelectedObject &selected : handle->selection())
                 if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
                     piece && le::shape_snap_slot(piece->piece_kind) == le::shape_snap_slot(piece_kind))
-                    if (const le::ShapeData *data = handle->root.get_shape(piece->shape_id);
+                {
+                    le::ShapeData scratch;
+                    if (const le::ShapeData *data = le::geometry_shape(handle->root, piece->owner(), scratch);
                         data && !le::layer_track_grids(handle->root, handle->current_layout(), data->layer).empty())
                         return 1;
+                }
             return 0;
         }
         return 0;
@@ -4907,7 +5048,7 @@ extern "C"
         std::vector<LeHandle::SelectedObject> objects;
         // In a Layout view only the objects the render tree has under the
         // click are tested (layout_candidates), not the whole design.
-        std::optional<std::vector<le::ShapeId>> shape_candidates;
+        std::optional<std::vector<le::GeometryId>> shape_candidates;
         std::optional<std::vector<le::PlacementId>> placement_candidates;
         if (handle->current_layout().valid())
             if (std::optional<LayoutCandidates> candidates = layout_candidates(handle, le::Rect{.ll = p, .ur = p}))
@@ -4923,7 +5064,7 @@ extern "C"
         const auto add_pieces = [&](const std::vector<le::AbstractHitPiece> &hits)
         {
             for (const le::AbstractHitPiece &hit : hits)
-                objects.emplace_back(LeHandle::ShapePiece{.shape_id = hit.shape_id, .piece_kind = hit.piece_kind, .piece_index = hit.piece_index});
+                objects.emplace_back(LeHandle::ShapePiece{.shape_id = hit.shape_id, .wire_id = hit.wire_id, .piece_kind = hit.piece_kind, .piece_index = hit.piece_index});
         };
 
         if (const le::LayoutId layout_id = handle->current_layout(); layout_id.valid())
@@ -5034,7 +5175,7 @@ extern "C"
             // Only objects the render tree has overlapping the rectangle can
             // be inside it (layout_candidates); without one, scan everything.
             const std::optional<LayoutCandidates> candidates = layout_candidates(handle, drag_rect);
-            const std::vector<le::ShapeId> *shape_candidates = candidates ? &candidates->shapes : nullptr;
+            const std::vector<le::GeometryId> *shape_candidates = candidates ? &candidates->shapes : nullptr;
             if (placements_selectable(handle))
                 for (le::PlacementId placement_id : le::hit_test_placements_rect(handle->root, layout_id, remaining_depth, drag_rect,
                                                                                  candidates ? &candidates->placements : nullptr))
@@ -5043,7 +5184,7 @@ extern "C"
 
             for (const le::AbstractHitPiece &hit : le::hit_test_layout_rect(handle->root, handle->view_layers, layout_id, drag_rect, handle->scale(), is_selectable, shape_candidates))
             {
-                const LeHandle::ShapePiece piece{.shape_id = hit.shape_id, .piece_kind = hit.piece_kind, .piece_index = hit.piece_index};
+                const LeHandle::ShapePiece piece{.shape_id = hit.shape_id, .wire_id = hit.wire_id, .piece_kind = hit.piece_kind, .piece_index = hit.piece_index};
                 if (passes_object_filters(handle, piece))
                     handle->select_any(piece);
             }
@@ -5290,15 +5431,16 @@ extern "C"
 
         // Dispatches every SelectedObject alternative to its own
         // LeObjectKind; ShapePiece (Terminal/Obstruction/Blockage/Route/
-        // PhysicalPort) always resolves to LE_OBJECT_KIND_SHAPE - a
-        // Property Viewer wanting the owning Blockage/Route/PhysicalPort
-        // instead walks up via le_object_parent (see object_ref_parent's
-        // own Shape->blockage/route/physical_port_segment hops).
+        // PhysicalPort) resolves to LE_OBJECT_KIND_SHAPE, or
+        // LE_OBJECT_KIND_WIRE for routed wiring - a Property Viewer wanting
+        // the owning Blockage/Route/PhysicalPort instead walks up via
+        // le_object_parent (see object_ref_parent's own Shape->blockage/
+        // route/physical_port_segment and Wire->route hops).
         return std::visit([](const auto &s) -> LeObjectRef
                           {
             using T = std::decay_t<decltype(s)>;
             if constexpr (std::is_same_v<T, LeHandle::ShapePiece>)
-                return ref_from_id(LE_OBJECT_KIND_SHAPE, s.shape_id);
+                return s.wire_id.valid() ? ref_from_id(LE_OBJECT_KIND_WIRE, s.wire_id) : ref_from_id(LE_OBJECT_KIND_SHAPE, s.shape_id);
             else if constexpr (std::is_same_v<T, le::RowId>)
                 return ref_from_id(LE_OBJECT_KIND_ROW, s);
             else if constexpr (std::is_same_v<T, le::PlacementId>)
@@ -5337,6 +5479,20 @@ extern "C"
                 handle->select(shape_id, le::PieceKind::VIA_ITERATE, i);
             return !shape->rects.empty() || !shape->polygons.empty() || !shape->paths.empty() || !shape->vias.empty() || !shape->via_iterates.empty();
         };
+        // The same for a Wire - its pieces are those of the Shape it
+        // converts to (le::wire_to_shape): its paths, then its vias.
+        const auto select_all_pieces_of_wire = [&](le::WireId wire_id) -> bool
+        {
+            const le::WireData *wire = handle->root.get_wire(wire_id);
+            if (!wire)
+                return false;
+            size_t paths = 0;
+            le::for_each_wire_path(*wire, [&](size_t, size_t)
+                                   { handle->select(wire_id, le::PieceKind::PATH, paths++); });
+            for (size_t i = 0; i < wire->vias.size(); i++)
+                handle->select(wire_id, le::PieceKind::VIA, i);
+            return paths > 0 || !wire->vias.empty();
+        };
 
         switch (ref.kind)
         {
@@ -5368,11 +5524,28 @@ extern "C"
                 return 1;
             }
             bool any_selected = false;
+            for (le::WireId wire_id : handle->root.get_route_wires(id))
+                any_selected |= select_all_pieces_of_wire(wire_id);
             for (le::ShapeId shape_id : handle->root.get_route_shapes(id))
                 any_selected |= select_all_pieces_of(shape_id);
             if (!any_selected)
             {
                 spdlog::error("select: Route has no geometry to select");
+                return 1;
+            }
+            return 0;
+        }
+        case LE_OBJECT_KIND_WIRE:
+        {
+            const le::WireId id{.index = ref.index, .generation = ref.generation};
+            if (!handle->root.get_wire(id))
+            {
+                spdlog::error("select: no such Wire");
+                return 1;
+            }
+            if (!select_all_pieces_of_wire(id))
+            {
+                spdlog::error("select: Wire has no geometry to select");
                 return 1;
             }
             return 0;
@@ -6146,7 +6319,15 @@ extern "C"
         return le::edit::remove_shape_piece(*handle, from_c(id), le::PieceKind::PATH, static_cast<size_t>(path_index)) ? 0 : 1;
     }
 
-    int32_t le_shape_copy(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent)
+    int le_remove_wire_path(LeHandle *handle, LeWireId id, int32_t path_index)
+    {
+        if (!handle || path_index < 0)
+            return 1;
+        HandleWriteLock lock(handle);
+        return le::edit::remove_shape_piece(*handle, from_c(id), le::PieceKind::PATH, static_cast<size_t>(path_index)) ? 0 : 1;
+    }
+
+    int32_t le_shape_copy(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent)
     {
         return run_shape_op(handle, "shape_copy", layer, purpose, parent, [&](const auto &target, const auto &owner)
                             {
@@ -6155,7 +6336,7 @@ extern "C"
             return le::edit::shape_copy(*handle, shape_ids_from_c(shapes, shape_count), *target, owner); });
     }
 
-    int32_t le_shape_boolean(LeHandle *handle, const LeShapeId *shapes_a, int32_t shape_a_count, const LeShapeId *shapes_b,
+    int32_t le_shape_boolean(LeHandle *handle, const LeObjectRef *shapes_a, int32_t shape_a_count, const LeObjectRef *shapes_b,
                              int32_t shape_b_count, int32_t op, LeLayerId layer, const char *purpose, LeObjectRef parent)
     {
         const char *command = op == LE_SHAPE_BOOLEAN_AND ? "shape_and" : op == LE_SHAPE_BOOLEAN_NOT ? "shape_not" : "shape_or";
@@ -6168,13 +6349,13 @@ extern "C"
                                            boolean_op, target, owner); });
     }
 
-    int32_t le_shape_to_polygon(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent)
+    int32_t le_shape_to_polygon(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent)
     {
         return run_shape_op(handle, "shape_to_polygon", layer, purpose, parent, [&](const auto &target, const auto &owner)
                             { return le::edit::shape_to_polygons(*handle, shape_ids_from_c(shapes, shape_count), target, owner); });
     }
 
-    int32_t le_shape_to_rects(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, int32_t vertical, LeLayerId layer, const char *purpose,
+    int32_t le_shape_to_rects(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count, int32_t vertical, LeLayerId layer, const char *purpose,
                               LeObjectRef parent)
     {
         return run_shape_op(handle, "shape_to_rects", layer, purpose, parent, [&](const auto &target, const auto &owner)
@@ -6183,7 +6364,7 @@ extern "C"
             return le::edit::shape_to_rects(*handle, shape_ids_from_c(shapes, shape_count), direction, target, owner); });
     }
 
-    int32_t le_shape_size(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, double dx_um, double dy_um, LeLayerId layer,
+    int32_t le_shape_size(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count, double dx_um, double dy_um, LeLayerId layer,
                           const char *purpose, LeObjectRef parent)
     {
         return run_shape_op(handle, "shape_size", layer, purpose, parent, [&](const auto &target, const auto &owner)
@@ -6195,7 +6376,7 @@ extern "C"
                                         target, owner); });
     }
 
-    int32_t le_shape_path(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, double width_um, LeLayerId layer, const char *purpose,
+    int32_t le_shape_path(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count, double width_um, LeLayerId layer, const char *purpose,
                           LeObjectRef parent)
     {
         return run_shape_op(handle, "shape_path", layer, purpose, parent, [&](const auto &target, const auto &owner)
@@ -6206,7 +6387,7 @@ extern "C"
             return le::edit::shape_outline_paths(*handle, shape_ids_from_c(shapes, shape_count), to_dbu(width_um, *dbu_per_um), target, owner); });
     }
 
-    int32_t le_shape_change_layer(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose)
+    int32_t le_shape_change_layer(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count, LeLayerId layer, const char *purpose)
     {
         if (!handle)
             return -1;
@@ -6217,7 +6398,7 @@ extern "C"
             spdlog::error("shape_change_layer: {}", target ? std::string("-layer is required") : target.error());
             return -1;
         }
-        const std::vector<le::ShapeId> ids = shape_ids_from_c(shapes, shape_count);
+        const std::vector<le::GeometryId> ids = shape_ids_from_c(shapes, shape_count);
         const auto changed = le::edit::shape_change_layer(*handle, ids, **target);
         if (!changed)
         {
@@ -6237,7 +6418,7 @@ extern "C"
         return to_c(handle->shape_op_results[static_cast<size_t>(index)]);
     }
 
-    LeShapeBbox le_shape_bbox(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count)
+    LeShapeBbox le_shape_bbox(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count)
     {
         LeShapeBbox out{};
         if (!handle)

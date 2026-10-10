@@ -52,12 +52,16 @@ TYPEMAP = {
     # An area in database units squared (LEF AREA, MINENCLOSEDAREA) - stored
     # like "dbu", but converted with the *square* of the dbu-per-micron scale.
     "dbu2": ("int64_t", int),
+    # A length in database units stored in 32 bits, for compact embedded
+    # elements whose coordinates come from DEF's 32-bit integers; displayed
+    # and filtered like "dbu".
+    "dbu32": ("int32_t", int),
 }
 
 # The schema types stored as raw database units - every one crosses the
 # TCL/API layer in microns (dbu) or square microns (dbu2), converted by
 # to_dbu/to_um or to_dbu2/to_um2.
-DBU_TYPES = ("dbu", "dbu2")
+DBU_TYPES = ("dbu", "dbu2", "dbu32")
 
 
 def _to_dbu_fn(type_name: str) -> str:
@@ -2359,12 +2363,14 @@ class Klass:
         get_struct_fields() - reachable only through Root's own
         child-list/child accessor) alongside ordinary reference struct
         fields, so this uses the full field list rather than
-        get_struct_fields().
+        get_struct_fields(). An embedded class's reference to a pooled
+        class isn't a hop: resolving it needs the Root, which an embedded
+        value's match_hop() doesn't take.
         """
         return [
             f
             for f in self.get_ordered_fields()
-            if f.is_reference() and not f._type_klass.is_enum
+            if f.is_reference() and not f._type_klass.is_enum and (self.has_pool or not f._type_klass.has_pool)
         ]
 
     def get_updatable_fields(self):
@@ -2773,7 +2779,7 @@ class Field:
         its flag actually takes a Tcl list of several such records.
         """
         # dbu/dbu2 values cross the TCL layer in microns / square microns.
-        label = {"dbu": "um", "dbu2": "um2"}.get(self.type, self.type)
+        label = {"dbu": "um", "dbu2": "um2", "dbu32": "um"}.get(self.type, self.type)
         return f"{label}..." if self.is_list else label
 
     def compound_klass(self) -> Optional[Klass]:

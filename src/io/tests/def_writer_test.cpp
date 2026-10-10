@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <fmt/format.h>
 #include "../../database/library_helpers.hpp"
 #include "../def_reader.hpp"
 #include "../def_writer.hpp"
+#include "../../database/wire_helpers.hpp"
 
 namespace le
 {
@@ -606,5 +608,69 @@ namespace le
             "\"{}\" \"{}\" \"{}\" \"{}\" \"{}\" 0 0 0 0 > /dev/null 2>&1",
             DEFDIFF_BIN, complete_fixture_path(), written_path, dump1_path, dump2_path);
         ASSERT_EQ(std::system(command.c_str()), 0) << "defdiff itself failed to run: " << command;
+    }
+
+    // Wires and the Shapes beside them come back from a write and re-read
+    // as the same Wires and Shapes.
+    TEST(DEFWriterRouteWires, WiresAndTheirFallbackShapesRoundTrip)
+    {
+        auto read = [](Root &root, const std::string &path) -> LayoutId
+        {
+            const TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING", .width = 100});
+            root.create_layer(LayerData{.technology = technology_id, .name = "V1", .type = "CUT"});
+            root.create_layer(LayerData{.technology = technology_id, .name = "M2", .type = "ROUTING", .width = 100});
+            root.create_via(ViaData{.technology = technology_id, .name = "TECH_VIA"});
+            DEFReader reader;
+            EXPECT_EQ(reader.read_def(path, root, "test_lib"), 0);
+            return root.get_design_layout(find_design_by_name(root, "route_wires_test"));
+        };
+        auto describe_shape = [](const Root &root, const ShapeData &shape)
+        {
+            std::string text = root.get_layer(shape.layer)->name;
+            for (const Path &path : shape.paths)
+            {
+                text += " path " + std::to_string(path.width);
+                for (const Point &point : path.polygon.points)
+                    text += fmt::format(" ({} {})", point.x, point.y);
+            }
+            for (const ShapeVia &via : shape.vias)
+                text += fmt::format(" via {} ({} {}) {} {}", via.via_name, via.origin.x, via.origin.y,
+                                    via.orientation ? to_string(*via.orientation) : "-", via.width.value_or(-1));
+            for (const ShapeViaIterate &via : shape.via_iterates)
+                text += fmt::format(" array {} {}x{}", via.via_name, via.num_x, via.num_y);
+            return text;
+        };
+        // Every route's Wires and Shapes, as one comparable string each.
+        auto describe = [&](const Root &root, LayoutId layout_id)
+        {
+            std::map<std::string, std::vector<std::string>> routes;
+            for (const RouteId route_id : root.get_layout_routes(layout_id))
+            {
+                auto &out = routes[root.get_route(route_id)->name];
+                for (const WireId wire_id : root.get_route_wires(route_id))
+                    out.push_back("wire " + describe_shape(root, wire_to_shape(root, *root.get_wire(wire_id))));
+                for (const ShapeId shape_id : root.get_route_shapes(route_id))
+                    out.push_back("shape " + describe_shape(root, *root.get_shape(shape_id)));
+            }
+            return routes;
+        };
+
+        Root original;
+        const LayoutId original_layout = read(original, std::string(IO_TEST_FIXTURES_DIR) + "/route_wires.def");
+        ASSERT_TRUE(original_layout.valid());
+        const std::string written_path = scratch_output_path("le_def_writer_route_wires.def");
+        ASSERT_EQ(DEFWriter().write_def(written_path, original, original_layout), 0);
+
+        Root written;
+        const LayoutId written_layout = read(written, written_path);
+        ASSERT_TRUE(written_layout.valid());
+        const auto before = describe(original, original_layout);
+        EXPECT_EQ(before.at("A"), (std::vector<std::string>{
+                                      "wire M1 path 100 (0 0) (1000 0) (1000 2000) via TECH_VIA (1000 2000) - 100",
+                                      "wire M2 via DESIGN_VIA (1000 2000) FS 100",
+                                      "shape M1 path 100 (0 0) (500 500) via UNKNOWN_VIA (3000 0) - 100",
+                                  }));
+        EXPECT_EQ(describe(written, written_layout), before);
     }
 }

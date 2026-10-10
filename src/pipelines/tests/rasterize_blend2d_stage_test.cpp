@@ -256,7 +256,7 @@ TEST_F(RasterizeBlend2DStageFixture, ChunkVisibilityMasksHideRouteShapesAndPlace
         {
             std::vector<bool> bits(it->second.size());
             for (std::size_t i = 0; i < bits.size(); ++i)
-                bits[i] = it->second[i] == hidden_shape;
+                bits[i] = it->second[i].shape == hidden_shape;
             visibility.hidden_shapes.emplace(route_layer, std::move(bits));
         }
         for (const PlacementId id : sources->placements)

@@ -1,11 +1,11 @@
 {
-  "version": "0.50.0",
-  "fingerprint": "3f26e3b72b57d1a1",
+  "version": "0.52.0",
+  "fingerprint": "dff7363ce1677cc3",
   "descriptor": {
     "format": 1,
     "name": "layout_engine",
     "namespace": "le",
-    "version": "0.50.0",
+    "version": "0.52.0",
     "classes": [
       {
         "name": "Technology",
@@ -2607,7 +2607,8 @@
             "name": "name",
             "kind": "scalar",
             "type": "str",
-            "index": true
+            "index": true,
+            "unique_per_parent": true
           },
           {
             "name": "abstract",
@@ -4030,10 +4031,133 @@
             "presence": true
           },
           {
+            "name": "wires",
+            "kind": "child",
+            "type": "Wire",
+            "list": true
+          },
+          {
             "name": "shapes",
             "kind": "child",
             "type": "Shape",
             "list": true
+          }
+        ]
+      },
+      {
+        "name": "Wire",
+        "kind": "pooled",
+        "fields": [
+          {
+            "name": "route",
+            "kind": "parent",
+            "type": "Route",
+            "parent_field": "wires"
+          },
+          {
+            "name": "layer",
+            "kind": "ref",
+            "type": "Layer"
+          },
+          {
+            "name": "segments",
+            "kind": "struct",
+            "type": "WireSegment",
+            "list": true
+          },
+          {
+            "name": "vias",
+            "kind": "struct",
+            "type": "WireVia",
+            "list": true
+          },
+          {
+            "name": "widths",
+            "kind": "scalar",
+            "type": "dbu",
+            "list": true
+          }
+        ]
+      },
+      {
+        "name": "WireSegment",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "x",
+            "kind": "scalar",
+            "type": "dbu32"
+          },
+          {
+            "name": "y",
+            "kind": "scalar",
+            "type": "dbu32"
+          },
+          {
+            "name": "length",
+            "kind": "scalar",
+            "type": "dbu32"
+          },
+          {
+            "name": "vertical",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "continues",
+            "kind": "scalar",
+            "type": "bool"
+          },
+          {
+            "name": "width_index",
+            "kind": "scalar",
+            "type": "unsigned char"
+          },
+          {
+            "name": "mask",
+            "kind": "scalar",
+            "type": "unsigned char"
+          }
+        ]
+      },
+      {
+        "name": "WireVia",
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "via",
+            "kind": "ref",
+            "type": "Via"
+          },
+          {
+            "name": "layout_via",
+            "kind": "ref",
+            "type": "LayoutVia"
+          },
+          {
+            "name": "x",
+            "kind": "scalar",
+            "type": "dbu32"
+          },
+          {
+            "name": "y",
+            "kind": "scalar",
+            "type": "dbu32"
+          },
+          {
+            "name": "orientation",
+            "kind": "enum",
+            "type": "Orientation"
+          },
+          {
+            "name": "width_index",
+            "kind": "scalar",
+            "type": "unsigned char"
+          },
+          {
+            "name": "mask",
+            "kind": "scalar",
+            "type": "unsigned short"
           }
         ]
       },

@@ -48,6 +48,7 @@ namespace
         void SetUp() override
         {
             technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            m1 = root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING", .width = 4});
             view_layers_handle = std::make_shared<const ViewLayerSet>(ViewLayerSet::build_for_technology(root, technology_id));
 
             const LibraryId library_id = root.create_library(LibraryData{.name = "LIB"});
@@ -79,6 +80,7 @@ namespace
 
         Root root;
         TechnologyId technology_id;
+        LayerId m1;
         ViewLayerSetHandle view_layers_handle;
         LayoutId block_layout;
         LayoutId top_layout;
@@ -303,6 +305,24 @@ TEST_F(ViewportCullStageFixture, AHiddenRouteUseMasksExactlyItsRoutesShapes)
 
     const HierarchyResolverOutput &unset_hidden = cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, with_hidden(everything, {.route_uses = {"SIGNAL"}})); // n1 has no USE
     EXPECT_EQ(hidden_counts(unset_hidden.view_data.at(HierarchyId{top_layout})), (std::pair<std::size_t, std::size_t>{1, 0}));
+}
+
+TEST_F(ViewportCullStageFixture, AHiddenRouteUseMasksItsWiresToo)
+{
+    const RouteId power = root.create_route(RouteData{.layout = top_layout, .name = "VDD", .use = std::string("POWER")});
+    WireBuilder builder(root, m1);
+    ASSERT_TRUE(builder.add_path(Path{.width = 4, .polygon = {.points = {Point{0, 0}, Point{50, 0}}}}));
+    root.create_wire(std::move(builder).build(power));
+    const RouteId signal = root.create_route(RouteData{.layout = top_layout, .name = "n1", .use = std::string("SIGNAL")});
+    WireBuilder signal_builder(root, m1);
+    ASSERT_TRUE(signal_builder.add_path(Path{.width = 4, .polygon = {.points = {Point{0, 10}, Point{50, 10}}}}));
+    root.create_wire(std::move(signal_builder).build(signal));
+    root.bump_mutation_version();
+    hierarchy_resolver_runner.run(view_layers_handle, 0, options_with_viewport(Rect{}));
+    const ViewRenderOptions everything = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
+
+    const HierarchyResolverOutput &power_hidden = cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, with_hidden(everything, {.route_uses = {"POWER"}}));
+    EXPECT_EQ(hidden_counts(power_hidden.view_data.at(HierarchyId{top_layout})), (std::pair<std::size_t, std::size_t>{1, 0}));
 }
 
 TEST_F(ViewportCullStageFixture, MasksAreReusedAcrossPansAndEditsAndRebuiltWhenTheFilterChanges)

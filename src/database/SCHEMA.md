@@ -16,6 +16,7 @@ LEF/DEF and Verilog both use different terminology for various aspects of a data
 | PhysicalPort      | Physical top-level port of a Layout                      | DEF PIN              |
 | Placement         | Physical placement of an Instance                        | DEF COMPONENT        |
 | Route             | Physical routing of a Net                                | DEF NET/SPECIALNET   |
+| Wire              | A Route's Manhattan wiring and vias on one layer         | DEF ROUTED/NEW paths |
 | Abstract          | Footprint of cell defined from LEF                       | LEF MACRO            |
 | Terminal          | Physical top-level port of an Abstract                   | LEF PIN              |
 | TerminalPort      | Physically separate part of a Terminal                   | LEF PORT             |

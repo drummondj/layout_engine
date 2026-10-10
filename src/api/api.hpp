@@ -2469,10 +2469,17 @@ extern "C"
     /// this handle, or path_index is out of range.
     int le_remove_shape_path(LeHandle *handle, LeShapeId id, int32_t path_index);
 
+    /// @brief le_remove_shape_path for a Wire: removes its `path_index`th
+    /// path (a run of segments, as le_wire_* reads them). Returns 0 on
+    /// success, nonzero if `id` isn't a Wire or the index is out of range.
+    int le_remove_wire_path(LeHandle *handle, LeWireId id, int32_t path_index);
+
     // --- shape_* operations ---
     //
-    // Each creates new Shapes from existing ones (src/geometry/
-    // shape_ops.hpp) and returns how many it created (>= 0, possibly 0 for
+    // Each creates new Shapes from existing Shapes or Wires - `shapes` are
+    // LE_OBJECT_KIND_SHAPE or LE_OBJECT_KIND_WIRE refs, a Wire read as the
+    // Shape it converts to (src/geometry/
+    // shape_ops.hpp) - and returns how many it created (>= 0, possibly 0 for
     // e.g. an empty AND), or -1 on failure with the reason logged via
     // spdlog. The new ids are then readable via le_shape_op_result_at
     // until the next shape_* call. Every op works on each input Shape's
@@ -2501,40 +2508,40 @@ extern "C"
     } LeShapeBooleanOp;
 
     /// @brief One new Shape per input, same geometry, on `layer` (required).
-    int32_t le_shape_copy(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent);
+    int32_t le_shape_copy(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent);
 
     /// @brief One new Shape holding `op` (LeShapeBooleanOp) of every shape
     /// in `shapes_a` against every shape in `shapes_b` (both non-empty);
     /// on shapes_a[0]'s own layer unless `layer` is given. A region with
     /// holes comes back as exact rects (a Polygon can't hold a hole).
-    int32_t le_shape_boolean(LeHandle *handle, const LeShapeId *shapes_a, int32_t shape_a_count, const LeShapeId *shapes_b,
+    int32_t le_shape_boolean(LeHandle *handle, const LeObjectRef *shapes_a, int32_t shape_a_count, const LeObjectRef *shapes_b,
                              int32_t shape_b_count, int32_t op, LeLayerId layer, const char *purpose, LeObjectRef parent);
 
     /// @brief One new polygon-only Shape per input.
-    int32_t le_shape_to_polygon(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent);
+    int32_t le_shape_to_polygon(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count, LeLayerId layer, const char *purpose, LeObjectRef parent);
 
     /// @brief One new rect-only Shape per input, non-overlapping - `vertical`
     /// nonzero cuts with vertical lines (vertical strips), else horizontal.
-    int32_t le_shape_to_rects(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, int32_t vertical, LeLayerId layer, const char *purpose,
+    int32_t le_shape_to_rects(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count, int32_t vertical, LeLayerId layer, const char *purpose,
                               LeObjectRef parent);
 
     /// @brief One new Shape per input, grown (positive) or shrunk
     /// (negative) by dx_um/dy_um. Different X/Y amounts need rectilinear
     /// input. A shape shrunk away entirely creates nothing.
-    int32_t le_shape_size(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, double dx_um, double dy_um, LeLayerId layer,
+    int32_t le_shape_size(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count, double dx_um, double dy_um, LeLayerId layer,
                           const char *purpose, LeObjectRef parent);
 
     /// @brief One new path-only Shape per input: a closed path of width_um
     /// along its outline (and any holes), plus its own input paths
     /// re-stroked at width_um.
-    int32_t le_shape_path(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, double width_um, LeLayerId layer, const char *purpose,
+    int32_t le_shape_path(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count, double width_um, LeLayerId layer, const char *purpose,
                           LeObjectRef parent);
 
     /// @brief Puts each shape in place onto `layer` (or the layer-less
-    /// `purpose`), clearing whichever of the two it doesn't set; geometry,
-    /// position and owner are unchanged. Returns how many changed, or -1
+    /// `purpose`, not for a Wire), clearing whichever of the two it doesn't
+    /// set; geometry, position and owner are unchanged. Returns how many changed, or -1
     /// (nothing changed) on failure. Records an exact undo per shape.
-    int32_t le_shape_change_layer(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count, LeLayerId layer, const char *purpose);
+    int32_t le_shape_change_layer(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count, LeLayerId layer, const char *purpose);
 
     /// @brief The `index`th Shape created by the most recent le_shape_* call
     /// (invalid id if out of range).
@@ -2550,7 +2557,7 @@ extern "C"
     } LeShapeBbox;
 
     /// @brief The bbox of every given shape together, in microns. Creates nothing.
-    LeShapeBbox le_shape_bbox(LeHandle *handle, const LeShapeId *shapes, int32_t shape_count);
+    LeShapeBbox le_shape_bbox(LeHandle *handle, const LeObjectRef *shapes, int32_t shape_count);
 
     // --- Generated TCL property-reading, create_<type>, update_<type>,
     // and delete_<type> surface (see CLAUDE.md's TCL section) -

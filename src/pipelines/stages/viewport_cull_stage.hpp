@@ -354,14 +354,20 @@ namespace le
 
             ChunkVisibility visibility;
             if (!filter_.hidden_routes.empty())
-                for (const auto &[layer, shape_ids] : chunk.sources->shapes)
+                for (const auto &[layer, sources] : chunk.sources->shapes)
                 {
-                    std::vector<bool> hidden(shape_ids.size());
+                    std::vector<bool> hidden(sources.size());
                     bool any = false;
-                    for (std::size_t i = 0; i < shape_ids.size(); ++i)
-                        if (const ShapeData *shape = root.get_shape(shape_ids[i]);
-                            shape && shape->route().valid() && shape->route().index < filter_.hidden_routes.size() && filter_.hidden_routes[shape->route().index])
+                    for (std::size_t i = 0; i < sources.size(); ++i)
+                    {
+                        RouteId route;
+                        if (const ShapeData *shape = root.get_shape(sources[i].shape))
+                            route = shape->route();
+                        else if (const WireData *wire = root.get_wire(sources[i].wire))
+                            route = wire->route;
+                        if (route.valid() && route.index < filter_.hidden_routes.size() && filter_.hidden_routes[route.index])
                             hidden[i] = any = true;
+                    }
                     if (any)
                         visibility.hidden_shapes.emplace(layer, std::move(hidden));
                 }

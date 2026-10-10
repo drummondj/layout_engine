@@ -4,13 +4,13 @@
 # free-standing shapes staying out of write_def's output.
 #
 # argv: <le_tcl shared module> <le_tcl_procs.tcl> <many_routing_layers.lef>
-#       <testcell.lef> <testcell.def>
+#       <testcell.lef> <testcell.def> <wires.def>
 
-if {[llength $argv] != 5} {
-    puts stderr "usage: shape_ops_test.tcl <le_tcl.so> <le_tcl_procs.tcl> <many_routing_layers.lef> <testcell.lef> <testcell.def>"
+if {[llength $argv] != 6} {
+    puts stderr "usage: shape_ops_test.tcl <le_tcl.so> <le_tcl_procs.tcl> <many_routing_layers.lef> <testcell.lef> <testcell.def> <wires.def>"
     exit 2
 }
-lassign $argv module_path procs_path layers_lef cell_lef cell_def
+lassign $argv module_path procs_path layers_lef cell_lef cell_def wires_def
 
 proc check {what expected actual} {
     if {$expected ne $actual} {
@@ -227,5 +227,32 @@ check_error "a second diearea for one layout" \
     {create_shape -layout $layout -purpose BOUNDARY -rects {{{0 0} {50 50}}}} \
     "create_shape: failed*"
 check "the first diearea is still the layout's" $diearea [get_shapes -of $layout -filter {.purpose == BOUNDARY}]
+
+# --- a DEF route's wiring is a Wire, which the shape commands take ---
+check "read wires.def" 0 [read_def -library shape_ops $wires_def]
+open_design WIRES -view layout
+set route [get_routes N1]
+set wire [get_wires -of $route]
+check "N1's M1 wiring is one Wire" 1 [llength $wire]
+check "...on M1" M1 [get_properties $wire .layer.name]
+check "...and no Shapes" {} [get_shapes -of $route]
+check "shape_bbox of a wire" {{-0.5 -0.5} {40.5 20.5}} [shape_bbox $wire]
+set wire_copy [shape_copy $wire -layer layer:M2]
+check "shape_copy of a wire makes a Shape" M2 [layer_of $wire_copy]
+check "...with its two paths" 2 [shape_path_count $wire_copy]
+check "shape_and of a wire" {{9.5 5} {10.5 6}} [shape_bbox [shape_and $wire -with [create_shape -layer layer:M1 -rects {{{0 5} {50 6}}}]]]
+deselect_all
+select $wire
+check "a selected wire's pieces come back as its token, once" [list $wire] [get_selection]
+check "shape_copy of a selected wire makes one copy" 1 [llength [shape_copy [get_selection] -layer layer:M2]]
+check "shape ops take a selected wire" {{-0.5 -0.5} {40.5 20.5}} [shape_bbox [get_selection]]
+check "...and make Shapes of it" 1 [llength [shape_or [get_selection] -with [get_selection]]]
+deselect_all
+check "shape_change_layer moves a wire" $wire [shape_change_layer $wire -layer layer:M3]
+check "...onto M3" M3 [get_properties $wire .layer.name]
+check_error "a wire can't go onto a purpose" {shape_change_layer $wire -layer debug} "shape_change_layer: failed*"
+check "remove_shape_path on a wire" 0 [remove_shape_path $wire 0]
+check "...leaves its other path" {{29.5 -0.5} {40.5 0.5}} [shape_bbox $wire]
+check_true "...out of range" [expr {[remove_shape_path $wire 1] != 0}]
 
 puts "all shape_ops checks passed"

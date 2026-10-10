@@ -1217,21 +1217,25 @@ register_command_help deselect_all \
 
 # get_selection/select, the script-driven counterpart to
 # select_all/deselect_all/a real mouse click. Only
-# shape:/row:/placement:/region: tokens are meaningful (the kinds
+# shape:/wire:/row:/placement:/region: tokens are meaningful (the kinds
 # LeHandle::SelectedObject covers, see
-# le_select_object_ref's own api.hpp comment) - selecting a shape:
-# token selects every one of its rects/polygons/paths, not one piece,
+# le_select_object_ref's own api.hpp comment) - selecting a shape: or
+# wire: token selects every one of its pieces, not one piece,
 # since piece-level granularity has no meaning outside a real mouse
 # hit-test.
 proc get_selection {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "get_selection \[-help\] - Returns the current selection as a list of tokens"
     }
+    # One token per object, in selection order: several selected pieces
+    # of one shape or wire are still one token.
     set result {}
+    set seen [dict create]
     set count [selection_count_cmd]
     for {set i 0} {$i < $count} {incr i} {
         set token [get_selection_at_cmd $i]
-        if {$token ne {}} {
+        if {$token ne {} && ![dict exists $seen $token]} {
+            dict set seen $token 1
             lappend result $token
         }
     }
@@ -1239,14 +1243,14 @@ proc get_selection {args} {
 }
 register_command_help get_selection \
     "get_selection \[-help\]" \
-    "Returns the selection as a list of tokens (shape:, row:, placement:, region:) - the form select accepts." \
+    "Returns the selection as a list of tokens (shape:, wire:, row:, placement:, region:), each object once - the form select accepts." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
 proc select {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
-        return "select <tokens> \[-help\] - Adds the given shape:/row:/placement:/region: tokens to the current selection"
+        return "select <tokens> \[-help\] - Adds the given shape:/wire:/row:/placement:/region: tokens to the current selection"
     }
     if {[llength $args] < 1} {
         error "select: expected at least one <token>, got \"$args\""
@@ -1254,7 +1258,7 @@ proc select {args} {
     foreach token $args {
         set status [select_cmd $token]
         if {$status == 2} {
-            error "select: unrecognized token \"$token\" (expected a shape:/row:/placement:/region: token)"
+            error "select: unrecognized token \"$token\" (expected a shape:/wire:/row:/placement:/region: token)"
         } elseif {$status != 0} {
             error "select: failed to select \"$token\" - see the terminal log for the specific reason"
         }
@@ -1262,10 +1266,10 @@ proc select {args} {
     return ""
 }
 register_command_help select \
-    "select <tokens> \[-help\] - Adds the given shape:/row:/placement:/region: tokens to the current selection" \
-    "Adds each token to the selection, keeping what's already selected (use deselect_all first to replace it). A shape: token selects all of that shape's rects, polygons and paths." \
+    "select <tokens> \[-help\] - Adds the given shape:/wire:/row:/placement:/region: tokens to the current selection" \
+    "Adds each token to the selection, keeping what's already selected (use deselect_all first to replace it). A shape: or wire: token selects all of its rects, polygons, paths and vias." \
     {
-        {<tokens> {type token required 1 description {One or more shape:/row:/placement:/region: tokens to select}}}
+        {<tokens> {type token required 1 description {One or more shape:/wire:/row:/placement:/region: tokens to select}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
@@ -2335,7 +2339,7 @@ register_command_help remove_shape_polygon \
 rename remove_shape_path _remove_shape_path_cmd
 proc remove_shape_path {id args} {
     if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "remove_shape_path <id> <path_index> \[-help\] - Removes the path at <path_index> from Shape <id>"
+        return "remove_shape_path <id> <path_index> \[-help\] - Removes the path at <path_index> from Shape or Wire <id>"
     }
     if {[llength $args] != 1} {
         error "remove_shape_path: expected exactly 2 arguments (id, path_index), got [expr {1 + [llength $args]}]"
@@ -2344,23 +2348,23 @@ proc remove_shape_path {id args} {
 }
 register_command_help remove_shape_path \
     "remove_shape_path <id> <path_index> \[-help\]" \
-    "Removes the path at <path_index> from a shape; later paths move down one index. Returns 0, or nonzero if the shape or index doesn't exist." \
+    "Removes the path at <path_index> from a shape or wire; later paths move down one index. Returns 0, or nonzero if the shape or index doesn't exist." \
     {
-        {<id> {type token required 1 description {A shape: token}}}
+        {<id> {type token required 1 description {A shape: or wire: token}}}
         {<path_index> {type int required 1 description {Path index, from 0}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
 # --- shape_* operations ---
 #
-# Every operation works on each input Shape's own merged area (its rects,
-# polygons and stroked paths together). New Shapes go to the current
+# Every operation works on each input Shape's or Wire's own merged area (its
+# rects, polygons and stroked paths together). New Shapes go to the current
 # Abstract/Layout's free-standing shapes (Abstract/Layout.free_shapes -
 # never written by write_lef/write_def) unless -parent names somewhere
 # else; see le_shape_*'s own api.hpp comment.
 
 # Parses a shape_* command's arguments: every non-flag argument is a shape
-# token or a *list* of them - so [get_selection]/[get_shapes ...] can be
+# or wire token or a *list* of them - so [get_selection]/[get_shapes ...] can be
 # passed straight in - flattened in order into the returned dict's `shapes`.
 # `flags` maps each allowed -flag to its default value.
 proc _parse_shape_op_args {name arglist flags} {
@@ -2431,7 +2435,7 @@ register_command_help shape_copy \
     "shape_copy <shapes> -layer <token> \[-parent <token>\] \[-help\] - Copies shapes onto another layer" \
     "Creates one new Shape per input shape, with the same geometry, on -layer. The originals are untouched. New Shapes go to the current Abstract/Layout's free-standing shapes (not written by write_lef/write_def) unless -parent names an abstract, layout, obstruction, terminal_port, route, blockage or physical_port_segment to add them to. Returns the new shape tokens." \
     {
-        {<shapes> {type token... required 1 description {Shape tokens, or lists of them (e.g. [get_selection])}}}
+        {<shapes> {type token... required 1 description {Shape or wire tokens, or lists of them (e.g. [get_selection])}}}
         {-layer {type token required 1 description {The layer to copy onto, or debug for the debug layer}}}
         {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
@@ -2460,7 +2464,7 @@ register_command_help shape_change_layer \
     "shape_change_layer <shapes> -layer <token> \[-help\] - Changes the layer of shapes" \
     "Puts each shape onto -layer in place (its geometry, position and owner are unchanged); -layer debug puts it on the debug layer (drawn on top of everything in light blue). All-or-nothing: an unknown shape changes nothing. Undoable. Returns the same shape tokens." \
     {
-        {<shapes> {type token... required 1 description {Shape tokens, or lists of them (e.g. [get_selection])}}}
+        {<shapes> {type token... required 1 description {Shape or wire tokens, or lists of them (e.g. [get_selection])}}}
         {-layer {type token required 1 description {The layer to move onto, or debug for the debug layer}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
@@ -2517,7 +2521,7 @@ register_command_help shape_to_polygon \
     "shape_to_polygon <shapes> \[-layer <token>\] \[-parent <token>\] \[-help\] - Converts shapes to polygons" \
     "Creates one new polygon-only Shape per input shape, covering its merged area. A region with holes is split into exact rectangular polygons (a polygon can't hold a hole). Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
     {
-        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {<shapes> {type token... required 1 description {Shape or wire tokens, or lists of them}}}
         {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
         {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
@@ -2540,7 +2544,7 @@ register_command_help shape_to_rects \
     "shape_to_rects <shapes> \[-direction horizontal|vertical\] \[-layer <token>\] \[-parent <token>\] \[-help\] - Converts shapes to rects" \
     "Creates one new rect-only Shape per input shape, fracturing its merged area into non-overlapping rects: -direction horizontal (the default) cuts with horizontal lines, giving horizontal strips; vertical gives vertical strips. Exact for axis-aligned geometry; a diagonal edge is over-covered by its strip's bounding box. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
     {
-        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {<shapes> {type token... required 1 description {Shape or wire tokens, or lists of them}}}
         {-direction {type str required 0 description {horizontal (default) or vertical fracturing}}}
         {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
         {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}
@@ -2563,7 +2567,7 @@ register_command_help shape_bbox \
     "shape_bbox <shapes> \[-help\] - Returns the bounding box of shapes" \
     "Returns the bounding box of every given shape together as a Rect, {{llx lly} {urx ury}} in microns - the same form -bbox/-rects flags and zoom_area take (zoom_area \[shape_bbox ...\]). Creates nothing." \
     {
-        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {<shapes> {type token... required 1 description {Shape or wire tokens, or lists of them}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
@@ -2589,7 +2593,7 @@ register_command_help shape_size \
     "shape_size <shapes> \[-by <um>\] \[-x <um>\] \[-y <um>\] \[-layer <token>\] \[-parent <token>\] \[-help\] - Grows or shrinks shapes" \
     "Creates one new Shape per input shape: its merged area grown (positive) or shrunk (negative) by -x microns in X and -y in Y (-by sets both; an explicit -x/-y overrides it). Exact for axis-aligned geometry with any X/Y amounts; other geometry only supports equal X and Y. A shape shrunk away entirely creates nothing. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
     {
-        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {<shapes> {type token... required 1 description {Shape or wire tokens, or lists of them}}}
         {-by {type um required 0 description {Grow (positive) or shrink (negative) by this in both X and Y, in microns}}}
         {-x {type um required 0 description {Grow/shrink in X, in microns - overrides -by}}}
         {-y {type um required 0 description {Grow/shrink in Y, in microns - overrides -by}}}
@@ -2615,7 +2619,7 @@ register_command_help shape_path \
     "shape_path <shapes> -width <um> \[-layer <token>\] \[-parent <token>\] \[-help\] - Creates paths along shape outlines" \
     "Creates one new path-only Shape per input shape: a closed path of -width microns along the outline of its merged rects/polygons (and around any holes), plus each of its own paths' centerlines re-stroked at -width. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens." \
     {
-        {<shapes> {type token... required 1 description {Shape tokens, or lists of them}}}
+        {<shapes> {type token... required 1 description {Shape or wire tokens, or lists of them}}}
         {-width {type um required 1 description {Path width, in microns}}}
         {-layer {type token required 0 description {Layer for the results (or debug for the debug layer) - defaults to each input's own}}}
         {-parent {type token required 0 description {Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes}}}

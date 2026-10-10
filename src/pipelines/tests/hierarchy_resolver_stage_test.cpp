@@ -635,6 +635,51 @@ TEST_F(IncrementalFixture, EditingAndDeletingARouteRebuildsOnlyTheRoutesChunk)
     EXPECT_TRUE(runner.stage().last_compute_was_incremental());
 }
 
+TEST_F(IncrementalFixture, AWireDrawsOnItsLayersRouteRowAndAnEditToItRebuildsOnlyItsTile)
+{
+    const RouteId route = root.create_route(RouteData{.layout = top_layout});
+    const ViaId via = root.create_via(ViaData{.technology = technology_id, .name = "VIA1"});
+    root.create_via_layer(ViaLayerData{.via = via, .layer_name = "M1", .rects = {Rect{.ll = Point{-5, -5}, .ur = Point{5, 5}}}});
+    WireBuilder builder(root, m1);
+    ASSERT_TRUE(builder.add_path(Path{.width = 4, .polygon = {.points = {Point{0, 0}, Point{50, 0}, Point{50, 30}}}}));
+    ASSERT_TRUE(builder.add_via(WireViaTarget{.via = via}, Point{50, 30}, Orientation::N, 0, 4));
+    const WireId wire = root.create_wire(std::move(builder).build(route));
+    const HierarchyResolverOutput before = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
+
+    // Its path (one polyline) and its via's M1 rect, both from the Wire.
+    const ViewLayerId route_layer = view_layers.find(m1, ViewLayerPurpose::ROUTE);
+    std::vector<std::size_t> point_counts;
+    std::size_t via_rects = 0;
+    for (const ViewShapeChunk &chunk : before.view_data.at(HierarchyId{top_layout}).chunks)
+    {
+        if (!chunk.sources || !chunk.shapes->contains(route_layer))
+            continue;
+        const std::vector<RenderShape> &shapes = chunk.shapes->at(route_layer);
+        const std::vector<GeometryId> &sources = chunk.sources->shapes.at(route_layer);
+        ASSERT_EQ(sources.size(), shapes.size());
+        for (std::size_t i = 0; i < shapes.size(); ++i)
+        {
+            EXPECT_EQ(sources[i], GeometryId::of(wire));
+            for (const Path &path : shapes[i].paths)
+                point_counts.push_back(path.polygon.points.size());
+            via_rects += shapes[i].rects.size();
+        }
+    }
+    EXPECT_EQ(point_counts, std::vector<std::size_t>{3});
+    EXPECT_EQ(via_rects, 1u);
+
+    root.get_wire(wire)->segments[1].length = 40;
+    root.note_wire_changed(wire);
+    const HierarchyResolverOutput edited = rerun_and_compare();
+    EXPECT_TRUE(runner.stage().last_compute_was_incremental());
+    EXPECT_EQ(rebuilt_chunks(before, edited, HierarchyId{top_layout}), 1u); // its route tile
+
+    ASSERT_TRUE(root.delete_wire(wire));
+    ASSERT_TRUE(root.delete_route(route));
+    rerun_and_compare();
+    EXPECT_TRUE(runner.stage().last_compute_was_incremental());
+}
+
 TEST_F(IncrementalFixture, EditingACellsTerminalRebuildsOnlyThatCell)
 {
     const HierarchyResolverOutput before = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
@@ -817,10 +862,11 @@ TEST_F(HierarchyResolverStageFixture, ChunkSourcesNameTheObjectBehindEverySelect
                 continue;
             }
             ASSERT_TRUE(chunk.sources->shapes.contains(layer));
-            const std::vector<ShapeId> &sources = chunk.sources->shapes.at(layer);
+            const std::vector<GeometryId> &sources = chunk.sources->shapes.at(layer);
             ASSERT_EQ(sources.size(), shapes.size()); // index-parallel
-            for (const ShapeId id : sources)
+            for (const GeometryId source : sources)
             {
+                const ShapeId id = source.shape;
                 if (layer == view_layers.port_marker_view_layer())
                 {
                     EXPECT_FALSE(id.valid());

@@ -66,50 +66,88 @@ namespace le::edit
         }
     }
 
-    ShapeOpResult shape_copy(LeHandle &handle, const std::vector<ShapeId> &shapes, const shape_ops::LayerOrPurpose &layer,
+    ShapeOpResult shape_copy(LeHandle &handle, const std::vector<GeometryId> &shapes, const shape_ops::LayerOrPurpose &layer,
                              const std::optional<shape_ops::ShapeParent> &parent)
     {
         return run_creating(handle, parent, [&](const shape_ops::ShapeParent &owner)
                             { return shape_ops::copy(handle.root, shapes, layer, owner); });
     }
 
-    ShapeOpResult shape_boolean(LeHandle &handle, const std::vector<ShapeId> &a, const std::vector<ShapeId> &b, BooleanOp op,
+    ShapeOpResult shape_boolean(LeHandle &handle, const std::vector<GeometryId> &a, const std::vector<GeometryId> &b, BooleanOp op,
                                 const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent)
     {
         return run_creating(handle, parent, [&](const shape_ops::ShapeParent &owner)
                             { return shape_ops::boolean(handle.root, a, b, op, layer, owner); });
     }
 
-    ShapeOpResult shape_to_polygons(LeHandle &handle, const std::vector<ShapeId> &shapes, const std::optional<shape_ops::LayerOrPurpose> &layer,
+    ShapeOpResult shape_to_polygons(LeHandle &handle, const std::vector<GeometryId> &shapes, const std::optional<shape_ops::LayerOrPurpose> &layer,
                                     const std::optional<shape_ops::ShapeParent> &parent)
     {
         return run_creating(handle, parent, [&](const shape_ops::ShapeParent &owner)
                             { return shape_ops::to_polygons(handle.root, shapes, layer, owner); });
     }
 
-    ShapeOpResult shape_to_rects(LeHandle &handle, const std::vector<ShapeId> &shapes, FractureDirection direction,
+    ShapeOpResult shape_to_rects(LeHandle &handle, const std::vector<GeometryId> &shapes, FractureDirection direction,
                                  const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent)
     {
         return run_creating(handle, parent, [&](const shape_ops::ShapeParent &owner)
                             { return shape_ops::to_rects(handle.root, shapes, direction, layer, owner); });
     }
 
-    ShapeOpResult shape_size(LeHandle &handle, const std::vector<ShapeId> &shapes, int64_t dx, int64_t dy,
+    ShapeOpResult shape_size(LeHandle &handle, const std::vector<GeometryId> &shapes, int64_t dx, int64_t dy,
                              const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent)
     {
         return run_creating(handle, parent, [&](const shape_ops::ShapeParent &owner)
                             { return shape_ops::size(handle.root, shapes, dx, dy, layer, owner); });
     }
 
-    ShapeOpResult shape_outline_paths(LeHandle &handle, const std::vector<ShapeId> &shapes, int64_t width,
+    ShapeOpResult shape_outline_paths(LeHandle &handle, const std::vector<GeometryId> &shapes, int64_t width,
                                       const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent)
     {
         return run_creating(handle, parent, [&](const shape_ops::ShapeParent &owner)
                             { return shape_ops::outline_paths(handle.root, shapes, width, layer, owner); });
     }
 
-    std::expected<void, std::string> remove_shape_piece(LeHandle &handle, ShapeId shape, PieceKind kind, size_t index)
+    namespace
     {
+        // remove_shape_piece for a Wire: path `index` of the Shape it
+        // converts to.
+        std::expected<void, std::string> remove_wire_path(LeHandle &handle, WireId id, PieceKind kind, size_t index)
+        {
+            WireData *wire = handle.root.get_wire(id);
+            if (!wire)
+                return std::unexpected("unknown shape");
+            if (kind != PieceKind::PATH)
+                return std::unexpected("a wire has only paths to remove");
+            const std::optional<std::pair<size_t, size_t>> range = wire_path_range(*wire, index);
+            if (!range)
+                return std::unexpected("index out of range");
+            const WireData before = *wire;
+            wire->segments.erase(wire->segments.begin() + static_cast<std::ptrdiff_t>(range->first),
+                                 wire->segments.begin() + static_cast<std::ptrdiff_t>(range->second));
+            handle.root.note_wire_changed(id);
+            handle.root.bump_mutation_version();
+            if (handle.command_history.is_recording())
+                handle.command_history.current()->record_update<WireId, WireData>(
+                    id, before, *wire,
+                    [](Root &r, WireId wire_id, const WireData &snapshot)
+                    {
+                        WireData *target = r.get_wire(wire_id);
+                        if (!target)
+                            return false;
+                        *target = snapshot;
+                        r.note_wire_changed(wire_id);
+                        return true;
+                    });
+            return {};
+        }
+    }
+
+    std::expected<void, std::string> remove_shape_piece(LeHandle &handle, GeometryId id, PieceKind kind, size_t index)
+    {
+        if (id.wire.valid())
+            return remove_wire_path(handle, id.wire, kind, index);
+        const ShapeId shape = id.shape;
         ShapeData *data = handle.root.get_shape(shape);
         if (!data)
             return std::unexpected("unknown shape");
@@ -161,7 +199,7 @@ namespace le::edit
         return {};
     }
 
-    std::expected<void, std::string> shape_change_layer(LeHandle &handle, const std::vector<ShapeId> &shapes, const shape_ops::LayerOrPurpose &layer)
+    std::expected<void, std::string> shape_change_layer(LeHandle &handle, const std::vector<GeometryId> &shapes, const shape_ops::LayerOrPurpose &layer)
     {
         const auto changed = shape_ops::change_layer(handle.root, shapes, layer);
         if (!changed)
@@ -173,7 +211,19 @@ namespace le::edit
             // generated apply_shape_snapshot can't clear an unset optional
             // purpose (see shape_ops::set_layer_or_purpose's own comment).
             using Snapshot = shape_ops::LayerOrPurpose;
-            for (const shape_ops::LayerChange &entry : *changed)
+            for (const shape_ops::WireLayerChange &entry : changed->wires)
+                handle.command_history.current()->record_update<WireId, WireData>(
+                    entry.id, entry.before, entry.after,
+                    [](Root &r, WireId id, const WireData &snapshot)
+                    {
+                        WireData *wire = r.get_wire(id);
+                        if (!wire)
+                            return false;
+                        *wire = snapshot;
+                        r.note_wire_changed(id);
+                        return true;
+                    });
+            for (const shape_ops::LayerChange &entry : changed->shapes)
                 handle.command_history.current()->record_update<ShapeId, Snapshot>(
                     entry.id, entry.before, entry.after,
                     [](Root &r, ShapeId id, const Snapshot &snapshot)

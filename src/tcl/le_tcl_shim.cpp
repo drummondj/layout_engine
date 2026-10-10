@@ -786,11 +786,11 @@ int read_db_cmd(const char *path, int with_session) { return le_read_db(session(
 const char *db_info_cmd(const char *path) { return return_string(le_db_info(path)); }
 const char *migrate_db_cmd(const char *in_path, const char *out_path) { return return_string(le_migrate_db(in_path, out_path)); }
 
-// get_selection/select. Only Shape/Row/Placement/Region friendly ids are
+// get_selection/select. Only Shape/Wire/Row/Placement/Region friendly ids are
 // meaningful here (the kinds LeHandle::SelectedObject covers - see le_select_object_ref's
 // own api.hpp doc comment); literal prefix strings rather than the
 // generated kShapePrefix/etc constants, since those live in the generated
-// file's own scope and duplicating a plain "shape:"/"row:"/... literal
+// file's own scope and duplicating a plain "shape:"/"wire:"/"row:"/... literal
 // here is simpler than reaching for them.
 int selection_count_cmd()
 {
@@ -804,6 +804,8 @@ const char *get_selection_at_cmd(int index)
     {
     case LE_OBJECT_KIND_SHAPE:
         return return_string(format_shape_id(LeShapeId{.index = ref.index, .generation = ref.generation}));
+    case LE_OBJECT_KIND_WIRE:
+        return return_string(format_wire_id(LeWireId{.index = ref.index, .generation = ref.generation}));
     case LE_OBJECT_KIND_ROW:
         return return_string(format_row_id(LeRowId{.index = ref.index, .generation = ref.generation}));
     case LE_OBJECT_KIND_PLACEMENT:
@@ -825,6 +827,11 @@ int select_cmd(const char *token)
     {
         const LeShapeId id = resolve_shape_id(token);
         ref = LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = id.index, .generation = id.generation};
+    }
+    else if (sv.substr(0, 5) == "wire:")
+    {
+        const LeWireId id = resolve_wire_id(token);
+        ref = LeObjectRef{.kind = LE_OBJECT_KIND_WIRE, .index = id.index, .generation = id.generation};
     }
     else if (sv.substr(0, 4) == "row:")
     {
@@ -1108,6 +1115,8 @@ const char *shape_path_point_at(const char *id, int path_index, int point_index)
 
 int remove_shape_path(const char *id, int path_index)
 {
+    if (std::string_view(id ? id : "").starts_with("wire:"))
+        return le_remove_wire_path(session(), resolve_wire_id(id), path_index);
     return le_remove_shape_path(session(), resolve_shape_id(id), path_index);
 }
 
@@ -1126,14 +1135,26 @@ namespace
     constexpr int kShapeOpBadLayer = -2;
     constexpr int kShapeOpBadParent = -3;
 
-    std::vector<LeShapeId> resolve_shape_tokens(const char *tokens)
+    // shape: and wire: tokens.
+    std::vector<LeObjectRef> resolve_shape_tokens(const char *tokens)
     {
-        std::vector<LeShapeId> ids;
+        std::vector<LeObjectRef> refs;
         std::istringstream stream(tokens ? tokens : "");
         std::string token;
         while (stream >> token)
-            ids.push_back(resolve_shape_id(token.c_str()));
-        return ids;
+        {
+            if (token.starts_with("wire:"))
+            {
+                const LeWireId id = resolve_wire_id(token.c_str());
+                refs.push_back(LeObjectRef{.kind = LE_OBJECT_KIND_WIRE, .index = id.index, .generation = id.generation});
+            }
+            else
+            {
+                const LeShapeId id = resolve_shape_id(token.c_str());
+                refs.push_back(LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = id.index, .generation = id.generation});
+            }
+        }
+        return refs;
     }
 
     bool token_given(const char *token)
@@ -1216,23 +1237,23 @@ namespace
         return call(target->layer, target->purpose, *parent);
     }
 
-    const LeShapeId *data_or_null(const std::vector<LeShapeId> &ids)
+    const LeObjectRef *data_or_null(const std::vector<LeObjectRef> &refs)
     {
-        return ids.empty() ? nullptr : ids.data();
+        return refs.empty() ? nullptr : refs.data();
     }
 }
 
 int shape_copy_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
     return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
                             { return le_shape_copy(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), layer, purpose, parent); });
 }
 
 int shape_boolean_cmd(const char *shape_tokens_a, const char *shape_tokens_b, int op, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeShapeId> a = resolve_shape_tokens(shape_tokens_a);
-    const std::vector<LeShapeId> b = resolve_shape_tokens(shape_tokens_b);
+    const std::vector<LeObjectRef> a = resolve_shape_tokens(shape_tokens_a);
+    const std::vector<LeObjectRef> b = resolve_shape_tokens(shape_tokens_b);
     return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
                             { return le_shape_boolean(session(), data_or_null(a), static_cast<int32_t>(a.size()), data_or_null(b),
                                                       static_cast<int32_t>(b.size()), op, layer, purpose, parent); });
@@ -1240,28 +1261,28 @@ int shape_boolean_cmd(const char *shape_tokens_a, const char *shape_tokens_b, in
 
 int shape_to_polygon_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
     return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
                             { return le_shape_to_polygon(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), layer, purpose, parent); });
 }
 
 int shape_to_rects_cmd(const char *shape_tokens, int vertical, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
     return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
                             { return le_shape_to_rects(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), vertical, layer, purpose, parent); });
 }
 
 int shape_size_cmd(const char *shape_tokens, double dx_um, double dy_um, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
     return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
                             { return le_shape_size(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), dx_um, dy_um, layer, purpose, parent); });
 }
 
 int shape_path_cmd(const char *shape_tokens, double width_um, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
     return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
                             { return le_shape_path(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), width_um, layer, purpose, parent); });
 }
@@ -1271,7 +1292,7 @@ int shape_change_layer_cmd(const char *shape_tokens, const char *layer_token)
     const std::optional<LayerTarget> target = resolve_optional_layer(layer_token);
     if (!target || (target->layer.index == UINT32_MAX && !target->purpose))
         return kShapeOpBadLayer;
-    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
     return le_shape_change_layer(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), target->layer, target->purpose);
 }
 
@@ -1289,7 +1310,7 @@ const char *shape_op_results_cmd(int count)
 
 const char *shape_bbox_cmd(const char *shape_tokens)
 {
-    const std::vector<LeShapeId> shapes = resolve_shape_tokens(shape_tokens);
+    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
     const LeShapeBbox box = le_shape_bbox(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()));
     if (!box.valid)
         return return_string("");

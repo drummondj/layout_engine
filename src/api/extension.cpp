@@ -193,52 +193,52 @@ namespace le::ext
         return view_->create_shape(data_);
     }
 
-    std::expected<Rect, std::string> ReadView::shape_bbox(const std::vector<ShapeId> &shapes) const { return shape_ops::bbox(*root_, shapes); }
+    std::expected<Rect, std::string> ReadView::shape_bbox(const std::vector<GeometryId> &shapes) const { return shape_ops::bbox(*root_, shapes); }
 
-    std::expected<Rect, std::string> WriteView::shape_bbox(const std::vector<ShapeId> &shapes) const { return shape_ops::bbox(*root_, shapes); }
+    std::expected<Rect, std::string> WriteView::shape_bbox(const std::vector<GeometryId> &shapes) const { return shape_ops::bbox(*root_, shapes); }
 
-    ShapeOpResult WriteView::shape_copy(const std::vector<ShapeId> &shapes, const shape_ops::LayerOrPurpose &layer,
+    ShapeOpResult WriteView::shape_copy(const std::vector<GeometryId> &shapes, const shape_ops::LayerOrPurpose &layer,
                                         const std::optional<shape_ops::ShapeParent> &parent)
     {
         return edit::shape_copy(*handle_, shapes, layer, parent);
     }
 
-    ShapeOpResult WriteView::shape_boolean(const std::vector<ShapeId> &a, const std::vector<ShapeId> &b, BooleanOp op,
+    ShapeOpResult WriteView::shape_boolean(const std::vector<GeometryId> &a, const std::vector<GeometryId> &b, BooleanOp op,
                                            const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent)
     {
         return edit::shape_boolean(*handle_, a, b, op, layer, parent);
     }
 
-    ShapeOpResult WriteView::shape_to_polygons(const std::vector<ShapeId> &shapes, const std::optional<shape_ops::LayerOrPurpose> &layer,
+    ShapeOpResult WriteView::shape_to_polygons(const std::vector<GeometryId> &shapes, const std::optional<shape_ops::LayerOrPurpose> &layer,
                                                const std::optional<shape_ops::ShapeParent> &parent)
     {
         return edit::shape_to_polygons(*handle_, shapes, layer, parent);
     }
 
-    ShapeOpResult WriteView::shape_to_rects(const std::vector<ShapeId> &shapes, FractureDirection direction,
+    ShapeOpResult WriteView::shape_to_rects(const std::vector<GeometryId> &shapes, FractureDirection direction,
                                             const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent)
     {
         return edit::shape_to_rects(*handle_, shapes, direction, layer, parent);
     }
 
-    ShapeOpResult WriteView::shape_size(const std::vector<ShapeId> &shapes, int64_t dx, int64_t dy,
+    ShapeOpResult WriteView::shape_size(const std::vector<GeometryId> &shapes, int64_t dx, int64_t dy,
                                         const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent)
     {
         return edit::shape_size(*handle_, shapes, dx, dy, layer, parent);
     }
 
-    ShapeOpResult WriteView::shape_outline_paths(const std::vector<ShapeId> &shapes, int64_t width,
+    ShapeOpResult WriteView::shape_outline_paths(const std::vector<GeometryId> &shapes, int64_t width,
                                                  const std::optional<shape_ops::LayerOrPurpose> &layer, const std::optional<shape_ops::ShapeParent> &parent)
     {
         return edit::shape_outline_paths(*handle_, shapes, width, layer, parent);
     }
 
-    std::expected<void, std::string> WriteView::shape_change_layer(const std::vector<ShapeId> &shapes, const shape_ops::LayerOrPurpose &layer)
+    std::expected<void, std::string> WriteView::shape_change_layer(const std::vector<GeometryId> &shapes, const shape_ops::LayerOrPurpose &layer)
     {
         return edit::shape_change_layer(*handle_, shapes, layer);
     }
 
-    std::expected<void, std::string> WriteView::remove_shape_piece(ShapeId shape, PieceKind kind, size_t index)
+    std::expected<void, std::string> WriteView::remove_shape_piece(GeometryId shape, PieceKind kind, size_t index)
     {
         return edit::remove_shape_piece(*handle_, shape, kind, index);
     }

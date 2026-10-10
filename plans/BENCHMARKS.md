@@ -1909,3 +1909,52 @@ all stages:
 The resolver is 6-11% faster at most sizes (2x2, the noisiest, 2-4%). A per-layer renderable class no longer costs
 anything here: `BM_HierarchyResolver/1x1` with hello_ext matches the run
 without it (121 vs 120 ms, where #120 measured +3%).
+
+## 2026-10-10 — Compact Wires for routed wiring (#165)
+
+A Route's wiring on each layer is one `Wire` (16-byte int32 segments, 28-byte
+vias referencing their Via/LayoutVia) instead of a route Shape with heap
+`Path`s and named `ShapeVia`s; what a Wire can't hold stays in a route Shape.
+Measured first (`native_format_profile`'s new `route_*` metrics, 8x8): 16.5M
+paths, 91% Manhattan two-point and 99.9% at the layer's default width, 1.71 GB
+of heap (~103 B each); 11.7M vias, 1.27 GB (~109 B each).
+
+`native_format_profile 8x8 1`, Release, WSL2, one run each:
+
+| | before | after |
+|---|---|---|
+| RSS after the LEF+DEF read (MB) | 4470 | 2658 |
+| Shape pool: objects / slot storage (MB) | 2.87M / 705 | 1.42M / 352 |
+| Wire pool: objects / slot storage (MB) | - | 2.87M / 201 (48 B slots) |
+| Route geometry heap (MB) | 2979 | 1192 (Wires 664, Shapes 528) |
+| LEF+DEF read (ms) | 44902 | 47597 |
+| .led save, zstd 1 (ms) | 4845 | 4638 |
+| .led load (ms) | 3485 | 2230 |
+| RSS after the load (MB) | 9046 | 5914 |
+| .led size (MB) | 228.6 | 233.2 |
+
+The 1.42M Shapes left are the fixture's power grid: the 2x2+ DEFs (written by
+an older DEFWriter) chain a special net's vias into one path, which reads as
+long diagonal paths, and its 2.46M vias name `Via6Array-0_n`, which no VIA or
+VIARULE defines (they render nothing, before and after).
+
+`pipeline_benchmarks`, means of 5 (cv in brackets), main vs this branch,
+Ryzen 9 7950X, WSL2:
+
+| | before | after | peak RSS before / after (MB) |
+|---|---|---|---|
+| BM_HierarchyResolver/1x1 | 121 ms (3.4%) | 112 ms (2.5%) | 246 / 223 |
+| BM_HierarchyResolver/2x1 | 248 ms (3.3%) | 243 ms (1.2%) | 513 / 415 |
+| BM_HierarchyResolver/2x2 | 536 ms (15.5%) | 509 ms (12.5%) | 1022 / 825 |
+| BM_HierarchyResolver/3x2 | 756 ms (13.8%) | 814 ms (16.0%) | 1666 / 1314 |
+| BM_HierarchyResolver/3x3 | 1183 ms (12.6%) | 1193 ms (14.2%) | 2614 / 2023 |
+| BM_HierarchyResolver/5x5 | 3292 ms (6.6%) | 3489 ms (10.9%) | 5994 / 4872 |
+| BM_RasterizeBlend2D/1x1 | 39.9 ms (1.1%) | 38.8 ms (1.9%) | |
+| BM_RasterizeBlend2D/2x2 | 207 ms (0.7%) | 205 ms (0.4%) | |
+| BM_RasterizeBlend2D/3x3 | 234 ms (1.1%) | 236 ms (3.8%) | |
+| BM_RasterizeBlend2D/5x5 | 205 ms (1.8%) | 205 ms (1.2%) | |
+
+Resolve time is within noise (the resolver still builds a heap `Path` per
+wire run for its cache, as before); peak RSS falls 9-23%. Rasterize is
+unchanged. Reading a Wire directly in the render cache, instead of copying it
+into `Path`s, is the next step for the resolver's memory.

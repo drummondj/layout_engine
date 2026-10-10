@@ -1,5 +1,6 @@
 #pragma once
 #include "../database/database.hpp"
+#include "../database/wire_helpers.hpp"
 #include "../geometry/geometry.hpp"
 #include "../geometry/placement_geometry.hpp"
 #include "../pipelines/view_style.hpp"
@@ -77,6 +78,7 @@ namespace le
     struct AbstractHitPiece
     {
         ShapeId shape_id;
+        WireId wire_id; // instead of shape_id, for a piece of a Wire (of le::wire_to_shape's Shape)
         PieceKind piece_kind;
         size_t piece_index;
         ShapeData outline;
@@ -114,7 +116,7 @@ namespace le
     /// find_hit_pieces order. Sub-pixel pieces aren't rendered, so they
     /// aren't hit either. `first_only` stops at the first hit.
     inline std::vector<AbstractHitPiece> point_hits_topmost_first(
-        const Root &root, const ViewLayerSet &view_layers, const std::unordered_map<ViewLayerId, std::vector<ShapeId>> &by_layer,
+        const Root &root, const ViewLayerSet &view_layers, const std::unordered_map<ViewLayerId, std::vector<GeometryId>> &by_layer,
         Point dbu_point, double scale, const ViewLayerSelectablePredicate &is_selectable, bool first_only)
     {
         std::vector<AbstractHitPiece> hits;
@@ -129,16 +131,17 @@ namespace le
             if (data && !is_selectable(data->layer_name, data->purpose))
                 continue;
 
-            for (ShapeId shape_id : group_it->second)
+            ShapeData scratch;
+            for (const GeometryId id : group_it->second)
             {
-                const ShapeData *shape = root.get_shape(shape_id);
+                const ShapeData *shape = geometry_shape(root, id, scratch);
                 if (!shape)
                     continue;
                 for (HitPiece &piece : Geometry::find_hit_pieces(*shape, dbu_point))
                 {
                     if (abstract_piece_is_sub_pixel(piece.outline, scale))
                         continue; // invisible at this scale - not rendered, so not selectable either
-                    hits.push_back(AbstractHitPiece{.shape_id = shape_id, .piece_kind = piece.kind, .piece_index = piece.index, .outline = std::move(piece.outline)});
+                    hits.push_back(AbstractHitPiece{.shape_id = id.shape, .wire_id = id.wire, .piece_kind = piece.kind, .piece_index = piece.index, .outline = std::move(piece.outline)});
                     if (first_only)
                         return hits;
                 }
@@ -171,7 +174,7 @@ namespace le
         const Root &root, const ViewLayerSet &view_layers, AbstractId abstract_id, Point dbu_point,
         double scale, const ViewLayerSelectablePredicate &is_selectable, bool first_only = false)
     {
-        std::unordered_map<ViewLayerId, std::vector<ShapeId>> by_layer;
+        std::unordered_map<ViewLayerId, std::vector<GeometryId>> by_layer;
 
         for (TerminalId terminal_id : root.get_abstract_terminals(abstract_id))
             for (TerminalPortId port_id : root.get_terminal_ports(terminal_id))
@@ -180,7 +183,7 @@ namespace le
                     const ShapeData *shape = root.get_shape(shape_id);
                     if (!shape || !shape->layer.valid())
                         continue;
-                    by_layer[view_layers.find(shape->layer, ViewLayerPurpose::TERMINAL)].push_back(shape_id);
+                    by_layer[view_layers.find(shape->layer, ViewLayerPurpose::TERMINAL)].push_back(GeometryId::of(shape_id));
                 }
 
         for (ObstructionId obstruction_id : root.get_abstract_obstructions(abstract_id))
@@ -189,7 +192,7 @@ namespace le
                 const ShapeData *shape = root.get_shape(shape_id);
                 if (!shape || !shape->layer.valid())
                     continue;
-                by_layer[view_layers.find(shape->layer, ViewLayerPurpose::OBSTRUCTION)].push_back(shape_id);
+                by_layer[view_layers.find(shape->layer, ViewLayerPurpose::OBSTRUCTION)].push_back(GeometryId::of(shape_id));
             }
 
         return point_hits_topmost_first(root, view_layers, by_layer, dbu_point, scale, is_selectable, first_only);
@@ -277,41 +280,45 @@ namespace le
     /// therefore already rides the same TERMINAL-purpose gating a
     /// Terminal has, not a separate PHYSICAL_PORT purpose (there isn't
     /// one - view_style.hpp's own ViewLayerPurpose enum).
-    /// Calls `visit(shape_id, purpose)` for `layout_id`'s route shapes
-    /// (ROUTE) then its physical-port shapes (TERMINAL) - all of them, or
-    /// only those in `candidates` (a LayoutSelectionIndex's, which holds
-    /// exactly these shapes), in the same routes-then-ports order.
+    /// Calls `visit(id, purpose)` for `layout_id`'s route Wires and
+    /// Shapes (ROUTE) then its physical-port shapes (TERMINAL) - all of
+    /// them, or only those in `candidates` (layout_candidates', which
+    /// holds exactly these), in the same routes-then-ports order.
     /// Then each renderable class's shapes (renderable_classes.hpp), with
     /// the class's purpose.
     template <typename Visit>
-    void for_each_layout_hit_shape(const Root &root, LayoutId layout_id, const std::vector<ShapeId> *candidates, Visit &&visit)
+    void for_each_layout_hit_shape(const Root &root, LayoutId layout_id, const std::vector<GeometryId> *candidates, Visit &&visit)
     {
         if (candidates)
         {
-            for (const ShapeId shape_id : *candidates)
-                if (const ShapeData *shape = root.get_shape(shape_id); shape && shape->route().valid())
-                    visit(shape_id, ViewLayerPurpose::ROUTE);
-            for (const ShapeId shape_id : *candidates)
-                if (const ShapeData *shape = root.get_shape(shape_id); shape && !shape->route().valid() && shape->physical_port_segment().valid())
-                    visit(shape_id, ViewLayerPurpose::TERMINAL);
+            for (const GeometryId id : *candidates)
+                if (geometry_route(root, id).valid())
+                    visit(id, ViewLayerPurpose::ROUTE);
+            for (const GeometryId id : *candidates)
+                if (const ShapeData *shape = root.get_shape(id.shape); shape && !shape->route().valid() && shape->physical_port_segment().valid())
+                    visit(id, ViewLayerPurpose::TERMINAL);
             renderable::for_each([&]<class R>(R) {
-                for (const ShapeId shape_id : *candidates)
-                    if (const ShapeData *shape = root.get_shape(shape_id); shape && R::owner_of(*shape).valid())
-                        visit(shape_id, R::purpose);
+                for (const GeometryId id : *candidates)
+                    if (const ShapeData *shape = root.get_shape(id.shape); shape && R::owner_of(*shape).valid())
+                        visit(id, R::purpose);
             });
             return;
         }
         for (RouteId route_id : root.get_layout_routes(layout_id))
+        {
+            for (WireId wire_id : root.get_route_wires(route_id))
+                visit(GeometryId::of(wire_id), ViewLayerPurpose::ROUTE);
             for (ShapeId shape_id : root.get_route_shapes(route_id))
-                visit(shape_id, ViewLayerPurpose::ROUTE);
+                visit(GeometryId::of(shape_id), ViewLayerPurpose::ROUTE);
+        }
         for (PhysicalPortId port_id : root.get_layout_physical_ports(layout_id))
             for (PhysicalPortSegmentId segment_id : root.get_physical_port_segments(port_id))
                 for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
-                    visit(shape_id, ViewLayerPurpose::TERMINAL);
+                    visit(GeometryId::of(shape_id), ViewLayerPurpose::TERMINAL);
         renderable::for_each([&]<class R>(R) {
             for (const typename R::Id object : R::in_layout(root, layout_id))
                 for (const ShapeId shape_id : R::shapes(root, object))
-                    visit(shape_id, R::purpose);
+                    visit(GeometryId::of(shape_id), R::purpose);
         });
     }
 
@@ -333,16 +340,21 @@ namespace le
     inline std::vector<AbstractHitPiece> hit_test_layout_point_all(
         const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, Point dbu_point,
         double scale, const ViewLayerSelectablePredicate &is_selectable, bool first_only = false,
-        const std::vector<ShapeId> *candidates = nullptr)
+        const std::vector<GeometryId> *candidates = nullptr)
     {
-        std::unordered_map<ViewLayerId, std::vector<ShapeId>> by_layer;
-        for_each_layout_hit_shape(root, layout_id, candidates, [&](ShapeId shape_id, ViewLayerPurpose purpose)
+        std::unordered_map<ViewLayerId, std::vector<GeometryId>> by_layer;
+        for_each_layout_hit_shape(root, layout_id, candidates, [&](GeometryId id, ViewLayerPurpose purpose)
                                   {
-            const ShapeData *shape = root.get_shape(shape_id);
+            if (const WireData *wire = root.get_wire(id.wire))
+            {
+                by_layer[view_layers.find(wire->layer, purpose)].push_back(id);
+                return;
+            }
+            const ShapeData *shape = root.get_shape(id.shape);
             if (!shape)
                 return;
             if (const ViewLayerId view_layer = layout_hit_view_layer(view_layers, *shape, purpose); view_layer.valid())
-                by_layer[view_layer].push_back(shape_id); });
+                by_layer[view_layer].push_back(id); });
         return point_hits_topmost_first(root, view_layers, by_layer, dbu_point, scale, is_selectable, first_only);
     }
 
@@ -364,13 +376,14 @@ namespace le
     /// hit_test_abstract_rect's own comment for the shared semantics.
     inline std::vector<AbstractHitPiece> hit_test_layout_rect(
         const Root &root, const ViewLayerSet &view_layers, LayoutId layout_id, Rect dbu_rect,
-        double scale, const ViewLayerSelectablePredicate &is_selectable, const std::vector<ShapeId> *candidates = nullptr)
+        double scale, const ViewLayerSelectablePredicate &is_selectable, const std::vector<GeometryId> *candidates = nullptr)
     {
         std::vector<AbstractHitPiece> result;
 
-        auto collect = [&](ShapeId shape_id, ViewLayerPurpose purpose)
+        ShapeData scratch;
+        auto collect = [&](GeometryId id, ViewLayerPurpose purpose)
         {
-            const ShapeData *shape = root.get_shape(shape_id);
+            const ShapeData *shape = geometry_shape(root, id, scratch);
             if (!shape)
                 return;
             const ViewLayerId view_layer = layout_hit_view_layer(view_layers, *shape, purpose);
@@ -384,7 +397,7 @@ namespace le
             {
                 if (abstract_piece_is_sub_pixel(piece.outline, scale))
                     continue; // invisible at this scale - not rendered, so not selectable either
-                result.push_back(AbstractHitPiece{.shape_id = shape_id, .piece_kind = piece.kind, .piece_index = piece.index, .outline = piece.outline});
+                result.push_back(AbstractHitPiece{.shape_id = id.shape, .wire_id = id.wire, .piece_kind = piece.kind, .piece_index = piece.index, .outline = piece.outline});
             }
         };
 

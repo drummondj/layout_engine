@@ -164,45 +164,44 @@ namespace
         return top * 100 + cut * 10 + bottom;
     }
 
-    // Walks one defiPath's ordered element stream (LAYER/WIDTH/POINT/
-    // FLUSHPOINT/VIA/VIAROTATION/VIAMASK/VIADATA, ...) into Shape entries
-    // grouped by layer name (find_or_create, same idiom as
-    // shapes_from_pin_like/the VIAS callback above) - appended into the
-    // caller's own `shapes` accumulator, since a Net's several wires/
-    // paths (ROUTED, NEW, ...) all contribute to the same flat set of
-    // per-layer Shapes. VIAROTATION/VIAMASK are their own separate
-    // stream elements *after* a VIA element (confirmed against
-    // defiPath.cpp: getViaRotationStr()/getViaTopMask() etc. read
-    // key_[*pointer_], returning nothing unless positioned exactly at an
-    // 'O'/'C' element) - not attached to the VIA element itself, hence
-    // the pending_via accumulator finalized whenever a *different*
-    // element type is seen. Not yet handled: DEFIPATH_RECT (a
-    // rectangular path segment, rare), DEFIPATH_TAPER/TAPERRULE/SHAPE/
-    // STYLE (manufacturing/rendering-hint metadata with no schema field
-    // for it yet) - skipped, not erroring.
-    void append_shapes_from_path(le::Root &root, std::vector<le::ShapeData> &shapes, defiPath *path, double unit_scale)
+    // One routed layer of a net: its Wire, and a Shape for what a Wire
+    // can't hold (see WireBuilder).
+    struct RoutedLayer
     {
-        // Returns nullptr (logging once) for a layer name that doesn't
-        // resolve to a Technology Layer - every element of this path
-        // segment is then dropped via the existing `current_shape`
-        // null-guards below, same as before the first LAYER element is
-        // ever seen.
-        auto find_or_create = [&](const std::string &layer_name) -> le::ShapeData *
+        std::string name;
+        le::WireBuilder wire;
+        le::ShapeData fallback;
+    };
+
+    // Walks one defiPath's ordered element stream (LAYER/WIDTH/POINT/
+    // FLUSHPOINT/VIA/VIAROTATION/VIAMASK/VIADATA, ...) into `layers`, one
+    // entry per layer name, shared by all of a net's wires and paths
+    // (ROUTED, NEW, ...). VIAROTATION/VIAMASK/VIADATA are separate stream
+    // elements after their VIA (defiPath's getters read only at that
+    // element), so a via is pending until a different element type
+    // arrives. Not handled: DEFIPATH_RECT (rare), and TAPER/TAPERRULE/
+    // SHAPE/STYLE (no schema field) - skipped, not erroring.
+    void append_routing_from_path(le::Root &root, le::LayoutId layout_id, std::unordered_map<std::string, le::WireViaTarget> &via_targets,
+                                  std::vector<RoutedLayer> &layers, defiPath *path, double unit_scale)
+    {
+        // Logs once and returns nullptr for a layer name that isn't a
+        // Technology Layer; the path's elements on it are then dropped.
+        auto find_or_create = [&](const std::string &layer_name) -> RoutedLayer *
         {
-            for (le::ShapeData &shape : shapes)
-                if (root.get_layer(shape.layer) && root.get_layer(shape.layer)->name == layer_name)
-                    return &shape;
+            for (RoutedLayer &layer : layers)
+                if (layer.name == layer_name)
+                    return &layer;
             const le::LayerId layer_id = root.get_layer_by_name(layer_name);
             if (!layer_id.valid())
             {
                 log_error("Routed path on unknown LAYER '{}' - ignored.", layer_name);
                 return nullptr;
             }
-            shapes.push_back(le::ShapeData{.layer = layer_id});
-            return &shapes.back();
+            layers.push_back(RoutedLayer{.name = layer_name, .wire = le::WireBuilder(root, layer_id), .fallback = le::ShapeData{.layer = layer_id}});
+            return &layers.back();
         };
 
-        le::ShapeData *current_shape = nullptr;
+        RoutedLayer *current = nullptr;
         int64_t current_width = 0;
         std::vector<le::Point> current_points;
         le::Point last_point{};
@@ -216,28 +215,19 @@ namespace
             bool is_array = false;
             int num_x = 0, num_y = 0;
             int64_t space_x = 0, space_y = 0;
-            // The enclosing path's own current_width at this via's own
-            // point - the routing-
-            // width context via_shapes.hpp's own VIARULE GENERATE fit
-            // algorithm needs when a via reference resolves only to a
-            // top-level GENERATE rule, with no explicit CUTSIZE/ROWCOL
-            // anywhere to fall back on. Always set here (current_width
-            // defaults to the current LAYER's own declared LEF width even
-            // with no DEFIPATH_WIDTH override - see the DEFIPATH_LAYER
-            // case below), unlike ShapeVia.width's own is_optional=True
-            // (which also covers the LEF PORT/OBS VIA case, with no
-            // enclosing routed path at all).
+            // The path's width at the via, which sizes a VIARULE GENERATE
+            // via's cut array (via_shapes.hpp).
             int64_t width = 0;
         };
         std::optional<PendingVia> pending_via;
 
         auto finalize_via = [&]()
         {
-            if (pending_via && current_shape)
+            if (pending_via && current)
             {
                 if (pending_via->is_array)
                 {
-                    current_shape->via_iterates.push_back(le::ShapeViaIterate{
+                    current->fallback.via_iterates.push_back(le::ShapeViaIterate{
                         .via_name = pending_via->via_name,
                         .origin = pending_via->origin,
                         .orientation = pending_via->orientation,
@@ -251,13 +241,18 @@ namespace
                 }
                 else
                 {
-                    current_shape->vias.push_back(le::ShapeVia{
-                        .via_name = pending_via->via_name,
-                        .origin = pending_via->origin,
-                        .orientation = pending_via->orientation,
-                        .mask = pending_via->mask,
-                        .width = pending_via->width,
-                    });
+                    auto target = via_targets.find(pending_via->via_name);
+                    if (target == via_targets.end())
+                        target = via_targets.emplace(pending_via->via_name, le::resolve_wire_via(root, layout_id, pending_via->via_name)).first;
+                    if (!current->wire.add_via(target->second, pending_via->origin, pending_via->orientation.value_or(le::Orientation::N),
+                                               pending_via->mask.value_or(0), pending_via->width))
+                        current->fallback.vias.push_back(le::ShapeVia{
+                            .via_name = pending_via->via_name,
+                            .origin = pending_via->origin,
+                            .orientation = pending_via->orientation,
+                            .mask = pending_via->mask,
+                            .width = pending_via->width,
+                        });
                 }
             }
             pending_via.reset();
@@ -265,8 +260,12 @@ namespace
 
         auto flush_path = [&]()
         {
-            if (current_shape && current_points.size() >= 2)
-                current_shape->paths.push_back(le::Path{.width = current_width, .polygon = le::Polygon{.points = current_points}});
+            if (current && current_points.size() >= 2)
+            {
+                le::Path routed{.width = current_width, .polygon = le::Polygon{.points = current_points}};
+                if (!current->wire.add_path(routed))
+                    current->fallback.paths.push_back(std::move(routed));
+            }
             current_points.clear();
         };
 
@@ -281,22 +280,13 @@ namespace
             {
             case DEFIPATH_LAYER:
                 flush_path();
-                current_shape = find_or_create(path->getLayer());
-                // DEF's own WIDTH token is optional per LAYER occurrence -
-                // when the writer never specifies one (the common case for
-                // ordinary routing - most real DEF writers rely entirely on
-                // this), default here to that Layer's own declared LEF
-                // WIDTH rather than leaving every point at width 0 (which
-                // renders as a hairline stroke, not the real trace width).
-                // A DEFIPATH_WIDTH token encountered afterward (below)
-                // still overrides this for the current layer occurrence -
-                // reset again on the NEXT LAYER token regardless, so an
-                // explicit override for one layer never silently bleeds
-                // into a different layer later in the same path that
-                // never asked for one.
+                current = find_or_create(path->getLayer());
+                // A LAYER occurrence without its own WIDTH (the common
+                // case) routes at the Layer's LEF WIDTH; a WIDTH token
+                // overrides it until the next LAYER.
                 current_width = 0;
-                if (current_shape)
-                    if (const le::LayerData *layer = root.get_layer(current_shape->layer))
+                if (current)
+                    if (const le::LayerData *layer = root.get_layer(current->fallback.layer))
                         current_width = layer->width.value_or(0);
                 break;
             case DEFIPATH_WIDTH:
@@ -959,21 +949,26 @@ namespace le
         // shape as NonDefaultRuleLayer) to represent correctly; deferred,
         // not a geometry-correctness concern the way PhysicalPortSegment's
         // own placement was - each routed path's actual width already
-        // comes through per-Path via append_shapes_from_path below.
+        // comes through per-Path via append_routing_from_path below.
 
         const RouteId route_id = reader->root_->create_route(std::move(data));
 
-        std::vector<ShapeData> shapes;
+        std::vector<RoutedLayer> layers;
         for (int i = 0; i < net->numWires(); i++)
         {
             defiWire *wire = net->wire(i);
             for (int j = 0; j < wire->numPaths(); j++)
-                append_shapes_from_path(*reader->root_, shapes, wire->path(j), reader->unit_scale_);
+                append_routing_from_path(*reader->root_, reader->layout_id_, reader->wire_vias_, layers, wire->path(j), reader->unit_scale_);
         }
-        for (ShapeData &shape : shapes)
+        for (RoutedLayer &layer : layers)
         {
-            shape.owner = le::ShapeOwner::route(route_id);
-            reader->root_->create_shape(std::move(shape));
+            if (!layer.wire.empty())
+                reader->root_->create_wire(std::move(layer.wire).build(route_id));
+            ShapeData &fallback = layer.fallback;
+            if (fallback.paths.empty() && fallback.vias.empty() && fallback.via_iterates.empty())
+                continue;
+            fallback.owner = le::ShapeOwner::route(route_id);
+            reader->root_->create_shape(std::move(fallback));
         }
         return 0;
     }
@@ -1102,6 +1097,7 @@ namespace le
         // UNITS entirely (values then pass through unscaled, same as
         // before this fix - not making anything worse for that case).
         unit_scale_ = 1.0;
+        wire_vias_.clear();
 
         std::unique_ptr<FILE, int (*)(FILE *)> file(fopen(filename.c_str(), "r"), &fclose);
         if (!file)
