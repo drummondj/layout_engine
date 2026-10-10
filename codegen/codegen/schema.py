@@ -4118,8 +4118,13 @@ class Render:
             layer's row, like routes, so it is shown and selected per layer
             as well as per purpose. A Shape with no layer, or one the
             Technology doesn't have, still draws on the purpose's own row.
+        label_field (str): A `str` field of the class whose value labels
+            each object in the Layout view, like a placement's name: one
+            label per row it draws on, placed on its shapes there and
+            hidden with that row. None draws no labels.
     """
 
     purpose: "Purpose"
     tiled: bool = False
     per_layer: bool = False
+    label_field: Optional[str] = None

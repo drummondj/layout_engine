@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string_view>
@@ -498,4 +499,60 @@ TEST(HelloExt, PinsOnALayerDrawAndSelectInThatLayersRow)
     le_mouse_up(h, 300, 100);
     ASSERT_EQ(le_selection_count(h), 1);
     EXPECT_EQ(le_selected_object_ref(h, 0).index, no_layer.index);
+}
+
+// HelloMarker is labelled with its name (render=Render(..., label_field="name")):
+// a named marker draws text over its fill that an unnamed one doesn't, and
+// the label hides with the marker's row.
+TEST(HelloExt, MarkersAreLabelledWithTheirNames)
+{
+    le::ext::register_all();
+    Session session;
+    LeHandle *h = session.handle;
+    const LeTechnologyId technology = le_create_technology(h, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0,
+                                                           0.0, 0, 0.0, nullptr, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
+    ASSERT_EQ(le_set_current_technology(h, technology), 0);
+    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), "top");
+    const LeLayoutId layout = le_create_layout(h, design);
+    // A 100 x 100 um die area, which the view fits.
+    const double die[] = {1, 4, 0, 0, 100, 0, 100, 100, 0, 100};
+    ASSERT_NE(le_create_shape(h, le_shape_owner_layout(layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index,
+              UINT32_MAX);
+    // Two identical 40 x 10 um markers, one named, one not.
+    const auto add_marker = [&](const char *name, double y) {
+        const double rect[] = {5.0, y, 45.0, y + 10.0};
+        return le_create_shape(h, le_shape_owner_hello_marker(le_create_hello_marker(h, layout, name)), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect,
+                               4, 0, 0.0, 0, 0.0, 0);
+    };
+    ASSERT_NE(add_marker("WWWWWWWW", 60.0).index, UINT32_MAX);
+    ASSERT_NE(add_marker("", 20.0).index, UINT32_MAX);
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(h, design), 0);
+    le_set_viewport_size(h, 400, 400);
+    le_fit_scene(h, 0); // 4 px per um: (x, y) um is pixel (4x, 400 - 4y)
+    // How many interior pixels differ between the named marker (pixels
+    // y 120..160) and the unnamed one (y 280..320), at the same offsets.
+    const auto differing_pixels = [&] {
+        const LePixelBuffer buffer = le_render_pixel_buffer(h);
+        if (!buffer.data)
+            return -1;
+        int differing = 0;
+        for (int dy = 4; dy < 36; ++dy)
+            for (int x = 24; x < 176; ++x)
+            {
+                const uint8_t *named = buffer.data + (120 + dy) * buffer.row_bytes + x * 4;
+                const uint8_t *unnamed = buffer.data + (280 + dy) * buffer.row_bytes + x * 4;
+                differing += std::memcmp(named, unnamed, 4) != 0;
+            }
+        return differing;
+    };
+    EXPECT_GT(differing_pixels(), 50) << "the name is drawn";
+
+    int32_t hello_marker = -1;
+    for (int32_t p = 0; p < le_purpose_kind_count(); ++p)
+        if (std::string_view(le_purpose_name(p)) == "helloMarker")
+            hello_marker = p;
+    ASSERT_GE(hello_marker, 0);
+    le_set_purpose_visible(h, hello_marker, 0);
+    EXPECT_EQ(differing_pixels(), 0) << "hidden with the markers";
 }
