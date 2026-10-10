@@ -1040,8 +1040,10 @@ extern "C"
     /// @brief How the view is mirrored on screen. The same design area
     /// shows; HORIZONTAL swaps left and right about the view's centre,
     /// VERTICAL swaps top and bottom. Pan and zoom keep their meaning,
-    /// mouse positions are read through the mirror, and the arrow keys pan
-    /// in screen directions. Overlay text (rulers, labels drawn by
+    /// mouse positions are read through the mirror, the arrow keys pan in
+    /// screen directions, and le_snapped_mouse_position reports coordinates
+    /// mirrored about the view's boundary centre. Every other coordinate
+    /// (Tcl, properties, files) stays in database coordinates. Overlay text (rulers, labels drawn by
     /// overlays) stays readable; text in the design itself mirrors.
     typedef enum LeViewFlip
     {
@@ -1246,7 +1248,11 @@ extern "C"
     /// @brief The current mouse position's coordinates in microns, snapped
     /// to the minor grid - the same point the grid-snap indicator box
     /// drawn by le_render_pixel_buffer() is centered on (ComposeStage's
-    /// draw_cursor_overlay), for a UI to display as coordinate text. See
+    /// draw_cursor_overlay), for a UI to display as coordinate text. In a
+    /// mirrored view (le_set_view_flip) they're mirrored too, about the
+    /// centre of the open Layout's diearea or Abstract's bounds, which is
+    /// (0, 0): the boundary's on-screen bottom-left is (-w/2, -h/2) and its
+    /// top-right (w/2, h/2). See
     /// LeSnappedMousePosition's own comment for the dbu-to-micron
     /// conversion and its degrade-gracefully cases (null handle, no mouse
     /// position set, no Technology read yet).

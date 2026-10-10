@@ -1322,6 +1322,8 @@ namespace
         return {cache.lines, cache.version};
     }
 
+    std::array<double, 2> display_origin_unlocked(const LeHandle *handle);
+
     le::ViewRenderOptions view_render_options_for(const LeHandle *handle)
     {
         le::ViewRenderOptions options;
@@ -1446,6 +1448,7 @@ namespace
 
         options.minor_grid_spacing_dbu = handle->minor_grid_spacing();
         options.major_grid_spacing_dbu = handle->major_grid_spacing();
+        options.axis_origin_dbu = display_origin_unlocked(handle);
         if (const le::AbstractId *abstract_id = std::get_if<le::AbstractId>(&options.top_level))
             if (const le::AbstractData *abstract = handle->root.get_abstract(*abstract_id))
                 options.abstract_origin_dbu = abstract->origin.value_or(le::Point{});
@@ -1783,29 +1786,58 @@ namespace
         handle->set_pan(le::Point{.x = pan.x + dx, .y = pan.y + dy});
     }
 
-    void fit_scene_unlocked(LeHandle *handle, int32_t padding_px)
+    // The open view's boundary: a Layout's diearea bbox, else the open
+    // Abstract's declared bbox (abstract_declared_bbox, what a parent sizes
+    // its placement by) - declared sizes, O(1), rather than a union of
+    // everything in the view. nullopt if the view has none.
+    std::optional<le::Rect> view_boundary_unlocked(const LeHandle *handle)
     {
         // A Layout view has no current_abstract() (the two "current view"
-        // trackers are mutually exclusive). Uses the Layout's own declared
-        // diearea bbox (same "declared size" convention as
-        // layout_declared_bbox in geometry/placement_geometry.hpp) rather than
-        // unioning every Placement's own transformed bbox - O(1) instead of
-        // O(placement count), and diearea is the DEF-standard bound of
-        // everything in it anyway.
+        // trackers are mutually exclusive).
         if (handle->current_layout().valid())
         {
             const le::ShapeData *diearea = handle->root.get_shape(handle->root.get_layout_diearea(handle->current_layout()));
-            handle->fit_to_content(diearea ? le::Geometry::bbox(*diearea) : std::nullopt, padding_px);
-            return;
+            return diearea ? le::Geometry::bbox(*diearea) : std::nullopt;
         }
+        return le::abstract_declared_bbox(handle->root, handle->current_abstract());
+    }
 
-        // Same "declared size, not a union of every generated shape"
-        // convention as the Layout branch above - abstract_declared_bbox
-        // (geometry/placement_geometry.hpp) is the exact bbox a *parent*
-        // already uses to size its own placement of this Abstract, so
-        // it's the right "whole content" bound here too, and O(1)
-        // regardless of how many Terminal/Obstruction shapes it has.
-        handle->fit_to_content(le::abstract_declared_bbox(handle->root, handle->current_abstract()), padding_px);
+    void fit_scene_unlocked(LeHandle *handle, int32_t padding_px)
+    {
+        handle->fit_to_content(view_boundary_unlocked(handle), padding_px);
+    }
+
+    // The dbu point shown to the user as (0, 0): the centre of the view's
+    // boundary in a mirrored view (le_set_view_flip), so the boundary's
+    // bottom-left on screen reads (-w/2, -h/2); else, or with no boundary,
+    // the database origin.
+    std::array<double, 2> display_origin_unlocked(const LeHandle *handle)
+    {
+        if (handle->view_flip() == le::ViewFlip::NONE)
+            return {0.0, 0.0};
+        const std::optional<le::Rect> boundary = view_boundary_unlocked(handle);
+        if (!boundary)
+            return {0.0, 0.0};
+        return {(static_cast<double>(boundary->ll.x) + static_cast<double>(boundary->ur.x)) / 2.0,
+                (static_cast<double>(boundary->ll.y) + static_cast<double>(boundary->ur.y)) / 2.0};
+    }
+
+    // Where dbu point `p` is shown to the user, in dbu: relative to
+    // display_origin_unlocked, and mirrored with the view.
+    std::array<double, 2> display_point_unlocked(const LeHandle *handle, le::Point p)
+    {
+        const auto [cx, cy] = display_origin_unlocked(handle);
+        const double x = static_cast<double>(p.x) - cx;
+        const double y = static_cast<double>(p.y) - cy;
+        switch (handle->view_flip())
+        {
+        case le::ViewFlip::HORIZONTAL:
+            return {-x, y};
+        case le::ViewFlip::VERTICAL:
+            return {x, -y};
+        default:
+            return {x, y};
+        }
     }
 
     // Widens `bbox` to also enclose `r` - a plain min/max union, same
@@ -4639,9 +4671,10 @@ extern "C"
         if (!technology || technology->database_units_microns <= 0.0)
             return LeSnappedMousePosition{.x_um = 0.0, .y_um = 0.0, .has_position = 0};
 
+        const auto [x, y] = display_point_unlocked(handle, *snapped);
         return LeSnappedMousePosition{
-            .x_um = static_cast<double>(snapped->x) / technology->database_units_microns,
-            .y_um = static_cast<double>(snapped->y) / technology->database_units_microns,
+            .x_um = x / technology->database_units_microns,
+            .y_um = y / technology->database_units_microns,
             .has_position = 1,
         };
     }

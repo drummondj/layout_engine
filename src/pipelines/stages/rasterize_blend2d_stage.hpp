@@ -136,7 +136,7 @@ namespace le
     }
 
     /// @brief Draws the background dot grid (major/minor tiers) plus
-    /// solid axis lines at dbu (x=0)/(y=0). Only ever called
+    /// solid axis lines through `axis_origin` (dbu). Only ever called
     /// for `id == options.top_level` (`RasterizeBlend2DStage::compute()`'s
     /// own call site) - drawing this per-node/per-placement too would
     /// bake a misaligned, independently-scaled grid into every nested
@@ -155,17 +155,19 @@ namespace le
     /// `visible_dbu` is the exact dbu-space rectangle `ctx`'s own image
     /// covers (`options.viewport` for the top-level case - the stage's
     /// `local_bbox`).
-    inline void draw_grid_blend2d(BLContext &ctx, const Rect &visible_dbu, double scale, int64_t minor_spacing, int64_t major_spacing)
+    inline void draw_grid_blend2d(BLContext &ctx, const Rect &visible_dbu, double scale, int64_t minor_spacing, int64_t major_spacing,
+                                  std::array<double, 2> axis_origin)
     {
         if (scale <= 0.0)
             return;
 
+        const auto [ax, ay] = axis_origin;
         ctx.set_stroke_style(to_bl_color(kAxisLineColor));
         ctx.set_stroke_width(kAxisLineStrokeWidth / scale);
-        if (visible_dbu.ll.x <= 0 && visible_dbu.ur.x >= 0)
-            ctx.stroke_line(BLLine(0.0, static_cast<double>(visible_dbu.ll.y), 0.0, static_cast<double>(visible_dbu.ur.y)));
-        if (visible_dbu.ll.y <= 0 && visible_dbu.ur.y >= 0)
-            ctx.stroke_line(BLLine(static_cast<double>(visible_dbu.ll.x), 0.0, static_cast<double>(visible_dbu.ur.x), 0.0));
+        if (static_cast<double>(visible_dbu.ll.x) <= ax && static_cast<double>(visible_dbu.ur.x) >= ax)
+            ctx.stroke_line(BLLine(ax, static_cast<double>(visible_dbu.ll.y), ax, static_cast<double>(visible_dbu.ur.y)));
+        if (static_cast<double>(visible_dbu.ll.y) <= ay && static_cast<double>(visible_dbu.ur.y) >= ay)
+            ctx.stroke_line(BLLine(static_cast<double>(visible_dbu.ll.x), ay, static_cast<double>(visible_dbu.ur.x), ay));
 
         if (minor_spacing <= 0 || major_spacing <= 0)
             return;
@@ -1040,7 +1042,7 @@ namespace le
                 // geometry sits on top of it, not underneath.
                 if (id == options.top_level)
                 {
-                    draw_grid_blend2d(ctx, local_bbox, options.scale, options.minor_grid_spacing_dbu, options.major_grid_spacing_dbu);
+                    draw_grid_blend2d(ctx, local_bbox, options.scale, options.minor_grid_spacing_dbu, options.major_grid_spacing_dbu, options.axis_origin_dbu);
                     if (options.abstract_origin_dbu.has_value())
                         draw_origin_marker_blend2d(ctx, *options.abstract_origin_dbu, options.scale);
                 }
@@ -1102,6 +1104,7 @@ namespace le
                 last.purpose_visible != current.purpose_visible ||
                 last.minor_grid_spacing_dbu != current.minor_grid_spacing_dbu ||
                 last.major_grid_spacing_dbu != current.major_grid_spacing_dbu ||
+                last.axis_origin_dbu != current.axis_origin_dbu ||
                 last.label_min_size_px != current.label_min_size_px ||
                 last.label_max_size_px != current.label_max_size_px)
                 return true;

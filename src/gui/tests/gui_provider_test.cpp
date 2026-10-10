@@ -182,6 +182,25 @@ TEST_F(GuiProviderFixture, DbFileQueriesAndWriteDbNow)
     std::filesystem::remove(path);
 }
 
+// The Settings panel's view flip: refresh() reads it, and setting it queues
+// set_view_flip so it shows in the console history.
+TEST_F(GuiProviderFixture, ViewFlipIsReadAndQueuedAsATclCommand)
+{
+    le::gui::GuiProvider provider(handle);
+    provider.refresh();
+    EXPECT_EQ(provider.state().database_settings.view_flip, LE_VIEW_FLIP_NONE);
+    ASSERT_EQ(le_set_view_flip(handle, LE_VIEW_FLIP_VERTICAL), 0);
+    provider.refresh();
+    EXPECT_EQ(provider.state().database_settings.view_flip, LE_VIEW_FLIP_VERTICAL);
+
+    provider.set_view_flip(LE_VIEW_FLIP_HORIZONTAL);
+    const char *command = le_take_next_pending_tcl_command(handle);
+    ASSERT_NE(command, nullptr);
+    EXPECT_EQ(std::string(command), "set_view_flip horizontal");
+    provider.set_view_flip(7);
+    EXPECT_EQ(le_take_next_pending_tcl_command(handle), nullptr) << "out of range: nothing queued";
+}
+
 // File > Exit exits straight away unless the design or the settings are unsaved.
 TEST_F(GuiProviderFixture, UnsavedChangesCoverTheDesignAndTheSettings)
 {

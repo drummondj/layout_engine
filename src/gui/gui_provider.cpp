@@ -64,6 +64,7 @@ namespace le::gui
         state_.settings.confirm_overwrite = le_confirm_overwrite(handle_) != 0;
         state_.settings.label_min_size_px = le_label_min_size(handle_);
         state_.settings.label_max_size_px = le_label_max_size(handle_);
+        state_.database_settings.view_flip = le_view_flip(handle_);
 
         state_.placement_move.selected_count = state_.mode == LE_MODE_EDIT ? le_selected_placement_count(handle_) : 0;
         state_.selected_shape_piece_count = state_.mode == LE_MODE_EDIT ? le_selected_shape_piece_count(handle_) : 0;
@@ -414,6 +415,13 @@ namespace le::gui
     void GuiProvider::set_hierarchy_depth(int32_t depth)
     {
         run_tcl_command("set_hierarchy_depth " + std::to_string(depth));
+    }
+
+    void GuiProvider::set_view_flip(int32_t flip)
+    {
+        static constexpr const char *kNames[] = {"none", "horizontal", "vertical"};
+        if (flip >= LE_VIEW_FLIP_NONE && flip <= LE_VIEW_FLIP_VERTICAL)
+            run_tcl_command(std::string("set_view_flip ") + kNames[flip]);
     }
 
     void GuiProvider::set_flightline_max_fanout(int32_t max_fanout)

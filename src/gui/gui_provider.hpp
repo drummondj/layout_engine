@@ -112,6 +112,13 @@ namespace le::gui
                 bool confirm_overwrite = true; // ask before a Save overwrites a design file
             } settings;
 
+            // The Settings panel's Database Settings: view state saved with
+            // the design's session (write_db), not in settings.json.
+            struct DatabaseSettings
+            {
+                int32_t view_flip = LE_VIEW_FLIP_NONE; // LeViewFlip
+            } database_settings;
+
             // secondary_toolbar.cpp's placement toolbar - shown in Edit mode
             // while selected_count > 0; the rest is only refreshed then.
             // snap_available is LePlacementSnapMode-indexed,
@@ -212,6 +219,8 @@ namespace le::gui
         void redo();
         void clear_rulers();
         void set_hierarchy_depth(int32_t depth);
+        // Queues set_view_flip; `flip` is an LeViewFlip.
+        void set_view_flip(int32_t flip);
         void set_flightline_max_fanout(int32_t max_fanout);
         // Settings panel - a spacing <= 0 is left unchanged; a
         // null/empty path means the default settings file.

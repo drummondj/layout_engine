@@ -315,6 +315,12 @@ namespace le
         std::int64_t minor_grid_spacing_dbu = 5;
         std::int64_t major_grid_spacing_dbu = 50;
 
+        /// @brief Where the axis lines cross, in dbu: the point the user
+        /// sees as (0, 0) - the database origin, or in a mirrored view the
+        /// centre of the view's boundary (le_snapped_mouse_position's
+        /// coordinates). A boundary's centre can fall on a half dbu.
+        std::array<double, 2> axis_origin_dbu{0.0, 0.0};
+
         /// @brief The current Abstract's own LEF `ORIGIN` point
         /// (`AbstractData::origin`, defaulting to dbu (0,0) when unset -
         /// `api.cpp`'s own `view_render_options_for` resolves this),
