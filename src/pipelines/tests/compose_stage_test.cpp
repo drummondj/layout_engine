@@ -451,3 +451,16 @@ TEST_F(ComposeStackingFixture, ComposeDrawsChildrenBetweenANodesTwoImages)
     EXPECT_EQ(rgb(1, 1), (std::array<int, 3>{0, 0, 255}));   // TOP's over image over BLOCK
     EXPECT_EQ(rgb(-3, -3), (std::array<int, 3>{0, 0, 255})); // ...and outside it
 }
+
+// OverlayFrame::pixel: the unmirrored mapping, then the view's mirror about
+// the frame's centre.
+TEST(OverlayFrame, PixelMapsDbuThroughTheViewsMirror)
+{
+    OverlayFrame frame{.viewport = Rect{{100, 200}, {300, 400}}, .scale = 0.5, .pixel_width = 100, .pixel_height = 100};
+    const Point p{120, 260}; // 10 px right, 30 px up from the bottom-left
+    EXPECT_EQ(frame.pixel(p), (std::array<double, 2>{10.0, 70.0}));
+    frame.flip = ViewFlip::HORIZONTAL;
+    EXPECT_EQ(frame.pixel(p), (std::array<double, 2>{90.0, 70.0}));
+    frame.flip = ViewFlip::VERTICAL;
+    EXPECT_EQ(frame.pixel(p), (std::array<double, 2>{10.0, 30.0}));
+}

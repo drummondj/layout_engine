@@ -140,6 +140,8 @@ int delete_selected_pieces_cmd();
 void set_placement_snap_mode_cmd(int mode);
 int get_placement_snap_mode_cmd();
 bool is_placement_snap_mode_available_cmd(int mode);
+int set_view_flip_cmd(int flip);
+int get_view_flip_cmd();
 int apply_placement_orientation_op_cmd(int op);
 void arm_resize_cmd();
 void set_shape_snap_mode_cmd(int kind, int mode);

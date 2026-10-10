@@ -1064,6 +1064,140 @@ TEST_F(ApiFixture, UnsetOptionalEnumFieldDisplaysAsEmptyStringNotItsZeroValuedMe
     EXPECT_TRUE(found_purpose);
 }
 
+// le_set_view_flip mirrors the picture about the view's centre, and the
+// mouse, zoom anchor and arrow keys follow what's on screen.
+TEST_F(ApiFixture, AFlippedViewMirrorsThePictureAndTheMouseFollowsIt)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    const LeDesignId top_design = le_create_design(handle, le_create_library(handle, "TOPLIB"), "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+    const LeRouteId route_id = le_create_route(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", 0, 0, 0.0, 0, 0.0, nullptr);
+    const double route_rect_um[4] = {0.0, 0.0, 6.0, 6.0};
+    const LeShapeId route_shape = le_create_shape(handle, le_shape_owner_route(route_id), le_layer_by_name(handle, "M1"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    ASSERT_NE(route_shape.index, UINT32_MAX);
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_viewport_size(handle, 100, 100);
+    le_zoom(handle, 0.005 - 1.0, 0, 100); // 200 dbu/px: the shape covers pixels x 0..30, y 70..100
+    const auto lit = [&](int x, int y) { return region_has_opaque_pixel(le_render_pixel_buffer(handle), x - 1, y - 1, x + 1, y + 1); };
+    const auto click_selects_the_shape = [&](int x, int y) {
+        le_mouse_down(handle, x, y);
+        le_mouse_up(handle, x, y);
+        return le_selection_count(handle) == 1 && le_selected_object_ref(handle, 0).index == route_shape.index;
+    };
+
+    EXPECT_EQ(le_view_flip(handle), LE_VIEW_FLIP_NONE);
+    EXPECT_TRUE(lit(15, 85));
+    EXPECT_FALSE(lit(85, 85));
+
+    ASSERT_EQ(le_set_view_flip(handle, LE_VIEW_FLIP_HORIZONTAL), 0);
+    EXPECT_EQ(le_view_flip(handle), LE_VIEW_FLIP_HORIZONTAL);
+    EXPECT_FALSE(lit(15, 85));
+    EXPECT_TRUE(lit(85, 85)) << "left and right swap";
+    EXPECT_TRUE(click_selects_the_shape(85, 85));
+    EXPECT_FALSE(click_selects_the_shape(15, 85));
+
+    // Zooming in at the shape keeps it under the cursor.
+    le_zoom(handle, 1.0, 85, 85);
+    EXPECT_TRUE(click_selects_the_shape(85, 85));
+    le_zoom(handle, -0.5, 85, 85);
+
+    // The left arrow still moves the picture right on screen (a quarter
+    // of the view): the shape's left edge goes from x 70 to 95.
+    EXPECT_TRUE(lit(72, 85));
+    le_key_down(handle, LE_KEY_PAN_LEFT);
+    EXPECT_FALSE(lit(72, 85));
+    EXPECT_TRUE(lit(97, 85));
+    le_key_down(handle, LE_KEY_PAN_RIGHT);
+
+    ASSERT_EQ(le_set_view_flip(handle, LE_VIEW_FLIP_VERTICAL), 0);
+    EXPECT_FALSE(lit(15, 85));
+    EXPECT_TRUE(lit(15, 15)) << "top and bottom swap";
+    EXPECT_TRUE(click_selects_the_shape(15, 15));
+
+    EXPECT_NE(le_set_view_flip(handle, 3), 0);
+    EXPECT_EQ(le_view_flip(handle), LE_VIEW_FLIP_VERTICAL) << "an unknown flip changes nothing";
+    EXPECT_NE(le_set_view_flip(nullptr, LE_VIEW_FLIP_NONE), 0);
+    EXPECT_EQ(le_view_flip(nullptr), LE_VIEW_FLIP_NONE);
+}
+
+// In a mirrored view the status bar's coordinates (le_snapped_mouse_position)
+// are mirrored too, with the centre of the boundary (here a 100 x 50 um
+// diearea) at the origin: its on-screen bottom-left is (-50, -25).
+TEST_F(ApiFixture, AFlippedViewsCursorCoordinatesAreCentredOnTheBoundary)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    const LeDesignId top_design = le_create_design(handle, le_create_library(handle, "TOPLIB"), "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+    const double die[] = {1, 4, 0, 0, 100, 0, 100, 50, 0, 50};
+    ASSERT_NE(le_create_shape(handle, le_shape_owner_layout(top_layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index,
+              UINT32_MAX);
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_viewport_size(handle, 200, 100);
+    le_fit_scene(handle, 0); // 2 px per um: unflipped, pixel (x, y) is (x / 2, 50 - y / 2) um
+    const auto cursor_at = [&](int x, int y) {
+        le_set_mouse_position(handle, x, y);
+        const LeSnappedMousePosition pos = le_snapped_mouse_position(handle);
+        EXPECT_EQ(pos.has_position, 1);
+        return std::pair{pos.x_um, pos.y_um};
+    };
+
+    EXPECT_EQ(cursor_at(40, 20), std::pair(20.0, 40.0)) << "unflipped: database coordinates";
+
+    ASSERT_EQ(le_set_view_flip(handle, LE_VIEW_FLIP_HORIZONTAL), 0);
+    EXPECT_EQ(cursor_at(40, 20), std::pair(-30.0, 15.0)); // shows (80, 40) um
+    EXPECT_EQ(cursor_at(0, 100), std::pair(-50.0, -25.0)) << "the boundary's on-screen bottom-left";
+    EXPECT_EQ(cursor_at(200, 0), std::pair(50.0, 25.0)) << "and top-right";
+
+    ASSERT_EQ(le_set_view_flip(handle, LE_VIEW_FLIP_VERTICAL), 0);
+    EXPECT_EQ(cursor_at(40, 20), std::pair(-30.0, 15.0)); // shows (20, 10) um
+    EXPECT_EQ(cursor_at(0, 100), std::pair(-50.0, -25.0));
+}
+
+// The axis lines cross at the user's (0, 0): the database origin, or in a
+// mirrored view the centre of the boundary.
+TEST_F(ApiFixture, AFlippedViewsAxesCrossAtTheBoundaryCentre)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    const LeDesignId top_design = le_create_design(handle, le_create_library(handle, "TOPLIB"), "TOP");
+    const LeLayoutId top_layout = le_create_layout(handle, top_design);
+    // A 100 x 50 um diearea from (-20, -10): its centre is (30, 15) um.
+    const double die[] = {1, 4, -20, -10, 80, -10, 80, 40, -20, 40};
+    ASSERT_NE(le_create_shape(handle, le_shape_owner_layout(top_layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index,
+              UINT32_MAX);
+    ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
+    le_set_layer_name_visible(handle, "BOUNDARY", false); // only the axes and grid dots draw
+    le_set_viewport_size(handle, 200, 100);
+    le_fit_scene(handle, 0); // 2 px per um: unflipped, um (x, y) is pixel (2 (x + 20), 2 (40 - y))
+    // Whether a column / row holds an axis line: lit along most of its length.
+    const auto column_is_axis = [&](int x) {
+        const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+        int lit = 0;
+        for (int y = 0; y < buffer.height; ++y)
+            lit += buffer.data[y * buffer.row_bytes + x * 4 + 3] > 0;
+        return lit > buffer.height * 3 / 4;
+    };
+    const auto row_is_axis = [&](int y) {
+        const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+        int lit = 0;
+        for (int x = 0; x < buffer.width; ++x)
+            lit += buffer.data[y * buffer.row_bytes + x * 4 + 3] > 0;
+        return lit > buffer.width * 3 / 4;
+    };
+
+    EXPECT_TRUE(column_is_axis(40)) << "x = 0 um";
+    EXPECT_TRUE(row_is_axis(80)) << "y = 0 um";
+
+    // Mirrored, the axes run through the boundary centre, (30, 15) um:
+    // column 100 and row 50 whichever way it's flipped.
+    for (const int32_t flip : {LE_VIEW_FLIP_HORIZONTAL, LE_VIEW_FLIP_VERTICAL})
+    {
+        ASSERT_EQ(le_set_view_flip(handle, flip), 0);
+        EXPECT_TRUE(column_is_axis(100)) << flip;
+        EXPECT_TRUE(row_is_axis(50)) << flip;
+        EXPECT_FALSE(column_is_axis(flip == LE_VIEW_FLIP_HORIZONTAL ? 160 : 40)) << "not through the database origin";
+    }
+}
+
 // A click over both a Route's own shape and a placement's bbox selects
 // the shape first (shape pieces come before placements in click order);
 // a click over the placement alone selects the placement.

@@ -1330,6 +1330,8 @@ namespace
         return {cache.lines, cache.version};
     }
 
+    std::array<double, 2> display_origin_unlocked(const LeHandle *handle);
+
     le::ViewRenderOptions view_render_options_for(const LeHandle *handle)
     {
         le::ViewRenderOptions options;
@@ -1337,6 +1339,7 @@ namespace
         options.root_mutation_version = handle->root.mutation_version();
         options.hierarchy_depth = handle->hierarchy_depth();
         options.scale = handle->scale();
+        options.view_flip = handle->view_flip();
         options.layer_name_visible = handle->layer_name_visibility();
         options.purpose_visible = handle->purpose_visibility();
         options.hidden_objects = handle->hidden_objects();
@@ -1453,6 +1456,7 @@ namespace
 
         options.minor_grid_spacing_dbu = handle->minor_grid_spacing();
         options.major_grid_spacing_dbu = handle->major_grid_spacing();
+        options.axis_origin_dbu = display_origin_unlocked(handle);
         if (const le::AbstractId *abstract_id = std::get_if<le::AbstractId>(&options.top_level))
             if (const le::AbstractData *abstract = handle->root.get_abstract(*abstract_id))
                 options.abstract_origin_dbu = abstract->origin.value_or(le::Point{});
@@ -1745,13 +1749,15 @@ namespace
         // (x, y) - top-left origin, y down - to the dbu point it currently
         // shows, using the *old* scale/pan (pan/scale describe the
         // pre-flip transform while (x, y) here is post-flip).
-        const double dbu_x = static_cast<double>(old_pan.x) + static_cast<double>(x) / old_scale;
-        const double dbu_y = static_cast<double>(old_pan.y) + (viewport_height - static_cast<double>(y)) / old_scale;
+        // A mirrored view's pixel is first taken back to the unmirrored one.
+        const auto [ux, uy] = handle->unmirrored_pixel(x, y);
+        const double dbu_x = static_cast<double>(old_pan.x) + ux / old_scale;
+        const double dbu_y = static_cast<double>(old_pan.y) + (viewport_height - uy) / old_scale;
 
         // Re-solve pan so that same dbu point still lands under (x, y) at
         // the new scale, keeping the zoom visually anchored there.
-        const double pan_x_double = dbu_x - static_cast<double>(x) / new_scale;
-        const double pan_y_double = dbu_y - (viewport_height - static_cast<double>(y)) / new_scale;
+        const double pan_x_double = dbu_x - ux / new_scale;
+        const double pan_y_double = dbu_y - (viewport_height - uy) / new_scale;
 
         // A `factor` close enough to -1.0 (an ordinary finite double, not
         // just the already-rejected exact -1.0 above) drives new_scale
@@ -1773,6 +1779,10 @@ namespace
         handle->set_pan(le::Point{.x = pan_x, .y = pan_y});
     }
 
+    // -1 on an axis the view mirrors, else 1.
+    double screen_x_sign(const LeHandle *handle) { return handle->view_flip() == le::ViewFlip::HORIZONTAL ? -1.0 : 1.0; }
+    double screen_y_sign(const LeHandle *handle) { return handle->view_flip() == le::ViewFlip::VERTICAL ? -1.0 : 1.0; }
+
     void pan_unlocked(LeHandle *handle, double x_factor, double y_factor)
     {
         const double scale = handle->scale();
@@ -1784,29 +1794,58 @@ namespace
         handle->set_pan(le::Point{.x = pan.x + dx, .y = pan.y + dy});
     }
 
-    void fit_scene_unlocked(LeHandle *handle, int32_t padding_px)
+    // The open view's boundary: a Layout's diearea bbox, else the open
+    // Abstract's declared bbox (abstract_declared_bbox, what a parent sizes
+    // its placement by) - declared sizes, O(1), rather than a union of
+    // everything in the view. nullopt if the view has none.
+    std::optional<le::Rect> view_boundary_unlocked(const LeHandle *handle)
     {
         // A Layout view has no current_abstract() (the two "current view"
-        // trackers are mutually exclusive). Uses the Layout's own declared
-        // diearea bbox (same "declared size" convention as
-        // layout_declared_bbox in geometry/placement_geometry.hpp) rather than
-        // unioning every Placement's own transformed bbox - O(1) instead of
-        // O(placement count), and diearea is the DEF-standard bound of
-        // everything in it anyway.
+        // trackers are mutually exclusive).
         if (handle->current_layout().valid())
         {
             const le::ShapeData *diearea = handle->root.get_shape(handle->root.get_layout_diearea(handle->current_layout()));
-            handle->fit_to_content(diearea ? le::Geometry::bbox(*diearea) : std::nullopt, padding_px);
-            return;
+            return diearea ? le::Geometry::bbox(*diearea) : std::nullopt;
         }
+        return le::abstract_declared_bbox(handle->root, handle->current_abstract());
+    }
 
-        // Same "declared size, not a union of every generated shape"
-        // convention as the Layout branch above - abstract_declared_bbox
-        // (geometry/placement_geometry.hpp) is the exact bbox a *parent*
-        // already uses to size its own placement of this Abstract, so
-        // it's the right "whole content" bound here too, and O(1)
-        // regardless of how many Terminal/Obstruction shapes it has.
-        handle->fit_to_content(le::abstract_declared_bbox(handle->root, handle->current_abstract()), padding_px);
+    void fit_scene_unlocked(LeHandle *handle, int32_t padding_px)
+    {
+        handle->fit_to_content(view_boundary_unlocked(handle), padding_px);
+    }
+
+    // The dbu point shown to the user as (0, 0): the centre of the view's
+    // boundary in a mirrored view (le_set_view_flip), so the boundary's
+    // bottom-left on screen reads (-w/2, -h/2); else, or with no boundary,
+    // the database origin.
+    std::array<double, 2> display_origin_unlocked(const LeHandle *handle)
+    {
+        if (handle->view_flip() == le::ViewFlip::NONE)
+            return {0.0, 0.0};
+        const std::optional<le::Rect> boundary = view_boundary_unlocked(handle);
+        if (!boundary)
+            return {0.0, 0.0};
+        return {(static_cast<double>(boundary->ll.x) + static_cast<double>(boundary->ur.x)) / 2.0,
+                (static_cast<double>(boundary->ll.y) + static_cast<double>(boundary->ur.y)) / 2.0};
+    }
+
+    // Where dbu point `p` is shown to the user, in dbu: relative to
+    // display_origin_unlocked, and mirrored with the view.
+    std::array<double, 2> display_point_unlocked(const LeHandle *handle, le::Point p)
+    {
+        const auto [cx, cy] = display_origin_unlocked(handle);
+        const double x = static_cast<double>(p.x) - cx;
+        const double y = static_cast<double>(p.y) - cy;
+        switch (handle->view_flip())
+        {
+        case le::ViewFlip::HORIZONTAL:
+            return {-x, y};
+        case le::ViewFlip::VERTICAL:
+            return {x, -y};
+        default:
+            return {x, y};
+        }
     }
 
     // Widens `bbox` to also enclose `r` - a plain min/max union, same
@@ -2397,6 +2436,9 @@ namespace
 
     nlohmann::json filter_values_json(const std::set<std::string> &values) { return nlohmann::json(std::vector<std::string>(values.begin(), values.end())); }
 
+    // The session's names for le::ViewFlip, in enum order.
+    constexpr std::array<const char *, 3> kViewFlipNames = {"none", "horizontal", "vertical"};
+
     std::string session_to_json(const LeHandle *handle)
     {
         const le::Root &root = handle->root;
@@ -2406,7 +2448,9 @@ namespace
             j["view"] = {{"layout", session_ref("Layout", handle->current_layout())}};
         else if (root.get_abstract(handle->current_abstract()))
             j["view"] = {{"abstract", session_ref("Abstract", handle->current_abstract())}};
-        j["viewport"] = {{"pan", {handle->pan().x, handle->pan().y}}, {"scale", handle->scale()}};
+        j["viewport"] = {{"pan", {handle->pan().x, handle->pan().y}},
+                         {"scale", handle->scale()},
+                         {"flip", kViewFlipNames[static_cast<std::size_t>(handle->view_flip())]}};
 
         nlohmann::json current = nlohmann::json::object();
         if (root.get_technology(handle->current_technology_id))
@@ -2522,6 +2566,12 @@ namespace
             handle->set_pan(le::Point{viewport["pan"][0].get<int64_t>(), viewport["pan"][1].get<int64_t>()});
         if (viewport.contains("scale") && viewport["scale"].is_number())
             handle->set_scale(viewport["scale"].get<double>());
+        // Older sessions have no flip: unmirrored.
+        handle->set_view_flip(le::ViewFlip::NONE);
+        if (viewport.contains("flip") && viewport["flip"].is_string())
+            for (std::size_t i = 0; i < kViewFlipNames.size(); ++i)
+                if (viewport["flip"].get<std::string>() == kViewFlipNames[i])
+                    handle->set_view_flip(static_cast<le::ViewFlip>(i));
     }
 
 }
@@ -4307,6 +4357,23 @@ extern "C"
         pan_unlocked(handle, x_factor, y_factor);
     }
 
+    int32_t le_set_view_flip(LeHandle *handle, int32_t flip)
+    {
+        if (!handle || flip < LE_VIEW_FLIP_NONE || flip > LE_VIEW_FLIP_VERTICAL)
+            return 1;
+        HandleWriteLock lock(handle);
+        handle->set_view_flip(static_cast<le::ViewFlip>(flip));
+        return 0;
+    }
+
+    int32_t le_view_flip(LeHandle *handle)
+    {
+        if (!handle)
+            return LE_VIEW_FLIP_NONE;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return static_cast<int32_t>(handle->view_flip());
+    }
+
     void le_set_viewport_size(LeHandle *handle, int32_t width_px, int32_t height_px)
     {
         if (!handle)
@@ -4608,9 +4675,10 @@ extern "C"
         if (!technology || technology->database_units_microns <= 0.0)
             return LeSnappedMousePosition{.x_um = 0.0, .y_um = 0.0, .has_position = 0};
 
+        const auto [x, y] = display_point_unlocked(handle, *snapped);
         return LeSnappedMousePosition{
-            .x_um = static_cast<double>(snapped->x) / technology->database_units_microns,
-            .y_um = static_cast<double>(snapped->y) / technology->database_units_microns,
+            .x_um = x / technology->database_units_microns,
+            .y_um = y / technology->database_units_microns,
             .has_position = 1,
         };
     }
@@ -4674,21 +4742,23 @@ extern "C"
             else
                 fit_scene_unlocked(handle, kKeyFitPaddingPx);
             break;
+        // Arrow keys pan in screen directions, so a mirrored axis pans the
+        // other way in dbu.
         case LE_KEY_PAN_LEFT:
             if (!ctrl && !shift)
-                pan_unlocked(handle, -kKeyPanFactor, 0.0);
+                pan_unlocked(handle, -kKeyPanFactor * screen_x_sign(handle), 0.0);
             break;
         case LE_KEY_PAN_RIGHT:
             if (!ctrl && !shift)
-                pan_unlocked(handle, kKeyPanFactor, 0.0);
+                pan_unlocked(handle, kKeyPanFactor * screen_x_sign(handle), 0.0);
             break;
         case LE_KEY_PAN_UP:
             if (!ctrl && !shift)
-                pan_unlocked(handle, 0.0, kKeyPanFactor);
+                pan_unlocked(handle, 0.0, kKeyPanFactor * screen_y_sign(handle));
             break;
         case LE_KEY_PAN_DOWN:
             if (!ctrl && !shift)
-                pan_unlocked(handle, 0.0, -kKeyPanFactor);
+                pan_unlocked(handle, 0.0, -kKeyPanFactor * screen_y_sign(handle));
             break;
         case LE_KEY_1:
         case LE_KEY_2:

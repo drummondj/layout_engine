@@ -2224,6 +2224,12 @@ Returns the Via objects matching the given names and filters, as tokens. Via: A 
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
+## get_view_flip
+
+`get_view_flip [-help]`
+
+Returns how the design view is mirrored: none, horizontal or vertical.
+
 ## history
 
 `history [-help]`
@@ -2619,6 +2625,16 @@ Sets what a resized or moved shape of <kind> snaps to. Rects and polygons (Resiz
 | --- | --- | --- | --- |
 | `<kind>` | `str` | yes | rect, polygon, path or via |
 | `<mode>` | `str` | yes | none, user, manufacturing, fin (rect/polygon) or tracks (path/via) |
+
+## set_view_flip
+
+`set_view_flip <flip> [-help]`
+
+Mirrors the design view: horizontal swaps left and right, vertical swaps top and bottom, none shows it as it is. The same area stays in view, clicks and the arrow keys follow what's on screen, and overlay text such as ruler labels stays readable; text in the design itself is mirrored. Saved with the session.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<flip>` | `str` | yes | One of none, horizontal, vertical |
 
 ## set_viewport_size
 

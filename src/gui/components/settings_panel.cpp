@@ -161,6 +161,15 @@ namespace le::gui
                 status = "Loaded " + *path;
             }
         }
+
+        // Saved with the design's session, not in the settings file above.
+        section("Database Settings");
+        static constexpr const char *kFlipLabels[] = {"None", "Horizontal", "Vertical"};
+        int flip = provider.state().database_settings.view_flip;
+        if (ImGui::Combo("View flip", &flip, kFlipLabels, IM_ARRAYSIZE(kFlipLabels)))
+            provider.set_view_flip(flip);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Mirrors the design view. While flipped, the status bar's X/Y are mirrored too, with the centre of the boundary at 0, 0.\nSaved with the design (write_db), not in the settings file.");
         if (extra)
             extra();
     }

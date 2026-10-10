@@ -529,6 +529,23 @@ struct LeHandle
         int viewport_width_px() const { return viewport_width_px_; }
         int viewport_height_px() const { return viewport_height_px_; }
 
+        // How the view is mirrored on screen (le_set_view_flip). Pan and
+        // scale describe the unmirrored view; only the screen mapping
+        // changes.
+        le::ViewFlip view_flip() const { return view_flip_; }
+        void set_view_flip(le::ViewFlip flip) { view_flip_ = flip; }
+
+        // Undoes the view's mirror on a screen pixel coordinate (top-left
+        // origin, y down): where that pixel would be in the unmirrored view.
+        std::array<double, 2> unmirrored_pixel(double x_px, double y_px) const
+        {
+            if (view_flip_ == le::ViewFlip::HORIZONTAL)
+                x_px = static_cast<double>(viewport_width_px_) - x_px;
+            else if (view_flip_ == le::ViewFlip::VERTICAL)
+                y_px = static_cast<double>(viewport_height_px_) - y_px;
+            return {x_px, y_px};
+        }
+
         // Monotonic counter bumped by any of the three setters above -
         // cheap for a caller to compare instead of snapshotting pan/scale/
         // viewport size by value.
@@ -677,8 +694,9 @@ struct LeHandle
         // le_mouse_down/le_mouse_up).
         le::Point pixel_to_dbu(int32_t x_px, int32_t y_px) const
         {
-            const double dbu_x = static_cast<double>(pan_.x) + static_cast<double>(x_px) / scale_;
-            const double dbu_y = static_cast<double>(pan_.y) + (static_cast<double>(viewport_height_px_) - static_cast<double>(y_px)) / scale_;
+            const auto [x, y] = unmirrored_pixel(x_px, y_px);
+            const double dbu_x = static_cast<double>(pan_.x) + x / scale_;
+            const double dbu_y = static_cast<double>(pan_.y) + (static_cast<double>(viewport_height_px_) - y) / scale_;
             return le::Point{static_cast<int64_t>(dbu_x), static_cast<int64_t>(dbu_y)};
         }
 
@@ -1614,6 +1632,7 @@ struct LeHandle
         double scale_ = 1.0;
         int viewport_width_px_ = 0;
         int viewport_height_px_ = 0;
+        le::ViewFlip view_flip_ = le::ViewFlip::NONE;
         uint64_t viewport_version_ = 0;
         int64_t minor_grid_spacing_ = 5;
         int64_t major_grid_spacing_ = 50;

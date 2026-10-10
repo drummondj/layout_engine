@@ -334,9 +334,9 @@ namespace
         return coverage;
     }
 
-    // Draws only the axis lines (no dot tiers) into a 100x100 image whose
-    // centre is dbu (0,0) at `scale` pixels per dbu.
-    BLImage draw_axes_at_scale(double scale)
+    // Draws only the axis lines (no dot tiers), crossing at `axis_origin`,
+    // into a 100x100 image whose centre is dbu (0,0) at `scale` pixels per dbu.
+    BLImage draw_axes_at_scale(double scale, std::array<double, 2> axis_origin = {0.0, 0.0})
     {
         BLImage image(100, 100, BL_FORMAT_PRGB32);
         BLContext ctx(image);
@@ -344,7 +344,7 @@ namespace
         ctx.translate(50.0, 50.0);
         ctx.scale(scale, -scale);
         const auto half = static_cast<int64_t>(50.0 / scale);
-        draw_grid_blend2d(ctx, Rect{{-half, -half}, {half, half}}, scale, 0, 0);
+        draw_grid_blend2d(ctx, Rect{{-half, -half}, {half, half}}, scale, 0, 0, axis_origin);
         ctx.end();
         return image;
     }
@@ -362,4 +362,15 @@ TEST(GridBlend2D, AxisLinesStayOnePixelWideAtAnyZoom)
         EXPECT_NEAR(row_coverage(image, 10, 40, 60), axis_alpha, 0.05) << "scale " << scale;
         EXPECT_EQ(sample(image, 45, 10).a, 0u) << "scale " << scale;
     }
+}
+
+// The axes cross wherever the user's (0, 0) is - a mirrored view's boundary
+// centre - not necessarily at the database origin.
+TEST(GridBlend2D, AxisLinesCrossAtTheAxisOrigin)
+{
+    const BLImage image = draw_axes_at_scale(1.0, {20.0, -30.0}); // device column 70, row 80
+    EXPECT_NEAR(row_coverage(image, 10, 60, 80), kAxisLineColor.a / 255.0, 0.05) << "the vertical axis at x = 20";
+    EXPECT_EQ(sample(image, 50, 10).a, 0u) << "none at x = 0";
+    EXPECT_GT(sample(image, 10, 80).a, 0u) << "the horizontal axis at y = -30";
+    EXPECT_EQ(sample(image, 10, 50).a, 0u) << "none at y = 0";
 }
