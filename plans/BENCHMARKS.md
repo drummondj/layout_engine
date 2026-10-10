@@ -1875,3 +1875,37 @@ of 5 (cv in brackets), Ryzen 9 7950X, WSL2:
 
 Within noise; Rasterize's code is unchanged (labels use its existing text
 pass).
+
+## 2026-10-10 — Constant-time ViewLayerSet::find (#173)
+
+`find(LayerId, purpose)` was a linear scan over every view layer, called
+once per route shape by the resolver; it is now a dense table indexed by
+`(layer.index, purpose)`. Measured without extensions (`build_release`) and
+with hello_ext (a scratch Release tree, `LE_EXTENSION_DIRS=hello_ext`, so
+`HelloPin` adds a per-layer column). `pipeline_benchmarks`, means of 5 (cv in
+brackets), Ryzen 9 7950X, WSL2:
+
+| | no ext, before | no ext, after | hello_ext, before | hello_ext, after |
+|---|---|---|---|---|
+| BM_HierarchyResolver/1x1 | 129 ms (3.1%) | 120 ms (2.4%) | 135 ms (2.4%) | 121 ms (1.8%) |
+| BM_HierarchyResolver/2x1 | 253 ms (2.9%) | 239 ms (3.6%) | 270 ms (1.9%) | 253 ms (3.2%) |
+| BM_HierarchyResolver/2x2 | 521 ms (6.6%) | 511 ms (15.8%) | 549 ms (7.2%) | 526 ms (7.8%) |
+| BM_HierarchyResolver/3x2 | 795 ms (5.8%) | 736 ms (4.3%) | 857 ms (10.1%) | 762 ms (5.0%) |
+| BM_HierarchyResolver/3x3 | 1275 ms (8.8%) | 1162 ms (7.3%) | 1220 ms (3.9%) | 1129 ms (3.8%) |
+| BM_HierarchyResolver/5x5 | 3499 ms (6.9%) | 3277 ms (6.9%) | 3660 ms (8.3%) | 3316 ms (6.0%) |
+
+`BM_LayerGeneration` is unchanged (104-112 us in every column).
+`pipeline_stage_benchmark` ColdStartZoomFit, median of 3, ms, resolver /
+all stages:
+
+| | no ext, before | no ext, after | hello_ext, before | hello_ext, after |
+|---|---|---|---|---|
+| 1x1 | 120 / 166 | 103 / 146 | 111 / 153 | 103 / 145 |
+| 2x1 | 237 / 313 | 214 / 289 | 238 / 315 | 217 / 294 |
+| 2x2 | 478 / 623 | 444 / 590 | 473 / 621 | 442 / 590 |
+| 3x2 | 889 / 1146 | 826 / 1058 | 868 / 1110 | 792 / 1027 |
+| 3x3 | 1420 / 1767 | 1295 / 1640 | 1426 / 1772 | 1382 / 1721 |
+
+The resolver is 6-11% faster at most sizes (2x2, the noisiest, 2-4%). A per-layer renderable class no longer costs
+anything here: `BM_HierarchyResolver/1x1` with hello_ext matches the run
+without it (121 vs 120 ms, where #120 measured +3%).

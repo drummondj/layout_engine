@@ -56,6 +56,42 @@ TEST_F(ViewStyleFixture, FindReturnsInvalidForUnknownLayer)
     EXPECT_FALSE(view_layers.find(unknown, ViewLayerPurpose::TERMINAL).valid());
 }
 
+TEST_F(ViewStyleFixture, FindReturnsInvalidForAStaleLayerId)
+{
+    const LayerId stale{m1.index, m1.generation + 1};
+    EXPECT_FALSE(view_layers.find(stale, ViewLayerPurpose::TERMINAL).valid());
+}
+
+TEST_F(ViewStyleFixture, FindReturnsInvalidForAnotherTechnologysLayer)
+{
+    const TechnologyId other = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+    const LayerId other_m1 = root.create_layer(LayerData{.technology = other, .name = "OTHER_M1", .type = "ROUTING"});
+    ASSERT_TRUE(other_m1.valid());
+    EXPECT_FALSE(view_layers.find(other_m1, ViewLayerPurpose::TERMINAL).valid());
+
+    // The other Technology's set resolves only its own layer.
+    const ViewLayerSet other_layers = ViewLayerSet::build_for_technology(root, other);
+    EXPECT_TRUE(other_layers.find(other_m1, ViewLayerPurpose::TERMINAL).valid());
+    EXPECT_FALSE(other_layers.find(m1, ViewLayerPurpose::TERMINAL).valid());
+    EXPECT_FALSE(other_layers.find(m2, ViewLayerPurpose::TERMINAL).valid());
+}
+
+TEST_F(ViewStyleFixture, FindReturnsInvalidForAPurposeThatLayerOrPseudoRowDoesntHave)
+{
+    EXPECT_FALSE(view_layers.find(m1, ViewLayerPurpose::BOUNDARY).valid());
+    EXPECT_FALSE(view_layers.find(LayerId{}, ViewLayerPurpose::TERMINAL).valid());
+    EXPECT_FALSE(view_layers.find(m1, static_cast<ViewLayerPurpose>(kViewLayerPurposeCount)).valid());
+}
+
+TEST_F(ViewStyleFixture, FindMatchesEveryRegisteredViewLayer)
+{
+    for (const ViewLayerId id : view_layers.all())
+    {
+        const ViewLayerData *data = view_layers.get(id);
+        EXPECT_EQ(view_layers.find(data->layer, data->purpose), id) << data->name;
+    }
+}
+
 TEST_F(ViewStyleFixture, BoundaryViewLayerHasNoAssociatedLayer)
 {
     ViewLayerId boundary_id = view_layers.boundary_view_layer();
