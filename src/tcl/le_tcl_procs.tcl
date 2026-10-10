@@ -1217,10 +1217,10 @@ register_command_help deselect_all \
 
 # get_selection/select, the script-driven counterpart to
 # select_all/deselect_all/a real mouse click. Only
-# shape:/row:/placement:/region: tokens are meaningful (the kinds
+# shape:/wire:/row:/placement:/region: tokens are meaningful (the kinds
 # LeHandle::SelectedObject covers, see
-# le_select_object_ref's own api.hpp comment) - selecting a shape:
-# token selects every one of its rects/polygons/paths, not one piece,
+# le_select_object_ref's own api.hpp comment) - selecting a shape: or
+# wire: token selects every one of its pieces, not one piece,
 # since piece-level granularity has no meaning outside a real mouse
 # hit-test.
 proc get_selection {args} {
@@ -1239,14 +1239,14 @@ proc get_selection {args} {
 }
 register_command_help get_selection \
     "get_selection \[-help\]" \
-    "Returns the selection as a list of tokens (shape:, row:, placement:, region:) - the form select accepts." \
+    "Returns the selection as a list of tokens (shape:, wire:, row:, placement:, region:) - the form select accepts." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
 proc select {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
-        return "select <tokens> \[-help\] - Adds the given shape:/row:/placement:/region: tokens to the current selection"
+        return "select <tokens> \[-help\] - Adds the given shape:/wire:/row:/placement:/region: tokens to the current selection"
     }
     if {[llength $args] < 1} {
         error "select: expected at least one <token>, got \"$args\""
@@ -1254,7 +1254,7 @@ proc select {args} {
     foreach token $args {
         set status [select_cmd $token]
         if {$status == 2} {
-            error "select: unrecognized token \"$token\" (expected a shape:/row:/placement:/region: token)"
+            error "select: unrecognized token \"$token\" (expected a shape:/wire:/row:/placement:/region: token)"
         } elseif {$status != 0} {
             error "select: failed to select \"$token\" - see the terminal log for the specific reason"
         }
@@ -1262,10 +1262,10 @@ proc select {args} {
     return ""
 }
 register_command_help select \
-    "select <tokens> \[-help\] - Adds the given shape:/row:/placement:/region: tokens to the current selection" \
+    "select <tokens> \[-help\] - Adds the given shape:/wire:/row:/placement:/region: tokens to the current selection" \
     "Adds each token to the selection, keeping what's already selected (use deselect_all first to replace it). A shape: or wire: token selects all of its rects, polygons, paths and vias." \
     {
-        {<tokens> {type token required 1 description {One or more shape:/row:/placement:/region: tokens to select}}}
+        {<tokens> {type token required 1 description {One or more shape:/wire:/row:/placement:/region: tokens to select}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 

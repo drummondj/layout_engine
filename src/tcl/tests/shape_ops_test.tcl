@@ -241,6 +241,12 @@ set wire_copy [shape_copy $wire -layer layer:M2]
 check "shape_copy of a wire makes a Shape" M2 [layer_of $wire_copy]
 check "...with its two paths" 2 [shape_path_count $wire_copy]
 check "shape_and of a wire" {{9.5 5} {10.5 6}} [shape_bbox [shape_and $wire -with [create_shape -layer layer:M1 -rects {{{0 5} {50 6}}}]]]
+deselect_all
+select $wire
+check "a selected wire's pieces come back as its token" [list $wire $wire] [get_selection]
+check "shape ops take a selected wire" {{-0.5 -0.5} {40.5 20.5}} [shape_bbox [get_selection]]
+check "...and make Shapes of it" 1 [llength [shape_or [get_selection] -with [get_selection]]]
+deselect_all
 check "shape_change_layer moves a wire" $wire [shape_change_layer $wire -layer layer:M3]
 check "...onto M3" M3 [get_properties $wire .layer.name]
 check_error "a wire can't go onto a purpose" {shape_change_layer $wire -layer debug} "shape_change_layer: failed*"

@@ -786,11 +786,11 @@ int read_db_cmd(const char *path, int with_session) { return le_read_db(session(
 const char *db_info_cmd(const char *path) { return return_string(le_db_info(path)); }
 const char *migrate_db_cmd(const char *in_path, const char *out_path) { return return_string(le_migrate_db(in_path, out_path)); }
 
-// get_selection/select. Only Shape/Row/Placement/Region friendly ids are
+// get_selection/select. Only Shape/Wire/Row/Placement/Region friendly ids are
 // meaningful here (the kinds LeHandle::SelectedObject covers - see le_select_object_ref's
 // own api.hpp doc comment); literal prefix strings rather than the
 // generated kShapePrefix/etc constants, since those live in the generated
-// file's own scope and duplicating a plain "shape:"/"row:"/... literal
+// file's own scope and duplicating a plain "shape:"/"wire:"/"row:"/... literal
 // here is simpler than reaching for them.
 int selection_count_cmd()
 {
@@ -804,6 +804,8 @@ const char *get_selection_at_cmd(int index)
     {
     case LE_OBJECT_KIND_SHAPE:
         return return_string(format_shape_id(LeShapeId{.index = ref.index, .generation = ref.generation}));
+    case LE_OBJECT_KIND_WIRE:
+        return return_string(format_wire_id(LeWireId{.index = ref.index, .generation = ref.generation}));
     case LE_OBJECT_KIND_ROW:
         return return_string(format_row_id(LeRowId{.index = ref.index, .generation = ref.generation}));
     case LE_OBJECT_KIND_PLACEMENT:
@@ -825,6 +827,11 @@ int select_cmd(const char *token)
     {
         const LeShapeId id = resolve_shape_id(token);
         ref = LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = id.index, .generation = id.generation};
+    }
+    else if (sv.substr(0, 5) == "wire:")
+    {
+        const LeWireId id = resolve_wire_id(token);
+        ref = LeObjectRef{.kind = LE_OBJECT_KIND_WIRE, .index = id.index, .generation = id.generation};
     }
     else if (sv.substr(0, 4) == "row:")
     {
