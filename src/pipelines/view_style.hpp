@@ -309,12 +309,20 @@ namespace le
         /// @brief Resolve a physical Layer + purpose to its ViewLayerId.
         /// Invalid if no such ViewLayer was registered (e.g. `layer` itself
         /// is invalid/unknown - callers don't need to check that first).
+        /// Constant time: the resolver calls it once per route shape.
         ViewLayerId find(LayerId layer, ViewLayerPurpose purpose) const
         {
-            for (const auto &entry : lookup_)
-                if (entry.layer == layer && entry.purpose == purpose)
-                    return entry.id;
-            return ViewLayerId{};
+            const auto ordinal = static_cast<size_t>(purpose);
+            if (ordinal >= kViewLayerPurposeCount)
+                return ViewLayerId{};
+            if (!layer.valid())
+                return layerless_[ordinal];
+            const size_t slot = static_cast<size_t>(layer.index) * kViewLayerPurposeCount + ordinal;
+            // The stored LayerId rejects a stale generation or another
+            // Technology's layer at the same index.
+            if (slot >= by_layer_.size() || by_layer_[slot].layer != layer)
+                return ViewLayerId{};
+            return by_layer_[slot].id;
         }
 
         /// @brief Where a renderable class R's `shape` draws: a per_layer
@@ -426,7 +434,6 @@ namespace le
         struct LookupEntry
         {
             LayerId layer;
-            ViewLayerPurpose purpose;
             ViewLayerId id;
         };
 
@@ -455,7 +462,16 @@ namespace le
                 .layer = layer,
                 .style = style,
             });
-            lookup_.push_back(LookupEntry{.layer = layer, .purpose = purpose, .id = id});
+            const auto ordinal = static_cast<size_t>(purpose);
+            if (!layer.valid())
+            {
+                layerless_[ordinal] = id;
+                return id;
+            }
+            const size_t slot = static_cast<size_t>(layer.index) * kViewLayerPurposeCount + ordinal;
+            if (slot >= by_layer_.size())
+                by_layer_.resize((static_cast<size_t>(layer.index) + 1) * kViewLayerPurposeCount);
+            by_layer_[slot] = LookupEntry{.layer = layer, .id = id};
             return id;
         }
 
@@ -651,7 +667,11 @@ namespace le
     private:
 
         Pool<ViewLayerData, ViewLayerId> pool_;
-        std::vector<LookupEntry> lookup_;
+        // find()'s index: `layer.index * kViewLayerPurposeCount + ordinal`
+        // for ViewLayers on a physical Layer, one slot per purpose for the
+        // layerless pseudo-rows.
+        std::vector<LookupEntry> by_layer_;
+        std::array<ViewLayerId, kViewLayerPurposeCount> layerless_{};
         ViewLayerId boundary_id_;
         ViewLayerId placement_id_;
         ViewLayerId port_marker_id_;
