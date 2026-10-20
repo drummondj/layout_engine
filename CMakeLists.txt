@@ -1279,6 +1279,18 @@ add_test(NAME codegen_unit
 # Its compile checks of generated code use the build's compiler.
 set_tests_properties(codegen_unit PROPERTIES ENVIRONMENT "CXX=${CMAKE_CXX_COMPILER}")
 
+# Extension code (LE_EXTENSION_COMPILE_OPTIONS) fails to build when a non-void
+# function can fall off its end.
+if(LE_EXTENSION_COMPILE_OPTIONS)
+    add_test(NAME le_extension_missing_return_is_error
+        COMMAND ${CMAKE_CXX_COMPILER} ${LE_EXTENSION_COMPILE_OPTIONS} -c
+            ${CMAKE_CURRENT_SOURCE_DIR}/cmake/tests/missing_return.cpp -o ${CMAKE_CURRENT_BINARY_DIR}/missing_return.o)
+    # The diagnostic as an error: GCC's [-Werror=return-type], Clang's
+    # [-Werror,-Wreturn-type]. As a warning it's [-Wreturn-type].
+    set_tests_properties(le_extension_missing_return_is_error PROPERTIES
+        PASS_REGULAR_EXPRESSION "Werror(=|,-W)return-type")
+endif()
+
 # --- gui_tests: the GUI module's parts that run headless (panels, the
 # extension GUI SDK) - Dear ImGui with no window or backend. ---
 add_executable(gui_tests src/gui/tests/panels_test.cpp)

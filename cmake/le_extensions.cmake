@@ -31,6 +31,17 @@
 #                                le_shell only; they define le_ext_<name>_register_gui(GuiRegistry &)
 #     [LINK <target>...])        the extension's own third-party dependencies
 # Paths are relative to the extension directory.
+#
+# Every target it creates compiles with LE_EXTENSION_COMPILE_OPTIONS,
+# PRIVATE so they don't reach consumers: a non-void function falling off its
+# end is an error, since an optimised build can drop its epilogue and crash
+# far from the cause.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set(LE_EXTENSION_COMPILE_OPTIONS -Werror=return-type)
+else()
+    set(LE_EXTENSION_COMPILE_OPTIONS "")
+endif()
+
 function(le_add_extension name)
     cmake_parse_arguments(PARSE_ARGV 1 ARG "TCL_INIT" "" "CORE_SOURCES;CORE_INCLUDE;TESTS;TCL_SWIG;TCL_SOURCES;GUI_SOURCES;LINK")
     if(ARG_UNPARSED_ARGUMENTS)
@@ -55,11 +66,13 @@ function(le_add_extension name)
     add_library(${name}_core STATIC ${ARG_CORE_SOURCES})
     target_include_directories(${name}_core PUBLIC ${ARG_CORE_INCLUDE})
     target_link_libraries(${name}_core PUBLIC le::extension_sdk ${ARG_LINK})
+    target_compile_options(${name}_core PRIVATE ${LE_EXTENSION_COMPILE_OPTIONS})
 
     if(ARG_TESTS)
         add_executable(${name}_tests ${ARG_TESTS})
         # le_extensions (defined below) holds every core plus register_all().
         target_link_libraries(${name}_tests PRIVATE le_extensions GTest::gtest_main)
+        target_compile_options(${name}_tests PRIVATE ${LE_EXTENSION_COMPILE_OPTIONS})
         gtest_discover_tests(${name}_tests TEST_PREFIX "${name}.")
     endif()
 
@@ -70,6 +83,7 @@ function(le_add_extension name)
             add_library(${name}_tcl STATIC ${ARG_TCL_SOURCES})
             target_include_directories(${name}_tcl PUBLIC ${ARG_CORE_INCLUDE} ${TCL_INCLUDE_PATH})
             target_link_libraries(${name}_tcl PUBLIC ${name}_core)
+            target_compile_options(${name}_tcl PRIVATE ${LE_EXTENSION_COMPILE_OPTIONS})
             set_property(GLOBAL APPEND PROPERTY LE_EXTENSION_TCL_TARGETS ${name}_tcl)
             set_property(GLOBAL APPEND PROPERTY LE_EXTENSION_SWIG_FILES ${ARG_TCL_SWIG})
             if(ARG_TCL_INIT)
@@ -82,6 +96,7 @@ function(le_add_extension name)
         add_library(${name}_gui STATIC ${ARG_GUI_SOURCES})
         target_include_directories(${name}_gui PUBLIC ${ARG_CORE_INCLUDE})
         target_link_libraries(${name}_gui PUBLIC ${name}_core gui)
+        target_compile_options(${name}_gui PRIVATE ${LE_EXTENSION_COMPILE_OPTIONS})
         set_property(GLOBAL APPEND PROPERTY LE_EXTENSION_GUI_TARGETS ${name}_gui)
         set_property(GLOBAL APPEND PROPERTY LE_EXTENSION_GUIS ${name})
     endif()
