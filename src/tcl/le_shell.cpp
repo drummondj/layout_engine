@@ -63,6 +63,9 @@ namespace
 {
     std::string g_module_path;
     std::string g_procs_path;
+    // Tcl's script library from the bundle (LE_SHELL_TCL_LIBRARY, set by the
+    // bundle's launcher when it uses the bundled libtcl); else Tcl finds its own.
+    std::string g_bundled_tcl_library;
     // The extensions whose procs app_init sources (extensions.json), in
     // order, and the index file they came from ("" if none was found).
     le::ExtensionIndex g_extensions;
@@ -179,6 +182,10 @@ namespace
     // preamble. Called directly by run_shell below.
     int app_init(Tcl_Interp *interp)
     {
+        if (!g_bundled_tcl_library.empty())
+        {
+            Tcl_SetVar(interp, "tcl_library", g_bundled_tcl_library.c_str(), TCL_GLOBAL_ONLY);
+        }
         if (Tcl_Init(interp) == TCL_ERROR)
         {
             return TCL_ERROR;
@@ -609,6 +616,25 @@ namespace
 
 int main(int argc, char **argv)
 {
+    // The bundle's launcher (le_shell beside this binary) adds the bundled
+    // libraries it chose to LD_LIBRARY_PATH, saving the caller's value here.
+    // They're loaded now (and the loader read LD_LIBRARY_PATH once, at
+    // startup), so the caller's value goes back for the processes Tcl's
+    // `exec` starts.
+    if (const char *saved = std::getenv("LE_SHELL_LD_LIBRARY_PATH"))
+    {
+        if (*saved)
+            setenv("LD_LIBRARY_PATH", saved, 1);
+        else
+            unsetenv("LD_LIBRARY_PATH");
+        unsetenv("LE_SHELL_LD_LIBRARY_PATH");
+    }
+    if (const char *tcl_library = std::getenv("LE_SHELL_TCL_LIBRARY"))
+    {
+        g_bundled_tcl_library = tcl_library;
+        unsetenv("LE_SHELL_TCL_LIBRARY");
+    }
+
     // Before anything can use the extensions this binary was built with.
     le::ext::register_all();
     le::ext::register_all_gui();

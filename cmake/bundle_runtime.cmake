@@ -1,0 +1,101 @@
+# Install-time part of the `bundle` component (install(SCRIPT), after
+# le_shell and le_tcl.so are installed): the shared libraries a host can't be
+# relied on to provide, each in runtime/<soname>/ for the launcher
+# (src/tcl/le_shell_launcher.sh) to use when the host lacks it.
+#
+# Inputs, set by an install(CODE) just before:
+#   LE_BUNDLE_SHELL, LE_BUNDLE_TCL_MODULE  the build tree's le_shell and le_tcl.so
+#   LE_BUNDLE_TCL_LIBRARY                  Tcl's script library matching the linked libtcl, or empty
+
+set(prefix "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+
+# The launcher is installed as le_shell next; the binary it starts is le_shell.bin.
+file(RENAME "${prefix}/le_shell" "${prefix}/le_shell.bin")
+
+# Exactly $ORIGIN (for libtbb beside them): a toolchain's compiler can add
+# its own library directory to the RPATH, which wouldn't exist on another
+# machine.
+foreach(binary le_shell.bin le_tcl.so)
+    file(RPATH_SET FILE "${prefix}/${binary}" NEW_RPATH "$ORIGIN")
+endforeach()
+
+# Only these, and only what le_shell or le_tcl.so actually loads: the C++
+# runtime, readline, Tcl, zlib, and the GL dispatch (libglvnd) and X11
+# client libraries, without which le_shell can't start even for a batch
+# script. Never glibc (the ABI everything else depends on) or a GL driver:
+# libglvnd loads the host's (Mesa or a vendor's) when a window opens.
+# ldd asks the dynamic loader, through the binaries' own RPATH, so each is
+# the copy the build tree runs with - not whichever the host's system
+# directories happen to hold first.
+set(bundled "^(libstdc\\+\\+|libgcc_s|libreadline|libhistory|libtinfo|libncursesw?|libtcl8\\.6|libz|libGL|libOpenGL|libGLX|libGLdispatch|libX11|libxcb|libXau|libXdmcp|libbsd|libmd)\\.so")
+set(resolved "")
+foreach(binary "${LE_BUNDLE_SHELL}" "${LE_BUNDLE_TCL_MODULE}")
+    execute_process(COMMAND ldd "${binary}" OUTPUT_VARIABLE ldd_output RESULT_VARIABLE ldd_result)
+    if(NOT ldd_result EQUAL 0)
+        message(FATAL_ERROR "bundle: ldd ${binary} failed:\n${ldd_output}")
+    endif()
+    string(REPLACE "\n" ";" ldd_lines "${ldd_output}")
+    foreach(line IN LISTS ldd_lines)
+        if(line MATCHES "^[ \t]*([^ \t]+) => not found")
+            message(FATAL_ERROR "bundle: ${binary} needs ${CMAKE_MATCH_1}, which the loader can't find")
+        elseif(line MATCHES "^[ \t]*([^ \t]+) => ([^ \t]+) \\(")
+            set(soname "${CMAKE_MATCH_1}")
+            set(library "${CMAKE_MATCH_2}")
+            if(soname MATCHES "${bundled}")
+                list(APPEND resolved "${soname}=${library}")
+            endif()
+        endif()
+    endforeach()
+endforeach()
+list(REMOVE_DUPLICATES resolved)
+
+file(REMOVE_RECURSE "${prefix}/runtime")
+set(have_tcl FALSE)
+foreach(entry IN LISTS resolved)
+    string(REGEX MATCH "^([^=]+)=(.*)$" _ "${entry}")
+    set(soname "${CMAKE_MATCH_1}")
+    set(library "${CMAKE_MATCH_2}")
+    file(INSTALL "${library}" DESTINATION "${prefix}/runtime/${soname}" FOLLOW_SYMLINK_CHAIN)
+    if(soname MATCHES "^libtcl")
+        set(have_tcl TRUE)
+    endif()
+endforeach()
+
+# Each library's bundled dependencies, in runtime/<soname>/needs: the
+# launcher takes those along with it, since a bundled library can need
+# symbol versions only its own build of a dependency has (the toolchain's
+# readline and a host's unversioned libtinfo). The C++ runtime is left out:
+# the launcher always takes the newer of the host's and the bundle's.
+foreach(entry IN LISTS resolved)
+    string(REGEX MATCH "^([^=]+)=(.*)$" _ "${entry}")
+    set(soname "${CMAKE_MATCH_1}")
+    set(library "${CMAKE_MATCH_2}")
+    execute_process(COMMAND ldd "${library}" OUTPUT_VARIABLE ldd_output RESULT_VARIABLE ldd_result)
+    set(needs "")
+    if(ldd_result EQUAL 0)
+        string(REPLACE "\n" ";" ldd_lines "${ldd_output}")
+        foreach(line IN LISTS ldd_lines)
+            if(line MATCHES "^[ \t]*([^ \t]+) => ")
+                set(needed "${CMAKE_MATCH_1}")
+                if(EXISTS "${prefix}/runtime/${needed}" AND NOT needed MATCHES "^(libstdc\\+\\+|libgcc_s)\\.so")
+                    string(APPEND needs "${needed}\n")
+                endif()
+            endif()
+        endforeach()
+    endif()
+    file(WRITE "${prefix}/runtime/${soname}/needs" "${needs}")
+endforeach()
+
+# libtcl finds its script library (init.tcl and the rest) where it was
+# built to look, which is gone on another machine. Without a matching one,
+# the host's Tcl has to do.
+if(have_tcl)
+    if(LE_BUNDLE_TCL_LIBRARY)
+        file(INSTALL "${LE_BUNDLE_TCL_LIBRARY}/" DESTINATION "${prefix}/runtime/tcl-library")
+    else()
+        file(GLOB tcl_runtime "${prefix}/runtime/libtcl*")
+        file(REMOVE_RECURSE ${tcl_runtime})
+        message(WARNING "bundle: no Tcl script library matching the linked libtcl was found at configure time, "
+            "so libtcl isn't bundled - the bundle needs the host's Tcl 8.6")
+    endif()
+endif()
