@@ -1186,6 +1186,33 @@ if(SWIG_FOUND AND TCL_FOUND)
     )
     set_tests_properties(le_tcl_shell_eof PROPERTIES TIMEOUT 60)
 
+    # Both again with each other readline build in LE_TEST_READLINE_DIRS (a
+    # library directory, through LD_LIBRARY_PATH): le_shell must read piped
+    # input with readlines it wasn't built against, such as an unpatched 8.3,
+    # which never reads input while an event hook is set. CI passes one.
+    set(LE_TEST_READLINE_DIRS "" CACHE STRING
+        "Readline library directories to also run le_shell's piped-input tests with")
+    set(readline_index 0)
+    foreach(readline_dir IN LISTS LE_TEST_READLINE_DIRS)
+        math(EXPR readline_index "${readline_index} + 1")
+        set(readline_id ${readline_index})
+        foreach(test shell_eof shell_gui_exit)
+            add_test(
+                NAME le_tcl_${test}.readline${readline_id}
+                COMMAND ${CMAKE_COMMAND}
+                    -DLE_SHELL=$<TARGET_FILE:le_shell>
+                    -DLE_TCL_MODULE=$<TARGET_FILE:le_tcl>
+                    -DLE_TCL_PROCS=${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
+                    -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/${test}_test${readline_id}
+                    -DITERATIONS=5
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/${test}_test.cmake
+            )
+            set_tests_properties(le_tcl_${test}.readline${readline_id} PROPERTIES
+                TIMEOUT 120
+                ENVIRONMENT "LD_LIBRARY_PATH=${readline_dir}")
+        endforeach()
+    endforeach()
+
     # Session-handle regression check (src/tcl/tests/session_handle_test.cpp) -
     # a plain GTest binary, not a Tcl script: proves set_session_handle()
     # actually redirects le_tcl_shim.cpp's session() to an externally-
