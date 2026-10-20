@@ -63,6 +63,9 @@ le bundle /opt/my_chip                                        # a self-contained
   `cmake_args = ["-DLE_ENABLE_TRACY=OFF"]`.
 - A source build needs Python 3.11-3.13 on `PATH`, but not codegen's
   packages: `le` installs them into its own Python environment.
+- `le doctor` lists anything the project's build needs that this machine
+  lacks, with the package to install; `le install` runs it before the
+  first source build.
 - **Upgrading:** move the submodule to the new tag (or change the
   `[layout_engine]` version range and `le update layout_engine`), then
   `le install`. An extension needs changes only if its `[compatibility]`

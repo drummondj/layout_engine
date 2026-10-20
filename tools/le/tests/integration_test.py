@@ -122,6 +122,10 @@ def main() -> int:
         if not Path(python).is_relative_to(sources.cache_dir() / "python"):
             raise SystemExit(f"the build used {python}, not le's codegen Python environment")
 
+        out = le(project, "doctor")
+        if not has_line(out, "ok", "cmake"):
+            raise SystemExit(f"le doctor should check a source build's prerequisites:\n{out}")
+
         listing = le(project, "list")
         for expected in ("hello_ext 0.1.0", "hello_script 0.1.0", "github:acme/hello_script@", "signed SHA256:"):
             if expected not in listing:

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from le import build, lock as lockfile, project as projectfile, releases, sources
+from le import build, doctor, lock as lockfile, project as projectfile, releases, sources
 
 _FROZEN = getattr(sys, "frozen", False)  # running as the PyInstaller binary
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -239,6 +239,12 @@ def install(root: Path, update: Optional[Set[str]] = None, allow_downgrade: bool
         index = _write_script_index(state, ordered, version, api, project.startup)
         command = [str(le_shell), "-extensions", str(index)]
     else:
+        if not (state / "build" / "CMakeCache.txt").is_file():
+            # The first configure: fail on anything missing with the whole list, not CMake's first error.
+            lines: List[str] = []
+            if not doctor.run(True, project.cmake_args, out=lines.append):
+                raise InstallError("this machine is missing what building Layout Engine from source needs (`le doctor` checks again):\n"
+                                   + "\n".join(lines))
         bundle = build.build(le_fetched.directory, [fetched[m.name].directory for m in ordered], state, project.build_type,
                              project.jobs, project.startup, project.cmake_args)
         command = [str(bundle / "le_shell")]
@@ -268,6 +274,32 @@ def passed_over_checkouts(root: Path, path: Path) -> List[Tuple[Path, str]]:
             seen.add(resolved)
             found.append((checkout, why))
     return found
+
+
+
+def needs_source_build(root: Path) -> Tuple[bool, str]:
+    """Whether the project builds Layout Engine from source, and why, as far as
+    can be told without fetching: an extension not installed yet might be compiled."""
+    project = projectfile.load(root)
+    le_source = project.layout_engine
+    if le_source.github is None:
+        return True, "Layout Engine comes from a local checkout"
+    if le_source.rev is not None or le_source.allow_unsigned:
+        return True, "Layout Engine is pinned to a revision or unsigned"
+    lock = lockfile.load(project.root)
+    if lock is not None and lock.project_hash == lockfile.project_hash(project.file):
+        if lock.layout_engine_bundle == "source":
+            return True, "a compiled extension (le_project.lock)"
+        return False, "every extension is Tcl-only, on a Layout Engine release (le_project.lock)"
+    for name, source in project.extensions.items():
+        if source.path is None:
+            return True, f"{name} isn't installed yet, so it may be compiled"
+        try:
+            if extension_manifest.load(source.path).compiled:
+                return True, f"{name} is a compiled extension"
+        except extension_manifest.ManifestError:
+            return True, f"{name}'s manifest can't be read, so it may be compiled"
+    return False, "every extension is Tcl-only, on a Layout Engine release"
 
 
 def _write_script_index(state: Path, ordered: List[extension_manifest.Manifest], version: str, api: int,

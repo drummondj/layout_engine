@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from le import authoring, build, cli, install as installer
+from le import authoring, build, cli, doctor, install as installer
 from codegen import extension_manifest
 from tests import helpers
 
@@ -195,6 +195,9 @@ class TestProjectCommands(unittest.TestCase):
         self.addCleanup(self.github.close)
         self.root = self.github.root
         patcher = mock.patch.object(build, "build", Recorder())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(doctor, "run", lambda *args, **kwargs: True)  # never probe this machine
         patcher.start()
         self.addCleanup(patcher.stop)
         layout_engine = helpers.fake_layout_engine(self.root / "layout_engine", version=installer.own_layout_engine_version())

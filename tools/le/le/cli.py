@@ -1,5 +1,5 @@
-"""The `le` command line: init, add, remove, trust, install, update, list, shell, bundle, and the authoring
-commands new-extension, test, makemigration and check."""
+"""The `le` command line: init, add, remove, trust, install, update, list, shell, bundle, doctor, and the
+authoring commands new-extension, test, makemigration and check."""
 
 import argparse
 import os
@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from le import authoring, build, install as installer, lock as lockfile, project as projectfile, releases, sources
+from le import authoring, build, doctor, install as installer, lock as lockfile, project as projectfile, releases, sources
 
 
 class CliError(Exception):
@@ -111,6 +111,22 @@ def cmd_trust(args) -> int:
     _edit(root, lambda text: projectfile.set_entry(text, "trust", args.publisher, value))
     print(f"le: {args.publisher} now has {len(keys)} trusted key{'s' if len(keys) != 1 else ''}")
     return 0
+
+
+def cmd_doctor(args) -> int:
+    cmake_args: List[str] = []
+    if args.source:
+        source_build, why = True, "--source"
+    else:
+        try:
+            root = find_root(Path.cwd())
+        except CliError:
+            source_build, why = True, "not in a project, so everything a source build needs"
+        else:
+            source_build, why = installer.needs_source_build(root)
+            cmake_args = projectfile.load(root).cmake_args
+    print(f"le: checking for {'a source build' if source_build else 'a release bundle'} ({why})")
+    return 0 if doctor.run(source_build, cmake_args) else 1
 
 
 def _install(root: Path, update, allow_downgrade: bool) -> int:
@@ -243,6 +259,10 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("bundle", help="copy the installed project into a self-contained directory, e.g. for deployment")
     s.add_argument("directory", help="where to put it (new, or empty)")
     s.set_defaults(func=cmd_bundle)
+
+    s = sub.add_parser("doctor", help="check this machine has what the project needs to build")
+    s.add_argument("--source", action="store_true", help="check for a source build whatever the project needs")
+    s.set_defaults(func=cmd_doctor)
 
     s = sub.add_parser("new-extension", help="create an extension directory from the examples")
     s.add_argument("name", help="snake_case, e.g. acme_router")

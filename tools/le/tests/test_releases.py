@@ -7,7 +7,7 @@ import os
 import unittest
 from unittest import mock
 
-from le import build, cli, lock as lockfile, project as projectfile
+from le import build, cli, doctor, lock as lockfile, project as projectfile
 from tests import helpers
 from tests.test_install import Recorder
 
@@ -23,6 +23,9 @@ class TestReleases(unittest.TestCase):
         self.acme_key = helpers.make_key(keys, "acme")
         self.recorder = Recorder()
         patcher = mock.patch.object(build, "build", self.recorder)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(doctor, "run", lambda *args, **kwargs: True)  # never probe this machine
         patcher.start()
         self.addCleanup(patcher.stop)
         self.project = self.root / "project"

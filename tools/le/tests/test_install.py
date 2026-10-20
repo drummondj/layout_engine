@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from le import build, cli, install as installer, lock as lockfile, project as projectfile
+from le import build, cli, doctor, install as installer, lock as lockfile, project as projectfile
 from tests import helpers
 
 
@@ -40,6 +40,17 @@ class TestInstall(unittest.TestCase):
         self.project = self.root / "project"
         self.recorder = Recorder()
         patcher = mock.patch.object(build, "build", self.recorder)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.doctor_calls = []
+        self.doctor_passes = True
+
+        def fake_doctor(source_build, cmake_args=(), probe=None, out=print):
+            self.doctor_calls.append((source_build, list(cmake_args)))
+            out("missing  swig >= 4.0  not found on PATH  -> apt install swig")
+            return self.doctor_passes
+
+        patcher = mock.patch.object(doctor, "run", fake_doctor)  # never probe this machine
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(self.github.close)
@@ -259,6 +270,46 @@ class TestInstall(unittest.TestCase):
         self.use_layout_engine("deps/le")
         self.assertEqual(self.le("install"), 0, self.last_error)
         self.assertNotIn("warning", self.last_error)
+
+    def test_the_first_source_build_checks_prerequisites_first(self):
+        self.doctor_passes = False
+        self.assertEqual(self.le("install"), 1)
+        self.assertIn("missing what building Layout Engine from source needs", self.last_error)
+        self.assertIn("apt install swig", self.last_error)
+        self.assertEqual(self.recorder.calls, [], "nothing is built")
+        self.doctor_passes = True
+        self.assertEqual(self.le("install"), 0, self.last_error)
+        self.assertEqual(self.doctor_calls[-1], (True, []))
+        # Once configured, a rebuild doesn't check again.
+        (self.project / ".le" / "build").mkdir(parents=True)
+        (self.project / ".le" / "build" / "CMakeCache.txt").write_text("")
+        calls = len(self.doctor_calls)
+        self.assertEqual(self.le("update"), 0, self.last_error)
+        self.assertEqual(len(self.doctor_calls), calls)
+
+    def test_doctor_checks_what_the_project_needs(self):
+        self.assertEqual(installer.needs_source_build(self.project), (True, "Layout Engine comes from a local checkout"))
+        self.assertEqual(self.le("doctor"), 0, self.last_error)
+        self.assertEqual(self.doctor_calls[-1][0], True)
+        self.doctor_passes = False
+        self.assertEqual(self.le("doctor"), 1)
+
+    def test_whether_a_release_project_needs_a_source_build(self):
+        text = (self.project / projectfile.PROJECT_FILE).read_text()
+        text = text.replace('path = "../layout_engine"', 'github = "drummondj/layout_engine"\nversion = ">=0.2, <0.3"')
+        (self.project / projectfile.PROJECT_FILE).write_text(text)
+        self.assertFalse(installer.needs_source_build(self.project)[0])
+        script = helpers.write_script_extension(self.root / "script", "script", "Script")
+        self.assertEqual(self.le("add", "script", "--path", str(script)), 0, self.last_error)
+        self.assertFalse(installer.needs_source_build(self.project)[0])
+        compiled = helpers.write_script_extension(self.root / "compiled", "compiled", "Compiled", extra_contents='cmake = "le_extension.cmake"')
+        (compiled / "le_extension.cmake").write_text("")
+        self.assertEqual(self.le("add", "compiled", "--path", str(compiled)), 0, self.last_error)
+        self.assertEqual(installer.needs_source_build(self.project), (True, "compiled is a compiled extension"))
+        self.assertEqual(self.le("remove", "compiled"), 0, self.last_error)
+        self.trust_acme()
+        self.assertEqual(self.le("add", "remote", "--github", "acme/remote", "--tag", "v1.0.0", "--publisher", "acme"), 0, self.last_error)
+        self.assertEqual(installer.needs_source_build(self.project), (True, "remote isn't installed yet, so it may be compiled"))
 
     def test_an_invalid_edit_is_rolled_back(self):
         before = (self.project / projectfile.PROJECT_FILE).read_text()

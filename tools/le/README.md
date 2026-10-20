@@ -46,6 +46,7 @@ le shell                               # builds if needed, then runs le_shell
 | `le list` | What's installed: versions, sources, commits, signers, release or source build. |
 | `le shell [args...]` | Runs Layout Engine's `le_shell` with the project's extensions, reinstalling first if anything changed (including files in a `--path` extension). |
 | `le bundle <dir>` | Copies the installed project (Layout Engine, its extensions, the startup script) into a new or empty directory: self-contained and relocatable, to deploy. |
+| `le doctor [--source]` | Checks this machine has what the project needs, one line per item: `ok`, `missing` (with the package to install for apt or dnf) or `optional`. A release-bundle project needs git, tar and ssh-keygen; a source build also a C++23 compiler (GCC 13+ or Clang 17+), cmake 3.25+, make, bison, SWIG 4+, Python 3.11-3.13 and the Boost, zlib, oneTBB, Tcl, readline, X11 and OpenGL headers (ccache is optional). Outside a project, or with `--source`, it checks for a source build. Exits 1 if anything required is missing. `le install` runs the same checks before a project's first source build. |
 | `le check <file.led>` | Whether a `.led` file loads in this project: for Layout Engine and each extension the file holds objects of, `matches`, `will migrate`, `missing` (with the `le add` line) or `too new`. Exits 1 if it can't load. |
 
 Writing extensions:
