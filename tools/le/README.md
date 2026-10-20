@@ -76,6 +76,8 @@ unless given `--allow-downgrade`.
 - `le_project.toml`: what you want. Commit it. Its `[build]` table sets
   `type` (default `Release`), `jobs`, and `cmake_args`: other CMake
   options for the source build, e.g. `["-DLE_ENABLE_TRACY=OFF"]`.
+  `-DPython3_EXECUTABLE=...` there replaces codegen's Python environment
+  (below) with your own interpreter, which must have codegen's packages.
 - `le_project.lock`: what was installed, i.e. each GitHub source's tag,
   commit and signing key, and the release bundle's sha256. Commit it, so everyone builds the same thing. A
   locked install refuses a tag that now points elsewhere, or a different
@@ -88,6 +90,13 @@ unless given `--allow-downgrade`.
   dependency and declared URL or tag, downloaded once per machine. Only
   sources are shared: each project builds its dependencies in its own
   `.le/build`, so build types, compilers and `cmake_args` never collide.
+  `python/` holds codegen's Python environments for source builds: a venv
+  with codegen's packages (jinja2, click) per requirements and Python
+  version, made from the newest Python 3.11-3.13 found (the one running
+  `le`, from a checkout) and passed to CMake, so nothing needs
+  `pip install ./codegen`. Without network access or Python's `venv`
+  module, `le` uses that Python directly if it already has the packages;
+  otherwise it says so and how to set `-DPython3_EXECUTABLE`.
 
 ## Signatures
 

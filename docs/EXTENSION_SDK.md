@@ -61,6 +61,8 @@ le bundle /opt/my_chip                                        # a self-contained
 - `[build]` in `le_project.toml` sets the build type, `jobs`, and
   `cmake_args` for any other CMake option, e.g.
   `cmake_args = ["-DLE_ENABLE_TRACY=OFF"]`.
+- A source build needs Python 3.11-3.13 on `PATH`, but not codegen's
+  packages: `le` installs them into its own Python environment.
 - **Upgrading:** move the submodule to the new tag (or change the
   `[layout_engine]` version range and `le update layout_engine`), then
   `le install`. An extension needs changes only if its `[compatibility]`

@@ -69,6 +69,7 @@ jobs:
 
   # `le` builds a real project (Layout Engine plus both example extensions)
   # from this checkout and runs it - tools/le/tests/integration_test.py.
+  # codegen's packages aren't installed: `le` provides them itself.
   le-integration:
     needs: changes
     if: needs.changes.outputs.le == 'true'
@@ -78,6 +79,5 @@ jobs:
 
       - name: le end-to-end test
         run: >-
-          docker compose run --rm ci bash -c
-          "python3 -m pip install --no-cache-dir --break-system-packages ./codegen &&
-          python3 tools/le/tests/integration_test.py /workspace"
+          docker compose run --rm ci
+          python3 tools/le/tests/integration_test.py /workspace

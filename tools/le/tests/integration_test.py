@@ -28,7 +28,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from le import build  # noqa: E402
+from le import build, sources  # noqa: E402
 from tests import helpers  # noqa: E402
 
 
@@ -115,6 +115,12 @@ def main() -> int:
         if result.returncode == 0 or "return-type" not in out:
             raise SystemExit(f"a missing return should fail the build with -Werror=return-type:\n{out}")
         source_file.write_text(original)
+
+        # codegen ran on le's own Python environment, not the system's.
+        configured = (project / ".le" / "build" / "CMakeCache.txt").read_text()
+        python = next(line.split("=", 1)[1] for line in configured.splitlines() if line.startswith("Python3_EXECUTABLE:"))
+        if not Path(python).is_relative_to(sources.cache_dir() / "python"):
+            raise SystemExit(f"the build used {python}, not le's codegen Python environment")
 
         listing = le(project, "list")
         for expected in ("hello_ext 0.1.0", "hello_script 0.1.0", "github:acme/hello_script@", "signed SHA256:"):
