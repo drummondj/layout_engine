@@ -20,6 +20,11 @@ research and benchmark history (`plans/LEFDEF_BUGS.md` lists the vendored LEF/DE
 ## Layout
 
 Each module's tests live beside it in `tests/` (hand-written GTest).
+Tests run in parallel, one process each, and other build trees may run them
+at the same time: scratch files go through `le::test::scratch_path`
+(`src/test_support/scratch_dir.hpp`, a directory per process), Tcl tests use
+`[pid]` or `file tempfile`. `scripts/check_test_scratch_paths.py` (a ctest)
+fails on a temp path that isn't unique to its process.
 
 - `src/database/` — the object-pool database. `schema.py` is the source of
   truth; the build generates code from it into

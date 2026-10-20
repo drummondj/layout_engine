@@ -694,9 +694,8 @@ if {[catch {create_design -library library:does_not_exist -name SHOULD_NOT_EXIST
 # section above) and a from-scratch Layout on scratch_design, so this
 # needs no extra fixture file. ---
 
-set write_scratch_dir [file join [expr {
-    [info exists ::env(TMPDIR)] ? $::env(TMPDIR) : "/tmp"
-}] "le_tcl_crud_test_write_scratch"]
+# [pid]: tests run in parallel, and other build trees may run this one too.
+set write_scratch_dir [file join [expr {[info exists ::env(TMPDIR)] ? $::env(TMPDIR) : "/tmp"}] le_tcl_crud_test_write_scratch_[pid]]
 file delete -force $write_scratch_dir
 file mkdir $write_scratch_dir
 

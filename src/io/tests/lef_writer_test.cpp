@@ -1,6 +1,7 @@
 #include "../../database/library_helpers.hpp"
 #include "../lef_reader.hpp"
 #include "../lef_writer.hpp"
+#include "../../test_support/scratch_dir.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
@@ -24,10 +25,6 @@ namespace
         return std::string(IO_TEST_FIXTURES_DIR) + "/" + name;
     }
 
-    std::string scratch_output_path(const std::string &name = "le_lef_writer_roundtrip.lef")
-    {
-        return (std::filesystem::temp_directory_path() / name).string();
-    }
 
     void expect_shapes_equal(const Root &original_root, const ShapeData &original, const Root &written_root, const ShapeData &written)
     {
@@ -114,7 +111,7 @@ protected:
     {
         ASSERT_EQ(reader.read_lef(fixture_path("writer_roundtrip.lef"), original_root, "test_lib"), 0);
 
-        const std::string out_path = scratch_output_path();
+        const std::string out_path = le::test::scratch_path("le_lef_writer_roundtrip.lef");
         ASSERT_EQ(writer.write_lef(out_path, original_root, original_root.get_design_abstract(find_design_by_name(original_root, "WRITERTEST")), LEFWriter::LayerWriteMode::IncludeWithAbstract), 0)
             << (writer.messages().empty() ? "" : writer.messages().front());
 
@@ -422,7 +419,7 @@ protected:
         ASSERT_EQ(reader.read_lef(fixture_path("via_rule_reference.lef"), original_root, "test_lib"), 0)
             << (reader.messages().empty() ? "" : reader.messages().front());
 
-        const std::string out_path = scratch_output_path("le_lef_writer_via_rule_reference_roundtrip.lef");
+        const std::string out_path = le::test::scratch_path("le_lef_writer_via_rule_reference_roundtrip.lef");
         ASSERT_EQ(writer.write_lef(out_path, original_root, AbstractId{}, LEFWriter::LayerWriteMode::TechnologyOnly), 0)
             << (writer.messages().empty() ? "" : writer.messages().front());
 
@@ -696,7 +693,7 @@ protected:
     {
         ASSERT_EQ(reader.read_lef(fixture_path("antenna_roundtrip.lef"), original_root, "test_lib"), 0);
 
-        const std::string out_path = scratch_output_path("le_lef_antenna_roundtrip.lef");
+        const std::string out_path = le::test::scratch_path("le_lef_antenna_roundtrip.lef");
         ASSERT_EQ(writer.write_lef(out_path, original_root, original_root.get_design_abstract(find_design_by_name(original_root, "ANTENNATEST")), LEFWriter::LayerWriteMode::IncludeWithAbstract), 0)
             << (writer.messages().empty() ? "" : writer.messages().front());
 
@@ -1181,7 +1178,7 @@ TEST_F(LEFWriterRoundtripFixture, RoundTripsObstructionRectIterateAndPathIterate
 
 TEST_F(LEFWriterRoundtripFixture, LayerWriteModeNoneWritesNoLayers)
 {
-    const std::string out_path = scratch_output_path();
+    const std::string out_path = le::test::scratch_path("le_lef_writer_roundtrip.lef");
     LEFWriter local_writer;
     ASSERT_EQ(local_writer.write_lef(out_path, original_root, original_root.get_design_abstract(find_design_by_name(original_root, "WRITERTEST")), LEFWriter::LayerWriteMode::None), 0);
 
@@ -1202,7 +1199,7 @@ TEST_F(LEFWriterRoundtripFixture, LayerWriteModeNoneWritesNoLayers)
 
 TEST_F(LEFWriterRoundtripFixture, LayerWriteModeTechnologyOnlyWritesNoMacro)
 {
-    const std::string out_path = scratch_output_path();
+    const std::string out_path = le::test::scratch_path("le_lef_writer_roundtrip.lef");
     LEFWriter local_writer;
     ASSERT_EQ(local_writer.write_lef(out_path, original_root, original_root.get_design_abstract(find_design_by_name(original_root, "WRITERTEST")), LEFWriter::LayerWriteMode::TechnologyOnly), 0);
 
@@ -1230,7 +1227,7 @@ TEST(LEFWriterTwoWordMacroClass, SplitsATwoWordAbstractTypeIntoBaseAndSubtypeIns
     const DesignId design_id = root.create_design(DesignData{.library = library_id, .name = "WELLTAPTEST"});
     root.create_abstract(AbstractData{.design = design_id, .type = "CORE WELLTAP"});
 
-    const std::string out_path = (std::filesystem::temp_directory_path() / "le_lef_writer_two_word_class.lef").string();
+    const std::string out_path = le::test::scratch_path("le_lef_writer_two_word_class.lef");
     LEFWriter writer;
     ASSERT_EQ(writer.write_lef(out_path, root, root.get_design_abstract(design_id), LEFWriter::LayerWriteMode::None), 0)
         << (writer.messages().empty() ? "" : writer.messages().front());
@@ -1265,7 +1262,7 @@ TEST(LEFWriterErrorHandling, WritesJustTheEndLibraryLineForAnEmptyRoot)
 {
     Root root;
     LEFWriter writer;
-    const std::string out_path = (std::filesystem::temp_directory_path() / "le_lef_writer_empty.lef").string();
+    const std::string out_path = le::test::scratch_path("le_lef_writer_empty.lef");
     EXPECT_EQ(writer.write_lef(out_path, root, AbstractId{}, LEFWriter::LayerWriteMode::IncludeWithAbstract), 0);
 }
 
@@ -1303,12 +1300,12 @@ TEST(LEFWriterLefdiffFidelity, WriterRoundtripFixtureMatchesTheOriginalPerLefdif
     LEFReader reader;
     ASSERT_EQ(reader.read_lef(fixture_path("writer_roundtrip.lef"), root, "test_lib"), 0);
 
-    const std::string written_path = (std::filesystem::temp_directory_path() / "le_lefdiff_written.lef").string();
+    const std::string written_path = le::test::scratch_path("le_lefdiff_written.lef");
     LEFWriter writer;
     ASSERT_EQ(writer.write_lef(written_path, root, root.get_design_abstract(find_design_by_name(root, "WRITERTEST")), LEFWriter::LayerWriteMode::IncludeWithAbstract), 0);
 
-    const std::string dump1_path = (std::filesystem::temp_directory_path() / "le_lefdiff_dump1.txt").string();
-    const std::string dump2_path = (std::filesystem::temp_directory_path() / "le_lefdiff_dump2.txt").string();
+    const std::string dump1_path = le::test::scratch_path("le_lefdiff_dump1.txt");
+    const std::string dump2_path = le::test::scratch_path("le_lefdiff_dump2.txt");
 
     const std::string command = fmt::format(
         "\"{}\" \"{}\" \"{}\" \"{}\" \"{}\" > /dev/null 2>&1",

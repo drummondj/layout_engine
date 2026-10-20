@@ -2,6 +2,7 @@
 #include "codec.hpp"
 #include "native_format.hpp"
 #include "generated/database/schema_version.hpp"
+#include "../../test_support/scratch_dir.hpp"
 
 #include "def_reader.hpp"
 #include "lef_reader.hpp"
@@ -40,7 +41,7 @@ namespace le::persistence
         public:
             TempDir()
             {
-                path_ = fs::temp_directory_path() / ("le_native_test_" + std::to_string(::getpid()) + "_" + std::to_string(counter_++));
+                path_ = le::test::scratch_path("le_native_test_" + std::to_string(counter_++));
                 fs::create_directories(path_);
             }
             ~TempDir() { fs::remove_all(path_); }

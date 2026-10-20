@@ -6,9 +6,18 @@
 #include <filesystem>
 #include <fstream>
 #include <string_view>
+#include <unistd.h>
 
 namespace
 {
+    // A scratch file in the temp directory, unique to this test process:
+    // ctest runs each test in its own process, in parallel, and other build
+    // trees may run the same tests at the same time.
+    std::filesystem::path scratch_path(const std::string &name)
+    {
+        return std::filesystem::temp_directory_path() / ("hello_ext_" + std::to_string(::getpid()) + "_" + name);
+    }
+
     struct Session
     {
         LeHandle *handle = le_create();
@@ -183,7 +192,7 @@ TEST(HelloExt, NotesBelongToTheirLibraryAndGoWithIt)
 
 TEST(HelloExt, NotesRoundTripThroughANativeFile)
 {
-    const std::filesystem::path path = std::filesystem::temp_directory_path() / "hello_ext_notes_test.led";
+    const std::filesystem::path path = scratch_path("notes_test.led");
     {
         Session session;
         add_two_notes(session.handle);
@@ -228,7 +237,7 @@ TEST(HelloExt, AnOlderFileListsItsMigrationsAndMigrateDbRunsThem)
     EXPECT_NE(info.find("hello_ext 0.2.0: HelloNote.text renamed to body"), std::string::npos) << info;
     EXPECT_NE(info.find("hello_ext 0.4.0: HelloPin added, owning Shapes"), std::string::npos) << info;
 
-    const std::string path = (std::filesystem::temp_directory_path() / "hello_ext_migrated.led").string();
+    const std::string path = scratch_path("migrated.led").string();
     const std::string summary = le_migrate_db(oldest.c_str(), path.c_str());
     EXPECT_NE(summary.find("applied hello_ext migration to 0.2.0"), std::string::npos) << summary;
     EXPECT_NE(std::string(le_db_info(path.c_str())).find("migrations to run: none"), std::string::npos);
@@ -261,7 +270,7 @@ TEST(HelloExt, DISABLED_WriteGoldenFileForThisSchemaVersion)
 TEST(HelloExt, ItsSettingsSectionRoundTripsAndOthersAreKept)
 {
     le::ext::register_all();
-    const std::filesystem::path path = std::filesystem::temp_directory_path() / "hello_ext_settings_test.json";
+    const std::filesystem::path path = scratch_path("settings_test.json");
     {
         Session session;
         le::ext::ExtensionContext ctx(session.handle, "hello_ext");
@@ -312,7 +321,7 @@ TEST(HelloExt, MarkersOwnShapes)
     ASSERT_NE(le_undo(session.handle), 0);
     EXPECT_EQ(markers_and_shapes(session.handle), (std::pair<size_t, size_t>{1, 1}));
 
-    const std::filesystem::path path = std::filesystem::temp_directory_path() / "hello_ext_markers_test.led";
+    const std::filesystem::path path = scratch_path("markers_test.led");
     ASSERT_EQ(le_write_db(session.handle, path.c_str(), 1), 0);
     Session loaded;
     ASSERT_EQ(le_read_db(loaded.handle, path.c_str(), 1), 0);
