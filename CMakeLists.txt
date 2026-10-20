@@ -1093,6 +1093,39 @@ if(SWIG_FOUND AND TCL_FOUND)
     install(DIRECTORY ${LE_FONT_DIR}/ DESTINATION fonts COMPONENT bundle)
     install(IMPORTED_RUNTIME_ARTIFACTS TBB::tbb DESTINATION . COMPONENT bundle)
 
+    # The shared libraries a host can't be relied on to provide go in
+    # runtime/<soname>/, with Tcl's script library when libtcl is among them;
+    # the installed le_shell is a launcher that takes each from there only
+    # when the host lacks it (or has an older C++ runtime), then starts
+    # le_shell.bin (cmake/bundle_runtime.cmake, src/tcl/le_shell_launcher.sh).
+    # The script library must be the linked libtcl's own: init.tcl requires
+    # its exact patch level.
+    set(LE_TCL_SCRIPT_LIBRARY "")
+    if(TCL_TCLSH)
+        file(STRINGS "${TCL_INCLUDE_PATH}/tcl.h" tcl_patch_line REGEX "^#define[ \t]+TCL_PATCH_LEVEL")
+        string(REGEX MATCH "\"([^\"]+)\"" _ "${tcl_patch_line}")
+        set(tcl_header_patch_level "${CMAKE_MATCH_1}")
+        file(WRITE ${PROJECT_BINARY_DIR}/generated/tcl_library_query.tcl "puts \"\[info library\]\\n\[info patchlevel\]\"\n")
+        execute_process(COMMAND ${TCL_TCLSH} ${PROJECT_BINARY_DIR}/generated/tcl_library_query.tcl
+            OUTPUT_VARIABLE tcl_query RESULT_VARIABLE tcl_query_result OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        string(REPLACE "\n" ";" tcl_query "${tcl_query}")
+        list(LENGTH tcl_query tcl_query_lines)
+        if(tcl_query_result EQUAL 0 AND tcl_query_lines EQUAL 2)
+            list(GET tcl_query 0 tcl_script_library)
+            list(GET tcl_query 1 tcl_patch_level)
+            if(tcl_patch_level STREQUAL tcl_header_patch_level AND IS_DIRECTORY "${tcl_script_library}")
+                set(LE_TCL_SCRIPT_LIBRARY "${tcl_script_library}")
+            endif()
+        endif()
+    endif()
+    install(CODE "
+        set(LE_BUNDLE_SHELL \"$<TARGET_FILE:le_shell>\")
+        set(LE_BUNDLE_TCL_MODULE \"$<TARGET_FILE:le_tcl>\")
+        set(LE_BUNDLE_OBJDUMP \"${CMAKE_OBJDUMP}\")
+        set(LE_BUNDLE_TCL_LIBRARY \"${LE_TCL_SCRIPT_LIBRARY}\")" COMPONENT bundle)
+    install(SCRIPT cmake/bundle_runtime.cmake COMPONENT bundle)
+    install(PROGRAMS src/tcl/le_shell_launcher.sh DESTINATION . RENAME le_shell COMPONENT bundle)
+
     # `le`, the package manager, frozen by PyInstaller into one executable
     # with Layout Engine's release key and version, so a release user needs
     # no Python of their own.

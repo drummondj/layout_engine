@@ -188,9 +188,9 @@ RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPython3_EXECUTABLE=$(command 
  && cmake --build build_release --target api pipelines io le_shell le_tcl le_binary -j ${BUILD_JOBS}
 
 # ---- bundle: the release asset's actual content - CMakeLists.txt's
-# `bundle` install component (le_shell, le_tcl.so, both procs files,
-# lucide.ttf, fonts/, libtbb, extensions.json and le), not the raw build
-# tree. ----
+# `bundle` install component (the le_shell launcher and le_shell.bin,
+# le_tcl.so, both procs files, lucide.ttf, fonts/, libtbb, runtime/,
+# extensions.json and le), not the raw build tree. ----
 FROM build AS bundle
 RUN cmake --install build_release --component bundle --prefix /bundle
 

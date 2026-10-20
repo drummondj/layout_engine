@@ -366,7 +366,10 @@ ci` (`Dockerfile.linux-ci`); releases come from `Dockerfile.linux-release`,
 which packages the `bundle` install component (`cmake --install <build>
 --component bundle --prefix <dir>`: a flat, relocatable directory whose own
 files win over a build tree's - `find_resource` looks beside the executable
-first). Releases are signed `vX.Y.Z` tags matching `project(... VERSION)`;
+first). Its `le_shell` is a launcher (`src/tcl/le_shell_launcher.sh`) for
+`le_shell.bin`, taking each library in `runtime/<soname>/`
+(`cmake/bundle_runtime.cmake`) only when the host lacks it or has an older
+C++ runtime. Releases are signed `vX.Y.Z` tags matching `project(... VERSION)`;
 `docs/RELEASING.md` covers the release key and the steps.
 
 Dependencies: Python >= 3.11 with codegen's packages (`pip install
