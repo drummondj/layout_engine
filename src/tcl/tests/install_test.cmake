@@ -85,6 +85,8 @@ close $maps
 puts "child [exec sh -c {echo ${LD_LIBRARY_PATH-unset}}]"
 ]=])
 # run_probe(<out var> <env assignments>...): runs probe.tcl through the bundle.
+# With <out var>_MISSING_OK, a host lacking a library le_shell needs sets
+# <out var> to MISSING instead of failing.
 function(run_probe out)
     execute_process(
         COMMAND "${CMAKE_COMMAND}" -E env --unset=LD_LIBRARY_PATH --unset=LE_BUNDLED_LIBRARIES ${ARGN}
@@ -92,6 +94,10 @@ function(run_probe out)
         RESULT_VARIABLE result
         OUTPUT_VARIABLE output
         ERROR_VARIABLE errors)
+    if(NOT result EQUAL 0 AND ${out}_MISSING_OK AND errors MATCHES "error while loading shared libraries")
+        set(${out} MISSING PARENT_SCOPE)
+        return()
+    endif()
     if(NOT result EQUAL 0)
         message(FATAL_ERROR "le_shell (${ARGN}) failed (${result}):\n${output}\n${errors}")
     endif()
@@ -124,8 +130,16 @@ string(FIND "${output}" "child unset\n" at)
 if(at EQUAL -1)
     message(FATAL_ERROR "with no LD_LIBRARY_PATH of the caller's, a process le_shell starts should have none:\n${output}")
 endif()
-run_probe(output LE_BUNDLED_LIBRARIES=none)
-expect_loaded("${output}" "libstdc\\+\\+" system)
+# Using only the host's libraries works only on a host that has them all.
+set(host_output_MISSING_OK TRUE)
+run_probe(host_output LE_BUNDLED_LIBRARIES=none)
+if(host_output STREQUAL "MISSING")
+    message(STATUS "this host lacks libraries le_shell needs - skipping the checks that use only the host's")
+    set(host_has_all FALSE)
+else()
+    expect_loaded("${host_output}" "libstdc\\+\\+" system)
+    set(host_has_all TRUE)
+endif()
 
 # The launcher's choice, with a stand-in ldconfig: the system's libstdc++
 # (older or newer than the bundle's) and libtcl (absent).
@@ -147,6 +161,10 @@ foreach(case older newer)
     file(WRITE "${WORK_DIR}/fake/bin/ldconfig"
         "#!/bin/sh\nprintf '\\tlibstdc++.so.6 (libc6,${arch}) => ${WORK_DIR}/fake/libstdc++.so.6\\n'\n")
     file(CHMOD "${WORK_DIR}/fake/bin/ldconfig" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+    # A newer system libstdc++ is believed, so this host's real one has to do.
+    if(case STREQUAL "newer" AND NOT host_has_all)
+        continue()
+    endif()
     run_probe(output "PATH=${WORK_DIR}/fake/bin:$ENV{PATH}")
     if(case STREQUAL "older")
         expect_loaded("${output}" "libstdc\\+\\+" bundled)
