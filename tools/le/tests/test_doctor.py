@@ -68,7 +68,7 @@ class TestDoctor(unittest.TestCase):
     def test_everything_present_passes_with_one_line_each(self):
         self.assertTrue(self.run_doctor())
         self.assertTrue(all(line.startswith("ok ") for line in self.lines), self.lines)
-        for name in ("git", "cmake", "swig", "C++23", "Boost", "oneTBB", "Tcl", "readline", "X11", "OpenGL", "Python", "ccache"):
+        for name in ("git", "cmake", "swig", "C++23", "Boost", "zlib", "oneTBB", "Tcl", "readline", "X11", "OpenGL", "Python", "ccache"):
             self.assertTrue(any(name in line for line in self.lines), name)
 
     def test_a_release_project_needs_only_git_tar_and_ssh_keygen(self):

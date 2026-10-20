@@ -35,6 +35,7 @@ PACKAGES: Dict[str, Tuple[str, str]] = {  # check name -> (apt, dnf)
     "swig": ("swig", "swig"),
     "Python": ("python3.11", "python3.11"),
     "Boost headers": ("libboost-dev", "boost-devel"),
+    "zlib headers": ("zlib1g-dev", "zlib-devel"),
     "oneTBB": ("libtbb-dev", "tbb-devel"),
     "Tcl headers": ("tcl-dev", "tcl-devel"),
     "readline": ("libreadline-dev", "readline-devel"),
@@ -49,6 +50,7 @@ PACKAGES: Dict[str, Tuple[str, str]] = {  # check name -> (apt, dnf)
 HEADERS: Dict[str, Tuple[str, Sequence[str]]] = {
     "Boost headers": ("#include <boost/version.hpp>\n", ()),
     "oneTBB": ("#include <oneapi/tbb/version.h>\n", ()),
+    "zlib headers": ("#include <zlib.h>\n", ()),  # the vendored LEF/DEF parsers' zlib readers
     "Tcl headers": ("#include <tcl.h>\n", ("/usr/include/tcl8.6", "/usr/include/tcl")),
     "readline": ("#include <cstdio>\n#include <readline/readline.h>\n#include <readline/history.h>\n", ()),
     "X11 headers": (
