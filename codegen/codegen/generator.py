@@ -44,7 +44,8 @@ def _core_context(schema: Schema, history_dir: Optional[str], migrations_dir: Op
         for snapshot in schema_descriptor.read_snapshots(Path(history_dir)).values():
             names |= {k["name"] for k in snapshot["descriptor"]["classes"]}
     core_migrations = schema_migration.load_migrations(Path(migrations_dir)) if migrations_dir else []
-    return schema_migration.ExtensionChainContext(schema.version, core_migrations, frozenset(names))
+    core_source = str(Path(history_dir).resolve().parent) if history_dir is not None else None
+    return schema_migration.ExtensionChainContext(schema.version, core_migrations, frozenset(names), core_source)
 
 
 def _aligned(core: schema_migration.ExtensionChainContext, snapshot: dict) -> dict:

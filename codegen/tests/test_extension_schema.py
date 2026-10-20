@@ -280,7 +280,9 @@ class TestExtensionMigrations(unittest.TestCase):
         self.set_schema(RENAMED)
         self.write_migration(RENAME_MIGRATION.replace('depends_on_core="1.0.0"', 'depends_on_core="9.0.0"'))
         errors, _ = self.generate()
-        self.assertTrue(any("newer than this core schema (1.0.0)" in e for e in errors), errors)
+        # It names the core tree it checked against, so a project built
+        # against the wrong Layout Engine checkout can be traced.
+        self.assertTrue(any(f"newer than this core schema (1.0.0, from {self.core_history.resolve().parent})" in e for e in errors), errors)
         self.write_migration(RENAME_MIGRATION.replace('    depends_on_core="1.0.0",\n', ""))
         errors, _ = self.generate()
         self.assertTrue(any("missing depends_on_core" in e for e in errors), errors)

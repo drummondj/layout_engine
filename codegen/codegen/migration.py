@@ -545,6 +545,7 @@ class ExtensionChainContext:
     core_version: str
     core_migrations: List[Migration]
     core_class_names: frozenset  # every class core has, or had in any snapshot
+    core_source: Optional[str] = None  # the directory core's schema history is in, for error messages
 
 
 def check_extension_migrations(
@@ -574,7 +575,8 @@ def check_extension_migrations(
             if previous_core is not None and dep < d.parse_version(previous_core):
                 errors.append(f"{where}: depends_on_core {migration.depends_on_core} is older than the previous migration's {previous_core}")
             if dep > d.parse_version(core.core_version):
-                errors.append(f"{where}: depends_on_core {migration.depends_on_core} is newer than this core schema ({core.core_version})")
+                source = f", from {core.core_source}" if core.core_source else ""
+                errors.append(f"{where}: depends_on_core {migration.depends_on_core} is newer than this core schema ({core.core_version}{source})")
             previous_core = migration.depends_on_core
         if migration.from_version != expected_from:
             errors.append(f"{where}: migrates from {migration.from_version}, but the chain is at {expected_from}")

@@ -26,6 +26,19 @@ class LockedSource:
     signer: Optional[str] = None  # the signing key's fingerprint, for a github source
     unsigned: bool = False
 
+    def describe(self) -> str:
+        """The source with its tag or commit and signer, as `le list` shows it."""
+        text = self.source
+        if self.tag:
+            text += f"@{self.tag}"
+        elif self.rev:
+            text += f"@{self.rev[:12]}"
+        if self.unsigned:
+            text += "  UNSIGNED"
+        elif self.signer:
+            text += f"  signed {self.signer}"
+        return text
+
 
 @dataclass
 class LockedExtension:

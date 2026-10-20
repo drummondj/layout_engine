@@ -33,6 +33,15 @@ def layout_engine_versions(source_dir: Path) -> Tuple[str, int]:
     return version.group(1), int(api.group(1))
 
 
+def schema_version(source_dir: Path) -> Optional[str]:
+    """The database schema version a Layout Engine source tree declares, if it can be read."""
+    schema = source_dir / "src" / "database" / "schema.py"
+    if not schema.is_file():
+        return None
+    found = re.search(r'^\s*version="(\d+\.\d+\.\d+)"', schema.read_text(), re.M)
+    return found.group(1) if found else None
+
+
 def _run(command: List[str], what: str) -> None:
     print(f"le: {what}", flush=True)
     result = subprocess.run(command)

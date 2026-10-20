@@ -133,23 +133,10 @@ def cmd_list(args) -> int:
     if lock is None:
         raise CliError("nothing installed yet - run `le install`")
     how = "release" if lock.layout_engine_bundle == "release" else "built from source"
-    print(f"layout_engine {lock.layout_engine_version}  ({how})  {_describe(lock.layout_engine)}")
+    print(f"layout_engine {lock.layout_engine_version}  ({how})  {lock.layout_engine.describe()}")
     for e in lock.extensions:
-        print(f"{e.name} {e.version}  {e.tier}  {_describe(e.locked)}")
+        print(f"{e.name} {e.version}  {e.tier}  {e.locked.describe()}")
     return 0
-
-
-def _describe(locked: lockfile.LockedSource) -> str:
-    text = locked.source
-    if locked.tag:
-        text += f"@{locked.tag}"
-    elif locked.rev:
-        text += f"@{locked.rev[:12]}"
-    if locked.unsigned:
-        text += "  UNSIGNED"
-    elif locked.signer:
-        text += f"  signed {locked.signer}"
-    return text
 
 
 def cmd_shell(args) -> int:

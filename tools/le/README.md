@@ -56,6 +56,13 @@ Writing extensions:
 | `le test [name...]` | Builds and runs the named extensions' tests (all if none) in the project build; on a release bundle, runs their `tcl_tests` through its `le_shell`. |
 | `le makemigration <name> --name <slug> [--non-interactive]` | Drafts a path extension's next schema migration with codegen, against the project's Layout Engine source. Bump `VERSION` in `schema_ext.py` first; it doesn't rebuild, since the new version doesn't build until its migration exists. |
 
+`install` and `update` first print the Layout Engine they resolved: its
+version, schema version and source (e.g. `le: layout_engine 0.3.0 (schema
+0.52.0) from path:/work/layout_engine`). With a `path` source, they warn
+when the project holds another Layout Engine checkout that the path passes
+over: a `layout_engine/` directory, or a `.gitmodules` entry whose path or
+URL is named `layout_engine`.
+
 A tag must match the version in its `le_extension.toml`. `install` and
 `update` refuse to move anything to a lower version than the lock has
 unless given `--allow-downgrade`.

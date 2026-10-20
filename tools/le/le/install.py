@@ -17,11 +17,12 @@ revision pin - builds Layout Engine from source.
 
 import json
 import os
+import re
 import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from le import build, lock as lockfile, project as projectfile, releases, sources
 
@@ -203,6 +204,14 @@ def install(root: Path, update: Optional[Set[str]] = None, allow_downgrade: bool
                                                    unsigned=le_source.allow_unsigned))
         version, api = build.layout_engine_versions(le_fetched.directory)
 
+    schema = None if use_release else build.schema_version(le_fetched.directory)
+    print(f"le: layout_engine {version}{f' (schema {schema})' if schema else ''} from {le_fetched.locked.describe()}", flush=True)
+    if le_source.path is not None:
+        for checkout, why in passed_over_checkouts(project.root, le_source.path):
+            relative = os.path.relpath(checkout, project.root)
+            print(f"le: warning: layout_engine comes from {le_source.path}, not the checkout at {relative} ({why}) - "
+                  f"set layout_engine's path to \"{relative}\" in le_project.toml to build against it", file=sys.stderr, flush=True)
+
     try:
         ordered = extension_manifest.check_and_order(manifests, version, api)
     except extension_manifest.ManifestError as e:
@@ -235,6 +244,30 @@ def install(root: Path, update: Optional[Set[str]] = None, allow_downgrade: bool
         command = [str(bundle / "le_shell")]
     _write_stamp(state, project, new, command)
     return Path(command[0])
+
+
+def passed_over_checkouts(root: Path, path: Path) -> List[Tuple[Path, str]]:
+    """(checkout, why) for each Layout Engine checkout in the project that a
+    `path` source doesn't use: a layout_engine/ directory, or a .gitmodules
+    entry whose path or URL is named layout_engine."""
+    candidates = []
+    gitmodules = root / ".gitmodules"
+    if gitmodules.is_file():
+        for section in re.split(r"^\s*\[submodule\b.*$", gitmodules.read_text(), flags=re.M)[1:]:
+            values = dict(re.findall(r"^\s*(path|url)\s*=\s*(.*?)\s*$", section, re.M))
+            url_name = re.sub(r"\.git$", "", values.get("url", "").rstrip("/")).rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+            if "path" in values and "layout_engine" in (Path(values["path"]).name, url_name):
+                candidates.append((root / values["path"], "a git submodule"))
+    if (root / "layout_engine").is_dir():
+        candidates.append((root / "layout_engine", "a directory in the project"))
+    used = path.resolve()
+    found, seen = [], set()
+    for checkout, why in candidates:
+        resolved = checkout.resolve()
+        if resolved != used and resolved not in seen:
+            seen.add(resolved)
+            found.append((checkout, why))
+    return found
 
 
 def _write_script_index(state: Path, ordered: List[extension_manifest.Manifest], version: str, api: int,
