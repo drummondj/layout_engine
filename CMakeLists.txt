@@ -1093,7 +1093,8 @@ if(SWIG_FOUND AND TCL_FOUND)
     install(DIRECTORY ${LE_FONT_DIR}/ DESTINATION fonts COMPONENT bundle)
     install(IMPORTED_RUNTIME_ARTIFACTS TBB::tbb DESTINATION . COMPONENT bundle)
 
-    # The shared libraries a host can't be relied on to provide go in
+    # The shared libraries a host can't be relied on to provide (the C++
+    # runtime, readline, Tcl, zlib, GL dispatch and X11 client libraries) go in
     # runtime/<soname>/, with Tcl's script library when libtcl is among them;
     # the installed le_shell is a launcher that takes each from there only
     # when the host lacks it (or has an older C++ runtime), then starts

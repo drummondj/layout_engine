@@ -19,12 +19,15 @@ foreach(binary le_shell.bin le_tcl.so)
     file(RPATH_SET FILE "${prefix}/${binary}" NEW_RPATH "$ORIGIN")
 endforeach()
 
-# Only these, and only what le_shell or le_tcl.so actually loads. Never
-# glibc (the ABI everything else depends on) or GL/X11 (the host's driver
-# must be used). ldd asks the dynamic loader, through the binaries' own
-# RPATH, so each is the copy the build tree runs with - not whichever the
-# host's system directories happen to hold first.
-set(bundled "^(libstdc\\+\\+|libgcc_s|libreadline|libhistory|libtinfo|libncursesw?|libtcl8\\.6|libz)\\.so")
+# Only these, and only what le_shell or le_tcl.so actually loads: the C++
+# runtime, readline, Tcl, zlib, and the GL dispatch (libglvnd) and X11
+# client libraries, without which le_shell can't start even for a batch
+# script. Never glibc (the ABI everything else depends on) or a GL driver:
+# libglvnd loads the host's (Mesa or a vendor's) when a window opens.
+# ldd asks the dynamic loader, through the binaries' own RPATH, so each is
+# the copy the build tree runs with - not whichever the host's system
+# directories happen to hold first.
+set(bundled "^(libstdc\\+\\+|libgcc_s|libreadline|libhistory|libtinfo|libncursesw?|libtcl8\\.6|libz|libGL|libOpenGL|libGLX|libGLdispatch|libX11|libxcb|libXau|libXdmcp|libbsd|libmd)\\.so")
 set(resolved "")
 foreach(binary "${LE_BUNDLE_SHELL}" "${LE_BUNDLE_TCL_MODULE}")
     execute_process(COMMAND ldd "${binary}" OUTPUT_VARIABLE ldd_output RESULT_VARIABLE ldd_result)

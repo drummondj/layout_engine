@@ -176,12 +176,14 @@ cmake --install build_release --component bundle --prefix ~/le_bundle
 
 The bundle's own files always win over the build tree's, so it can be
 copied to another machine as-is. It carries the shared libraries a machine
-may lack or have too old (libstdc++, libgcc_s, readline, Tcl, zlib) in
+may lack or have too old (libstdc++, libgcc_s, readline, Tcl, zlib, and
+libglvnd's GL dispatch and the X11 client libraries) in
 `runtime/`; its `le_shell` is a small launcher that uses each only when the
 machine doesn't provide it, or provides an older C++ runtime, then starts
 `le_shell.bin`. `LE_BUNDLED_LIBRARIES=all` (or `none`) overrides the
 choice. The machine needs a glibc at least as new as the one the bundle was
-built against, and its own GL/X11. Published releases are signed; see
+built against, and, for the GUI, its own GL driver (Mesa, or a GPU
+vendor's). Published releases are signed; see
 `docs/RELEASING.md` to verify one. To build extensions in, see
 `docs/EXTENSION_SDK.md`. `le_shell`/`le_gui` link
 GLFW (X11 backend) and GNU readline unconditionally now — this rootless
