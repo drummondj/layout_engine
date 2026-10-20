@@ -171,6 +171,11 @@ module only), and with `GUI_SOURCES` `my_ext_gui` (linked into `le_shell`
 only). Your core library must not depend on Tcl or the GUI. Its tests
 can run without either.
 
+Every one of these targets, and `my_ext_tests`, compiles with
+`-Werror=return-type`: a non-void function that can fall off its end
+fails the build rather than crashing an optimised one. The flag is
+private to your targets.
+
 ## C++: `<le/extension.hpp>`
 
 ### Registration
@@ -684,7 +689,8 @@ The first version.
   `[dependencies]` and `[contents]` (`cmake`, `tcl_procs`, `tcl_tests`,
   `resources`, `schema`, `migrations`).
 - `le_add_extension()` with `CORE_SOURCES`, `CORE_INCLUDE`, `TESTS`,
-  `TCL_SWIG`, `TCL_SOURCES`, `TCL_INIT`, `GUI_SOURCES` and `LINK`.
+  `TCL_SWIG`, `TCL_SOURCES`, `TCL_INIT`, `GUI_SOURCES` and `LINK`; its
+  targets compile with `-Werror=return-type`.
 - `le::ext::Registry`, `register_all()`, `ExtensionContext` (`read`,
   `write`, `transaction`, `data`), `ReadView::valid()`, `tcl_session()`,
   `init_tcl()`.

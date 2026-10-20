@@ -3,7 +3,8 @@ End to end: `le` builds a real project from this checkout - hello_ext from a
 local path, hello_script from a signed tag on a fake GitHub, my_ext from `le
 new-extension`, as a superbuild embedding Layout Engine with add_subdirectory
 (the route users write by hand too) - runs their commands through `le shell`, then edits the path
-extension and checks `le shell` rebuilds. `le bundle` copies each project
+extension and checks `le shell` rebuilds, and that a missing return in it
+fails the build. `le bundle` copies each project
 into a directory that runs on its own after being moved. `le test` runs my_ext's and
 hello_script's tests, and `le check` reads a file of my_ext's objects before
 and after a schema change drafted by `le makemigration`. Then a script-only
@@ -102,6 +103,18 @@ def main() -> int:
         out = le(project, "shell", str(script))
         if "edited" not in out:
             raise SystemExit(f"the edit wasn't picked up:\n{out}")
+
+        # A missing return in extension code fails the build, naming it.
+        source_file = hello_ext / "src" / "hello.cpp"
+        original = source_file.read_text()
+        source_file.write_text(original + "\nbool hello_ext_missing_return(int value)\n{\n    if (value < 0)\n        return false;\n}\n")
+        env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+        result = subprocess.run([sys.executable, "-m", "le", "shell", str(script)], cwd=project,
+                                capture_output=True, text=True, env=env)
+        out = result.stdout + result.stderr
+        if result.returncode == 0 or "return-type" not in out:
+            raise SystemExit(f"a missing return should fail the build with -Werror=return-type:\n{out}")
+        source_file.write_text(original)
 
         listing = le(project, "list")
         for expected in ("hello_ext 0.1.0", "hello_script 0.1.0", "github:acme/hello_script@", "signed SHA256:"):
