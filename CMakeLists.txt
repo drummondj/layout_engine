@@ -1121,7 +1121,6 @@ if(SWIG_FOUND AND TCL_FOUND)
     install(CODE "
         set(LE_BUNDLE_SHELL \"$<TARGET_FILE:le_shell>\")
         set(LE_BUNDLE_TCL_MODULE \"$<TARGET_FILE:le_tcl>\")
-        set(LE_BUNDLE_OBJDUMP \"${CMAKE_OBJDUMP}\")
         set(LE_BUNDLE_TCL_LIBRARY \"${LE_TCL_SCRIPT_LIBRARY}\")" COMPONENT bundle)
     install(SCRIPT cmake/bundle_runtime.cmake COMPONENT bundle)
     install(PROGRAMS src/tcl/le_shell_launcher.sh DESTINATION . RENAME le_shell COMPONENT bundle)

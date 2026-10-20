@@ -5,7 +5,6 @@
 #
 # Inputs, set by an install(CODE) just before:
 #   LE_BUNDLE_SHELL, LE_BUNDLE_TCL_MODULE  the build tree's le_shell and le_tcl.so
-#   LE_BUNDLE_OBJDUMP                      objdump, to read their dependencies
 #   LE_BUNDLE_TCL_LIBRARY                  Tcl's script library matching the linked libtcl, or empty
 
 set(prefix "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
@@ -20,36 +19,39 @@ foreach(binary le_shell.bin le_tcl.so)
     file(RPATH_SET FILE "${prefix}/${binary}" NEW_RPATH "$ORIGIN")
 endforeach()
 
-# Only these, and only what le_shell or le_tcl.so actually links. Never
+# Only these, and only what le_shell or le_tcl.so actually loads. Never
 # glibc (the ABI everything else depends on) or GL/X11 (the host's driver
-# must be used).
-set(bundled
-    "^libstdc\\+\\+\\.so"
-    "^libgcc_s\\.so"
-    "^libreadline\\.so"
-    "^libhistory\\.so"
-    "^libtinfo\\.so"
-    "^libncursesw?\\.so"
-    "^libtcl8\\.6\\.so"
-    "^libz\\.so")
-set(CMAKE_GET_RUNTIME_DEPENDENCIES_PLATFORM "linux+elf")
-set(CMAKE_GET_RUNTIME_DEPENDENCIES_TOOL "objdump")
-set(CMAKE_GET_RUNTIME_DEPENDENCIES_COMMAND "${LE_BUNDLE_OBJDUMP}")
-file(GET_RUNTIME_DEPENDENCIES
-    EXECUTABLES "${LE_BUNDLE_SHELL}"
-    LIBRARIES "${LE_BUNDLE_TCL_MODULE}"
-    RESOLVED_DEPENDENCIES_VAR resolved
-    UNRESOLVED_DEPENDENCIES_VAR unresolved
-    PRE_INCLUDE_REGEXES ${bundled}
-    PRE_EXCLUDE_REGEXES ".*")
-if(unresolved)
-    message(FATAL_ERROR "bundle: can't find ${unresolved}, which le_shell or le_tcl.so links")
-endif()
+# must be used). ldd asks the dynamic loader, through the binaries' own
+# RPATH, so each is the copy the build tree runs with - not whichever the
+# host's system directories happen to hold first.
+set(bundled "^(libstdc\\+\\+|libgcc_s|libreadline|libhistory|libtinfo|libncursesw?|libtcl8\\.6|libz)\\.so")
+set(resolved "")
+foreach(binary "${LE_BUNDLE_SHELL}" "${LE_BUNDLE_TCL_MODULE}")
+    execute_process(COMMAND ldd "${binary}" OUTPUT_VARIABLE ldd_output RESULT_VARIABLE ldd_result)
+    if(NOT ldd_result EQUAL 0)
+        message(FATAL_ERROR "bundle: ldd ${binary} failed:\n${ldd_output}")
+    endif()
+    string(REPLACE "\n" ";" ldd_lines "${ldd_output}")
+    foreach(line IN LISTS ldd_lines)
+        if(line MATCHES "^[ \t]*([^ \t]+) => not found")
+            message(FATAL_ERROR "bundle: ${binary} needs ${CMAKE_MATCH_1}, which the loader can't find")
+        elseif(line MATCHES "^[ \t]*([^ \t]+) => ([^ \t]+) \\(")
+            set(soname "${CMAKE_MATCH_1}")
+            set(library "${CMAKE_MATCH_2}")
+            if(soname MATCHES "${bundled}")
+                list(APPEND resolved "${soname}=${library}")
+            endif()
+        endif()
+    endforeach()
+endforeach()
+list(REMOVE_DUPLICATES resolved)
 
 file(REMOVE_RECURSE "${prefix}/runtime")
 set(have_tcl FALSE)
-foreach(library IN LISTS resolved)
-    get_filename_component(soname "${library}" NAME)
+foreach(entry IN LISTS resolved)
+    string(REGEX MATCH "^([^=]+)=(.*)$" _ "${entry}")
+    set(soname "${CMAKE_MATCH_1}")
+    set(library "${CMAKE_MATCH_2}")
     file(INSTALL "${library}" DESTINATION "${prefix}/runtime/${soname}" FOLLOW_SYMLINK_CHAIN)
     if(soname MATCHES "^libtcl")
         set(have_tcl TRUE)
