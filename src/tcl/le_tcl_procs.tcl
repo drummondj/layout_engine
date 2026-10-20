@@ -62,11 +62,15 @@ proc truncate_for_display {text} {
 # help/man/generate_command_docs are still recorded normally (a user
 # typing `help` may well want it back via Up-arrow) but are exempted
 # from truncation alone, right below - see that check's own comment.
-# `[lindex $command 0]` reads the command name the same way Tcl itself
-# would dispatch it, so both checks catch e.g. "complete_command foo"
-# and "complete_command {foo bar}" alike regardless of quoting.
+# The command name is the line's first word: `lindex` reads it the way Tcl
+# would dispatch it ("complete_command {foo bar}" too), but a valid
+# command needn't be a valid list (`puts [expr {6*7}]` isn't), so such a
+# line falls back to its first whitespace-delimited word.
 proc le_repl_eval {command} {
-    set command_name [lindex $command 0]
+    if {[catch {lindex $command 0} command_name]} {
+        set command_name ""
+        regexp {^\s*(\S+)} $command -> command_name
+    }
     if {$command_name eq "complete_command"} {
         catch {uplevel #0 $command} result
         return $result

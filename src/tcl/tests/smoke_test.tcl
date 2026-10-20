@@ -293,4 +293,9 @@ check "update_layer -area takes square microns" "0.002" [get_properties layer:UN
 open_design TESTCELL
 check "a chained property path ends in microns" "1" [get_properties [lindex [get_shapes] 0] .layer.width]
 
+# A typed line runs through le_repl_eval even when it isn't a valid Tcl list.
+check "le_repl_eval runs a line that isn't a valid list" 42 [le_repl_eval {set repl_answer [expr {6*7}]}]
+check "le_repl_eval still sees a valid list's command name" 1 \
+    [expr {"get_layers" in [le_repl_eval {complete_command {get_lay}}]}]
+
 puts "le_tcl smoke test passed"
