@@ -5,7 +5,8 @@
 # libgcc_s), which is taken from the bundle when the system's is older than
 # the one Layout Engine was built with. The system's GL driver loads into
 # the same process, so its own C++ runtime must not be replaced by an older
-# one either: the newer of the two always wins.
+# one either: the newer of the two always wins. A bundled library brings the
+# other bundled libraries it was built against (runtime/<soname>/needs).
 #
 # LE_BUNDLED_LIBRARIES=all uses every bundled library, =none none of them.
 # le_shell.bin restores the caller's LD_LIBRARY_PATH (LE_SHELL_LD_LIBRARY_PATH)
@@ -68,6 +69,24 @@ for directory in "$here"/runtime/lib*.so*; do
         esac
     fi
 done
+
+# A bundled library takes its bundled dependencies along (runtime/<soname>/needs).
+chosen=$paths
+saved_ifs=$IFS
+IFS=:
+for directory in $chosen; do
+    IFS=$saved_ifs
+    if [ -f "$directory/needs" ]; then
+        for needed in $(cat "$directory/needs"); do
+            case ":$paths:" in
+                *":$here/runtime/$needed:"*) ;;
+                *) [ -d "$here/runtime/$needed" ] && paths=$paths:$here/runtime/$needed ;;
+            esac
+        done
+    fi
+    IFS=:
+done
+IFS=$saved_ifs
 
 if [ -n "$paths" ]; then
     export LE_SHELL_LD_LIBRARY_PATH="${LD_LIBRARY_PATH-}"

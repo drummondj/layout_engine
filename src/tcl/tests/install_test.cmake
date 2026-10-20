@@ -76,7 +76,7 @@ endif()
 file(WRITE "${WORK_DIR}/probe.tcl" [=[
 set maps [open /proc/self/maps]
 foreach line [split [read $maps] \n] {
-    if {[regexp {(/\S*/(libstdc\+\+|libtcl8\.6)\S*)$} $line -> path name] && ![info exists loaded($name)]} {
+    if {[regexp {(/\S*/(libstdc\+\+|libtcl8\.6|libreadline|libtinfo)\S*)$} $line -> path name] && ![info exists loaded($name)]} {
         set loaded($name) $path
         puts "$name $path"
     }
@@ -175,4 +175,16 @@ foreach(case older newer)
         expect_loaded("${output}" "libtcl8.6" bundled)
     endif()
 endforeach()
+
+# A bundled library brings the bundled dependencies it was built against:
+# with the host offering libtinfo but no readline, the bundled readline
+# comes with the bundled libtinfo, not the host's.
+if(EXISTS "${WORK_DIR}/runtime/libreadline.so.8" AND EXISTS "${WORK_DIR}/runtime/libtinfo.so.6")
+    file(WRITE "${WORK_DIR}/fake/bin/ldconfig"
+        "#!/bin/sh\nprintf '\\tlibtinfo.so.6 (libc6,${arch}) => /usr/lib/libtinfo.so.6\\n'\n")
+    file(CHMOD "${WORK_DIR}/fake/bin/ldconfig" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+    run_probe(output "PATH=${WORK_DIR}/fake/bin:$ENV{PATH}")
+    expect_loaded("${output}" "libreadline" bundled)
+    expect_loaded("${output}" "libtinfo" bundled)
+endif()
 

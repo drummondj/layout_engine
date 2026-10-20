@@ -61,6 +61,31 @@ foreach(entry IN LISTS resolved)
     endif()
 endforeach()
 
+# Each library's bundled dependencies, in runtime/<soname>/needs: the
+# launcher takes those along with it, since a bundled library can need
+# symbol versions only its own build of a dependency has (the toolchain's
+# readline and a host's unversioned libtinfo). The C++ runtime is left out:
+# the launcher always takes the newer of the host's and the bundle's.
+foreach(entry IN LISTS resolved)
+    string(REGEX MATCH "^([^=]+)=(.*)$" _ "${entry}")
+    set(soname "${CMAKE_MATCH_1}")
+    set(library "${CMAKE_MATCH_2}")
+    execute_process(COMMAND ldd "${library}" OUTPUT_VARIABLE ldd_output RESULT_VARIABLE ldd_result)
+    set(needs "")
+    if(ldd_result EQUAL 0)
+        string(REPLACE "\n" ";" ldd_lines "${ldd_output}")
+        foreach(line IN LISTS ldd_lines)
+            if(line MATCHES "^[ \t]*([^ \t]+) => ")
+                set(needed "${CMAKE_MATCH_1}")
+                if(EXISTS "${prefix}/runtime/${needed}" AND NOT needed MATCHES "^(libstdc\\+\\+|libgcc_s)\\.so")
+                    string(APPEND needs "${needed}\n")
+                endif()
+            endif()
+        endforeach()
+    endif()
+    file(WRITE "${prefix}/runtime/${soname}/needs" "${needs}")
+endforeach()
+
 # libtcl finds its script library (init.tcl and the rest) where it was
 # built to look, which is gone on another machine. Without a matching one,
 # the host's Tcl has to do.
