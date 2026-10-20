@@ -42,6 +42,7 @@
 #include <readline/history.h>
 #include <readline/readline.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -393,18 +394,34 @@ namespace
             std::fputc('\n', stdout);
             exit_process(0);
         }
-        // Readline only calls this once its own input buffer is empty, so
-        // stdin readable with no bytes pending is end of input. A stuffed
-        // newline accepts whatever partial line was read, as Enter would;
-        // run_interactive then sees g_stdin_eof.
+        // Readline only calls this once its own input buffer is empty and
+        // its own read found nothing, so stdin readable with no bytes
+        // pending is end of input. A stuffed newline accepts whatever
+        // partial line was read, as Enter would; run_interactive then sees
+        // g_stdin_eof.
+        //
+        // Bytes pending here are input readline didn't read. Readline 8.3
+        // without its first upstream patch (readline83-001) never reads
+        // input that select() reports ready while an event hook is set, so
+        // it would call this hook forever; otherwise they arrived after its
+        // read. Either way, stuffing them passes them on as typed input.
+        // Its input buffer is empty here, so they fit.
         pollfd stdin_poll{STDIN_FILENO, POLLIN, 0};
         int pending = 0;
-        if (!g_stdin_eof && poll(&stdin_poll, 1, 0) == 1 && ioctl(STDIN_FILENO, FIONREAD, &pending) == 0 &&
-            pending == 0)
+        if (!g_stdin_eof && poll(&stdin_poll, 1, 0) == 1 && ioctl(STDIN_FILENO, FIONREAD, &pending) == 0)
         {
-            g_stdin_eof = true;
-            rl_stuff_char('\n');
-            return 0;
+            if (pending == 0)
+            {
+                g_stdin_eof = true;
+                rl_stuff_char('\n');
+                return 0;
+            }
+            char bytes[256];
+            const ssize_t count = read(STDIN_FILENO, bytes, std::min<std::size_t>(static_cast<std::size_t>(pending), sizeof bytes));
+            for (ssize_t i = 0; i < count; ++i)
+                rl_stuff_char(static_cast<unsigned char>(bytes[i]));
+            if (count > 0)
+                return 0;
         }
         for (;;)
         {

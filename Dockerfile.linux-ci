@@ -44,6 +44,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libtbb-dev \
  && rm -rf /var/lib/apt/lists/*
 
+# GNU readline 8.3 without its upstream patches, for LE_TEST_READLINE_DIRS:
+# le_shell's piped-input tests also run against it, since it never reads
+# input while an event hook is set (fixed upstream by readline83-001, but
+# shipped unpatched by some distributions and conda-forge).
+RUN curl -fsSL -o /tmp/readline-8.3.tar.gz https://ftp.gnu.org/gnu/readline/readline-8.3.tar.gz \
+ && echo "fe5383204467828cd495ee8d1d3c037a7eba1389c22bc6a041f627976f9061cc  /tmp/readline-8.3.tar.gz" | sha256sum -c - \
+ && mkdir /tmp/readline-8.3 && tar xzf /tmp/readline-8.3.tar.gz -C /tmp/readline-8.3 --strip-components=1 \
+ && cd /tmp/readline-8.3 && ./configure --prefix=/opt/readline-8.3-unpatched --disable-static > /dev/null \
+ && make -j"$(nproc)" SHLIB_LIBS=-ltinfo > /dev/null && make install > /dev/null \
+ && rm -rf /tmp/readline-8.3 /tmp/readline-8.3.tar.gz /opt/readline-8.3-unpatched/share
+
 # ---- ci: build/test environment for the C++ project (le_shell/le_tcl
 # included). Source is bind-mounted at /workspace by docker-compose; this
 # stage only provides the toolchain. ----
@@ -105,7 +116,7 @@ CMD ["bash", "-c", "\
     rm -rf /build/debug/lef_lib-prefix /build/release/lef_lib-prefix && \
     rm -rf /build/debug/def_lib-prefix /build/release/def_lib-prefix && \
     python3 -m pip install --no-cache-dir --break-system-packages ./codegen && \
-    cmake -S . -B /build/debug -DCMAKE_BUILD_TYPE=Debug -DLE_EXTENSION_DIRS=\"$PWD/examples/extensions/hello_ext;$PWD/examples/extensions/hello_script\" && \
+    cmake -S . -B /build/debug -DCMAKE_BUILD_TYPE=Debug -DLE_EXTENSION_DIRS=\"$PWD/examples/extensions/hello_ext;$PWD/examples/extensions/hello_script\" -DLE_TEST_READLINE_DIRS=/opt/readline-8.3-unpatched/lib && \
     cmake --build /build/debug -j ${BUILD_JOBS} && \
     ctest --test-dir /build/debug --output-on-failure && \
     cmake -S . -B /build/release -DCMAKE_BUILD_TYPE=Release && \
