@@ -417,6 +417,9 @@ comparing. Results history: `plans/BENCHMARKS.md`,
 ## Conventions
 
 - Everything lives in `namespace le`.
+- Every target `CMakeLists.txt` defines (and every extension's) compiles
+  with `LE_COMPILE_OPTIONS` (`-Werror=return-type`); fetched dependencies
+  and `imgui_lib` don't.
 - Doxygen-style `/// @brief` one-liners on public methods.
 - No exceptions for expected-missing-data paths - pool lookups return
   nullable pointers (`get(id)` -> `T*`) or `std::optional`/`std::expected`.
