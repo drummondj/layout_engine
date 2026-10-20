@@ -1,0 +1,16 @@
+# Checks LISTING (lines of <target>=<its COMPILE_OPTIONS>): every target has
+# each of OPTIONS, except WITHOUT, which has none of them.
+file(STRINGS ${LISTING} lines)
+foreach(line IN LISTS lines)
+    string(REGEX MATCH "^([^=]+)=(.*)$" _ "${line}")
+    set(target ${CMAKE_MATCH_1})
+    set(target_options "${CMAKE_MATCH_2}")
+    foreach(option IN LISTS OPTIONS)
+        list(FIND target_options "${option}" found)
+        if(target STREQUAL WITHOUT AND NOT found EQUAL -1)
+            message(FATAL_ERROR "${target} shouldn't compile with ${option}: ${target_options}")
+        elseif(NOT target STREQUAL WITHOUT AND found EQUAL -1)
+            message(FATAL_ERROR "${target} doesn't compile with ${option}: ${target_options}")
+        endif()
+    endforeach()
+endforeach()

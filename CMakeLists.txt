@@ -38,6 +38,17 @@ endforeach()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Compile options for Layout Engine's own code and extensions' (never its
+# fetched dependencies'): a non-void function falling off its end is an
+# error, since an optimised build can drop its epilogue and crash far from
+# the cause. Applied PRIVATE to every target this file defines, at its end,
+# and by le_add_extension().
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set(LE_COMPILE_OPTIONS -Werror=return-type)
+else()
+    set(LE_COMPILE_OPTIONS "")
+endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 cmake_policy(SET CMP0135 NEW)
 
@@ -1328,15 +1339,15 @@ add_test(NAME test_scratch_paths_unique
 add_test(NAME test_scratch_paths_check_unit
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/tests/test_check_test_scratch_paths.py)
 
-# Extension code (LE_EXTENSION_COMPILE_OPTIONS) fails to build when a non-void
-# function can fall off its end.
-if(LE_EXTENSION_COMPILE_OPTIONS)
-    add_test(NAME le_extension_missing_return_is_error
-        COMMAND ${CMAKE_CXX_COMPILER} ${LE_EXTENSION_COMPILE_OPTIONS} -c
+# Code built with LE_COMPILE_OPTIONS fails to build when a non-void function
+# can fall off its end.
+if(LE_COMPILE_OPTIONS)
+    add_test(NAME le_missing_return_is_error
+        COMMAND ${CMAKE_CXX_COMPILER} ${LE_COMPILE_OPTIONS} -c
             ${CMAKE_CURRENT_SOURCE_DIR}/cmake/tests/missing_return.cpp -o ${CMAKE_CURRENT_BINARY_DIR}/missing_return.o)
     # The diagnostic as an error: GCC's [-Werror=return-type], Clang's
     # [-Werror,-Wreturn-type]. As a warning it's [-Wreturn-type].
-    set_tests_properties(le_extension_missing_return_is_error PROPERTIES
+    set_tests_properties(le_missing_return_is_error PROPERTIES
         PASS_REGULAR_EXPRESSION "Werror(=|,-W)return-type")
 endif()
 
@@ -1501,4 +1512,29 @@ if(ENABLE_COVERAGE)
         USES_TERMINAL
         VERBATIM
     )
+endif()
+
+# LE_COMPILE_OPTIONS on every target this file defines (core, le_shell,
+# le_tcl, the tests and tools, extensions' targets), but not imgui_lib,
+# which compiles Dear ImGui's own sources. Fetched dependencies are defined
+# in their own directories and keep their own options.
+get_property(le_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(target IN LISTS le_targets)
+    get_target_property(type ${target} TYPE)
+    if(type MATCHES "^(STATIC_LIBRARY|SHARED_LIBRARY|MODULE_LIBRARY|OBJECT_LIBRARY|EXECUTABLE)$" AND NOT target STREQUAL "imgui_lib")
+        target_compile_options(${target} PRIVATE ${LE_COMPILE_OPTIONS})
+    endif()
+endforeach()
+
+# Some of those targets carry LE_COMPILE_OPTIONS, and imgui_lib doesn't.
+if(LE_COMPILE_OPTIONS)
+    set(options_listing "")
+    foreach(target api io pipelines gui le_shell backend_tests imgui_lib)
+        string(APPEND options_listing "${target}=$<TARGET_PROPERTY:${target},COMPILE_OPTIONS>\n")
+    endforeach()
+    file(GENERATE OUTPUT ${PROJECT_BINARY_DIR}/test_fixtures/compile_options.txt CONTENT "${options_listing}")
+    add_test(NAME le_compile_options_on_own_targets
+        COMMAND ${CMAKE_COMMAND} -DLISTING=${PROJECT_BINARY_DIR}/test_fixtures/compile_options.txt
+            "-DOPTIONS=${LE_COMPILE_OPTIONS}" -DWITHOUT=imgui_lib
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/tests/compile_options_test.cmake)
 endif()
