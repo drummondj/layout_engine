@@ -1,4 +1,5 @@
 #include "../api.hpp"
+#include "../../test_support/scratch_dir.hpp"
 #include "generated/pipelines/renderable_classes.hpp"
 #include <algorithm>
 #include <set>
@@ -33,8 +34,7 @@ namespace
     // shared path lets a parallel test overwrite the file before it's read.
     std::string generate_concurrency_stress_lef(int shape_count)
     {
-        const std::filesystem::path path = std::filesystem::temp_directory_path()
-            / ("le_concurrency_stress_" + std::to_string(::getpid()) + "_" + std::to_string(shape_count) + ".lef");
+        const std::filesystem::path path = le::test::scratch_path("le_concurrency_stress_" + std::to_string(shape_count) + ".lef");
 
         std::ofstream out(path, std::ios::trunc);
         out << "VERSION 5.8 ;\nBUSBITCHARS \"<>\" ;\nDIVIDERCHAR \"/\" ;\n\n";
@@ -5525,11 +5525,6 @@ TEST_F(ApiFixture, DragSelectEnclosingTwoPiecesOfTheSameShapeSelectsBothAsSepara
 
 namespace
 {
-    std::string scratch_path(const std::string &name)
-    {
-        return (std::filesystem::temp_directory_path() / name).string();
-    }
-
     bool file_is_nonempty(const std::string &path)
     {
         std::error_code ec;
@@ -5544,7 +5539,7 @@ namespace
 
 TEST_F(ApiFixture, WriteLefWithNullHandleOrPathReturnsNonzero)
 {
-    EXPECT_NE(le_write_lef(nullptr, scratch_path("le_write_lef_null_handle.lef").c_str(),
+    EXPECT_NE(le_write_lef(nullptr, le::test::scratch_path("le_write_lef_null_handle.lef").c_str(),
                             nullptr, 0, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_NONE),
               0);
 
@@ -5558,7 +5553,7 @@ TEST_F(ApiFixture, WriteLefWithAnExplicitAbstractSucceedsAndProducesARealFile)
     const LeAbstractId abstract_id = testcell_abstract_id(handle);
     ASSERT_NE(abstract_id.index, UINT32_MAX);
 
-    const std::string out_path = scratch_path("le_write_lef_explicit.lef");
+    const std::string out_path = le::test::scratch_path("le_write_lef_explicit.lef");
     EXPECT_EQ(le_write_lef(handle, out_path.c_str(), &abstract_id, 1, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_NONE), 0);
     EXPECT_TRUE(file_is_nonempty(out_path));
 }
@@ -5568,7 +5563,7 @@ TEST_F(ApiFixture, WriteLefWithNoAbstractOrLibraryGivenAndNoCurrentAbstractSetFa
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_EQ(le_current_abstract(handle).index, UINT32_MAX); // nothing selected yet
 
-    EXPECT_NE(le_write_lef(handle, scratch_path("le_write_lef_no_current.lef").c_str(),
+    EXPECT_NE(le_write_lef(handle, le::test::scratch_path("le_write_lef_no_current.lef").c_str(),
                             nullptr, 0, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_NONE),
               0);
 }
@@ -5581,7 +5576,7 @@ TEST_F(ApiFixture, WriteLefFallsBackToTheCurrentAbstractWhenNoneIsGiven)
     ASSERT_EQ(le_set_current_design_abstract_by_id(handle, design.id), 0);
     ASSERT_NE(le_current_abstract(handle).index, UINT32_MAX);
 
-    const std::string out_path = scratch_path("le_write_lef_current_fallback.lef");
+    const std::string out_path = le::test::scratch_path("le_write_lef_current_fallback.lef");
     EXPECT_EQ(le_write_lef(handle, out_path.c_str(), nullptr, 0, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_NONE), 0);
     EXPECT_TRUE(file_is_nonempty(out_path));
 }
@@ -5594,7 +5589,7 @@ TEST_F(ApiFixture, WriteLefTechnologyOnlyModeSucceedsWithNoAbstractAndNoCurrentA
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_EQ(le_current_abstract(handle).index, UINT32_MAX);
 
-    const std::string out_path = scratch_path("le_write_lef_tech_only.lef");
+    const std::string out_path = le::test::scratch_path("le_write_lef_tech_only.lef");
     EXPECT_EQ(le_write_lef(handle, out_path.c_str(), nullptr, 0, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY), 0);
     EXPECT_TRUE(file_is_nonempty(out_path));
 }
@@ -5622,7 +5617,7 @@ TEST_F(ApiFixture, WriteLefWithALibraryWritesAMacroForEveryAbstractInEveryDesign
     const LeAbstractId abstract2_id = le_create_abstract(handle, design2_id, nullptr, 0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, nullptr, nullptr, nullptr, 0, 0.0, nullptr, 0);
     ASSERT_NE(abstract2_id.index, UINT32_MAX);
 
-    const std::string out_path = scratch_path("le_write_lef_library.lef");
+    const std::string out_path = le::test::scratch_path("le_write_lef_library.lef");
     ASSERT_EQ(le_write_lef(handle, out_path.c_str(), nullptr, 0, library_id, LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT), 0);
     ASSERT_TRUE(file_is_nonempty(out_path));
 
@@ -5643,7 +5638,7 @@ TEST_F(ApiFixture, WriteLefWithAnExplicitAbstractListWritesOnlyThoseAbstracts)
     const LeAbstractId testcell_id = testcell_abstract_id(handle);
     ASSERT_NE(testcell_id.index, UINT32_MAX);
 
-    const std::string out_path = scratch_path("le_write_lef_explicit_list.lef");
+    const std::string out_path = le::test::scratch_path("le_write_lef_explicit_list.lef");
     ASSERT_EQ(le_write_lef(handle, out_path.c_str(), &testcell_id, 1, kInvalidLibraryId, LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT), 0);
     ASSERT_TRUE(file_is_nonempty(out_path));
 
@@ -5663,7 +5658,7 @@ TEST_F(ApiFixture, WriteLefWithALibraryThatHasNoAbstractsWritesNoMacrosAndIsNotA
     const LeDesignId empty_design_id = le_create_design(handle, library_id, "EMPTY_DESIGN");
     ASSERT_NE(empty_design_id.index, UINT32_MAX);
 
-    const std::string out_path = scratch_path("le_write_lef_library_partial.lef");
+    const std::string out_path = le::test::scratch_path("le_write_lef_library_partial.lef");
     ASSERT_EQ(le_write_lef(handle, out_path.c_str(), nullptr, 0, library_id, LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT), 0);
 
     LeHandle *reread = le_create();
@@ -5674,7 +5669,7 @@ TEST_F(ApiFixture, WriteLefWithALibraryThatHasNoAbstractsWritesNoMacrosAndIsNotA
 
 TEST_F(ApiFixture, WriteDefWithNullHandleOrPathReturnsNonzero)
 {
-    EXPECT_NE(le_write_def(nullptr, scratch_path("le_write_def_null_handle.def").c_str(), LeLayoutId{.index = UINT32_MAX, .generation = 0}), 0);
+    EXPECT_NE(le_write_def(nullptr, le::test::scratch_path("le_write_def_null_handle.def").c_str(), LeLayoutId{.index = UINT32_MAX, .generation = 0}), 0);
 
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "testcell"), 0);
@@ -5689,7 +5684,7 @@ TEST_F(ApiFixture, WriteDefWithAnExplicitLayoutSucceedsAndProducesARealFile)
     const LeLayoutId layout_id = le_library_design_at(handle, 0, 0).layout_id;
     ASSERT_NE(layout_id.index, UINT32_MAX);
 
-    const std::string out_path = scratch_path("le_write_def_explicit.def");
+    const std::string out_path = le::test::scratch_path("le_write_def_explicit.def");
     EXPECT_EQ(le_write_def(handle, out_path.c_str(), layout_id), 0);
     EXPECT_TRUE(file_is_nonempty(out_path));
 }
@@ -5700,7 +5695,7 @@ TEST_F(ApiFixture, WriteDefWithNoLayoutGivenAndNoCurrentLayoutSetFailsWithAMessa
     ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "testcell"), 0);
     EXPECT_EQ(le_current_layout(handle).index, UINT32_MAX); // nothing selected yet
 
-    EXPECT_NE(le_write_def(handle, scratch_path("le_write_def_no_current.def").c_str(), LeLayoutId{.index = UINT32_MAX, .generation = 0}), 0);
+    EXPECT_NE(le_write_def(handle, le::test::scratch_path("le_write_def_no_current.def").c_str(), LeLayoutId{.index = UINT32_MAX, .generation = 0}), 0);
 }
 
 TEST_F(ApiFixture, WriteDefFallsBackToTheCurrentLayoutWhenNoneIsGiven)
@@ -5711,7 +5706,7 @@ TEST_F(ApiFixture, WriteDefFallsBackToTheCurrentLayoutWhenNoneIsGiven)
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, design.id), 0);
     ASSERT_NE(le_current_layout(handle).index, UINT32_MAX);
 
-    const std::string out_path = scratch_path("le_write_def_current_fallback.def");
+    const std::string out_path = le::test::scratch_path("le_write_def_current_fallback.def");
     EXPECT_EQ(le_write_def(handle, out_path.c_str(), LeLayoutId{.index = UINT32_MAX, .generation = 0}), 0);
     EXPECT_TRUE(file_is_nonempty(out_path));
 }
@@ -5794,7 +5789,7 @@ TEST_F(ApiFixture, ReadingAViewTheDesignAlreadyHasIsAnError)
 // library its own TESTCELL.
 TEST_F(ApiFixture, AbstractLayoutAndSchematicViewsCombineOnOneDesign)
 {
-    const std::filesystem::path verilog_path = std::filesystem::temp_directory_path() / "le_library_naming_testcell.v";
+    const std::filesystem::path verilog_path = le::test::scratch_path("le_library_naming_testcell.v");
     {
         std::ofstream out(verilog_path);
         out << "module TESTCELL(input A);\nendmodule\n";
@@ -5861,7 +5856,7 @@ namespace
 // is made visible.
 TEST_F(ApiFixture, SelectedPlacementDrawsFlightlinesOnlyWhenTheFlightlinePurposeIsVisible)
 {
-    const std::filesystem::path verilog_path = std::filesystem::temp_directory_path() / "le_flightline_top.v";
+    const std::filesystem::path verilog_path = le::test::scratch_path("le_flightline_top.v");
     {
         std::ofstream out(verilog_path);
         out << "module TOP();\n  wire n1;\n  TESTCELL U1(.A(n1));\n  TESTCELL U2(.A(n1));\nendmodule\n";
@@ -6643,7 +6638,7 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsEverySetting)
     EXPECT_EQ(le_minor_grid_spacing(handle), 200);
     EXPECT_EQ(le_major_grid_spacing(handle), 2000);
 
-    const std::string path = scratch_path("le_settings_round_trip/settings.json");
+    const std::string path = le::test::scratch_path("le_settings_round_trip/settings.json");
     std::filesystem::remove_all(std::filesystem::path(path).parent_path());
     ASSERT_EQ(le_save_settings(handle, path.c_str()), 0); // creates the directory
     const std::string text = read_file(path);
@@ -6674,7 +6669,7 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsEverySetting)
 // um grid spacing waits for a Technology to convert it to dbu.
 TEST_F(ApiFixture, SettingsLoadedBeforeAnyTechnologyApplyTheGridOnceOneIsRead)
 {
-    const std::string path = scratch_path("le_settings_pending.json");
+    const std::string path = le::test::scratch_path("le_settings_pending.json");
     write_file(path, R"({"grid": {"minor_um": 0.2, "major_um": 2.0}})");
     ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
     EXPECT_DOUBLE_EQ(le_grid_spacing_um(handle, 0), 0.2);
@@ -6690,7 +6685,7 @@ TEST_F(ApiFixture, SettingsLoadedBeforeAnyTechnologyApplyTheGridOnceOneIsRead)
 // load; a file that isn't a JSON object fails the load and changes nothing.
 TEST_F(ApiFixture, SettingsLoadSkipsInvalidKeysAndRejectsMalformedFiles)
 {
-    const std::string path = scratch_path("le_settings_partial.json");
+    const std::string path = le::test::scratch_path("le_settings_partial.json");
     write_file(path, R"({"label_max_size_px": "big", "flightline_max_fanout": 2, "placement_snap_mode": "nowhere",
                           "shape_snap_modes": {"rect": "tracks", "path": "none"}})");
     ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
@@ -6703,7 +6698,7 @@ TEST_F(ApiFixture, SettingsLoadSkipsInvalidKeysAndRejectsMalformedFiles)
     write_file(path, "not json");
     EXPECT_NE(le_load_settings(handle, path.c_str()), 0);
     EXPECT_EQ(le_flightline_max_fanout(handle), 2);
-    EXPECT_NE(le_load_settings(handle, scratch_path("le_settings_missing.json").c_str()), 0);
+    EXPECT_NE(le_load_settings(handle, le::test::scratch_path("le_settings_missing.json").c_str()), 0);
 }
 
 // The label font size caps how large a label renders: zoomed in on
@@ -6774,7 +6769,7 @@ TEST_F(ApiFixture, ManufacturingGridUmIsTheLefValueOrZero)
     EXPECT_EQ(le_manufacturing_grid_um(no_grid), 0.0);
     le_destroy(no_grid);
 
-    const std::string path = scratch_path("le_mfg_grid.lef");
+    const std::string path = le::test::scratch_path("le_mfg_grid.lef");
     write_file(path, "VERSION 5.8 ;\nUNITS\n  DATABASE MICRONS 2000 ;\nEND UNITS\nMANUFACTURINGGRID 0.005 ;\nEND LIBRARY\n");
     ASSERT_EQ(le_read_lef(handle, path.c_str(), "tech"), 0);
     EXPECT_DOUBLE_EQ(le_manufacturing_grid_um(handle), 0.005);
@@ -6823,7 +6818,7 @@ TEST_F(ApiFixture, SettingsSaveThenLoadRoundTripsLayerColors)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_set_layer_color(handle, "M1", 0x12, 0x34, 0xab), 0);
-    const std::string path = scratch_path("le_settings_layer_colors.json");
+    const std::string path = le::test::scratch_path("le_settings_layer_colors.json");
     ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
     EXPECT_NE(read_file(path).find("\"M1\": \"#1234ab\""), std::string::npos) << read_file(path);
 
@@ -6844,7 +6839,7 @@ TEST_F(ApiFixture, UnsavedChangesTrackEditsWritesAndSettings)
 {
     EXPECT_EQ(le_has_unsaved_database_changes(handle), 0); // a new, empty session
     EXPECT_EQ(le_has_unsaved_settings(handle), 0);
-    EXPECT_NE(le_read_lef(handle, scratch_path("no_such_file.lef").c_str(), "missing"), 0);
+    EXPECT_NE(le_read_lef(handle, le::test::scratch_path("no_such_file.lef").c_str(), "missing"), 0);
     EXPECT_EQ(le_has_unsaved_database_changes(handle), 0); // a failed read changes nothing
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_EQ(le_has_unsaved_database_changes(handle), 1); // read, but not in a .led file yet
@@ -6852,21 +6847,21 @@ TEST_F(ApiFixture, UnsavedChangesTrackEditsWritesAndSettings)
 
     const LeDesignId top_design = le_create_design(handle, le_create_library(handle, "TOPLIB"), "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
-    ASSERT_EQ(le_write_def(handle, scratch_path("le_unsaved_changes.def").c_str(), top_layout), 0);
+    ASSERT_EQ(le_write_def(handle, le::test::scratch_path("le_unsaved_changes.def").c_str(), top_layout), 0);
     EXPECT_EQ(le_has_unsaved_database_changes(handle), 1) << "write_def doesn't save the design";
-    ASSERT_EQ(le_write_lef(handle, scratch_path("le_unsaved_changes.lef").c_str(), nullptr, 0, LeLibraryId{UINT32_MAX, 0}, LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY), 0);
+    ASSERT_EQ(le_write_lef(handle, le::test::scratch_path("le_unsaved_changes.lef").c_str(), nullptr, 0, LeLibraryId{UINT32_MAX, 0}, LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY), 0);
     EXPECT_EQ(le_has_unsaved_database_changes(handle), 1) << "nor does write_lef";
-    ASSERT_EQ(le_write_db(handle, scratch_path("le_unsaved_changes.led").c_str(), 0), 0);
+    ASSERT_EQ(le_write_db(handle, le::test::scratch_path("le_unsaved_changes.led").c_str(), 0), 0);
     EXPECT_EQ(le_has_unsaved_database_changes(handle), 0);
 
-    const std::string extra_lef = scratch_path("le_unsaved_extra.lef");
+    const std::string extra_lef = le::test::scratch_path("le_unsaved_extra.lef");
     write_file(extra_lef, "VERSION 5.8 ;\nMACRO EXTRA\n  SIZE 1 BY 1 ;\nEND EXTRA\nEND LIBRARY\n");
     ASSERT_EQ(le_read_lef(handle, extra_lef.c_str(), "extra"), 0);
     EXPECT_EQ(le_has_unsaved_database_changes(handle), 1); // a read after the save is unsaved again
 
     le_set_label_max_size(handle, 30.0);
     EXPECT_EQ(le_has_unsaved_settings(handle), 1);
-    const std::string settings_path = scratch_path("le_unsaved_settings.json");
+    const std::string settings_path = le::test::scratch_path("le_unsaved_settings.json");
     ASSERT_EQ(le_save_settings(handle, settings_path.c_str()), 0);
     EXPECT_EQ(le_has_unsaved_settings(handle), 0);
     le_set_layer_color(handle, "M1", 1, 2, 3);
@@ -6915,7 +6910,7 @@ TEST_F(ApiFixture, RenderingBeforeAnythingIsLoadedDoesNotBlankLaterRenders)
 // the max.
 TEST_F(ApiFixture, SettingsLoadReadsTheOldSingleLabelSizeAsTheMax)
 {
-    const std::string path = scratch_path("le_settings_old_label_size.json");
+    const std::string path = le::test::scratch_path("le_settings_old_label_size.json");
     write_file(path, R"({"label_size_px": 30})");
     ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
     EXPECT_DOUBLE_EQ(le_label_max_size(handle), 30.0);
@@ -6928,7 +6923,7 @@ TEST_F(ApiFixture, ConfirmOverwriteIsASavedSettingOnByDefault)
     EXPECT_EQ(le_confirm_overwrite(handle), 1);
     le_set_confirm_overwrite(handle, 0);
     EXPECT_EQ(le_has_unsaved_settings(handle), 1);
-    const std::string path = scratch_path("le_settings_confirm_overwrite.json");
+    const std::string path = le::test::scratch_path("le_settings_confirm_overwrite.json");
     ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
     LeHandle *other = le_create();
     EXPECT_EQ(le_confirm_overwrite(other), 1);
@@ -6971,7 +6966,7 @@ TEST_F(ApiFixture, SettingsGoldenFilesFromEveryFormatVersionLoad)
             EXPECT_EQ(le_layer_color_rgb(other, "M1"), 0xff8000);
         }
         // Migrated on load, so nothing is left over to keep as unknown.
-        const std::string saved = scratch_path("le_settings_golden_resave.json");
+        const std::string saved = le::test::scratch_path("le_settings_golden_resave.json");
         ASSERT_EQ(le_save_settings(other, saved.c_str()), 0);
         EXPECT_EQ(read_file(saved).find("\"label_size_px\""), std::string::npos);
         EXPECT_EQ(read_file(saved).find("\"via\""), std::string::npos);
@@ -6988,7 +6983,7 @@ TEST_F(ApiFixture, SettingsSaveMatchesTheCurrentFormatsGoldenFile)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     ASSERT_EQ(le_load_settings(handle, fixture_path("settings/v3.json").c_str()), 0);
-    const std::string path = scratch_path("le_settings_current_format.json");
+    const std::string path = le::test::scratch_path("le_settings_current_format.json");
     ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
     EXPECT_EQ(read_file(path), read_file(fixture_path("settings/v3.json")));
 }
@@ -6998,7 +6993,7 @@ TEST_F(ApiFixture, SettingsSaveMatchesTheCurrentFormatsGoldenFile)
 // through an older version.
 TEST_F(ApiFixture, SettingsFromANewerVersionLoadAndKeepUnknownKeysOnSave)
 {
-    const std::string path = scratch_path("le_settings_newer.json");
+    const std::string path = le::test::scratch_path("le_settings_newer.json");
     write_file(path, R"({"version": 99, "flightline_max_fanout": 2, "future_panel": {"open": true}, "future_size": 3})");
     ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
     EXPECT_EQ(le_flightline_max_fanout(handle), 2);
@@ -7024,7 +7019,7 @@ TEST_F(ApiFixture, SettingsFromANewerVersionLoadAndKeepUnknownKeysOnSave)
 // key beside the newer one it kept. The newer one wins.
 TEST_F(ApiFixture, SettingsMigrationPrefersANewerKeyAlreadyPresent)
 {
-    const std::string path = scratch_path("le_settings_both_label_keys.json");
+    const std::string path = le::test::scratch_path("le_settings_both_label_keys.json");
     write_file(path, R"({"version": 1, "label_size_px": 30, "label_max_size_px": 18})");
     ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
     EXPECT_DOUBLE_EQ(le_label_max_size(handle), 18.0);
@@ -7035,7 +7030,7 @@ TEST_F(ApiFixture, SettingsMigrationPrefersANewerKeyAlreadyPresent)
 // the depth leaves the settings saved.
 TEST_F(ApiFixture, SettingsDropASavedHierarchyDepth)
 {
-    const std::string path = scratch_path("le_settings_v2_depth.json");
+    const std::string path = le::test::scratch_path("le_settings_v2_depth.json");
     write_file(path, R"({"version": 2, "hierarchy_depth": 3, "flightline_max_fanout": 7})");
     ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
     EXPECT_EQ(le_hierarchy_depth(handle), 0);

@@ -246,11 +246,8 @@ if {[catch {set_grid_spacing -minor -1} err]} {
     puts stderr "FAIL: set_grid_spacing accepted a negative spacing"
     exit 1
 }
-if {[info exists ::env(TMPDIR)]} {
-    set settings_file [file join $::env(TMPDIR) le_smoke_settings.json]
-} else {
-    set settings_file /tmp/le_smoke_settings.json
-}
+# file tempfile: a new, uniquely named file, since tests run in parallel.
+close [file tempfile settings_file le_smoke_settings.json]
 save_settings $settings_file
 set_label_max_size 30
 load_settings $settings_file
@@ -283,12 +280,7 @@ puts "ok: arm_move"
 # Every length reads and writes in
 # microns and every area in square microns, including -filter and chained
 # property paths (the DB stores database units: 1000/um here).
-if {[info exists ::env(TMPDIR)]} {
-    set units_lef [file join $::env(TMPDIR) le_smoke_units.lef]
-} else {
-    set units_lef /tmp/le_smoke_units.lef
-}
-set fh [open $units_lef w]
+set fh [file tempfile units_lef le_smoke_units.lef]
 puts $fh "VERSION 5.8 ;\nUNITS\n   DATABASE MICRONS 1000 ;\nEND UNITS\nLAYER UNITS_M2\n   TYPE ROUTING ;\n   WIDTH 0.05 ;\n   PITCH 0.1 ;\n   AREA 0.000666 ;\n   DIRECTION VERTICAL ;\nEND UNITS_M2\nEND LIBRARY"
 close $fh
 check "read_lef of the units LEF" 0 [read_lef -library units $units_lef]

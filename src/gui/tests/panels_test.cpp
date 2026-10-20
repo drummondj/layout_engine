@@ -4,6 +4,7 @@
 #include "components/design_saver.hpp"
 
 #include <gtest/gtest.h>
+#include "../../test_support/scratch_dir.hpp"
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -225,7 +226,7 @@ protected:
     void SetUp() override
     {
         le_create_library(session.handle, "lib");
-        path = (std::filesystem::temp_directory_path() / ("design_saver_" + std::to_string(::getpid()) + ".led")).string();
+        path = le::test::scratch_path("design_saver.led");
         std::filesystem::remove(path);
     }
     void TearDown() override { std::filesystem::remove(path); }

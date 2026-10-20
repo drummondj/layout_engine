@@ -2,6 +2,7 @@
 #include "../le_handle.hpp"
 #include <filesystem>
 #include <gtest/gtest.h>
+#include "../../test_support/scratch_dir.hpp"
 #include <string>
 #include <unistd.h>
 
@@ -19,7 +20,7 @@ namespace
     {
         void SetUp() override
         {
-            dir = fs::temp_directory_path() / ("le_native_db_api_" + std::to_string(::getpid()));
+            dir = le::test::scratch_path("le_native_db_api");
             fs::create_directories(dir);
             path = (dir / "testcell.led").string();
             source = le_create();

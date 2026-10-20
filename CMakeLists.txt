@@ -1294,6 +1294,13 @@ add_test(NAME codegen_unit
 # Its compile checks of generated code use the build's compiler.
 set_tests_properties(codegen_unit PROPERTIES ENVIRONMENT "CXX=${CMAKE_CXX_COMPILER}")
 
+# Tests run in parallel, here and in other build trees: none may name a file in
+# the shared temp directory that isn't unique to its process.
+add_test(NAME test_scratch_paths_unique
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_test_scratch_paths.py ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME test_scratch_paths_check_unit
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/tests/test_check_test_scratch_paths.py)
+
 # Extension code (LE_EXTENSION_COMPILE_OPTIONS) fails to build when a non-void
 # function can fall off its end.
 if(LE_EXTENSION_COMPILE_OPTIONS)

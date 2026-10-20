@@ -38,8 +38,10 @@ check "read_verilog return code" 0 [read_verilog -netlist -library sv_lib $sv_pa
 set nets [llength [get_nets -of [get_schematics -of [get_designs top]]]]
 puts "ok: top has $nets nets"
 
-set tmp_dir [expr {[info exists ::env(TMPDIR)] ? $::env(TMPDIR) : "/tmp"}]
-set db_path [file join $tmp_dir "native_db_test_[pid].led"]
+# [pid]: tests run in parallel, and other build trees may run this one too.
+set tmp_dir [file join [expr {[info exists ::env(TMPDIR)] ? $::env(TMPDIR) : "/tmp"}] native_db_test_[pid]]
+file mkdir $tmp_dir
+set db_path [file join $tmp_dir "native_db_test.led"]
 check "write_db result" "" [write_db $db_path]
 check "db file exists" 1 [file exists $db_path]
 
@@ -49,7 +51,7 @@ check "db_info lists Net" 1 [string match "*Net *" $info]
 check "db_info on a missing file errors" 1 [catch {db_info $db_path.missing}]
 check "write_db with no filename errors" 1 [catch {write_db}]
 check "db_info: a session is saved by default" 1 [string match "*session: yes*" $info]
-set bare_path [file join $tmp_dir "native_db_test_bare_[pid].led"]
+set bare_path [file join $tmp_dir "native_db_test_bare.led"]
 check "write_db -no_session result" "" [write_db -no_session $bare_path]
 check "db_info: -no_session saves none" 1 [string match "*session: no*" [db_info $bare_path]]
 check "-no_session in either position" "" [write_db $bare_path -no_session]
@@ -57,7 +59,7 @@ file delete $bare_path
 check "write_db with two filenames errors" 1 [catch {write_db a.led b.led}]
 check "read_db -help" 1 [string match "read_db*" [read_db -help]]
 check "db_info: nothing to migrate" 1 [string match "*migrations to run: none*" $info]
-set migrated_path [file join $tmp_dir "native_db_test_migrated_[pid].led"]
+set migrated_path [file join $tmp_dir "native_db_test_migrated.led"]
 check "migrate_db summary" 1 [string match "migrated *" [migrate_db $db_path $migrated_path]]
 check "migrate_db keeps the session" 1 [string match "*session: yes*" [db_info $migrated_path]]
 file delete $migrated_path
@@ -71,7 +73,7 @@ check "_expand_path relative" rel/a [_expand_path rel/a]
 check "_expand_path ~user is left alone" ~other/a [_expand_path ~other/a]
 check "_expand_path inner ~" a~b [_expand_path a~b]
 set real_home $::env(HOME)
-set ::env(HOME) [file join $tmp_dir "native_db_test_home_[pid]"]
+set ::env(HOME) [file join $tmp_dir "home"]
 file mkdir $::env(HOME)
 check "write_db ~/..." "" [write_db -no_session ~/tilde.led]
 check "write_db ~/... lands in HOME" 1 [file exists [file join $::env(HOME) tilde.led]]
@@ -82,5 +84,5 @@ set ::env(HOME) $real_home
 
 set output [exec [info nameofexecutable] [info script] load $module_path $procs_path $db_path $nets]
 puts $output
-file delete $db_path
+file delete -force $tmp_dir
 puts "all native db checks passed"

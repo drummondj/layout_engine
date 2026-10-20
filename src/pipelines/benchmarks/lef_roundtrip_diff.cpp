@@ -7,6 +7,7 @@
 #include <fstream>
 #include <set>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 using namespace le;
@@ -23,8 +24,8 @@ namespace
     // uses for a real two-file comparison.
     std::vector<std::string> lefdiff_dump(const std::string &lefdiff_bin, const std::string &lef_path)
     {
-        const std::filesystem::path dump_path = std::filesystem::temp_directory_path() / "le_roundtrip_diff_dump.txt";
-        const std::filesystem::path unused_path = std::filesystem::temp_directory_path() / "le_roundtrip_diff_unused.txt";
+        const std::filesystem::path dump_path = std::filesystem::temp_directory_path() / ("le_roundtrip_diff_dump_" + std::to_string(::getpid()) + ".txt");
+        const std::filesystem::path unused_path = std::filesystem::temp_directory_path() / ("le_roundtrip_diff_unused_" + std::to_string(::getpid()) + ".txt");
 
         const std::string command = "\"" + lefdiff_bin + "\" \"" + lef_path + "\" \"" + lef_path + "\" \"" + dump_path.string() + "\" \"" + unused_path.string() + "\" > /dev/null 2>&1";
         if (std::system(command.c_str()) != 0)

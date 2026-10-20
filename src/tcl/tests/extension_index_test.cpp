@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include "../../test_support/scratch_dir.hpp"
 #include <unistd.h>
 
 using namespace le;
@@ -13,7 +14,7 @@ namespace
     class ExtensionIndexTest : public ::testing::Test
     {
     protected:
-        std::filesystem::path dir = std::filesystem::temp_directory_path() / ("le_extension_index_" + std::to_string(::getpid()));
+        std::filesystem::path dir = le::test::scratch_path("le_extension_index");
 
         void SetUp() override
         {

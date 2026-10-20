@@ -31,6 +31,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 using namespace le;
@@ -213,7 +214,7 @@ int main(int argc, char **argv)
     for (int level : levels)
     {
         const std::string prefix = "level" + std::to_string(level) + "_";
-        const std::string path = (dir / ("native_format_profile_" + label + ".led")).string();
+        const std::string path = (dir / ("native_format_profile_" + label + "_" + std::to_string(::getpid()) + ".led")).string();
         start = std::chrono::steady_clock::now();
         const auto saved = persistence::save_native(root, path, persistence::SaveOptions{.compression_level = level});
         if (!saved.ok())

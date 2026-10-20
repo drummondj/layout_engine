@@ -6,6 +6,7 @@
 #include "generated/pipelines/renderable_classes.hpp"
 
 #include <gtest/gtest.h>
+#include "../../test_support/scratch_dir.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -171,7 +172,7 @@ TEST_F(GuiProviderFixture, DbFileQueriesAndWriteDbNow)
 
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
     EXPECT_FALSE(provider.database_is_empty());
-    const std::string path = (std::filesystem::temp_directory_path() / ("gui_provider_db_" + std::to_string(::getpid()) + ".led")).string();
+    const std::string path = le::test::scratch_path("gui_provider_db.led");
     ASSERT_EQ(le_write_db(handle, path.c_str(), 1), 0);
     EXPECT_EQ(provider.db_path(), path);
 

@@ -2,6 +2,7 @@
 #include "codec.hpp"
 #include "native_format.hpp"
 #include "generated/database/schema_version.hpp"
+#include "../../test_support/scratch_dir.hpp"
 
 #include "def_reader.hpp"
 #include "lef_reader.hpp"
@@ -237,7 +238,7 @@ namespace le::persistence
                 // byte-identically: the encoding hasn't drifted.
                 if (version == schema_info::kVersion && name.ends_with(".c" + std::to_string(kContainerVersion) + ".led"))
                 {
-                    const fs::path resaved = fs::temp_directory_path() / ("le_golden_resave_" + name);
+                    const fs::path resaved = le::test::scratch_path("le_golden_resave_" + name);
                     ASSERT_TRUE(save_native(root, resaved.string(), SaveOptions{.compression_level = 0}).ok());
                     EXPECT_EQ(read_bytes(resaved), read_bytes(path)) << "the writer's output changed for an unchanged schema - a format change needs a "
                                                                         "container or schema version bump, not a silent re-encoding";

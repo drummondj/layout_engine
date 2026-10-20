@@ -7,6 +7,7 @@
 #include "../def_reader.hpp"
 #include "../def_writer.hpp"
 #include "../../database/wire_helpers.hpp"
+#include "../../test_support/scratch_dir.hpp"
 
 namespace le
 {
@@ -15,11 +16,6 @@ namespace le
         std::string complete_fixture_path()
         {
             return std::string(DEF_TEST_DIR) + "/complete.5.8.def";
-        }
-
-        std::string scratch_output_path(const std::string &name)
-        {
-            return (std::filesystem::temp_directory_path() / name).string();
         }
 
         // Same pre-population DEFReaderCompleteFixture (def_reader_test.cpp)
@@ -42,7 +38,7 @@ namespace le
     // placement - and written back relative to it, unchanged.
     TEST(DEFWriterPinPlacement, RotatedPinGeometryReadsIntoDesignCoordinatesAndWritesBackRelative)
     {
-        const std::string def_path = scratch_output_path("le_def_rotated_pin.def");
+        const std::string def_path = test::scratch_path("le_def_rotated_pin.def");
         {
             std::ofstream out(def_path);
             out << "VERSION 5.8 ;\nDIVIDERCHAR \"/\" ;\nBUSBITCHARS \"[]\" ;\nDESIGN pins ;\nUNITS DISTANCE MICRONS 1000 ;\n"
@@ -69,7 +65,7 @@ namespace le
         EXPECT_EQ(shape->rects[0].ur.x, 1135);
         EXPECT_EQ(shape->rects[0].ur.y, 2000);
 
-        const std::string written_path = scratch_output_path("le_def_rotated_pin_written.def");
+        const std::string written_path = test::scratch_path("le_def_rotated_pin_written.def");
         ASSERT_EQ(DEFWriter().write_def(written_path, root, layout_id), 0);
         std::ifstream in(written_path);
         const std::string written((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -112,7 +108,7 @@ namespace le
             // test re-read another's half-written file (an intermittent
             // failure of a random RoundTrips* test under ctest -j).
             const std::string written_path =
-                scratch_output_path(std::string("le_def_writer_roundtrip_") + ::testing::UnitTest::GetInstance()->current_test_info()->name() + ".def");
+                test::scratch_path(std::string("le_def_writer_roundtrip_") + ::testing::UnitTest::GetInstance()->current_test_info()->name() + ".def");
             DEFWriter writer;
             ASSERT_EQ(writer.write_def(written_path, original_root, layout_id), 0) << [&]
             {
@@ -196,7 +192,7 @@ namespace le
             original_layout_id = original_root.get_design_layout(design_id);
             ASSERT_TRUE(original_layout_id.valid());
 
-            written_path = scratch_output_path("le_def_writer_component_weight.def");
+            written_path = test::scratch_path("le_def_writer_component_weight.def");
             DEFWriter writer;
             ASSERT_EQ(writer.write_def(written_path, original_root, original_layout_id), 0);
 
@@ -278,7 +274,7 @@ namespace le
             original_layout_id = original_root.get_design_layout(design_id);
             ASSERT_TRUE(original_layout_id.valid());
 
-            const std::string written_path = scratch_output_path("le_def_writer_via_rule_reference_roundtrip.def");
+            const std::string written_path = test::scratch_path("le_def_writer_via_rule_reference_roundtrip.def");
             DEFWriter writer;
             ASSERT_EQ(writer.write_def(written_path, original_root, original_layout_id), 0) << [&]
             {
@@ -370,7 +366,7 @@ namespace le
             original_layout_id = original_root.get_design_layout(design_id);
             ASSERT_TRUE(original_layout_id.valid());
 
-            const std::string written_path = scratch_output_path("le_def_writer_via_only_shape_roundtrip.def");
+            const std::string written_path = test::scratch_path("le_def_writer_via_only_shape_roundtrip.def");
             DEFWriter writer;
             ASSERT_EQ(writer.write_def(written_path, original_root, original_layout_id), 0) << [&]
             {
@@ -548,7 +544,7 @@ namespace le
         const RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "VDD", .is_special = true, .width = 200});
         root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route_id), .layer = layer_id, .paths = {Path{.width = 200, .polygon = Polygon{.points = {Point{.x = 0, .y = 0}, Point{.x = 100, .y = 0}}}}}});
 
-        const std::string written_path = scratch_output_path("le_def_writer_special_net_width.def");
+        const std::string written_path = test::scratch_path("le_def_writer_special_net_width.def");
         DEFWriter writer;
         ASSERT_EQ(writer.write_def(written_path, root, layout_id), 0);
 
@@ -590,12 +586,12 @@ namespace le
         const LayoutId layout_id = root.get_design_layout(design_id);
         ASSERT_TRUE(layout_id.valid());
 
-        const std::string written_path = scratch_output_path("le_defdiff_written.def");
+        const std::string written_path = test::scratch_path("le_defdiff_written.def");
         DEFWriter writer;
         ASSERT_EQ(writer.write_def(written_path, root, layout_id), 0);
 
-        const std::string dump1_path = scratch_output_path("le_defdiff_dump1.txt");
-        const std::string dump2_path = scratch_output_path("le_defdiff_dump2.txt");
+        const std::string dump1_path = test::scratch_path("le_defdiff_dump1.txt");
+        const std::string dump2_path = test::scratch_path("le_defdiff_dump2.txt");
 
         // Unlike lefdiff (differLef.cpp, argc==5: 4 positional args),
         // defdiff's own main (differDef.cpp) requires argc==9 - file1,
@@ -659,7 +655,7 @@ namespace le
         Root original;
         const LayoutId original_layout = read(original, std::string(IO_TEST_FIXTURES_DIR) + "/route_wires.def");
         ASSERT_TRUE(original_layout.valid());
-        const std::string written_path = scratch_output_path("le_def_writer_route_wires.def");
+        const std::string written_path = test::scratch_path("le_def_writer_route_wires.def");
         ASSERT_EQ(DEFWriter().write_def(written_path, original, original_layout), 0);
 
         Root written;

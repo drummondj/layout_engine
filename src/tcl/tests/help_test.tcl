@@ -189,9 +189,8 @@ check "complete_command -filter dot-path completion never fires for a command wi
 # any other real fixture) keeps this deterministic regardless of what
 # else happens to exist in the repo, and is cleaned up either way.
 
-set scratch_dir [file join [expr {
-    [info exists ::env(TMPDIR)] ? $::env(TMPDIR) : "/tmp"
-}] "le_tcl_help_test_completion_scratch"]
+# [pid]: tests run in parallel, and other build trees may run this one too.
+set scratch_dir [file join [expr {[info exists ::env(TMPDIR)] ? $::env(TMPDIR) : "/tmp"}] le_tcl_help_test_completion_scratch_[pid]]
 file delete -force $scratch_dir
 file mkdir $scratch_dir
 file mkdir [file join $scratch_dir subdir]
