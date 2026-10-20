@@ -4,7 +4,8 @@ Building a project: Layout Engine from source with the project's extensions
 Layout Engine with add_subdirectory, the way a hand-written one does -
 configured in .le/build and installed as a bundle in .le/bundle. Fetched
 dependencies' sources - never their builds - are shared between projects in
-the source cache (source_cache_dir()), and ccache is used when it's on PATH.
+the source cache (source_cache_dir()), codegen runs on le's own Python
+environment (python_env), and ccache is used when it's on PATH.
 """
 
 import json
@@ -16,7 +17,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from le import sources
+from le import python_env, sources
 
 
 class BuildError(Exception):
@@ -91,10 +92,10 @@ def remove_old_dependency_cache() -> None:
 
 
 def configure_command(superbuild: Path, build_dir: Path, build_type: str, extension_dirs: List[Path],
-                      cmake_args: Optional[List[str]] = None) -> List[str]:
+                      cmake_args: Optional[List[str]] = None, python: Optional[Path] = None) -> List[str]:
     """The cmake configure command. Dependencies build in build_dir's own _deps
     (-U drops a shared FETCHCONTENT_BASE_DIR an older le cached there); only
-    their sources come from the shared cache."""
+    their sources come from the shared cache. `python` is codegen's Python."""
     command = [
         "cmake",
         "-S", str(superbuild),
@@ -104,6 +105,8 @@ def configure_command(superbuild: Path, build_dir: Path, build_type: str, extens
         "-UFETCHCONTENT_BASE_DIR",
         f"-DLE_SOURCE_CACHE_DIR={source_cache_dir()}",
     ]
+    if python is not None:
+        command.append(f"-DPython3_EXECUTABLE={python}")
     command += cmake_args or []
     if shutil.which("ccache"):
         command += ["-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"]
@@ -154,7 +157,11 @@ def configure(
     if cached is not None and Path(cached).resolve() != superbuild.resolve():
         shutil.rmtree(build_dir)  # configured from another source tree (an older le): cmake refuses to switch
     remove_old_dependency_cache()
-    _run(configure_command(superbuild, build_dir, build_type, extension_dirs, cmake_args), "configuring")
+    try:
+        python = python_env.codegen_python(le_source, cmake_args)
+    except python_env.PythonEnvError as e:
+        raise BuildError(str(e)) from e
+    _run(configure_command(superbuild, build_dir, build_type, extension_dirs, cmake_args, python), "configuring")
     populate_source_cache(build_dir, source_cache_dir())
     return build_dir
 

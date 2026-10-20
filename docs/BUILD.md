@@ -87,6 +87,10 @@ complete — go back and fix that first.
 
 ## 3. Install codegen's Python dependencies
 
+Only for a build without `le`: an `le` project gets codegen's packages in
+a private Python environment that `le` makes and passes to CMake (see
+`tools/le/README.md`). It still needs a Python `>=3.11,<3.14` on `PATH`.
+
 The build generates the database and TCL bindings from
 `src/database/schema.py` itself, running this repo's own `codegen` fork
 (`codegen/`) into the build tree - there's no manual generation step. It
