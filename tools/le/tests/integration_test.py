@@ -131,6 +131,9 @@ def shares_sources_only(source: Path, root: Path, first_build: Path) -> None:
     listing = json.loads((second / "layout_engine" / "le_fetched_sources.json").read_text())
     cache = build.source_cache_dir().resolve()
     downloaded = [d["name"] for d in listing if not Path(d["source_dir"]).resolve().is_relative_to(cache)]
+    # A dependency declared by another dependency, not through le_fetch_declare,
+    # would be missing from the listing but downloaded into _deps all the same.
+    downloaded += [d.name for d in (second / "_deps").glob("*-src")]
     if not listing or downloaded:
         raise SystemExit(f"the second project downloaded {downloaded} instead of using the shared sources")
 

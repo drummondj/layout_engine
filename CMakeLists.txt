@@ -243,11 +243,26 @@ endif()
 set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER)
 set(SLANG_INCLUDE_TESTS OFF CACHE BOOL "" FORCE)
 set(SLANG_INCLUDE_TOOLS OFF CACHE BOOL "" FORCE)
+# slang also declares mimalloc itself. FetchContent's first declaration of a
+# name wins, so declaring it here, at the tag slang pins, lets `le` projects
+# share its source like every other dependency's; slang still makes it
+# available with its own options. The check below the slang block keeps
+# the tag in step with slang's.
+set(LE_SLANG_MIMALLOC_TAG v3.3.2)
+le_fetch_declare(
+    mimalloc
+    URL https://github.com/microsoft/mimalloc/archive/refs/tags/${LE_SLANG_MIMALLOC_TAG}.tar.gz
+)
 le_fetch_declare(
     slang
     URL https://github.com/MikePopoloski/slang/archive/refs/tags/v11.0.zip
 )
 FetchContent_MakeAvailable(slang)
+file(READ "${slang_SOURCE_DIR}/external/CMakeLists.txt" slang_external)
+if(NOT slang_external MATCHES "mimalloc\\.git[ \t\r\n]+GIT_TAG[ \t]+${LE_SLANG_MIMALLOC_TAG}[ \t\r\n]")
+    message(FATAL_ERROR "slang no longer pins mimalloc ${LE_SLANG_MIMALLOC_TAG} (see ${slang_SOURCE_DIR}/external/CMakeLists.txt) - "
+        "set LE_SLANG_MIMALLOC_TAG to the tag it uses")
+endif()
 
 # find_package(Boost REQUIRED) runs *after* the slang block above -
 # discovered empirically during the slang build spike, the mirror image
