@@ -12,6 +12,12 @@
 # le_shell.bin restores the caller's LD_LIBRARY_PATH (LE_SHELL_LD_LIBRARY_PATH)
 # once it has started, so programs it runs don't inherit the bundle's.
 
+# Its own commands (readlink, awk, ldconfig, ...) fall back to the system's
+# directories when the caller's PATH lacks them; le_shell.bin gets the
+# caller's PATH back.
+caller_path=$PATH
+PATH=${PATH:+$PATH:}/usr/bin:/bin:/usr/sbin:/sbin
+
 here=$(dirname "$(readlink -f "$0")")
 
 case $(uname -m) in
@@ -92,4 +98,5 @@ if [ -n "$paths" ]; then
     export LE_SHELL_LD_LIBRARY_PATH="${LD_LIBRARY_PATH-}"
     export LD_LIBRARY_PATH="$paths${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
+PATH=$caller_path
 exec "$here/le_shell.bin" "$@"
