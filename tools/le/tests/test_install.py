@@ -55,10 +55,16 @@ class TestInstall(unittest.TestCase):
 
     def le(self, *args) -> int:
         err = io.StringIO()
-        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+        out = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
             code = cli.main(list(args))
         self.last_error = err.getvalue()
+        self.last_output = out.getvalue()
         return code
+
+    def use_layout_engine(self, path: str):
+        text = (self.project / projectfile.PROJECT_FILE).read_text()
+        (self.project / projectfile.PROJECT_FILE).write_text(text.replace(f'path = "../layout_engine"', f'path = "{path}"'))
 
     def publish_extension(self, name, prefix, tag="v1.0.0", key=None, **manifest):
         """A git repo for extension `name`, tagged (signed with `key`, if given) and pushed to fake GitHub as acme/<name>."""
@@ -222,6 +228,37 @@ class TestInstall(unittest.TestCase):
         # Editing a path extension makes the install stale.
         os.utime(ext / "tcl" / "ext.tcl", (1e10, 1e10))
         self.assertFalse(installer.is_current(self.project))
+
+    def test_install_names_the_layout_engine_it_resolved(self):
+        schema = self.layout_engine / "src" / "database" / "schema.py"
+        schema.parent.mkdir(parents=True)
+        schema.write_text('schema = Schema(\n    name="layout_engine",\n    version="0.50.0",\n)\n')
+        self.assertEqual(self.le("install"), 0, self.last_error)
+        self.assertIn(f"le: layout_engine 0.2.0 (schema 0.50.0) from path:{self.layout_engine.resolve()}", self.last_output)
+        self.assertNotIn("warning", self.last_error)
+
+    def test_a_passed_over_checkout_in_the_project_is_warned_about(self):
+        # A layout_engine/ directory in the project, but the path points at the sibling checkout.
+        helpers.fake_layout_engine(self.project / "layout_engine", version="0.3.0")
+        self.assertEqual(self.le("install"), 0, self.last_error)
+        self.assertIn("not the checkout at layout_engine (a directory in the project)", self.last_error)
+        self.use_layout_engine("layout_engine")
+        self.assertEqual(self.le("install"), 0, self.last_error)
+        self.assertNotIn("warning", self.last_error)
+        self.assertIn("le: layout_engine 0.3.0 from path:", self.last_output)
+
+    def test_a_passed_over_submodule_is_warned_about(self):
+        helpers.fake_layout_engine(self.project / "deps" / "le", version="0.3.0")
+        (self.project / ".gitmodules").write_text(
+            '[submodule "deps/le"]\n\tpath = deps/le\n\turl = git@github.com:drummondj/layout_engine.git\n'
+            '[submodule "other"]\n\tpath = other\n\turl = https://github.com/acme/other\n'
+        )
+        self.assertEqual(self.le("install"), 0, self.last_error)
+        self.assertIn(f"not the checkout at {Path('deps/le')} (a git submodule)", self.last_error)
+        self.assertNotIn("other", self.last_error)
+        self.use_layout_engine("deps/le")
+        self.assertEqual(self.le("install"), 0, self.last_error)
+        self.assertNotIn("warning", self.last_error)
 
     def test_an_invalid_edit_is_rolled_back(self):
         before = (self.project / projectfile.PROJECT_FILE).read_text()
