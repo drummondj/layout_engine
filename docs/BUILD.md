@@ -37,6 +37,9 @@ its own log file.
 
 ## 0. Before you start
 
+`le doctor --source` (`tools/le/bin/le`) checks everything this document
+installs and names whatever is missing.
+
 You'll need outbound network access to: your configured `dnf` repos
 (including `crb`/CodeReady-Builder — see step 1), `github.com`, and a
 Boost download mirror. If any of these are blocked, later steps will fail
