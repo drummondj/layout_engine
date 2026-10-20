@@ -107,7 +107,10 @@ ExternalProject_Add(
     # CMAKE_POSITION_INDEPENDENT_CODE setting above and for the same
     # reason - le_tcl.so statically links liblef.a, which GNU ld (Linux)
     # refuses without -fPIC object code (ld64/macOS doesn't enforce this).
-    BUILD_COMMAND ${CMAKE_COMMAND} -E env --unset=MAKEFLAGS --unset=MFLAGS CXXFLAGS=-fPIC CFLAGS=-fPIC make -j1
+    # CC/CXX/AR on make's command line override template.mk's hard-coded
+    # gcc/g++ and make's default ar, so these libraries build with the same
+    # toolchain as the rest.
+    BUILD_COMMAND ${CMAKE_COMMAND} -E env --unset=MAKEFLAGS --unset=MFLAGS CXXFLAGS=-fPIC CFLAGS=-fPIC make -j1 CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} AR=${CMAKE_AR}
     INSTALL_COMMAND ""
     BUILD_IN_SOURCE 1
     # lefdiff (the LEF round-trip fidelity check) is also a
@@ -145,7 +148,7 @@ ExternalProject_Add(
     def_lib
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND ${CMAKE_COMMAND} -E env --unset=MAKEFLAGS --unset=MFLAGS CXXFLAGS=-fPIC CFLAGS=-fPIC make -j1
+    BUILD_COMMAND ${CMAKE_COMMAND} -E env --unset=MAKEFLAGS --unset=MFLAGS CXXFLAGS=-fPIC CFLAGS=-fPIC make -j1 CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} AR=${CMAKE_AR}
     INSTALL_COMMAND ""
     BUILD_IN_SOURCE 1
     BYPRODUCTS
