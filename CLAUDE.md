@@ -232,7 +232,9 @@ fails on a temp path that isn't unique to its process.
   `.le/` as a generated `add_subdirectory` superbuild, with the host's
   compilers or, with `[build] toolchain = true` (`le toolchain`,
   `toolchain.py`), inside the conda-forge environment from `toolchain/`,
-  made by a pinned pixi and shared per lock. Authoring (`authoring.py`):
+  made by a pinned pixi and shared per lock. Signatures are checked with
+  `ssh-keygen -Y` (OpenSSH 8.1+): the host's, else conda-forge's OpenSSH
+  that `openssh.py` makes the same way. Authoring (`authoring.py`):
   `new-extension` copies `hello_ext`/`hello_script` renamed (so both
   examples are its templates), `test`, `makemigration`, and `check`
   (parses `db_info` from the project's `le_shell`). Reuses
@@ -416,8 +418,6 @@ comparing. Results history: `plans/BENCHMARKS.md`,
 - Layout view: Blockage/Region own shapes aren't hit-tested yet;
   selection into instanced content is whole-placement only.
 - Free-standing shapes (`free_shapes`) aren't selectable.
-- `le` can't verify signatures on stock Rocky 8: its `ssh-keygen`
-  (OpenSSH 8.0) has no `-Y` (#200).
 - Some tests are skipped with `GTEST_SKIP` pending root cause (see each
   skip's comment).
 

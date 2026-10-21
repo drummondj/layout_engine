@@ -15,7 +15,7 @@ name: CI
 #
 # The `le` package manager's end-to-end test builds Layout Engine a second
 # time, so it has its own jobs - with the image's toolchain, and on a stock
-# Ubuntu with `le toolchain` - run only when a change can affect them,
+# Rocky Linux 8 with `le toolchain` - run only when a change can affect them,
 # nightly, and on demand.
 
 # Pushes to main only: a PR branch is built by its pull_request run, so
@@ -83,10 +83,11 @@ jobs:
           docker compose run --rm ci
           python3 tools/le/tests/integration_test.py /workspace
 
-  # The same test on a stock Ubuntu with no compilers or development
-  # packages: `le toolchain` provides everything the source builds need. Only
-  # le's own prerequisites (Python, git, tar, ssh-keygen, CA certificates)
-  # are installed.
+  # The same test on a stock Rocky Linux 8 with no compilers or development
+  # packages: `le toolchain` provides everything the source builds need, and
+  # le its own ssh-keygen (Rocky 8's OpenSSH 8.0 can't check signatures).
+  # Only le's own prerequisites (Python 3.11, git, tar, ssh-keygen) are
+  # installed.
   le-toolchain:
     needs: changes
     if: needs.changes.outputs.le == 'true'
@@ -94,11 +95,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: le end-to-end test with le toolchain, on stock Ubuntu
+      - name: le end-to-end test with le toolchain, on stock Rocky Linux 8
         run: >-
           docker run --rm -v "$PWD:/workspace" -w /workspace
-          -e LE_INTEGRATION_TOOLCHAIN=1 -e LE_BUILD_JOBS=4 -e DEBIAN_FRONTEND=noninteractive
-          ubuntu:24.04 bash -c
-          "apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 git openssh-client ca-certificates > /dev/null &&
+          -e LE_INTEGRATION_TOOLCHAIN=1 -e LE_BUILD_JOBS=4
+          rockylinux:8 bash -c
+          "dnf install -y -q python3.11 git openssh-clients tar > /dev/null &&
           git config --global --add safe.directory '*' &&
-          python3 tools/le/tests/integration_test.py /workspace"
+          python3.11 tools/le/tests/integration_test.py /workspace"

@@ -1,10 +1,14 @@
-"""Shared test fixtures: throwaway SSH keys, signed git repos served as fake GitHub."""
+"""Shared test fixtures: throwaway SSH keys, signed git repos served as fake GitHub.
+They sign with the ssh-keygen le checks signatures with (le/openssh.py), so
+they work on a host whose own can't sign."""
 
 import os
 import subprocess
 import tempfile
 import textwrap
 from pathlib import Path
+
+from le import openssh
 
 
 def run(*args, cwd=None):
@@ -14,7 +18,7 @@ def run(*args, cwd=None):
 def make_key(directory: Path, name: str) -> Path:
     """An ed25519 key pair; returns the private key's path (public: + .pub)."""
     key = directory / name
-    run("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", name, "-f", str(key))
+    run(openssh.ssh_keygen(), "-q", "-t", "ed25519", "-N", "", "-C", name, "-f", str(key))
     return key
 
 
@@ -26,7 +30,8 @@ def git_commit_all(repo: Path, message: str, signing_key: Path = None) -> None:
     run("git", "add", "-A", cwd=repo)
     args = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
     if signing_key is not None:
-        args += ["-c", "gpg.format=ssh", "-c", f"user.signingkey={signing_key}.pub", "commit", "-S"]
+        args += ["-c", "gpg.format=ssh", "-c", f"gpg.ssh.program={openssh.ssh_keygen()}", "-c", f"user.signingkey={signing_key}.pub",
+                 "commit", "-S"]
     else:
         args += ["commit"]
     run(*args, "-q", "-m", message, cwd=repo)
@@ -37,7 +42,8 @@ def git_tag(repo: Path, tag: str, signing_key: Path = None) -> None:
     if signing_key is None:
         run(*base, "tag", tag, cwd=repo)
     else:
-        run(*base, "-c", "gpg.format=ssh", "-c", f"user.signingkey={signing_key}.pub", "tag", "-s", tag, "-m", tag, cwd=repo)
+        run(*base, "-c", "gpg.format=ssh", "-c", f"gpg.ssh.program={openssh.ssh_keygen()}", "-c", f"user.signingkey={signing_key}.pub",
+            "tag", "-s", tag, "-m", tag, cwd=repo)
 
 
 def manifest(name: str, prefix: str, version: str = "1.0.0", layout_engine: str = ">=0.2, <0.3", extra_contents: str = "", deps: str = "") -> str:
@@ -145,5 +151,5 @@ def fake_release(fake_github: "FakeGithub", key: Path, version: str = "0.3.0", a
         for p in bundle.iterdir():
             archive.add(p, arcname=p.name)
     if sign:
-        run("ssh-keygen", "-q", "-Y", "sign", "-f", str(key), "-n", "layout_engine-release", str(tarball))
+        run(openssh.ssh_keygen(), "-q", "-Y", "sign", "-f", str(key), "-n", "layout_engine-release", str(tarball))
     return tarball

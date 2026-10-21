@@ -94,11 +94,14 @@ def manifest(le_source: Path) -> Path:
     return directory
 
 
-def key(le_source: Path) -> str:
-    """The environment's key: its manifest and lock."""
-    directory = manifest(le_source)
+def manifest_key(directory: Path) -> str:
+    """An environment's key: its manifest and lock."""
     digest = hashlib.sha256((directory / "pixi.toml").read_bytes() + b"\0" + (directory / "pixi.lock").read_bytes())
     return digest.hexdigest()[:16]
+
+
+def key(le_source: Path) -> str:
+    return manifest_key(manifest(le_source))
 
 
 def environment_dir(le_source: Path) -> Path:
@@ -165,23 +168,29 @@ def pixi_binary() -> Path:
 def _install(pixi: Path, root: Path) -> None:
     result = subprocess.run([str(pixi), "install", "--frozen", "--manifest-path", str(root / "pixi.toml")])
     if result.returncode != 0:
-        raise ToolchainError(f"making the toolchain environment in {root} failed (pixi install exit {result.returncode})")
+        raise ToolchainError(f"making the environment in {root} failed (pixi install exit {result.returncode})")
 
 
-def ensure(le_source: Path) -> Toolchain:
-    """The toolchain environment for `le_source`'s toolchain/, made first if needed."""
-    directory = manifest(le_source)
-    env_key = key(le_source)
-    root = sources.cache_dir() / "toolchain" / env_key
+def environment(directory: Path, kind: str, what: str) -> Toolchain:
+    """The environment for the pixi.toml and pixi.lock in `directory`, made in
+    <cache>/<kind>/<key> by the pinned pixi first if needed; `what` names it
+    in the progress message."""
+    env_key = manifest_key(directory)
+    root = sources.cache_dir() / kind / env_key
     pixi = pixi_binary()
-    toolchain = Toolchain(root=root, pixi=pixi, key=env_key)
-    if (root / READY).is_file() and toolchain.prefix.is_dir():
-        return toolchain
+    made = Toolchain(root=root, pixi=pixi, key=env_key)
+    if (root / READY).is_file() and made.prefix.is_dir():
+        return made
     check_host()
     root.mkdir(parents=True, exist_ok=True)
     for name in ("pixi.toml", "pixi.lock"):
         shutil.copyfile(directory / name, root / name)
-    print(f"le: making the build toolchain in {root} (the first time takes a minute or two)", flush=True)
+    print(f"le: making {what} in {root}", flush=True)
     _install(pixi, root)
     (root / READY).write_text(env_key + "\n")
-    return toolchain
+    return made
+
+
+def ensure(le_source: Path) -> Toolchain:
+    """The toolchain environment for `le_source`'s toolchain/, made first if needed."""
+    return environment(manifest(le_source), "toolchain", "the build toolchain (the first time takes a minute or two)")

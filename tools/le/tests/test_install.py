@@ -147,9 +147,16 @@ class TestInstall(unittest.TestCase):
         self.trust_acme()
         self.publish_extension("base", "Base", key=self.acme_key)
         real_which = installer.sources.shutil.which
-        with mock.patch.object(installer.sources.shutil, "which", lambda name: None if name == "ssh-keygen" else real_which(name)):
+
+        def cant_make(*args):
+            raise toolchains.ToolchainError("this machine has no CA certificates, which downloading the toolchain needs")
+
+        # With no ssh-keygen of its own, le makes one; when it can't, it says why.
+        with mock.patch.object(installer.sources.shutil, "which", lambda name: None if name == "ssh-keygen" else real_which(name)), \
+                mock.patch.object(toolchains, "environment", cant_make):
             self.assertEqual(self.add("base", "--github", "acme/base", "--tag", "v1.0.0", "--publisher", "acme"), 1)
-        self.assertIn("needs ssh-keygen", self.last_error)
+        self.assertIn("needs ssh-keygen from OpenSSH 8.1 or later", self.last_error)
+        self.assertIn("no CA certificates", self.last_error)
 
     def test_allow_unsigned_is_recorded(self):
         self.publish_extension("plain", "Plain")

@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional, Tuple
 
-from le import sources
+from le import openssh, sources
 
 SIGNATURE_NAMESPACE = "layout_engine-release"
 
@@ -57,11 +57,13 @@ def _sha256(path: Path) -> str:
 
 
 def _verify(tarball: Path, signature: Path, allowed_signers: Path, principal: str) -> None:
-    if shutil.which("ssh-keygen") is None:
-        raise ReleaseError("checking the release signature needs ssh-keygen (OpenSSH's client tools)")
+    try:
+        ssh_keygen = openssh.ssh_keygen()
+    except openssh.OpenSSHError as e:
+        raise ReleaseError(str(e)) from e
     with open(tarball, "rb") as data:
         result = subprocess.run(
-            ["ssh-keygen", "-Y", "verify", "-f", str(allowed_signers), "-I", principal, "-n", SIGNATURE_NAMESPACE, "-s", str(signature)],
+            [ssh_keygen, "-Y", "verify", "-f", str(allowed_signers), "-I", principal, "-n", SIGNATURE_NAMESPACE, "-s", str(signature)],
             stdin=data,
             capture_output=True,
             text=True,
