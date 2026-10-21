@@ -335,6 +335,11 @@ readable `Klass` gets a property table, friendly-id resolution, `is_child`
 enumeration, `get_<type>`, and `create_<type>`/`update_<type>`/
 `delete_<type>`.
 
+- `Klass.tcl_category` puts a class's generated commands in that section
+  of the command reference (`docs/TCL_COMMANDS.md`: Technology, Abstract,
+  Layout, Schematic, GUI, Settings, General); hand-written commands get
+  theirs from `::command_categories` in `le_tcl_procs.tcl`. `le_tcl_help`
+  fails on a core command without one.
 - `Klass.has_current_access` (`Technology`/`Abstract`/`Schematic`) adds a
   `current_X ?id?` command; every other `get_<type>`'s default scope (no
   `-of`) derives from these (`codegen/codegen/tcl_scope.py`). Opening a

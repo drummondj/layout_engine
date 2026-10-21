@@ -329,11 +329,44 @@ puts "ok: over-long argument lists still error correctly on the newly args-based
 
 # --- generate_command_docs ---
 
+# Every core command has a section of the reference: its class's
+# tcl_category (schema.py), or ::command_categories for a hand-written one.
+set unsectioned {}
+foreach name [lsort [dict keys $::command_help]] {
+    set info [dict get $::command_help $name]
+    if {![dict exists $info extension] && (![dict exists $info category] || [dict get $info category] ni $::command_reference_sections)} {
+        lappend unsectioned $name
+    }
+}
+check "every core command has a section (add it to ::command_categories or tcl_category)" {} $unsectioned
+
 set docs [generate_command_docs]
 check_contains "generate_command_docs includes a top-level heading" $docs "# TCL Command Reference"
-check_contains "generate_command_docs includes get_terminals" $docs "## get_terminals"
-check_contains "generate_command_docs includes create_terminal" $docs "## create_terminal"
-check_contains "generate_command_docs includes report_properties (hand-written)" $docs "## report_properties"
+check_contains "generate_command_docs includes get_terminals" $docs "### get_terminals"
+check_contains "generate_command_docs includes create_terminal" $docs "### create_terminal"
+check_contains "generate_command_docs includes report_properties (hand-written)" $docs "### report_properties"
+check_contains "the reference starts with its contents" $docs "## Contents\n\n- \[Technology\](#technology)"
+# Each command under its own section: the sections in order, and a command
+# between its section's heading and the next.
+proc section_of {docs name} {
+    set at [string first "\n### $name\n" $docs]
+    set section {}
+    foreach candidate $::command_reference_sections {
+        set heading [string first "\n## $candidate\n" $docs]
+        if {$heading >= 0 && $heading < $at} {
+            set section $candidate
+        }
+    }
+    return $section
+}
+check "get_layers is under Technology" Technology [section_of $docs get_layers]
+check "create_terminal is under Abstract" Abstract [section_of $docs create_terminal]
+check "read_def is under Layout" Layout [section_of $docs read_def]
+check "get_nets is under Schematic" Schematic [section_of $docs get_nets]
+check "set_purpose_visible is under GUI" GUI [section_of $docs set_purpose_visible]
+check "set_label_max_size is under Settings" Settings [section_of $docs set_label_max_size]
+check "write_db is under General" General [section_of $docs write_db]
+check_contains "a section lists its commands as links" $docs "\[`get_layers`\](#get_layers)"
 
 # A command an extension adds is tagged with it, explicitly or while
 # le_shell sources that extension's procs (::le_extension), and left out of
@@ -347,14 +380,14 @@ check "an explicit extension attribute is kept" test_ext [dict get $::command_he
 check "a command registered while ::le_extension is set is that extension's" test_ext [dict get $::command_help test_ext_sourced extension]
 check "a core command has no extension" 0 [dict exists $::command_help test_core_command extension]
 set docs [generate_command_docs]
-check "the reference leaves an extension's commands out" -1 [string first "## test_ext_" $docs]
-check_contains "the reference keeps core commands" $docs "## test_core_command"
+check "the reference leaves an extension's commands out" -1 [string first "### test_ext_" $docs]
+check_contains "the reference keeps core commands" $docs "### test_core_command"
 check_contains "help still lists an extension's commands" [help test_ext_*] "test_ext_explicit"
 # A build with the hello_ext example extension generates its classes'
 # commands, tagged with it.
 if {[dict exists $::command_help create_hello_pin]} {
     check "a generated command for an extension's class names the extension" hello_ext [dict get $::command_help create_hello_pin extension]
-    check "the reference leaves generated extension commands out" -1 [string first "## create_hello_pin" $docs]
+    check "the reference leaves generated extension commands out" -1 [string first "### create_hello_pin" $docs]
     # Nor what it adds to core commands: owner options and purposes.
     check "the reference leaves an extension's owner option out of create_shape" -1 [string first "hello_pin" $docs]
     check "the reference lists only core's purposes" -1 [string first "helloPin" $docs]

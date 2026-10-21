@@ -34,7 +34,7 @@ from codegen.templates.tcl import (
     le_tcl_shim_generated_hpp_j2,
     le_tcl_shim_generated_inc_j2,
 )
-from codegen.schema import Schema
+from codegen.schema import TCL_CATEGORIES, Schema
 from codegen.tcl_scope import (
     compute_search_scope,
     render_default_scope_cpp,
@@ -85,6 +85,11 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
     schema.link()
 
     classes = get_generated_classes(schema)
+    unknown = [k for k in classes if k.tcl_category is not None and k.tcl_category not in TCL_CATEGORIES]
+    for klass in unknown:
+        logger.error(f"{klass.name}: tcl_category {klass.tcl_category!r} must be one of {', '.join(TCL_CATEGORIES)}")
+    if unknown:
+        return 1
     current_access_classes = get_current_access_classes(schema)
     search_scopes = get_search_scopes(classes, current_access_classes)
     logger.info(

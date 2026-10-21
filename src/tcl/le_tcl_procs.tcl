@@ -115,13 +115,59 @@ proc le_repl_eval {command} {
 # command's own body, same as before this system existed.
 set ::command_help [dict create]
 
-# `attributes` is an optional dict: `extension <name>` marks a command an
-# extension adds - generated ones pass it, and one registered while
-# le_shell sources an extension's procs (::le_extension) gets it too - so
-# the core command reference (generate_command_docs) leaves it out.
+# The section of the command reference each hand-written core command
+# appears under (generated commands carry their class's, from schema.py's
+# tcl_category). Every core command needs one: help_test checks.
+set ::command_categories {}
+foreach {_le_category _le_names} {
+    Abstract {read_lef write_lef}
+    Layout {read_def write_def flip_placement rotate_placement}
+    Schematic {read_verilog write_verilog_stubs link get_nets get_ports get_instances delete_net update_instance update_net}
+    GUI {
+        show_gui close_gui open_design zoom zoom_area set_viewport_size dump_png
+        get_mode set_mode arm_move arm_resize clear_rulers
+        select deselect_all get_selection delete_selected_pieces get_view_flip set_view_flip
+        get_hierarchy_depth set_hierarchy_depth
+        get_layer_visible set_layer_visible get_layer_selectable set_layer_selectable
+        get_purpose_visible set_purpose_visible get_purpose_selectable set_purpose_selectable
+        get_placement_type_visible set_placement_type_visible get_placement_type_selectable set_placement_type_selectable
+        get_route_use_visible set_route_use_visible get_route_use_selectable set_route_use_selectable
+    }
+    Settings {
+        load_settings save_settings get_confirm_overwrite set_confirm_overwrite
+        get_grid_spacing set_grid_spacing get_label_min_size set_label_min_size get_label_max_size set_label_max_size
+        get_ruler_label_size set_ruler_label_size get_max_concurrency set_max_concurrency
+        get_flightline_max_fanout set_flightline_max_fanout
+        get_placement_snap_mode set_placement_snap_mode placement_snap_mode_available
+        get_shape_snap_mode set_shape_snap_mode shape_snap_mode_available
+        get_layer_color set_layer_color reset_layer_color
+    }
+    General {
+        read_db write_db db_info migrate_db unsaved_changes source
+        undo redo command_history history get_properties report_properties
+        shape_and shape_or shape_not shape_bbox shape_copy shape_size shape_change_layer
+        shape_rects shape_to_rects shape_polygons shape_to_polygon shape_path shape_paths
+        remove_shape_rect remove_shape_polygon remove_shape_path
+    }
+} {
+    foreach _le_name $_le_names {
+        dict set ::command_categories $_le_name $_le_category
+    }
+}
+unset _le_category _le_names _le_name
+
+# `attributes` is an optional dict: `category <section>` places a command
+# in the reference (defaulting to ::command_categories), and `extension
+# <name>` marks a command an extension adds - generated ones pass it, and
+# one registered while le_shell sources an extension's procs
+# (::le_extension) gets it too - so the core command reference
+# (generate_command_docs) leaves it out.
 proc register_command_help {name usage description options {attributes {}}} {
     if {![dict exists $attributes extension] && [info exists ::le_extension]} {
         dict set attributes extension $::le_extension
+    }
+    if {![dict exists $attributes category] && [dict exists $::command_categories $name]} {
+        dict set attributes category [dict get $::command_categories $name]
     }
     dict set ::command_help $name [dict merge $attributes [dict create usage $usage description $description options $options]]
 }
@@ -595,9 +641,39 @@ proc _le_core_purposes_only {text} {
         [_le_english_list $::_le_purposes_hidden_by_default] [_le_english_list $core_hidden]] $text]
 }
 
+# One command's entry in the reference: its heading, usage, description
+# and options table, without what extensions add to it (their options, and
+# their place in the usage line, and their purposes).
+proc _le_command_doc {name info} {
+    set options {}
+    set usage [dict get $info usage]
+    foreach opt [dict get $info options] {
+        lassign $opt flag meta
+        if {[dict exists $meta extension]} {
+            regsub -all [string cat {\s*\[?} $flag { <[^>]*>\]?}] $usage {} usage
+        } elseif {$flag ne "-help"} {
+            lappend options $opt
+        }
+    }
+    set lines [list "### $name" "" "`[_usage_syntax $usage]`" "" [_le_core_purposes_only [dict get $info description]]]
+    if {[llength $options] > 0} {
+        lappend lines "" "| Flag | Type | Required | Description |" "| --- | --- | --- | --- |"
+        foreach opt $options {
+            lassign $opt flag meta
+            set required [expr {[dict get $meta required] ? "yes" : "no"}]
+            lappend lines "| \`$flag\` | \`[dict get $meta type]\` | $required | [_le_core_purposes_only [dict get $meta description]] |"
+        }
+    }
+    lappend lines ""
+    return $lines
+}
+
+# The reference's sections, in order (schema.py's TCL_CATEGORIES).
+set ::command_reference_sections {Technology Abstract Layout Schematic GUI Settings General}
+
 # `generate_command_docs ?path?` - one Markdown string covering every
-# registered core command (usage/description/options table), in name
-# order - not the ones an extension adds;
+# registered core command (usage/description/options table), section by
+# section and in name order within each - not the ones an extension adds;
 # if `path` is non-empty, also writes it there. Always returns the full
 # text either way. See backend's generate-tcl-docs skill for the
 # recipe that regenerates docs/TCL_COMMANDS.md from this.
@@ -612,40 +688,36 @@ proc generate_command_docs {{path {}}} {
     lappend lines ""
     lappend lines "Every Tcl command le_shell provides. Objects are named by tokens such as `layer:M1`, `terminal:A` or `shape:12` - what the `get_` commands return and every other command accepts. Every command also takes `-help`, which returns its usage; `help <pattern>` lists matching commands and `man <command>` shows one in full. All lengths and coordinates - including points `{x y}`, rectangles and `-filter` comparisons - are in microns (`um`), and areas in square microns (`um2`)."
     lappend lines ""
+    # Each section's commands; one without a section (help_test keeps there
+    # being none) goes under the last.
+    set by_section [dict create]
     foreach name [lsort [dict keys $::command_help]] {
         set info [dict get $::command_help $name]
         if {[dict exists $info extension]} {
             continue
         }
-        set options {}
-        set usage [dict get $info usage]
-        foreach opt [dict get $info options] {
-            lassign $opt flag meta
-            if {[dict exists $meta extension]} {
-                # An extension's option, and its place in the usage line.
-                regsub -all [string cat {\s*\[?} $flag { <[^>]*>\]?}] $usage {} usage
-            } elseif {$flag ne "-help"} {
-                lappend options $opt
-            }
+        set section [expr {[dict exists $info category] ? [dict get $info category] : [lindex $::command_reference_sections end]}]
+        dict lappend by_section $section $name
+    }
+    lappend lines "## Contents"
+    lappend lines ""
+    foreach section $::command_reference_sections {
+        if {[dict exists $by_section $section]} {
+            lappend lines "- \[$section\](#[string tolower $section]) ([llength [dict get $by_section $section]] commands)"
         }
-        lappend lines "## $name"
-        lappend lines ""
-        lappend lines "`[_usage_syntax $usage]`"
-        lappend lines ""
-        lappend lines [_le_core_purposes_only [dict get $info description]]
-        if {[llength $options] > 0} {
-            lappend lines ""
-            lappend lines "| Flag | Type | Required | Description |"
-            lappend lines "| --- | --- | --- | --- |"
-            foreach opt $options {
-                lassign $opt flag meta
-                set type [dict get $meta type]
-                set required [expr {[dict get $meta required] ? "yes" : "no"}]
-                set desc [_le_core_purposes_only [dict get $meta description]]
-                lappend lines "| \`$flag\` | \`$type\` | $required | $desc |"
-            }
+    }
+    lappend lines ""
+    foreach section $::command_reference_sections {
+        if {![dict exists $by_section $section]} {
+            continue
         }
+        lappend lines "## $section"
         lappend lines ""
+        lappend lines [join [lmap name [dict get $by_section $section] {string cat "\[`$name`\](#$name)"}] ", "]
+        lappend lines ""
+        foreach name [dict get $by_section $section] {
+            lappend lines {*}[_le_command_doc $name [dict get $::command_help $name]]
+        }
     }
     set text [join $lines "\n"]
     if {$path ne {}} {
