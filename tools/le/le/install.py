@@ -79,12 +79,18 @@ def _resolve_github(name: str, source: projectfile.Source, allowed_signers: Opti
     commit, ref, is_tag = sources.resolve(repo_dir, tag, source.rev)
     signer = None
     if not source.allow_unsigned:
-        signer = sources.verify(repo_dir, ref, is_tag, allowed_signers, principal)
+        try:
+            signer = sources.verify(repo_dir, ref, is_tag, allowed_signers, principal)
+        except sources.SourceError as e:
+            if name != "layout_engine" or source.rev is None:
+                raise
+            raise InstallError(f"{e}. Only Layout Engine's release tags carry its release key: to build an unreleased "
+                               "commit, add `allow_unsigned = true` to [layout_engine] in le_project.toml") from e
     if locked is not None:
         if locked.rev != commit:
             raise InstallError(
                 f"{name}: {source.describe()} is now commit {commit[:12]}, but the lock has {locked.rev[:12]} - "
-                "the tag moved. Run `le update` to accept it after checking why."
+                f"the {'revision' if source.rev else 'tag'} moved. Run `le update {name}` to accept it after checking why."
             )
         if locked.signer != signer:
             raise InstallError(f"{name}: signed by key {signer}, but the lock has {locked.signer} - run `le update` to accept a new key")

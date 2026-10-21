@@ -95,6 +95,10 @@ To rehearse without publishing anything, run the workflow from the Actions
 tab (**Run workflow** on any branch). It builds and signs the same way, but
 uploads a workflow artifact instead of creating a release.
 
+To try the commit you're about to tag in an `le` project first, build it
+from source: `le init --layout-engine-rev <commit>` (or set `rev` and
+`allow_unsigned = true` under `[layout_engine]`; see `tools/le/README.md`).
+
 Never move or re-push a published tag. If a release is broken, fix it and
 release a new version.
 

@@ -41,7 +41,15 @@ def cmd_init(args) -> int:
     if path.exists():
         raise CliError(f"{path} already exists")
     if args.layout_engine_path:
+        if args.layout_engine_github or args.layout_engine_rev:
+            raise CliError("--layout-engine-path takes no --layout-engine-github or --layout-engine-rev")
         layout_engine = {"path": os.path.relpath(Path(args.layout_engine_path).resolve(), root)}
+    elif args.layout_engine_rev:
+        # Only release tags carry Layout Engine's release key, so a development commit is accepted unsigned.
+        layout_engine = {"github": args.layout_engine_github or "drummondj/layout_engine", "rev": args.layout_engine_rev,
+                         "allow_unsigned": True}
+    elif args.layout_engine_github:
+        raise CliError("--layout-engine-github needs --layout-engine-rev")
     else:
         major, minor, _ = installer.own_layout_engine_version().split(".")
         layout_engine = {"github": "drummondj/layout_engine", "version": f">={major}.{minor}, <{major}.{int(minor) + 1}"}
@@ -231,6 +239,10 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("directory", nargs="?", default=".")
     s.add_argument("--name", help="project name (default: the directory's)")
     s.add_argument("--layout-engine-path", help="build a local Layout Engine checkout instead of a release tag")
+    s.add_argument("--layout-engine-rev", metavar="REV",
+                   help="build Layout Engine at this commit or branch, unsigned (to test before a release)")
+    s.add_argument("--layout-engine-github", metavar="OWNER/REPO",
+                   help="the repo --layout-engine-rev is in (default drummondj/layout_engine)")
     s.set_defaults(func=cmd_init)
 
     s = sub.add_parser("add", help="add an extension to le_project.toml (the next shell/test/install builds it)")
