@@ -61,7 +61,7 @@ jobs:
             echo "le=true" >> "$GITHUB_OUTPUT"   # schedule, manual run, or a new branch
             exit 0
           fi
-          if git diff --name-only "${base}" HEAD | grep -qE '^(tools/le/|cmake/|examples/|CMakeLists\.txt$|codegen/codegen/extension_manifest\.py$|src/extension/|src/api/extension\.cpp$|src/tcl/(le_shell\.cpp|extension_index\.hpp|le_api\.i)$|Dockerfile\.linux-ci$|docker-compose\.yml$|\.github/workflows/ci\.yml$)'; then
+          if git diff --name-only "${base}" HEAD | grep -qE '^(tools/le/|cmake/|examples/|CMakeLists\.txt$|codegen/codegen/extension_manifest\.py$|src/extension/|src/api/extension\.cpp$|src/tcl/(le_shell\.cpp|le_shell_launcher\.sh|extension_index\.hpp|le_api\.i)$|Dockerfile\.linux-ci$|docker-compose\.yml$|\.github/workflows/ci\.yml$)'; then
             echo "le=true" >> "$GITHUB_OUTPUT"
           else
             echo "le=false" >> "$GITHUB_OUTPUT"

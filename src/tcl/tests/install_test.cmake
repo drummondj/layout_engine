@@ -141,6 +141,21 @@ else()
     set(host_has_all TRUE)
 endif()
 
+# Started with a PATH that has none of the launcher's own tools (as `le`
+# runs a release bundle), the bundle still works, and le_shell gets that
+# PATH back.
+file(MAKE_DIRECTORY "${WORK_DIR}/empty_path")
+file(WRITE "${WORK_DIR}/path.tcl" "puts \"path $::env(PATH)\"\n")
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env --unset=LD_LIBRARY_PATH "PATH=${WORK_DIR}/empty_path"
+            "${WORK_DIR}/le_shell" "${WORK_DIR}/path.tcl"
+    RESULT_VARIABLE result
+    OUTPUT_VARIABLE output
+    ERROR_VARIABLE errors)
+if(NOT result EQUAL 0 OR NOT output MATCHES "path ${WORK_DIR}/empty_path\n")
+    message(FATAL_ERROR "le_shell with a PATH lacking the launcher's tools failed (${result}):\n${output}\n${errors}")
+endif()
+
 # The launcher's choice, with a stand-in ldconfig: the system's libstdc++
 # (older or newer than the bundle's) and libtcl (absent).
 execute_process(COMMAND uname -m OUTPUT_VARIABLE machine OUTPUT_STRIP_TRAILING_WHITESPACE)
