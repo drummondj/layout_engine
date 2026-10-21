@@ -11,9 +11,8 @@
 # against an old glibc runs fine on a newer one, not the reverse).
 #
 # Not tied to any of this repo's other Linux build paths' machine-specific
-# constraints (Dockerfile.linux-ci's Ubuntu base, or
-# scripts/rocky8-bootstrap.sh's no-root/no-Docker constraint) -
-# this container has full root and full outbound network access, so
+# constraints (Dockerfile.linux-ci's Ubuntu base, or the no-root
+# toolchain/ environment) - this container has full root and full outbound network access, so
 # packages install normally via dnf and the two source-built tools below
 # fetch straight from their real upstream hosts (no need for the
 # GitHub-mirror workaround explored, then reverted, for the locked-down
@@ -60,13 +59,11 @@ ENV LD_LIBRARY_PATH="/opt/rh/gcc-toolset-13/root/usr/lib64"
 
 # ---- tools: CMake/Ninja (upstream relocatable releases - RHEL8's own
 # cmake/ninja-build packages can't be trusted to satisfy
-# CMakeLists.txt's >=3.20 requirement, same reasoning as
-# rocky8-bootstrap.sh's stage_cmake/stage_ninja), plus bison+SWIG built
+# CMakeLists.txt's >=3.20 requirement), plus bison+SWIG built
 # from source (RHEL8's stock bison is 3.0.4; SWIG 4.2.1's grammar
 # declares '%require "3.5"' - a real, already-confirmed build failure this
 # project hit on the rootless Rocky 8 path). Installed to /usr/local,
-# already on PATH as root - no custom prefix wiring needed, unlike
-# rocky8-bootstrap.sh's no-root case. ----
+# already on PATH as root. ----
 FROM base AS tools
 RUN curl -fL -o /tmp/cmake.tar.gz \
       https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.tar.gz \
@@ -89,10 +86,8 @@ RUN curl -fL -o /tmp/swig.tar.gz \
  && make -j"$(nproc)" && make install \
  && rm -rf /tmp/swig /tmp/swig.tar.gz
 
-# ---- boost: header-only (Boost.Geometry only, see CMakeLists.txt) -
-# same upstream tarball/version as rocky8-bootstrap.sh's stage_boost, not
-# RHEL8's own boost-devel package, so both Rocky-8-based build paths stay
-# on one consistent Boost version. ----
+# ---- boost: header-only (Boost.Geometry only, see CMakeLists.txt) - an
+# upstream tarball, not RHEL8's own boost-devel package. ----
 FROM tools AS boost
 RUN curl -fL -o /tmp/boost.tar.gz \
       https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz \

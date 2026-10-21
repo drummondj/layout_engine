@@ -186,9 +186,7 @@ endif()
 
 # spdlog falls back to FetchContent (same pattern as googletest/
 # googlebenchmark below) when no system install is found - it doesn't
-# ship in RHEL8 BaseOS/AppStream/CRB by default, needed for a rootless
-# Rocky 8 build with no system package installs available at all (see
-# scripts/rocky8-bootstrap.sh). macOS/Ubuntu (where find_package
+# ship in RHEL8 BaseOS/AppStream/CRB by default. macOS/Ubuntu (where find_package
 # already succeeds via Homebrew/apt) are unaffected - this only activates
 # when the system copy is missing, on any platform.
 #
@@ -361,9 +359,7 @@ FetchContent_MakeAvailable(blend2d)
 # provide it (Dockerfile.linux-ci's `libtbb-dev` package - Ubuntu 24.04's
 # has real CMake config support; Dockerfile.linux-release's `tbb` stage
 # builds oneTBB from source, since Rocky 8's dnf `tbb-devel` predates that
-# support). `scripts/rocky8-bootstrap.sh` (the rootless-build path, see
-# the Rocky 8 bullet in CLAUDE.md's Open gaps) doesn't provision TBB at
-# all yet. ---
+# support); le's toolchain (toolchain/pixi.toml) has tbb-devel. ---
 if(APPLE)
     set(TBB_DIR "/opt/homebrew/opt/tbb/lib/cmake/TBB" CACHE PATH
         "Path to a oneTBB CMake package config (Homebrew tbb keg)")
@@ -616,8 +612,7 @@ add_dependencies(database le_codegen)
 # Boost::boost - which breaks on any platform where
 # find_package(Boost REQUIRED) below resolves via CMake's bundled legacy
 # FindBoost.cmake MODULE (no real Boost CMake CONFIG package installed,
-# e.g. Dockerfile.linux-release/rocky8-bootstrap.sh's raw-source-plus-
-# BOOST_ROOT approach - see this file's own find_package(Boost REQUIRED)
+# e.g. Dockerfile.linux-release's raw-source-plus-BOOST_ROOT approach - see this file's own find_package(Boost REQUIRED)
 # comment above for why slang's own vendored fallback claims
 # Boost::headers first). That legacy module, seeing Boost::headers
 # already claimed by slang's own incomplete single-header stand-in,

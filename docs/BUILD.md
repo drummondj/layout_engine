@@ -1,173 +1,86 @@
-# Building on Rocky Linux 8 (no root, no Docker)
+# Building from source
 
-**Just want to run the app, not build it?** A prebuilt, portable Linux
-x86_64 release (glibc 2.28+, no build toolchain needed) is published on
-this repo's [GitHub Releases](../../../releases) page — see
-`.github/workflows/release.yml`/`Dockerfile.linux-release` for how it's
-built. It still needs a desktop Linux system with X11/Mesa/Tcl-Tk/readline
-installed (see that workflow's own release notes) but skips everything
-below entirely, and — being built against the same glibc generation as
-Rocky 8 — will very likely run directly on this same locked-down machine.
-Worth trying first.
+**Just want to run it?** Signed, portable Linux x86_64 releases (glibc 2.28+)
+are on the [GitHub Releases](../../../releases) page; see
+`docs/RELEASING.md` to verify one. They need no build tools.
 
-This is the build-from-source path for a locked-down machine with **no
-root access, no ability to install system packages, and no Docker** —
-concretely Rocky Linux 8, though the approach should carry over to other
-RPM-based RHEL-8 family distros with adjustment. If you have Docker and
-just want a Linux build/test environment, use `docker compose` at the repo
-root instead (see `docker-compose.yml`'s own header comment) — that path
-is simpler and already verified working; this one is closer to it but
-still being iterated on (see the warning below).
+A source build needs a C++23 compiler, CMake, the libraries Layout Engine
+links and Python with codegen's packages. There are three ways to get them:
 
-**This is still being verified against a real Rocky 8 machine, in
-progress as of this writing.** Every RPM name, GN flag, and URL below
-started as best-effort reasoning grounded in this repo's actual CMake/GN
-files, not empirical verification — several real issues already found and
-fixed this way (a redundant `filesystem` RPM extraction, RHEL8's bison
-being too old for SWIG's grammar) — but it hasn't reached a full,
-confirmed end-to-end run yet. Expect real failures — that's why every step
-below is logged. If you hit something you can't resolve yourself, send
-back the relevant log file(s) (paths given at each step) rather than just
-the terminal output you can see, since the logs capture more than what
-scrolls past.
+- **An `le` project:** `le toolchain` provides all of it, without root
+  (`tools/le/README.md`). This is the way to build extensions.
+- **Without `le`, on any x86_64 Linux, without root:** the same toolchain,
+  from conda-forge via pixi (below). The machine needs only CA certificates,
+  git and tar.
+- **The machine's own packages:** `tools/le/bin/le doctor --source` lists
+  what's missing and the apt or dnf package for each (see "With the
+  machine's own packages").
 
-All logs land under one place: `$LE_TOOLCHAIN_ROOT/logs/` (default
-`~/.local/layout_engine_toolchain/logs/`, see step 1). Each step below names
-its own log file.
+Docker users can also run `docker compose run --rm ci` (`Dockerfile.linux-ci`).
 
-## 0. Before you start
+## 1. Get the toolchain (once)
 
-`le doctor --source` (`tools/le/bin/le`) checks everything this document
-installs and names whatever is missing.
-
-You'll need outbound network access to: your configured `dnf` repos
-(including `crb`/CodeReady-Builder — see step 1), `github.com`, and a
-Boost download mirror. If any of these are blocked, later steps will fail
-with a clear "download failed" — check reachability for that specific one
-rather than assuming it's something else.
-
-## 1. Bootstrap the toolchain
+[pixi](https://pixi.sh) is a single static binary. Use the version `le`
+pins (`PIXI_VERSION` and `PIXI_SHA256` in `tools/le/le/toolchain.py`):
 
 ```
-scripts/rocky8-bootstrap.sh
+curl -fsSL -o pixi.tar.gz https://github.com/prefix-dev/pixi/releases/download/v0.81.0/pixi-x86_64-unknown-linux-musl.tar.gz
+echo "7aa3ec39aecceff9062fa2ed4d42cbaa0bdc25ddea727d048e061cf188d434f6  pixi.tar.gz" | sha256sum -c -
+tar xzf pixi.tar.gz && mkdir -p ~/.local/bin && mv pixi ~/.local/bin/
+cd toolchain && pixi install --frozen
 ```
 
-This assembles a compiler (`gcc-toolset-13`), CMake, Ninja, Boost, SWIG,
-and GTK3 (+ its full build dependency closure) — all via rootless RPM
-extraction (`rpm2cpio`/`cpio`, never `dnf install`) and upstream release
-tarballs, into `~/.local/layout_engine_toolchain`. **No need to add your
-own `tee`** — it automatically logs its own full output (still shown live
-on screen too) to a timestamped file under
-`~/.local/layout_engine_toolchain/logs/bootstrap-<timestamp>.log`, also
-symlinked as `latest.log` for convenience; the path is printed at both the
-start and end of the run.
+`toolchain/pixi.toml` lists the toolchain (GCC 14, CMake, make, bison,
+SWIG, Boost, oneTBB, Tcl, readline, X11, Mesa, ccache, Python with jinja2
+and click, ...); `toolchain/pixi.lock` pins every package. The environment
+(about 1.7 GB) goes in `toolchain/.pixi/`.
 
-It's idempotent and broken into stages (`check-tools`, `rpms`, `cmake`,
-`ninja`, `boost`, `bison`, `swig`) — if it fails partway, fix whatever the
-log points at and re-run either the whole script (already-done stages
-skip themselves) or just the failed stage by name, e.g.:
+## 2. Configure, build and test
+
+Inside the environment (`pixi shell` in `toolchain/`, then back to the
+repository root), point CMake at the environment's own compilers and
+libraries. The target-prefixed compiler names matter: CMake then also finds
+the environment's `ar`/`ranlib`/`objdump` instead of the host's.
 
 ```
-scripts/rocky8-bootstrap.sh swig
-```
-
-**If this fails and you're stuck:** send the log file it names in its own
-failure message (printed both in the terminal and at the end of the log
-itself) — that's the one that actually matters, not just what scrolled by.
-
-## 2. Activate the toolchain
-
-```
-source scripts/rocky8-env.sh
-```
-
-Not run — **sourced**, every new shell session, before any of the steps
-below. This sets `CC`/`CXX`/`PATH`/`PKG_CONFIG_PATH`/`BOOST_ROOT`/etc. to
-point at what step 1 built. It prints what it set on success; if it
-instead prints an error about
-`~/.local/layout_engine_toolchain/root` not being found, step 1 didn't
-complete — go back and fix that first.
-
-## 3. Install codegen's Python dependencies
-
-Only for a build without `le`: an `le` project gets codegen's packages in
-a private Python environment that `le` makes and passes to CMake (see
-`tools/le/README.md`). It still needs a Python `>=3.11,<3.14` on `PATH`.
-
-The build generates the database and TCL bindings from
-`src/database/schema.py` itself, running this repo's own `codegen` fork
-(`codegen/`) into the build tree - there's no manual generation step. It
-needs Python `>=3.11,<3.14` (per `codegen/pyproject.toml`) with codegen's
-packages installed:
-
-```
-python3.11 -m pip install --user ./codegen \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/codegen-pip-install.log"
-```
-
-and step 4's `cmake -S` lines then need `-DPython3_EXECUTABLE=$(command -v python3.11)`
-(or whichever interpreter you installed into). Neither is provided by
-step 1's bootstrap script, which only assembles the C++ toolchain.
-**Rocky 8's system `python3` is 3.6**, too old for this - you'll need a
-newer interpreter available some other way (e.g. an already-installed
-`python3.11`+, or `pyenv`/an extracted portable build). This hasn't been
-verified on the actual Rocky 8 target machine yet, so treat it the same as
-everything else in this doc - expect to hit something here and send back
-`codegen-pip-install.log` if the install itself is what fails.
-
-The `regen-database`/`regen-tcl` skills describe what each codegen target
-generates.
-
-## 4. Build and test
-
-```
+TC=$CONDA_PREFIX
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/configure-debug.log"
-
-cmake --build build -j \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/build-debug.log"
-
-ctest --test-dir build --output-on-failure \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/ctest.log"
-
-cmake -S . -B build_release -DCMAKE_BUILD_TYPE=Release \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/configure-release.log"
-
-cmake --build build_release --target api pipelines io le_shell le_tcl -j \
-    2>&1 | tee "$LE_TOOLCHAIN_ROOT/logs/build-release.log"
+    -DCMAKE_C_COMPILER=$TC/bin/x86_64-conda-linux-gnu-gcc \
+    -DCMAKE_CXX_COMPILER=$TC/bin/x86_64-conda-linux-gnu-g++ \
+    -DCMAKE_PREFIX_PATH=$TC -DCMAKE_FIND_ROOT_PATH=$TC \
+    -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+    -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY -DPython3_EXECUTABLE=$TC/bin/python3
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
 ```
 
-Two trees on purpose: `build` (Debug) is what `ctest` runs against;
-`build_release` (Release) is what the actual `le_shell` binary
-links — see `CLAUDE.md`'s Build section. Step 5 below needs
-`build_release` to already exist, so don't skip it even though
-`ctest` doesn't touch it.
+For a Release tree (what benchmarks and the shipped `le_shell` use), the
+same with `-B build_release -DCMAKE_BUILD_TYPE=Release`. A Profile tree
+(`-DCMAKE_BUILD_TYPE=Profile`: Release plus debug info) turns on Tracy
+instrumentation; any tree can set `-DLE_ENABLE_TRACY=ON` or `OFF`.
 
-Neither carries Tracy profiling instrumentation. For a profiling build,
-configure a third tree with `-DCMAKE_BUILD_TYPE=Profile` (Release
-optimisation plus debug info, with `LE_ENABLE_TRACY` defaulting ON); any
-tree can also set `-DLE_ENABLE_TRACY=ON` or `OFF` explicitly.
+## With the machine's own packages
 
-**Expect real test failures here** — beyond the "does it link at all"
-question, `ctest`'s actual pass/fail results are the first real signal
-about whether the RHEL8-specific choices in `CMakeLists.txt`
-actually hold up. `ctest`'s own `--output-on-failure` output goes into
-`ctest.log` above; that's the one to send back for a test failure
-specifically (not the configure/build logs, unless the failure is a build
-error rather than a test result).
-
-## 5. Run it
+`le doctor --source` checks each item: a C++23 compiler (GCC 13+ or
+Clang 17+), CMake 3.25+, make, bison, SWIG 4+, Python 3.11-3.13 and the
+Boost, zlib, oneTBB, Tcl 8.6, readline, X11 and OpenGL development
+packages. Install codegen's packages for the Python CMake will use, then
+configure as usual:
 
 ```
-./build_release/le_shell -module build_release/le_tcl.so -procs src/tcl/le_tcl_procs.tcl
+python3 -m pip install ./codegen
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPython3_EXECUTABLE=$(command -v python3)
 ```
 
-Drops into the interactive `le_shell` console. A plain
-`./build_release/le_shell` works too: it finds the module and procs in its
-build tree.
+## Run it
 
-To make a self-contained, relocatable copy (the same layout as a release
-download), install the `bundle` component into any directory:
+```
+./build/le_shell
+```
+
+finds `le_tcl.so` and the procs in its build tree. To make a
+self-contained, relocatable copy (the same layout as a release), install
+the `bundle` component:
 
 ```
 cmake --install build_release --component bundle --prefix ~/le_bundle
@@ -177,42 +90,28 @@ cmake --install build_release --component bundle --prefix ~/le_bundle
 The bundle's own files always win over the build tree's, so it can be
 copied to another machine as-is. It carries the shared libraries a machine
 may lack or have too old (libstdc++, libgcc_s, readline, Tcl, zlib, and
-libglvnd's GL dispatch and the X11 client libraries) in
-`runtime/`; its `le_shell` is a small launcher that uses each only when the
-machine doesn't provide it, or provides an older C++ runtime, then starts
-`le_shell.bin`. `LE_BUNDLED_LIBRARIES=all` (or `none`) overrides the
-choice. The machine needs a glibc at least as new as the one the bundle was
-built against, and, for the GUI, its own GL driver (Mesa, or a GPU
-vendor's). Published releases are signed; see
-`docs/RELEASING.md` to verify one. To build extensions in, see
-`docs/EXTENSION_SDK.md`. `le_shell`/`le_gui` link
-GLFW (X11 backend) and GNU readline unconditionally now — this rootless
-path (step 1) doesn't yet provision either's system dev packages
-(`libX11-devel`/`libXrandr-devel`/`libXinerama-devel`/`libXcursor-devel`/
-`libXi-devel`/`readline-devel` — only `mesa-*-devel` is staged today), so
-step 4's own configure will likely fail to find them until
-`rocky8-bootstrap.sh` is extended to match — a known, tracked gap, not
-yet done (see `CLAUDE.md`'s own Open gaps section). The two
-Docker-based Linux paths (`docker-compose.yml`/`Dockerfile.linux-ci`, and
-the GitHub Releases build/`Dockerfile.linux-release`) already provision
-these and are the more reliable Linux paths for `le_shell`/`show_gui`
-today.
+libglvnd's GL dispatch and the X11 client libraries) in `runtime/`; its
+`le_shell` is a small launcher that uses each only when the machine doesn't
+provide it, or provides an older C++ runtime, then starts `le_shell.bin`.
+`LE_BUNDLED_LIBRARIES=all` (or `none`) overrides the choice. The machine
+needs a glibc at least as new as the one the bundle was built against (2.28
+with the toolchain above), and, for the GUI, its own GL driver (Mesa, or a
+GPU vendor's). To build extensions in, see `docs/EXTENSION_SDK.md`.
 
 ## After a source change
 
-Steps 1-2 are one-time (until you want to rebuild the toolchain itself).
-After editing C++ source, re-run step 4's `cmake --build`/`ctest`
-lines (no need to reconfigure unless `CMakeLists.txt` itself changed).
-Editing `src/database/schema.py` needs nothing extra: the build
-regenerates the code - see the `regen-database` skill for the version-bump,
-snapshot and golden-file steps a schema change needs. If a build ever looks
-inexplicably wrong after switching between this path and something else
-(e.g. macOS, or Docker) on the *same* checkout, suspect stale cross-environment
-build artifacts in build*/ or src/lefdef/{lef,def}/ before anything else.
-The fix is to delete the relevant build* directory and clean lefdef's in-source
-output (the same find … -delete / rm -rf src/lefdef/{lef,def}/{lib,include,bin}
-step Dockerfile.linux-ci's CMD runs). This bit us for real during
-development: a debug build already compiled by GCC on Linux, or an `.a`
-archive built by macOS's `ar`, is not usable by the other platform's
-toolchain, and the symptom is a confusing build/link error that has
-nothing obviously to do with the real cause.
+Rebuild and test with step 2's `cmake --build`/`ctest` lines; CMake
+reconfigures itself when `CMakeLists.txt` changes. Editing
+`src/database/schema.py` needs nothing extra: the build regenerates the code
+(the `regen-database` skill covers the version bump, snapshot and golden
+files a schema change needs).
+
+The vendored LEF/DEF parsers build in-source (`src/lefdef/{lef,def}/`) and
+trust timestamps, so objects from another toolchain (a different compiler,
+a container) break the build with confusing errors. Delete them, and the
+build tree, the way `Dockerfile.linux-ci`'s CMD does:
+
+```
+find src/lefdef/lef src/lefdef/def \( -name '*.o' -o -name '*.a' -o -name 'lef.tab.*' -o -name 'def.tab.*' -o -name '*.output' \) -delete
+rm -rf src/lefdef/{lef,def}/{lib,include,bin}
+```
