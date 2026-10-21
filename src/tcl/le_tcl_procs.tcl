@@ -115,8 +115,15 @@ proc le_repl_eval {command} {
 # command's own body, same as before this system existed.
 set ::command_help [dict create]
 
-proc register_command_help {name usage description options} {
-    dict set ::command_help $name [dict create usage $usage description $description options $options]
+# `attributes` is an optional dict: `extension <name>` marks a command an
+# extension adds - generated ones pass it, and one registered while
+# le_shell sources an extension's procs (::le_extension) gets it too - so
+# the core command reference (generate_command_docs) leaves it out.
+proc register_command_help {name usage description options {attributes {}}} {
+    if {![dict exists $attributes extension] && [info exists ::le_extension]} {
+        dict set attributes extension $::le_extension
+    }
+    dict set ::command_help $name [dict merge $attributes [dict create usage $usage description $description options $options]]
 }
 
 # `help ?pattern?` - one line per registered command whose name matches
@@ -573,8 +580,24 @@ proc _filename_candidates {partial} {
     return $candidates
 }
 
+# `text` with every purpose list in it (as the purpose commands' help
+# writes them) cut to core's purposes, leaving out the ones extensions add
+# (::le_extension_purposes, from the generated procs).
+proc _le_core_purposes_only {text} {
+    if {![info exists ::le_extension_purposes] || [llength $::le_extension_purposes] == 0} {
+        return $text
+    }
+    set core [lmap p $::_le_purpose_labels {expr {$p in $::le_extension_purposes ? [continue] : $p}}]
+    set core_hidden [lmap p $::_le_purposes_hidden_by_default {expr {$p in $::le_extension_purposes ? [continue] : $p}}]
+    return [string map [list \
+        [lsort $::_le_purpose_labels] [lsort $core] \
+        [join $::_le_purpose_labels {, }] [join $core {, }] \
+        [_le_english_list $::_le_purposes_hidden_by_default] [_le_english_list $core_hidden]] $text]
+}
+
 # `generate_command_docs ?path?` - one Markdown string covering every
-# registered command (usage/description/options table), in name order;
+# registered core command (usage/description/options table), in name
+# order - not the ones an extension adds;
 # if `path` is non-empty, also writes it there. Always returns the full
 # text either way. See backend's generate-tcl-docs skill for the
 # recipe that regenerates docs/TCL_COMMANDS.md from this.
@@ -591,24 +614,34 @@ proc generate_command_docs {{path {}}} {
     lappend lines ""
     foreach name [lsort [dict keys $::command_help]] {
         set info [dict get $::command_help $name]
+        if {[dict exists $info extension]} {
+            continue
+        }
+        set options {}
+        set usage [dict get $info usage]
+        foreach opt [dict get $info options] {
+            lassign $opt flag meta
+            if {[dict exists $meta extension]} {
+                # An extension's option, and its place in the usage line.
+                regsub -all [string cat {\s*\[?} $flag { <[^>]*>\]?}] $usage {} usage
+            } elseif {$flag ne "-help"} {
+                lappend options $opt
+            }
+        }
         lappend lines "## $name"
         lappend lines ""
-        lappend lines "`[_usage_syntax [dict get $info usage]]`"
+        lappend lines "`[_usage_syntax $usage]`"
         lappend lines ""
-        lappend lines [dict get $info description]
-        set options [lsearch -all -inline -not -index 0 [dict get $info options] -help]
+        lappend lines [_le_core_purposes_only [dict get $info description]]
         if {[llength $options] > 0} {
             lappend lines ""
             lappend lines "| Flag | Type | Required | Description |"
             lappend lines "| --- | --- | --- | --- |"
             foreach opt $options {
                 lassign $opt flag meta
-                if {$flag eq "-help"} {
-                    continue
-                }
                 set type [dict get $meta type]
                 set required [expr {[dict get $meta required] ? "yes" : "no"}]
-                set desc [dict get $meta description]
+                set desc [_le_core_purposes_only [dict get $meta description]]
                 lappend lines "| \`$flag\` | \`$type\` | $required | $desc |"
             }
         }

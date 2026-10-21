@@ -606,6 +606,13 @@ free.
    help (`str`, `int`, `double`, `bool`, `flag`, `token`, `file`). A
    positional argument of type `file` also gets filename completion.
 
+   Commands registered while `le_shell` sources your procs, and the
+   commands codegen generates for your classes, are tagged as yours: `help`
+   and `man` show them, and Layout Engine's own command reference
+   (`docs/TCL_COMMANDS.md`, `generate_command_docs`) leaves them out. An
+   optional fifth argument, a dict such as `{extension my_ext}`, sets the
+   tag explicitly.
+
 A command typed in the console is already one undo step, so a
 `transaction()` inside it simply joins it.
 
@@ -677,7 +684,8 @@ release without notice.
 - `le::ext::Units`, `PointUm`, `RectUm` and `ShapeBuilder`
 - the shape operations' types: `le::shape_ops::LayerOrPurpose`,
   `le::shape_ops::ShapeParent`, `le::BooleanOp`, `le::FractureDirection`
-- the Tcl helpers `register_command_help`, `help` and `man`
+- the Tcl helpers `register_command_help` (with its optional attributes
+  dict), `help` and `man`
 - the `extensions.json` format and `le_shell`'s `-extensions`/`LE_EXTENSIONS_PATH`
 
 The database classes follow Layout Engine's schema, which changes between
@@ -729,3 +737,6 @@ The first version.
   entry in `.led` files.
 - C API: `le_extension_count`, `le_extension_name`, `le_extension_version`.
 - `extensions.json` format 1.
+- Tcl help: an extension's commands are tagged as its own
+  (`register_command_help`'s optional attributes dict), so Layout Engine's
+  command reference leaves them out.

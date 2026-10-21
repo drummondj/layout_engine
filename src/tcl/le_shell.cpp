@@ -219,15 +219,21 @@ namespace
         // Extensions' procs after the core ones (they may call
         // register_command_help and core commands), in dependency order;
         // then the project's startup script, if any. ::le_extensions_index
-        // records which index was used.
+        // records which index was used; ::le_extension names the extension
+        // whose procs are being sourced, so the commands it registers are
+        // tagged as its own.
         Tcl_SetVar(interp, "le_extensions_index", g_extensions_index_path.c_str(), TCL_GLOBAL_ONLY);
         for (const le::ExtensionIndexEntry &extension : g_extensions.extensions)
+        {
+            Tcl_SetVar(interp, "le_extension", extension.name.c_str(), TCL_GLOBAL_ONLY);
             for (const std::filesystem::path &procs : extension.procs)
                 if (Tcl_EvalFile(interp, procs.c_str()) != TCL_OK)
                 {
                     std::fprintf(stderr, "le_shell: extension %s: %s: %s\n", extension.name.c_str(), procs.c_str(), Tcl_GetStringResult(interp));
                     return TCL_ERROR;
                 }
+        }
+        Tcl_UnsetVar(interp, "le_extension", TCL_GLOBAL_ONLY);
         if (g_extensions.startup && Tcl_EvalFile(interp, g_extensions.startup->c_str()) != TCL_OK)
         {
             std::fprintf(stderr, "le_shell: startup script %s: %s\n", g_extensions.startup->c_str(), Tcl_GetStringResult(interp));

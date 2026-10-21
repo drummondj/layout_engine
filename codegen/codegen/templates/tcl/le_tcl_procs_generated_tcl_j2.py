@@ -14,6 +14,10 @@ TEMPLATE = """# GENERATED - do not edit by hand. The build regenerates it
 # definition, so help/man/complete_command see the full generated
 # surface with no extra wiring.
 
+# The purposes extensions add (their rendered classes'), so the core command
+# reference (generate_command_docs) can list only core's.
+set ::le_extension_purposes {{'{'}}{% for k in schema.classes if k.extension and k.render and k.render.purpose %}{{k.render.purpose.label}}{% if not loop.last %} {% endif %}{% endfor %}{{'}'}}
+
 # Maps a friendly-id token to its {count name value path} shim-function
 # quadruplet - see le_tcl_procs.tcl's own property_accessors_for_token
 # comment (properties_for_token/get_properties/report_properties) for
@@ -91,7 +95,7 @@ proc current_{{snake}} {args} {
 set current_{{snake}}_options {}
 lappend current_{{snake}}_options {<id> {type token required 0 description {A friendly-id token to select as current - omit to just read the current value}}}
 lappend current_{{snake}}_options {-help {type flag required 0 description {Show this usage message and return immediately}}}
-register_command_help current_{{snake}} "current_{{snake}} \\[<id>\\] \\[-help\\] - Returns the current {{klass.name}}, selecting it first if <id> is given" "Returns the current {{klass.name}} (empty if none is set); with <id>, selects it first. get_ commands without -of search within it." $current_{{snake}}_options
+register_command_help current_{{snake}} "current_{{snake}} \\[<id>\\] \\[-help\\] - Returns the current {{klass.name}}, selecting it first if <id> is given" "Returns the current {{klass.name}} (empty if none is set); with <id>, selects it first. get_ commands without -of search within it." $current_{{snake}}_options{{klass.tcl_help_attributes()}}
 {% endfor %}
 
 # --- get_<type> search ---
@@ -151,7 +155,7 @@ lappend get_{{plural}}_options {-of {type token... required 0 description {Searc
 {%- endif %}
 lappend get_{{plural}}_options {-filter {type expr required 0 description {Keep only objects matching this expression over their properties}}}
 lappend get_{{plural}}_options {-help {type flag required 0 description {Show this usage message and return immediately}}}
-register_command_help get_{{plural}} "{{usage_line}}" "Returns the {{klass.name}} objects matching the given names and filters, as tokens. {{klass.name}}: {{klass.tcl_description_escaped()}}" $get_{{plural}}_options
+register_command_help get_{{plural}} "{{usage_line}}" "Returns the {{klass.name}} objects matching the given names and filters, as tokens. {{klass.name}}: {{klass.tcl_description_escaped()}}" $get_{{plural}}_options{{klass.tcl_help_attributes()}}
 {% endfor %}
 
 # --- create_<type> - `create_<type> [-flag value...]`, one flag per
@@ -225,7 +229,7 @@ proc create_{{snake}} {args} {
     }
     return $new_id
 }
-register_command_help create_{{snake}} "{{klass.create_tcl_usage()}}" "Creates a {{klass.name}} and returns its token. {{klass.name}}: {{klass.tcl_description_escaped()}}" {{'{'}}{{klass.create_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}
+register_command_help create_{{snake}} "{{klass.create_tcl_usage()}}" "Creates a {{klass.name}} and returns its token. {{klass.name}}: {{klass.tcl_description_escaped()}}" {{'{'}}{{klass.create_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}{{klass.tcl_help_attributes()}}
 {% endfor %}
 
 # --- update_<type> - `update_<type> <id> -flag value...` - mutates an
@@ -277,7 +281,7 @@ proc update_{{snake}} {id args} {
     }
     return $new_id
 }
-register_command_help update_{{snake}} "{{klass.update_tcl_usage()}}" "Changes the given fields of a {{klass.name}}; omitted flags leave a field unchanged." {{'{'}}{{klass.update_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}
+register_command_help update_{{snake}} "{{klass.update_tcl_usage()}}" "Changes the given fields of a {{klass.name}}; omitted flags leave a field unchanged." {{'{'}}{{klass.update_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}{{klass.tcl_help_attributes()}}
 {% endfor %}
 
 # --- delete_<type> - `delete_<type> <id> [-help]` - deletes an existing
@@ -308,6 +312,6 @@ proc delete_{{snake}} {args} {
     }
     return 0
 }
-register_command_help delete_{{snake}} "{{klass.delete_tcl_usage()}}" "Deletes a {{klass.name}} and everything it owns." {{'{'}}{{klass.delete_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}
+register_command_help delete_{{snake}} "{{klass.delete_tcl_usage()}}" "Deletes a {{klass.name}} and everything it owns." {{'{'}}{{klass.delete_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}{{klass.tcl_help_attributes()}}
 {% endfor %}
 """

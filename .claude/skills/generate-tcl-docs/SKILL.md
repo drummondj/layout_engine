@@ -42,7 +42,10 @@ surface anyway, so rebuilding before running this is enough.
 
    `build/le_tcl.so` is the Debug tree's own module output - the same
    target `le_tcl_smoke`/`le_tcl_crud`/`le_tcl_help` already load under
-   `ctest`.
+   `ctest`. That tree builds the example extensions in, but the reference
+   leaves out everything they add (their commands, the owner options and
+   purposes they add to core commands), so the output is the core
+   reference whatever `LE_EXTENSION_DIRS` the tree was configured with.
 
 3. **Commit the result.** `docs/TCL_COMMANDS.md` is a real, committed
    file (unlike the generated code, which lives in the build tree) -

@@ -1387,6 +1387,16 @@ class Klass:
         """
         return tcl_dquote_escape(self.description)
 
+    def tcl_help_attributes(self) -> str:
+        """
+        The optional attributes argument of this class's register_command_help
+        calls (with a leading space), or "": an extension's class records its
+        extension, so the core command reference can leave it out.
+        """
+        if self.extension is None:
+            return ""
+        return " {extension " + self.extension + "}"
+
     def create_tcl_help_options(self) -> str:
         """
         Tcl list literal (inner content - wrap in {...} at the call site)
@@ -1405,8 +1415,10 @@ class Klass:
                 desc = f"Parent {pf.type} token"
             else:
                 desc = f"Parent {pf.type} token - give exactly one of the parent flags"
+            # An owner option an extension's class implies is that extension's.
+            extension = f" extension {pf.synthesized_by}" if pf.synthesized_by else ""
             parts.append(
-                f"{{-{pf.name} {{type token required {required} description {{{tcl_brace_escape(desc)}}}}}}}"
+                f"{{-{pf.name} {{type token required {required} description {{{tcl_brace_escape(desc)}}}{extension}}}}}"
             )
         for rf in self.get_reference_create_fields():
             required = 1 if rf.create_required() else 0

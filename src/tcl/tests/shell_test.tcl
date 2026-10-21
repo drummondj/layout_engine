@@ -41,5 +41,12 @@ check "show_gui errors in a batch script" 1 [catch {show_gui} message]
 check "show_gui's batch-mode message" 1 [string match "show_gui: not available in a batch script*" $message]
 check "close_gui errors in a batch script" 1 [catch {close_gui}]
 
+# An extension's hand-written commands are tagged with it while le_shell
+# sources its procs, and ::le_extension is gone afterwards.
+if {[dict exists $::command_help hello_library_count]} {
+    check "hello_ext's hand-written command is tagged hello_ext" hello_ext [dict get $::command_help hello_library_count extension]
+}
+check "::le_extension is unset once extensions are sourced" 0 [info exists ::le_extension]
+
 puts "le_shell batch-mode test passed"
 exit 0
