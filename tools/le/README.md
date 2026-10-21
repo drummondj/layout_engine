@@ -18,7 +18,7 @@ How Layout Engine itself is installed:
   comes from GitHub by tag or version range, `le` downloads that release's
   bundle and its signature, checks it against Layout Engine's release key,
   and runs its `le_shell`. No compiler or cmake needed.
-- **Built from source**: otherwise (a compiled extension, a `--rev` pin, a
+- **Built from source**: otherwise (a compiled extension, a `rev` pin, a
   local `path`), it builds Layout Engine with the extensions, which needs
   everything a source build needs (`docs/BUILD.md`), or `le toolchain`,
   which provides all of it without root. It generates a superbuild
@@ -39,7 +39,7 @@ le shell                               # builds if needed, then runs le_shell
 
 | Command | What it does |
 |---|---|
-| `le init [dir] [--name N] [--layout-engine-path P]` | Creates `le_project.toml`, asking for this `le`'s Layout Engine minor series (e.g. `">=0.3, <0.4"`), or a local checkout with `--layout-engine-path`. |
+| `le init [dir] [--name N] [--layout-engine-path P \| --layout-engine-rev R [--layout-engine-github OWNER/REPO]]` | Creates `le_project.toml`, asking for this `le`'s Layout Engine minor series (e.g. `">=0.3, <0.4"`), a local checkout with `--layout-engine-path`, or an unreleased commit or branch with `--layout-engine-rev` (see Signatures), in `drummondj/layout_engine` or the fork `--layout-engine-github` names. |
 | `le add <name> --github OWNER/REPO (--tag T \| --rev R \| --version RANGE) --publisher P` | Adds a GitHub extension to `le_project.toml`. A range picks the highest matching signed `vX.Y.Z` tag. `--allow-unsigned` accepts it unsigned (development only). |
 | `le add <name> --path DIR` | Adds a local extension (never signed or locked), checking its manifest. |
 | `le remove <name>` | Removes one, refusing if another extension depends on it. |
@@ -117,6 +117,21 @@ publisher (`le trust`). A `--rev` pin must point at a signed commit. Layout
 Engine's own tags and release bundles are checked against its release key
 (`assets/keys/allowed_signers`, built into the `le` executable). Publishers sign tags with `git tag -s` and
 `gpg.format=ssh`; see `docs/RELEASING.md` for how Layout Engine does it.
+
+Only Layout Engine's release tags carry its release key, so to build an
+unreleased commit (to test before a release, or a branch or fork in
+development) pin it with `allow_unsigned` - `le init --layout-engine-rev`
+writes this:
+
+```toml
+[layout_engine]
+github = "drummondj/layout_engine"   # or a fork
+rev = "main"                         # a commit, or a branch
+allow_unsigned = true
+```
+
+The lock records the commit a branch resolved to; `le update layout_engine`
+moves it to the branch's latest commit.
 
 ## Tests
 

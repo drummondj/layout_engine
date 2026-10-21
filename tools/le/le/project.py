@@ -9,6 +9,8 @@ le_project.toml: what a project wants. Read with tomllib; `add`, `remove` and
     [layout_engine]
     github = "drummondj/layout_engine"       # with tag, rev or version
     version = ">=0.3, <0.4"
+    # rev = "main"                           # an unreleased commit or branch,
+    # allow_unsigned = true                  # which the release key never signs
     # path = "../layout_engine"              # or a local checkout
 
     [build]
@@ -240,7 +242,7 @@ name = {_quote(name)}
 # startup = "init.tcl"      # sourced after every extension's procs
 
 [layout_engine]
-{chr(10).join(f"{k} = {_quote(str(v))}" for k, v in layout_engine.items())}
+{chr(10).join(f"{k} = {'true' if v is True else _quote(str(v))}" for k, v in layout_engine.items())}
 
 [build]
 type = "Release"

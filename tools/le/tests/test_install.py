@@ -179,6 +179,48 @@ class TestInstall(unittest.TestCase):
         rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=work, capture_output=True, text=True).stdout.strip()
         self.assertEqual(self.add("base", "--github", "acme/base", "--rev", rev, "--publisher", "acme"), 0, self.last_error)
 
+    def test_an_unreleased_layout_engine_commit_builds_only_when_allowed_unsigned(self):
+        release_key = helpers.make_key(self.keys, "release")
+        helpers.fake_release(self.github, release_key)
+        work = self.root / "work" / "layout_engine"
+        helpers.fake_layout_engine(work, "0.3.1")
+        helpers.git_commit_all(work, "unreleased")
+        self.github.publish(work, "drummondj/layout_engine")
+        rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=work, capture_output=True, text=True).stdout.strip()
+
+        self.use_layout_engine("x")
+        text = (self.project / projectfile.PROJECT_FILE).read_text()
+        (self.project / projectfile.PROJECT_FILE).write_text(text.replace('path = "x"', f'github = "drummondj/layout_engine"\nrev = "{rev}"'))
+        self.assertEqual(self.le("install"), 1)
+        self.assertIn("allow_unsigned = true", self.last_error)
+
+        other = self.root / "other"
+        self.assertEqual(self.le("init", str(other), "--layout-engine-rev", "main"), 0, self.last_error)
+        source = projectfile.load(other).layout_engine
+        self.assertEqual((source.github, source.rev, source.allow_unsigned), ("drummondj/layout_engine", "main", True))
+        os.chdir(other)
+        self.assertEqual(self.le("install"), 0, self.last_error)
+        self.assertIn("installed unsigned", self.last_error)
+        self.assertIn("layout_engine 0.3.1", self.last_output)
+        locked = lockfile.load(other).layout_engine
+        self.assertEqual((locked.rev, locked.unsigned), (rev, True))
+        self.assertEqual(self.recorder.calls[-1]["le_source"], other / ".le" / "src" / "layout_engine")
+
+        (work / "x").write_text("x")
+        helpers.git_commit_all(work, "moved on")
+        self.github.publish(work, "drummondj/layout_engine")
+        self.assertEqual(self.le("install"), 1)
+        self.assertIn("the revision moved. Run `le update layout_engine`", self.last_error)
+        self.assertEqual(self.le("update", "layout_engine"), 0, self.last_error)
+        self.assertNotEqual(lockfile.load(other).layout_engine.rev, rev)
+
+    def test_init_layout_engine_flags(self):
+        self.assertEqual(self.le("init", str(self.root / "fork"), "--layout-engine-github", "me/layout_engine", "--layout-engine-rev", "abc123"),
+                         0, self.last_error)
+        self.assertEqual(projectfile.load(self.root / "fork").layout_engine.github, "me/layout_engine")
+        self.assertEqual(self.le("init", str(self.root / "a"), "--layout-engine-github", "me/layout_engine"), 1)
+        self.assertEqual(self.le("init", str(self.root / "b"), "--layout-engine-path", str(self.layout_engine), "--layout-engine-rev", "x"), 1)
+
     def test_incompatible_and_unlisted_extensions_are_refused(self):
         too_new = helpers.write_script_extension(self.root / "too_new", "too_new", "TooNew", layout_engine=">=0.3")
         self.assertEqual(self.add("too_new", "--path", str(too_new)), 1)
